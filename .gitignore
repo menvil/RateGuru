@@ -1,25 +1,45 @@
 /vendor
 /node_modules
 
+*.log
 /.env
 /.env.*
 !.env.example
+/.codex
+/.cursor/
+/.nova
+/.zed
+/auth.json
 
 /database/*.sqlite
 /database/*.sqlite-*
 /database/database.sqlite
 
 /storage/*.key
+/storage/pail
 /storage/app/*
 !/storage/app/.gitignore
+!/storage/app/private
+/storage/app/private/*
+!/storage/app/private/.gitignore
+!/storage/app/public
 /storage/app/public/*
 !/storage/app/public/.gitignore
+/storage/framework/*
+!/storage/framework/.gitignore
+!/storage/framework/cache
 /storage/framework/cache/*
 !/storage/framework/cache/.gitignore
+!/storage/framework/cache/data
+/storage/framework/cache/data/*
+!/storage/framework/cache/data/.gitignore
+!/storage/framework/sessions
 /storage/framework/sessions/*
 !/storage/framework/sessions/.gitignore
+!/storage/framework/testing
 /storage/framework/testing/*
 !/storage/framework/testing/.gitignore
+!/storage/framework/views
 /storage/framework/views/*
 !/storage/framework/views/.gitignore
 /storage/logs/*
@@ -32,9 +52,15 @@
 /public/build
 
 /.phpunit.cache
+/.phpunit.result.cache
 /.pest.cache
 /coverage
 
 .DS_Store
+Thumbs.db
+.phpactor.json
+_ide_helper.php
+Homestead.json
+Homestead.yaml
 .idea
 .vscode
