@@ -1,22 +1,22 @@
 # Phase 0 Completion Checklist
 
-- [ ] Repository cloned
-- [ ] develop branch exists
-- [ ] .gitignore added
-- [ ] AGENTS.md added
-- [ ] Laravel installed
-- [ ] .env.example configured
-- [ ] SQLite local DB works
-- [ ] Pest installed
-- [ ] Application smoke test exists
-- [ ] Test DB isolated
-- [ ] Composer test scripts work
-- [ ] Livewire installed
-- [ ] Livewire smoke component tested
-- [ ] Filament installed
-- [ ] Filament guest access smoke-tested
-- [ ] Tailwind build works
-- [ ] Alpine bootstrapped
-- [ ] Base app layout exists
-- [ ] Guest layout exists
-- [ ] README updated
+- [x] Repository cloned
+- [x] develop branch exists
+- [x] .gitignore added
+- [x] AGENTS.md added
+- [x] Laravel installed
+- [x] .env.example configured
+- [x] SQLite local DB works
+- [x] Pest installed
+- [x] Application smoke test exists
+- [x] Test DB isolated
+- [x] Composer test scripts work
+- [x] Livewire installed
+- [x] Livewire smoke component tested
+- [x] Filament installed
+- [x] Filament guest access smoke-tested
+- [x] Tailwind build works
+- [x] Alpine bootstrapped
+- [x] Base app layout exists
+- [x] Guest layout exists
+- [x] README updated
