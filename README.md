@@ -1,53 +1,72 @@
 # RateGuru
 
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+RateGuru is a Laravel application for community-driven ratings and decision support.
 
-## About Laravel
+## Stack
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- Laravel
+- Livewire
+- Alpine.js
+- Filament
+- SQLite
+- Pest / PHPUnit
+- Tailwind CSS
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Local Setup
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Clone the repository and install PHP dependencies:
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+git clone git@github.com:menvil/rateguru.git
+cd rateguru
+composer install
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Create the local environment file and application key:
 
-## Contributing
+```bash
+cp .env.example .env
+php artisan key:generate
+```
 
-Thank you for considering contributing to RateGuru. Project contribution instructions are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Create the SQLite database and run migrations:
 
-## Code of Conduct
+```bash
+touch database/database.sqlite
+php artisan migrate
+```
 
-To keep the RateGuru project welcoming and productive, please review and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Install and build frontend assets:
 
-## Security Vulnerabilities
+```bash
+npm install
+npm run build
+```
 
-If you discover a security vulnerability in RateGuru, please follow the disclosure process in [SECURITY.md](SECURITY.md). Use the project's private security reporting channel instead of public issues.
+Start the local development server:
 
-## License
+```bash
+php artisan serve
+```
 
-RateGuru is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Tests
+
+Run the application test suite:
+
+```bash
+composer test
+```
+
+## Branch Strategy
+
+RateGuru uses a GitFlow-lite workflow:
+
+- `main`: production-ready code.
+- `develop`: integration branch for completed work.
+- `feature/*`: one task per feature branch.
+- `release/*`: release stabilization branches.
+- `hotfix/*`: urgent production fixes.
+
+## Agent Rules
+
+Development agents must follow the project rules in [AGENTS.md](AGENTS.md).
