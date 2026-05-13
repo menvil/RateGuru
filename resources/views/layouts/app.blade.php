@@ -3,6 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="csrf-token" content="{{ csrf_token() }}">
 
         <title>{{ config('app.name', 'RateGuru') }}</title>
 
@@ -18,8 +19,26 @@
                         </span>
                         <span class="text-lg font-semibold tracking-normal text-white">RateGuru</span>
                     </a>
+
+                    @auth
+                        <form method="POST" action="{{ route('logout') }}">
+                            @csrf
+
+                            <button type="submit" class="text-sm font-medium text-zinc-300 hover:text-white">
+                                {{ __('Log out') }}
+                            </button>
+                        </form>
+                    @endauth
                 </div>
             </header>
+
+            @isset($header)
+                <section class="border-b border-white/10 bg-zinc-900/40">
+                    <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+                        {{ $header }}
+                    </div>
+                </section>
+            @endisset
 
             <main class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
                 {{ $slot ?? '' }}
