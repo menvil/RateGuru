@@ -32,3 +32,24 @@ When available, save:
 Phase 1 creates folder structure and documentation.
 Actual screenshot automation is a later task.
 Manual comparison is required for now.
+
+## Manual baseline for RG-039
+
+After implementation, capture manually:
+
+- docs/design/reference/screenshots/platerate-original-desktop.png
+- tests/Visual/current/ui-kit-reference-composition-desktop.png
+
+Manual comparison must check:
+
+- shell layout
+- topbar
+- sidebar
+- feed density
+- selected post card
+- dish placeholder style
+- right detail column
+- results panel
+- comments panel
+- typography density
+- color/radius consistency

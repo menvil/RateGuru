@@ -1,13 +1,19 @@
 @props([
     'variant' => 'default',
-    'padding' => 'md',
+    'padding' => null,
 ])
 
 @php
     $variants = [
-        'default' => 'border-zinc-800 bg-zinc-950/80',
-        'elevated' => 'border-zinc-800 bg-zinc-950/80 shadow-xl shadow-black/30',
-        'interactive' => 'border-zinc-800 bg-zinc-950/80 transition hover:border-zinc-700 hover:bg-zinc-900/80',
+        'default' => 'border-rg-border bg-rg-card p-4',
+        'panel' => 'border-rg-border bg-rg-card p-5',
+        'post' => 'border-rg-border bg-rg-card p-[14px]',
+        'selected-post' => 'border-rg-accent bg-rg-card p-[14px] shadow-rgSelected',
+        'detail' => 'border-rg-border bg-rg-card p-5',
+        'results' => 'border-rg-border bg-rg-card p-5',
+        'comment' => 'border-rg-border bg-rg-card p-5',
+        'elevated' => 'border-rg-border bg-rg-card p-4 shadow-rgPopover',
+        'interactive' => 'border-rg-border bg-rg-card p-4 transition hover:border-rg-border2 hover:bg-rg-cardHover',
     ];
 
     $paddings = [
@@ -18,11 +24,11 @@
     ];
 
     $variantClass = $variants[$variant] ?? $variants['default'];
-    $paddingClass = $paddings[$padding] ?? $paddings['md'];
+    $paddingClass = $padding ? ($paddings[$padding] ?? $paddings['md']) : null;
 @endphp
 
 <div {{ $attributes->class([
-    'rounded-lg border text-zinc-100',
+    'rounded-rgCard border text-rg-text',
     $variantClass,
     $paddingClass,
 ]) }}>

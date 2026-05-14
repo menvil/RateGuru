@@ -23,12 +23,12 @@ it('renders supported badge variants and sizes', function () {
         ->toContain('Pending')
         ->toContain('Closed')
         ->toContain('Popular')
-        ->toContain('rounded-full')
-        ->toContain('bg-zinc-800/70')
-        ->toContain('bg-emerald-500/15')
-        ->toContain('bg-amber-500/15')
-        ->toContain('bg-rose-500/15')
-        ->toContain('bg-sky-500/15')
-        ->toContain('px-2 py-0.5 text-xs')
-        ->toContain('px-2.5 py-1 text-sm');
+        ->toContain('rounded-rgPill')
+        ->toContain('bg-rg-card2')
+        ->toContain('bg-rg-goodSoft')
+        ->toContain('bg-[rgba(245,158,11,0.12)]')
+        ->toContain('bg-[rgba(239,68,68,0.12)]')
+        ->toContain('bg-rg-accentSoft')
+        ->toContain('px-2 py-0.5 text-[11px]')
+        ->toContain('px-2.5 py-1 text-xs');
 });

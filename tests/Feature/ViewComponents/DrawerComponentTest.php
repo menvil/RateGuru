@@ -28,8 +28,8 @@ it('supports right side desktop behavior and mobile safe layout', function () {
         ->toContain('x-on:keydown.escape.window')
         ->toContain('fixed inset-0')
         ->toContain('bg-black/70')
-        ->toContain('bg-zinc-950')
-        ->toContain('text-zinc-100')
+        ->toContain('bg-rg-card')
+        ->toContain('text-rg-text')
         ->toContain('inset-y-0 right-0')
         ->toContain('w-full')
         ->toContain('sm:max-w-lg');

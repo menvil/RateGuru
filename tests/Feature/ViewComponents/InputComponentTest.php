@@ -23,8 +23,8 @@ it('renders supported input states', function () {
         ->toContain('value="chef@example.com"')
         ->toContain('disabled')
         ->toContain('aria-invalid="true"')
-        ->toContain('border-rose-400/70')
+        ->toContain('border-[rgba(239,68,68,0.65)]')
         ->toContain('focus-visible:ring-2')
-        ->toContain('bg-zinc-950/80')
-        ->toContain('text-zinc-100');
+        ->toContain('bg-rg-card2')
+        ->toContain('text-rg-text');
 });

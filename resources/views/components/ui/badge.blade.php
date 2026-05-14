@@ -5,16 +5,16 @@
 
 @php
     $variants = [
-        'neutral' => 'border-zinc-700/70 bg-zinc-800/70 text-zinc-100',
-        'accent' => 'border-sky-400/30 bg-sky-500/15 text-sky-100',
-        'success' => 'border-emerald-400/30 bg-emerald-500/15 text-emerald-100',
-        'warning' => 'border-amber-400/30 bg-amber-500/15 text-amber-100',
-        'danger' => 'border-rose-400/30 bg-rose-500/15 text-rose-100',
+        'neutral' => 'border-rg-border2 bg-rg-card2 text-rg-text2',
+        'accent' => 'border-rg-accentBorder bg-rg-accentSoft text-rg-accent2',
+        'success' => 'border-rg-goodBorder bg-rg-goodSoft text-rg-good',
+        'warning' => 'border-[rgba(245,158,11,0.55)] bg-[rgba(245,158,11,0.12)] text-[rgb(251,191,36)]',
+        'danger' => 'border-[rgba(239,68,68,0.55)] bg-[rgba(239,68,68,0.12)] text-[#fca5a5]',
     ];
 
     $sizes = [
-        'sm' => 'px-2 py-0.5 text-xs',
-        'md' => 'px-2.5 py-1 text-sm',
+        'sm' => 'px-2 py-0.5 text-[11px]',
+        'md' => 'px-2.5 py-1 text-xs',
     ];
 
     $variantClass = $variants[$variant] ?? $variants['neutral'];
@@ -22,7 +22,7 @@
 @endphp
 
 <span {{ $attributes->class([
-    'inline-flex items-center rounded-full border font-medium leading-none whitespace-nowrap',
+    'inline-flex items-center rounded-rgPill border font-semibold leading-none whitespace-nowrap',
     $variantClass,
     $sizeClass,
 ]) }}>

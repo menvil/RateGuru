@@ -15,6 +15,6 @@ it('renders supported button options', function () {
         ->toContain('Delete')
         ->toContain('type="submit"')
         ->toMatch('/\sdisabled(?=[\s>])/')
-        ->toContain('bg-rg-danger')
+        ->toContain('bg-[rgba(239,68,68,0.12)]')
         ->toContain('w-full');
 });

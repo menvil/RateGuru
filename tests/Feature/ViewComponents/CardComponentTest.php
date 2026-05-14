@@ -13,8 +13,8 @@ it('renders supported card options', function () {
 
     expect($html)
         ->toContain('Content')
-        ->toContain('rounded-lg')
-        ->toContain('border-zinc-800')
-        ->toContain('hover:bg-zinc-900/80')
+        ->toContain('rounded-rgCard')
+        ->toContain('border-rg-border')
+        ->toContain('hover:bg-rg-cardHover')
         ->toContain('p-6');
 });

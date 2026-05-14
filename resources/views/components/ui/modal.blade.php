@@ -24,36 +24,36 @@
     aria-labelledby="{{ $titleId }}"
 >
     <div
-        class="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm"
+        class="fixed inset-0 bg-black/70 backdrop-blur-sm"
         x-on:click="open = false"
     ></div>
 
     <div class="relative mx-auto flex min-h-full items-center justify-center">
         <div
-            class="relative w-full {{ $maxWidthClass }} overflow-hidden rounded-xl border border-purple-400/20 bg-zinc-950 text-zinc-100 shadow-2xl shadow-purple-950/30"
+            class="relative w-full {{ $maxWidthClass }} overflow-hidden rounded-2xl border border-rg-border2 bg-rg-card text-rg-text shadow-rgPopover"
             x-on:click.stop
         >
-            <div class="flex items-start justify-between gap-4 border-b border-zinc-800 px-5 py-4">
-                <h2 id="{{ $titleId }}" class="text-base font-semibold text-zinc-50">
+            <div class="flex items-start justify-between gap-4 border-b border-rg-border px-5 py-4">
+                <h2 id="{{ $titleId }}" class="text-base font-semibold text-rg-text">
                     {{ $title }}
                 </h2>
 
                 <button
                     type="button"
-                    class="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
+                    class="rounded-rgSm border border-rg-border2 bg-rg-card2 p-1 text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     aria-label="Close modal"
                     x-on:click="open = false"
                 >
-                    <span aria-hidden="true">&times;</span>
+                    <x-ui.icon name="x" class="size-4" />
                 </button>
             </div>
 
-            <div class="border-t border-purple-400/10 px-5 py-4 text-sm text-zinc-200">
+            <div class="px-5 py-4 text-sm text-rg-text2">
                 {{ $slot }}
             </div>
 
             @isset($footer)
-                <div class="flex items-center justify-end gap-3 border-t border-zinc-800 bg-zinc-900/70 px-5 py-4">
+                <div class="flex items-center justify-end gap-3 border-t border-rg-border bg-rg-surface px-5 py-4">
                     {{ $footer }}
                 </div>
             @endisset
