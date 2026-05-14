@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Enums\UserStatus;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Schema;
@@ -74,4 +75,30 @@ it('creates regular user role from factory', function () {
     $user = User::factory()->create();
 
     expect($user->role)->toBe(UserRole::User);
+});
+
+it('has status column on users table', function () {
+    expect(Schema::hasColumn('users', 'status'))->toBeTrue();
+});
+
+it('defaults user status to active', function () {
+    $user = User::query()->create([
+        'name' => 'Chef Ivan',
+        'email' => 'status-chef@example.com',
+        'password' => 'password',
+    ]);
+
+    expect($user->fresh()->status)->toBe(UserStatus::Active);
+});
+
+it('casts user status to UserStatus enum', function () {
+    $user = User::factory()->create(['status' => UserStatus::Banned]);
+
+    expect($user->fresh()->status)->toBe(UserStatus::Banned);
+});
+
+it('creates active user status from factory', function () {
+    $user = User::factory()->create();
+
+    expect($user->status)->toBe(UserStatus::Active);
 });
