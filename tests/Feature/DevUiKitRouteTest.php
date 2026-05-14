@@ -47,3 +47,11 @@ it('renders modal shell in the dev ui kit', function () {
         ->assertSee('Open Modal')
         ->assertSee('Upload Dish Preview');
 });
+
+it('renders drawer shell in the dev ui kit', function () {
+    $this->get('/dev/ui-kit')
+        ->assertOk()
+        ->assertSee('Open Drawer')
+        ->assertSee('Dish Details Preview')
+        ->assertSee('Homemade or Restaurant?');
+});
