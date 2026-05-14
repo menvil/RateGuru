@@ -44,3 +44,29 @@ it('does not allow normal users to view admin area', function () {
 
     expect((new UserPolicy())->viewAdmin($user))->toBeFalse();
 });
+
+it('does not allow admins to manage themselves', function () {
+    $admin = User::factory()->admin()->create();
+
+    expect((new UserPolicy())->manage($admin, $admin))->toBeFalse();
+});
+
+it('does not allow admins to manage other admins', function () {
+    $admin = User::factory()->admin()->create();
+    $otherAdmin = User::factory()->admin()->create();
+
+    expect((new UserPolicy())->manage($admin, $otherAdmin))->toBeFalse();
+});
+
+it('does not allow admins to ban themselves', function () {
+    $admin = User::factory()->admin()->create();
+
+    expect((new UserPolicy())->ban($admin, $admin))->toBeFalse();
+});
+
+it('does not allow admins to ban other admins', function () {
+    $admin = User::factory()->admin()->create();
+    $otherAdmin = User::factory()->admin()->create();
+
+    expect((new UserPolicy())->ban($admin, $otherAdmin))->toBeFalse();
+});
