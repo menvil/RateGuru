@@ -102,3 +102,29 @@ it('creates active user status from factory', function () {
 
     expect($user->status)->toBe(UserStatus::Active);
 });
+
+it('has trust_level column on users table', function () {
+    expect(Schema::hasColumn('users', 'trust_level'))->toBeTrue();
+});
+
+it('defaults user trust level to zero', function () {
+    $user = User::query()->create([
+        'name' => 'Chef Ivan',
+        'email' => 'trust-chef@example.com',
+        'password' => 'password',
+    ]);
+
+    expect($user->fresh()->trust_level)->toBe(0);
+});
+
+it('stores user trust level', function () {
+    $user = User::factory()->create(['trust_level' => 10]);
+
+    expect($user->fresh()->trust_level)->toBe(10);
+});
+
+it('creates zero trust level from factory', function () {
+    $user = User::factory()->create();
+
+    expect($user->trust_level)->toBe(0);
+});
