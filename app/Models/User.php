@@ -37,6 +37,6 @@ class User extends Authenticatable
 
     public function canCreateContent(): bool
     {
-        return $this->status->canCreateContent();
+        return $this->status?->canCreateContent() ?? false;
     }
 }
