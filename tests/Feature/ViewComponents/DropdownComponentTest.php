@@ -20,6 +20,6 @@ it('renders trigger and content slots with Alpine dropdown shell behavior', func
         ->toContain('Profile settings')
         ->toContain('x-data="{ open: false }"')
         ->toContain('@click.outside="open = false"')
-        ->toContain('bg-zinc-950')
+        ->toContain('bg-rg-card')
         ->not->toContain('wire:');
 });

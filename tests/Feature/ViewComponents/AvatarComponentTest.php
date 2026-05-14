@@ -23,9 +23,9 @@ it('renders readable fallback initials when src is missing', function () {
     BLADE);
 
     expect($html)
-        ->toContain('GH')
-        ->toContain('bg-zinc-800')
-        ->toContain('text-zinc-100')
+        ->toContain('G')
+        ->toContain('bg-gradient-to-br')
+        ->toContain('text-white')
         ->not->toContain('<img');
 });
 
@@ -36,7 +36,7 @@ it('supports sm md and lg sizes', function (string $size, string $expectedClass)
 
     expect($html)->toContain($expectedClass);
 })->with([
-    'sm' => ['sm', 'size-8'],
-    'md' => ['md', 'size-10'],
-    'lg' => ['lg', 'size-12'],
+    'sm' => ['sm', 'size-6'],
+    'md' => ['md', 'size-7'],
+    'lg' => ['lg', 'size-9'],
 ]);

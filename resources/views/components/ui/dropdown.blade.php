@@ -17,7 +17,7 @@
         x-transition:leave="transition ease-in duration-100"
         x-transition:leave-start="opacity-100 scale-100"
         x-transition:leave-end="opacity-0 scale-95"
-        class="absolute right-0 z-50 mt-2 min-w-48 origin-top-right rounded-lg border border-zinc-800 bg-zinc-950 p-1 text-sm text-zinc-100 shadow-xl shadow-black/30 ring-1 ring-white/10"
+        class="absolute right-0 z-50 mt-2 min-w-48 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
         style="display: none;"
     >
         {{ $content }}

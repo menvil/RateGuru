@@ -58,16 +58,25 @@
         aria-modal="true"
         aria-labelledby="{{ $titleId }}"
         {{ $attributes->class([
-            'pointer-events-auto fixed flex h-dvh w-full flex-col border-white/10 bg-zinc-950 text-zinc-100 shadow-2xl shadow-black/40 outline-none sm:w-full',
+            'pointer-events-auto fixed flex h-dvh w-full flex-col border-rg-border bg-rg-card text-rg-text shadow-rgPopover outline-none sm:w-full',
             $panelSideClass,
             $panelSizeClass,
             $side === 'left' ? 'border-r' : 'border-l',
         ]) }}
     >
-        <header class="flex min-h-16 items-center border-b border-white/10 px-4 py-4 sm:px-6">
-            <h2 id="{{ $titleId }}" class="text-base font-semibold text-white">
+        <header class="flex min-h-16 items-center justify-between border-b border-rg-border px-4 py-4 sm:px-6">
+            <h2 id="{{ $titleId }}" class="text-base font-semibold text-rg-text">
                 {{ $title }}
             </h2>
+
+            <button
+                type="button"
+                class="rounded-rgSm border border-rg-border2 bg-rg-card2 p-1 text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                aria-label="Close drawer"
+                x-on:click="open = false"
+            >
+                <x-ui.icon name="x" class="size-4" />
+            </button>
         </header>
 
         <div class="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
@@ -75,7 +84,7 @@
         </div>
 
         @isset($footer)
-            <footer class="border-t border-white/10 bg-zinc-900/60 px-4 py-4 sm:px-6">
+            <footer class="border-t border-rg-border bg-rg-surface px-4 py-4 sm:px-6">
                 {{ $footer }}
             </footer>
         @endisset

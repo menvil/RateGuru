@@ -8,10 +8,10 @@
 ])
 
 @php
-    $baseClass = 'block w-full rounded-md border bg-zinc-950/80 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-60';
+    $baseClass = 'block h-10 w-full rounded-rgControl border bg-rg-card2 px-3 text-[13.5px] text-rg-text placeholder:text-rg-muted shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(168,85,247,0.25)] disabled:cursor-not-allowed disabled:opacity-45';
     $stateClass = $error
-        ? 'border-rose-400/70 focus-visible:border-rose-300 focus-visible:ring-rose-400/70'
-        : 'border-zinc-700 focus-visible:border-sky-300 focus-visible:ring-sky-400/70';
+        ? 'border-[rgba(239,68,68,0.65)] focus-visible:border-[rgba(239,68,68,0.85)]'
+        : 'border-rg-border2 focus-visible:border-rg-accent';
 @endphp
 
 <input

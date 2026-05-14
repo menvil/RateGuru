@@ -26,10 +26,10 @@ it('renders modal shell accessibility and presentation attributes', function () 
         ->toContain('aria-labelledby="ui-modal-title-')
         ->toContain('Report issue')
         ->toContain('Report content')
-        ->toContain('bg-zinc-950/80')
+        ->toContain('bg-black/70')
         ->toContain('backdrop-blur-sm')
         ->toContain('sm:max-w-xl')
-        ->toContain('border-purple-400/20')
+        ->toContain('border-rg-border2')
         ->toContain('aria-label="Close modal"')
         ->toContain('x-on:click="open = false"');
 });
