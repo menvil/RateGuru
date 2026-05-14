@@ -6,6 +6,8 @@ use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Post extends Model
@@ -23,5 +25,15 @@ class Post extends Model
             'published_at' => 'datetime',
             'hot_score' => 'float',
         ];
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function comments(): HasMany
+    {
+        return $this->hasMany(Comment::class);
     }
 }
