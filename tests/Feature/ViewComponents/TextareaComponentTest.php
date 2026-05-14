@@ -21,7 +21,7 @@ it('renders supported textarea states', function () {
         ->toContain('rows="4"')
         ->toContain('placeholder="Leave a comment"')
         ->toContain('Needs more salt')
-        ->toContain('disabled')
+        ->toMatch('/\sdisabled(?:\s|>)/')
         ->toContain('aria-invalid="true"')
         ->toContain('border-rose-400/70')
         ->toContain('focus-visible:ring-2')
