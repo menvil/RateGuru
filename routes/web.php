@@ -4,13 +4,11 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('home');
-});
+Route::view('/', 'feed.placeholder')->name('feed');
 
 Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+    return redirect()->route('feed');
+})->name('dashboard');
 
 Route::view('/dev/ui-kit', 'dev.ui-kit')
     ->middleware(EnsureDevEnvironment::class)
