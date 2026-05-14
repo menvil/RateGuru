@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\UserRole;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Schema;
@@ -47,4 +48,30 @@ it('allows nullable avatar url', function () {
     $user = User::factory()->create(['avatar_url' => null]);
 
     expect($user->fresh()->avatar_url)->toBeNull();
+});
+
+it('has role column on users table', function () {
+    expect(Schema::hasColumn('users', 'role'))->toBeTrue();
+});
+
+it('defaults user role to user', function () {
+    $user = User::query()->create([
+        'name' => 'Chef Ivan',
+        'email' => 'chef@example.com',
+        'password' => 'password',
+    ]);
+
+    expect($user->fresh()->role)->toBe(UserRole::User);
+});
+
+it('casts user role to UserRole enum', function () {
+    $user = User::factory()->create(['role' => UserRole::Admin]);
+
+    expect($user->fresh()->role)->toBe(UserRole::Admin);
+});
+
+it('creates regular user role from factory', function () {
+    $user = User::factory()->create();
+
+    expect($user->role)->toBe(UserRole::User);
 });
