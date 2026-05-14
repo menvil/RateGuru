@@ -42,6 +42,7 @@ it('keeps the root event host visible while only animated drawer nodes use x-sho
 
     expect($rootDivMatches[1])
         ->toContain('x-data')
+        ->toContain('x-cloak')
         ->toContain('x-on:open-drawer.window')
         ->toContain('x-on:close-drawer.window')
         ->toContain('x-on:keydown.escape.window')

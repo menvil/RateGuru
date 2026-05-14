@@ -29,6 +29,17 @@ it('renders readable fallback initials when src is missing', function () {
         ->not->toContain('<img');
 });
 
+it('handles nullable and blank names without empty accessible labels', function (?string $name, string $expectedLabel) {
+    $html = Blade::render('<x-ui.avatar :name="$name" />', ['name' => $name]);
+
+    expect($html)
+        ->toContain('role="img"')
+        ->toContain('aria-label="'.$expectedLabel.'"');
+})->with([
+    'null name' => [null, '?'],
+    'blank name' => ['   ', '?'],
+]);
+
 it('supports sm md and lg sizes', function (string $size, string $expectedClass) {
     $html = Blade::render(<<<BLADE
         <x-ui.avatar name="Katherine Johnson" size="$size" />

@@ -25,11 +25,13 @@ class BinaryChoice extends Component
                 'label' => 'Homemade',
                 'value' => 'homemade',
                 'activeClass' => 'border-rg-goodBorder bg-rg-goodSoft text-rg-good',
+                'activeStateClass' => 'data-[state=active]:border-rg-goodBorder data-[state=active]:bg-rg-goodSoft data-[state=active]:text-rg-good',
             ],
             [
                 'label' => 'Restaurant',
                 'value' => 'restaurant',
                 'activeClass' => 'border-rg-accentBorder bg-rg-accentSoft text-rg-accent2',
+                'activeStateClass' => 'data-[state=active]:border-rg-accentBorder data-[state=active]:bg-rg-accentSoft data-[state=active]:text-rg-accent2',
             ],
         ];
     }
