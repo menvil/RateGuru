@@ -63,4 +63,11 @@ class UserFactory extends Factory
             'role' => UserRole::Moderator,
         ]);
     }
+
+    public function banned(): static
+    {
+        return $this->state(fn () => [
+            'status' => UserStatus::Banned,
+        ]);
+    }
 }
