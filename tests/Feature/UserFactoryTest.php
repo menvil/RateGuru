@@ -21,3 +21,9 @@ it('can create a banned user', function () {
 
     expect($user->status)->toBe(UserStatus::Banned);
 });
+
+it('can create a trusted user', function () {
+    $user = User::factory()->trusted()->create();
+
+    expect($user->trust_level)->toBeGreaterThanOrEqual(10);
+});

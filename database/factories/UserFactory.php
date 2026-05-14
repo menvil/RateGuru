@@ -70,4 +70,12 @@ class UserFactory extends Factory
             'status' => UserStatus::Banned,
         ]);
     }
+
+    public function trusted(): static
+    {
+        return $this->state(fn () => [
+            'trust_level' => 10,
+            'status' => UserStatus::Active,
+        ]);
+    }
 }
