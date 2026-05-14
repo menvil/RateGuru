@@ -35,6 +35,32 @@ it('supports right side desktop behavior and mobile safe layout', function () {
         ->toContain('sm:max-w-lg');
 });
 
+it('keeps the root event host visible while only animated drawer nodes use x-show', function () {
+    $html = Blade::render('<x-ui.drawer title="Post details">Drawer content</x-ui.drawer>');
+
+    preg_match('/<div\s+([^>]*)>/', $html, $rootDivMatches);
+
+    expect($rootDivMatches[1])
+        ->toContain('x-data')
+        ->toContain('x-on:open-drawer.window')
+        ->toContain('x-on:close-drawer.window')
+        ->toContain('x-on:keydown.escape.window')
+        ->not->toContain('x-show')
+        ->not->toContain('display: none;')
+        ->and(substr_count($html, 'x-show="open"'))
+        ->toBe(2);
+});
+
+it('targets open and close drawer events to the matching drawer id', function () {
+    $html = Blade::render('<x-ui.drawer id="post-detail-drawer" title="Post details">Drawer content</x-ui.drawer>');
+
+    expect($html)
+        ->toContain('data-drawer-id="post-detail-drawer"')
+        ->toContain('drawerId: \'post-detail-drawer\'')
+        ->toContain('x-on:open-drawer.window="if ($event.detail?.id === drawerId) open = true"')
+        ->toContain('x-on:close-drawer.window="if ($event.detail?.id === drawerId) open = false"');
+});
+
 it('renders a unique labelledby title id for each drawer instance', function () {
     $html = Blade::render(<<<'BLADE'
         <x-ui.drawer title="First drawer">First content</x-ui.drawer>

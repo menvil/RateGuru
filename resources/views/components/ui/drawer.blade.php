@@ -5,9 +5,9 @@
 ])
 
 @php
-    $titleId = $attributes->has('id')
-        ? $attributes->get('id').'-title'
-        : 'drawer-title-'.Illuminate\Support\Str::uuid();
+    $generatedId = (string) Illuminate\Support\Str::uuid();
+    $drawerId = $attributes->get('id') ?? 'drawer-'.$generatedId;
+    $titleId = $attributes->has('id') ? $drawerId.'-title' : 'drawer-title-'.$generatedId;
 
     $panelSideClass = [
         'left' => 'inset-y-0 left-0',
@@ -25,13 +25,12 @@
 @endphp
 
 <div
-    x-data="{ open: false }"
-    x-show="open"
-    x-on:open-drawer.window="open = true"
-    x-on:close-drawer.window="open = false"
+    x-data="{ open: false, drawerId: @js($drawerId) }"
+    x-on:open-drawer.window="if ($event.detail?.id === drawerId) open = true"
+    x-on:close-drawer.window="if ($event.detail?.id === drawerId) open = false"
     x-on:keydown.escape.window="open = false"
-    class="fixed inset-0 z-50"
-    style="display: none;"
+    data-drawer-id="{{ $drawerId }}"
+    class="pointer-events-none fixed inset-0 z-50"
 >
     <div
         x-show="open"
@@ -42,7 +41,7 @@
         x-transition:leave="transition-opacity ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        class="fixed inset-0 bg-black/70"
+        class="pointer-events-auto fixed inset-0 bg-black/70"
         aria-hidden="true"
     ></div>
 
@@ -59,7 +58,7 @@
         aria-modal="true"
         aria-labelledby="{{ $titleId }}"
         {{ $attributes->class([
-            'fixed flex h-dvh w-full flex-col border-white/10 bg-zinc-950 text-zinc-100 shadow-2xl shadow-black/40 outline-none sm:w-full',
+            'pointer-events-auto fixed flex h-dvh w-full flex-col border-white/10 bg-zinc-950 text-zinc-100 shadow-2xl shadow-black/40 outline-none sm:w-full',
             $panelSideClass,
             $panelSizeClass,
             $side === 'left' ? 'border-r' : 'border-l',
