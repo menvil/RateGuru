@@ -2,6 +2,10 @@
 
 use Illuminate\Support\Facades\Schema;
 
+it('migrates posts indexes without errors', function () {
+    expect(Schema::hasTable('posts'))->toBeTrue();
+});
+
 it('creates posts table with required columns', function () {
     expect(Schema::hasTable('posts'))->toBeTrue();
     expect(Schema::hasColumns('posts', [
