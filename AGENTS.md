@@ -35,7 +35,10 @@ RateGuru is a Laravel + Livewire + Alpine + Filament application.
 
 ## UI rules
 - UI must follow the RateGuru design contract.
+- Every UI task must check docs/design/ui-review-checklist.md.
+- Original prototype reference must be checked before visual UI work.
 - Reusable UI belongs in Blade components.
+- Every reusable component must be rendered in /dev/ui-kit.
 - Alpine is for local UI state: modal, drawer, dropdown, preview.
 - Livewire is for server state: forms, voting, comments, filtering.
 
