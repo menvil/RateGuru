@@ -75,6 +75,52 @@
 
             <section class="rounded-lg border border-white/10 bg-zinc-900/60 p-5">
                 <h2 class="text-base font-semibold text-white">Forms</h2>
+
+                <div class="mt-4 space-y-4">
+                    <div class="space-y-2">
+                        <label for="ui-kit-form-dish-title" class="text-sm font-medium text-zinc-100">Dish title</label>
+                        <x-ui.input
+                            id="ui-kit-form-dish-title"
+                            name="form_dish_title"
+                            placeholder="Truffle mushroom toast"
+                        />
+                    </div>
+
+                    <div class="space-y-2">
+                        <label for="ui-kit-disabled-input" class="text-sm font-medium text-zinc-100">Disabled input</label>
+                        <x-ui.input
+                            id="ui-kit-disabled-input"
+                            name="disabled_input"
+                            value="Locked preview value"
+                            disabled
+                        />
+                    </div>
+
+                    <div class="space-y-2">
+                        <label for="ui-kit-error-input" class="text-sm font-medium text-zinc-100">Input with error</label>
+                        <x-ui.input
+                            id="ui-kit-error-input"
+                            name="error_input"
+                            value="Missing rating context"
+                            error
+                        />
+                    </div>
+
+                    <div class="space-y-2">
+                        <label for="ui-kit-form-description" class="text-sm font-medium text-zinc-100">Description</label>
+                        <x-ui.textarea
+                            id="ui-kit-form-description"
+                            name="form_description"
+                            rows="4"
+                            placeholder="Describe taste, texture, and plating."
+                        />
+                    </div>
+
+                    <x-ui.error-message
+                        title="Validation error example"
+                        message="Dish title must be specific enough for voters to understand the plate."
+                    />
+                </div>
             </section>
 
             <section class="rounded-lg border border-white/10 bg-zinc-900/60 p-5">
