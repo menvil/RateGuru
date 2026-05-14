@@ -25,8 +25,10 @@
 
     $colorClass = $colors[$color] ?? $colors['purple'];
 
-    $initials = Str::of(trim($name))->substr(0, 1)->upper()->toString();
+    $displayName = trim((string) $name);
+    $initials = Str::of($displayName)->substr(0, 1)->upper()->toString();
     $initials = $initials !== '' ? $initials : '?';
+    $accessibleName = $displayName !== '' ? $displayName : $initials;
 @endphp
 
 <span
@@ -35,11 +37,11 @@
     ]) }}
     @if (blank($src))
         role="img"
-        aria-label="{{ $name !== '' ? $name : $initials }}"
+        aria-label="{{ $accessibleName }}"
     @endif
 >
     @if (filled($src))
-        <img src="{{ $src }}" alt="{{ $name }}" class="size-full object-cover">
+        <img src="{{ $src }}" alt="{{ $displayName }}" class="size-full object-cover">
     @else
         <span aria-hidden="true">{{ $initials }}</span>
     @endif
