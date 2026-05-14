@@ -14,7 +14,7 @@ it('renders supported button options', function () {
     expect($html)
         ->toContain('Delete')
         ->toContain('type="submit"')
-        ->toContain('disabled')
+        ->toMatch('/\sdisabled(?=[\s>])/')
         ->toContain('bg-rg-danger')
         ->toContain('w-full');
 });
