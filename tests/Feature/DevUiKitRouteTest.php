@@ -55,3 +55,12 @@ it('renders drawer shell in the dev ui kit', function () {
         ->assertSee('Dish Details Preview')
         ->assertSee('Homemade or Restaurant?');
 });
+
+it('renders form controls in the dev ui kit', function () {
+    $this->get('/dev/ui-kit')
+        ->assertOk()
+        ->assertSee('Dish title')
+        ->assertSee('Description')
+        ->assertSee('Validation error example')
+        ->assertSee('Disabled input');
+});
