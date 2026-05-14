@@ -42,11 +42,11 @@ it('does not allow duplicate post vote for same user and post', function () {
         'updated_at' => now(),
     ]);
 
-    DB::table('post_votes')->insert([
+    expect(fn () => DB::table('post_votes')->insert([
         'post_id' => $postId,
         'user_id' => $user->id,
         'type' => VoteType::Down->value,
         'created_at' => now(),
         'updated_at' => now(),
-    ]);
-})->throws(QueryException::class);
+    ]))->toThrow(QueryException::class);
+});

@@ -7,18 +7,29 @@ use App\Models\User;
 
 it('allows post to have many post votes', function () {
     $postAuthor = User::factory()->create();
-    $voter = User::factory()->create();
+    $voterA = User::factory()->create();
+    $voterB = User::factory()->create();
 
     $post = Post::create([
         'user_id' => $postAuthor->id,
         'title' => 'Test dish',
     ]);
 
-    $vote = PostVote::create([
+    $voteA = PostVote::create([
         'post_id' => $post->id,
-        'user_id' => $voter->id,
+        'user_id' => $voterA->id,
         'type' => VoteType::Up->value,
     ]);
 
-    expect($post->postVotes()->first()->id)->toBe($vote->id);
+    $voteB = PostVote::create([
+        'post_id' => $post->id,
+        'user_id' => $voterB->id,
+        'type' => VoteType::Down->value,
+    ]);
+
+    $ids = $post->postVotes()->pluck('id')->all();
+
+    expect($ids)->toHaveCount(2)
+        ->toContain($voteA->id)
+        ->toContain($voteB->id);
 });

@@ -41,11 +41,11 @@ it('does not allow duplicate cuisine vote for same user and post', function () {
         'updated_at' => now(),
     ]);
 
-    DB::table('cuisine_votes')->insert([
+    expect(fn () => DB::table('cuisine_votes')->insert([
         'post_id' => $postId,
         'user_id' => $user->id,
         'cuisine' => CuisineType::Asian->value,
         'created_at' => now(),
         'updated_at' => now(),
-    ]);
-})->throws(QueryException::class);
+    ]))->toThrow(QueryException::class);
+});
