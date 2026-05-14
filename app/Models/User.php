@@ -34,4 +34,9 @@ class User extends Authenticatable
             'trust_level' => 'integer',
         ];
     }
+
+    public function canCreateContent(): bool
+    {
+        return $this->status->canCreateContent();
+    }
 }
