@@ -1,8 +1,5 @@
 <?php
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
-use App\Enums\PostStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -22,11 +19,11 @@ return new class extends Migration
             $table->string('image_url')->nullable();
             $table->string('thumbnail_url')->nullable();
 
-            $table->string('source_url')->nullable();
+            $table->text('source_url')->nullable();
 
-            $table->string('status')->default(PostStatus::Pending->value);
-            $table->string('origin_truth')->default(OriginType::Unknown->value);
-            $table->string('cuisine_truth')->default(CuisineType::Unknown->value);
+            $table->string('status')->default('pending');
+            $table->string('origin_truth')->default('unknown');
+            $table->string('cuisine_truth')->default('unknown');
 
             $table->unsignedInteger('upvotes_count')->default(0);
             $table->unsignedInteger('downvotes_count')->default(0);
