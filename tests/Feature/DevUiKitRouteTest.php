@@ -40,3 +40,10 @@ it('renders card variants in the dev ui kit', function () {
         ->assertSee('Interactive Card')
         ->assertSee('Food Image Placeholder');
 });
+
+it('renders modal shell in the dev ui kit', function () {
+    $this->get('/dev/ui-kit')
+        ->assertOk()
+        ->assertSee('Open Modal')
+        ->assertSee('Upload Dish Preview');
+});
