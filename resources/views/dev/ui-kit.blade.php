@@ -80,7 +80,7 @@
             <section class="rounded-lg border border-white/10 bg-zinc-900/60 p-5">
                 <h2 class="text-base font-semibold text-white">Overlays</h2>
 
-                <div class="mt-4" x-data="{ open: false }">
+                <div class="mt-4 flex flex-wrap items-center gap-3" x-data="{ open: false }">
                     <x-ui.button x-on:click="open = true">Open Modal</x-ui.button>
 
                     <x-ui.modal title="Upload Dish Preview" size="lg">
@@ -115,6 +115,60 @@
                             <x-ui.button x-on:click="open = false">Continue</x-ui.button>
                         </x-slot:footer>
                     </x-ui.modal>
+                </div>
+
+                <div class="mt-4">
+                    <x-ui.button
+                        variant="secondary"
+                        x-on:click="$dispatch('open-drawer', { id: 'ui-kit-dish-details-drawer' })"
+                    >
+                        Open Drawer
+                    </x-ui.button>
+
+                    <x-ui.drawer id="ui-kit-dish-details-drawer" title="Dish Details Preview" size="lg">
+                        <div class="space-y-5">
+                            <x-ui.image-placeholder label="Dish details image placeholder" ratio="video" />
+
+                            <div class="space-y-2">
+                                <x-ui.badge variant="warning" size="sm">Preview</x-ui.badge>
+                                <h3 class="text-xl font-semibold text-white">Homemade or Restaurant?</h3>
+                                <p class="text-sm leading-6 text-zinc-400">
+                                    Crispy potato galette with herb cream, pickled onion, and a bright lemon finish.
+                                </p>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="rounded-lg border border-white/10 bg-zinc-900/70 p-4">
+                                    <p class="text-xs font-medium uppercase tracking-normal text-zinc-500">Homemade</p>
+                                    <p class="mt-2 text-2xl font-semibold text-white">64%</p>
+                                </div>
+
+                                <div class="rounded-lg border border-white/10 bg-zinc-900/70 p-4">
+                                    <p class="text-xs font-medium uppercase tracking-normal text-zinc-500">Restaurant</p>
+                                    <p class="mt-2 text-2xl font-semibold text-white">36%</p>
+                                </div>
+                            </div>
+
+                            <div class="space-y-3 rounded-lg border border-white/10 bg-zinc-900/70 p-4">
+                                <p class="text-sm font-semibold text-white">Comments preview</p>
+                                <div class="space-y-3 text-sm text-zinc-300">
+                                    <p class="rounded-md bg-zinc-950/70 px-3 py-2">Looks plated, but the cutting board says home kitchen.</p>
+                                    <p class="rounded-md bg-zinc-950/70 px-3 py-2">The sauce work feels restaurant-level.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <x-slot:footer>
+                            <div class="flex items-center justify-end">
+                                <x-ui.button
+                                    variant="secondary"
+                                    x-on:click="$dispatch('close-drawer', { id: 'ui-kit-dish-details-drawer' })"
+                                >
+                                    Close
+                                </x-ui.button>
+                            </div>
+                        </x-slot:footer>
+                    </x-ui.drawer>
                 </div>
             </section>
 
