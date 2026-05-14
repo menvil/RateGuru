@@ -148,9 +148,11 @@
                             <x-ui.textarea id="ui-kit-form-description" name="form_description" rows="4" placeholder="Describe taste, texture, and plating." />
                         </div>
 
-                        <div class="flex h-[42px] items-center rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13px] text-rg-muted">
-                            Comment composer
-                        </div>
+                        <x-ui.input
+                            name="comment_composer"
+                            placeholder="Comment composer"
+                            aria-label="Comment composer"
+                        />
 
                         <div class="rounded-rgCard border border-dashed border-rg-accentBorder bg-rg-accentSoft p-4 text-sm font-semibold text-rg-accent2">
                             Upload dropzone

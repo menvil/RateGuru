@@ -45,7 +45,7 @@
         <footer class="mt-3.5 flex items-center gap-4 border-t border-rg-border pt-2.5">
             <x-ui.action-button icon="comment">{{ $comments }}</x-ui.action-button>
             <x-ui.action-button icon="share">Share</x-ui.action-button>
-            <x-ui.action-button icon="save">Save</x-ui.action-button>
+            <x-ui.action-button icon="bookmark">Save</x-ui.action-button>
             <x-ui.action-button icon="more" />
         </footer>
     </div>

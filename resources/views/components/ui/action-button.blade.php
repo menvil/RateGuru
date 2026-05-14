@@ -7,7 +7,7 @@
     ]) }}
 >
     <x-ui.icon :name="$icon" class="size-4" />
-    @if (trim($slot) !== '')
+    @if (! $slot->isEmpty())
         <span>{{ $slot }}</span>
     @endif
 </button>

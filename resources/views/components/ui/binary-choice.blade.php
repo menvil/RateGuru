@@ -1,19 +1,24 @@
-@props(['selected' => 'homemade'])
-
-<div {{ $attributes->class(['grid h-[38px] grid-cols-2 gap-2.5']) }}>
-    @foreach (['homemade' => 'Homemade', 'restaurant' => 'Restaurant'] as $value => $label)
+<div
+    role="group"
+    x-data="{ selected: @js($selected) }"
+    {{ $attributes->class(['grid h-[38px] grid-cols-2 gap-2.5']) }}
+>
+    @foreach ($options as $option)
         @php
-            $active = $selected === $value;
-            $activeClass = $value === 'homemade'
-                ? 'border-rg-goodBorder bg-rg-goodSoft text-rg-good'
-                : 'border-rg-accentBorder bg-rg-accentSoft text-rg-accent2';
+            $active = $selected === $option['value'];
         @endphp
 
         <button
             type="button"
-            class="{{ $active ? $activeClass : 'border-rg-border2 bg-transparent text-rg-text2' }} rounded-rgControl border px-3 text-[13px] font-semibold transition hover:bg-rg-card2"
+            name="{{ $name }}"
+            value="{{ $option['value'] }}"
+            aria-pressed="{{ $active ? 'true' : 'false' }}"
+            x-bind:aria-pressed="selected === @js($option['value']) ? 'true' : 'false'"
+            x-on:click="selected = @js($option['value']); $dispatch('choice-changed', { value: selected })"
+            class="{{ $active ? $option['activeClass'] : $inactiveClass }} rounded-rgControl border px-3 text-[13px] font-semibold transition hover:bg-rg-card2"
+            x-bind:class="selected === @js($option['value']) ? @js($option['activeClass']) : @js($inactiveClass)"
         >
-            {{ $label }}
+            {{ $option['label'] }}
         </button>
     @endforeach
 </div>

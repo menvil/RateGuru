@@ -32,6 +32,11 @@
 
     --rg-warn: #f59e0b;
     --rg-danger: #ef4444;
+    --rg-danger-soft: rgba(239, 68, 68, 0.12);
+    --rg-danger-border: rgba(239, 68, 68, 0.45);
+    --rg-danger-text: #fca5a5;
+    --rg-danger-muted: rgba(254, 202, 202, 0.82);
+    --rg-danger-glow: rgba(252, 165, 165, 0.45);
 
     --rg-food-carbonara-1: #3a1d10;
     --rg-food-carbonara-2: #7a3a14;
@@ -117,6 +122,10 @@
     --color-rg-warn: var(--rg-warn);
     --color-rg-warning: var(--rg-warning);
     --color-rg-danger: var(--rg-danger);
+    --color-rg-dangerSoft: var(--rg-danger-soft);
+    --color-rg-dangerBorder: var(--rg-danger-border);
+    --color-rg-dangerText: var(--rg-danger-text);
+    --color-rg-dangerMuted: var(--rg-danger-muted);
 
     --radius-rgSm: var(--rg-radius-sm);
     --radius-rgControl: var(--rg-radius-control);

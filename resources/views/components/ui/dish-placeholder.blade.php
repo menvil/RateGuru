@@ -5,59 +5,25 @@
 ])
 
 @php
-    $ratioClass = [
-        'feed' => 'aspect-[16/10]',
-        'detail' => 'aspect-[4/3]',
-        'square' => 'aspect-square',
-        'portrait' => 'aspect-[3/4]',
-        'video' => 'aspect-video',
-    ][$ratio] ?? 'aspect-[16/10]';
-
-    $palettes = [
-        'carbonara' => [
-            'from' => 'var(--rg-food-carbonara-1)',
-            'mid' => 'var(--rg-food-carbonara-2)',
-            'to' => 'var(--rg-food-carbonara-3)',
-        ],
-        'matcha' => [
-            'from' => 'var(--rg-food-matcha-1)',
-            'mid' => 'var(--rg-food-matcha-2)',
-            'to' => 'var(--rg-food-matcha-3)',
-        ],
-        'ramen' => [
-            'from' => '#2f120d',
-            'mid' => '#8a2d18',
-            'to' => '#e08b3e',
-        ],
-        'avocado' => [
-            'from' => '#18320f',
-            'mid' => '#4d7c0f',
-            'to' => '#bef264',
-        ],
-        'neutral' => [
-            'from' => '#15151f',
-            'mid' => '#2d2438',
-            'to' => '#6b4c7b',
-        ],
-    ];
-
-    $colors = $palettes[$palette] ?? $palettes['neutral'];
+    $dishPlaceholder = new \App\View\Components\Ui\DishPlaceholder($palette, $label, $ratio);
+    $placeholderRatioClass = $placeholderRatioClass ?? $dishPlaceholder->ratioClass();
+    $placeholderColors = $placeholderColors ?? $dishPlaceholder->colors();
 @endphp
 
 <div
     data-ui="dish-placeholder"
     {{ $attributes->class([
-        "{$ratioClass} relative w-full shrink-0 overflow-hidden rounded-rgMedia border border-rg-borderSoft bg-rg-card",
+        $placeholderRatioClass.' relative w-full shrink-0 overflow-hidden rounded-rgMedia border border-rg-borderSoft bg-rg-card',
     ]) }}
     role="img"
     aria-label="{{ $label }}"
     data-ratio="{{ $ratio }}"
     style="
         background:
-            radial-gradient(circle at 28% 26%, {{ $colors['to'] }} 0%, transparent 27%),
-            radial-gradient(circle at 64% 42%, {{ $colors['mid'] }} 0%, transparent 34%),
+            radial-gradient(circle at 28% 26%, {{ $placeholderColors['to'] }} 0%, transparent 27%),
+            radial-gradient(circle at 64% 42%, {{ $placeholderColors['mid'] }} 0%, transparent 34%),
             radial-gradient(circle at 50% 82%, rgba(255,255,255,0.12) 0%, transparent 20%),
-            linear-gradient(135deg, {{ $colors['from'] }} 0%, {{ $colors['mid'] }} 48%, #0a0a0f 100%);
+            linear-gradient(135deg, {{ $placeholderColors['from'] }} 0%, {{ $placeholderColors['mid'] }} 48%, var(--rg-bg) 100%);
     "
 >
     <span class="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.08)_0,transparent_18%,rgba(0,0,0,0.16)_48%,transparent_70%)]"></span>

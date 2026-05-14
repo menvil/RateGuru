@@ -1,12 +1,14 @@
 # RateGuru UI Review Checklist
 
 ## Reference
+
 - [ ] Checked original prototype: docs/design/reference/original/PlateRate.html
 - [ ] Checked reference screenshots if available
 - [ ] Checked docs/design/design-contract.md
 - [ ] Checked /dev/ui-kit
 
 ## PlateRate reference composition
+
 - [ ] /dev/ui-kit contains PlateRate Reference Composition.
 - [ ] First viewport resembles PlateRate desktop reference.
 - [ ] Topbar exists.
@@ -16,6 +18,7 @@
 - [ ] Selected post card exists.
 
 ## General
+
 - [ ] Dark background is preserved
 - [ ] Text contrast is acceptable
 - [ ] Accent purple is used consistently
@@ -24,6 +27,7 @@
 - [ ] UI does not look like default Laravel
 
 ## Components
+
 - [ ] Buttons use x-ui.button
 - [ ] Cards use x-ui.card
 - [ ] Inputs use x-ui.input / x-ui.textarea
@@ -32,6 +36,7 @@
 - [ ] Dropdown uses x-ui.dropdown
 
 ## Post card anatomy
+
 - [ ] Vote rail exists.
 - [ ] Avatar/user/time row exists.
 - [ ] Title exists.
@@ -41,6 +46,7 @@
 - [ ] Footer actions exist.
 
 ## Detail anatomy
+
 - [ ] Detail post exists.
 - [ ] Results panel exists.
 - [ ] Cuisine distribution exists.
@@ -49,6 +55,7 @@
 - [ ] Nested reply style exists.
 
 ## States
+
 - [ ] Hover state exists
 - [ ] Focus state exists
 - [ ] Disabled state exists where needed
@@ -57,11 +64,13 @@
 - [ ] Error state exists where needed
 
 ## Responsive
+
 - [ ] Mobile layout does not overflow
 - [ ] Desktop layout matches intended density
 - [ ] Drawer/modal usable on mobile
 
 ## Visual drift
+
 - [ ] No abstract purple placeholder.
 - [ ] No Laravel starter header in reference composition.
 - [ ] No sky-blue focus states.

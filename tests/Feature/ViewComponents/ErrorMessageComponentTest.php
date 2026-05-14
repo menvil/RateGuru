@@ -39,7 +39,7 @@ it('uses danger styling for a general error block', function () {
     BLADE);
 
     expect($html)
-        ->toContain('border-[rgba(239,68,68,0.45)]')
-        ->toContain('bg-[rgba(239,68,68,0.12)]')
-        ->toContain('text-[#fca5a5]');
+        ->toContain('border-rg-dangerBorder')
+        ->toContain('bg-rg-dangerSoft')
+        ->toContain('text-rg-dangerText');
 });
