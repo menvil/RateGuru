@@ -1,5 +1,5 @@
 <article class="relative rounded-rgCard border border-rg-border bg-rg-card px-5 pb-3.5 pt-5">
-    <button type="button" class="absolute right-3.5 top-3.5 grid size-8 place-items-center rounded-rgSm border border-rg-border2 bg-rg-card2 text-rg-text2">
+    <button type="button" aria-label="Close" class="absolute right-3.5 top-3.5 grid size-8 place-items-center rounded-rgSm border border-rg-border2 bg-rg-card2 text-rg-text2">
         <x-ui.icon name="x" class="size-4" />
     </button>
 
