@@ -31,3 +31,12 @@ it('renders button variants in the dev ui kit', function () {
         ->assertSee('Danger Button')
         ->assertSee('Disabled Button');
 });
+
+it('renders card variants in the dev ui kit', function () {
+    $this->get('/dev/ui-kit')
+        ->assertOk()
+        ->assertSee('Default Card')
+        ->assertSee('Elevated Card')
+        ->assertSee('Interactive Card')
+        ->assertSee('Food Image Placeholder');
+});
