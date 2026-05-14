@@ -79,6 +79,43 @@
 
             <section class="rounded-lg border border-white/10 bg-zinc-900/60 p-5">
                 <h2 class="text-base font-semibold text-white">Overlays</h2>
+
+                <div class="mt-4" x-data="{ open: false }">
+                    <x-ui.button x-on:click="open = true">Open Modal</x-ui.button>
+
+                    <x-ui.modal title="Upload Dish Preview" size="lg">
+                        <div class="space-y-4">
+                            <div class="rounded-lg border border-dashed border-purple-400/30 bg-zinc-900/70 p-4 text-center">
+                                <p class="text-sm font-semibold text-white">Dish photo preview</p>
+                                <p class="mt-1 text-xs text-zinc-400">Dark upload surface for checking dish details before publishing.</p>
+                            </div>
+
+                            <div class="space-y-2">
+                                <label for="ui-kit-dish-title" class="text-sm font-medium text-zinc-100">Dish title</label>
+                                <x-ui.input
+                                    id="ui-kit-dish-title"
+                                    name="dish_title"
+                                    placeholder="Smoked salmon tartine"
+                                />
+                            </div>
+
+                            <div class="space-y-2">
+                                <label for="ui-kit-dish-description" class="text-sm font-medium text-zinc-100">Description</label>
+                                <x-ui.textarea
+                                    id="ui-kit-dish-description"
+                                    name="description"
+                                    rows="4"
+                                    placeholder="Add texture, flavor, plating, and portion notes."
+                                />
+                            </div>
+                        </div>
+
+                        <x-slot:footer>
+                            <x-ui.button variant="secondary" x-on:click="open = false">Cancel</x-ui.button>
+                            <x-ui.button x-on:click="open = false">Continue</x-ui.button>
+                        </x-slot:footer>
+                    </x-ui.modal>
+                </div>
             </section>
 
             <section class="rounded-lg border border-white/10 bg-zinc-900/60 p-5">
