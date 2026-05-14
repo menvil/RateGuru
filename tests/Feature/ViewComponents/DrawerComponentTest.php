@@ -34,3 +34,24 @@ it('supports right side desktop behavior and mobile safe layout', function () {
         ->toContain('w-full')
         ->toContain('sm:max-w-lg');
 });
+
+it('renders a unique labelledby title id for each drawer instance', function () {
+    $html = Blade::render(<<<'BLADE'
+        <x-ui.drawer title="First drawer">First content</x-ui.drawer>
+        <x-ui.drawer title="Second drawer">Second content</x-ui.drawer>
+    BLADE);
+
+    preg_match_all('/aria-labelledby="([^"]+)"/', $html, $labelledByMatches);
+    preg_match_all('/<h2 id="([^"]+)"/', $html, $titleIdMatches);
+
+    expect($labelledByMatches[1])
+        ->toHaveCount(2)
+        ->sequence(
+            fn ($id) => $id->toStartWith('drawer-title-'),
+            fn ($id) => $id->toStartWith('drawer-title-'),
+        )
+        ->and($titleIdMatches[1])
+        ->toBe($labelledByMatches[1])
+        ->and(array_unique($labelledByMatches[1]))
+        ->toHaveCount(2);
+});

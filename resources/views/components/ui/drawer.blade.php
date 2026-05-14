@@ -5,6 +5,10 @@
 ])
 
 @php
+    $titleId = $attributes->has('id')
+        ? $attributes->get('id').'-title'
+        : 'drawer-title-'.Illuminate\Support\Str::uuid();
+
     $panelSideClass = [
         'left' => 'inset-y-0 left-0',
         'right' => 'inset-y-0 right-0',
@@ -53,7 +57,7 @@
         x-transition:leave-end="{{ $leaveEndClass }}"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="drawer-title"
+        aria-labelledby="{{ $titleId }}"
         {{ $attributes->class([
             'fixed flex h-dvh w-full flex-col border-white/10 bg-zinc-950 text-zinc-100 shadow-2xl shadow-black/40 outline-none sm:w-full',
             $panelSideClass,
@@ -62,7 +66,7 @@
         ]) }}
     >
         <header class="flex min-h-16 items-center border-b border-white/10 px-4 py-4 sm:px-6">
-            <h2 id="drawer-title" class="text-base font-semibold text-white">
+            <h2 id="{{ $titleId }}" class="text-base font-semibold text-white">
                 {{ $title }}
             </h2>
         </header>
