@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Report extends Model
 {
-    protected $guarded = [];
+    protected $fillable = ['reporter_id', 'target_type', 'target_id', 'reason', 'message'];
 
     protected function casts(): array
     {

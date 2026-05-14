@@ -41,11 +41,11 @@ it('does not allow duplicate origin vote for same user and post', function () {
         'updated_at' => now(),
     ]);
 
-    DB::table('origin_votes')->insert([
+    expect(fn () => DB::table('origin_votes')->insert([
         'post_id' => $postId,
         'user_id' => $user->id,
         'origin' => OriginType::Restaurant->value,
         'created_at' => now(),
         'updated_at' => now(),
-    ]);
-})->throws(QueryException::class);
+    ]))->toThrow(QueryException::class);
+});

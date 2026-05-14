@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Schema;
 
-it('migrates posts indexes without errors', function () {
+it('posts table exists', function () {
     expect(Schema::hasTable('posts'))->toBeTrue();
 });
 

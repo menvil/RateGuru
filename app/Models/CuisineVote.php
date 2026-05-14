@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class CuisineVote extends Model
 {
-    protected $guarded = [];
+    protected $fillable = ['post_id', 'user_id', 'cuisine'];
 
     protected function casts(): array
     {
