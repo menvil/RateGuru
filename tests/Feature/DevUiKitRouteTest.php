@@ -21,3 +21,13 @@ it('does not expose the dev ui kit in production-like environments', function ()
 
     $this->get('/dev/ui-kit')->assertNotFound();
 });
+
+it('renders button variants in the dev ui kit', function () {
+    $this->get('/dev/ui-kit')
+        ->assertOk()
+        ->assertSee('Primary Button')
+        ->assertSee('Secondary Button')
+        ->assertSee('Ghost Button')
+        ->assertSee('Danger Button')
+        ->assertSee('Disabled Button');
+});
