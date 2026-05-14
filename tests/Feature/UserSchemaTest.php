@@ -32,3 +32,19 @@ it('creates username from factory', function () {
 
     expect($user->username)->toBeString()->not->toBe('');
 });
+
+it('has avatar_url column on users table', function () {
+    expect(Schema::hasColumn('users', 'avatar_url'))->toBeTrue();
+});
+
+it('persists user avatar url', function () {
+    $user = User::factory()->create(['avatar_url' => 'https://example.com/a.jpg']);
+
+    expect($user->fresh()->avatar_url)->toBe('https://example.com/a.jpg');
+});
+
+it('allows nullable avatar url', function () {
+    $user = User::factory()->create(['avatar_url' => null]);
+
+    expect($user->fresh()->avatar_url)->toBeNull();
+});
