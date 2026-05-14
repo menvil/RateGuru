@@ -25,3 +25,27 @@
 
     --rg-shadow-card: 0 18px 60px rgba(0, 0, 0, 0.35);
 }
+
+@theme static {
+    --color-rg-bg: var(--rg-bg);
+    --color-rg-surface: var(--rg-surface);
+    --color-rg-surface2: var(--rg-surface-2);
+    --color-rg-surface3: var(--rg-surface-3);
+    --color-rg-border: var(--rg-border);
+    --color-rg-borderStrong: var(--rg-border-strong);
+    --color-rg-text: var(--rg-text);
+    --color-rg-muted: var(--rg-text-muted);
+    --color-rg-soft: var(--rg-text-soft);
+    --color-rg-accent: var(--rg-accent);
+    --color-rg-accentHover: var(--rg-accent-hover);
+    --color-rg-accentSoft: var(--rg-accent-soft);
+    --color-rg-danger: var(--rg-danger);
+    --color-rg-success: var(--rg-success);
+    --color-rg-warning: var(--rg-warning);
+
+    --radius-rgCard: var(--rg-radius-card);
+    --radius-rgControl: var(--rg-radius-control);
+    --radius-rgPill: var(--rg-radius-pill);
+
+    --shadow-rgCard: var(--rg-shadow-card);
+}
