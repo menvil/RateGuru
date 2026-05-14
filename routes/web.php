@@ -4,9 +4,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('home');
-});
+Route::view('/', 'feed.placeholder')->name('feed');
 
 Route::get('/dashboard', function () {
     return view('dashboard');
