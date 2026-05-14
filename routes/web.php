@@ -7,8 +7,8 @@ use Illuminate\Support\Facades\Route;
 Route::view('/', 'feed.placeholder')->name('feed');
 
 Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+    return redirect()->route('feed');
+})->name('dashboard');
 
 Route::view('/dev/ui-kit', 'dev.ui-kit')
     ->middleware(EnsureDevEnvironment::class)
