@@ -26,3 +26,9 @@ it('can create a pending post', function () {
     expect($post->status)->toBe(PostStatus::Pending);
     expect($post->published_at)->toBeNull();
 });
+
+it('can create a hidden post', function () {
+    $post = Post::factory()->hidden()->create();
+
+    expect($post->status)->toBe(PostStatus::Hidden);
+});
