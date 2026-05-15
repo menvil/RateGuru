@@ -49,6 +49,14 @@ class PostFactory extends Factory
         ]);
     }
 
+    public function rejected(): static
+    {
+        return $this->state(fn () => [
+            'status' => PostStatus::Rejected,
+            'published_at' => null,
+        ]);
+    }
+
     public function hidden(): static
     {
         return $this->state(fn () => [
