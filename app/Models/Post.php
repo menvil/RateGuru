@@ -34,6 +34,11 @@ class Post extends Model
         ];
     }
 
+    public function scopePending(Builder $query): Builder
+    {
+        return $query->where('status', PostStatus::Pending);
+    }
+
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', PostStatus::Published);
