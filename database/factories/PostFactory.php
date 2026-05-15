@@ -41,6 +41,14 @@ class PostFactory extends Factory
         ];
     }
 
+    public function pending(): static
+    {
+        return $this->state(fn () => [
+            'status' => PostStatus::Pending,
+            'published_at' => null,
+        ]);
+    }
+
     public function published(): static
     {
         return $this->state(fn () => [

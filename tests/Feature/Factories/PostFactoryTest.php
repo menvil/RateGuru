@@ -19,3 +19,10 @@ it('can create a published post', function () {
     expect($post->status)->toBe(PostStatus::Published);
     expect($post->published_at)->not->toBeNull();
 });
+
+it('can create a pending post', function () {
+    $post = Post::factory()->pending()->create();
+
+    expect($post->status)->toBe(PostStatus::Pending);
+    expect($post->published_at)->toBeNull();
+});
