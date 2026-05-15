@@ -3,13 +3,10 @@
 use App\Models\Post;
 use App\Models\User;
 
-it('allows post to belong to user', function () {
+it('belongs to a user', function () {
     $user = User::factory()->create();
+    $post = Post::factory()->for($user)->create();
 
-    $post = Post::create([
-        'user_id' => $user->id,
-        'title' => 'Test dish',
-    ]);
-
+    expect($post->user)->toBeInstanceOf(User::class);
     expect($post->user->id)->toBe($user->id);
 });
