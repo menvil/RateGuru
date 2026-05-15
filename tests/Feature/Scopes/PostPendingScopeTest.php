@@ -2,13 +2,11 @@
 
 use App\Models\Post;
 
-it('filters pending posts', function () {
+it('only returns pending posts', function () {
     $pending = Post::factory()->pending()->create();
     Post::factory()->published()->create();
     Post::factory()->hidden()->create();
+    Post::factory()->rejected()->create();
 
-    $results = Post::pending()->get();
-
-    expect($results->pluck('id'))->toContain($pending->id);
-    expect($results)->toHaveCount(1);
+    expect(Post::pending()->pluck('id')->all())->toBe([$pending->id]);
 });
