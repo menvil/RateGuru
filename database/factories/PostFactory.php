@@ -40,4 +40,12 @@ class PostFactory extends Factory
             'published_at' => null,
         ];
     }
+
+    public function published(): static
+    {
+        return $this->state(fn () => [
+            'status' => PostStatus::Published,
+            'published_at' => now(),
+        ]);
+    }
 }
