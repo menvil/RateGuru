@@ -9,6 +9,7 @@ use App\Models\CuisineVote;
 use App\Models\OriginVote;
 use App\Models\PostVote;
 use App\Models\Tag;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -31,6 +32,11 @@ class Post extends Model
             'published_at' => 'datetime',
             'hot_score' => 'float',
         ];
+    }
+
+    public function scopePublished(Builder $query): Builder
+    {
+        return $query->where('status', PostStatus::Published);
     }
 
     public function user(): BelongsTo
