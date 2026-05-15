@@ -31,6 +31,7 @@ it('can create a hidden post', function () {
     $post = Post::factory()->hidden()->create();
 
     expect($post->status)->toBe(PostStatus::Hidden);
+    expect($post->published_at)->not->toBeNull();
 });
 
 it('can create a rejected post', function () {
