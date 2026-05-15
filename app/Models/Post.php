@@ -54,6 +54,11 @@ class Post extends Model
         return $query->orderByDesc('created_at');
     }
 
+    public function scopeHot(Builder $query): Builder
+    {
+        return $query->orderByDesc('hot_score');
+    }
+
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', PostStatus::Published);
