@@ -39,6 +39,11 @@ class Post extends Model
         return $query->where('status', PostStatus::Pending);
     }
 
+    public function scopeHidden(Builder $query): Builder
+    {
+        return $query->where('status', PostStatus::Hidden);
+    }
+
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', PostStatus::Published);
