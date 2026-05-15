@@ -49,6 +49,11 @@ class Post extends Model
         return $query->where('reports_count', '>', 0);
     }
 
+    public function scopeRecent(Builder $query): Builder
+    {
+        return $query->orderByDesc('created_at');
+    }
+
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', PostStatus::Published);
