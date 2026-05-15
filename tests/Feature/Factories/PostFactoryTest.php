@@ -12,3 +12,10 @@ it('can create a post with factory', function () {
     expect($post->user)->toBeInstanceOf(User::class);
     expect($post->status)->toBe(PostStatus::Pending);
 });
+
+it('can create a published post', function () {
+    $post = Post::factory()->published()->create();
+
+    expect($post->status)->toBe(PostStatus::Published);
+    expect($post->published_at)->not->toBeNull();
+});
