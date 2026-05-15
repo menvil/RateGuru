@@ -2,13 +2,11 @@
 
 use App\Models\Post;
 
-it('filters published posts', function () {
+it('only returns published posts', function () {
     $published = Post::factory()->published()->create();
     Post::factory()->pending()->create();
     Post::factory()->hidden()->create();
+    Post::factory()->rejected()->create();
 
-    $results = Post::published()->get();
-
-    expect($results->pluck('id'))->toContain($published->id);
-    expect($results)->toHaveCount(1);
+    expect(Post::published()->pluck('id')->all())->toBe([$published->id]);
 });
