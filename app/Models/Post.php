@@ -44,6 +44,11 @@ class Post extends Model
         return $query->where('status', PostStatus::Hidden);
     }
 
+    public function scopeReported(Builder $query): Builder
+    {
+        return $query->where('reports_count', '>', 0);
+    }
+
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', PostStatus::Published);
