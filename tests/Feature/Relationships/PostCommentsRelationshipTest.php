@@ -2,21 +2,16 @@
 
 use App\Models\Comment;
 use App\Models\Post;
-use App\Models\User;
 
-it('allows post to have many comments', function () {
-    $user = User::factory()->create();
+it('has many comments', function () {
+    $post = Post::factory()->create();
 
-    $post = Post::create([
-        'user_id' => $user->id,
-        'title' => 'Test dish',
-    ]);
+    $comments = Comment::factory()
+        ->count(2)
+        ->for($post)
+        ->create();
 
-    $comment = Comment::create([
-        'post_id' => $post->id,
-        'user_id' => $user->id,
-        'body' => 'Looks good',
-    ]);
-
-    expect($post->comments()->first()->id)->toBe($comment->id);
+    expect($post->comments()->count())->toBe(2);
+    expect($post->comments()->pluck('id')->all())
+        ->toEqualCanonicalizing($comments->pluck('id')->all());
 });
