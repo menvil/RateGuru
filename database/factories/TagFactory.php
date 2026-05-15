@@ -13,7 +13,7 @@ class TagFactory extends Factory
 {
     public function definition(): array
     {
-        $name = fake()->unique()->word() . fake()->randomNumber(4);
+        $name = fake()->word() . '-' . Str::ulid();
 
         return [
             'name' => ucfirst($name),

@@ -8,4 +8,5 @@ it('can create a tag with factory', function () {
     expect($tag)->toBeInstanceOf(Tag::class);
     expect($tag->exists)->toBeTrue();
     expect($tag->slug)->not->toBeEmpty();
+    expect($tag->name)->not->toBeEmpty();
 });
