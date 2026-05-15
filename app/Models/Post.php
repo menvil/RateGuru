@@ -9,6 +9,8 @@ use App\Models\CuisineVote;
 use App\Models\OriginVote;
 use App\Models\PostVote;
 use App\Models\Tag;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -17,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Post extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
 
     protected $guarded = [];
 
@@ -30,6 +32,36 @@ class Post extends Model
             'published_at' => 'datetime',
             'hot_score' => 'float',
         ];
+    }
+
+    public function scopePending(Builder $query): Builder
+    {
+        return $query->where('status', PostStatus::Pending);
+    }
+
+    public function scopeHidden(Builder $query): Builder
+    {
+        return $query->where('status', PostStatus::Hidden);
+    }
+
+    public function scopeReported(Builder $query): Builder
+    {
+        return $query->where('reports_count', '>', 0);
+    }
+
+    public function scopeRecent(Builder $query): Builder
+    {
+        return $query->orderByDesc('created_at');
+    }
+
+    public function scopeHot(Builder $query): Builder
+    {
+        return $query->orderByDesc('hot_score');
+    }
+
+    public function scopePublished(Builder $query): Builder
+    {
+        return $query->where('status', PostStatus::Published);
     }
 
     public function user(): BelongsTo
