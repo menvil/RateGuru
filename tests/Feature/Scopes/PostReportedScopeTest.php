@@ -3,7 +3,7 @@
 use App\Models\Post;
 
 it('filters reported posts', function () {
-    $reported = Post::factory()->create(['reports_count' => 3]);
+    $reported = Post::factory()->create(['reports_count' => 1]);
     Post::factory()->create(['reports_count' => 0]);
 
     $results = Post::reported()->get();
