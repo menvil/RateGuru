@@ -82,3 +82,23 @@ it('filters published posts by tag slug', function () {
 
     expect($posts->pluck('id')->all())->toBe([$matching->id]);
 });
+
+it('searches published posts by title', function () {
+    $matching = Post::factory()->published()->create([
+        'title' => 'Homemade Carbonara',
+        'description' => 'Dinner',
+    ]);
+
+    Post::factory()->published()->create([
+        'title' => 'Chocolate Cake',
+        'description' => 'Dessert',
+    ]);
+
+    Post::factory()->hidden()->create([
+        'title' => 'Hidden Carbonara',
+    ]);
+
+    $posts = app(FeedQuery::class)->get(search: 'carbonara');
+
+    expect($posts->pluck('id')->all())->toBe([$matching->id]);
+});
