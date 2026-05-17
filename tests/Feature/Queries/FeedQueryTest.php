@@ -102,3 +102,24 @@ it('searches published posts by title', function () {
 
     expect($posts->pluck('id')->all())->toBe([$matching->id]);
 });
+
+it('searches published posts by description', function () {
+    $matching = Post::factory()->published()->create([
+        'title' => 'Dinner',
+        'description' => 'Fresh basil and tomato sauce',
+    ]);
+
+    Post::factory()->published()->create([
+        'title' => 'Breakfast',
+        'description' => 'Eggs and toast',
+    ]);
+
+    Post::factory()->hidden()->create([
+        'title' => 'Hidden',
+        'description' => 'Fresh basil hidden post',
+    ]);
+
+    $posts = app(FeedQuery::class)->get(search: 'basil');
+
+    expect($posts->pluck('id')->all())->toBe([$matching->id]);
+});
