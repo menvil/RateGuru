@@ -36,6 +36,11 @@ it('renders empty feed state when there are no published posts', function () {
         ->assertDontSee('Pending Dish');
 });
 
+it('has loading skeleton markup', function () {
+    Livewire::test(PostFeed::class)
+        ->assertSee('data-testid="post-feed-loading"', false);
+});
+
 it('renders post cards using the post card component', function () {
     Post::factory()->published()->create(['title' => 'Homemade Carbonara']);
 

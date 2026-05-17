@@ -1,12 +1,22 @@
-<div class="grid gap-4">
-    @if($posts->isEmpty())
-        <x-ui.empty-state
-            title="No dishes yet"
-            description="Published dishes will appear here."
-        />
-    @else
-        @foreach($posts as $post)
-            <x-feed.post-card :post="$post" :key="$post->id" />
-        @endforeach
-    @endif
+<div>
+    <div wire:loading class="grid gap-4" data-testid="post-feed-loading">
+        <x-ui.card variant="post">
+            <x-ui.skeleton shape="block" height="h-48" />
+            <x-ui.skeleton shape="line" width="w-3/4" class="mt-3" />
+            <x-ui.skeleton shape="line" width="w-1/2" class="mt-2" />
+        </x-ui.card>
+    </div>
+
+    <div wire:loading.remove class="grid gap-4">
+        @if($posts->isEmpty())
+            <x-ui.empty-state
+                title="No dishes yet"
+                description="Published dishes will appear here."
+            />
+        @else
+            @foreach($posts as $post)
+                <x-feed.post-card :post="$post" :key="$post->id" />
+            @endforeach
+        @endif
+    </div>
 </div>
