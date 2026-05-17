@@ -6,6 +6,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
 it('stores uploaded post image locally', function () {
+    config(['rateguru.images.disk' => 'public']);
     Storage::fake('public');
 
     $user = User::factory()->create();

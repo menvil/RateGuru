@@ -12,9 +12,12 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(ImageStorage::class, function () {
-            return match (config('rateguru.images.driver')) {
+            $driver = config('rateguru.images.driver');
+
+            return match ($driver) {
+                'local'      => $this->app->make(LocalImageStorage::class),
                 'cloudinary' => $this->app->make(CloudinaryImageStorage::class),
-                default => $this->app->make(LocalImageStorage::class),
+                default      => throw new \InvalidArgumentException("Unsupported image driver: [{$driver}]."),
             };
         });
     }

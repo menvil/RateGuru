@@ -29,7 +29,7 @@ final class CreatePostAction
         $status      = $isTrusted ? PostStatus::Published : PostStatus::Pending;
         $publishedAt = $isTrusted ? now() : null;
 
-        return DB::transaction(function () use ($user, $data, $status, $publishedAt) {
+        $post = DB::transaction(function () use ($user, $data, $status, $publishedAt) {
             $storedImage = $data->image !== null
                 ? $this->imageStorage->storePostImage($data->image, $user)
                 : null;
@@ -52,11 +52,13 @@ final class CreatePostAction
                 $post->tags()->sync($data->tagIds);
             }
 
-            if ($storedImage !== null) {
-                ProcessUploadedImageJob::dispatch($post->id);
-            }
-
             return $post;
         });
+
+        if ($post->image_path !== null) {
+            ProcessUploadedImageJob::dispatch($post->id);
+        }
+
+        return $post;
     }
 }

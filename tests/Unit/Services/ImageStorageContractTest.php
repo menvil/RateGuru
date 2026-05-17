@@ -40,5 +40,10 @@ it('image storage interface has store post image method', function () {
         ->and($reflection->hasMethod('storePostImage'))->toBeTrue();
 
     $method = $reflection->getMethod('storePostImage');
-    expect($method->getNumberOfParameters())->toBe(2);
+    $params = $method->getParameters();
+
+    expect($method->getNumberOfParameters())->toBe(2)
+        ->and($params[0]->getType()->getName())->toBe(\Illuminate\Http\UploadedFile::class)
+        ->and($params[1]->getType()->getName())->toBe(\App\Models\User::class)
+        ->and($method->getReturnType()->getName())->toBe(\App\Services\Images\StoredImage::class);
 });
