@@ -54,6 +54,24 @@ it('does not break when description is missing', function () {
     expect($html)->toContain('Dish');
 });
 
+it('renders post stats area', function () {
+    $post = Post::factory()->published()->make([
+        'upvotes_count' => 12,
+        'downvotes_count' => 3,
+        'comments_count' => 5,
+        'homemade_votes_count' => 7,
+        'restaurant_votes_count' => 4,
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('9')
+        ->toContain('5 comments')
+        ->toContain('Homemade')
+        ->toContain('Restaurant');
+});
+
 it('renders post author area', function () {
     $user = \App\Models\User::factory()->make([
         'name' => 'Demo Chef',

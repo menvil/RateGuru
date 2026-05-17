@@ -29,4 +29,19 @@
             <p class="mt-1 text-[13px] leading-snug text-rg-muted">{{ \Illuminate\Support\Str::limit($post->description, 140) }}</p>
         @endif
     </div>
+
+    @php
+        $score = ($post->upvotes_count ?? 0) - ($post->downvotes_count ?? 0);
+    @endphp
+
+    <footer class="mt-3 border-t border-rg-border pt-2.5">
+        <div class="flex items-center gap-4 text-xs text-rg-muted">
+            <span>Score <span class="font-semibold text-rg-text2">{{ $score }}</span></span>
+            <span>{{ $post->comments_count ?? 0 }} comments</span>
+        </div>
+        <div class="mt-2 flex flex-wrap gap-2">
+            <x-ui.badge>Homemade {{ $post->homemade_votes_count ?? 0 }}</x-ui.badge>
+            <x-ui.badge>Restaurant {{ $post->restaurant_votes_count ?? 0 }}</x-ui.badge>
+        </div>
+    </footer>
 </x-ui.card>
