@@ -85,3 +85,14 @@ it('stores origin truth', function () {
 
     expect($post->fresh()->origin_truth)->toBe(OriginType::Homemade);
 });
+
+it('stores cuisine truth', function () {
+    $user = User::factory()->create();
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Homemade pasta',
+        cuisineTruth: CuisineType::Italian,
+    ));
+
+    expect($post->fresh()->cuisine_truth)->toBe(CuisineType::Italian);
+});
