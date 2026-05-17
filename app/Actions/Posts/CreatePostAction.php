@@ -28,13 +28,11 @@ final class CreatePostAction
         $status      = $isTrusted ? PostStatus::Published : PostStatus::Pending;
         $publishedAt = $isTrusted ? now() : null;
 
-        $storedImage = null;
+        return DB::transaction(function () use ($user, $data, $status, $publishedAt) {
+            $storedImage = $data->image !== null
+                ? $this->imageStorage->storePostImage($data->image, $user)
+                : null;
 
-        if ($data->image !== null) {
-            $storedImage = $this->imageStorage->storePostImage($data->image, $user);
-        }
-
-        return DB::transaction(function () use ($user, $data, $status, $publishedAt, $storedImage) {
             $post = Post::create([
                 'user_id'       => $user->id,
                 'title'         => $data->title,
