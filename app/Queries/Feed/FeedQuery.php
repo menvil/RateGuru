@@ -3,6 +3,7 @@
 namespace App\Queries\Feed;
 
 use App\Models\Post;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -50,5 +51,16 @@ final class FeedQuery
         string $sort = 'newest',
     ): Collection {
         return $this->query($search, $tag, $sort)->get();
+    }
+
+    public function paginate(
+        ?string $search = null,
+        ?string $tag = null,
+        string $sort = 'newest',
+        int $perPage = 20,
+    ): LengthAwarePaginator {
+        $perPage = max(1, min($perPage, 50));
+
+        return $this->query(search: $search, tag: $tag, sort: $sort)->paginate($perPage);
     }
 }
