@@ -29,3 +29,19 @@ it('renders image placeholder when image url is missing', function () {
 
     expect($html)->toContain('Food image');
 });
+
+it('renders post author area', function () {
+    $user = \App\Models\User::factory()->make([
+        'name' => 'Demo Chef',
+        'username' => 'demo_chef',
+    ]);
+
+    $post = Post::factory()->published()->make(['title' => 'Dish']);
+    $post->setRelation('user', $user);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('Demo Chef')
+        ->toContain('@demo_chef');
+});
