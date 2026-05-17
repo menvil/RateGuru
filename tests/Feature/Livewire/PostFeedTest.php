@@ -28,6 +28,14 @@ it('shows empty feed state when no published posts exist', function () {
         ->assertSee('No dishes yet');
 });
 
+it('renders empty feed state when there are no published posts', function () {
+    Post::factory()->pending()->create(['title' => 'Pending Dish']);
+
+    Livewire::test(PostFeed::class)
+        ->assertSee('No dishes yet')
+        ->assertDontSee('Pending Dish');
+});
+
 it('renders post cards using the post card component', function () {
     Post::factory()->published()->create(['title' => 'Homemade Carbonara']);
 
