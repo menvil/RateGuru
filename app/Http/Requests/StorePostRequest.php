@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -20,7 +21,8 @@ class StorePostRequest extends FormRequest
             'image'       => ['required', 'image', 'max:5120'],
             'description' => ['nullable', 'string', 'max:2000'],
             'source_url'   => ['nullable', 'url', 'max:2048'],
-            'origin_truth' => ['nullable', Rule::enum(OriginType::class)],
+            'origin_truth'  => ['nullable', Rule::enum(OriginType::class)],
+            'cuisine_truth' => ['nullable', Rule::enum(CuisineType::class)],
         ];
     }
 }
