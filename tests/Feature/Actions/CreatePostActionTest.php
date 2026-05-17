@@ -149,3 +149,39 @@ it('calls image storage when image is provided', function () {
     expect($post->fresh()->image_path)->toBe('posts/1/dish.jpg');
     expect($post->fresh()->image_url)->toBe('/storage/posts/1/dish.jpg');
 });
+
+it('allows created post to have null thumbnail url', function () {
+    $user = User::factory()->create();
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish without thumbnail',
+        image: null,
+    ));
+
+    expect($post->fresh()->thumbnail_url)->toBeNull();
+});
+
+it('stores null thumbnail url when image storage returns no thumbnail', function () {
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('dish.jpg');
+
+    $fakeStorage = new class implements ImageStorage {
+        public function storePostImage(UploadedFile $file, User $user): StoredImage
+        {
+            return new StoredImage(
+                path: 'posts/1/dish.jpg',
+                thumbnailUrl: null,
+                disk: 'public',
+            );
+        }
+    };
+
+    app()->instance(ImageStorage::class, $fakeStorage);
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish with image but no thumbnail',
+        image: $file,
+    ));
+
+    expect($post->fresh()->thumbnail_url)->toBeNull();
+});
