@@ -26,6 +26,14 @@ final class FeedQuery
             });
         }
 
+        if ($search !== null && trim($search) !== '') {
+            $term = trim($search);
+
+            $query->where(function (Builder $searchQuery) use ($term) {
+                $searchQuery->where('title', 'like', "%{$term}%");
+            });
+        }
+
         return match ($sort) {
             'newest' => $query->orderByDesc('published_at')->orderByDesc('created_at'),
             'top' => $query->orderByRaw('(upvotes_count - downvotes_count) DESC')->orderByDesc('published_at'),
