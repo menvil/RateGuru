@@ -47,6 +47,7 @@ RateGuru is a Laravel + Livewire + Alpine + Filament application.
 
 
 ## Image storage rules
+
 - Do not switch image driver to cloudinary until real implementation exists.
 - Default image driver is local. Keep RATEGURU_IMAGE_DRIVER=local in .env.example.
 
