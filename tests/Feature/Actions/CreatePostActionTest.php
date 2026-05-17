@@ -5,7 +5,7 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Enums\PostStatus;
-use App\Exceptions\CannotCreatePostException;
+use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\Post;
 use App\Models\User;
 
