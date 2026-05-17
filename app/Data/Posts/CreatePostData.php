@@ -14,6 +14,7 @@ final readonly class CreatePostData
         public ?string $sourceUrl = null,
         public OriginType $originTruth = OriginType::Unknown,
         public CuisineType $cuisineTruth = CuisineType::Unknown,
+        /** @var array<int> $tagIds */
         public array $tagIds = [],
         public ?UploadedFile $image = null,
     ) {}

@@ -21,4 +21,16 @@ it('can create create post data object', function () {
     expect($data->originTruth)->toBe(OriginType::Homemade);
     expect($data->cuisineTruth)->toBe(CuisineType::Italian);
     expect($data->tagIds)->toBe([1, 2]);
+    expect($data->image)->toBeNull();
+});
+
+it('can create create post data object with defaults', function () {
+    $data = new CreatePostData(title: 'Simple title');
+
+    expect($data->description)->toBeNull();
+    expect($data->sourceUrl)->toBeNull();
+    expect($data->originTruth)->toBe(OriginType::Unknown);
+    expect($data->cuisineTruth)->toBe(CuisineType::Unknown);
+    expect($data->tagIds)->toBe([]);
+    expect($data->image)->toBeNull();
 });
