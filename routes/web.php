@@ -2,9 +2,10 @@
 
 use App\Http\Controllers\ProfileController;
 use App\Http\Middleware\EnsureDevEnvironment;
+use App\Livewire\Feed\FeedPage;
 use Illuminate\Support\Facades\Route;
 
-Route::view('/', 'feed.placeholder')->name('feed');
+Route::get('/', FeedPage::class)->name('feed');
 
 Route::get('/dashboard', function () {
     return redirect()->route('feed');
