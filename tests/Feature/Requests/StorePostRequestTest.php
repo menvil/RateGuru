@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Requests\StorePostRequest;
+use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Validator;
 
@@ -110,4 +111,22 @@ it('validates tag ids exist', function () {
 
     expect($validator->fails())->toBeTrue();
     expect($validator->errors()->has('tag_ids.0'))->toBeTrue();
+});
+
+it('authorizes request when user can create content', function () {
+    $user = User::factory()->create();
+
+    $request = new StorePostRequest();
+    $request->setUserResolver(fn () => $user);
+
+    expect($request->authorize())->toBeTrue();
+});
+
+it('denies request when user cannot create content', function () {
+    $user = User::factory()->banned()->create();
+
+    $request = new StorePostRequest();
+    $request->setUserResolver(fn () => $user);
+
+    expect($request->authorize())->toBeFalse();
 });

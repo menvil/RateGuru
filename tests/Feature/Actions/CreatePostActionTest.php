@@ -49,10 +49,13 @@ it('does not allow banned user to create post', function () {
 
     $data = new CreatePostData(title: 'Blocked dish');
 
-    app(CreatePostAction::class)->handle($user, $data);
-
-    expect(Post::query()->count())->toBe(0);
-})->throws(CannotCreatePostException::class);
+    try {
+        app(CreatePostAction::class)->handle($user, $data);
+        $this->fail('Expected CannotCreatePostException was not thrown.');
+    } catch (CannotCreatePostException) {
+        expect(Post::query()->count())->toBe(0);
+    }
+});
 
 it('persists post description', function () {
     $user = User::factory()->create();
