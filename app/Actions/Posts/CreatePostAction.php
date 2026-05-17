@@ -6,6 +6,7 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
+use App\Jobs\ProcessUploadedImageJob;
 use App\Models\Post;
 use App\Models\User;
 use App\Services\Images\ImageStorage;
@@ -49,6 +50,10 @@ final class CreatePostAction
 
             if ($data->tagIds !== []) {
                 $post->tags()->sync($data->tagIds);
+            }
+
+            if ($storedImage !== null) {
+                ProcessUploadedImageJob::dispatch($post->id);
             }
 
             return $post;
