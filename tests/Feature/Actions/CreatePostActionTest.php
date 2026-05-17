@@ -30,3 +30,14 @@ it('creates a pending post for normal user', function () {
     expect($post->status)->toBe(PostStatus::Pending);
     expect($post->published_at)->toBeNull();
 });
+
+it('creates a published post for trusted user', function () {
+    $user = User::factory()->trusted()->create();
+
+    $data = new CreatePostData(title: 'Trusted dish');
+
+    $post = app(CreatePostAction::class)->handle($user, $data);
+
+    expect($post->status)->toBe(PostStatus::Published);
+    expect($post->published_at)->not->toBeNull();
+});
