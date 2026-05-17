@@ -3,7 +3,7 @@
 use App\Actions\Posts\CreatePostAction;
 
 it('has create post action class with handle method', function () {
-    $action = app(CreatePostAction::class);
+    $reflection = new ReflectionClass(CreatePostAction::class);
 
-    expect(method_exists($action, 'handle'))->toBeTrue();
+    expect($reflection->hasMethod('handle'))->toBeTrue();
 });
