@@ -74,3 +74,14 @@ it('persists source url', function () {
 
     expect($post->fresh()->source_url)->toBe('https://example.com/original');
 });
+
+it('stores origin truth', function () {
+    $user = User::factory()->create();
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Homemade pasta',
+        originTruth: OriginType::Homemade,
+    ));
+
+    expect($post->fresh()->origin_truth)->toBe(OriginType::Homemade);
+});
