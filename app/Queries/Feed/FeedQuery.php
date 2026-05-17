@@ -20,6 +20,12 @@ final class FeedQuery
     ): Builder {
         $query = $this->base()->published();
 
+        if ($tag !== null && $tag !== '') {
+            $query->whereHas('tags', function (Builder $tagQuery) use ($tag) {
+                $tagQuery->where('slug', $tag);
+            });
+        }
+
         return match ($sort) {
             'newest' => $query->orderByDesc('published_at')->orderByDesc('created_at'),
             'top' => $query->orderByRaw('(upvotes_count - downvotes_count) DESC')->orderByDesc('published_at'),
