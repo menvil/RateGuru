@@ -1,3 +1,7 @@
 <div>
-    <span>Post feed</span>
+    @foreach($posts as $post)
+        <article>
+            {{ $post->title }}
+        </article>
+    @endforeach
 </div>
