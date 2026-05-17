@@ -13,13 +13,24 @@ final class FeedQuery
         return Post::query();
     }
 
-    public function query(): Builder
-    {
-        return $this->base()->published();
+    public function query(
+        ?string $search = null,
+        ?string $tag = null,
+        string $sort = 'newest',
+    ): Builder {
+        $query = $this->base()->published();
+
+        return match ($sort) {
+            'newest' => $query->orderByDesc('published_at')->orderByDesc('created_at'),
+            default => $query->orderByDesc('published_at')->orderByDesc('created_at'),
+        };
     }
 
-    public function get(): Collection
-    {
-        return $this->query()->get();
+    public function get(
+        ?string $search = null,
+        ?string $tag = null,
+        string $sort = 'newest',
+    ): Collection {
+        return $this->query($search, $tag, $sort)->get();
     }
 }
