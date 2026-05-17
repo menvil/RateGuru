@@ -7,6 +7,7 @@ use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\Post;
+use App\Models\Tag;
 use App\Models\User;
 
 it('creates a pending post for normal user', function () {
@@ -95,4 +96,18 @@ it('stores cuisine truth', function () {
     ));
 
     expect($post->fresh()->cuisine_truth)->toBe(CuisineType::Italian);
+});
+
+it('attaches tags to created post', function () {
+    $user = User::factory()->create();
+    $tags = Tag::factory()->count(2)->create();
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Tagged dish',
+        tagIds: $tags->pluck('id')->all(),
+    ));
+
+    expect($post->tags()->count())->toBe(2);
+    expect($post->tags()->pluck('id')->all())
+        ->toEqualCanonicalizing($tags->pluck('id')->all());
 });
