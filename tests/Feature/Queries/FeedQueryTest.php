@@ -3,6 +3,7 @@
 use App\Models\Post;
 use App\Models\Tag;
 use App\Queries\Feed\FeedQuery;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 it('returns only published posts', function () {
     $published = Post::factory()->published()->create();
@@ -122,4 +123,15 @@ it('searches published posts by description', function () {
     $posts = app(FeedQuery::class)->get(search: 'basil');
 
     expect($posts->pluck('id')->all())->toBe([$matching->id]);
+});
+
+it('paginates feed posts', function () {
+    Post::factory()->published()->count(25)->create();
+    Post::factory()->pending()->count(5)->create();
+
+    $paginator = app(FeedQuery::class)->paginate(perPage: 10);
+
+    expect($paginator)->toBeInstanceOf(LengthAwarePaginator::class);
+    expect($paginator->items())->toHaveCount(10);
+    expect($paginator->total())->toBe(25);
 });
