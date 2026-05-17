@@ -30,7 +30,9 @@ final class FeedQuery
             $term = trim($search);
 
             $query->where(function (Builder $searchQuery) use ($term) {
-                $searchQuery->where('title', 'like', "%{$term}%");
+                $searchQuery
+                    ->where('title', 'like', "%{$term}%")
+                    ->orWhere('description', 'like', "%{$term}%");
             });
         }
 
