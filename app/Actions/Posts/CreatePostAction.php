@@ -22,7 +22,7 @@ final class CreatePostAction
         $status      = $isTrusted ? PostStatus::Published : PostStatus::Pending;
         $publishedAt = $isTrusted ? now() : null;
 
-        return Post::create([
+        $post = Post::create([
             'user_id'       => $user->id,
             'title'         => $data->title,
             'description'   => $data->description,
@@ -32,5 +32,11 @@ final class CreatePostAction
             'status'        => $status,
             'published_at'  => $publishedAt,
         ]);
+
+        if ($data->tagIds !== []) {
+            $post->tags()->sync($data->tagIds);
+        }
+
+        return $post;
     }
 }
