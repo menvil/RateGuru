@@ -69,6 +69,34 @@
 
         <section class="space-y-4">
             <div>
+                <h2 class="text-xl font-bold text-rg-text">Feed Components</h2>
+                <p class="mt-1 text-sm text-rg-muted">Live feed components driven by real Post data shape.</p>
+            </div>
+
+            <div class="max-w-xl space-y-4">
+                @php
+                    $demoPost = new \App\Models\Post([
+                        'title' => 'Homemade Carbonara',
+                        'description' => 'Creamy pasta with pepper and guanciale.',
+                        'upvotes_count' => 128,
+                        'downvotes_count' => 12,
+                        'comments_count' => 24,
+                        'homemade_votes_count' => 70,
+                        'restaurant_votes_count' => 30,
+                        'image_url' => null,
+                    ]);
+                    $demoPost->setRelation('user', new \App\Models\User([
+                        'name' => 'Demo Chef',
+                        'username' => 'demo_chef',
+                    ]));
+                @endphp
+
+                <x-feed.post-card :post="$demoPost" />
+            </div>
+        </section>
+
+        <section class="space-y-4">
+            <div>
                 <h2 class="text-xl font-bold text-rg-text">Primitive Components</h2>
                 <p class="mt-1 text-sm text-rg-muted">Reusable components remain available below the product reference.</p>
             </div>
