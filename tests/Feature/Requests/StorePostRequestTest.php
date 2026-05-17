@@ -72,3 +72,16 @@ it('requires source url to be valid url when provided', function () {
     expect($validator->fails())->toBeTrue();
     expect($validator->errors()->has('source_url'))->toBeTrue();
 });
+
+it('validates origin truth enum value', function () {
+    $request = new StorePostRequest();
+
+    $validator = Validator::make([
+        'title'        => 'Homemade pasta',
+        'image'        => UploadedFile::fake()->image('dish.jpg'),
+        'origin_truth' => 'invalid',
+    ], $request->rules());
+
+    expect($validator->fails())->toBeTrue();
+    expect($validator->errors()->has('origin_truth'))->toBeTrue();
+});
