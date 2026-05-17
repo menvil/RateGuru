@@ -23,6 +23,8 @@ class StorePostRequest extends FormRequest
             'source_url'   => ['nullable', 'url', 'max:2048'],
             'origin_truth'  => ['nullable', Rule::enum(OriginType::class)],
             'cuisine_truth' => ['nullable', Rule::enum(CuisineType::class)],
+            'tag_ids'       => ['nullable', 'array', 'max:10'],
+            'tag_ids.*'     => ['integer', 'exists:tags,id'],
         ];
     }
 }

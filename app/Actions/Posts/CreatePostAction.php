@@ -8,6 +8,7 @@ use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 final class CreatePostAction
 {
@@ -22,15 +23,23 @@ final class CreatePostAction
         $status      = $isTrusted ? PostStatus::Published : PostStatus::Pending;
         $publishedAt = $isTrusted ? now() : null;
 
-        return Post::create([
-            'user_id'       => $user->id,
-            'title'         => $data->title,
-            'description'   => $data->description,
-            'source_url'    => $data->sourceUrl,
-            'origin_truth'  => $data->originTruth,
-            'cuisine_truth' => $data->cuisineTruth,
-            'status'        => $status,
-            'published_at'  => $publishedAt,
-        ]);
+        return DB::transaction(function () use ($user, $data, $status, $publishedAt) {
+            $post = Post::create([
+                'user_id'       => $user->id,
+                'title'         => $data->title,
+                'description'   => $data->description,
+                'source_url'    => $data->sourceUrl,
+                'origin_truth'  => $data->originTruth,
+                'cuisine_truth' => $data->cuisineTruth,
+                'status'        => $status,
+                'published_at'  => $publishedAt,
+            ]);
+
+            if ($data->tagIds !== []) {
+                $post->tags()->sync($data->tagIds);
+            }
+
+            return $post;
+        });
     }
 }

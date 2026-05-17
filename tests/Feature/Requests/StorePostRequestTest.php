@@ -98,3 +98,16 @@ it('validates cuisine truth enum value', function () {
     expect($validator->fails())->toBeTrue();
     expect($validator->errors()->has('cuisine_truth'))->toBeTrue();
 });
+
+it('validates tag ids exist', function () {
+    $request = new StorePostRequest();
+
+    $validator = Validator::make([
+        'title'   => 'Homemade pasta',
+        'image'   => UploadedFile::fake()->image('dish.jpg'),
+        'tag_ids' => [999999],
+    ], $request->rules());
+
+    expect($validator->fails())->toBeTrue();
+    expect($validator->errors()->has('tag_ids.0'))->toBeTrue();
+});
