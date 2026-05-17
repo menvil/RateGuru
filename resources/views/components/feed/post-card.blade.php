@@ -23,5 +23,10 @@
         </div>
     @endif
 
-    <h3 class="mt-3 text-base font-bold text-rg-text">{{ $post->title }}</h3>
+    <div class="mt-3">
+        <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>
+        @if($post->description)
+            <p class="mt-1 text-[13px] leading-snug text-rg-muted">{{ \Illuminate\Support\Str::limit($post->description, 140) }}</p>
+        @endif
+    </div>
 </x-ui.card>
