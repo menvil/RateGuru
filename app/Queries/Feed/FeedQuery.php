@@ -23,6 +23,7 @@ final class FeedQuery
         return match ($sort) {
             'newest' => $query->orderByDesc('published_at')->orderByDesc('created_at'),
             'top' => $query->orderByRaw('(upvotes_count - downvotes_count) DESC')->orderByDesc('published_at'),
+            'hot' => $query->orderByDesc('hot_score')->orderByDesc('published_at'),
             default => $query->orderByDesc('published_at')->orderByDesc('created_at'),
         };
     }
