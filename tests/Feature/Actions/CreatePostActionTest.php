@@ -52,3 +52,14 @@ it('does not allow banned user to create post', function () {
 
     expect(Post::query()->count())->toBe(0);
 })->throws(CannotCreatePostException::class);
+
+it('persists post description', function () {
+    $user = User::factory()->create();
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Homemade pasta',
+        description: 'Fresh pasta with tomato sauce',
+    ));
+
+    expect($post->fresh()->description)->toBe('Fresh pasta with tomato sauce');
+});
