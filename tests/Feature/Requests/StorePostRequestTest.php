@@ -48,3 +48,14 @@ it('allows description to be omitted', function () {
 
     expect($validator->errors()->has('description'))->toBeFalse();
 });
+
+it('allows source url to be omitted', function () {
+    $request = new StorePostRequest();
+
+    $validator = Validator::make([
+        'title' => 'Homemade pasta',
+        'image' => UploadedFile::fake()->image('dish.jpg'),
+    ], $request->rules());
+
+    expect($validator->errors()->has('source_url'))->toBeFalse();
+});
