@@ -46,3 +46,20 @@ it('sorts published posts by top score', function () {
 
     expect($posts->pluck('id')->all())->toBe([$high->id, $low->id]);
 });
+
+it('sorts published posts by hot score', function () {
+    // $hot is older — newest sort would return $cold first, hot sort must override
+    $hot = Post::factory()->published()->create([
+        'hot_score' => 10,
+        'published_at' => now()->subDay(),
+    ]);
+
+    $cold = Post::factory()->published()->create([
+        'hot_score' => 1,
+        'published_at' => now(),
+    ]);
+
+    $posts = app(FeedQuery::class)->get(sort: 'hot');
+
+    expect($posts->pluck('id')->all())->toBe([$hot->id, $cold->id]);
+});
