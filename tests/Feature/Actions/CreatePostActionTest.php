@@ -140,10 +140,12 @@ it('calls image storage when image is provided', function () {
 
     app()->instance(ImageStorage::class, $fakeStorage);
 
-    app(CreatePostAction::class)->handle($user, new CreatePostData(
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Dish with image',
         image: $file,
     ));
 
     expect($fakeStorage->called)->toBeTrue();
+    expect($post->fresh()->image_path)->toBe('posts/1/dish.jpg');
+    expect($post->fresh()->image_url)->toBe('/storage/posts/1/dish.jpg');
 });
