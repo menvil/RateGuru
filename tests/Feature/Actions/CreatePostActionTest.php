@@ -9,9 +9,11 @@ use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
+use App\Jobs\ProcessUploadedImageJob;
 use App\Services\Images\ImageStorage;
 use App\Services\Images\StoredImage;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Bus;
 
 it('creates a pending post for normal user', function () {
     $user = User::factory()->create();
@@ -184,4 +186,31 @@ it('stores null thumbnail url when image storage returns no thumbnail', function
     ));
 
     expect($post->fresh()->thumbnail_url)->toBeNull();
+});
+
+it('dispatches process uploaded image job after post with image is created', function () {
+    Bus::fake();
+
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('dish.jpg');
+
+    app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish',
+        image: $file,
+    ));
+
+    Bus::assertDispatched(ProcessUploadedImageJob::class);
+});
+
+it('does not dispatch process uploaded image job when no image is provided', function () {
+    Bus::fake();
+
+    $user = User::factory()->create();
+
+    app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish',
+        image: null,
+    ));
+
+    Bus::assertNotDispatched(ProcessUploadedImageJob::class);
 });
