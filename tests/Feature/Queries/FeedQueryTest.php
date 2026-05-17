@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Post;
+use App\Models\Tag;
 use App\Queries\Feed\FeedQuery;
 
 it('returns only published posts', function () {
@@ -62,4 +63,22 @@ it('sorts published posts by hot score', function () {
     $posts = app(FeedQuery::class)->get(sort: 'hot');
 
     expect($posts->pluck('id')->all())->toBe([$hot->id, $cold->id]);
+});
+
+it('filters published posts by tag slug', function () {
+    $pasta = Tag::factory()->create(['slug' => 'pasta']);
+    $dessert = Tag::factory()->create(['slug' => 'dessert']);
+
+    $matching = Post::factory()->published()->create();
+    $matching->tags()->attach($pasta);
+
+    $other = Post::factory()->published()->create();
+    $other->tags()->attach($dessert);
+
+    $hiddenMatching = Post::factory()->hidden()->create();
+    $hiddenMatching->tags()->attach($pasta);
+
+    $posts = app(FeedQuery::class)->get(tag: 'pasta');
+
+    expect($posts->pluck('id')->all())->toBe([$matching->id]);
 });
