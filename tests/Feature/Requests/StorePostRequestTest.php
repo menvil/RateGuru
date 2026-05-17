@@ -14,3 +14,14 @@ it('requires post title', function () {
     expect($validator->fails())->toBeTrue();
     expect($validator->errors()->has('title'))->toBeTrue();
 });
+
+it('requires post image', function () {
+    $request = new StorePostRequest();
+
+    $validator = Validator::make([
+        'title' => 'Homemade pasta',
+    ], $request->rules());
+
+    expect($validator->fails())->toBeTrue();
+    expect($validator->errors()->has('image'))->toBeTrue();
+});
