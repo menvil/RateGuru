@@ -9,6 +9,9 @@ use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
+use App\Services\Images\ImageStorage;
+use App\Services\Images\StoredImage;
+use Illuminate\Http\UploadedFile;
 
 it('creates a pending post for normal user', function () {
     $user = User::factory()->create();
@@ -113,4 +116,34 @@ it('attaches tags to created post', function () {
     expect($post->tags()->count())->toBe(2);
     expect($post->tags()->pluck('id')->all())
         ->toEqualCanonicalizing($tags->pluck('id')->all());
+});
+
+it('calls image storage when image is provided', function () {
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('dish.jpg');
+
+    $fakeStorage = new class implements ImageStorage {
+        public bool $called = false;
+
+        public function storePostImage(UploadedFile $file, User $user): StoredImage
+        {
+            $this->called = true;
+
+            return new StoredImage(
+                path: 'posts/1/dish.jpg',
+                url: '/storage/posts/1/dish.jpg',
+                thumbnailUrl: null,
+                disk: 'public',
+            );
+        }
+    };
+
+    app()->instance(ImageStorage::class, $fakeStorage);
+
+    app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish with image',
+        image: $file,
+    ));
+
+    expect($fakeStorage->called)->toBeTrue();
 });
