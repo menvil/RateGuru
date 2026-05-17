@@ -98,6 +98,13 @@ it('renders the core PlateRate reference regions', function () {
         ->assertSee('data-ui="comments-panel"', false);
 });
 
+it('renders post card example in the feed components section of ui kit', function () {
+    $this->get('/dev/ui-kit')
+        ->assertOk()
+        ->assertSee('Feed Components')
+        ->assertSee('Homemade Carbonara');
+});
+
 it('does not render the old abstract placeholder label in the reference composition', function () {
     $this->get('/dev/ui-kit')
         ->assertOk()
