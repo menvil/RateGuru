@@ -45,6 +45,10 @@ RateGuru is a Laravel + Livewire + Alpine + Filament application.
 - Alpine is for local UI state: modal, drawer, dropdown, preview.
 - Livewire is for server state: forms, voting, comments, filtering.
 
+## Image storage rules
+- Do not switch image driver to cloudinary until real implementation exists.
+- Default image driver is local. Keep RATEGURU_IMAGE_DRIVER=local in .env.example.
+
 ## Forbidden without separate task
 - Adding React/Vue/Inertia.
 - Adding Redis.
