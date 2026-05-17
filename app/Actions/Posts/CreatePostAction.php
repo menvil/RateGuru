@@ -5,6 +5,7 @@ namespace App\Actions\Posts;
 use App\Data\Posts\CreatePostData;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
+use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\Post;
 use App\Models\User;
 
@@ -12,6 +13,10 @@ final class CreatePostAction
 {
     public function handle(User $user, CreatePostData $data): Post
     {
+        if (! $user->canCreateContent()) {
+            throw CannotCreatePostException::becauseUserIsNotAllowed();
+        }
+
         $isTrusted = $user->trust_level >= 10 && $user->status === UserStatus::Active;
 
         $status      = $isTrusted ? PostStatus::Published : PostStatus::Pending;
