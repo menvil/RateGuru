@@ -30,6 +30,30 @@ it('renders image placeholder when image url is missing', function () {
     expect($html)->toContain('Food image');
 });
 
+it('renders post title and description', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Homemade Carbonara',
+        'description' => 'Creamy pasta with pepper',
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('Homemade Carbonara')
+        ->toContain('Creamy pasta with pepper');
+});
+
+it('does not break when description is missing', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Dish',
+        'description' => null,
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('Dish');
+});
+
 it('renders post author area', function () {
     $user = \App\Models\User::factory()->make([
         'name' => 'Demo Chef',
