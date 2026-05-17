@@ -13,3 +13,17 @@ it('returns only published posts', function () {
 
     expect($posts->pluck('id')->all())->toBe([$published->id]);
 });
+
+it('sorts published posts by newest', function () {
+    $old = Post::factory()->published()->create([
+        'published_at' => now()->subDay(),
+    ]);
+
+    $new = Post::factory()->published()->create([
+        'published_at' => now(),
+    ]);
+
+    $posts = app(FeedQuery::class)->get(sort: 'newest');
+
+    expect($posts->pluck('id')->all())->toBe([$new->id, $old->id]);
+});
