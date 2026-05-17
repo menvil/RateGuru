@@ -63,3 +63,14 @@ it('persists post description', function () {
 
     expect($post->fresh()->description)->toBe('Fresh pasta with tomato sauce');
 });
+
+it('persists source url', function () {
+    $user = User::factory()->create();
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Homemade pasta',
+        sourceUrl: 'https://example.com/original',
+    ));
+
+    expect($post->fresh()->source_url)->toBe('https://example.com/original');
+});

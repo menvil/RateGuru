@@ -59,3 +59,16 @@ it('allows source url to be omitted', function () {
 
     expect($validator->errors()->has('source_url'))->toBeFalse();
 });
+
+it('requires source url to be valid url when provided', function () {
+    $request = new StorePostRequest();
+
+    $validator = Validator::make([
+        'title'      => 'Homemade pasta',
+        'image'      => UploadedFile::fake()->image('dish.jpg'),
+        'source_url' => 'not-a-url',
+    ], $request->rules());
+
+    expect($validator->fails())->toBeTrue();
+    expect($validator->errors()->has('source_url'))->toBeTrue();
+});
