@@ -10,13 +10,14 @@ final class LocalImageStorage implements ImageStorage
 {
     public function storePostImage(UploadedFile $file, User $user): StoredImage
     {
-        $path = $file->storePublicly("posts/{$user->id}", 'public');
+        $disk = config('rateguru.images.disk', 'public');
+        $path = $file->storePublicly("posts/{$user->id}", $disk);
 
         return new StoredImage(
             path: $path,
-            url: Storage::disk('public')->url($path),
+            url: Storage::disk($disk)->url($path),
             thumbnailUrl: null,
-            disk: 'public',
+            disk: $disk,
         );
     }
 }
