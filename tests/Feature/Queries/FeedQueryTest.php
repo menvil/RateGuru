@@ -135,3 +135,21 @@ it('paginates feed posts', function () {
     expect($paginator->items())->toHaveCount(10);
     expect($paginator->total())->toBe(25);
 });
+
+it('clamps perPage to minimum of 1 when 0 is given', function () {
+    Post::factory()->published()->count(25)->create();
+
+    $paginator = app(FeedQuery::class)->paginate(perPage: 0);
+
+    expect($paginator->perPage())->toBe(1);
+    expect($paginator->total())->toBe(25);
+});
+
+it('clamps perPage to maximum of 50 when 100 is given', function () {
+    Post::factory()->published()->count(25)->create();
+
+    $paginator = app(FeedQuery::class)->paginate(perPage: 100);
+
+    expect($paginator->perPage())->toBe(50);
+    expect($paginator->total())->toBe(25);
+});
