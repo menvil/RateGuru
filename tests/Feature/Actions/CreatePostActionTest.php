@@ -5,6 +5,7 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Enums\PostStatus;
+use App\Exceptions\CannotCreatePostException;
 use App\Models\Post;
 use App\Models\User;
 
@@ -41,3 +42,13 @@ it('creates a published post for trusted user', function () {
     expect($post->status)->toBe(PostStatus::Published);
     expect($post->published_at)->not->toBeNull();
 });
+
+it('does not allow banned user to create post', function () {
+    $user = User::factory()->banned()->create();
+
+    $data = new CreatePostData(title: 'Blocked dish');
+
+    app(CreatePostAction::class)->handle($user, $data);
+
+    expect(Post::query()->count())->toBe(0);
+})->throws(CannotCreatePostException::class);
