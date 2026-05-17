@@ -12,3 +12,12 @@ it('renders base feed layout with section title', function () {
         ->assertOk()
         ->assertSee('Latest dishes');
 });
+
+it('uses mobile-safe feed layout', function () {
+    $response = $this->get('/');
+    $response->assertOk();
+    $html = $response->getContent();
+    expect($html)
+        ->toContain('px-4')
+        ->toContain('max-w-');
+});
