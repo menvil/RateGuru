@@ -1,7 +1,9 @@
 <?php
 
 use App\Actions\Counters\RecalculatePostCountersAction;
+use App\Enums\OriginType;
 use App\Enums\VoteType;
+use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\PostVote;
 
@@ -62,4 +64,30 @@ it('counts upvotes and downvotes independently', function () {
     expect($post->fresh()->downvotes_count)->toBe(1);
     expect($snapshot->upvotes)->toBe(1);
     expect($snapshot->downvotes)->toBe(1);
+});
+
+it('recalculates origin vote counters from origin votes', function () {
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 99,
+        'restaurant_votes_count' => 88,
+    ]);
+
+    OriginVote::factory()->for($post)->create([
+        'origin' => OriginType::Homemade,
+    ]);
+
+    OriginVote::factory()->for($post)->create([
+        'origin' => OriginType::Restaurant,
+    ]);
+
+    OriginVote::factory()->for($post)->create([
+        'origin' => OriginType::Restaurant,
+    ]);
+
+    $snapshot = app(RecalculatePostCountersAction::class)->handle($post);
+
+    expect($post->fresh()->homemade_votes_count)->toBe(1);
+    expect($post->fresh()->restaurant_votes_count)->toBe(2);
+    expect($snapshot->homemadeVotes)->toBe(1);
+    expect($snapshot->restaurantVotes)->toBe(2);
 });
