@@ -51,6 +51,9 @@ final class VotePostAction
 
     private function counterColumn(VoteType $type): string
     {
-        return $type === VoteType::Up ? 'upvotes_count' : 'downvotes_count';
+        return match ($type) {
+            VoteType::Up => 'upvotes_count',
+            VoteType::Down => 'downvotes_count',
+        };
     }
 }
