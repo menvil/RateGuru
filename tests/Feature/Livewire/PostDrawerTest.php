@@ -9,6 +9,13 @@ it('can render post drawer component', function () {
         ->assertStatus(200);
 });
 
+it('renders post voting component in drawer', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="post-drawer-voting"', false);
+});
+
 it('renders selected published post', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Homemade Carbonara',
