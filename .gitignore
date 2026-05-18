@@ -51,6 +51,8 @@
 /public/hot
 /public/build
 
+/plans
+
 /.phpunit.cache
 /.phpunit.result.cache
 /.pest.cache
