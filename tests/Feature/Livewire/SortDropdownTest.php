@@ -25,7 +25,6 @@ it('accepts initial sort prop', function () {
         ->assertSet('sort', 'top');
 });
 
-// RG-197
 it('marks the active sort option with aria-pressed', function () {
     Livewire::test(SortDropdown::class, ['sort' => 'top'])
         ->assertSee('aria-pressed="true"', false);
@@ -36,7 +35,6 @@ it('has a testid for the dropdown container', function () {
         ->assertSee('data-testid="sort-dropdown"', false);
 });
 
-// RG-198
 it('has alpine x-data directive for dropdown behavior', function () {
     Livewire::test(SortDropdown::class)
         ->assertSee('x-data', false);
