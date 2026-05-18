@@ -70,6 +70,25 @@ it('renders post metadata', function () {
         ->assertSee('Source');
 });
 
+it('renders read only voting panels on post page', function () {
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 12,
+        'downvotes_count' => 3,
+        'homemade_votes_count' => 7,
+        'restaurant_votes_count' => 5,
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('Score')
+        ->assertSee('9')
+        ->assertSee('Homemade')
+        ->assertSee('7')
+        ->assertSee('Restaurant')
+        ->assertSee('5')
+        ->assertDontSee('wire:click', false);
+});
+
 it('does not show hidden post to guest', function () {
     $post = Post::factory()->hidden()->create([
         'title' => 'Hidden Dish',
