@@ -69,7 +69,14 @@
         @endif
     </section>
 
-    <section class="mt-6 grid grid-cols-3 gap-2" aria-label="Voting summary" data-testid="post-show-voting">
+    <div data-testid="post-show-voting" class="mt-6">
+        <livewire:posts.post-voting
+            :post-id="$post->id"
+            :key="'post-show-voting-'.$post->id"
+        />
+    </div>
+
+    <section class="mt-6 grid grid-cols-3 gap-2" aria-label="Voting summary" data-testid="post-show-vote-summary">
         <x-ui.card class="text-center">
             <div class="text-xs text-rg-muted">Score</div>
             <div class="mt-1 text-base font-bold text-rg-text">{{ $post->score }}</div>
