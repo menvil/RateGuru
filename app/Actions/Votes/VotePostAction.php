@@ -17,6 +17,10 @@ final class VotePostAction
             throw CannotVoteException::becauseGuest();
         }
 
+        if (! $user->canVote()) {
+            throw CannotVoteException::becauseUserIsNotAllowed();
+        }
+
         DB::transaction(function () use ($user, $post, $type) {
             $existingVote = PostVote::query()
                 ->where('post_id', $post->id)

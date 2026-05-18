@@ -41,6 +41,11 @@ class User extends Authenticatable
         return $this->status?->canCreateContent() ?? false;
     }
 
+    public function canVote(): bool
+    {
+        return $this->status === UserStatus::Active;
+    }
+
     public function posts(): HasMany
     {
         return $this->hasMany(Post::class);
