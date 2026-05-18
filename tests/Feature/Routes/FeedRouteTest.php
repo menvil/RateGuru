@@ -53,3 +53,12 @@ it('has alpine upload modal open close behavior', function () {
         ->toContain('x-show')
         ->toContain('@click');
 });
+
+it('renders alpine drawer shell on feed page', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('data-testid="post-detail-drawer-shell"')
+        ->toContain('drawerOpen')
+        ->toContain('x-show');
+});
