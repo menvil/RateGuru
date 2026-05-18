@@ -35,6 +35,13 @@
 - Backdrop covers the feed
 - Manual check: pending
 
+## Desktop pass (RG-240)
+- Drawer uses `md:inset-y-0 md:right-0 md:h-dvh md:max-h-none md:max-w-lg` on medium+ screens
+- Right-side panel with full height
+- Content scrollable inside drawer
+- Feed visible behind backdrop
+- Manual check: pending
+
 ## Known deviations
 - Alpine transitions are configured for right-side (translate-x-full) — mobile bottom sheet may not animate on open/close. Acceptable for Phase 11; animation refinement is a future task.
 - No standalone post show route (Phase 12).
