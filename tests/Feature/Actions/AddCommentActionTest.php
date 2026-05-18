@@ -119,3 +119,12 @@ it('rejects whitespace only comment body', function () {
         expect(Comment::query()->count())->toBe(0);
     }
 });
+
+it('trims comment body before saving', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $comment = app(AddCommentAction::class)->handle($user, $post, '  Nice  ');
+
+    expect($comment->body)->toBe('Nice');
+});

@@ -24,10 +24,16 @@ final class AddCommentAction
             throw CannotCommentException::becausePostIsNotPublic();
         }
 
+        $body = trim($body);
+
+        if ($body === '') {
+            throw CannotCommentException::becauseBodyIsInvalid('Comment body is required.');
+        }
+
         return Comment::create([
             'user_id' => $user->id,
             'post_id' => $post->id,
-            'body' => trim($body),
+            'body' => $body,
             'status' => CommentStatus::Visible,
         ]);
     }
