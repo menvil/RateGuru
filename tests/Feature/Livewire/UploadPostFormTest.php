@@ -84,6 +84,25 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('has origin truth selector', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Homemade')
+        ->assertSee('Restaurant')
+        ->assertSee('Keep unknown');
+});
+
+it('updates originTruth property', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('originTruth', \App\Enums\OriginType::Homemade->value)
+        ->assertSet('originTruth', \App\Enums\OriginType::Homemade->value);
+});
+
 it('has source url input', function () {
     $user = User::factory()->create();
 
