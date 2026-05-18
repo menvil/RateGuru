@@ -84,6 +84,16 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('renders validation error placeholders', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->call('submit')
+        ->assertSee('field-error-title', false)
+        ->assertSee('field-error-image', false);
+});
+
 it('shows validation error when image is missing', function () {
     $user = User::factory()->create();
 

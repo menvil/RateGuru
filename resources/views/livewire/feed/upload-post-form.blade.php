@@ -118,4 +118,18 @@
             Tag selection coming soon
         </div>
     </div>
+
+    @if($submitError)
+        <x-ui.error-message
+            title="Something went wrong"
+            :message="$submitError"
+        />
+    @endif
+
+    <div class="flex justify-end">
+        <x-ui.button type="submit" wire:loading.attr="disabled" wire:click="submit">
+            <span wire:loading.remove wire:target="submit">Create post</span>
+            <span wire:loading wire:target="submit">Uploading...</span>
+        </x-ui.button>
+    </div>
 </div>
