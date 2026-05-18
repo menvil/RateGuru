@@ -9,16 +9,15 @@
     $drawerId = $attributes->get('id') ?? 'drawer-'.$generatedId;
     $titleId = $attributes->has('id') ? $drawerId.'-title' : 'drawer-title-'.$generatedId;
 
-    $panelSideClass = [
-        'left' => 'inset-y-0 left-0',
-        'right' => 'inset-y-0 right-0',
-    ][$side] ?? 'inset-y-0 right-0';
-
     $panelSizeClass = [
-        'md' => 'sm:max-w-md',
-        'lg' => 'sm:max-w-lg',
-        'xl' => 'sm:max-w-xl',
-    ][$size] ?? 'sm:max-w-lg';
+        'md' => 'md:max-w-md',
+        'lg' => 'md:max-w-lg',
+        'xl' => 'md:max-w-xl',
+    ][$size] ?? 'md:max-w-lg';
+
+    $panelDesktopClass = $side === 'left'
+        ? 'md:left-0 md:right-auto md:border-r md:border-l-0'
+        : 'md:right-0 md:left-auto md:border-l md:border-r-0';
 
     $enterStartClass = $side === 'left' ? '-translate-x-full' : 'translate-x-full';
     $leaveEndClass = $side === 'left' ? '-translate-x-full' : 'translate-x-full';
@@ -29,13 +28,13 @@
     x-cloak
     x-on:open-drawer.window="if ($event.detail?.id === drawerId) open = true"
     x-on:close-drawer.window="if ($event.detail?.id === drawerId) open = false"
-    x-on:keydown.escape.window="open = false"
+    x-on:keydown.escape.window="open = false; $dispatch('drawer-closed', { id: drawerId })"
     data-drawer-id="{{ $drawerId }}"
     class="pointer-events-none fixed inset-0 z-50"
 >
     <div
         x-show="open"
-        x-on:click="open = false"
+        x-on:click="open = false; $dispatch('drawer-closed', { id: drawerId })"
         x-transition:enter="transition-opacity ease-out duration-200"
         x-transition:enter-start="opacity-0"
         x-transition:enter-end="opacity-100"
@@ -48,7 +47,7 @@
 
     <aside
         x-show="open"
-        @click.outside="open = false"
+        @click.outside="open = false; $dispatch('drawer-closed', { id: drawerId })"
         x-transition:enter="transform transition ease-out duration-200"
         x-transition:enter-start="{{ $enterStartClass }}"
         x-transition:enter-end="translate-x-0"
@@ -59,10 +58,11 @@
         aria-modal="true"
         aria-labelledby="{{ $titleId }}"
         {{ $attributes->class([
-            'pointer-events-auto fixed flex h-dvh w-full flex-col border-rg-border bg-rg-card text-rg-text shadow-rgPopover outline-none sm:w-full',
-            $panelSideClass,
+            'pointer-events-auto fixed flex flex-col border-rg-border bg-rg-card text-rg-text shadow-rgPopover outline-none overflow-y-auto',
+            'inset-x-0 bottom-0 max-h-[90vh] w-full rounded-t-rgCard border-t',
+            'md:inset-y-0 md:bottom-auto md:h-dvh md:max-h-none md:border-t-0 md:rounded-none',
+            $panelDesktopClass,
             $panelSizeClass,
-            $side === 'left' ? 'border-r' : 'border-l',
         ]) }}
     >
         <header class="flex min-h-16 items-center justify-between border-b border-rg-border px-4 py-4 sm:px-6">
@@ -74,7 +74,8 @@
                 type="button"
                 class="rounded-rgSm border border-rg-border2 bg-rg-card2 p-1 text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                 aria-label="Close drawer"
-                x-on:click="open = false"
+                data-testid="post-drawer-close"
+                x-on:click="open = false; $dispatch('drawer-closed', { id: drawerId })"
             >
                 <x-ui.icon name="x" class="size-4" />
             </button>

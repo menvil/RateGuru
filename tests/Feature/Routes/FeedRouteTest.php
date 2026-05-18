@@ -53,3 +53,44 @@ it('has alpine upload modal open close behavior', function () {
         ->toContain('x-show')
         ->toContain('@click');
 });
+
+it('renders alpine drawer shell on feed page', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('data-testid="post-detail-drawer-shell"')
+        ->toContain('drawerOpen')
+        ->toContain('x-show');
+});
+
+it('renders drawer close button', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('data-testid="post-drawer-close"')
+        ->toContain('drawerOpen = false');
+});
+
+it('closes drawer with escape key markup', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('@keydown.escape.window')
+        ->toContain('drawerOpen = false');
+});
+
+it('has mobile drawer behavior classes', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('data-testid="post-detail-drawer-shell"')
+        ->toContain('bottom-0');
+});
+
+it('has desktop right side drawer behavior classes', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('md:right-0')
+        ->toContain('md:inset-y-0');
+});

@@ -30,9 +30,11 @@ it('supports right side desktop behavior and mobile safe layout', function () {
         ->toContain('bg-black/70')
         ->toContain('bg-rg-card')
         ->toContain('text-rg-text')
-        ->toContain('inset-y-0 right-0')
+        ->toContain('bottom-0')
+        ->toContain('md:inset-y-0')
+        ->toContain('md:right-0')
         ->toContain('w-full')
-        ->toContain('sm:max-w-lg');
+        ->toContain('md:max-w-lg');
 });
 
 it('keeps the root event host visible while only animated drawer nodes use x-show', function () {
@@ -60,6 +62,36 @@ it('targets open and close drawer events to the matching drawer id', function ()
         ->toContain('drawerId: \'post-detail-drawer\'')
         ->toContain('x-on:open-drawer.window="if ($event.detail?.id === drawerId) open = true"')
         ->toContain('x-on:close-drawer.window="if ($event.detail?.id === drawerId) open = false"');
+});
+
+it('honors side prop for desktop placement', function () {
+    $right = Blade::render('<x-ui.drawer title="R" side="right">content</x-ui.drawer>');
+    $left  = Blade::render('<x-ui.drawer title="L" side="left">content</x-ui.drawer>');
+
+    expect($right)
+        ->toContain('md:right-0')
+        ->toContain('md:left-auto')
+        ->toContain('md:border-l')
+        ->not->toContain('md:left-0');
+
+    expect($left)
+        ->toContain('md:left-0')
+        ->toContain('md:right-auto')
+        ->toContain('md:border-r')
+        ->not->toContain('md:right-0');
+});
+
+it('dispatches drawer-closed on all close paths', function () {
+    $html = Blade::render('<x-ui.drawer title="T">content</x-ui.drawer>');
+
+    // close button
+    expect($html)->toContain('x-on:click="open = false; $dispatch(\'drawer-closed\', { id: drawerId })"');
+    // escape key
+    expect($html)->toContain('x-on:keydown.escape.window="open = false; $dispatch(\'drawer-closed\', { id: drawerId })"');
+    // backdrop click — same handler string as close button, so exactly 2 x-on:click occurrences total
+    expect(substr_count($html, "x-on:click=\"open = false; \$dispatch('drawer-closed'"))->toBe(2);
+    // click.outside on aside
+    expect($html)->toContain('@click.outside="open = false; $dispatch(\'drawer-closed\', { id: drawerId })"');
 });
 
 it('renders a unique labelledby title id for each drawer instance', function () {
