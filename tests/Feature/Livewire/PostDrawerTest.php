@@ -140,3 +140,12 @@ it('renders image placeholder when drawer post has no image', function () {
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Image preview');
 });
+
+it('renders origin voting panel in drawer', function () {
+    $post = \App\Models\Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('post-drawer-origin-voting', false)
+        ->assertSee('Homemade')
+        ->assertSee('Restaurant');
+});
