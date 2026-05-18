@@ -23,7 +23,7 @@
                     :search="$search"
                     :tag="$category"
                     :sort="$sort"
-                    :key="'feed-'.$search.'-'.$category.'-'.$sort"
+                    :key="'feed-'.md5(json_encode([$search, $category, $sort]))"
                 />
             </section>
         </main>

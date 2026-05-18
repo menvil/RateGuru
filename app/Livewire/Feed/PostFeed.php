@@ -18,8 +18,8 @@ class PostFeed extends Component
     {
         return view('livewire.feed.post-feed', [
             'posts' => $feedQuery->get(
-                search: $this->search ?: null,
-                tag: $this->tag ?: null,
+                search: $this->search !== '' ? $this->search : null,
+                tag: $this->tag !== '' ? $this->tag : null,
                 sort: $this->sort,
             ),
         ]);
