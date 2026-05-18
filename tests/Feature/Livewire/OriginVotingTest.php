@@ -76,3 +76,22 @@ it('renders zero origin distribution safely', function () {
         ->assertSee('0%')
         ->assertSee('origin-distribution-bar', false);
 });
+
+it('refreshes origin counters after vote', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(OriginVoting::class, ['postId' => $post->id])
+        ->assertSee('Homemade 0%')
+        ->call('vote', \App\Enums\OriginType::Homemade->value)
+        ->assertSee('Homemade 100%')
+        ->assertDispatched('origin-voted')
+        ->call('vote', \App\Enums\OriginType::Restaurant->value)
+        ->assertSee('Restaurant 100%')
+        ->assertSee('Homemade 0%');
+});
