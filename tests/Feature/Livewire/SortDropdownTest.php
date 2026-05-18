@@ -35,3 +35,19 @@ it('has a testid for the dropdown container', function () {
     Livewire::test(SortDropdown::class)
         ->assertSee('data-testid="sort-dropdown"', false);
 });
+
+// RG-198
+it('has alpine x-data directive for dropdown behavior', function () {
+    Livewire::test(SortDropdown::class)
+        ->assertSee('x-data', false);
+});
+
+it('has alpine x-show for dropdown menu visibility', function () {
+    Livewire::test(SortDropdown::class)
+        ->assertSee('x-show', false);
+});
+
+it('has click outside handler to close dropdown', function () {
+    Livewire::test(SortDropdown::class)
+        ->assertSee('@click.outside', false);
+});
