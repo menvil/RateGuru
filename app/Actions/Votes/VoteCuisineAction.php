@@ -3,6 +3,7 @@
 namespace App\Actions\Votes;
 
 use App\Enums\CuisineType;
+use App\Exceptions\Votes\CannotVoteCuisineException;
 use App\Models\CuisineVote;
 use App\Models\Post;
 use App\Models\User;
@@ -12,8 +13,20 @@ final class VoteCuisineAction
 {
     public function handle(?User $user, Post $post, CuisineType $cuisine): void
     {
+        if ($user === null) {
+            throw CannotVoteCuisineException::becauseGuest();
+        }
+
+        if (! $user->canVote()) {
+            throw CannotVoteCuisineException::becauseUserIsNotAllowed();
+        }
+
         if (! $this->isValidVoteCuisine($cuisine)) {
-            return;
+            throw CannotVoteCuisineException::becauseCuisineIsInvalid();
+        }
+
+        if (! $post->canReceiveVotes()) {
+            throw CannotVoteCuisineException::becausePostIsNotPublic();
         }
 
         DB::transaction(function () use ($user, $post, $cuisine) {
