@@ -29,9 +29,11 @@ final class UploadPostForm extends Component
         abort_unless(auth()->check(), 403);
     }
 
-    public function submit(CreatePostAction $createPostAction): void
+    public function submit(): void
     {
         abort_unless(auth()->check(), 403);
+
+        $createPostAction = app(CreatePostAction::class);
 
         $this->submitError = null;
 

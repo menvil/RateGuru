@@ -16,25 +16,6 @@
             <livewire:feed.sort-dropdown wire:model.live="sort" />
         </div>
 
-        @auth
-        <div
-            x-data="{ open: false }"
-            @keydown.escape.window="open = false"
-            @post-uploaded.window="open = false"
-            class="mb-4"
-        >
-            <x-ui.button type="button" @click="open = true">
-                Upload
-            </x-ui.button>
-
-            <div data-testid="upload-modal">
-                <x-ui.modal title="Create post" size="lg">
-                    <livewire:feed.upload-post-form />
-                </x-ui.modal>
-            </div>
-        </div>
-        @endauth
-
         <main>
             <section>
                 <h2 class="mb-4 text-base font-semibold text-rg-text2">Latest dishes</h2>
