@@ -69,9 +69,15 @@
             </div>
         </div>
     @elseif($postId)
-        Post not found
+        <x-ui.error-message
+            title="Post not found"
+            message="This post is unavailable or no longer public."
+        />
     @else
-        Select a post
+        <x-ui.empty-state
+            title="Select a post"
+            description="Post details will appear here."
+        />
     @endif
     </div>
 </div>

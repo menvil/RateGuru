@@ -30,6 +30,22 @@ it('does not render hidden post', function () {
         ->assertSee('Post not found');
 });
 
+it('renders not found state for missing post', function () {
+    Livewire::test(PostDrawer::class, ['postId' => 999999])
+        ->assertSee('Post not found')
+        ->assertSee('This post is unavailable');
+});
+
+it('renders not found state for pending post', function () {
+    $post = Post::factory()->pending()->create([
+        'title' => 'Pending Hidden',
+    ]);
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('Post not found')
+        ->assertDontSee('Pending Hidden');
+});
+
 it('has drawer loading state markup', function () {
     Livewire::test(PostDrawer::class)
         ->assertSee('data-testid="post-drawer-loading"', false)
