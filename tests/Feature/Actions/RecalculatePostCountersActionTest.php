@@ -155,3 +155,31 @@ it('recalculates counters after origin vote instead of incrementing stale value'
     expect($post->fresh()->homemade_votes_count)->toBe(1);
     expect($post->fresh()->restaurant_votes_count)->toBe(0);
 });
+
+it('calls counter recalculation after cuisine vote', function () {
+    $user = \App\Models\User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $fake = new class extends RecalculatePostCountersAction {
+        public bool $called = false;
+
+        public function handle(Post $post): \App\Data\Counters\PostCounterSnapshot
+        {
+            $this->called = true;
+
+            return new \App\Data\Counters\PostCounterSnapshot(
+                upvotes: 0,
+                downvotes: 0,
+                homemadeVotes: 0,
+                restaurantVotes: 0,
+                cuisineVotes: [],
+            );
+        }
+    };
+
+    app()->instance(RecalculatePostCountersAction::class, $fake);
+
+    app(\App\Actions\Votes\VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
+
+    expect($fake->called)->toBeTrue();
+});
