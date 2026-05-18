@@ -10,12 +10,14 @@ use App\Models\OriginVote;
 use App\Models\PostVote;
 use App\Models\Tag;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 class Post extends Model
 {
@@ -92,5 +94,19 @@ class Post extends Model
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class);
+    }
+
+    protected function score(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => ($this->upvotes_count ?? 0) - ($this->downvotes_count ?? 0),
+        );
+    }
+
+    protected function truncatedDescription(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->description ? Str::limit($this->description, 140) : null,
+        );
     }
 }

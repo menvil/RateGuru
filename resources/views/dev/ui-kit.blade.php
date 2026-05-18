@@ -69,6 +69,17 @@
 
         <section class="space-y-4">
             <div>
+                <h2 class="text-xl font-bold text-rg-text">Feed Components</h2>
+                <p class="mt-1 text-sm text-rg-muted">Live feed components driven by real Post data shape.</p>
+            </div>
+
+            <div class="max-w-xl space-y-4">
+                <x-feed.post-card :post="$demoPost" />
+            </div>
+        </section>
+
+        <section class="space-y-4">
+            <div>
                 <h2 class="text-xl font-bold text-rg-text">Primitive Components</h2>
                 <p class="mt-1 text-sm text-rg-muted">Reusable components remain available below the product reference.</p>
             </div>

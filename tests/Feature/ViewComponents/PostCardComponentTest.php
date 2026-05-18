@@ -1,0 +1,89 @@
+<?php
+
+use App\Models\Post;
+use Illuminate\Support\Facades\Blade;
+
+it('renders post card title', function () {
+    $post = Post::factory()->published()->make(['title' => 'Homemade Carbonara']);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('Homemade Carbonara');
+});
+
+it('renders post image when image url exists', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('/storage/posts/1/dish.jpg');
+});
+
+it('renders image placeholder when image url is missing', function () {
+    $post = Post::factory()->published()->make(['image_url' => null]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('Food image');
+});
+
+it('renders post title and description', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Homemade Carbonara',
+        'description' => 'Creamy pasta with pepper',
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('Homemade Carbonara')
+        ->toContain('Creamy pasta with pepper');
+});
+
+it('does not break when description is missing', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Dish',
+        'description' => null,
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('Dish');
+});
+
+it('renders post stats area', function () {
+    $post = Post::factory()->published()->make([
+        'upvotes_count' => 12,
+        'downvotes_count' => 3,
+        'comments_count' => 5,
+        'homemade_votes_count' => 7,
+        'restaurant_votes_count' => 4,
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('9')
+        ->toContain('5 comments')
+        ->toContain('Homemade')
+        ->toContain('Restaurant');
+});
+
+it('renders post author area', function () {
+    $user = \App\Models\User::factory()->make([
+        'name' => 'Demo Chef',
+        'username' => 'demo_chef',
+    ]);
+
+    $post = Post::factory()->published()->make(['title' => 'Dish']);
+    $post->setRelation('user', $user);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('Demo Chef')
+        ->toContain('@demo_chef');
+});
