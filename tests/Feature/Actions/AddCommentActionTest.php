@@ -59,3 +59,39 @@ it('does not allow banned user to add comment', function () {
         expect(Comment::query()->count())->toBe(0);
     }
 });
+
+it('does not allow adding comment to hidden post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->hidden()->create();
+
+    try {
+        app(AddCommentAction::class)->handle($user, $post, 'Comment on hidden post');
+        $this->fail('Expected CannotCommentException was not thrown.');
+    } catch (CannotCommentException $e) {
+        expect(Comment::query()->count())->toBe(0);
+    }
+});
+
+it('does not allow adding comment to pending post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->pending()->create();
+
+    try {
+        app(AddCommentAction::class)->handle($user, $post, 'Comment on pending post');
+        $this->fail('Expected CannotCommentException was not thrown.');
+    } catch (CannotCommentException $e) {
+        expect(Comment::query()->count())->toBe(0);
+    }
+});
+
+it('does not allow adding comment to rejected post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->rejected()->create();
+
+    try {
+        app(AddCommentAction::class)->handle($user, $post, 'Comment on rejected post');
+        $this->fail('Expected CannotCommentException was not thrown.');
+    } catch (CannotCommentException $e) {
+        expect(Comment::query()->count())->toBe(0);
+    }
+});
