@@ -20,6 +20,11 @@ final class VoteOriginAction
                 ->first();
 
             if ($existingVote !== null) {
+                // Product decision (Phase 14): clicking the already-selected
+                // origin keeps it selected. It is a no-op — the vote is NOT
+                // cleared and counters are NOT changed. Origin is a
+                // classification choice, not a like; clearing requires an
+                // explicit separate action.
                 if ($existingVote->origin === $origin) {
                     return;
                 }
