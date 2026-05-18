@@ -22,6 +22,37 @@ final class OriginVoting extends Component
             ->find($this->postId);
     }
 
+    public function vote(string $origin, VoteOriginAction $voteOriginAction): void
+    {
+        $this->error = '';
+
+        $originType = OriginType::tryFrom($origin);
+
+        if ($originType === null) {
+            return;
+        }
+
+        $post = $this->post;
+
+        if ($post === null) {
+            $this->error = 'This post is no longer available.';
+
+            return;
+        }
+
+        try {
+            $voteOriginAction->handle(auth()->user(), $post, $originType);
+        } catch (CannotVoteOriginException $e) {
+            $this->error = $e->getMessage();
+
+            return;
+        }
+
+        unset($this->post);
+
+        $this->dispatch('origin-voted', postId: $this->postId);
+    }
+
     public function render(): View
     {
         return view('livewire.posts.origin-voting', [
