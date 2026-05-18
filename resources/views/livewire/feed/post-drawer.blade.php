@@ -17,6 +17,22 @@
                 <p class="mt-2 text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
             @endif
         </section>
+
+        <div class="mt-4 flex items-center gap-3">
+            <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
+
+            <div>
+                <div class="text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+
+                @if($post->user?->username)
+                    <div class="text-xs text-rg-muted">{{ '@' . $post->user->username }}</div>
+                @endif
+
+                @if($post->published_at)
+                    <div class="text-xs text-rg-muted">{{ $post->published_at->diffForHumans() }}</div>
+                @endif
+            </div>
+        </div>
     @elseif($postId)
         Post not found
     @else

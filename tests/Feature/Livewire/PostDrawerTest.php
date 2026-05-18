@@ -30,6 +30,19 @@ it('does not render hidden post', function () {
         ->assertSee('Post not found');
 });
 
+it('renders drawer author metadata', function () {
+    $user = \App\Models\User::factory()->create([
+        'name' => 'Demo Chef',
+        'username' => 'demo_chef',
+    ]);
+
+    $post = Post::factory()->published()->for($user)->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('Demo Chef')
+        ->assertSee('@demo_chef');
+});
+
 it('renders large post image in drawer', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Dish',
