@@ -17,3 +17,9 @@ it('has default empty search', function () {
     Livewire::test(SearchBar::class)
         ->assertSet('search', '');
 });
+
+// RG-189
+it('uses debounced live binding on search input', function () {
+    Livewire::test(SearchBar::class)
+        ->assertSee('wire:model.live.debounce.500ms', false);
+});
