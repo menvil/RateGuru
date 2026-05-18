@@ -4,6 +4,19 @@ use App\Livewire\Feed\UploadPostForm;
 use App\Models\User;
 use Livewire\Livewire;
 
+it('resets form when upload-modal-opened event is dispatched', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Old Dish')
+        ->set('description', 'Old description')
+        ->dispatch('upload-modal-opened')
+        ->assertSet('title', '')
+        ->assertSet('description', null)
+        ->assertSet('submitError', null);
+});
+
 it('can render upload post form component', function () {
     $user = User::factory()->create();
 
