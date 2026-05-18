@@ -73,4 +73,16 @@
             <div class="mt-1 text-base font-bold text-rg-text">{{ $post->restaurant_votes_count ?? 0 }}</div>
         </x-ui.card>
     </section>
+
+    <section class="mt-8" data-testid="post-show-comments">
+        <div class="mb-3 flex items-center justify-between">
+            <h2 class="text-base font-semibold text-rg-text">Comments</h2>
+            <span class="text-xs text-rg-muted">{{ $post->comments_count ?? 0 }}</span>
+        </div>
+
+        <x-ui.empty-state
+            title="Comments will appear here"
+            description="Comment UI will be added in a later phase."
+        />
+    </section>
 </div>

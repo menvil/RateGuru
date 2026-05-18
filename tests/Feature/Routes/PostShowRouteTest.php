@@ -89,6 +89,18 @@ it('renders read only voting panels on post page', function () {
         ->assertDontSee('wire:click', false);
 });
 
+it('renders comments section placeholder on post page', function () {
+    $post = Post::factory()->published()->create([
+        'comments_count' => 3,
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('Comments')
+        ->assertSee('3')
+        ->assertSee('Comments will appear here');
+});
+
 it('does not show hidden post to guest', function () {
     $post = Post::factory()->hidden()->create([
         'title' => 'Hidden Dish',
