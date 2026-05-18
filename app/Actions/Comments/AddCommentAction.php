@@ -10,6 +10,8 @@ use App\Models\User;
 
 final class AddCommentAction
 {
+    private const MAX_BODY_LENGTH = 1000;
+
     public function handle(?User $user, Post $post, string $body): Comment
     {
         if ($user === null) {
@@ -28,6 +30,10 @@ final class AddCommentAction
 
         if ($body === '') {
             throw CannotCommentException::becauseBodyIsInvalid('Comment body is required.');
+        }
+
+        if (mb_strlen($body) > self::MAX_BODY_LENGTH) {
+            throw CannotCommentException::becauseBodyIsInvalid('Comment body is too long.');
         }
 
         return Comment::create([
