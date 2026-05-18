@@ -11,7 +11,7 @@ use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\PostVote;
 
-final class RecalculatePostCountersAction
+class RecalculatePostCountersAction
 {
     public function handle(Post $post): PostCounterSnapshot
     {

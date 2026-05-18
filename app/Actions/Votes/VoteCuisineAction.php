@@ -2,6 +2,7 @@
 
 namespace App\Actions\Votes;
 
+use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Enums\CuisineType;
 use App\Exceptions\Votes\CannotVoteCuisineException;
 use App\Models\CuisineVote;
@@ -11,6 +12,10 @@ use Illuminate\Support\Facades\DB;
 
 final class VoteCuisineAction
 {
+    public function __construct(
+        private readonly RecalculatePostCountersAction $recalculatePostCounters,
+    ) {}
+
     public function handle(?User $user, Post $post, CuisineType $cuisine): void
     {
         if ($user === null) {
@@ -56,6 +61,8 @@ final class VoteCuisineAction
                 'cuisine' => $cuisine,
             ]);
         });
+
+        $this->recalculatePostCounters->handle($post->fresh());
     }
 
     private function isValidVoteCuisine(CuisineType $cuisine): bool
