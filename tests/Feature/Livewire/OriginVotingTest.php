@@ -53,3 +53,26 @@ it('shows error when guest tries to vote origin', function () {
 
     expect(\App\Models\OriginVote::query()->count())->toBe(0);
 });
+
+it('renders origin distribution bar', function () {
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 3,
+        'restaurant_votes_count' => 1,
+    ]);
+
+    Livewire::test(OriginVoting::class, ['postId' => $post->id])
+        ->assertSee('75%')
+        ->assertSee('25%')
+        ->assertSee('origin-distribution-bar', false);
+});
+
+it('renders zero origin distribution safely', function () {
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    Livewire::test(OriginVoting::class, ['postId' => $post->id])
+        ->assertSee('0%')
+        ->assertSee('origin-distribution-bar', false);
+});
