@@ -183,3 +183,30 @@ it('calls counter recalculation after cuisine vote', function () {
 
     expect($fake->called)->toBeTrue();
 });
+
+it('does not recalculate when origin vote is an unchanged no-op', function () {
+    $user = \App\Models\User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $spy = new class extends RecalculatePostCountersAction {
+        public int $calls = 0;
+
+        public function handle(Post $post): \App\Data\Counters\PostCounterSnapshot
+        {
+            $this->calls++;
+
+            return new \App\Data\Counters\PostCounterSnapshot(0, 0, 0, 0, []);
+        }
+    };
+
+    app()->instance(RecalculatePostCountersAction::class, $spy);
+
+    $action = app(\App\Actions\Votes\VoteOriginAction::class);
+
+    $action->handle($user, $post, OriginType::Homemade);
+    expect($spy->calls)->toBe(1);
+
+    // Re-selecting the same origin is a no-op and must not recalculate.
+    $action->handle($user, $post, OriginType::Homemade);
+    expect($spy->calls)->toBe(1);
+});

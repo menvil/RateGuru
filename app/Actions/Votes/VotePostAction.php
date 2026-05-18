@@ -40,22 +40,20 @@ final class VotePostAction
             if ($existingVote !== null) {
                 if ($existingVote->type === $type) {
                     $existingVote->delete();
-
-                    return;
+                } else {
+                    $existingVote->update(['type' => $type]);
                 }
-
-                $existingVote->update(['type' => $type]);
-
-                return;
+            } else {
+                PostVote::create([
+                    'user_id' => $user->id,
+                    'post_id' => $post->id,
+                    'type' => $type,
+                ]);
             }
 
-            PostVote::create([
-                'user_id' => $user->id,
-                'post_id' => $post->id,
-                'type' => $type,
-            ]);
+            // Recalculate inside the transaction so a recalc failure rolls
+            // back the vote and counters never diverge from post_votes.
+            $this->recalculatePostCounters->handle($post->refresh());
         });
-
-        $this->recalculatePostCounters->handle($post->fresh());
     }
 }

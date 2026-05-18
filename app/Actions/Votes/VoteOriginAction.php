@@ -45,23 +45,24 @@ final class VoteOriginAction
                 // Product decision (Phase 14): clicking the already-selected
                 // origin keeps it selected. It is a no-op — the vote is NOT
                 // cleared. Origin is a classification choice, not a like;
-                // clearing requires an explicit separate action.
+                // clearing requires an explicit separate action. Skip the
+                // recalculation entirely since nothing changed.
                 if ($existingVote->origin === $origin) {
                     return;
                 }
 
                 $existingVote->update(['origin' => $origin]);
-
-                return;
+            } else {
+                OriginVote::create([
+                    'user_id' => $user->id,
+                    'post_id' => $post->id,
+                    'origin' => $origin,
+                ]);
             }
 
-            OriginVote::create([
-                'user_id' => $user->id,
-                'post_id' => $post->id,
-                'origin' => $origin,
-            ]);
+            // Recalculate inside the transaction so a recalc failure rolls
+            // back the vote and counters never diverge from origin_votes.
+            $this->recalculatePostCounters->handle($post->refresh());
         });
-
-        $this->recalculatePostCounters->handle($post->fresh());
     }
 }
