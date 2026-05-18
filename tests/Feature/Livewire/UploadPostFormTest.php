@@ -84,6 +84,20 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('shows validation error when title is missing', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+    $file = \Illuminate\Http\UploadedFile::fake()->image('dish.jpg');
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('image', $file)
+        ->call('submit')
+        ->assertHasErrors(['title' => 'required']);
+
+    expect(\App\Models\Post::query()->count())->toBe(0);
+});
+
 it('renders validation error placeholders', function () {
     $user = User::factory()->create();
 
