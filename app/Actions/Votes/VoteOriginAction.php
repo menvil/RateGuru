@@ -19,9 +19,40 @@ final class VoteOriginAction
                 'origin' => $origin,
             ]);
 
-            if ($origin === OriginType::Homemade) {
-                $post->increment('homemade_votes_count');
-            }
+            $this->incrementCounter($post, $origin);
         });
+    }
+
+    private function incrementCounter(Post $post, OriginType $origin): void
+    {
+        $column = $this->counterColumn($origin);
+
+        if ($column !== null) {
+            $post->increment($column);
+        }
+    }
+
+    private function decrementCounter(Post $post, OriginType $origin): void
+    {
+        $column = $this->counterColumn($origin);
+
+        if ($column === null) {
+            return;
+        }
+
+        // Atomic guarded decrement: never drops below zero.
+        Post::query()
+            ->whereKey($post->id)
+            ->where($column, '>', 0)
+            ->decrement($column);
+    }
+
+    private function counterColumn(OriginType $origin): ?string
+    {
+        return match ($origin) {
+            OriginType::Homemade => 'homemade_votes_count',
+            OriginType::Restaurant => 'restaurant_votes_count',
+            OriginType::Unknown => null,
+        };
     }
 }
