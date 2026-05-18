@@ -25,6 +25,10 @@ final class VoteOriginAction
             throw CannotVoteOriginException::becauseOriginIsInvalid();
         }
 
+        if (! $post->canReceiveVotes()) {
+            throw CannotVoteOriginException::becausePostIsNotPublic();
+        }
+
         DB::transaction(function () use ($user, $post, $origin) {
             $existingVote = OriginVote::query()
                 ->where('post_id', $post->id)
