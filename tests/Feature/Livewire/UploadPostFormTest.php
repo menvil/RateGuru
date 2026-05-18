@@ -84,6 +84,15 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('renders error message when submitError is set', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('submitError', 'Something went wrong while creating your post.')
+        ->assertSee('Something went wrong');
+});
+
 it('has upload loading state markup', function () {
     $user = User::factory()->create();
 
