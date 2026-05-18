@@ -26,25 +26,16 @@
             </button>
         </div>
 
-        @php
-            $homemade = (int) $post->homemade_votes_count;
-            $restaurant = (int) $post->restaurant_votes_count;
-            $total = $homemade + $restaurant;
-
-            $homemadePct = $total > 0 ? (int) round(($homemade / $total) * 100) : 0;
-            $restaurantPct = $total > 0 ? 100 - $homemadePct : 0;
-        @endphp
-
         <div data-testid="origin-distribution-bar" class="flex flex-col gap-1">
             <div class="flex justify-between text-xs text-rg-muted">
-                <span>Homemade {{ $homemadePct }}% ({{ $homemade }})</span>
-                <span>Restaurant {{ $restaurantPct }}% ({{ $restaurant }})</span>
+                <span>Homemade {{ $this->originDistribution['homemadePct'] }}% ({{ $this->originDistribution['homemade'] }})</span>
+                <span>Restaurant {{ $this->originDistribution['restaurantPct'] }}% ({{ $this->originDistribution['restaurant'] }})</span>
             </div>
 
             <div class="h-2 w-full overflow-hidden rounded-rgPill bg-rg-card2">
                 <div
                     class="h-2 rounded-rgPill bg-rg-accent transition-all"
-                    style="width: {{ $homemadePct }}%"
+                    style="width: {{ $this->originDistribution['homemadePct'] }}%"
                 ></div>
             </div>
         </div>

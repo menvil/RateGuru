@@ -22,6 +22,28 @@ final class OriginVoting extends Component
             ->find($this->postId);
     }
 
+    /**
+     * @return array{homemade:int,restaurant:int,homemadePct:int,restaurantPct:int}
+     */
+    public function getOriginDistributionProperty(): array
+    {
+        $post = $this->post;
+
+        $homemade = (int) ($post?->homemade_votes_count ?? 0);
+        $restaurant = (int) ($post?->restaurant_votes_count ?? 0);
+        $total = $homemade + $restaurant;
+
+        $homemadePct = $total > 0 ? (int) round(($homemade / $total) * 100) : 0;
+        $restaurantPct = $total > 0 ? 100 - $homemadePct : 0;
+
+        return [
+            'homemade' => $homemade,
+            'restaurant' => $restaurant,
+            'homemadePct' => $homemadePct,
+            'restaurantPct' => $restaurantPct,
+        ];
+    }
+
     public function vote(string $origin, VoteOriginAction $voteOriginAction): void
     {
         $this->error = '';
