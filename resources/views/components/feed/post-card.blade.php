@@ -48,5 +48,13 @@
             <x-ui.badge>Homemade {{ $post->homemade_votes_count ?? 0 }}</x-ui.badge>
             <x-ui.badge>Restaurant {{ $post->restaurant_votes_count ?? 0 }}</x-ui.badge>
         </div>
+        @if($post->exists)
+            <div data-testid="post-card-voting" class="mt-2.5" wire:click.stop wire:keydown.stop>
+                <livewire:posts.post-voting
+                    :post-id="$post->id"
+                    :key="'post-card-voting-'.$post->id"
+                />
+            </div>
+        @endif
     </footer>
 </x-ui.card>

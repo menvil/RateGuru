@@ -11,6 +11,14 @@ it('has posts show route', function () {
         ->assertOk();
 });
 
+it('renders post voting component on post show page', function () {
+    $post = Post::factory()->published()->create();
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('data-testid="post-show-voting"', false);
+});
+
 it('renders published post show page', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Homemade Carbonara',
@@ -70,7 +78,7 @@ it('renders post metadata', function () {
         ->assertSee('Source');
 });
 
-it('renders read only voting panels on post page', function () {
+it('renders vote summary panels on post page', function () {
     $post = Post::factory()->published()->create([
         'upvotes_count' => 12,
         'downvotes_count' => 3,
@@ -86,7 +94,7 @@ it('renders read only voting panels on post page', function () {
         ->assertSee('7')
         ->assertSee('Restaurant')
         ->assertSee('5')
-        ->assertDontSee('wire:click', false);
+        ->assertSee('data-testid="post-show-vote-summary"', false);
 });
 
 it('renders comments section placeholder on post page', function () {
