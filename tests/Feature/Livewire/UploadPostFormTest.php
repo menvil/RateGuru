@@ -11,3 +11,12 @@ it('can render upload post form component', function () {
         ->test(UploadPostForm::class)
         ->assertStatus(200);
 });
+
+it('renders for authenticated user', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Create post')
+        ->assertStatus(200);
+});
