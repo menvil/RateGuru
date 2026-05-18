@@ -1,5 +1,16 @@
 @section('title', $post->title . ' · ' . config('app.name', 'RateGuru'))
 
+@push('meta')
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{{ $post->title }}">
+    <meta property="og:description" content="{{ \Illuminate\Support\Str::limit($post->description ?? 'Rate this dish on RateGuru.', 160) }}">
+    <meta property="og:url" content="{{ route('posts.show', $post) }}">
+    @if($post->image_url)
+        <meta property="og:image" content="{{ url($post->image_url) }}">
+    @endif
+    <meta name="twitter:card" content="summary_large_image">
+@endpush
+
 <div data-testid="post-show" class="mx-auto w-full max-w-2xl">
     <div data-testid="post-show-hero">
         @if($post->image_url)

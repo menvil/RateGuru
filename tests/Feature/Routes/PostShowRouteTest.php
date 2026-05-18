@@ -129,6 +129,24 @@ it('renders seo title for post page', function () {
         ->assertSee('<title>Homemade Carbonara · ' . config('app.name', 'RateGuru') . '</title>', false);
 });
 
+it('renders open graph metadata placeholder for post page', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Homemade Carbonara',
+        'description' => 'Creamy pasta with pepper',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('property="og:title"', false)
+        ->assertSee('content="Homemade Carbonara"', false)
+        ->assertSee('property="og:description"', false)
+        ->assertSee('Creamy pasta with pepper', false)
+        ->assertSee('property="og:type"', false)
+        ->assertSee('property="og:url"', false)
+        ->assertSee('property="og:image"', false);
+});
+
 it('does not show hidden post to guest', function () {
     $post = Post::factory()->hidden()->create([
         'title' => 'Hidden Dish',
