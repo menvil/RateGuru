@@ -13,6 +13,27 @@ final class VoteOriginAction
     public function handle(?User $user, Post $post, OriginType $origin): void
     {
         DB::transaction(function () use ($user, $post, $origin) {
+            $existingVote = OriginVote::query()
+                ->where('post_id', $post->id)
+                ->where('user_id', $user->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingVote !== null) {
+                if ($existingVote->origin === $origin) {
+                    return;
+                }
+
+                $oldOrigin = $existingVote->origin;
+
+                $existingVote->update(['origin' => $origin]);
+
+                $this->decrementCounter($post, $oldOrigin);
+                $this->incrementCounter($post, $origin);
+
+                return;
+            }
+
             OriginVote::create([
                 'user_id' => $user->id,
                 'post_id' => $post->id,
