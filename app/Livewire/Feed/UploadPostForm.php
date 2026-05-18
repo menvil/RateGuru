@@ -4,9 +4,11 @@ namespace App\Livewire\Feed;
 
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 final class UploadPostForm extends Component
 {
+    use WithFileUploads;
     public string $title = '';
     public ?string $description = null;
     public ?string $sourceUrl = null;

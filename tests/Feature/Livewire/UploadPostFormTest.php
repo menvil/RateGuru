@@ -61,3 +61,25 @@ it('updates description property', function () {
         ->set('description', 'Fresh pasta with basil')
         ->assertSet('description', 'Fresh pasta with basil');
 });
+
+it('has image file input', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Image')
+        ->assertSee('type="file"', false)
+        ->assertSee('name="image"', false);
+});
+
+it('accepts image upload property', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+    $file = \Illuminate\Http\UploadedFile::fake()->image('dish.jpg');
+
+    $component = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('image', $file);
+
+    expect($component->get('image'))->not->toBeNull();
+});
