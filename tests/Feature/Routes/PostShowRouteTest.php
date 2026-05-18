@@ -119,6 +119,16 @@ it('renders related posts placeholder', function () {
         ->assertSee('Related dishes will appear here');
 });
 
+it('renders seo title for post page', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Homemade Carbonara',
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('<title>Homemade Carbonara · ' . config('app.name', 'RateGuru') . '</title>', false);
+});
+
 it('does not show hidden post to guest', function () {
     $post = Post::factory()->hidden()->create([
         'title' => 'Hidden Dish',

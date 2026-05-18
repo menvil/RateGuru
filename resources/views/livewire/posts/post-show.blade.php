@@ -1,3 +1,5 @@
+@section('title', $post->title . ' · ' . config('app.name', 'RateGuru'))
+
 <div data-testid="post-show" class="mx-auto w-full max-w-2xl">
     <div data-testid="post-show-hero">
         @if($post->image_url)
