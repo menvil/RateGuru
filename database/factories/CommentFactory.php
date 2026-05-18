@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\CommentStatus;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
@@ -18,7 +19,7 @@ class CommentFactory extends Factory
             'post_id' => Post::factory(),
             'user_id' => User::factory(),
             'body' => fake()->sentence(12),
-            'status' => 'published',
+            'status' => CommentStatus::Visible,
             'reports_count' => 0,
         ];
     }
