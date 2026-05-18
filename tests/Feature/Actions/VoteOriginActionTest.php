@@ -91,3 +91,45 @@ it('allows user to change origin vote from restaurant to homemade', function () 
     expect($post->fresh()->restaurant_votes_count)->toBe(0);
     expect($post->fresh()->homemade_votes_count)->toBe(1);
 });
+
+// Product decision (Phase 14): a repeated click on the already-selected
+// origin keeps it selected — it is a no-op, not a toggle/clear.
+it('keeps same homemade origin vote selected when clicked again', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade);
+    app(VoteOriginAction::class)->handle($user, $post->fresh(), OriginType::Homemade);
+
+    expect(OriginVote::query()
+        ->where('user_id', $user->id)
+        ->where('post_id', $post->id)
+        ->count()
+    )->toBe(1);
+
+    expect($post->fresh()->homemade_votes_count)->toBe(1);
+    expect($post->fresh()->restaurant_votes_count)->toBe(0);
+});
+
+it('keeps same restaurant origin vote selected when clicked again', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    app(VoteOriginAction::class)->handle($user, $post, OriginType::Restaurant);
+    app(VoteOriginAction::class)->handle($user, $post->fresh(), OriginType::Restaurant);
+
+    expect(OriginVote::query()
+        ->where('user_id', $user->id)
+        ->where('post_id', $post->id)
+        ->count()
+    )->toBe(1);
+
+    expect($post->fresh()->restaurant_votes_count)->toBe(1);
+    expect($post->fresh()->homemade_votes_count)->toBe(0);
+});
