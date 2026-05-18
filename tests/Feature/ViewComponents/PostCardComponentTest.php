@@ -104,3 +104,25 @@ it('post card dispatches open drawer event with post id', function () {
 
     expect($html)->toContain("open-post-drawer', { postId: 123 }");
 });
+
+it('renders origin voting component in post card for persisted posts', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('post-card-origin-voting');
+});
+
+it('renders origin badges without breaking on unsaved post', function () {
+    $post = Post::factory()->published()->make([
+        'homemade_votes_count' => 2,
+        'restaurant_votes_count' => 1,
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('Homemade 2');
+    expect($html)->toContain('Restaurant 1');
+    // Unsaved posts must not render the interactive Livewire origin component.
+    expect($html)->not->toContain('post-card-origin-voting');
+});

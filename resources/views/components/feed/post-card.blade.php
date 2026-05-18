@@ -55,6 +55,12 @@
                     :key="'post-card-voting-'.$post->id"
                 />
             </div>
+            <div data-testid="post-card-origin-voting" class="mt-2.5" wire:click.stop wire:keydown.stop>
+                <livewire:posts.origin-voting
+                    :post-id="$post->id"
+                    :key="'post-card-origin-voting-'.$post->id"
+                />
+            </div>
         @endif
     </footer>
 </x-ui.card>

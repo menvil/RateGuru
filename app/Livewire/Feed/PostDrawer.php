@@ -17,6 +17,12 @@ final class PostDrawer extends Component
         // Triggers a re-render so the drawer vote summary reflects fresh counters.
     }
 
+    #[On('origin-voted')]
+    public function refreshAfterOriginVote(): void
+    {
+        // Triggers a re-render so the drawer origin summary reflects fresh counters.
+    }
+
     public function render(): View
     {
         $post = null;
