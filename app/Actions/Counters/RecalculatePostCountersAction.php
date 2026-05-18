@@ -3,8 +3,10 @@
 namespace App\Actions\Counters;
 
 use App\Data\Counters\PostCounterSnapshot;
+use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Enums\VoteType;
+use App\Models\CuisineVote;
 use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\PostVote;
@@ -40,12 +42,25 @@ final class RecalculatePostCountersAction
             'restaurant_votes_count' => $restaurantVotes,
         ])->save();
 
+        $cuisineCounts = CuisineVote::query()
+            ->where('post_id', $post->id)
+            ->selectRaw('cuisine, COUNT(*) as total')
+            ->groupBy('cuisine')
+            ->pluck('total', 'cuisine')
+            ->all();
+
+        $cuisineVotes = [];
+
+        foreach (CuisineType::votable() as $cuisine) {
+            $cuisineVotes[$cuisine->value] = (int) ($cuisineCounts[$cuisine->value] ?? 0);
+        }
+
         return new PostCounterSnapshot(
             upvotes: $upvotes,
             downvotes: $downvotes,
             homemadeVotes: $homemadeVotes,
             restaurantVotes: $restaurantVotes,
-            cuisineVotes: [],
+            cuisineVotes: $cuisineVotes,
         );
     }
 }
