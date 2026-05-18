@@ -2,6 +2,7 @@
 
 namespace App\Actions\Votes;
 
+use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Enums\CuisineType;
 use App\Exceptions\Votes\CannotVoteCuisineException;
 use App\Models\CuisineVote;
@@ -11,6 +12,10 @@ use Illuminate\Support\Facades\DB;
 
 final class VoteCuisineAction
 {
+    public function __construct(
+        private readonly RecalculatePostCountersAction $recalculatePostCounters,
+    ) {}
+
     public function handle(?User $user, Post $post, CuisineType $cuisine): void
     {
         if ($user === null) {
@@ -40,21 +45,25 @@ final class VoteCuisineAction
                 // Product decision (Phase 15): clicking the already-selected
                 // cuisine keeps it selected. It is a no-op — the vote is NOT
                 // cleared. Cuisine is a classification choice, not a like;
-                // clearing requires an explicit separate action.
+                // clearing requires an explicit separate action. Skip the
+                // recalculation entirely since nothing changed.
                 if ($existingVote->cuisine === $cuisine) {
                     return;
                 }
 
                 $existingVote->update(['cuisine' => $cuisine]);
-
-                return;
+            } else {
+                CuisineVote::create([
+                    'user_id' => $user->id,
+                    'post_id' => $post->id,
+                    'cuisine' => $cuisine,
+                ]);
             }
 
-            CuisineVote::create([
-                'user_id' => $user->id,
-                'post_id' => $post->id,
-                'cuisine' => $cuisine,
-            ]);
+            // Recalculate inside the transaction so a recalc failure rolls
+            // back the vote. refresh() returns the non-null model (fresh()
+            // is nullable and would not satisfy the handle() signature).
+            $this->recalculatePostCounters->handle($post->refresh());
         });
     }
 
