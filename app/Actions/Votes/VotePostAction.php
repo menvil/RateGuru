@@ -19,13 +19,17 @@ final class VotePostAction
                 'type' => $type,
             ]);
 
-            if ($type === VoteType::Up) {
-                $post->increment('upvotes_count');
-            }
-
-            if ($type === VoteType::Down) {
-                $post->increment('downvotes_count');
-            }
+            $this->incrementCounter($post, $type);
         });
+    }
+
+    private function incrementCounter(Post $post, VoteType $type): void
+    {
+        $post->increment($this->counterColumn($type));
+    }
+
+    private function counterColumn(VoteType $type): string
+    {
+        return $type === VoteType::Up ? 'upvotes_count' : 'downvotes_count';
     }
 }
