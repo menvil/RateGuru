@@ -15,11 +15,11 @@ final class PostVoting extends Component
 
     public string $error = '';
 
-    public function getPostProperty(): Post
+    public function getPostProperty(): ?Post
     {
         return Post::query()
             ->published()
-            ->findOrFail($this->postId);
+            ->find($this->postId);
     }
 
     public function vote(string $type, VotePostAction $votePostAction): void
@@ -32,8 +32,16 @@ final class PostVoting extends Component
             return;
         }
 
+        $post = $this->post;
+
+        if ($post === null) {
+            $this->error = 'This post is no longer available.';
+
+            return;
+        }
+
         try {
-            $votePostAction->handle(auth()->user(), $this->post, $voteType);
+            $votePostAction->handle(auth()->user(), $post, $voteType);
         } catch (CannotVoteException $e) {
             $this->error = $e->getMessage();
 

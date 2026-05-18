@@ -1,4 +1,7 @@
 <div data-testid="post-voting" class="flex items-center gap-2">
+    @if($post === null)
+        <span data-testid="post-voting-unavailable" class="text-xs text-rg-muted">Voting unavailable</span>
+    @else
     <button
         type="button"
         wire:click="vote('up')"
@@ -22,6 +25,7 @@
         <span wire:loading.remove wire:target="vote">▼ Down {{ $post->downvotes_count }}</span>
         <span wire:loading wire:target="vote">…</span>
     </button>
+    @endif
 
     @if($error !== '')
         <span data-testid="post-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
