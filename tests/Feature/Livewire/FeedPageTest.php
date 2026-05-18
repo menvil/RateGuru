@@ -61,6 +61,17 @@ it('sorts feed when sort is changed to top', function () {
         ->assertSeeInOrder(['High Score', 'Low Score']);
 });
 
+it('selects post for drawer on feed page', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Drawer Dish',
+    ]);
+
+    Livewire::test(FeedPage::class)
+        ->call('openPostDrawer', $post->id)
+        ->assertSet('selectedPostId', $post->id)
+        ->assertDispatched('post-drawer-opened');
+});
+
 it('filters feed when category is selected', function () {
     $pasta = Tag::factory()->create(['slug' => 'pasta']);
     $dessert = Tag::factory()->create(['slug' => 'dessert']);

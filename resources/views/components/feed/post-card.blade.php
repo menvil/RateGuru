@@ -1,6 +1,13 @@
 @props(['post'])
 
-<x-ui.card variant="post" data-testid="post-card">
+<x-ui.card
+    variant="post"
+    data-testid="post-card"
+    role="button"
+    tabindex="0"
+    wire:click="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
+    class="cursor-pointer"
+>
     <div class="flex items-center gap-2">
         <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
         <div class="min-w-0">
