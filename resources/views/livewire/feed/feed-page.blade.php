@@ -5,10 +5,17 @@
             <p class="mt-1 text-sm text-rg-muted">Discover dishes</p>
         </header>
 
+        <div class="mb-4">
+            <livewire:feed.search-bar wire:model.live="search" />
+        </div>
+
         <main>
             <section>
                 <h2 class="mb-4 text-base font-semibold text-rg-text2">Latest dishes</h2>
-                <livewire:feed.post-feed />
+                <livewire:feed.post-feed
+                    :search="$search"
+                    :key="'feed-'.$search"
+                />
             </section>
         </main>
     </section>
