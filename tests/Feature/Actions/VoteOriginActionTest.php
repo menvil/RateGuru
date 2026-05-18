@@ -151,3 +151,41 @@ it('does not allow guest to vote origin', function () {
     expect($post->fresh()->homemade_votes_count)->toBe(0);
     expect($post->fresh()->restaurant_votes_count)->toBe(0);
 });
+
+it('does not allow origin vote on hidden post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->hidden()->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    try {
+        app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade);
+        $this->fail('Expected CannotVoteOriginException was not thrown.');
+    } catch (\App\Exceptions\Votes\CannotVoteOriginException $e) {
+        // expected
+    }
+
+    expect(OriginVote::query()->count())->toBe(0);
+    expect($post->fresh()->homemade_votes_count)->toBe(0);
+});
+
+it('does not allow origin vote on pending post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->pending()->create();
+
+    expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
+        ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
+
+    expect(OriginVote::query()->count())->toBe(0);
+});
+
+it('does not allow origin vote on rejected post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->rejected()->create();
+
+    expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
+        ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
+
+    expect(OriginVote::query()->count())->toBe(0);
+});
