@@ -25,18 +25,14 @@
 
     <div class="mt-3">
         <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>
-        @if($post->description)
-            <p class="mt-1 text-[13px] leading-snug text-rg-muted">{{ \Illuminate\Support\Str::limit($post->description, 140) }}</p>
+        @if($post->truncated_description)
+            <p class="mt-1 text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
         @endif
     </div>
 
-    @php
-        $score = ($post->upvotes_count ?? 0) - ($post->downvotes_count ?? 0);
-    @endphp
-
     <footer class="mt-3 border-t border-rg-border pt-2.5">
         <div class="flex items-center gap-4 text-xs text-rg-muted">
-            <span>Score <span class="font-semibold text-rg-text2">{{ $score }}</span></span>
+            <span>Score <span class="font-semibold text-rg-text2">{{ $post->score }}</span></span>
             <span>{{ $post->comments_count ?? 0 }} comments</span>
         </div>
         <div class="mt-2 flex flex-wrap gap-2">

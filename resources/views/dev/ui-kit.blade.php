@@ -74,23 +74,6 @@
             </div>
 
             <div class="max-w-xl space-y-4">
-                @php
-                    $demoPost = new \App\Models\Post([
-                        'title' => 'Homemade Carbonara',
-                        'description' => 'Creamy pasta with pepper and guanciale.',
-                        'upvotes_count' => 128,
-                        'downvotes_count' => 12,
-                        'comments_count' => 24,
-                        'homemade_votes_count' => 70,
-                        'restaurant_votes_count' => 30,
-                        'image_url' => null,
-                    ]);
-                    $demoPost->setRelation('user', new \App\Models\User([
-                        'name' => 'Demo Chef',
-                        'username' => 'demo_chef',
-                    ]));
-                @endphp
-
                 <x-feed.post-card :post="$demoPost" />
             </div>
         </section>
