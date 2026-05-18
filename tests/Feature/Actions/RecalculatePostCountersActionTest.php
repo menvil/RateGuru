@@ -141,3 +141,17 @@ it('recalculates counters after post vote instead of incrementing stale value', 
     expect($post->fresh()->upvotes_count)->toBe(1);
     expect($post->fresh()->downvotes_count)->toBe(0);
 });
+
+it('recalculates counters after origin vote instead of incrementing stale value', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 99,
+        'restaurant_votes_count' => 88,
+    ]);
+
+    app(\App\Actions\Votes\VoteOriginAction::class)->handle($user, $post, OriginType::Homemade);
+
+    expect($post->fresh()->homemade_votes_count)->toBe(1);
+    expect($post->fresh()->restaurant_votes_count)->toBe(0);
+});
