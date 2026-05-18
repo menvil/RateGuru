@@ -21,13 +21,33 @@
                     </a>
 
                     @auth
-                        <form method="POST" action="{{ route('logout') }}">
-                            @csrf
-
-                            <button type="submit" class="text-sm font-medium text-zinc-300 hover:text-white">
-                                {{ __('Log out') }}
+                        <div
+                            x-data="{ open: false }"
+                            @keydown.escape.window="open = false"
+                            @post-uploaded.window="open = false"
+                            class="flex items-center gap-4"
+                        >
+                            <button
+                                type="button"
+                                x-on:click="open = true"
+                                class="inline-flex items-center justify-center gap-2 rounded-rgControl border border-transparent bg-rg-accent px-4 text-[13px] font-semibold text-white transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg h-[38px]"
+                            >
+                                + Create post
                             </button>
-                        </form>
+
+                            <div data-testid="upload-modal">
+                                <x-ui.modal title="Create post" size="lg">
+                                    <livewire:feed.upload-post-form />
+                                </x-ui.modal>
+                            </div>
+
+                            <form method="POST" action="{{ route('logout') }}">
+                                @csrf
+                                <button type="submit" class="text-sm font-medium text-zinc-300 hover:text-white">
+                                    {{ __('Log out') }}
+                                </button>
+                            </form>
+                        </div>
                     @endauth
                 </div>
             </header>

@@ -1,5 +1,1 @@
-import Alpine from 'alpinejs';
-
-window.Alpine = Alpine;
-
-Alpine.start();
+// Alpine is provided by Livewire 3 — do not import it separately.
