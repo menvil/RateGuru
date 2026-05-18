@@ -10,8 +10,13 @@
             <x-ui.image-placeholder label="Image preview" ratio="video" />
         @endif
 
-        {{ $post->title }}
-        {{ $post->description }}
+        <section class="mt-4">
+            <h2 class="text-lg font-bold text-rg-text">{{ $post->title }}</h2>
+
+            @if($post->description)
+                <p class="mt-2 text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
+            @endif
+        </section>
     @elseif($postId)
         Post not found
     @else
