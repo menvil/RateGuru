@@ -149,3 +149,21 @@ it('allows comment body at max length', function () {
 
     expect($comment->body)->toHaveLength(1000);
 });
+
+it('increments post comments count after adding comment', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create(['comments_count' => 0]);
+
+    app(AddCommentAction::class)->handle($user, $post, 'Nice.');
+
+    expect($post->fresh()->comments_count)->toBe(1);
+});
+
+it('sets comments count to visible comments count after adding comment', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create(['comments_count' => 99]);
+
+    app(AddCommentAction::class)->handle($user, $post, 'Nice.');
+
+    expect($post->fresh()->comments_count)->toBe(1);
+});
