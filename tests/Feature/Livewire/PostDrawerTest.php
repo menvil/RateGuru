@@ -30,6 +30,23 @@ it('does not render hidden post', function () {
         ->assertSee('Post not found');
 });
 
+it('renders drawer vote summary', function () {
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 12,
+        'downvotes_count' => 3,
+        'homemade_votes_count' => 7,
+        'restaurant_votes_count' => 5,
+    ]);
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('Score')
+        ->assertSee('9')
+        ->assertSee('Homemade')
+        ->assertSee('7')
+        ->assertSee('Restaurant')
+        ->assertSee('5');
+});
+
 it('renders drawer author metadata', function () {
     $user = \App\Models\User::factory()->create([
         'name' => 'Demo Chef',
