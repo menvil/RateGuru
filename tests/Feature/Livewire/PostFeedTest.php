@@ -4,6 +4,32 @@ use App\Livewire\Feed\PostFeed;
 use App\Models\Post;
 use Livewire\Livewire;
 
+it('refreshes feed after upload success event', function () {
+    $user = \App\Models\User::factory()->trusted()->create();
+
+    Livewire::actingAs($user)
+        ->test(PostFeed::class)
+        ->dispatch('post-uploaded')
+        ->assertStatus(200);
+});
+
+it('shows newly published post after upload event', function () {
+    $user = \App\Models\User::factory()->trusted()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(PostFeed::class)
+        ->assertSee('No dishes yet');
+
+    Post::factory()->published()->create([
+        'user_id' => $user->id,
+        'title' => 'New Uploaded Dish',
+    ]);
+
+    $component
+        ->dispatch('post-uploaded')
+        ->assertSee('New Uploaded Dish');
+});
+
 it('can render post feed component', function () {
     Livewire::test(PostFeed::class)
         ->assertStatus(200);

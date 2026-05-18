@@ -21,3 +21,35 @@ it('uses mobile-safe feed layout', function () {
         ->toContain('px-4')
         ->toContain('max-w-');
 });
+
+it('renders upload modal shell for authenticated user on feed page', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $this->actingAs($user)
+        ->get('/')
+        ->assertOk()
+        ->assertSee('Create post')
+        ->assertSee('data-testid="upload-modal"', false);
+});
+
+it('listens for post uploaded event to close upload modal', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $html = $this->actingAs($user)->get('/')->getContent();
+
+    expect($html)
+        ->toContain('post-uploaded.window')
+        ->toContain('open = false');
+});
+
+it('has alpine upload modal open close behavior', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $html = $this->actingAs($user)->get('/')->getContent();
+
+    expect($html)
+        ->toContain('x-data')
+        ->toContain('open: false')
+        ->toContain('x-show')
+        ->toContain('@click');
+});
