@@ -9,6 +9,8 @@ class FeedPage extends Component
 {
     public string $search = '';
 
+    public ?string $category = null;
+
     public function render(): View
     {
         return view('livewire.feed.feed-page');
