@@ -84,6 +84,30 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('dispatches successful upload event', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+    $file = \Illuminate\Http\UploadedFile::fake()->image('dish.jpg');
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Homemade Pasta')
+        ->set('image', $file)
+        ->call('submit')
+        ->assertDispatched('post-uploaded');
+});
+
+it('does not dispatch event on validation failure', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Homemade Pasta')
+        ->call('submit')
+        ->assertNotDispatched('post-uploaded');
+});
+
 it('shows validation error when title is missing', function () {
     Storage::fake('public');
     $user = User::factory()->create();
