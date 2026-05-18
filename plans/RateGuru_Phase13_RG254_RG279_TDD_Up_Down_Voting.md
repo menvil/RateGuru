@@ -1763,9 +1763,6 @@ final class PostVoting extends Component
 {
     public int $postId;
 
-    // Declared explicitly: PHP 8.3 deprecates dynamic properties and
-    // Livewire 3 requires public properties to be declared. Set in the
-    // CannotVoteException catch block in RG-274.
     public string $error = '';
 
     public function getPostProperty(): Post
@@ -1886,8 +1883,6 @@ Handle exception:
 
 ```php
 catch (CannotVoteException $e) {
-    // `public string $error = '';` is declared on the PostVoting class
-    // (see RG-273) — required by Livewire 3 / PHP 8.3.
     $this->error = $e->getMessage();
 }
 ```
