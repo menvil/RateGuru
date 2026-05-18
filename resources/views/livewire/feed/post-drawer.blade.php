@@ -58,6 +58,17 @@
             </div>
         </section>
 
+        <section class="mt-6" data-testid="post-drawer-cuisine-voting">
+            <h3 class="text-sm font-semibold text-rg-text">What cuisine is it?</h3>
+
+            <div class="mt-2">
+                <livewire:posts.cuisine-voting
+                    :post-id="$post->id"
+                    :key="'post-drawer-cuisine-voting-'.$post->id"
+                />
+            </div>
+        </section>
+
         <section class="mt-6" data-testid="drawer-comments-slot">
             <div class="mb-3 flex items-center justify-between">
                 <h3 class="text-sm font-semibold text-rg-text">Comments</h3>
