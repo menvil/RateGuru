@@ -16,13 +16,16 @@ it('refreshes feed after upload success event', function () {
 it('shows newly published post after upload event', function () {
     $user = \App\Models\User::factory()->trusted()->create();
 
-    $post = Post::factory()->published()->create([
+    $component = Livewire::actingAs($user)
+        ->test(PostFeed::class)
+        ->assertSee('No dishes yet');
+
+    Post::factory()->published()->create([
         'user_id' => $user->id,
         'title' => 'New Uploaded Dish',
     ]);
 
-    Livewire::actingAs($user)
-        ->test(PostFeed::class)
+    $component
         ->dispatch('post-uploaded')
         ->assertSee('New Uploaded Dish');
 });
