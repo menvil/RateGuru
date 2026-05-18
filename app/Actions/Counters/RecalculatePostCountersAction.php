@@ -16,15 +16,21 @@ final class RecalculatePostCountersAction
             ->where('type', VoteType::Up)
             ->count();
 
+        $downvotes = PostVote::query()
+            ->where('post_id', $post->id)
+            ->where('type', VoteType::Down)
+            ->count();
+
         $post->forceFill([
             'upvotes_count' => $upvotes,
+            'downvotes_count' => $downvotes,
         ])->save();
 
         $fresh = $post->fresh();
 
         return new PostCounterSnapshot(
             upvotes: $upvotes,
-            downvotes: (int) $fresh->downvotes_count,
+            downvotes: $downvotes,
             homemadeVotes: (int) $fresh->homemade_votes_count,
             restaurantVotes: (int) $fresh->restaurant_votes_count,
             cuisineVotes: [],
