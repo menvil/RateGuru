@@ -12,13 +12,15 @@ class PostFeed extends Component
 
     public ?string $tag = null;
 
+    public string $sort = 'newest';
+
     public function render(FeedQuery $feedQuery): View
     {
         return view('livewire.feed.post-feed', [
             'posts' => $feedQuery->get(
                 search: $this->search ?: null,
                 tag: $this->tag ?: null,
-                sort: 'newest',
+                sort: $this->sort,
             ),
         ]);
     }
