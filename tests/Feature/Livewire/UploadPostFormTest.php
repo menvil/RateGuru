@@ -84,6 +84,22 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('creates post on successful upload', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+    $file = \Illuminate\Http\UploadedFile::fake()->image('dish.jpg');
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Homemade Pasta')
+        ->set('description', 'Fresh dinner')
+        ->set('image', $file)
+        ->call('submit');
+
+    expect(\App\Models\Post::query()->where('user_id', $user->id)->where('title', 'Homemade Pasta')->exists())->toBeTrue();
+});
+
 it('renders tag input placeholder', function () {
     $user = User::factory()->create();
 
