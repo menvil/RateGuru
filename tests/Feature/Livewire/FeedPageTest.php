@@ -72,6 +72,15 @@ it('selects post for drawer on feed page', function () {
         ->assertDispatched('post-drawer-opened');
 });
 
+it('clears selected post when drawer is closed', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(FeedPage::class)
+        ->call('openPostDrawer', $post->id)
+        ->call('closePostDrawer')
+        ->assertSet('selectedPostId', null);
+});
+
 it('filters feed when category is selected', function () {
     $pasta = Tag::factory()->create(['slug' => 'pasta']);
     $dessert = Tag::factory()->create(['slug' => 'dessert']);

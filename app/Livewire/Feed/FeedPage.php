@@ -37,6 +37,11 @@ class FeedPage extends Component
         $this->dispatch('post-drawer-opened');
     }
 
+    public function closePostDrawer(): void
+    {
+        $this->selectedPostId = null;
+    }
+
     private function normalizeSort(): void
     {
         if (! in_array($this->sort, ['newest', 'top', 'hot'], true)) {

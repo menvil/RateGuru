@@ -29,7 +29,7 @@
     x-cloak
     x-on:open-drawer.window="if ($event.detail?.id === drawerId) open = true"
     x-on:close-drawer.window="if ($event.detail?.id === drawerId) open = false"
-    x-on:keydown.escape.window="open = false"
+    x-on:keydown.escape.window="open = false; $dispatch('drawer-closed', { id: drawerId })"
     data-drawer-id="{{ $drawerId }}"
     class="pointer-events-none fixed inset-0 z-50"
 >
