@@ -18,14 +18,14 @@ final class VotePostAction
                 ->where('user_id', $user->id)
                 ->first();
 
-            if ($existingVote !== null && $existingVote->type === $type) {
-                $existingVote->delete();
-                $this->decrementCounter($post, $type);
+            if ($existingVote !== null) {
+                if ($existingVote->type === $type) {
+                    $existingVote->delete();
+                    $this->decrementCounter($post, $type);
 
-                return;
-            }
+                    return;
+                }
 
-            if ($existingVote !== null && $existingVote->type !== $type) {
                 $oldType = $existingVote->type;
 
                 $existingVote->update(['type' => $type]);
