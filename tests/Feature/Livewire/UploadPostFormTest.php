@@ -43,3 +43,21 @@ it('updates title property', function () {
         ->set('title', 'Homemade pasta')
         ->assertSet('title', 'Homemade pasta');
 });
+
+it('has description textarea', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Description')
+        ->assertSee('name="description"', false);
+});
+
+it('updates description property', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('description', 'Fresh pasta with basil')
+        ->assertSet('description', 'Fresh pasta with basil');
+});
