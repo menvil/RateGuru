@@ -74,7 +74,8 @@
                 type="button"
                 class="rounded-rgSm border border-rg-border2 bg-rg-card2 p-1 text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                 aria-label="Close drawer"
-                x-on:click="open = false"
+                data-testid="post-drawer-close"
+                x-on:click="open = false; $dispatch('drawer-closed', { id: drawerId })"
             >
                 <x-ui.icon name="x" class="size-4" />
             </button>
