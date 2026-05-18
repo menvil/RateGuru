@@ -84,6 +84,24 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('has source url input', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Source URL')
+        ->assertSee('name="source_url"', false);
+});
+
+it('updates sourceUrl property', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('sourceUrl', 'https://example.com/original')
+        ->assertSet('sourceUrl', 'https://example.com/original');
+});
+
 it('has alpine image preview markup', function () {
     $user = User::factory()->create();
 
