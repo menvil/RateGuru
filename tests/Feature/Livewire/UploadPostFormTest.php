@@ -25,3 +25,21 @@ it('blocks guest users', function () {
     Livewire::test(UploadPostForm::class)
         ->assertForbidden();
 });
+
+it('has title input', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Title')
+        ->assertSee('name="title"', false);
+});
+
+it('updates title property', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Homemade pasta')
+        ->assertSet('title', 'Homemade pasta');
+});
