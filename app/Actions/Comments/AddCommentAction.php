@@ -16,6 +16,10 @@ final class AddCommentAction
             throw CannotCommentException::becauseGuest();
         }
 
+        if (! $user->canComment()) {
+            throw CannotCommentException::becauseUserIsNotAllowed();
+        }
+
         return Comment::create([
             'user_id' => $user->id,
             'post_id' => $post->id,
