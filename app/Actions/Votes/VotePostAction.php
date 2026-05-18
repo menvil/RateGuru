@@ -29,6 +29,7 @@ final class VotePostAction
             $existingVote = PostVote::query()
                 ->where('post_id', $post->id)
                 ->where('user_id', $user->id)
+                ->lockForUpdate()
                 ->first();
 
             if ($existingVote !== null) {
@@ -68,9 +69,12 @@ final class VotePostAction
     {
         $column = $this->counterColumn($type);
 
-        if ($post->fresh()->{$column} > 0) {
-            $post->decrement($column);
-        }
+        // Atomic guarded decrement: never drops below zero even under
+        // concurrent votes, since the comparison and update are one statement.
+        Post::query()
+            ->whereKey($post->id)
+            ->where($column, '>', 0)
+            ->decrement($column);
     }
 
     private function counterColumn(VoteType $type): string
