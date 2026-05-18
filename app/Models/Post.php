@@ -66,6 +66,11 @@ class Post extends Model
         return $query->where('status', PostStatus::Published);
     }
 
+    public function canReceiveVotes(): bool
+    {
+        return $this->status === PostStatus::Published;
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

@@ -21,6 +21,10 @@ final class VotePostAction
             throw CannotVoteException::becauseUserIsNotAllowed();
         }
 
+        if (! $post->canReceiveVotes()) {
+            throw CannotVoteException::becausePostIsNotPublic();
+        }
+
         DB::transaction(function () use ($user, $post, $type) {
             $existingVote = PostVote::query()
                 ->where('post_id', $post->id)
