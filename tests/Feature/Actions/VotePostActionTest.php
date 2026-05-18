@@ -92,3 +92,21 @@ it('replaces upvote with downvote', function () {
     expect($post->fresh()->upvotes_count)->toBe(0);
     expect($post->fresh()->downvotes_count)->toBe(1);
 });
+
+it('replaces downvote with upvote', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(VotePostAction::class)->handle($user, $post, VoteType::Down);
+    app(VotePostAction::class)->handle($user, $post->fresh(), VoteType::Up);
+
+    $this->assertDatabaseHas('post_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'type' => VoteType::Up->value,
+    ]);
+
+    expect(\App\Models\PostVote::query()->count())->toBe(1);
+    expect($post->fresh()->upvotes_count)->toBe(1);
+    expect($post->fresh()->downvotes_count)->toBe(0);
+});
