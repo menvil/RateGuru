@@ -133,3 +133,21 @@ it('keeps same restaurant origin vote selected when clicked again', function () 
     expect($post->fresh()->restaurant_votes_count)->toBe(1);
     expect($post->fresh()->homemade_votes_count)->toBe(0);
 });
+
+it('does not allow guest to vote origin', function () {
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    try {
+        app(VoteOriginAction::class)->handle(null, $post, OriginType::Homemade);
+        $this->fail('Expected CannotVoteOriginException was not thrown.');
+    } catch (\App\Exceptions\Votes\CannotVoteOriginException $e) {
+        // expected
+    }
+
+    expect(OriginVote::query()->count())->toBe(0);
+    expect($post->fresh()->homemade_votes_count)->toBe(0);
+    expect($post->fresh()->restaurant_votes_count)->toBe(0);
+});
