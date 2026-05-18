@@ -84,6 +84,18 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('has upload loading state markup', function () {
+    $user = User::factory()->create();
+
+    $html = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->html();
+
+    expect($html)
+        ->toContain('wire:loading')
+        ->toContain('Uploading');
+});
+
 it('dispatches successful upload event', function () {
     Storage::fake('public');
 
