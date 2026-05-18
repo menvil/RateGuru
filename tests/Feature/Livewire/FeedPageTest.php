@@ -16,7 +16,6 @@ it('renders the feed page shell', function () {
         ->assertSee('Discover dishes');
 });
 
-// RG-187: SearchBar updates feed search state
 it('has search state on feed page', function () {
     Livewire::test(FeedPage::class)
         ->assertSet('search', '');
@@ -32,13 +31,11 @@ it('filters feed results when search state changes', function () {
         ->assertDontSee('Chocolate Cake');
 });
 
-// RG-191: category selection updates feed filter
 it('has category state on feed page', function () {
     Livewire::test(FeedPage::class)
         ->assertSet('category', null);
 });
 
-// RG-195: sort selection updates feed sort
 it('has sort state on feed page with default newest', function () {
     Livewire::test(FeedPage::class)
         ->assertSet('sort', 'newest');
