@@ -78,3 +78,11 @@ it('closes drawer with escape key markup', function () {
         ->toContain('@keydown.escape.window')
         ->toContain('drawerOpen = false');
 });
+
+it('has mobile drawer behavior classes', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('data-testid="post-detail-drawer-shell"')
+        ->toContain('bottom-0');
+});
