@@ -30,6 +30,7 @@ final class VoteCuisineAction
         return in_array($cuisine, [
             CuisineType::Italian,
             CuisineType::Asian,
+            CuisineType::American,
         ], true);
     }
 }
