@@ -34,6 +34,18 @@
             </div>
         </div>
 
+        <section class="mt-6" data-testid="drawer-comments-slot">
+            <div class="mb-3 flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-rg-text">Comments</h3>
+                <span class="text-xs text-rg-muted">{{ $post->comments_count ?? 0 }}</span>
+            </div>
+
+            <x-ui.empty-state
+                title="Comments will appear here"
+                description="Comment UI will be added in a later phase."
+            />
+        </section>
+
         <div class="mt-4 flex items-center gap-3">
             <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
 

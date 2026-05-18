@@ -30,6 +30,14 @@ it('does not render hidden post', function () {
         ->assertSee('Post not found');
 });
 
+it('renders comments slot placeholder in drawer', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('Comments')
+        ->assertSee('Comments will appear here');
+});
+
 it('renders drawer vote summary', function () {
     $post = Post::factory()->published()->create([
         'upvotes_count' => 12,
