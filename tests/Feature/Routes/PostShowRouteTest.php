@@ -11,6 +11,14 @@ it('has posts show route', function () {
         ->assertOk();
 });
 
+it('renders post voting component on post show page', function () {
+    $post = Post::factory()->published()->create();
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('data-testid="post-show-voting"', false);
+});
+
 it('renders published post show page', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Homemade Carbonara',
