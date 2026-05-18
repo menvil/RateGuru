@@ -7,6 +7,8 @@
 
         <title>@yield('title', config('app.name', 'RateGuru'))</title>
 
+        @stack('meta')
+
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="min-h-screen bg-zinc-950 font-sans text-zinc-100 antialiased">
