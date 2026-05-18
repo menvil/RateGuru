@@ -76,3 +76,49 @@ it('allows user to vote other cuisine on a published post', function () {
         'cuisine' => CuisineType::Other->value,
     ]);
 });
+
+it('allows user to change cuisine vote', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
+    app(VoteCuisineAction::class)->handle($user, $post->fresh(), CuisineType::Asian);
+
+    $this->assertDatabaseHas('cuisine_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => CuisineType::Asian->value,
+    ]);
+
+    $this->assertDatabaseMissing('cuisine_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => CuisineType::Italian->value,
+    ]);
+
+    expect(CuisineVote::query()
+        ->where('user_id', $user->id)
+        ->where('post_id', $post->id)
+        ->count()
+    )->toBe(1);
+});
+
+it('keeps same cuisine vote selected when clicked again', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
+    app(VoteCuisineAction::class)->handle($user, $post->fresh(), CuisineType::Italian);
+
+    expect(CuisineVote::query()
+        ->where('user_id', $user->id)
+        ->where('post_id', $post->id)
+        ->count()
+    )->toBe(1);
+
+    $this->assertDatabaseHas('cuisine_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => CuisineType::Italian->value,
+    ]);
+});
