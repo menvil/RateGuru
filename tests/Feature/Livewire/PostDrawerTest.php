@@ -30,6 +30,12 @@ it('does not render hidden post', function () {
         ->assertSee('Post not found');
 });
 
+it('has drawer loading state markup', function () {
+    Livewire::test(PostDrawer::class)
+        ->assertSee('data-testid="post-drawer-loading"', false)
+        ->assertSee('wire:loading', false);
+});
+
 it('renders comments slot placeholder in drawer', function () {
     $post = Post::factory()->published()->create();
 

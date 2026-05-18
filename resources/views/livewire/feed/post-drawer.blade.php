@@ -1,4 +1,11 @@
 <div data-testid="post-drawer">
+    <div wire:loading data-testid="post-drawer-loading" class="space-y-4">
+        <x-ui.skeleton shape="block" height="16rem" />
+        <x-ui.skeleton shape="line" width="70%" />
+        <x-ui.skeleton shape="line" width="45%" />
+    </div>
+
+    <div wire:loading.remove>
     @if($post)
         @if($post->image_url)
             <img
@@ -66,4 +73,5 @@
     @else
         Select a post
     @endif
+    </div>
 </div>
