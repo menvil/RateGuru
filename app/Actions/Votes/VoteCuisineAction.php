@@ -12,6 +12,10 @@ final class VoteCuisineAction
 {
     public function handle(?User $user, Post $post, CuisineType $cuisine): void
     {
+        if (! $this->isValidVoteCuisine($cuisine)) {
+            return;
+        }
+
         DB::transaction(function () use ($user, $post, $cuisine) {
             CuisineVote::create([
                 'user_id' => $user->id,
@@ -19,5 +23,13 @@ final class VoteCuisineAction
                 'cuisine' => $cuisine,
             ]);
         });
+    }
+
+    private function isValidVoteCuisine(CuisineType $cuisine): bool
+    {
+        return in_array($cuisine, [
+            CuisineType::Italian,
+            CuisineType::Asian,
+        ], true);
     }
 }
