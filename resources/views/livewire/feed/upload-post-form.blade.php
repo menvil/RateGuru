@@ -83,7 +83,7 @@
                 id="originTruth"
                 name="originTruth"
                 wire:model.defer="originTruth"
-                class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(168,85,247,0.25)]"
+                class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
             >
                 <option value="{{ OriginType::Unknown->value }}">Keep unknown</option>
                 <option value="{{ OriginType::Homemade->value }}">Homemade</option>
@@ -100,7 +100,7 @@
                 id="cuisineTruth"
                 name="cuisineTruth"
                 wire:model.defer="cuisineTruth"
-                class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(168,85,247,0.25)]"
+                class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
             >
                 <option value="{{ CuisineType::Unknown->value }}">Keep unknown</option>
                 <option value="{{ CuisineType::Italian->value }}">Italian</option>
