@@ -32,6 +32,7 @@ final class VoteCuisineAction
             CuisineType::Asian,
             CuisineType::American,
             CuisineType::Mexican,
+            CuisineType::Other,
         ], true);
     }
 }
