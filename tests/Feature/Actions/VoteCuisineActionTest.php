@@ -24,3 +24,16 @@ it('allows user to vote italian cuisine on a published post', function () {
         ->count()
     )->toBe(1);
 });
+
+it('allows user to vote asian cuisine on a published post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Asian);
+
+    $this->assertDatabaseHas('cuisine_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => CuisineType::Asian->value,
+    ]);
+});
