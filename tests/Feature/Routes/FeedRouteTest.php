@@ -32,6 +32,16 @@ it('renders upload modal shell for authenticated user on feed page', function ()
         ->assertSee('data-testid="upload-modal"', false);
 });
 
+it('listens for post uploaded event to close upload modal', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $html = $this->actingAs($user)->get('/')->getContent();
+
+    expect($html)
+        ->toContain('post-uploaded.window')
+        ->toContain('open = false');
+});
+
 it('has alpine upload modal open close behavior', function () {
     $user = \App\Models\User::factory()->create();
 
