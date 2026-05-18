@@ -29,3 +29,24 @@ it('does not render hidden post', function () {
         ->assertDontSee('Hidden Dish')
         ->assertSee('Post not found');
 });
+
+it('renders large post image in drawer', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('/storage/posts/1/dish.jpg')
+        ->assertSee('alt="Dish"', false);
+});
+
+it('renders image placeholder when drawer post has no image', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Dish',
+        'image_url' => null,
+    ]);
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('Image preview');
+});
