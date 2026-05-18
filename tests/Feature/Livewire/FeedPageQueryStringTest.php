@@ -20,7 +20,7 @@ it('sets search property from query string', function () {
         ->assertSet('search', 'pasta');
 });
 
-it('does not add search to URL when empty', function () {
+it('has empty default search', function () {
     $component = Livewire::test(FeedPage::class);
 
     expect($component->instance()->search)->toBe('');
