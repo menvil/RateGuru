@@ -101,13 +101,31 @@ it('calls vote action when up button is clicked', function () {
     ]);
 });
 
+it('shows an error instead of throwing when the post is no longer available', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id]);
+
+    $post->update(['status' => \App\Enums\PostStatus::Hidden]);
+
+    $component->call('vote', VoteType::Up->value)
+        ->assertOk()
+        ->assertSet('error', 'This post is no longer available.')
+        ->assertNotDispatched('post-voted');
+
+    $this->assertDatabaseCount('post_votes', 0);
+});
+
 it('calls vote action when down button is clicked', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
     Livewire::actingAs($user)
         ->test(PostVoting::class, ['postId' => $post->id])
-        ->call('vote', VoteType::Down->value);
+        ->call('vote', VoteType::Down->value)
+        ->assertDispatched('post-voted');
 
     $this->assertDatabaseHas('post_votes', [
         'user_id' => $user->id,
