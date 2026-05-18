@@ -35,6 +35,22 @@ it('refreshes vote counters after toggling upvote off', function () {
         ->assertSee('Up 0');
 });
 
+it('ignores an invalid vote type without throwing', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 0,
+        'downvotes_count' => 0,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id])
+        ->call('vote', 'sideways')
+        ->assertOk();
+
+    $this->assertDatabaseCount('post_votes', 0);
+    expect($post->fresh()->upvotes_count)->toBe(0);
+});
+
 it('refreshes both counters when replacing a vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
