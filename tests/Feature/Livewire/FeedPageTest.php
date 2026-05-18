@@ -38,6 +38,32 @@ it('has category state on feed page', function () {
         ->assertSet('category', null);
 });
 
+// RG-195: sort selection updates feed sort
+it('has sort state on feed page with default newest', function () {
+    Livewire::test(FeedPage::class)
+        ->assertSet('sort', 'newest');
+});
+
+it('sorts feed when sort is changed to top', function () {
+    Post::factory()->published()->create([
+        'title' => 'Low Score',
+        'upvotes_count' => 1,
+        'downvotes_count' => 0,
+        'published_at' => now()->subMinutes(5),
+    ]);
+
+    Post::factory()->published()->create([
+        'title' => 'High Score',
+        'upvotes_count' => 10,
+        'downvotes_count' => 0,
+        'published_at' => now()->subMinutes(10),
+    ]);
+
+    Livewire::test(FeedPage::class)
+        ->set('sort', 'top')
+        ->assertSeeInOrder(['High Score', 'Low Score']);
+});
+
 it('filters feed when category is selected', function () {
     $pasta = Tag::factory()->create(['slug' => 'pasta']);
     $dessert = Tag::factory()->create(['slug' => 'dessert']);
