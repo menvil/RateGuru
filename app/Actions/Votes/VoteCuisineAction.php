@@ -17,6 +17,26 @@ final class VoteCuisineAction
         }
 
         DB::transaction(function () use ($user, $post, $cuisine) {
+            $existingVote = CuisineVote::query()
+                ->where('post_id', $post->id)
+                ->where('user_id', $user->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingVote !== null) {
+                // Product decision (Phase 15): clicking the already-selected
+                // cuisine keeps it selected. It is a no-op — the vote is NOT
+                // cleared. Cuisine is a classification choice, not a like;
+                // clearing requires an explicit separate action.
+                if ($existingVote->cuisine === $cuisine) {
+                    return;
+                }
+
+                $existingVote->update(['cuisine' => $cuisine]);
+
+                return;
+            }
+
             CuisineVote::create([
                 'user_id' => $user->id,
                 'post_id' => $post->id,
