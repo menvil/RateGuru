@@ -18,4 +18,41 @@
             <p class="mt-3 text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
         @endif
     </section>
+
+    <section class="mt-6 flex flex-wrap items-center gap-4" data-testid="post-show-meta">
+        <div class="flex items-center gap-3">
+            <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
+
+            <div>
+                <div class="text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+
+                @if($post->user?->username)
+                    <div class="text-xs text-rg-muted">{{ '@' . $post->user->username }}</div>
+                @endif
+
+                @if($post->published_at)
+                    <div class="text-xs text-rg-muted">{{ $post->published_at->diffForHumans() }}</div>
+                @endif
+            </div>
+        </div>
+
+        @if($post->tags->isNotEmpty())
+            <div class="flex flex-wrap items-center gap-2">
+                @foreach($post->tags as $tag)
+                    <x-ui.badge>{{ $tag->name }}</x-ui.badge>
+                @endforeach
+            </div>
+        @endif
+
+        @if($post->source_url)
+            <a
+                href="{{ $post->source_url }}"
+                rel="nofollow noopener"
+                target="_blank"
+                class="text-xs font-semibold text-rg-accent2 hover:underline"
+            >
+                Source
+            </a>
+        @endif
+    </section>
 </div>
