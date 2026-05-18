@@ -3,6 +3,7 @@
 namespace App\Actions\Votes;
 
 use App\Enums\VoteType;
+use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\User;
@@ -10,8 +11,12 @@ use Illuminate\Support\Facades\DB;
 
 final class VotePostAction
 {
-    public function handle(User $user, Post $post, VoteType $type): void
+    public function handle(?User $user, Post $post, VoteType $type): void
     {
+        if ($user === null) {
+            throw CannotVoteException::becauseGuest();
+        }
+
         DB::transaction(function () use ($user, $post, $type) {
             $existingVote = PostVote::query()
                 ->where('post_id', $post->id)
