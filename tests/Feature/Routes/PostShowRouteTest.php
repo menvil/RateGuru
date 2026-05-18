@@ -171,11 +171,14 @@ it('does not show pending post to normal user', function () {
 });
 
 it('does not show rejected post to normal user', function () {
+    $user = User::factory()->create();
+
     $post = Post::factory()->rejected()->create([
         'title' => 'Rejected Dish',
     ]);
 
-    $this->get(route('posts.show', $post))
+    $this->actingAs($user)
+        ->get(route('posts.show', $post))
         ->assertNotFound()
         ->assertDontSee('Rejected Dish');
 });
