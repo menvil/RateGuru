@@ -50,3 +50,16 @@ it('allows user to vote american cuisine on a published post', function () {
         'cuisine' => CuisineType::American->value,
     ]);
 });
+
+it('allows user to vote mexican cuisine on a published post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Mexican);
+
+    $this->assertDatabaseHas('cuisine_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => CuisineType::Mexican->value,
+    ]);
+});
