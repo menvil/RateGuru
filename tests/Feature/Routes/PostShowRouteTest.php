@@ -22,6 +22,28 @@ it('renders published post show page', function () {
         ->assertSee('Creamy pasta with pepper');
 });
 
+it('renders post hero image', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('/storage/posts/1/dish.jpg')
+        ->assertSee('alt="Dish"', false);
+});
+
+it('renders hero image placeholder when image is missing', function () {
+    $post = Post::factory()->published()->create([
+        'image_url' => null,
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('Image preview');
+});
+
 it('does not show hidden post to guest', function () {
     $post = Post::factory()->hidden()->create([
         'title' => 'Hidden Dish',
