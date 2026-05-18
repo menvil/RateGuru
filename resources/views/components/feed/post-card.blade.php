@@ -6,6 +6,8 @@
     role="button"
     tabindex="0"
     wire:click="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
+    wire:keydown.enter="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
+    wire:keydown.space.prevent="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
     class="cursor-pointer"
 >
     <div class="flex items-center gap-2">

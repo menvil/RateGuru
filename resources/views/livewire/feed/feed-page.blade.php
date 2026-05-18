@@ -2,8 +2,8 @@
     class="min-h-screen"
     x-data="{ drawerOpen: false }"
     data-testid="post-detail-drawer-shell"
-    @post-drawer-opened.window="drawerOpen = true"
-    @drawer-closed.window="drawerOpen = false; $wire.closePostDrawer()"
+    @post-drawer-opened.window="drawerOpen = true; $dispatch('open-drawer', { id: 'post-detail-drawer' })"
+    @drawer-closed.window="if ($event.detail?.id === 'post-detail-drawer') { drawerOpen = false; $wire.closePostDrawer() }"
 >
     <section class="mx-auto w-full max-w-xl px-4 py-6 sm:px-6 lg:py-10">
         <header class="mb-6">
@@ -38,7 +38,6 @@
     <x-ui.drawer
         id="post-detail-drawer"
         title="Dish details"
-        x-show="drawerOpen"
     >
         <livewire:feed.post-drawer
             :post-id="$selectedPostId"

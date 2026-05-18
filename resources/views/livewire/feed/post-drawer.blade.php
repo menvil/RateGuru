@@ -25,11 +25,10 @@
             @endif
         </section>
 
-        @php $score = ($post->upvotes_count ?? 0) - ($post->downvotes_count ?? 0); @endphp
         <div class="mt-4 grid grid-cols-3 gap-2">
             <div class="rounded-rgCard border border-rg-border bg-rg-card2 p-3 text-center">
                 <div class="text-xs text-rg-muted">Score</div>
-                <div class="mt-1 text-base font-bold text-rg-text">{{ $score }}</div>
+                <div class="mt-1 text-base font-bold text-rg-text">{{ $post->score }}</div>
             </div>
             <div class="rounded-rgCard border border-rg-border bg-rg-card2 p-3 text-center">
                 <div class="text-xs text-rg-muted">Homemade</div>
