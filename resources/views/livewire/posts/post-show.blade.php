@@ -69,11 +69,10 @@
         @endif
     </section>
 
-    @php($score = ($post->upvotes_count ?? 0) - ($post->downvotes_count ?? 0))
     <section class="mt-6 grid grid-cols-3 gap-2" aria-label="Voting summary" data-testid="post-show-voting">
         <x-ui.card class="text-center">
             <div class="text-xs text-rg-muted">Score</div>
-            <div class="mt-1 text-base font-bold text-rg-text">{{ $score }}</div>
+            <div class="mt-1 text-base font-bold text-rg-text">{{ $post->score }}</div>
         </x-ui.card>
 
         <x-ui.card class="text-center">
