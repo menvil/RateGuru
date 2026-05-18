@@ -133,3 +133,17 @@ it('does not allow guest to vote cuisine', function () {
         expect(CuisineVote::query()->count())->toBe(0);
     }
 });
+
+it('does not allow cuisine vote on hidden post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->hidden()->create();
+
+    app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
+})->throws(\App\Exceptions\Votes\CannotVoteCuisineException::class);
+
+it('does not allow unknown cuisine vote', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Unknown);
+})->throws(\App\Exceptions\Votes\CannotVoteCuisineException::class);
