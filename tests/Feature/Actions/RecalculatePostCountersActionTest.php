@@ -127,3 +127,17 @@ it('does not require persisted cuisine counter columns on posts', function () {
 
     expect($snapshot->cuisineVotes)->toBeArray();
 });
+
+it('recalculates counters after post vote instead of incrementing stale value', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 99,
+        'downvotes_count' => 88,
+    ]);
+
+    app(\App\Actions\Votes\VotePostAction::class)->handle($user, $post, VoteType::Up);
+
+    expect($post->fresh()->upvotes_count)->toBe(1);
+    expect($post->fresh()->downvotes_count)->toBe(0);
+});
