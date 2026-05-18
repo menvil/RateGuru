@@ -111,4 +111,11 @@
             <x-input-error :messages="$errors->get('cuisineTruth')" />
         </div>
     </div>
+
+    <div>
+        <x-input-label value="Tags" />
+        <div class="mt-1 rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 py-2 text-sm text-rg-muted">
+            Tag selection coming soon
+        </div>
+    </div>
 </div>

@@ -84,6 +84,15 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('renders tag input placeholder', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Tags')
+        ->assertSee('Tag selection coming soon');
+});
+
 it('has cuisine truth selector', function () {
     $user = User::factory()->create();
 
