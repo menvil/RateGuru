@@ -149,3 +149,15 @@ it('renders origin voting panel in drawer', function () {
         ->assertSee('Homemade')
         ->assertSee('Restaurant');
 });
+
+it('renders cuisine voting buttons in drawer', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="post-drawer-cuisine-voting"', false)
+        ->assertSee('Italian')
+        ->assertSee('Asian')
+        ->assertSee('American')
+        ->assertSee('Mexican')
+        ->assertSee('Other');
+});
