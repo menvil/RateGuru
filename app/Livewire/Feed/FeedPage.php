@@ -14,6 +14,7 @@ class FeedPage extends Component
     #[Url(as: 'category', except: '')]
     public ?string $category = null;
 
+    #[Url(as: 'sort', except: 'newest')]
     public string $sort = 'newest';
 
     public function mount(): void
