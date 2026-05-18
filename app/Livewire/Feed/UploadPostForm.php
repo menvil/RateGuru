@@ -2,13 +2,19 @@
 
 namespace App\Livewire\Feed;
 
+use App\Actions\Posts\CreatePostAction;
+use App\Data\Posts\CreatePostData;
+use App\Enums\CuisineType;
+use App\Enums\OriginType;
 use Illuminate\Contracts\View\View;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
 final class UploadPostForm extends Component
 {
     use WithFileUploads;
+
     public string $title = '';
     public ?string $description = null;
     public ?string $sourceUrl = null;
@@ -16,10 +22,55 @@ final class UploadPostForm extends Component
     public string $cuisineTruth = 'unknown';
     public array $tagIds = [];
     public $image = null;
+    public ?string $submitError = null;
 
     public function mount(): void
     {
         abort_unless(auth()->check(), 403);
+    }
+
+    public function submit(CreatePostAction $createPostAction): void
+    {
+        abort_unless(auth()->check(), 403);
+
+        $this->submitError = null;
+
+        $this->validate();
+
+        try {
+            $post = $createPostAction->handle(auth()->user(), new CreatePostData(
+                title: $this->title,
+                description: $this->description,
+                sourceUrl: $this->sourceUrl,
+                originTruth: OriginType::from($this->originTruth),
+                cuisineTruth: CuisineType::from($this->cuisineTruth),
+                tagIds: $this->tagIds,
+                image: $this->image,
+            ));
+
+            $this->dispatch('post-uploaded', postId: $post->id);
+
+            $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds']);
+            $this->originTruth = OriginType::Unknown->value;
+            $this->cuisineTruth = CuisineType::Unknown->value;
+        } catch (\Throwable $e) {
+            report($e);
+            $this->submitError = 'Something went wrong while creating your post.';
+        }
+    }
+
+    protected function rules(): array
+    {
+        return [
+            'title' => ['required', 'string', 'min:3', 'max:120'],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'image' => ['required', 'image', 'max:5120'],
+            'sourceUrl' => ['nullable', 'url', 'max:2048'],
+            'originTruth' => ['nullable', Rule::enum(OriginType::class)],
+            'cuisineTruth' => ['nullable', Rule::enum(CuisineType::class)],
+            'tagIds' => ['array', 'max:10'],
+            'tagIds.*' => ['integer', 'exists:tags,id'],
+        ];
     }
 
     public function render(): View
