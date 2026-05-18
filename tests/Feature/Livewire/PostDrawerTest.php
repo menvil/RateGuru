@@ -41,6 +41,28 @@ it('renders large post image in drawer', function () {
         ->assertSee('alt="Dish"', false);
 });
 
+it('renders drawer post title and description', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Homemade Carbonara',
+        'description' => 'Creamy pasta with pepper',
+    ]);
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('Homemade Carbonara')
+        ->assertSee('Creamy pasta with pepper');
+});
+
+it('does not break when drawer post description is missing', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Dish',
+        'description' => null,
+    ]);
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('Dish')
+        ->assertDontSee('Creamy pasta');
+});
+
 it('renders image placeholder when drawer post has no image', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Dish',
