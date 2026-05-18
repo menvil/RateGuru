@@ -110,6 +110,15 @@ it('renders share panel placeholder on post page', function () {
         ->assertSee(route('posts.show', $post));
 });
 
+it('renders related posts placeholder', function () {
+    $post = Post::factory()->published()->create();
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('Related posts')
+        ->assertSee('Related dishes will appear here');
+});
+
 it('does not show hidden post to guest', function () {
     $post = Post::factory()->hidden()->create([
         'title' => 'Hidden Dish',

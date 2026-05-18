@@ -95,4 +95,13 @@
             <p class="mt-2 text-xs text-rg-muted">Copy link behavior will be added later.</p>
         </x-ui.card>
     </section>
+
+    <section class="mt-8" data-testid="post-show-related">
+        <h2 class="mb-3 text-base font-semibold text-rg-text">Related posts</h2>
+
+        <x-ui.empty-state
+            title="Related dishes will appear here"
+            description="Related post recommendations will be added later."
+        />
+    </section>
 </div>
