@@ -1,3 +1,4 @@
+@php use App\Enums\OriginType; use App\Enums\CuisineType; @endphp
 <div data-testid="upload-post-form" class="space-y-4">
     <h2 class="sr-only">Create post</h2>
     <div>
@@ -71,6 +72,23 @@
         />
         <div data-testid="field-error-source-url" class="mt-1">
             <x-input-error :messages="$errors->get('sourceUrl')" />
+        </div>
+    </div>
+
+    <div>
+        <x-input-label for="originTruth" value="Origin" />
+        <select
+            id="originTruth"
+            name="originTruth"
+            wire:model.defer="originTruth"
+            class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(168,85,247,0.25)]"
+        >
+            <option value="{{ OriginType::Unknown->value }}">Keep unknown</option>
+            <option value="{{ OriginType::Homemade->value }}">Homemade</option>
+            <option value="{{ OriginType::Restaurant->value }}">Restaurant</option>
+        </select>
+        <div data-testid="field-error-origin-truth" class="mt-1">
+            <x-input-error :messages="$errors->get('originTruth')" />
         </div>
     </div>
 </div>
