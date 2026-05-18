@@ -128,3 +128,24 @@ it('trims comment body before saving', function () {
 
     expect($comment->body)->toBe('Nice');
 });
+
+it('rejects too long comment body', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(AddCommentAction::class)->handle($user, $post, str_repeat('a', 1001));
+        $this->fail('Expected CannotCommentException was not thrown.');
+    } catch (CannotCommentException $e) {
+        expect(Comment::query()->count())->toBe(0);
+    }
+});
+
+it('allows comment body at max length', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $comment = app(AddCommentAction::class)->handle($user, $post, str_repeat('a', 1000));
+
+    expect($comment->body)->toHaveLength(1000);
+});
