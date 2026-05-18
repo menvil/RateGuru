@@ -26,8 +26,14 @@ final class PostVoting extends Component
     {
         $this->error = '';
 
+        $voteType = VoteType::tryFrom($type);
+
+        if ($voteType === null) {
+            return;
+        }
+
         try {
-            $votePostAction->handle(auth()->user(), $this->post, VoteType::from($type));
+            $votePostAction->handle(auth()->user(), $this->post, $voteType);
         } catch (CannotVoteException $e) {
             $this->error = $e->getMessage();
 
