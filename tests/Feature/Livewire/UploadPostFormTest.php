@@ -83,3 +83,16 @@ it('accepts image upload property', function () {
 
     expect($component->get('image'))->not->toBeNull();
 });
+
+it('has alpine image preview markup', function () {
+    $user = User::factory()->create();
+
+    $html = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->html();
+
+    expect($html)
+        ->toContain('x-data')
+        ->toContain('previewUrl')
+        ->toContain('FileReader');
+});

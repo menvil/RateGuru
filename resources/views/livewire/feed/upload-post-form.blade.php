@@ -29,7 +29,7 @@
         </div>
     </div>
 
-    <div>
+    <div x-data="{ previewUrl: null }">
         <x-input-label for="image" value="Image" />
         <input
             id="image"
@@ -38,7 +38,22 @@
             accept="image/*"
             wire:model="image"
             class="mt-1 block w-full text-sm text-rg-text2 file:mr-3 file:rounded-rgControl file:border-0 file:bg-rg-card2 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-rg-text file:transition file:hover:bg-rg-card"
+            @change="
+                const file = $event.target.files[0];
+                if (!file) { previewUrl = null; return; }
+                const reader = new FileReader();
+                reader.onload = e => previewUrl = e.target.result;
+                reader.readAsDataURL(file);
+            "
         />
+        <div class="mt-2">
+            <template x-if="previewUrl">
+                <img :src="previewUrl" alt="Selected image preview" class="max-h-48 w-full rounded-rgCard object-cover" />
+            </template>
+            <div x-show="!previewUrl">
+                <x-ui.image-placeholder label="Image preview" ratio="video" />
+            </div>
+        </div>
         <div data-testid="field-error-image" class="mt-1">
             <x-input-error :messages="$errors->get('image')" />
         </div>
