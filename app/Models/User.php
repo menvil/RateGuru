@@ -46,6 +46,21 @@ class User extends Authenticatable
         return $this->status === UserStatus::Active;
     }
 
+    public function canComment(): bool
+    {
+        return $this->status === UserStatus::Active;
+    }
+
+    public function isModerator(): bool
+    {
+        return $this->role === UserRole::Moderator;
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === UserRole::Admin;
+    }
+
     public function posts(): HasMany
     {
         return $this->hasMany(Post::class);
