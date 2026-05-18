@@ -2,7 +2,9 @@
 
 use App\Actions\Votes\VotePostAction;
 use App\Enums\VoteType;
+use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\User;
 
 it('allows user to upvote a published post', function () {
@@ -109,4 +111,19 @@ it('replaces downvote with upvote', function () {
     expect(\App\Models\PostVote::query()->count())->toBe(1);
     expect($post->fresh()->upvotes_count)->toBe(1);
     expect($post->fresh()->downvotes_count)->toBe(0);
+});
+
+it('does not allow guest to vote', function () {
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 0,
+        'downvotes_count' => 0,
+    ]);
+
+    try {
+        app(VotePostAction::class)->handle(null, $post, VoteType::Up);
+        $this->fail('Expected CannotVoteException was not thrown.');
+    } catch (CannotVoteException $e) {
+        expect(PostVote::query()->count())->toBe(0);
+        expect($post->fresh()->upvotes_count)->toBe(0);
+    }
 });
