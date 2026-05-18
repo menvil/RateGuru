@@ -25,6 +25,17 @@ final class VotePostAction
                 return;
             }
 
+            if ($existingVote !== null && $existingVote->type !== $type) {
+                $oldType = $existingVote->type;
+
+                $existingVote->update(['type' => $type]);
+
+                $this->decrementCounter($post, $oldType);
+                $this->incrementCounter($post, $type);
+
+                return;
+            }
+
             PostVote::create([
                 'user_id' => $user->id,
                 'post_id' => $post->id,
