@@ -1,0 +1,28 @@
+<?php
+
+use App\Livewire\Feed\FeedPage;
+use App\Models\Post;
+use App\Models\Tag;
+use Livewire\Livewire;
+
+// RG-199: URL query string sync for search
+it('hydrates search from query string', function () {
+    Post::factory()->published()->create(['title' => 'Homemade Pasta']);
+    Post::factory()->published()->create(['title' => 'Chocolate Cake']);
+
+    $this->get('/?search=pasta')
+        ->assertSee('Homemade Pasta')
+        ->assertDontSee('Chocolate Cake');
+});
+
+it('sets search property from query string', function () {
+    Livewire::withQueryParams(['search' => 'pasta'])
+        ->test(FeedPage::class)
+        ->assertSet('search', 'pasta');
+});
+
+it('does not add search to URL when empty', function () {
+    $component = Livewire::test(FeedPage::class);
+
+    expect($component->instance()->search)->toBe('');
+});

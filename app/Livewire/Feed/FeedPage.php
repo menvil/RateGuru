@@ -3,10 +3,12 @@
 namespace App\Livewire\Feed;
 
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 class FeedPage extends Component
 {
+    #[Url(as: 'search', except: '')]
     public string $search = '';
 
     public ?string $category = null;
