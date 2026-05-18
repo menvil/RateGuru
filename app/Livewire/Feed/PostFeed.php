@@ -4,6 +4,7 @@ namespace App\Livewire\Feed;
 
 use App\Queries\Feed\FeedQuery;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class PostFeed extends Component
@@ -13,6 +14,9 @@ class PostFeed extends Component
     public ?string $tag = null;
 
     public string $sort = 'newest';
+
+    #[On('post-uploaded')]
+    public function refreshAfterUpload(): void {}
 
     public function render(FeedQuery $feedQuery): View
     {
