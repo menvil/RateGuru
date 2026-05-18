@@ -21,3 +21,17 @@ it('allows user to delete own comment', function () {
     $this->assertSoftDeleted('comments', ['id' => $comment->id]);
     expect($post->fresh()->comments_count)->toBe(0);
 });
+
+it('does not allow user to delete another users comment', function () {
+    $owner = User::factory()->create();
+    $otherUser = User::factory()->create();
+
+    $comment = Comment::factory()->for($owner)->create();
+
+    try {
+        app(DeleteCommentAction::class)->handle($otherUser, $comment);
+        $this->fail('Expected CannotDeleteCommentException was not thrown.');
+    } catch (CannotDeleteCommentException $e) {
+        $this->assertNotSoftDeleted('comments', ['id' => $comment->id]);
+    }
+});
