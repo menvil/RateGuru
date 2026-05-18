@@ -20,6 +20,10 @@ final class AddCommentAction
             throw CannotCommentException::becauseUserIsNotAllowed();
         }
 
+        if (! $post->canReceiveComments()) {
+            throw CannotCommentException::becausePostIsNotPublic();
+        }
+
         return Comment::create([
             'user_id' => $user->id,
             'post_id' => $post->id,

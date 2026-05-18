@@ -71,6 +71,11 @@ class Post extends Model
         return $this->status === PostStatus::Published;
     }
 
+    public function canReceiveComments(): bool
+    {
+        return $this->status === PostStatus::Published;
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
