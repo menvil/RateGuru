@@ -17,6 +17,27 @@
             @endforeach
         </div>
 
+        <div data-testid="cuisine-distribution-panel" class="flex flex-col gap-2">
+            @if($this->distribution['total'] === 0)
+                <span class="text-xs text-rg-muted">No cuisine votes yet</span>
+            @else
+                @foreach($this->distribution['rows'] as $row)
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between text-xs text-rg-muted">
+                            <span>{{ $row['label'] }}</span>
+                            <span>{{ $row['count'] }} · {{ $row['percentage'] }}%</span>
+                        </div>
+                        <div class="h-2 w-full overflow-hidden rounded-rgPill bg-rg-card2">
+                            <div
+                                class="h-2 rounded-rgPill bg-rg-accent transition-all"
+                                style="width: {{ $row['percentage'] }}%"
+                            ></div>
+                        </div>
+                    </div>
+                @endforeach
+            @endif
+        </div>
+
         @if($error !== '')
             <span data-testid="cuisine-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
         @endif

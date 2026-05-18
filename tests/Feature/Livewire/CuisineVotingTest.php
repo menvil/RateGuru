@@ -52,3 +52,26 @@ it('can change cuisine vote through the component', function () {
         ->count()
     )->toBe(1);
 });
+
+it('renders cuisine distribution panel', function () {
+    $post = Post::factory()->published()->create();
+
+    \App\Models\CuisineVote::factory()->for($post)->create(['cuisine' => \App\Enums\CuisineType::Italian]);
+    \App\Models\CuisineVote::factory()->for($post)->create(['cuisine' => \App\Enums\CuisineType::Italian]);
+    \App\Models\CuisineVote::factory()->for($post)->create(['cuisine' => \App\Enums\CuisineType::Asian]);
+
+    Livewire::test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertSee('data-testid="cuisine-distribution-panel"', false)
+        ->assertSee('Italian')
+        ->assertSee('67%')
+        ->assertSee('Asian')
+        ->assertSee('33%');
+});
+
+it('renders zero cuisine distribution safely', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertSee('data-testid="cuisine-distribution-panel"', false)
+        ->assertSee('No cuisine votes yet');
+});
