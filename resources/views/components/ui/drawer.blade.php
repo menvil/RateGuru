@@ -9,16 +9,11 @@
     $drawerId = $attributes->get('id') ?? 'drawer-'.$generatedId;
     $titleId = $attributes->has('id') ? $drawerId.'-title' : 'drawer-title-'.$generatedId;
 
-    $panelSideClass = [
-        'left' => 'inset-y-0 left-0',
-        'right' => 'inset-y-0 right-0',
-    ][$side] ?? 'inset-y-0 right-0';
-
     $panelSizeClass = [
-        'md' => 'sm:max-w-md',
-        'lg' => 'sm:max-w-lg',
-        'xl' => 'sm:max-w-xl',
-    ][$size] ?? 'sm:max-w-lg';
+        'md' => 'md:max-w-md',
+        'lg' => 'md:max-w-lg',
+        'xl' => 'md:max-w-xl',
+    ][$size] ?? 'md:max-w-lg';
 
     $enterStartClass = $side === 'left' ? '-translate-x-full' : 'translate-x-full';
     $leaveEndClass = $side === 'left' ? '-translate-x-full' : 'translate-x-full';
@@ -59,10 +54,10 @@
         aria-modal="true"
         aria-labelledby="{{ $titleId }}"
         {{ $attributes->class([
-            'pointer-events-auto fixed flex h-dvh w-full flex-col border-rg-border bg-rg-card text-rg-text shadow-rgPopover outline-none sm:w-full',
-            $panelSideClass,
+            'pointer-events-auto fixed flex flex-col border-rg-border bg-rg-card text-rg-text shadow-rgPopover outline-none overflow-y-auto',
+            'inset-x-0 bottom-0 max-h-[90vh] w-full rounded-t-rgCard border-t',
+            'md:inset-y-0 md:bottom-auto md:right-0 md:left-auto md:h-dvh md:max-h-none md:border-t-0 md:border-l md:rounded-none',
             $panelSizeClass,
-            $side === 'left' ? 'border-r' : 'border-l',
         ]) }}
     >
         <header class="flex min-h-16 items-center justify-between border-b border-rg-border px-4 py-4 sm:px-6">

@@ -30,9 +30,11 @@ it('supports right side desktop behavior and mobile safe layout', function () {
         ->toContain('bg-black/70')
         ->toContain('bg-rg-card')
         ->toContain('text-rg-text')
-        ->toContain('inset-y-0 right-0')
+        ->toContain('bottom-0')
+        ->toContain('md:inset-y-0')
+        ->toContain('md:right-0')
         ->toContain('w-full')
-        ->toContain('sm:max-w-lg');
+        ->toContain('md:max-w-lg');
 });
 
 it('keeps the root event host visible while only animated drawer nodes use x-show', function () {
