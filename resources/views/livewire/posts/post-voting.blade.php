@@ -1,4 +1,4 @@
 <div data-testid="post-voting">
-    <button type="button">Up</button>
-    <button type="button">Down</button>
+    <button type="button" wire:click="vote('up')">Up</button>
+    <button type="button" wire:click="vote('down')">Down</button>
 </div>
