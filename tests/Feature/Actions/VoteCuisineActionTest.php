@@ -122,3 +122,14 @@ it('keeps same cuisine vote selected when clicked again', function () {
         'cuisine' => CuisineType::Italian->value,
     ]);
 });
+
+it('does not allow guest to vote cuisine', function () {
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(VoteCuisineAction::class)->handle(null, $post, CuisineType::Italian);
+        $this->fail('Expected CannotVoteCuisineException was not thrown.');
+    } catch (\App\Exceptions\Votes\CannotVoteCuisineException $e) {
+        expect(CuisineVote::query()->count())->toBe(0);
+    }
+});
