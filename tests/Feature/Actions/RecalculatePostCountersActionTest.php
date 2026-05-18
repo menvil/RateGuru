@@ -1,8 +1,10 @@
 <?php
 
 use App\Actions\Counters\RecalculatePostCountersAction;
+use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Enums\VoteType;
+use App\Models\CuisineVote;
 use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\PostVote;
@@ -90,4 +92,38 @@ it('recalculates origin vote counters from origin votes', function () {
     expect($post->fresh()->restaurant_votes_count)->toBe(2);
     expect($snapshot->homemadeVotes)->toBe(1);
     expect($snapshot->restaurantVotes)->toBe(2);
+});
+
+it('recalculates cuisine vote distribution from cuisine votes', function () {
+    $post = Post::factory()->published()->create();
+
+    CuisineVote::factory()->for($post)->create([
+        'cuisine' => CuisineType::Italian,
+    ]);
+
+    CuisineVote::factory()->for($post)->create([
+        'cuisine' => CuisineType::Italian,
+    ]);
+
+    CuisineVote::factory()->for($post)->create([
+        'cuisine' => CuisineType::Asian,
+    ]);
+
+    $snapshot = app(RecalculatePostCountersAction::class)->handle($post);
+
+    expect($snapshot->cuisineVotes)->toMatchArray([
+        CuisineType::Italian->value => 2,
+        CuisineType::Asian->value => 1,
+        CuisineType::American->value => 0,
+        CuisineType::Mexican->value => 0,
+        CuisineType::Other->value => 0,
+    ]);
+});
+
+it('does not require persisted cuisine counter columns on posts', function () {
+    $post = Post::factory()->published()->create();
+
+    $snapshot = app(RecalculatePostCountersAction::class)->handle($post);
+
+    expect($snapshot->cuisineVotes)->toBeArray();
 });
