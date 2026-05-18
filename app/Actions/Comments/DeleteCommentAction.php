@@ -14,7 +14,7 @@ final class DeleteCommentAction
 
     public function handle(User $user, Comment $comment): void
     {
-        if ($comment->user_id !== $user->id) {
+        if (! $user->can('delete', $comment)) {
             throw CannotDeleteCommentException::becauseUserIsNotAllowed();
         }
 
