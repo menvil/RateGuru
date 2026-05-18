@@ -22,13 +22,7 @@ final class CuisineVoting extends Component
      */
     private function options(): array
     {
-        return [
-            CuisineType::Italian,
-            CuisineType::Asian,
-            CuisineType::American,
-            CuisineType::Mexican,
-            CuisineType::Other,
-        ];
+        return CuisineType::votable();
     }
 
     public function labelFor(CuisineType $cuisine): string
