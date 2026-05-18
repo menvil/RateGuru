@@ -22,8 +22,9 @@ it('allows user to upvote a published post', function () {
         'type' => VoteType::Up->value,
     ]);
 
-    expect($post->fresh()->upvotes_count)->toBe(1);
-    expect($post->fresh()->downvotes_count)->toBe(0);
+    $post->refresh();
+    expect($post->upvotes_count)->toBe(1);
+    expect($post->downvotes_count)->toBe(0);
 });
 
 it('allows user to downvote a published post', function () {
@@ -41,8 +42,9 @@ it('allows user to downvote a published post', function () {
         'type' => VoteType::Down->value,
     ]);
 
-    expect($post->fresh()->upvotes_count)->toBe(0);
-    expect($post->fresh()->downvotes_count)->toBe(1);
+    $post->refresh();
+    expect($post->upvotes_count)->toBe(0);
+    expect($post->downvotes_count)->toBe(1);
 });
 
 it('toggles upvote off when clicked again', function () {
@@ -90,7 +92,7 @@ it('replaces upvote with downvote', function () {
         'type' => VoteType::Down->value,
     ]);
 
-    expect(\App\Models\PostVote::query()->count())->toBe(1);
+    expect(PostVote::query()->count())->toBe(1);
     expect($post->fresh()->upvotes_count)->toBe(0);
     expect($post->fresh()->downvotes_count)->toBe(1);
 });
@@ -108,7 +110,7 @@ it('replaces downvote with upvote', function () {
         'type' => VoteType::Up->value,
     ]);
 
-    expect(\App\Models\PostVote::query()->count())->toBe(1);
+    expect(PostVote::query()->count())->toBe(1);
     expect($post->fresh()->upvotes_count)->toBe(1);
     expect($post->fresh()->downvotes_count)->toBe(0);
 });
