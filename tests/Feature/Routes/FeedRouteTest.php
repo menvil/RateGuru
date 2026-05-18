@@ -70,3 +70,11 @@ it('renders drawer close button', function () {
         ->toContain('data-testid="post-drawer-close"')
         ->toContain('drawerOpen = false');
 });
+
+it('closes drawer with escape key markup', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('@keydown.escape.window')
+        ->toContain('drawerOpen = false');
+});
