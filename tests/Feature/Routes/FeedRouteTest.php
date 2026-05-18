@@ -31,3 +31,15 @@ it('renders upload modal shell for authenticated user on feed page', function ()
         ->assertSee('Create post')
         ->assertSee('data-testid="upload-modal"', false);
 });
+
+it('has alpine upload modal open close behavior', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $html = $this->actingAs($user)->get('/')->getContent();
+
+    expect($html)
+        ->toContain('x-data')
+        ->toContain('open: false')
+        ->toContain('x-show')
+        ->toContain('@click');
+});
