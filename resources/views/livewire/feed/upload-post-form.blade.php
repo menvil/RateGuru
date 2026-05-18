@@ -13,4 +13,19 @@
             <x-input-error :messages="$errors->get('title')" />
         </div>
     </div>
+
+    <div>
+        <x-input-label for="description" value="Description" />
+        <x-ui.textarea
+            id="description"
+            name="description"
+            wire:model.defer="description"
+            rows="4"
+            placeholder="Optional details"
+            class="mt-1"
+        />
+        <div data-testid="field-error-description" class="mt-1">
+            <x-input-error :messages="$errors->get('description')" />
+        </div>
+    </div>
 </div>
