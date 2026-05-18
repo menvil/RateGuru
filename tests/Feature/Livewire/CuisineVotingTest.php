@@ -16,6 +16,16 @@ it('can render cuisine voting component', function () {
         ->assertSee('Other');
 });
 
+it('does not record a cuisine vote when an unauthenticated guest votes', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(CuisineVoting::class, ['postId' => $post->id])
+        ->call('vote', \App\Enums\CuisineType::Italian->value)
+        ->assertSee('Guests cannot vote on cuisine.');
+
+    $this->assertDatabaseCount('cuisine_votes', 0);
+});
+
 it('calls cuisine vote action when italian button is clicked', function () {
     $user = \App\Models\User::factory()->create();
     $post = Post::factory()->published()->create();

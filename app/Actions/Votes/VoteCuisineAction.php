@@ -60,12 +60,6 @@ final class VoteCuisineAction
 
     private function isValidVoteCuisine(CuisineType $cuisine): bool
     {
-        return in_array($cuisine, [
-            CuisineType::Italian,
-            CuisineType::Asian,
-            CuisineType::American,
-            CuisineType::Mexican,
-            CuisineType::Other,
-        ], true);
+        return in_array($cuisine, CuisineType::votable(), true);
     }
 }
