@@ -25,6 +25,7 @@
     --rg-accent-hover: #9333ea;
     --rg-accent-soft: rgba(168, 85, 247, 0.15);
     --rg-accent-border: rgba(168, 85, 247, 0.7);
+    --rg-on-accent: #ffffff;
 
     --rg-good: #22c55e;
     --rg-good-soft: rgba(34, 197, 94, 0.12);
@@ -115,6 +116,7 @@
     --color-rg-accentHover: var(--rg-accent-hover);
     --color-rg-accentSoft: var(--rg-accent-soft);
     --color-rg-accentBorder: var(--rg-accent-border);
+    --color-rg-onAccent: var(--rg-on-accent);
     --color-rg-good: var(--rg-good);
     --color-rg-goodSoft: var(--rg-good-soft);
     --color-rg-goodBorder: var(--rg-good-border);
