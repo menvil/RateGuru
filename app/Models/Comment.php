@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\CommentStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,6 +13,13 @@ class Comment extends Model
     use HasFactory, SoftDeletes;
 
     protected $guarded = [];
+
+    protected function casts(): array
+    {
+        return [
+            'status' => CommentStatus::class,
+        ];
+    }
 
     public function user(): BelongsTo
     {
