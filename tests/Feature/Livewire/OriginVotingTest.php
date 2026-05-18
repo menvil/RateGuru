@@ -19,7 +19,8 @@ it('calls origin vote action when homemade button is clicked', function () {
 
     Livewire::actingAs($user)
         ->test(OriginVoting::class, ['postId' => $post->id])
-        ->call('vote', \App\Enums\OriginType::Homemade->value);
+        ->call('vote', \App\Enums\OriginType::Homemade->value)
+        ->assertDispatched('origin-voted');
 
     $this->assertDatabaseHas('origin_votes', [
         'user_id' => $user->id,

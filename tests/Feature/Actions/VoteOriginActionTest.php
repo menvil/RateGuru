@@ -147,7 +147,45 @@ it('does not allow guest to vote origin', function () {
         // expected
     }
 
-    expect(OriginVote::query()->count())->toBe(0);
+    $this->assertDatabaseMissing('origin_votes', [
+        'post_id' => $post->id,
+    ]);
+    expect($post->fresh()->homemade_votes_count)->toBe(0);
+    expect($post->fresh()->restaurant_votes_count)->toBe(0);
+});
+
+it('does not allow a blocked user to vote origin', function () {
+    $user = User::factory()->banned()->create();
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
+        ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
+
+    $this->assertDatabaseMissing('origin_votes', [
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+    ]);
+    expect($post->fresh()->homemade_votes_count)->toBe(0);
+    expect($post->fresh()->restaurant_votes_count)->toBe(0);
+});
+
+it('does not allow an invalid origin value', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Unknown))
+        ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
+
+    $this->assertDatabaseMissing('origin_votes', [
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+    ]);
     expect($post->fresh()->homemade_votes_count)->toBe(0);
     expect($post->fresh()->restaurant_votes_count)->toBe(0);
 });
@@ -166,7 +204,10 @@ it('does not allow origin vote on hidden post', function () {
         // expected
     }
 
-    expect(OriginVote::query()->count())->toBe(0);
+    $this->assertDatabaseMissing('origin_votes', [
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+    ]);
     expect($post->fresh()->homemade_votes_count)->toBe(0);
 });
 
@@ -177,7 +218,10 @@ it('does not allow origin vote on pending post', function () {
     expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
         ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
 
-    expect(OriginVote::query()->count())->toBe(0);
+    $this->assertDatabaseMissing('origin_votes', [
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+    ]);
 });
 
 it('does not allow origin vote on rejected post', function () {
@@ -187,5 +231,8 @@ it('does not allow origin vote on rejected post', function () {
     expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
         ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
 
-    expect(OriginVote::query()->count())->toBe(0);
+    $this->assertDatabaseMissing('origin_votes', [
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+    ]);
 });
