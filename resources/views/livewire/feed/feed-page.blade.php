@@ -3,6 +3,7 @@
     x-data="{ drawerOpen: false }"
     data-testid="post-detail-drawer-shell"
     @post-drawer-opened.window="drawerOpen = true"
+    @drawer-closed.window="drawerOpen = false"
 >
     <section class="mx-auto w-full max-w-xl px-4 py-6 sm:px-6 lg:py-10">
         <header class="mb-6">

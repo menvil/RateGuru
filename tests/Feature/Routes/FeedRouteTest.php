@@ -62,3 +62,11 @@ it('renders alpine drawer shell on feed page', function () {
         ->toContain('drawerOpen')
         ->toContain('x-show');
 });
+
+it('renders drawer close button', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('data-testid="post-drawer-close"')
+        ->toContain('drawerOpen = false');
+});
