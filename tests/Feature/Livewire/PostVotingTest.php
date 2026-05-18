@@ -6,6 +6,52 @@ use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
+it('refreshes vote counters after upvote', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 0,
+        'downvotes_count' => 0,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id])
+        ->assertSee('Up 0')
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('Up 1');
+});
+
+it('refreshes vote counters after toggling upvote off', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 0,
+        'downvotes_count' => 0,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('Up 1')
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('Up 0');
+});
+
+it('refreshes both counters when replacing a vote', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 0,
+        'downvotes_count' => 0,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('Up 1')
+        ->assertSee('Down 0')
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('Up 0')
+        ->assertSee('Down 1');
+});
+
 it('has vote loading state markup', function () {
     $post = Post::factory()->published()->create();
 

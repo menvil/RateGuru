@@ -4,6 +4,7 @@ namespace App\Livewire\Posts;
 
 use App\Models\Post;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 final class PostShow extends Component
@@ -21,6 +22,12 @@ final class PostShow extends Component
             ->published()
             ->with(['user', 'tags'])
             ->findOrFail($this->postId);
+    }
+
+    #[On('post-voted')]
+    public function refreshAfterVote(): void
+    {
+        // Triggers a re-render so the vote summary panel reflects fresh counters.
     }
 
     public function render(): View
