@@ -84,6 +84,18 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('shows validation error when image is missing', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Homemade Pasta')
+        ->call('submit')
+        ->assertHasErrors(['image' => 'required']);
+
+    expect(\App\Models\Post::query()->count())->toBe(0);
+});
+
 it('creates post on successful upload', function () {
     Storage::fake('public');
 
