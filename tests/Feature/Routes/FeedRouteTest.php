@@ -86,3 +86,11 @@ it('has mobile drawer behavior classes', function () {
         ->toContain('data-testid="post-detail-drawer-shell"')
         ->toContain('bottom-0');
 });
+
+it('has desktop right side drawer behavior classes', function () {
+    $html = $this->get('/')->getContent();
+
+    expect($html)
+        ->toContain('md:right-0')
+        ->toContain('md:inset-y-0');
+});
