@@ -58,4 +58,19 @@
             <x-input-error :messages="$errors->get('image')" />
         </div>
     </div>
+
+    <div>
+        <x-input-label for="source_url" value="Source URL" />
+        <x-ui.input
+            id="source_url"
+            name="source_url"
+            type="url"
+            wire:model.defer="sourceUrl"
+            placeholder="https://example.com/original"
+            class="mt-1"
+        />
+        <div data-testid="field-error-source-url" class="mt-1">
+            <x-input-error :messages="$errors->get('sourceUrl')" />
+        </div>
+    </div>
 </div>
