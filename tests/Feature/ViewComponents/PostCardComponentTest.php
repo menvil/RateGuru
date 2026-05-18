@@ -87,3 +87,14 @@ it('renders post author area', function () {
         ->toContain('Demo Chef')
         ->toContain('@demo_chef');
 });
+
+it('post card dispatches open drawer event with post id', function () {
+    $post = Post::factory()->published()->make();
+    $post->id = 123;
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('open-post-drawer')
+        ->toContain('123');
+});
