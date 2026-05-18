@@ -2,6 +2,7 @@
 
 namespace App\Actions\Votes;
 
+use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
@@ -11,6 +12,10 @@ use Illuminate\Support\Facades\DB;
 
 final class VotePostAction
 {
+    public function __construct(
+        private readonly RecalculatePostCountersAction $recalculatePostCounters,
+    ) {}
+
     public function handle(?User $user, Post $post, VoteType $type): void
     {
         if ($user === null) {
@@ -35,17 +40,11 @@ final class VotePostAction
             if ($existingVote !== null) {
                 if ($existingVote->type === $type) {
                     $existingVote->delete();
-                    $this->decrementCounter($post, $type);
 
                     return;
                 }
 
-                $oldType = $existingVote->type;
-
                 $existingVote->update(['type' => $type]);
-
-                $this->decrementCounter($post, $oldType);
-                $this->incrementCounter($post, $type);
 
                 return;
             }
@@ -55,33 +54,8 @@ final class VotePostAction
                 'post_id' => $post->id,
                 'type' => $type,
             ]);
-
-            $this->incrementCounter($post, $type);
         });
-    }
 
-    private function incrementCounter(Post $post, VoteType $type): void
-    {
-        $post->increment($this->counterColumn($type));
-    }
-
-    private function decrementCounter(Post $post, VoteType $type): void
-    {
-        $column = $this->counterColumn($type);
-
-        // Atomic guarded decrement: never drops below zero even under
-        // concurrent votes, since the comparison and update are one statement.
-        Post::query()
-            ->whereKey($post->id)
-            ->where($column, '>', 0)
-            ->decrement($column);
-    }
-
-    private function counterColumn(VoteType $type): string
-    {
-        return match ($type) {
-            VoteType::Up => 'upvotes_count',
-            VoteType::Down => 'downvotes_count',
-        };
+        $this->recalculatePostCounters->handle($post->fresh());
     }
 }
