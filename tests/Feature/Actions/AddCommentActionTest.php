@@ -43,3 +43,19 @@ it('does not allow guest to add comment', function () {
         expect(Comment::query()->count())->toBe(0);
     }
 });
+
+it('does not allow banned user to add comment', function () {
+    $user = User::factory()->banned()->create();
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(AddCommentAction::class)->handle(
+            user: $user,
+            post: $post,
+            body: 'Banned comment'
+        );
+        $this->fail('Expected CannotCommentException was not thrown.');
+    } catch (CannotCommentException $e) {
+        expect(Comment::query()->count())->toBe(0);
+    }
+});
