@@ -101,6 +101,15 @@ it('renders comments section placeholder on post page', function () {
         ->assertSee('Comments will appear here');
 });
 
+it('renders share panel placeholder on post page', function () {
+    $post = Post::factory()->published()->create();
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('Share')
+        ->assertSee(route('posts.show', $post));
+});
+
 it('does not show hidden post to guest', function () {
     $post = Post::factory()->hidden()->create([
         'title' => 'Hidden Dish',
