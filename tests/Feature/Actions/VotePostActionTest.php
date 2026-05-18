@@ -42,3 +42,19 @@ it('allows user to downvote a published post', function () {
     expect($post->fresh()->upvotes_count)->toBe(0);
     expect($post->fresh()->downvotes_count)->toBe(1);
 });
+
+it('toggles upvote off when clicked again', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(VotePostAction::class)->handle($user, $post, VoteType::Up);
+    app(VotePostAction::class)->handle($user, $post->fresh(), VoteType::Up);
+
+    $this->assertDatabaseMissing('post_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+    ]);
+
+    expect($post->fresh()->upvotes_count)->toBe(0);
+    expect($post->fresh()->downvotes_count)->toBe(0);
+});
