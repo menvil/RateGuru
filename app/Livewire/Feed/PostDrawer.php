@@ -4,11 +4,18 @@ namespace App\Livewire\Feed;
 
 use App\Models\Post;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 final class PostDrawer extends Component
 {
     public ?int $postId = null;
+
+    #[On('post-voted')]
+    public function refreshAfterVote(): void
+    {
+        // Triggers a re-render so the drawer vote summary reflects fresh counters.
+    }
 
     public function render(): View
     {

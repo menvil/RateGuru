@@ -34,6 +34,8 @@ final class PostVoting extends Component
             return;
         }
 
+        unset($this->post);
+
         $this->dispatch('post-voted', postId: $this->postId);
     }
 
