@@ -3,6 +3,7 @@
 namespace App\Actions\Votes;
 
 use App\Enums\OriginType;
+use App\Exceptions\Votes\CannotVoteOriginException;
 use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\User;
@@ -12,6 +13,18 @@ final class VoteOriginAction
 {
     public function handle(?User $user, Post $post, OriginType $origin): void
     {
+        if ($user === null) {
+            throw CannotVoteOriginException::becauseGuest();
+        }
+
+        if (! $user->canVote()) {
+            throw CannotVoteOriginException::becauseUserIsNotAllowed();
+        }
+
+        if ($origin === OriginType::Unknown) {
+            throw CannotVoteOriginException::becauseOriginIsInvalid();
+        }
+
         DB::transaction(function () use ($user, $post, $origin) {
             $existingVote = OriginVote::query()
                 ->where('post_id', $post->id)
