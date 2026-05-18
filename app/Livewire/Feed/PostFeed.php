@@ -3,14 +3,20 @@
 namespace App\Livewire\Feed;
 
 use App\Queries\Feed\FeedQuery;
+use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
 class PostFeed extends Component
 {
-    public function render(FeedQuery $feedQuery)
+    public ?string $search = null;
+
+    public function render(FeedQuery $feedQuery): View
     {
         return view('livewire.feed.post-feed', [
-            'posts' => $feedQuery->get(sort: 'newest'),
+            'posts' => $feedQuery->get(
+                search: $this->search ?: null,
+                sort: 'newest',
+            ),
         ]);
     }
 }
