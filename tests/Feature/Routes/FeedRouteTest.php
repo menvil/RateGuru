@@ -21,3 +21,13 @@ it('uses mobile-safe feed layout', function () {
         ->toContain('px-4')
         ->toContain('max-w-');
 });
+
+it('renders upload modal shell for authenticated user on feed page', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $this->actingAs($user)
+        ->get('/')
+        ->assertOk()
+        ->assertSee('Create post')
+        ->assertSee('data-testid="upload-modal"', false);
+});
