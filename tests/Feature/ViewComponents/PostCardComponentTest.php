@@ -3,6 +3,14 @@
 use App\Models\Post;
 use Illuminate\Support\Facades\Blade;
 
+it('renders post voting component in post card', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('post-card-voting');
+});
+
 it('renders post card title', function () {
     $post = Post::factory()->published()->make(['title' => 'Homemade Carbonara']);
 
