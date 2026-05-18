@@ -143,3 +143,19 @@ it('does not allow banned user to vote', function () {
         expect($post->fresh()->upvotes_count)->toBe(0);
     }
 });
+
+it('does not allow voting on non-published posts', function (string $state) {
+    $user = User::factory()->create();
+    $post = Post::factory()->{$state}()->create([
+        'upvotes_count' => 0,
+        'downvotes_count' => 0,
+    ]);
+
+    try {
+        app(VotePostAction::class)->handle($user, $post, VoteType::Up);
+        $this->fail('Expected CannotVoteException was not thrown.');
+    } catch (CannotVoteException $e) {
+        expect(PostVote::query()->count())->toBe(0);
+        expect($post->fresh()->upvotes_count)->toBe(0);
+    }
+})->with(['hidden', 'pending', 'rejected']);
