@@ -6,6 +6,14 @@ use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
+it('has vote loading state markup', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id])
+        ->assertSee('wire:loading', false)
+        ->assertSee('wire:loading.attr="disabled"', false);
+});
+
 it('can render post voting component', function () {
     $post = Post::factory()->published()->create();
 
