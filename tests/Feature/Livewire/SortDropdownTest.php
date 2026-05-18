@@ -24,3 +24,14 @@ it('accepts initial sort prop', function () {
     Livewire::test(SortDropdown::class, ['sort' => 'top'])
         ->assertSet('sort', 'top');
 });
+
+// RG-197
+it('marks the active sort option with aria-pressed', function () {
+    Livewire::test(SortDropdown::class, ['sort' => 'top'])
+        ->assertSee('aria-pressed="true"', false);
+});
+
+it('has a testid for the dropdown container', function () {
+    Livewire::test(SortDropdown::class)
+        ->assertSee('data-testid="sort-dropdown"', false);
+});
