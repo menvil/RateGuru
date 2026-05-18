@@ -91,4 +91,24 @@
             <x-input-error :messages="$errors->get('originTruth')" />
         </div>
     </div>
+
+    <div>
+        <x-input-label for="cuisineTruth" value="Cuisine" />
+        <select
+            id="cuisineTruth"
+            name="cuisineTruth"
+            wire:model.defer="cuisineTruth"
+            class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(168,85,247,0.25)]"
+        >
+            <option value="{{ CuisineType::Unknown->value }}">Keep unknown</option>
+            <option value="{{ CuisineType::Italian->value }}">Italian</option>
+            <option value="{{ CuisineType::Asian->value }}">Asian</option>
+            <option value="{{ CuisineType::American->value }}">American</option>
+            <option value="{{ CuisineType::Mexican->value }}">Mexican</option>
+            <option value="{{ CuisineType::Other->value }}">Other</option>
+        </select>
+        <div data-testid="field-error-cuisine-truth" class="mt-1">
+            <x-input-error :messages="$errors->get('cuisineTruth')" />
+        </div>
+    </div>
 </div>

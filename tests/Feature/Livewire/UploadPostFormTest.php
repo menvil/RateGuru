@@ -84,6 +84,28 @@ it('accepts image upload property', function () {
     expect($component->get('image'))->not->toBeNull();
 });
 
+it('has cuisine truth selector', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Italian')
+        ->assertSee('Asian')
+        ->assertSee('American')
+        ->assertSee('Mexican')
+        ->assertSee('Other')
+        ->assertSee('Keep unknown');
+});
+
+it('updates cuisineTruth property', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('cuisineTruth', \App\Enums\CuisineType::Italian->value)
+        ->assertSet('cuisineTruth', \App\Enums\CuisineType::Italian->value);
+});
+
 it('has origin truth selector', function () {
     $user = User::factory()->create();
 
