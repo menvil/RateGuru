@@ -64,6 +64,32 @@ it('targets open and close drawer events to the matching drawer id', function ()
         ->toContain('x-on:close-drawer.window="if ($event.detail?.id === drawerId) open = false"');
 });
 
+it('honors side prop for desktop placement', function () {
+    $right = Blade::render('<x-ui.drawer title="R" side="right">content</x-ui.drawer>');
+    $left  = Blade::render('<x-ui.drawer title="L" side="left">content</x-ui.drawer>');
+
+    expect($right)
+        ->toContain('md:right-0')
+        ->toContain('md:left-auto')
+        ->toContain('md:border-l')
+        ->not->toContain('md:left-0');
+
+    expect($left)
+        ->toContain('md:left-0')
+        ->toContain('md:right-auto')
+        ->toContain('md:border-r')
+        ->not->toContain('md:right-0');
+});
+
+it('dispatches drawer-closed on all close paths', function () {
+    $html = Blade::render('<x-ui.drawer title="T">content</x-ui.drawer>');
+
+    $dispatchCount = substr_count($html, '$dispatch(\'drawer-closed\'');
+
+    // close button, escape handler, backdrop click, click.outside — all four paths
+    expect($dispatchCount)->toBe(4);
+});
+
 it('renders a unique labelledby title id for each drawer instance', function () {
     $html = Blade::render(<<<'BLADE'
         <x-ui.drawer title="First drawer">First content</x-ui.drawer>

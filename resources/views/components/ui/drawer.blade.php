@@ -15,6 +15,10 @@
         'xl' => 'md:max-w-xl',
     ][$size] ?? 'md:max-w-lg';
 
+    $panelDesktopClass = $side === 'left'
+        ? 'md:left-0 md:right-auto md:border-r md:border-l-0'
+        : 'md:right-0 md:left-auto md:border-l md:border-r-0';
+
     $enterStartClass = $side === 'left' ? '-translate-x-full' : 'translate-x-full';
     $leaveEndClass = $side === 'left' ? '-translate-x-full' : 'translate-x-full';
 @endphp
@@ -30,7 +34,7 @@
 >
     <div
         x-show="open"
-        x-on:click="open = false"
+        x-on:click="open = false; $dispatch('drawer-closed', { id: drawerId })"
         x-transition:enter="transition-opacity ease-out duration-200"
         x-transition:enter-start="opacity-0"
         x-transition:enter-end="opacity-100"
@@ -43,7 +47,7 @@
 
     <aside
         x-show="open"
-        @click.outside="open = false"
+        @click.outside="open = false; $dispatch('drawer-closed', { id: drawerId })"
         x-transition:enter="transform transition ease-out duration-200"
         x-transition:enter-start="{{ $enterStartClass }}"
         x-transition:enter-end="translate-x-0"
@@ -56,7 +60,8 @@
         {{ $attributes->class([
             'pointer-events-auto fixed flex flex-col border-rg-border bg-rg-card text-rg-text shadow-rgPopover outline-none overflow-y-auto',
             'inset-x-0 bottom-0 max-h-[90vh] w-full rounded-t-rgCard border-t',
-            'md:inset-y-0 md:bottom-auto md:right-0 md:left-auto md:h-dvh md:max-h-none md:border-t-0 md:border-l md:rounded-none',
+            'md:inset-y-0 md:bottom-auto md:h-dvh md:max-h-none md:border-t-0 md:rounded-none',
+            $panelDesktopClass,
             $panelSizeClass,
         ]) }}
     >
