@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Comments\AddCommentAction;
+use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
@@ -26,4 +27,19 @@ it('allows user to add comment to published post', function () {
         'post_id' => $post->id,
         'body' => 'Looks delicious.',
     ]);
+});
+
+it('does not allow guest to add comment', function () {
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(AddCommentAction::class)->handle(
+            user: null,
+            post: $post,
+            body: 'Guest comment'
+        );
+        $this->fail('Expected CannotCommentException was not thrown.');
+    } catch (CannotCommentException $e) {
+        expect(Comment::query()->count())->toBe(0);
+    }
 });
