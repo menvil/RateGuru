@@ -29,7 +29,7 @@
                         >
                             <button
                                 type="button"
-                                x-on:click="open = true"
+                                x-on:click="open = true; $dispatch('upload-modal-opened')"
                                 class="inline-flex items-center justify-center gap-2 rounded-rgControl border border-transparent bg-rg-accent px-4 text-[13px] font-semibold text-white transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg h-[38px]"
                             >
                                 + Create post

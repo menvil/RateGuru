@@ -8,6 +8,7 @@ use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -27,6 +28,15 @@ final class UploadPostForm extends Component
     public function mount(): void
     {
         abort_unless(auth()->check(), 403);
+    }
+
+    #[On('upload-modal-opened')]
+    public function resetUploadForm(): void
+    {
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'submitError']);
+        $this->originTruth = OriginType::Unknown->value;
+        $this->cuisineTruth = CuisineType::Unknown->value;
+        $this->resetValidation();
     }
 
     public function submit(): void
