@@ -17,6 +17,8 @@ class FeedPage extends Component
     #[Url(as: 'sort', except: 'newest')]
     public string $sort = 'newest';
 
+    public ?int $selectedPostId = null;
+
     public function mount(): void
     {
         $this->normalizeSort();

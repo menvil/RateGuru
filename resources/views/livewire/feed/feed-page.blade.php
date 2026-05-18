@@ -1,4 +1,9 @@
-<div class="min-h-screen">
+<div
+    class="min-h-screen"
+    x-data="{ drawerOpen: false }"
+    data-testid="post-detail-drawer-shell"
+    @post-drawer-opened.window="drawerOpen = true"
+>
     <section class="mx-auto w-full max-w-xl px-4 py-6 sm:px-6 lg:py-10">
         <header class="mb-6">
             <h1 class="text-2xl font-bold text-rg-text sm:text-3xl">RateGuru</h1>
@@ -28,4 +33,15 @@
             </section>
         </main>
     </section>
+
+    <x-ui.drawer
+        id="post-detail-drawer"
+        title="Dish details"
+        x-show="drawerOpen"
+    >
+        <livewire:feed.post-drawer
+            :post-id="$selectedPostId"
+            :key="'drawer-'.($selectedPostId ?? 'empty')"
+        />
+    </x-ui.drawer>
 </div>
