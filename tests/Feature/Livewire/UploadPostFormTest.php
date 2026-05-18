@@ -20,3 +20,8 @@ it('renders for authenticated user', function () {
         ->assertSee('Create post')
         ->assertStatus(200);
 });
+
+it('blocks guest users', function () {
+    Livewire::test(UploadPostForm::class)
+        ->assertForbidden();
+});
