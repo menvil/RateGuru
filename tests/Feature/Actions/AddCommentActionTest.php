@@ -95,3 +95,27 @@ it('does not allow adding comment to rejected post', function () {
         expect(Comment::query()->count())->toBe(0);
     }
 });
+
+it('rejects empty comment body', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(AddCommentAction::class)->handle($user, $post, '');
+        $this->fail('Expected CannotCommentException was not thrown.');
+    } catch (CannotCommentException $e) {
+        expect(Comment::query()->count())->toBe(0);
+    }
+});
+
+it('rejects whitespace only comment body', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(AddCommentAction::class)->handle($user, $post, " \n\t ");
+        $this->fail('Expected CannotCommentException was not thrown.');
+    } catch (CannotCommentException $e) {
+        expect(Comment::query()->count())->toBe(0);
+    }
+});
