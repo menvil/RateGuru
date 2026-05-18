@@ -75,3 +75,33 @@ it('renders zero cuisine distribution safely', function () {
         ->assertSee('data-testid="cuisine-distribution-panel"', false)
         ->assertSee('No cuisine votes yet');
 });
+
+it('refreshes cuisine distribution after vote', function () {
+    $user = \App\Models\User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertSee('No cuisine votes yet')
+        ->call('vote', \App\Enums\CuisineType::Italian->value)
+        ->assertSee('Italian')
+        ->assertSee('100%');
+});
+
+it('refreshes cuisine distribution after vote change', function () {
+    $user = \App\Models\User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
+        ->call('vote', \App\Enums\CuisineType::Italian->value)
+        ->call('vote', \App\Enums\CuisineType::Mexican->value)
+        ->assertSee('Mexican')
+        ->assertSee('100%');
+
+    $this->assertDatabaseHas('cuisine_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => \App\Enums\CuisineType::Mexican->value,
+    ]);
+});

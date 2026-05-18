@@ -8,6 +8,7 @@ use App\Exceptions\Votes\CannotVoteCuisineException;
 use App\Models\CuisineVote;
 use App\Models\Post;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 final class CuisineVoting extends Component
@@ -75,7 +76,23 @@ final class CuisineVoting extends Component
             return;
         }
 
+        // Drop the memoized distribution so the panel reflects the new
+        // vote on the re-render that follows this request.
+        unset($this->distribution);
+
         $this->dispatch('cuisine-voted', postId: $this->postId);
+    }
+
+    /**
+     * Forces a re-render (and fresh distribution) when another instance of
+     * this component reports a cuisine vote for the same post.
+     */
+    #[On('cuisine-voted')]
+    public function refreshAfterCuisineVote(int $postId): void
+    {
+        if ($postId === $this->postId) {
+            unset($this->distribution);
+        }
     }
 
     /**
