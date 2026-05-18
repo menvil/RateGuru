@@ -46,3 +46,35 @@ it('sets category property from query string', function () {
         ->test(FeedPage::class)
         ->assertSet('category', 'pasta');
 });
+
+// RG-201: URL query string sync for sort
+it('hydrates sort from query string', function () {
+    Post::factory()->published()->create([
+        'title' => 'Low Score',
+        'upvotes_count' => 1,
+        'downvotes_count' => 0,
+        'published_at' => now()->subMinutes(5),
+    ]);
+
+    Post::factory()->published()->create([
+        'title' => 'High Score',
+        'upvotes_count' => 10,
+        'downvotes_count' => 0,
+        'published_at' => now()->subMinutes(10),
+    ]);
+
+    $this->get('/?sort=top')
+        ->assertSeeInOrder(['High Score', 'Low Score']);
+});
+
+it('sets sort property from query string', function () {
+    Livewire::withQueryParams(['sort' => 'hot'])
+        ->test(FeedPage::class)
+        ->assertSet('sort', 'hot');
+});
+
+it('falls back to newest for invalid sort in query string', function () {
+    Livewire::withQueryParams(['sort' => 'invalid'])
+        ->test(FeedPage::class)
+        ->assertSet('sort', 'newest');
+});
