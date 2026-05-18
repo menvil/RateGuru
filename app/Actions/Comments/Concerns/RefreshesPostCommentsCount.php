@@ -16,6 +16,16 @@ trait RefreshesPostCommentsCount
      */
     protected function refreshCommentsCount(Post $post): void
     {
+        // Pessimistically lock the posts row before counting. Callers run this
+        // inside a DB::transaction, so a concurrent recalculation blocks here
+        // until the first commits and then re-counts the already-committed
+        // comment rows. Without the lock the read-then-write loses updates and
+        // persists a stale comments_count. Mirrors RecalculatePostCountersAction.
+        Post::query()
+            ->whereKey($post->getKey())
+            ->lockForUpdate()
+            ->first();
+
         $count = Comment::query()
             ->where('post_id', $post->id)
             ->where('status', CommentStatus::Visible)
