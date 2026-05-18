@@ -84,10 +84,14 @@ it('honors side prop for desktop placement', function () {
 it('dispatches drawer-closed on all close paths', function () {
     $html = Blade::render('<x-ui.drawer title="T">content</x-ui.drawer>');
 
-    $dispatchCount = substr_count($html, '$dispatch(\'drawer-closed\'');
-
-    // close button, escape handler, backdrop click, click.outside — all four paths
-    expect($dispatchCount)->toBe(4);
+    // close button
+    expect($html)->toContain('x-on:click="open = false; $dispatch(\'drawer-closed\', { id: drawerId })"');
+    // escape key
+    expect($html)->toContain('x-on:keydown.escape.window="open = false; $dispatch(\'drawer-closed\', { id: drawerId })"');
+    // backdrop click — same handler string as close button, so exactly 2 x-on:click occurrences total
+    expect(substr_count($html, "x-on:click=\"open = false; \$dispatch('drawer-closed'"))->toBe(2);
+    // click.outside on aside
+    expect($html)->toContain('@click.outside="open = false; $dispatch(\'drawer-closed\', { id: drawerId })"');
 });
 
 it('renders a unique labelledby title id for each drawer instance', function () {

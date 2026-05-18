@@ -120,7 +120,8 @@ it('does not break when drawer post description is missing', function () {
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Dish')
-        ->assertDontSee('Creamy pasta');
+        ->assertSee('Score')
+        ->assertSee('Comments');
 });
 
 it('renders image placeholder when drawer post has no image', function () {

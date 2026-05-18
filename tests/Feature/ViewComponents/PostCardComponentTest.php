@@ -94,7 +94,5 @@ it('post card dispatches open drawer event with post id', function () {
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)
-        ->toContain('open-post-drawer')
-        ->toContain('123');
+    expect($html)->toContain("open-post-drawer', { postId: 123 }");
 });
