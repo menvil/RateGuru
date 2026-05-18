@@ -10,11 +10,14 @@ class PostFeed extends Component
 {
     public ?string $search = null;
 
+    public ?string $tag = null;
+
     public function render(FeedQuery $feedQuery): View
     {
         return view('livewire.feed.post-feed', [
             'posts' => $feedQuery->get(
                 search: $this->search ?: null,
+                tag: $this->tag ?: null,
                 sort: 'newest',
             ),
         ]);
