@@ -26,3 +26,23 @@ it('does not add search to URL when empty', function () {
 
     expect($component->instance()->search)->toBe('');
 });
+
+// RG-200: URL query string sync for category
+it('hydrates category from query string', function () {
+    $tag = Tag::factory()->create(['slug' => 'pasta']);
+
+    $matching = Post::factory()->published()->create(['title' => 'Pasta Dish']);
+    $matching->tags()->attach($tag);
+
+    Post::factory()->published()->create(['title' => 'Cake']);
+
+    $this->get('/?category=pasta')
+        ->assertSee('Pasta Dish')
+        ->assertDontSee('Cake');
+});
+
+it('sets category property from query string', function () {
+    Livewire::withQueryParams(['category' => 'pasta'])
+        ->test(FeedPage::class)
+        ->assertSet('category', 'pasta');
+});
