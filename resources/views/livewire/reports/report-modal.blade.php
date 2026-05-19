@@ -22,6 +22,15 @@
             </div>
         @else
             <form data-testid="report-form" wire:submit.prevent="submit" class="space-y-4">
+                @error('report')
+                    <div data-testid="report-submit-error">
+                        <x-ui.error-message
+                            title="Could not submit report"
+                            :message="$message"
+                        />
+                    </div>
+                @enderror
+
                 <fieldset data-testid="report-reason-selector" class="space-y-2">
                     <legend class="text-xs font-semibold uppercase tracking-wide text-rg-muted">
                         Reason
@@ -43,6 +52,12 @@
                             </label>
                         @endforeach
                     </div>
+
+                    @error('reason')
+                        <p data-testid="report-reason-error" class="text-xs text-rg-dangerText">
+                            {{ $message }}
+                        </p>
+                    @enderror
                 </fieldset>
 
                 <div class="space-y-2">
@@ -62,6 +77,12 @@
                     <p class="text-xs text-rg-muted">
                         Optional. Max 1000 characters.
                     </p>
+
+                    @error('message')
+                        <p data-testid="report-message-error" class="text-xs text-rg-dangerText">
+                            {{ $message }}
+                        </p>
+                    @enderror
                 </div>
 
                 <div class="flex justify-end">

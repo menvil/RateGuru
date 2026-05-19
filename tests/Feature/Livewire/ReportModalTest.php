@@ -8,6 +8,61 @@ use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
+it('renders validation error when reason is missing', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'post',
+            'reportableId' => $post->id,
+        ])
+        ->set('reason', '')
+        ->call('submit')
+        ->assertHasErrors(['reason'])
+        ->assertSee('data-testid="report-reason-error"', false);
+
+    $this->assertDatabaseCount('reports', 0);
+});
+
+it('renders validation error when message is too long', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'post',
+            'reportableId' => $post->id,
+        ])
+        ->set('reason', ReportReason::Spam->value)
+        ->set('message', str_repeat('a', 1001))
+        ->call('submit')
+        ->assertHasErrors(['message'])
+        ->assertSee('data-testid="report-message-error"', false);
+
+    $this->assertDatabaseCount('reports', 0);
+});
+
+it('renders backend error for duplicate report', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'post',
+            'reportableId' => $post->id,
+        ])
+        ->set('reason', ReportReason::Spam->value)
+        ->call('submit');
+
+    $component
+        ->set('submitted', false)
+        ->call('submit')
+        ->assertHasErrors('report')
+        ->assertSee('data-testid="report-submit-error"', false)
+        ->assertSee('You have already reported this content.');
+});
+
 it('renders report success state after submit', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
