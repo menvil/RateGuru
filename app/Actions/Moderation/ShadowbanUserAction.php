@@ -20,16 +20,23 @@ final class ShadowbanUserAction
             throw CannotModerateUserException::becauseUserIsNotAllowed();
         }
 
-        if ($admin->id === $target->id || $target->isAdmin()) {
+        if ($admin->id === $target->id) {
             throw CannotModerateUserException::becauseTargetIsProtected();
         }
 
-        $oldStatus = $target->status;
+        // Re-read the target role/status under a row lock so a concurrent
+        // role change cannot slip past the protection check or desync
+        // the recorded from_status from what is actually mutated.
+        DB::transaction(function () use ($admin, $target, $reason) {
+            $locked = $target->newQuery()->lockForUpdate()->find($target->getKey());
 
-        // The status change and its audit log must be atomic: a shadowbanned
-        // user must never exist without the matching moderation log.
-        DB::transaction(function () use ($admin, $target, $reason, $oldStatus) {
-            $persisted = $target->forceFill([
+            if ($locked === null || $locked->isAdmin()) {
+                throw CannotModerateUserException::becauseTargetIsProtected();
+            }
+
+            $oldStatus = $locked->status;
+
+            $persisted = $locked->forceFill([
                 'status' => UserStatus::Shadowbanned,
             ])->save();
 
@@ -40,13 +47,15 @@ final class ShadowbanUserAction
             $this->createModerationLog->handle(
                 moderator: $admin,
                 action: ModerationActionType::ShadowbanUser,
-                target: $target,
+                target: $locked,
                 reason: $reason,
                 metadata: [
                     'from_status' => $oldStatus->value,
                     'to_status' => UserStatus::Shadowbanned->value,
                 ],
             );
+
+            $target->setRawAttributes($locked->getAttributes(), true);
         });
     }
 }
