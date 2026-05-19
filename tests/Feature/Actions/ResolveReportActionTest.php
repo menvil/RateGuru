@@ -42,3 +42,19 @@ it('does not allow normal user to resolve report', function () {
 
     expect($report->fresh()->status)->not->toBe(ReportStatus::Resolved);
 });
+
+it('does not overwrite original resolver when resolving an already resolved report', function () {
+    $first = User::factory()->moderator()->create();
+    $second = User::factory()->moderator()->create();
+
+    $report = Report::factory()->create(['status' => ReportStatus::Open]);
+
+    app(ResolveReportAction::class)->handle($first, $report, 'First resolution.');
+    app(ResolveReportAction::class)->handle($second, $report, 'Second resolution.');
+
+    $report->refresh();
+
+    expect($report->status)->toBe(ReportStatus::Resolved);
+    expect($report->resolved_by)->toBe($first->id);
+    expect($report->resolution_note)->toBe('First resolution.');
+});
