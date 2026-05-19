@@ -66,3 +66,22 @@ it('does not allow guest to report content', function () {
 
     expect(Report::query()->count())->toBe(0);
 });
+
+it('does not allow banned user to report content', function () {
+    $user = User::factory()->banned()->create();
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(ReportContentAction::class)->handle(
+            user: $user,
+            content: $post,
+            reason: ReportReason::Spam,
+            message: null
+        );
+        $this->fail('Expected CannotReportContentException was not thrown.');
+    } catch (CannotReportContentException $e) {
+        // expected
+    }
+
+    expect(Report::query()->count())->toBe(0);
+});
