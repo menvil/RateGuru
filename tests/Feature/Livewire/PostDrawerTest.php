@@ -9,6 +9,14 @@ it('can render post drawer component', function () {
         ->assertStatus(200);
 });
 
+it('renders report button in post drawer', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="post-drawer-report"', false)
+        ->assertSee('Report');
+});
+
 it('renders post voting component in drawer', function () {
     $post = Post::factory()->published()->create();
 
