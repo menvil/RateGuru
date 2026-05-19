@@ -15,7 +15,19 @@
                 :error="$errors->has('body')"
             />
 
-            <p class="text-xs text-rg-muted">1000 characters max</p>
+            <div class="flex items-center justify-between">
+                <p class="text-xs text-rg-muted">1000 characters max</p>
+
+                <x-ui.button
+                    type="submit"
+                    size="sm"
+                    wire:loading.attr="disabled"
+                    wire:target="submit"
+                >
+                    <span wire:loading.remove wire:target="submit">Post comment</span>
+                    <span wire:loading wire:target="submit">Posting...</span>
+                </x-ui.button>
+            </div>
         </form>
     @else
         <x-ui.empty-state

@@ -57,3 +57,13 @@ it('does not render textarea for guest', function () {
     Livewire::test(CommentForm::class, ['postId' => $post->id])
         ->assertDontSee('name="body"', false);
 });
+
+it('renders comment submit button', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(CommentForm::class, ['postId' => $post->id])
+        ->assertSee('Post comment')
+        ->assertSee('wire:submit', false);
+});
