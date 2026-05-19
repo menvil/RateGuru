@@ -65,7 +65,14 @@ final class ReportContentAction
 
         if ($content instanceof Post) {
             $this->refreshPostReportsCount($content);
-            $this->flagPostForReviewIfThresholdReached($content->fresh());
+
+            // Re-read post-recount state; may be null if the post was deleted
+            // concurrently, in which case there is nothing to flag.
+            $freshPost = $content->fresh();
+
+            if ($freshPost !== null) {
+                $this->flagPostForReviewIfThresholdReached($freshPost);
+            }
         }
 
         if ($content instanceof Comment) {
