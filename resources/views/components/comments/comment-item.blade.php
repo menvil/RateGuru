@@ -17,6 +17,15 @@
                 <span class="text-xs text-rg-muted">{{ '@' . $comment->user->username }}</span>
             @endif
         </div>
+
+        @if ($comment->created_at)
+            <time
+                datetime="{{ $comment->created_at->toIso8601String() }}"
+                class="ml-auto text-xs text-rg-muted"
+            >
+                {{ $comment->created_at->diffForHumans() }}
+            </time>
+        @endif
     </div>
 
     <p class="mt-2 text-sm leading-6 text-rg-text">{{ $comment->body }}</p>
