@@ -153,3 +153,19 @@ it('allows different users to report same content', function () {
         ->count()
     )->toBe(2);
 });
+
+it('updates post reports count after report', function () {
+    $user = User::factory()->create();
+
+    $post = Post::factory()->published()->create([
+        'reports_count' => 99,
+    ]);
+
+    app(ReportContentAction::class)->handle(
+        user: $user,
+        content: $post,
+        reason: ReportReason::Spam
+    );
+
+    expect($post->fresh()->reports_count)->toBe(1);
+});
