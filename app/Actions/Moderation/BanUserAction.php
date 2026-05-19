@@ -34,6 +34,10 @@ final class BanUserAction
                 throw CannotModerateUserException::becauseTargetIsProtected();
             }
 
+            if ($locked->status === UserStatus::Banned) {
+                throw CannotModerateUserException::becauseTargetStatusIsInvalid();
+            }
+
             $oldStatus = $locked->status;
 
             $persisted = $locked->forceFill([
