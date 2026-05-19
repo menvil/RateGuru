@@ -75,10 +75,7 @@
                 <span class="text-xs text-rg-muted">{{ $post->comments_count ?? 0 }}</span>
             </div>
 
-            <x-ui.empty-state
-                title="Comments will appear here"
-                description="Comment UI will be added in a later phase."
-            />
+            <livewire:comments.comments-section :post-id="$post->id" :show-header="false" :key="'drawer-comments-'.$post->id" />
         </section>
 
         <div class="mt-4 flex items-center gap-3">

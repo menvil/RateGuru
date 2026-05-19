@@ -97,7 +97,7 @@ it('renders vote summary panels on post page', function () {
         ->assertSee('data-testid="post-show-vote-summary"', false);
 });
 
-it('renders comments section placeholder on post page', function () {
+it('renders the comments section on post page', function () {
     $post = Post::factory()->published()->create([
         'comments_count' => 3,
     ]);
@@ -106,7 +106,8 @@ it('renders comments section placeholder on post page', function () {
         ->assertOk()
         ->assertSee('Comments')
         ->assertSee('3')
-        ->assertSee('Comments will appear here');
+        ->assertSee('data-testid="comments-section"', false)
+        ->assertDontSee('Comments will appear here');
 });
 
 it('renders share panel placeholder on post page', function () {
