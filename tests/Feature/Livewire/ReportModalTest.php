@@ -1,10 +1,98 @@
 <?php
 
+use App\Enums\CommentStatus;
 use App\Enums\ReportReason;
 use App\Livewire\Reports\ReportModal;
+use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
+
+it('submits comment report from report modal', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'comment',
+            'reportableId' => $comment->id,
+        ])
+        ->set('reason', ReportReason::Offensive->value)
+        ->call('submit')
+        ->assertSet('submitted', true);
+
+    $this->assertDatabaseHas('reports', [
+        'reporter_id' => $user->id,
+        'target_type' => Comment::class,
+        'target_id' => $comment->id,
+        'reason' => ReportReason::Offensive->value,
+    ]);
+});
+
+it('rejects unsupported reportable type', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'user',
+            'reportableId' => $user->id,
+        ])
+        ->set('reason', ReportReason::Spam->value)
+        ->call('submit')
+        ->assertStatus(404);
+
+    $this->assertDatabaseCount('reports', 0);
+});
+
+it('does not let a guest create a report via the submit action', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(ReportModal::class, [
+        'reportableType' => 'post',
+        'reportableId' => $post->id,
+    ])
+        ->set('reason', ReportReason::Spam->value)
+        ->call('submit')
+        ->assertSet('submitted', false)
+        ->assertHasErrors('report')
+        ->assertNotDispatched('content-reported');
+
+    $this->assertDatabaseCount('reports', 0);
+});
+
+it('cannot report a hidden comment', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Hidden,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'comment',
+            'reportableId' => $comment->id,
+        ])
+        ->set('reason', ReportReason::Spam->value)
+        ->call('submit')
+        ->assertStatus(404);
+
+    $this->assertDatabaseCount('reports', 0);
+});
+
+it('dispatches content-reported after successful submit', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'post',
+            'reportableId' => $post->id,
+        ])
+        ->set('reason', ReportReason::Spam->value)
+        ->call('submit')
+        ->assertDispatched('content-reported');
+});
 
 it('submits post report from report modal', function () {
     $user = User::factory()->create();
