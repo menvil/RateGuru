@@ -3,6 +3,16 @@
 
     <livewire:comments.comment-form :post-id="$postId" :key="'comment-form-'.$postId" />
 
+    <div
+        wire:loading
+        wire:target="deleteComment,hideComment"
+        data-testid="comments-loading"
+        class="space-y-2"
+    >
+        <x-ui.skeleton shape="line" width="w-3/4" />
+        <x-ui.skeleton shape="line" width="w-1/2" />
+    </div>
+
     @if ($this->comments->isEmpty())
         <x-ui.empty-state
             title="No comments yet"
