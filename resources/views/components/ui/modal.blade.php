@@ -1,6 +1,7 @@
 @props([
     'title',
     'size' => 'md',
+    'state' => 'open',
 ])
 
 @php
@@ -16,7 +17,7 @@
 @endphp
 
 <div
-    x-show="open"
+    x-show="{{ $state }}"
     x-cloak
     class="fixed inset-0 z-50 overflow-y-auto px-4 py-6 sm:px-6"
     role="dialog"
@@ -25,7 +26,7 @@
 >
     <div
         class="fixed inset-0 bg-black/70 backdrop-blur-sm"
-        x-on:click="open = false"
+        x-on:click="{{ $state }} = false"
     ></div>
 
     <div class="relative mx-auto flex min-h-full items-center justify-center">
@@ -42,7 +43,7 @@
                     type="button"
                     class="rounded-rgSm border border-rg-border2 bg-rg-card2 p-1 text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     aria-label="Close modal"
-                    x-on:click="open = false"
+                    x-on:click="{{ $state }} = false"
                 >
                     <x-ui.icon name="x" class="size-4" />
                 </button>
