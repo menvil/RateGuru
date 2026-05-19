@@ -10,6 +10,7 @@ use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 
 final class ReportContentAction
 {
@@ -46,14 +47,20 @@ final class ReportContentAction
         $message = trim((string) $message);
         $message = $message === '' ? null : $message;
 
-        $report = Report::create([
-            'reporter_id' => $user->id,
-            'target_type' => $content::class,
-            'target_id' => $content->id,
-            'reason' => $reason,
-            'message' => $message,
-            'status' => ReportStatus::Open,
-        ]);
+        try {
+            $report = Report::create([
+                'reporter_id' => $user->id,
+                'target_type' => $content::class,
+                'target_id' => $content->id,
+                'reason' => $reason,
+                'message' => $message,
+                'status' => ReportStatus::Open,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            // Lost a race with a concurrent identical report; the pre-check
+            // passed for both requests but the unique index rejected this one.
+            throw CannotReportContentException::becauseDuplicateReport();
+        }
 
         if ($content instanceof Post) {
             $this->refreshPostReportsCount($content);
