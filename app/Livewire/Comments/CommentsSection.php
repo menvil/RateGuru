@@ -84,7 +84,9 @@ final class CommentsSection extends Component
 
     public function canDeleteComment(Comment $comment): bool
     {
-        return auth()->id() === $comment->user_id;
+        // Delegate to CommentPolicy::delete() (the same authorization
+        // DeleteCommentAction enforces) so the rule lives in one place.
+        return auth()->user()?->can('delete', $comment) ?? false;
     }
 
     public function userCanHideComments(): bool
