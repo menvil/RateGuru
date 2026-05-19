@@ -52,3 +52,29 @@ it('does not allow admin to shadowban another admin', function () {
 
     app(ShadowbanUserAction::class)->handle($admin, $target);
 })->throws(CannotModerateUserException::class);
+
+it('writes moderation log when shadowbanning user', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create();
+
+    app(ShadowbanUserAction::class)->handle($admin, $target, 'Suspicious.');
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $admin->id,
+        'action' => \App\Enums\ModerationActionType::ShadowbanUser->value,
+        'target_type' => User::class,
+        'target_id' => $target->id,
+    ]);
+});
+
+it('does not write moderation log when moderator fails to shadowban', function () {
+    $moderator = User::factory()->moderator()->create();
+    $target = User::factory()->create();
+
+    try {
+        app(ShadowbanUserAction::class)->handle($moderator, $target);
+    } catch (CannotModerateUserException $e) {
+    }
+
+    $this->assertDatabaseCount('moderation_logs', 0);
+});
