@@ -169,3 +169,20 @@ it('updates post reports count after report', function () {
 
     expect($post->fresh()->reports_count)->toBe(1);
 });
+
+it('updates comment reports count after report', function () {
+    $user = User::factory()->create();
+
+    $comment = Comment::factory()->create([
+        'reports_count' => 99,
+        'status' => CommentStatus::Visible,
+    ]);
+
+    app(ReportContentAction::class)->handle(
+        user: $user,
+        content: $comment,
+        reason: ReportReason::Offensive
+    );
+
+    expect($comment->fresh()->reports_count)->toBe(1);
+});
