@@ -1,3 +1,5 @@
 <div data-testid="report-modal">
-    Report content
+    @foreach($this->reasons as $reason)
+        <span>{{ $reason['label'] }}</span>
+    @endforeach
 </div>
