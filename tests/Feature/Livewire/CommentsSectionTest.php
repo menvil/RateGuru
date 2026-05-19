@@ -122,3 +122,16 @@ it('does not render hide button for normal user', function () {
         ->assertSee('Normal visible comment')
         ->assertDontSee('Hide');
 });
+
+it('renders comments empty state when no visible comments exist', function () {
+    $post = Post::factory()->published()->create();
+
+    Comment::factory()->for($post)->create([
+        'body' => 'Hidden comment',
+        'status' => CommentStatus::Hidden,
+    ]);
+
+    Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->assertSee('No comments yet')
+        ->assertDontSee('Hidden comment');
+});
