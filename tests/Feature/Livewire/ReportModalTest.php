@@ -5,6 +5,20 @@ use App\Livewire\Reports\ReportModal;
 use App\Models\Post;
 use Livewire\Livewire;
 
+it('renders report message textarea', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(ReportModal::class, [
+        'reportableType' => 'post',
+        'reportableId' => $post->id,
+    ])
+        ->assertSee('name="message"', false)
+        ->assertSee('maxlength="1000"', false)
+        ->assertSee('Optional details')
+        ->set('message', 'This content is spam.')
+        ->assertSet('message', 'This content is spam.');
+});
+
 it('renders report reason selector and updates reason', function () {
     $post = Post::factory()->published()->create();
 
