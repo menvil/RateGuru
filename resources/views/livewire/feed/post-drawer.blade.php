@@ -75,7 +75,7 @@
                 <span class="text-xs text-rg-muted">{{ $post->comments_count ?? 0 }}</span>
             </div>
 
-            <livewire:comments.comments-section :post-id="$post->id" :key="'drawer-comments-'.$post->id" />
+            <livewire:comments.comments-section :post-id="$post->id" :show-header="false" :key="'drawer-comments-'.$post->id" />
         </section>
 
         <div class="mt-4 flex items-center gap-3">
