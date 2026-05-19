@@ -62,3 +62,31 @@ it('renders escaped comment body', function () {
         ->toContain('&lt;script&gt;')
         ->not->toContain('<script>alert');
 });
+
+it('renders comment timestamp', function () {
+    $comment = Comment::factory()->make([
+        'body' => 'Timed.',
+        'created_at' => now()->subMinutes(5),
+    ]);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)
+        ->toContain('<time')
+        ->toContain('datetime=');
+});
+
+it('does not break when created_at is missing', function () {
+    $comment = Comment::factory()->make(['body' => 'No timestamp']);
+    $comment->created_at = null;
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)
+        ->toContain('No timestamp')
+        ->not->toContain('<time');
+});
