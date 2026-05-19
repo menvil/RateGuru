@@ -186,3 +186,42 @@ it('updates comment reports count after report', function () {
 
     expect($comment->fresh()->reports_count)->toBe(1);
 });
+
+it('flags post for review when report threshold is reached', function () {
+    $post = Post::factory()->published()->create([
+        'reports_count' => 0,
+        'needs_review' => false,
+        'flagged_at' => null,
+    ]);
+
+    $users = User::factory()->count(3)->create();
+
+    foreach ($users as $user) {
+        app(ReportContentAction::class)->handle(
+            user: $user,
+            content: $post->fresh(),
+            reason: ReportReason::Spam
+        );
+    }
+
+    $post->refresh();
+
+    expect($post->reports_count)->toBe(3);
+    expect($post->needs_review)->toBeTrue();
+    expect($post->flagged_at)->not->toBeNull();
+    expect($post->status)->toBe(\App\Enums\PostStatus::Published);
+});
+
+it('does not flag post before report threshold is reached', function () {
+    $post = Post::factory()->published()->create([
+        'needs_review' => false,
+    ]);
+
+    $users = User::factory()->count(2)->create();
+
+    foreach ($users as $user) {
+        app(ReportContentAction::class)->handle($user, $post->fresh(), ReportReason::Spam);
+    }
+
+    expect($post->fresh()->needs_review)->toBeFalse();
+});
