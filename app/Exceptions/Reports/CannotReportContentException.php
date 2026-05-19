@@ -20,4 +20,9 @@ final class CannotReportContentException extends DomainException
     {
         return new self('User is not allowed to report content.');
     }
+
+    public static function becauseDuplicateReport(): self
+    {
+        return new self('You have already reported this content.');
+    }
 }

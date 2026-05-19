@@ -31,6 +31,16 @@ final class ReportContentAction
             throw CannotReportContentException::becauseUnsupportedContent();
         }
 
+        $alreadyReported = Report::query()
+            ->where('reporter_id', $user->id)
+            ->where('target_type', $content::class)
+            ->where('target_id', $content->id)
+            ->exists();
+
+        if ($alreadyReported) {
+            throw CannotReportContentException::becauseDuplicateReport();
+        }
+
         $message = trim((string) $message);
         $message = $message === '' ? null : $message;
 
