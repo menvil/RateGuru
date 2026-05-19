@@ -12,7 +12,7 @@ class Report extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['reporter_id', 'target_type', 'target_id', 'reason', 'message', 'status', 'resolved_by', 'resolved_at'];
+    protected $fillable = ['reporter_id', 'target_type', 'target_id', 'reason', 'message', 'status', 'resolved_by', 'resolved_at', 'resolution_note'];
 
     protected function casts(): array
     {
