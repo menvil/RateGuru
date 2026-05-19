@@ -85,3 +85,71 @@ it('does not allow banned user to report content', function () {
 
     expect(Report::query()->count())->toBe(0);
 });
+
+it('blocks duplicate report from same user for same post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(ReportContentAction::class)->handle($user, $post, ReportReason::Spam);
+
+    try {
+        app(ReportContentAction::class)->handle($user, $post, ReportReason::Spam);
+        $this->fail('Expected CannotReportContentException was not thrown.');
+    } catch (CannotReportContentException $e) {
+        // expected
+    }
+
+    expect(Report::query()
+        ->where('reporter_id', $user->id)
+        ->where('target_type', Post::class)
+        ->where('target_id', $post->id)
+        ->count()
+    )->toBe(1);
+});
+
+it('blocks duplicate report from same user for same comment', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+
+    app(ReportContentAction::class)->handle($user, $comment, ReportReason::Offensive);
+
+    try {
+        app(ReportContentAction::class)->handle($user, $comment, ReportReason::Offensive);
+        $this->fail('Expected CannotReportContentException was not thrown.');
+    } catch (CannotReportContentException $e) {
+        // expected
+    }
+
+    expect(Report::query()
+        ->where('reporter_id', $user->id)
+        ->where('target_type', Comment::class)
+        ->where('target_id', $comment->id)
+        ->count()
+    )->toBe(1);
+});
+
+it('allows same user to report different content items', function () {
+    $user = User::factory()->create();
+    $postA = Post::factory()->published()->create();
+    $postB = Post::factory()->published()->create();
+
+    app(ReportContentAction::class)->handle($user, $postA, ReportReason::Spam);
+    app(ReportContentAction::class)->handle($user, $postB, ReportReason::Spam);
+
+    expect(Report::query()->where('reporter_id', $user->id)->count())->toBe(2);
+});
+
+it('allows different users to report same content', function () {
+    $userA = User::factory()->create();
+    $userB = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(ReportContentAction::class)->handle($userA, $post, ReportReason::Spam);
+    app(ReportContentAction::class)->handle($userB, $post, ReportReason::Spam);
+
+    expect(Report::query()
+        ->where('target_type', Post::class)
+        ->where('target_id', $post->id)
+        ->count()
+    )->toBe(2);
+});
