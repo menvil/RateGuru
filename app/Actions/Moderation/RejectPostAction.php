@@ -21,16 +21,19 @@ final class RejectPostAction
             throw CannotModeratePostException::becauseUserIsNotAllowed();
         }
 
-        if ($post->status !== PostStatus::Pending) {
-            throw CannotModeratePostException::becausePostStatusIsInvalid();
-        }
+        // The status check, mutation, and audit log run inside a single
+        // transaction with a row lock on the post so a concurrent moderation
+        // cannot bypass the state guard between the check and the write.
+        DB::transaction(function () use ($moderator, $post, $reason) {
+            $locked = $post->newQuery()->lockForUpdate()->find($post->getKey());
 
-        $fromStatus = $post->status;
+            if ($locked === null || $locked->status !== PostStatus::Pending) {
+                throw CannotModeratePostException::becausePostStatusIsInvalid();
+            }
 
-        // The status change and its audit log must be atomic: a moderated
-        // post must never exist without the matching moderation log.
-        DB::transaction(function () use ($moderator, $post, $reason, $fromStatus) {
-            $persisted = $post->forceFill([
+            $fromStatus = $locked->status;
+
+            $persisted = $locked->forceFill([
                 'status' => PostStatus::Rejected,
                 'needs_review' => false,
             ])->save();
@@ -42,13 +45,15 @@ final class RejectPostAction
             $this->createModerationLog->handle(
                 moderator: $moderator,
                 action: ModerationActionType::RejectPost,
-                target: $post,
+                target: $locked,
                 reason: $reason,
                 metadata: [
                     'from_status' => $fromStatus->value,
                     'to_status' => PostStatus::Rejected->value,
                 ],
             );
+
+            $post->setRawAttributes($locked->getAttributes(), true);
         });
     }
 }

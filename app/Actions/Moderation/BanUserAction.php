@@ -24,16 +24,19 @@ final class BanUserAction
             throw CannotModerateUserException::becauseTargetIsProtected();
         }
 
-        if ($target->isAdmin()) {
-            throw CannotModerateUserException::becauseTargetIsProtected();
-        }
+        // Re-read the target role/status under a row lock so a concurrent
+        // role change cannot slip past the protection check or desync
+        // the recorded from_status from what is actually mutated.
+        DB::transaction(function () use ($admin, $target, $reason) {
+            $locked = $target->newQuery()->lockForUpdate()->find($target->getKey());
 
-        $oldStatus = $target->status;
+            if ($locked === null || $locked->isAdmin()) {
+                throw CannotModerateUserException::becauseTargetIsProtected();
+            }
 
-        // The status change and its audit log must be atomic: a banned
-        // user must never exist without the matching moderation log.
-        DB::transaction(function () use ($admin, $target, $reason, $oldStatus) {
-            $persisted = $target->forceFill([
+            $oldStatus = $locked->status;
+
+            $persisted = $locked->forceFill([
                 'status' => UserStatus::Banned,
             ])->save();
 
@@ -44,13 +47,15 @@ final class BanUserAction
             $this->createModerationLog->handle(
                 moderator: $admin,
                 action: ModerationActionType::BanUser,
-                target: $target,
+                target: $locked,
                 reason: $reason,
                 metadata: [
                     'from_status' => $oldStatus->value,
                     'to_status' => UserStatus::Banned->value,
                 ],
             );
+
+            $target->setRawAttributes($locked->getAttributes(), true);
         });
     }
 }

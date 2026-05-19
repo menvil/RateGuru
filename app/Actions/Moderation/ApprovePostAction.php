@@ -21,18 +21,21 @@ final class ApprovePostAction
             throw CannotModeratePostException::becauseUserIsNotAllowed();
         }
 
-        if ($post->status !== PostStatus::Pending) {
-            throw CannotModeratePostException::becausePostStatusIsInvalid();
-        }
+        // The status check, mutation, and audit log run inside a single
+        // transaction with a row lock on the post so a concurrent moderation
+        // cannot bypass the state guard between the check and the write.
+        DB::transaction(function () use ($moderator, $post, $reason) {
+            $locked = $post->newQuery()->lockForUpdate()->find($post->getKey());
 
-        $fromStatus = $post->status;
+            if ($locked === null || $locked->status !== PostStatus::Pending) {
+                throw CannotModeratePostException::becausePostStatusIsInvalid();
+            }
 
-        // The status change and its audit log must be atomic: a moderated
-        // post must never exist without the matching moderation log.
-        DB::transaction(function () use ($moderator, $post, $reason, $fromStatus) {
-            $persisted = $post->forceFill([
+            $fromStatus = $locked->status;
+
+            $persisted = $locked->forceFill([
                 'status' => PostStatus::Published,
-                'published_at' => $post->published_at ?? now(),
+                'published_at' => $locked->published_at ?? now(),
                 'needs_review' => false,
             ])->save();
 
@@ -43,13 +46,15 @@ final class ApprovePostAction
             $this->createModerationLog->handle(
                 moderator: $moderator,
                 action: ModerationActionType::ApprovePost,
-                target: $post,
+                target: $locked,
                 reason: $reason,
                 metadata: [
                     'from_status' => $fromStatus->value,
                     'to_status' => PostStatus::Published->value,
                 ],
             );
+
+            $post->setRawAttributes($locked->getAttributes(), true);
         });
     }
 }
