@@ -1,8 +1,35 @@
 <?php
 
+use App\Enums\CommentStatus;
 use App\Models\Comment;
 use App\Models\User;
 use Illuminate\Support\Facades\Blade;
+
+it('renders report button in comment item for persisted comment', function () {
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)
+        ->toContain('data-testid="comment-report"')
+        ->toContain('Report');
+});
+
+it('does not break comment item report button for unsaved comment preview', function () {
+    $comment = Comment::factory()->make(['body' => 'Preview']);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)
+        ->toContain('Preview')
+        ->not->toContain('data-testid="comment-report"');
+});
 
 it('renders comment item component with body', function () {
     $comment = Comment::factory()->make([

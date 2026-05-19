@@ -32,6 +32,16 @@
 
     <p class="mt-2 text-sm leading-6 text-rg-text">{{ $comment->body }}</p>
 
+    @if ($comment->exists)
+        <div data-testid="comment-report" class="mt-2 flex justify-end">
+            <livewire:reports.report-modal
+                reportable-type="comment"
+                :reportable-id="$comment->id"
+                :key="'comment-report-'.$comment->id"
+            />
+        </div>
+    @endif
+
     @if ($canDelete || $canHide)
         <div class="mt-2 flex justify-end gap-3">
             @if ($canHide)

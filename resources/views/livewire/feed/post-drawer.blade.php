@@ -58,6 +58,14 @@
             </div>
         </section>
 
+        <div class="mt-6 flex justify-end" data-testid="post-drawer-report">
+            <livewire:reports.report-modal
+                reportable-type="post"
+                :reportable-id="$post->id"
+                :key="'post-drawer-report-'.$post->id"
+            />
+        </div>
+
         <section class="mt-6" data-testid="post-drawer-cuisine-voting">
             <h3 class="text-sm font-semibold text-rg-text">What cuisine is it?</h3>
 
