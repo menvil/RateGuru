@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ReportReason;
+use App\Enums\ReportStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,6 +18,7 @@ class Report extends Model
     {
         return [
             'reason' => ReportReason::class,
+            'status' => ReportStatus::class,
             'resolved_at' => 'datetime',
         ];
     }
