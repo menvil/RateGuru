@@ -52,3 +52,29 @@ it('does not allow admin to ban another admin', function () {
 
     app(BanUserAction::class)->handle($admin, $target);
 })->throws(CannotModerateUserException::class);
+
+it('writes moderation log when banning user', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create();
+
+    app(BanUserAction::class)->handle($admin, $target, 'Abuse.');
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $admin->id,
+        'action' => \App\Enums\ModerationActionType::BanUser->value,
+        'target_type' => User::class,
+        'target_id' => $target->id,
+    ]);
+});
+
+it('does not write moderation log when moderator fails to ban', function () {
+    $moderator = User::factory()->moderator()->create();
+    $target = User::factory()->create();
+
+    try {
+        app(BanUserAction::class)->handle($moderator, $target);
+    } catch (CannotModerateUserException $e) {
+    }
+
+    $this->assertDatabaseCount('moderation_logs', 0);
+});
