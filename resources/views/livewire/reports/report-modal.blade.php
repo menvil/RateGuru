@@ -36,6 +36,25 @@
                     @endforeach
                 </div>
             </fieldset>
+
+            <div class="space-y-2">
+                <label for="report-message" class="block text-xs font-semibold uppercase tracking-wide text-rg-muted">
+                    Optional details
+                </label>
+
+                <x-ui.textarea
+                    id="report-message"
+                    name="message"
+                    wire:model.defer="message"
+                    rows="4"
+                    maxlength="1000"
+                    placeholder="Add context for moderators..."
+                />
+
+                <p class="text-xs text-rg-muted">
+                    Optional. Max 1000 characters.
+                </p>
+            </div>
         </div>
 
         <x-slot:footer>
