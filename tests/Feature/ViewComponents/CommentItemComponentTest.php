@@ -48,3 +48,17 @@ it('does not break when user relation is missing', function () {
         ->toContain('Orphan comment')
         ->toContain('Unknown user');
 });
+
+it('renders escaped comment body', function () {
+    $comment = Comment::factory()->make([
+        'body' => '<script>alert("x")</script> Nice.',
+    ]);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)
+        ->toContain('&lt;script&gt;')
+        ->not->toContain('<script>alert');
+});
