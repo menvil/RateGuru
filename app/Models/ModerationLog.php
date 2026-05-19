@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ModerationActionType;
 use Illuminate\Database\Eloquent\Model;
 
 class ModerationLog extends Model
@@ -11,6 +12,7 @@ class ModerationLog extends Model
     protected function casts(): array
     {
         return [
+            'action' => ModerationActionType::class,
             'metadata' => 'array',
         ];
     }
