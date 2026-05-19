@@ -43,12 +43,15 @@ it('renders visible comments and hides hidden or deleted comments', function () 
 it('refreshes comments section after comment-created event', function () {
     $post = Post::factory()->published()->create();
 
+    $component = Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->assertDontSee('Fresh comment');
+
     Comment::factory()->for($post)->create([
         'body' => 'Fresh comment',
         'status' => CommentStatus::Visible,
     ]);
 
-    Livewire::test(CommentsSection::class, ['postId' => $post->id])
+    $component
         ->dispatch('comment-created', postId: $post->id)
         ->assertSee('Fresh comment')
         ->assertSee('data-testid="comment-item"', false);

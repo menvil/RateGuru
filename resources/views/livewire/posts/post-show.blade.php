@@ -99,7 +99,11 @@
             <span class="text-xs text-rg-muted">{{ $post->comments_count ?? 0 }}</span>
         </div>
 
-        <livewire:comments.comments-section :post-id="$post->id" />
+        <livewire:comments.comments-section
+            :post-id="$post->id"
+            :show-header="false"
+            :key="'comments-'.$post->id"
+        />
     </section>
 
     <section class="mt-8" data-testid="post-show-share">
