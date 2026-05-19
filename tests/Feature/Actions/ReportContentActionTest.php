@@ -209,7 +209,37 @@ it('flags post for review when report threshold is reached', function () {
     expect($post->reports_count)->toBe(3);
     expect($post->needs_review)->toBeTrue();
     expect($post->flagged_at)->not->toBeNull();
+    expect($post->flagged_reason)->toBe('reports_threshold');
     expect($post->status)->toBe(\App\Enums\PostStatus::Published);
+});
+
+it('does not reset flag metadata on reports after the threshold', function () {
+    $post = Post::factory()->published()->create([
+        'reports_count' => 0,
+        'needs_review' => false,
+        'flagged_at' => null,
+    ]);
+
+    $users = User::factory()->count(5)->create();
+
+    foreach ($users->take(3) as $user) {
+        app(ReportContentAction::class)->handle($user, $post->fresh(), ReportReason::Spam);
+    }
+
+    $flagged = $post->fresh();
+    $flaggedAt = $flagged->flagged_at;
+    $flaggedReason = $flagged->flagged_reason;
+
+    foreach ($users->slice(3) as $user) {
+        app(ReportContentAction::class)->handle($user, $post->fresh(), ReportReason::Spam);
+    }
+
+    $post->refresh();
+
+    expect($post->reports_count)->toBe(5);
+    expect($post->needs_review)->toBeTrue();
+    expect($post->flagged_at->equalTo($flaggedAt))->toBeTrue();
+    expect($post->flagged_reason)->toBe($flaggedReason);
 });
 
 it('does not flag post before report threshold is reached', function () {

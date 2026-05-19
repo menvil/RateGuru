@@ -50,6 +50,9 @@ it('does not overwrite original resolver when resolving an already resolved repo
     $report = Report::factory()->create(['status' => ReportStatus::Open]);
 
     app(ResolveReportAction::class)->handle($first, $report, 'First resolution.');
+    $report->refresh();
+    $originalResolvedAt = $report->resolved_at;
+
     app(ResolveReportAction::class)->handle($second, $report, 'Second resolution.');
 
     $report->refresh();
@@ -57,4 +60,5 @@ it('does not overwrite original resolver when resolving an already resolved repo
     expect($report->status)->toBe(ReportStatus::Resolved);
     expect($report->resolved_by)->toBe($first->id);
     expect($report->resolution_note)->toBe('First resolution.');
+    expect($report->resolved_at->equalTo($originalResolvedAt))->toBeTrue();
 });
