@@ -11,6 +11,7 @@ use App\Models\Report;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 
 final class ReportContentAction
 {
@@ -76,26 +77,33 @@ final class ReportContentAction
 
     private function refreshCommentReportsCount(Comment $comment): void
     {
-        $count = Report::query()
-            ->where('target_type', Comment::class)
-            ->where('target_id', $comment->id)
-            ->count();
-
-        $comment->forceFill([
-            'reports_count' => $count,
-        ])->save();
+        $this->recountReports(Comment::class, $comment->getKey(), $comment->getTable());
     }
 
     private function refreshPostReportsCount(Post $post): void
     {
-        $count = Report::query()
-            ->where('target_type', Post::class)
-            ->where('target_id', $post->id)
-            ->count();
+        $this->recountReports(Post::class, $post->getKey(), $post->getTable());
+    }
 
-        $post->forceFill([
-            'reports_count' => $count,
-        ])->save();
+    /**
+     * Recompute reports_count for a single reportable row.
+     *
+     * The recompute (COUNT) and the write are serialized behind a row lock
+     * inside a transaction so concurrent reports cannot interleave a stale
+     * lower count over a newer higher one (lost update).
+     */
+    private function recountReports(string $type, int|string $id, string $table): void
+    {
+        DB::transaction(function () use ($type, $id, $table) {
+            DB::table($table)->where('id', $id)->lockForUpdate()->first();
+
+            $count = Report::query()
+                ->where('target_type', $type)
+                ->where('target_id', $id)
+                ->count();
+
+            DB::table($table)->where('id', $id)->update(['reports_count' => $count]);
+        });
     }
 
     private function flagPostForReviewIfThresholdReached(Post $post): void
