@@ -1,0 +1,257 @@
+<?php
+
+use App\Actions\Reports\ReportContentAction;
+use App\Enums\CommentStatus;
+use App\Enums\ReportReason;
+use App\Models\Comment;
+use App\Models\Post;
+use App\Models\Report;
+use App\Exceptions\Reports\CannotReportContentException;
+use App\Models\User;
+
+it('allows user to report post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $report = app(ReportContentAction::class)->handle(
+        user: $user,
+        content: $post,
+        reason: ReportReason::Spam,
+        message: 'This looks like spam.'
+    );
+
+    expect($report)->toBeInstanceOf(Report::class);
+    expect($report->exists)->toBeTrue();
+    expect($report->reporter_id)->toBe($user->id);
+    expect($report->target_type)->toBe(Post::class);
+    expect($report->target_id)->toBe($post->id);
+    expect($report->reason)->toBe(ReportReason::Spam);
+    expect($report->message)->toBe('This looks like spam.');
+});
+
+it('allows user to report comment', function () {
+    $user = User::factory()->create();
+
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $report = app(ReportContentAction::class)->handle(
+        user: $user,
+        content: $comment,
+        reason: ReportReason::Offensive,
+        message: 'This comment is abusive.'
+    );
+
+    expect($report)->toBeInstanceOf(Report::class);
+    expect($report->target_type)->toBe(Comment::class);
+    expect($report->target_id)->toBe($comment->id);
+    expect($report->reason)->toBe(ReportReason::Offensive);
+});
+
+it('does not allow guest to report content', function () {
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(ReportContentAction::class)->handle(
+            user: null,
+            content: $post,
+            reason: ReportReason::Spam,
+            message: null
+        );
+        $this->fail('Expected CannotReportContentException was not thrown.');
+    } catch (CannotReportContentException $e) {
+        // expected
+    }
+
+    expect(Report::query()->count())->toBe(0);
+});
+
+it('does not allow banned user to report content', function () {
+    $user = User::factory()->banned()->create();
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(ReportContentAction::class)->handle(
+            user: $user,
+            content: $post,
+            reason: ReportReason::Spam,
+            message: null
+        );
+        $this->fail('Expected CannotReportContentException was not thrown.');
+    } catch (CannotReportContentException $e) {
+        // expected
+    }
+
+    expect(Report::query()->count())->toBe(0);
+});
+
+it('blocks duplicate report from same user for same post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(ReportContentAction::class)->handle($user, $post, ReportReason::Spam);
+
+    try {
+        app(ReportContentAction::class)->handle($user, $post, ReportReason::Spam);
+        $this->fail('Expected CannotReportContentException was not thrown.');
+    } catch (CannotReportContentException $e) {
+        // expected
+    }
+
+    expect(Report::query()
+        ->where('reporter_id', $user->id)
+        ->where('target_type', Post::class)
+        ->where('target_id', $post->id)
+        ->count()
+    )->toBe(1);
+});
+
+it('blocks duplicate report from same user for same comment', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+
+    app(ReportContentAction::class)->handle($user, $comment, ReportReason::Offensive);
+
+    try {
+        app(ReportContentAction::class)->handle($user, $comment, ReportReason::Offensive);
+        $this->fail('Expected CannotReportContentException was not thrown.');
+    } catch (CannotReportContentException $e) {
+        // expected
+    }
+
+    expect(Report::query()
+        ->where('reporter_id', $user->id)
+        ->where('target_type', Comment::class)
+        ->where('target_id', $comment->id)
+        ->count()
+    )->toBe(1);
+});
+
+it('allows same user to report different content items', function () {
+    $user = User::factory()->create();
+    $postA = Post::factory()->published()->create();
+    $postB = Post::factory()->published()->create();
+
+    app(ReportContentAction::class)->handle($user, $postA, ReportReason::Spam);
+    app(ReportContentAction::class)->handle($user, $postB, ReportReason::Spam);
+
+    expect(Report::query()->where('reporter_id', $user->id)->count())->toBe(2);
+});
+
+it('allows different users to report same content', function () {
+    $userA = User::factory()->create();
+    $userB = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    app(ReportContentAction::class)->handle($userA, $post, ReportReason::Spam);
+    app(ReportContentAction::class)->handle($userB, $post, ReportReason::Spam);
+
+    expect(Report::query()
+        ->where('target_type', Post::class)
+        ->where('target_id', $post->id)
+        ->count()
+    )->toBe(2);
+});
+
+it('updates post reports count after report', function () {
+    $user = User::factory()->create();
+
+    $post = Post::factory()->published()->create([
+        'reports_count' => 99,
+    ]);
+
+    app(ReportContentAction::class)->handle(
+        user: $user,
+        content: $post,
+        reason: ReportReason::Spam
+    );
+
+    expect($post->fresh()->reports_count)->toBe(1);
+});
+
+it('updates comment reports count after report', function () {
+    $user = User::factory()->create();
+
+    $comment = Comment::factory()->create([
+        'reports_count' => 99,
+        'status' => CommentStatus::Visible,
+    ]);
+
+    app(ReportContentAction::class)->handle(
+        user: $user,
+        content: $comment,
+        reason: ReportReason::Offensive
+    );
+
+    expect($comment->fresh()->reports_count)->toBe(1);
+});
+
+it('flags post for review when report threshold is reached', function () {
+    $post = Post::factory()->published()->create([
+        'reports_count' => 0,
+        'needs_review' => false,
+        'flagged_at' => null,
+    ]);
+
+    $users = User::factory()->count(3)->create();
+
+    foreach ($users as $user) {
+        app(ReportContentAction::class)->handle(
+            user: $user,
+            content: $post->fresh(),
+            reason: ReportReason::Spam
+        );
+    }
+
+    $post->refresh();
+
+    expect($post->reports_count)->toBe(3);
+    expect($post->needs_review)->toBeTrue();
+    expect($post->flagged_at)->not->toBeNull();
+    expect($post->flagged_reason)->toBe('reports_threshold');
+    expect($post->status)->toBe(\App\Enums\PostStatus::Published);
+});
+
+it('does not reset flag metadata on reports after the threshold', function () {
+    $post = Post::factory()->published()->create([
+        'reports_count' => 0,
+        'needs_review' => false,
+        'flagged_at' => null,
+    ]);
+
+    $users = User::factory()->count(5)->create();
+
+    foreach ($users->take(3) as $user) {
+        app(ReportContentAction::class)->handle($user, $post->fresh(), ReportReason::Spam);
+    }
+
+    $flagged = $post->fresh();
+    $flaggedAt = $flagged->flagged_at;
+    $flaggedReason = $flagged->flagged_reason;
+
+    foreach ($users->slice(3) as $user) {
+        app(ReportContentAction::class)->handle($user, $post->fresh(), ReportReason::Spam);
+    }
+
+    $post->refresh();
+
+    expect($post->reports_count)->toBe(5);
+    expect($post->needs_review)->toBeTrue();
+    expect($post->flagged_at->equalTo($flaggedAt))->toBeTrue();
+    expect($post->flagged_reason)->toBe($flaggedReason);
+});
+
+it('does not flag post before report threshold is reached', function () {
+    $post = Post::factory()->published()->create([
+        'needs_review' => false,
+    ]);
+
+    $users = User::factory()->count(2)->create();
+
+    foreach ($users as $user) {
+        app(ReportContentAction::class)->handle($user, $post->fresh(), ReportReason::Spam);
+    }
+
+    expect($post->fresh()->needs_review)->toBeFalse();
+});
