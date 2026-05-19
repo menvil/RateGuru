@@ -51,6 +51,11 @@ class User extends Authenticatable
         return $this->status === UserStatus::Active;
     }
 
+    public function canReport(): bool
+    {
+        return $this->status === UserStatus::Active;
+    }
+
     public function isModerator(): bool
     {
         return $this->role === UserRole::Moderator;
