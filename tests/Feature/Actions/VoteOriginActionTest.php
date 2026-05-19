@@ -2,8 +2,9 @@
 
 use App\Actions\Votes\VoteOriginAction;
 use App\Enums\OriginType;
-use App\Models\Post;
+use App\Exceptions\Votes\CannotVoteOriginException;
 use App\Models\OriginVote;
+use App\Models\Post;
 use App\Models\User;
 
 it('allows user to vote homemade on a published post', function () {
@@ -143,7 +144,7 @@ it('does not allow guest to vote origin', function () {
     try {
         app(VoteOriginAction::class)->handle(null, $post, OriginType::Homemade);
         $this->fail('Expected CannotVoteOriginException was not thrown.');
-    } catch (\App\Exceptions\Votes\CannotVoteOriginException $e) {
+    } catch (CannotVoteOriginException $e) {
         // expected
     }
 
@@ -162,7 +163,7 @@ it('does not allow a blocked user to vote origin', function () {
     ]);
 
     expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
-        ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
+        ->toThrow(CannotVoteOriginException::class);
 
     $this->assertDatabaseMissing('origin_votes', [
         'post_id' => $post->id,
@@ -180,7 +181,7 @@ it('does not allow an invalid origin value', function () {
     ]);
 
     expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Unknown))
-        ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
+        ->toThrow(CannotVoteOriginException::class);
 
     $this->assertDatabaseMissing('origin_votes', [
         'post_id' => $post->id,
@@ -200,7 +201,7 @@ it('does not allow origin vote on hidden post', function () {
     try {
         app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade);
         $this->fail('Expected CannotVoteOriginException was not thrown.');
-    } catch (\App\Exceptions\Votes\CannotVoteOriginException $e) {
+    } catch (CannotVoteOriginException $e) {
         // expected
     }
 
@@ -216,7 +217,7 @@ it('does not allow origin vote on pending post', function () {
     $post = Post::factory()->pending()->create();
 
     expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
-        ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
+        ->toThrow(CannotVoteOriginException::class);
 
     $this->assertDatabaseMissing('origin_votes', [
         'post_id' => $post->id,
@@ -229,7 +230,7 @@ it('does not allow origin vote on rejected post', function () {
     $post = Post::factory()->rejected()->create();
 
     expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
-        ->toThrow(\App\Exceptions\Votes\CannotVoteOriginException::class);
+        ->toThrow(CannotVoteOriginException::class);
 
     $this->assertDatabaseMissing('origin_votes', [
         'post_id' => $post->id,

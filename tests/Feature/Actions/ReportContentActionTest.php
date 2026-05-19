@@ -2,11 +2,12 @@
 
 use App\Actions\Reports\ReportContentAction;
 use App\Enums\CommentStatus;
+use App\Enums\PostStatus;
 use App\Enums\ReportReason;
+use App\Exceptions\Reports\CannotReportContentException;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
-use App\Exceptions\Reports\CannotReportContentException;
 use App\Models\User;
 
 it('allows user to report post', function () {
@@ -210,7 +211,7 @@ it('flags post for review when report threshold is reached', function () {
     expect($post->needs_review)->toBeTrue();
     expect($post->flagged_at)->not->toBeNull();
     expect($post->flagged_reason)->toBe('reports_threshold');
-    expect($post->status)->toBe(\App\Enums\PostStatus::Published);
+    expect($post->status)->toBe(PostStatus::Published);
 });
 
 it('does not reset flag metadata on reports after the threshold', function () {

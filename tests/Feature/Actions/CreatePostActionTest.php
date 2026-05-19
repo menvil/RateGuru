@@ -6,10 +6,10 @@ use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
+use App\Jobs\ProcessUploadedImageJob;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
-use App\Jobs\ProcessUploadedImageJob;
 use App\Services\Images\ImageStorage;
 use App\Services\Images\StoredImage;
 use Illuminate\Http\UploadedFile;
@@ -124,7 +124,8 @@ it('calls image storage when image is provided', function () {
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg');
 
-    $fakeStorage = new class implements ImageStorage {
+    $fakeStorage = new class implements ImageStorage
+    {
         public bool $called = false;
 
         public function storePostImage(UploadedFile $file, User $user): StoredImage
@@ -167,7 +168,8 @@ it('stores null thumbnail url when image storage returns no thumbnail', function
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg');
 
-    $fakeStorage = new class implements ImageStorage {
+    $fakeStorage = new class implements ImageStorage
+    {
         public function storePostImage(UploadedFile $file, User $user): StoredImage
         {
             return new StoredImage(
