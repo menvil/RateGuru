@@ -7,6 +7,7 @@ use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 final class ApprovePostAction
 {
@@ -26,21 +27,29 @@ final class ApprovePostAction
 
         $fromStatus = $post->status;
 
-        $post->forceFill([
-            'status' => PostStatus::Published,
-            'published_at' => $post->published_at ?? now(),
-            'needs_review' => false,
-        ])->save();
+        // The status change and its audit log must be atomic: a moderated
+        // post must never exist without the matching moderation log.
+        DB::transaction(function () use ($moderator, $post, $reason, $fromStatus) {
+            $persisted = $post->forceFill([
+                'status' => PostStatus::Published,
+                'published_at' => $post->published_at ?? now(),
+                'needs_review' => false,
+            ])->save();
 
-        $this->createModerationLog->handle(
-            moderator: $moderator,
-            action: ModerationActionType::ApprovePost,
-            target: $post,
-            reason: $reason,
-            metadata: [
-                'from_status' => $fromStatus->value,
-                'to_status' => PostStatus::Published->value,
-            ],
-        );
+            if ($persisted !== true) {
+                throw CannotModeratePostException::becausePostStatusIsInvalid();
+            }
+
+            $this->createModerationLog->handle(
+                moderator: $moderator,
+                action: ModerationActionType::ApprovePost,
+                target: $post,
+                reason: $reason,
+                metadata: [
+                    'from_status' => $fromStatus->value,
+                    'to_status' => PostStatus::Published->value,
+                ],
+            );
+        });
     }
 }

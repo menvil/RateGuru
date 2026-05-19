@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Moderation\ApprovePostAction;
+use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
@@ -56,7 +57,7 @@ it('writes moderation log when approving post', function () {
 
     $this->assertDatabaseHas('moderation_logs', [
         'moderator_id' => $moderator->id,
-        'action' => \App\Enums\ModerationActionType::ApprovePost->value,
+        'action' => ModerationActionType::ApprovePost->value,
         'target_type' => Post::class,
         'target_id' => $post->id,
         'reason' => 'Valid post.',
@@ -69,6 +70,7 @@ it('does not write moderation log when normal user fails to approve', function (
 
     try {
         app(ApprovePostAction::class)->handle($user, $post);
+        $this->fail('Expected CannotModeratePostException.');
     } catch (CannotModeratePostException $e) {
     }
 

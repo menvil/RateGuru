@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Moderation\HidePostAction;
+use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
@@ -50,7 +51,7 @@ it('writes moderation log when hiding post', function () {
 
     $this->assertDatabaseHas('moderation_logs', [
         'moderator_id' => $moderator->id,
-        'action' => \App\Enums\ModerationActionType::HidePost->value,
+        'action' => ModerationActionType::HidePost->value,
         'target_type' => Post::class,
         'target_id' => $post->id,
     ]);
@@ -62,6 +63,7 @@ it('does not write moderation log when normal user fails to hide', function () {
 
     try {
         app(HidePostAction::class)->handle($user, $post);
+        $this->fail('Expected CannotModeratePostException.');
     } catch (CannotModeratePostException $e) {
     }
 

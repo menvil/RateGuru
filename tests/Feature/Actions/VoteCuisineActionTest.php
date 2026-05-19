@@ -2,6 +2,7 @@
 
 use App\Actions\Votes\VoteCuisineAction;
 use App\Enums\CuisineType;
+use App\Exceptions\Votes\CannotVoteCuisineException;
 use App\Models\CuisineVote;
 use App\Models\Post;
 use App\Models\User;
@@ -129,7 +130,7 @@ it('does not allow guest to vote cuisine', function () {
     try {
         app(VoteCuisineAction::class)->handle(null, $post, CuisineType::Italian);
         $this->fail('Expected CannotVoteCuisineException was not thrown.');
-    } catch (\App\Exceptions\Votes\CannotVoteCuisineException $e) {
+    } catch (CannotVoteCuisineException $e) {
         expect(CuisineVote::query()->count())->toBe(0);
     }
 });
@@ -141,7 +142,7 @@ it('does not allow a non-voting user to vote cuisine', function () {
     try {
         app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
         $this->fail('Expected CannotVoteCuisineException was not thrown.');
-    } catch (\App\Exceptions\Votes\CannotVoteCuisineException $e) {
+    } catch (CannotVoteCuisineException $e) {
         expect(CuisineVote::query()->count())->toBe(0);
     }
 });
@@ -153,7 +154,7 @@ it('does not allow cuisine vote on hidden post', function () {
     try {
         app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
         $this->fail('Expected CannotVoteCuisineException was not thrown.');
-    } catch (\App\Exceptions\Votes\CannotVoteCuisineException $e) {
+    } catch (CannotVoteCuisineException $e) {
         expect(CuisineVote::query()->count())->toBe(0);
     }
 });
@@ -165,7 +166,7 @@ it('does not allow unknown cuisine vote', function () {
     try {
         app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Unknown);
         $this->fail('Expected CannotVoteCuisineException was not thrown.');
-    } catch (\App\Exceptions\Votes\CannotVoteCuisineException $e) {
+    } catch (CannotVoteCuisineException $e) {
         expect(CuisineVote::query()->count())->toBe(0);
     }
 });

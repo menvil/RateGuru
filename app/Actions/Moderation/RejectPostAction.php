@@ -7,6 +7,7 @@ use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 final class RejectPostAction
 {
@@ -26,20 +27,28 @@ final class RejectPostAction
 
         $fromStatus = $post->status;
 
-        $post->forceFill([
-            'status' => PostStatus::Rejected,
-            'needs_review' => false,
-        ])->save();
+        // The status change and its audit log must be atomic: a moderated
+        // post must never exist without the matching moderation log.
+        DB::transaction(function () use ($moderator, $post, $reason, $fromStatus) {
+            $persisted = $post->forceFill([
+                'status' => PostStatus::Rejected,
+                'needs_review' => false,
+            ])->save();
 
-        $this->createModerationLog->handle(
-            moderator: $moderator,
-            action: ModerationActionType::RejectPost,
-            target: $post,
-            reason: $reason,
-            metadata: [
-                'from_status' => $fromStatus->value,
-                'to_status' => PostStatus::Rejected->value,
-            ],
-        );
+            if ($persisted !== true) {
+                throw CannotModeratePostException::becausePostStatusIsInvalid();
+            }
+
+            $this->createModerationLog->handle(
+                moderator: $moderator,
+                action: ModerationActionType::RejectPost,
+                target: $post,
+                reason: $reason,
+                metadata: [
+                    'from_status' => $fromStatus->value,
+                    'to_status' => PostStatus::Rejected->value,
+                ],
+            );
+        });
     }
 }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Moderation\BanUserAction;
+use App\Enums\ModerationActionType;
 use App\Enums\UserStatus;
 use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Models\User;
@@ -61,7 +62,7 @@ it('writes moderation log when banning user', function () {
 
     $this->assertDatabaseHas('moderation_logs', [
         'moderator_id' => $admin->id,
-        'action' => \App\Enums\ModerationActionType::BanUser->value,
+        'action' => ModerationActionType::BanUser->value,
         'target_type' => User::class,
         'target_id' => $target->id,
     ]);
@@ -73,6 +74,7 @@ it('does not write moderation log when moderator fails to ban', function () {
 
     try {
         app(BanUserAction::class)->handle($moderator, $target);
+        $this->fail('Expected CannotModerateUserException.');
     } catch (CannotModerateUserException $e) {
     }
 
