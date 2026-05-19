@@ -44,7 +44,7 @@ final class ReportContentAction
         $message = trim((string) $message);
         $message = $message === '' ? null : $message;
 
-        return Report::create([
+        $report = Report::create([
             'reporter_id' => $user->id,
             'target_type' => $content::class,
             'target_id' => $content->id,
@@ -52,5 +52,23 @@ final class ReportContentAction
             'message' => $message,
             'status' => ReportStatus::Open,
         ]);
+
+        if ($content instanceof Post) {
+            $this->refreshPostReportsCount($content);
+        }
+
+        return $report;
+    }
+
+    private function refreshPostReportsCount(Post $post): void
+    {
+        $count = Report::query()
+            ->where('target_type', Post::class)
+            ->where('target_id', $post->id)
+            ->count();
+
+        $post->forceFill([
+            'reports_count' => $count,
+        ])->save();
     }
 }
