@@ -5,7 +5,7 @@
 
     <div
         wire:loading
-        wire:target="deleteComment,hideComment"
+        wire:target="deleteComment,hideComment,refreshComments"
         data-testid="comments-loading"
         class="space-y-2"
     >
