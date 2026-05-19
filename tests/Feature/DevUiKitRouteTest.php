@@ -110,3 +110,10 @@ it('does not render the old abstract placeholder label in the reference composit
         ->assertOk()
         ->assertDontSee('Food Image Placeholder');
 });
+
+it('renders comment item example in ui kit', function () {
+    $this->get('/dev/ui-kit')
+        ->assertOk()
+        ->assertSee('Comment Item')
+        ->assertSee('Looks delicious.');
+});
