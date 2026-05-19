@@ -1,6 +1,10 @@
 <?php
 
 use App\Actions\Counters\RecalculatePostCountersAction;
+use App\Actions\Votes\VoteCuisineAction;
+use App\Actions\Votes\VoteOriginAction;
+use App\Actions\Votes\VotePostAction;
+use App\Data\Counters\PostCounterSnapshot;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Enums\VoteType;
@@ -8,6 +12,7 @@ use App\Models\CuisineVote;
 use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\PostVote;
+use App\Models\User;
 
 it('recalculates upvote counter from post votes', function () {
     $post = Post::factory()->published()->create([
@@ -129,45 +134,46 @@ it('does not require persisted cuisine counter columns on posts', function () {
 });
 
 it('recalculates counters after post vote instead of incrementing stale value', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
 
     $post = Post::factory()->published()->create([
         'upvotes_count' => 99,
         'downvotes_count' => 88,
     ]);
 
-    app(\App\Actions\Votes\VotePostAction::class)->handle($user, $post, VoteType::Up);
+    app(VotePostAction::class)->handle($user, $post, VoteType::Up);
 
     expect($post->fresh()->upvotes_count)->toBe(1);
     expect($post->fresh()->downvotes_count)->toBe(0);
 });
 
 it('recalculates counters after origin vote instead of incrementing stale value', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
 
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 99,
         'restaurant_votes_count' => 88,
     ]);
 
-    app(\App\Actions\Votes\VoteOriginAction::class)->handle($user, $post, OriginType::Homemade);
+    app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade);
 
     expect($post->fresh()->homemade_votes_count)->toBe(1);
     expect($post->fresh()->restaurant_votes_count)->toBe(0);
 });
 
 it('calls counter recalculation after cuisine vote', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
-    $fake = new class extends RecalculatePostCountersAction {
+    $fake = new class extends RecalculatePostCountersAction
+    {
         public bool $called = false;
 
-        public function handle(Post $post): \App\Data\Counters\PostCounterSnapshot
+        public function handle(Post $post): PostCounterSnapshot
         {
             $this->called = true;
 
-            return new \App\Data\Counters\PostCounterSnapshot(
+            return new PostCounterSnapshot(
                 upvotes: 0,
                 downvotes: 0,
                 homemadeVotes: 0,
@@ -179,29 +185,30 @@ it('calls counter recalculation after cuisine vote', function () {
 
     app()->instance(RecalculatePostCountersAction::class, $fake);
 
-    app(\App\Actions\Votes\VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
+    app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
 
     expect($fake->called)->toBeTrue();
 });
 
 it('does not recalculate when origin vote is an unchanged no-op', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
-    $spy = new class extends RecalculatePostCountersAction {
+    $spy = new class extends RecalculatePostCountersAction
+    {
         public int $calls = 0;
 
-        public function handle(Post $post): \App\Data\Counters\PostCounterSnapshot
+        public function handle(Post $post): PostCounterSnapshot
         {
             $this->calls++;
 
-            return new \App\Data\Counters\PostCounterSnapshot(0, 0, 0, 0, []);
+            return new PostCounterSnapshot(0, 0, 0, 0, []);
         }
     };
 
     app()->instance(RecalculatePostCountersAction::class, $spy);
 
-    $action = app(\App\Actions\Votes\VoteOriginAction::class);
+    $action = app(VoteOriginAction::class);
 
     $action->handle($user, $post, OriginType::Homemade);
     expect($spy->calls)->toBe(1);

@@ -7,6 +7,7 @@ use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 final class HidePostAction
 {
@@ -26,19 +27,27 @@ final class HidePostAction
 
         $fromStatus = $post->status;
 
-        $post->forceFill([
-            'status' => PostStatus::Hidden,
-        ])->save();
+        // The status change and its audit log must be atomic: a moderated
+        // post must never exist without the matching moderation log.
+        DB::transaction(function () use ($moderator, $post, $reason, $fromStatus) {
+            $persisted = $post->forceFill([
+                'status' => PostStatus::Hidden,
+            ])->save();
 
-        $this->createModerationLog->handle(
-            moderator: $moderator,
-            action: ModerationActionType::HidePost,
-            target: $post,
-            reason: $reason,
-            metadata: [
-                'from_status' => $fromStatus->value,
-                'to_status' => PostStatus::Hidden->value,
-            ],
-        );
+            if ($persisted !== true) {
+                throw CannotModeratePostException::becausePostStatusIsInvalid();
+            }
+
+            $this->createModerationLog->handle(
+                moderator: $moderator,
+                action: ModerationActionType::HidePost,
+                target: $post,
+                reason: $reason,
+                metadata: [
+                    'from_status' => $fromStatus->value,
+                    'to_status' => PostStatus::Hidden->value,
+                ],
+            );
+        });
     }
 }

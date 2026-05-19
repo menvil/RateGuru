@@ -6,6 +6,7 @@ use App\Enums\ModerationActionType;
 use App\Enums\UserStatus;
 use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 final class ShadowbanUserAction
 {
@@ -25,19 +26,27 @@ final class ShadowbanUserAction
 
         $oldStatus = $target->status;
 
-        $target->forceFill([
-            'status' => UserStatus::Shadowbanned,
-        ])->save();
+        // The status change and its audit log must be atomic: a shadowbanned
+        // user must never exist without the matching moderation log.
+        DB::transaction(function () use ($admin, $target, $reason, $oldStatus) {
+            $persisted = $target->forceFill([
+                'status' => UserStatus::Shadowbanned,
+            ])->save();
 
-        $this->createModerationLog->handle(
-            moderator: $admin,
-            action: ModerationActionType::ShadowbanUser,
-            target: $target,
-            reason: $reason,
-            metadata: [
-                'from_status' => $oldStatus->value,
-                'to_status' => UserStatus::Shadowbanned->value,
-            ],
-        );
+            if ($persisted !== true) {
+                throw CannotModerateUserException::becauseTargetIsProtected();
+            }
+
+            $this->createModerationLog->handle(
+                moderator: $admin,
+                action: ModerationActionType::ShadowbanUser,
+                target: $target,
+                reason: $reason,
+                metadata: [
+                    'from_status' => $oldStatus->value,
+                    'to_status' => UserStatus::Shadowbanned->value,
+                ],
+            );
+        });
     }
 }
