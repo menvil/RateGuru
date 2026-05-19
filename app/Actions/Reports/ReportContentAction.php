@@ -19,6 +19,10 @@ final class ReportContentAction
         ReportReason $reason,
         ?string $message = null,
     ): Report {
+        if ($user === null) {
+            throw CannotReportContentException::becauseGuest();
+        }
+
         if (! $content instanceof Post && ! $content instanceof Comment) {
             throw CannotReportContentException::becauseUnsupportedContent();
         }

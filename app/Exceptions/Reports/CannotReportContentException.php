@@ -10,4 +10,9 @@ final class CannotReportContentException extends DomainException
     {
         return new self('This content cannot be reported.');
     }
+
+    public static function becauseGuest(): self
+    {
+        return new self('Guests cannot report content.');
+    }
 }
