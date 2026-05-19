@@ -8,6 +8,7 @@
             <x-comments.comment-item
                 :comment="$comment"
                 :can-delete="auth()->id() === $comment->user_id"
+                :can-hide="$this->userCanHideComments()"
                 wire:key="comment-{{ $comment->id }}"
             />
         @endforeach

@@ -3,6 +3,7 @@
 namespace App\Livewire\Comments;
 
 use App\Actions\Comments\DeleteCommentAction;
+use App\Actions\Comments\HideCommentAction;
 use App\Enums\CommentStatus;
 use App\Models\Comment;
 use Illuminate\Contracts\View\View;
@@ -49,6 +50,26 @@ final class CommentsSection extends Component
         unset($this->comments);
 
         $this->dispatch('comment-deleted', postId: $this->postId, commentId: $commentId);
+    }
+
+    public function hideComment(int $commentId, HideCommentAction $hideCommentAction): void
+    {
+        $comment = Comment::query()
+            ->where('post_id', $this->postId)
+            ->findOrFail($commentId);
+
+        $hideCommentAction->handle(auth()->user(), $comment);
+
+        unset($this->comments);
+
+        $this->dispatch('comment-hidden', postId: $this->postId, commentId: $commentId);
+    }
+
+    public function userCanHideComments(): bool
+    {
+        $user = auth()->user();
+
+        return $user !== null && ($user->isModerator() || $user->isAdmin());
     }
 
     public function render(): View
