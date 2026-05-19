@@ -143,3 +143,41 @@ it('has comments loading state markup', function () {
         ->assertSee('data-testid="comments-loading"', false)
         ->assertSee('wire:loading', false);
 });
+
+it('does not 500 when a guest invokes deleteComment', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $comment = Comment::factory()->for($owner)->for($post)->create([
+        'body' => 'Survives guest delete attempt',
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->call('deleteComment', $comment->id)
+        ->assertOk();
+
+    $this->assertNotSoftDeleted('comments', ['id' => $comment->id]);
+});
+
+it('does not 500 when a guest invokes hideComment', function () {
+    $post = Post::factory()->published()->create();
+
+    $comment = Comment::factory()->for($post)->create([
+        'body' => 'Survives guest hide attempt',
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->call('hideComment', $comment->id)
+        ->assertOk();
+
+    expect($comment->fresh()->status)->toBe(CommentStatus::Visible);
+});
+
+it('targets refreshComments in the loading state', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->assertSee('wire:target="deleteComment,hideComment,refreshComments"', false);
+});
