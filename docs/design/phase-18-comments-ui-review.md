@@ -3,6 +3,7 @@
 Scope: RG-355 – RG-374 (Comments UI on top of the Phase 17 comments backend).
 
 ## Reference checked
+
 - [x] docs/design/reference/original/PlateRate.html
 - [ ] docs/design/reference/screenshots/ — directory exists but is empty (no baseline screenshots committed)
 - [x] docs/design/design-contract.md
@@ -12,6 +13,7 @@ Scope: RG-355 – RG-374 (Comments UI on top of the Phase 17 comments backend).
 - [ ] docs/design/phase-12-post-show-page-review.md — **missing**: no Phase 12 review doc exists (docs/design contains phase-8, phase-10, phase-11 only). Recorded here as a known gap; not blocking Phase 18.
 
 ## Components
+
 - [x] CommentsSection renders visible comments (oldest-first, eager-loads user)
 - [x] CommentItem renders author (avatar + name + @username, safe when user missing)
 - [x] CommentItem renders escaped body (no raw HTML, no markdown)
@@ -21,6 +23,7 @@ Scope: RG-355 – RG-374 (Comments UI on top of the Phase 17 comments backend).
 - [x] CommentForm renders validation errors (data-testid="comment-body-error")
 
 ## States
+
 - [x] Guest sees login prompt instead of an active form
 - [x] Empty state ("No comments yet") when no visible comments
 - [x] Loading state markup during delete/hide (skeleton, data-testid="comments-loading")
@@ -30,6 +33,7 @@ Scope: RG-355 – RG-374 (Comments UI on top of the Phase 17 comments backend).
 - [x] Moderator/admin hide comment works via HideCommentAction; normal user has no button
 
 ## Layout
+
 - [x] Drawer layout — CommentsSection integrated into post-drawer (replaced placeholder)
 - [x] Post show layout — CommentsSection integrated into post-show (replaced placeholder)
 - [x] Dark-first surfaces reused (rg-card/rg-border tokens, x-ui.empty-state, x-ui.button, x-ui.skeleton, x-ui.avatar)
@@ -37,15 +41,18 @@ Scope: RG-355 – RG-374 (Comments UI on top of the Phase 17 comments backend).
 - [x] Desktop post-show safe — section reused under existing Comments heading
 
 ## Backend usage (architecture compliance)
+
 - [x] All writes go through Phase 17 actions (AddCommentAction / DeleteCommentAction / HideCommentAction)
 - [x] No direct Comment::create / $comment->delete / status update in UI
 - [x] Only visible, non-deleted comments render publicly
 
 ## Known deviations / notes
+
 - No `phase-12-post-show-page-review.md` exists; the Phase 12 visual baseline could not be diffed. Post-show integration was verified against the live `data-testid="post-show-comments"` section and existing PostShow tests instead.
 - `docs/design/reference/screenshots/` is empty, so pixel baselines were not compared; review relied on component reuse and the PlateRate reference + design-contract tokens.
 - Out of Phase 18 scope (deferred): report comment button, nested replies, edit, likes, markdown, notifications, Filament resource.
 
 ## Verification
+
 - `composer test`: see CI / command output in the RG-374 PR.
 - `npm run build`: see command output in the RG-374 PR.

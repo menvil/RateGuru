@@ -23,6 +23,19 @@ it('renders login prompt for guest', function () {
         ->assertDontSee('data-testid="comment-form"', false);
 });
 
+it('does not let a guest create a comment via the submit action', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(CommentForm::class, ['postId' => $post->id])
+        ->set('body', 'Sneaky guest comment')
+        ->call('submit')
+        ->assertOk()
+        ->assertHasErrors('body')
+        ->assertNotDispatched('comment-created');
+
+    $this->assertDatabaseCount('comments', 0);
+});
+
 it('creates comment from form submit', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

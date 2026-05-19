@@ -16,6 +16,8 @@ final class CommentsSection extends Component
 {
     public int $postId;
 
+    public bool $showHeader = true;
+
     #[Computed]
     public function comments(): Collection
     {
@@ -78,6 +80,11 @@ final class CommentsSection extends Component
         unset($this->comments);
 
         $this->dispatch('comment-hidden', postId: $this->postId, commentId: $commentId);
+    }
+
+    public function canDeleteComment(Comment $comment): bool
+    {
+        return auth()->id() === $comment->user_id;
     }
 
     public function userCanHideComments(): bool
