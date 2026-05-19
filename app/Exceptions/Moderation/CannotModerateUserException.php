@@ -15,4 +15,9 @@ final class CannotModerateUserException extends DomainException
     {
         return new self('Target user cannot be moderated.');
     }
+
+    public static function becauseTargetStatusIsInvalid(): self
+    {
+        return new self('Target user status is invalid for this moderation action.');
+    }
 }

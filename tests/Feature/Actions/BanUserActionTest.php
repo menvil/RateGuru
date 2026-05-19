@@ -80,3 +80,16 @@ it('does not write moderation log when moderator fails to ban', function () {
 
     $this->assertDatabaseCount('moderation_logs', 0);
 });
+
+it('does not ban already banned user and writes no moderation log', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create(['status' => UserStatus::Banned]);
+
+    try {
+        app(BanUserAction::class)->handle($admin, $target);
+        $this->fail('Expected CannotModerateUserException.');
+    } catch (CannotModerateUserException $e) {
+        expect($target->fresh()->status)->toBe(UserStatus::Banned);
+        $this->assertDatabaseCount('moderation_logs', 0);
+    }
+});

@@ -34,6 +34,10 @@ final class ShadowbanUserAction
                 throw CannotModerateUserException::becauseTargetIsProtected();
             }
 
+            if ($locked->status === UserStatus::Shadowbanned) {
+                throw CannotModerateUserException::becauseTargetStatusIsInvalid();
+            }
+
             $oldStatus = $locked->status;
 
             $persisted = $locked->forceFill([

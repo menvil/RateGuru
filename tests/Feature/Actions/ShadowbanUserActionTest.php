@@ -80,3 +80,16 @@ it('does not write moderation log when moderator fails to shadowban', function (
 
     $this->assertDatabaseCount('moderation_logs', 0);
 });
+
+it('does not shadowban already shadowbanned user and writes no moderation log', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create(['status' => UserStatus::Shadowbanned]);
+
+    try {
+        app(ShadowbanUserAction::class)->handle($admin, $target);
+        $this->fail('Expected CannotModerateUserException.');
+    } catch (CannotModerateUserException $e) {
+        expect($target->fresh()->status)->toBe(UserStatus::Shadowbanned);
+        $this->assertDatabaseCount('moderation_logs', 0);
+    }
+});
