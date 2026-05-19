@@ -7,6 +7,7 @@ use App\Models\Comment;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 final class CommentsSection extends Component
@@ -22,6 +23,18 @@ final class CommentsSection extends Component
             ->with('user')
             ->oldest()
             ->get();
+    }
+
+    #[On('comment-created')]
+    #[On('comment-deleted')]
+    #[On('comment-hidden')]
+    public function refreshComments(int $postId): void
+    {
+        if ($postId !== $this->postId) {
+            return;
+        }
+
+        unset($this->comments);
     }
 
     public function render(): View

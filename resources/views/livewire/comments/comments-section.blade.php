@@ -1,11 +1,11 @@
-<section data-testid="comments-section">
+<section data-testid="comments-section" class="space-y-4">
     <h3 class="text-sm font-semibold text-rg-text">Comments</h3>
 
-    <div class="mt-3 space-y-3">
+    <livewire:comments.comment-form :post-id="$postId" :key="'comment-form-'.$postId" />
+
+    <div class="space-y-3">
         @foreach ($this->comments as $comment)
-            <article wire:key="comment-{{ $comment->id }}" class="text-sm text-rg-text">
-                {{ $comment->body }}
-            </article>
+            <x-comments.comment-item :comment="$comment" wire:key="comment-{{ $comment->id }}" />
         @endforeach
     </div>
 </section>
