@@ -6,6 +6,7 @@ use App\Enums\ReportReason;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
+use App\Exceptions\Reports\CannotReportContentException;
 use App\Models\User;
 
 it('allows user to report post', function () {
@@ -46,4 +47,22 @@ it('allows user to report comment', function () {
     expect($report->target_type)->toBe(Comment::class);
     expect($report->target_id)->toBe($comment->id);
     expect($report->reason)->toBe(ReportReason::Offensive);
+});
+
+it('does not allow guest to report content', function () {
+    $post = Post::factory()->published()->create();
+
+    try {
+        app(ReportContentAction::class)->handle(
+            user: null,
+            content: $post,
+            reason: ReportReason::Spam,
+            message: null
+        );
+        $this->fail('Expected CannotReportContentException was not thrown.');
+    } catch (CannotReportContentException $e) {
+        // expected
+    }
+
+    expect(Report::query()->count())->toBe(0);
 });
