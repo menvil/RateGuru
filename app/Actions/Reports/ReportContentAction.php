@@ -49,37 +49,43 @@ final class ReportContentAction
         $message = $message === '' ? null : $message;
 
         try {
-            $report = Report::create([
-                'reporter_id' => $user->id,
-                'target_type' => $content::class,
-                'target_id' => $content->id,
-                'reason' => $reason,
-                'message' => $message,
-                'status' => ReportStatus::Open,
-            ]);
+            // Creation and aggregate updates must be atomic: a report must
+            // never be committed without its reports_count / review flag
+            // being recomputed in the same unit of work.
+            return DB::transaction(function () use ($user, $content, $reason, $message) {
+                $report = Report::create([
+                    'reporter_id' => $user->id,
+                    'target_type' => $content::class,
+                    'target_id' => $content->id,
+                    'reason' => $reason,
+                    'message' => $message,
+                    'status' => ReportStatus::Open,
+                ]);
+
+                if ($content instanceof Post) {
+                    $this->refreshPostReportsCount($content);
+
+                    // Re-read post-recount state; may be null if the post was
+                    // deleted concurrently, in which case there is nothing to flag.
+                    $freshPost = $content->fresh();
+
+                    if ($freshPost !== null) {
+                        $this->flagPostForReviewIfThresholdReached($freshPost);
+                    }
+                }
+
+                if ($content instanceof Comment) {
+                    $this->refreshCommentReportsCount($content);
+                }
+
+                return $report;
+            });
         } catch (UniqueConstraintViolationException) {
             // Lost a race with a concurrent identical report; the pre-check
             // passed for both requests but the unique index rejected this one.
+            // The transaction has already rolled back.
             throw CannotReportContentException::becauseDuplicateReport();
         }
-
-        if ($content instanceof Post) {
-            $this->refreshPostReportsCount($content);
-
-            // Re-read post-recount state; may be null if the post was deleted
-            // concurrently, in which case there is nothing to flag.
-            $freshPost = $content->fresh();
-
-            if ($freshPost !== null) {
-                $this->flagPostForReviewIfThresholdReached($freshPost);
-            }
-        }
-
-        if ($content instanceof Comment) {
-            $this->refreshCommentReportsCount($content);
-        }
-
-        return $report;
     }
 
     private function refreshCommentReportsCount(Comment $comment): void
