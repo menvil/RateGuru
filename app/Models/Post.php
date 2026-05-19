@@ -33,6 +33,8 @@ class Post extends Model
             'cuisine_truth' => CuisineType::class,
             'published_at' => 'datetime',
             'hot_score' => 'float',
+            'needs_review' => 'boolean',
+            'flagged_at' => 'datetime',
         ];
     }
 

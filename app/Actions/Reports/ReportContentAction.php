@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Model;
 
 final class ReportContentAction
 {
+    private const POST_REVIEW_REPORT_THRESHOLD = 3;
+
     public function handle(
         ?User $user,
         Model $content,
@@ -55,6 +57,7 @@ final class ReportContentAction
 
         if ($content instanceof Post) {
             $this->refreshPostReportsCount($content);
+            $this->flagPostForReviewIfThresholdReached($content->fresh());
         }
 
         if ($content instanceof Comment) {
@@ -85,6 +88,23 @@ final class ReportContentAction
 
         $post->forceFill([
             'reports_count' => $count,
+        ])->save();
+    }
+
+    private function flagPostForReviewIfThresholdReached(Post $post): void
+    {
+        if ($post->reports_count < self::POST_REVIEW_REPORT_THRESHOLD) {
+            return;
+        }
+
+        if ($post->needs_review) {
+            return;
+        }
+
+        $post->forceFill([
+            'needs_review' => true,
+            'flagged_at' => now(),
+            'flagged_reason' => 'reports_threshold',
         ])->save();
     }
 }
