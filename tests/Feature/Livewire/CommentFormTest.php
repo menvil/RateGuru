@@ -39,3 +39,21 @@ it('creates comment from form submit', function () {
         'body' => 'Looks delicious.',
     ]);
 });
+
+it('renders comment textarea', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(CommentForm::class, ['postId' => $post->id])
+        ->assertSee('name="body"', false)
+        ->assertSee('Write a comment')
+        ->assertSee('maxlength="1000"', false);
+});
+
+it('does not render textarea for guest', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(CommentForm::class, ['postId' => $post->id])
+        ->assertDontSee('name="body"', false);
+});
