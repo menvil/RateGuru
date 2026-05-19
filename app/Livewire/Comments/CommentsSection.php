@@ -41,6 +41,14 @@ final class CommentsSection extends Component
 
     public function deleteComment(int $commentId, DeleteCommentAction $deleteCommentAction): void
     {
+        // The delete button never renders for guests, but Livewire action
+        // methods are publicly invocable. DeleteCommentAction::handle() takes a
+        // non-nullable User, so a guest-crafted request would TypeError (500)
+        // instead of being cleanly denied.
+        if (! auth()->check()) {
+            return;
+        }
+
         $comment = Comment::query()
             ->where('post_id', $this->postId)
             ->findOrFail($commentId);
@@ -54,6 +62,13 @@ final class CommentsSection extends Component
 
     public function hideComment(int $commentId, HideCommentAction $hideCommentAction): void
     {
+        // Same guard as deleteComment: HideCommentAction::handle() takes a
+        // non-nullable User, so an unauthenticated invocation would TypeError
+        // (500) rather than being denied.
+        if (! auth()->check()) {
+            return;
+        }
+
         $comment = Comment::query()
             ->where('post_id', $this->postId)
             ->findOrFail($commentId);
