@@ -4,6 +4,7 @@ use App\Enums\CommentStatus;
 use App\Livewire\Comments\CommentsSection;
 use App\Models\Comment;
 use App\Models\Post;
+use App\Models\User;
 use Livewire\Livewire;
 
 it('can render comments section component', function () {
@@ -51,4 +52,39 @@ it('refreshes comments section after comment-created event', function () {
         ->dispatch('comment-created', postId: $post->id)
         ->assertSee('Fresh comment')
         ->assertSee('data-testid="comment-item"', false);
+});
+
+it('allows owner to delete own comment from comments section', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $comment = Comment::factory()->for($user)->for($post)->create([
+        'body' => 'My comment',
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->assertSee('Delete')
+        ->call('deleteComment', $comment->id)
+        ->assertDontSee('My comment')
+        ->assertDispatched('comment-deleted');
+
+    $this->assertSoftDeleted('comments', ['id' => $comment->id]);
+});
+
+it('does not render delete button for non owner', function () {
+    $owner = User::factory()->create();
+    $viewer = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Comment::factory()->for($owner)->for($post)->create([
+        'body' => 'Owner comment',
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::actingAs($viewer)
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->assertSee('Owner comment')
+        ->assertDontSee('Delete');
 });
