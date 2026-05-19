@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Comments;
 
+use App\Actions\Comments\DeleteCommentAction;
 use App\Enums\CommentStatus;
 use App\Models\Comment;
 use Illuminate\Contracts\View\View;
@@ -35,6 +36,19 @@ final class CommentsSection extends Component
         }
 
         unset($this->comments);
+    }
+
+    public function deleteComment(int $commentId, DeleteCommentAction $deleteCommentAction): void
+    {
+        $comment = Comment::query()
+            ->where('post_id', $this->postId)
+            ->findOrFail($commentId);
+
+        $deleteCommentAction->handle(auth()->user(), $comment);
+
+        unset($this->comments);
+
+        $this->dispatch('comment-deleted', postId: $this->postId, commentId: $commentId);
     }
 
     public function render(): View

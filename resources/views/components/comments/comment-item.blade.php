@@ -1,5 +1,6 @@
 @props([
     'comment',
+    'canDelete' => false,
 ])
 
 <article data-testid="comment-item" class="rounded-rgCard border border-rg-border bg-rg-card2 p-3">
@@ -29,4 +30,17 @@
     </div>
 
     <p class="mt-2 text-sm leading-6 text-rg-text">{{ $comment->body }}</p>
+
+    @if ($canDelete)
+        <div class="mt-2 flex justify-end">
+            <button
+                type="button"
+                wire:click="deleteComment({{ $comment->id }})"
+                wire:confirm="Delete this comment?"
+                class="text-xs font-semibold text-rg-muted transition hover:text-rg-dangerText"
+            >
+                Delete
+            </button>
+        </div>
+    @endif
 </article>

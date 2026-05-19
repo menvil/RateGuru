@@ -5,7 +5,11 @@
 
     <div class="space-y-3">
         @foreach ($this->comments as $comment)
-            <x-comments.comment-item :comment="$comment" wire:key="comment-{{ $comment->id }}" />
+            <x-comments.comment-item
+                :comment="$comment"
+                :can-delete="auth()->id() === $comment->user_id"
+                wire:key="comment-{{ $comment->id }}"
+            />
         @endforeach
     </div>
 </section>
