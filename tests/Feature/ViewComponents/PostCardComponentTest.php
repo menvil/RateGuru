@@ -105,6 +105,26 @@ it('post card dispatches open drawer event with post id', function () {
     expect($html)->toContain("open-post-drawer', { postId: 123 }");
 });
 
+it('renders report button in post card menu for persisted posts', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('data-testid="post-card-report"')
+        ->toContain('Report');
+});
+
+it('does not render report button for unsaved post preview', function () {
+    $post = Post::factory()->published()->make(['title' => 'Preview dish']);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('Preview dish')
+        ->not->toContain('data-testid="post-card-report"');
+});
+
 it('renders origin voting component in post card for persisted posts', function () {
     $post = Post::factory()->published()->create();
 

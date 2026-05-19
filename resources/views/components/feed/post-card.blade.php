@@ -61,6 +61,13 @@
                     :key="'post-card-origin-voting-'.$post->id"
                 />
             </div>
+            <div data-testid="post-card-report" class="mt-2.5 flex justify-end" wire:click.stop wire:keydown.stop>
+                <livewire:reports.report-modal
+                    reportable-type="post"
+                    :reportable-id="$post->id"
+                    :key="'post-card-report-'.$post->id"
+                />
+            </div>
         @endif
     </footer>
 </x-ui.card>
