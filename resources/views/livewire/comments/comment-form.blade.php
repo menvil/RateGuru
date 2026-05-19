@@ -15,6 +15,12 @@
                 :error="$errors->has('body')"
             />
 
+            @error('body')
+                <p data-testid="comment-body-error" class="text-xs text-rg-dangerText">
+                    {{ $message }}
+                </p>
+            @enderror
+
             <div class="flex items-center justify-between">
                 <p class="text-xs text-rg-muted">1000 characters max</p>
 

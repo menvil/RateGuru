@@ -67,3 +67,16 @@ it('renders comment submit button', function () {
         ->assertSee('Post comment')
         ->assertSee('wire:submit', false);
 });
+
+it('renders comment validation error on empty submit', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(CommentForm::class, ['postId' => $post->id])
+        ->set('body', '')
+        ->call('submit')
+        ->assertSee('data-testid="comment-body-error"', false);
+
+    $this->assertDatabaseCount('comments', 0);
+});
