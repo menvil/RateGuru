@@ -14,9 +14,28 @@
 
     <x-ui.modal title="Report content" state="reportOpen">
         <div class="space-y-4">
-            @foreach($this->reasons as $reason)
-                <span>{{ $reason['label'] }}</span>
-            @endforeach
+            <fieldset data-testid="report-reason-selector" class="space-y-2">
+                <legend class="text-xs font-semibold uppercase tracking-wide text-rg-muted">
+                    Reason
+                </legend>
+
+                <div class="grid gap-2">
+                    @foreach($this->reasons as $reason)
+                        <label
+                            class="flex cursor-pointer items-center gap-3 rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 py-2 text-sm text-rg-text transition has-[:checked]:border-rg-accent has-[:checked]:bg-rg-accentSoft hover:border-rg-accent"
+                        >
+                            <input
+                                type="radio"
+                                name="reason"
+                                value="{{ $reason['value'] }}"
+                                wire:model.live="reason"
+                                class="size-4 accent-rg-accent"
+                            >
+                            <span>{{ $reason['label'] }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </fieldset>
         </div>
 
         <x-slot:footer>
