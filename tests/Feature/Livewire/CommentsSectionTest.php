@@ -135,3 +135,11 @@ it('renders comments empty state when no visible comments exist', function () {
         ->assertSee('No comments yet')
         ->assertDontSee('Hidden comment');
 });
+
+it('has comments loading state markup', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->assertSee('data-testid="comments-loading"', false)
+        ->assertSee('wire:loading', false);
+});
