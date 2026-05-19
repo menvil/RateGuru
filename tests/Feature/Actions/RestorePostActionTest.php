@@ -41,3 +41,29 @@ it('does not restore non hidden post', function () {
 
     app(RestorePostAction::class)->handle($moderator, $post);
 })->throws(CannotModeratePostException::class);
+
+it('writes moderation log when restoring post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->hidden()->create();
+
+    app(RestorePostAction::class)->handle($moderator, $post, 'Reviewed.');
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $moderator->id,
+        'action' => \App\Enums\ModerationActionType::RestorePost->value,
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+    ]);
+});
+
+it('does not write moderation log when normal user fails to restore', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->hidden()->create();
+
+    try {
+        app(RestorePostAction::class)->handle($user, $post);
+    } catch (CannotModeratePostException $e) {
+    }
+
+    $this->assertDatabaseCount('moderation_logs', 0);
+});
