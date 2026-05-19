@@ -1,7 +1,9 @@
 <?php
 
 use App\Actions\Reports\ReportContentAction;
+use App\Enums\CommentStatus;
 use App\Enums\ReportReason;
+use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
@@ -24,4 +26,24 @@ it('allows user to report post', function () {
     expect($report->target_id)->toBe($post->id);
     expect($report->reason)->toBe(ReportReason::Spam);
     expect($report->message)->toBe('This looks like spam.');
+});
+
+it('allows user to report comment', function () {
+    $user = User::factory()->create();
+
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $report = app(ReportContentAction::class)->handle(
+        user: $user,
+        content: $comment,
+        reason: ReportReason::Offensive,
+        message: 'This comment is abusive.'
+    );
+
+    expect($report)->toBeInstanceOf(Report::class);
+    expect($report->target_type)->toBe(Comment::class);
+    expect($report->target_id)->toBe($comment->id);
+    expect($report->reason)->toBe(ReportReason::Offensive);
 });
