@@ -88,3 +88,37 @@ it('does not render delete button for non owner', function () {
         ->assertSee('Owner comment')
         ->assertDontSee('Delete');
 });
+
+it('allows moderator to hide comment from comments section', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    $comment = Comment::factory()->for($post)->create([
+        'body' => 'Bad comment',
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::actingAs($moderator)
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->assertSee('Hide')
+        ->call('hideComment', $comment->id)
+        ->assertDontSee('Bad comment')
+        ->assertDispatched('comment-hidden');
+
+    expect($comment->fresh()->status)->toBe(CommentStatus::Hidden);
+});
+
+it('does not render hide button for normal user', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Comment::factory()->for($post)->create([
+        'body' => 'Normal visible comment',
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->assertSee('Normal visible comment')
+        ->assertDontSee('Hide');
+});
