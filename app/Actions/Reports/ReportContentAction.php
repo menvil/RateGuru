@@ -57,7 +57,23 @@ final class ReportContentAction
             $this->refreshPostReportsCount($content);
         }
 
+        if ($content instanceof Comment) {
+            $this->refreshCommentReportsCount($content);
+        }
+
         return $report;
+    }
+
+    private function refreshCommentReportsCount(Comment $comment): void
+    {
+        $count = Report::query()
+            ->where('target_type', Comment::class)
+            ->where('target_id', $comment->id)
+            ->count();
+
+        $comment->forceFill([
+            'reports_count' => $count,
+        ])->save();
     }
 
     private function refreshPostReportsCount(Post $post): void
