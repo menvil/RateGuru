@@ -3,6 +3,9 @@
 namespace App\Actions\Reports;
 
 use App\Enums\ReportReason;
+use App\Enums\ReportStatus;
+use App\Exceptions\Reports\CannotReportContentException;
+use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -15,6 +18,20 @@ final class ReportContentAction
         ReportReason $reason,
         ?string $message = null,
     ): Report {
-        throw new \LogicException('Not implemented yet.');
+        if (! $content instanceof Post) {
+            throw CannotReportContentException::becauseUnsupportedContent();
+        }
+
+        $message = trim((string) $message);
+        $message = $message === '' ? null : $message;
+
+        return Report::create([
+            'reporter_id' => $user->id,
+            'target_type' => $content::class,
+            'target_id' => $content->id,
+            'reason' => $reason,
+            'message' => $message,
+            'status' => ReportStatus::Open,
+        ]);
     }
 }
