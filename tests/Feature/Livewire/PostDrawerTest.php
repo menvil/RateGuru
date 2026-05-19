@@ -59,12 +59,13 @@ it('has drawer loading state markup', function () {
         ->assertSee('wire:loading', false);
 });
 
-it('renders comments slot placeholder in drawer', function () {
+it('renders the comments section in drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Comments')
-        ->assertSee('Comments will appear here');
+        ->assertSee('data-testid="comments-section"', false)
+        ->assertDontSee('Comments will appear here');
 });
 
 it('renders drawer vote summary', function () {
