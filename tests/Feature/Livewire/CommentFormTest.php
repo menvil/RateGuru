@@ -80,3 +80,25 @@ it('renders comment validation error on empty submit', function () {
 
     $this->assertDatabaseCount('comments', 0);
 });
+
+it('clears comment body after successful submit', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(CommentForm::class, ['postId' => $post->id])
+        ->set('body', 'Looks delicious.')
+        ->call('submit')
+        ->assertSet('body', '');
+});
+
+it('keeps comment body after validation failure', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(CommentForm::class, ['postId' => $post->id])
+        ->set('body', str_repeat('a', 1001))
+        ->call('submit')
+        ->assertSet('body', str_repeat('a', 1001));
+});

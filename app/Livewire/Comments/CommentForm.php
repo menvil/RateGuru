@@ -36,6 +36,8 @@ final class CommentForm extends Component
             return;
         }
 
+        $this->reset('body');
+
         $this->dispatch('comment-created', postId: $this->postId, commentId: $comment->id);
     }
 
