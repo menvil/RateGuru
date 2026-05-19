@@ -5,6 +5,7 @@ namespace App\Actions\Reports;
 use App\Enums\ReportReason;
 use App\Enums\ReportStatus;
 use App\Exceptions\Reports\CannotReportContentException;
+use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
@@ -18,7 +19,7 @@ final class ReportContentAction
         ReportReason $reason,
         ?string $message = null,
     ): Report {
-        if (! $content instanceof Post) {
+        if (! $content instanceof Post && ! $content instanceof Comment) {
             throw CannotReportContentException::becauseUnsupportedContent();
         }
 
