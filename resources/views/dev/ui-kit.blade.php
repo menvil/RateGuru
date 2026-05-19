@@ -246,6 +246,27 @@
                 </section>
 
                 <section class="rounded-rgCard border border-rg-border bg-rg-surface p-5">
+                    <h3 class="text-base font-semibold text-rg-text">Comments</h3>
+
+                    @php
+                        $uiKitComment = new \App\Models\Comment([
+                            'body' => 'Looks delicious.',
+                            'created_at' => now()->subMinutes(5),
+                        ]);
+
+                        $uiKitComment->setRelation('user', new \App\Models\User([
+                            'name' => 'Demo User',
+                            'username' => 'demo_user',
+                        ]));
+                    @endphp
+
+                    <div class="mt-4 space-y-4">
+                        <p class="text-xs uppercase tracking-wide text-rg-muted">Comment Item</p>
+                        <x-comments.comment-item :comment="$uiKitComment" />
+                    </div>
+                </section>
+
+                <section class="rounded-rgCard border border-rg-border bg-rg-surface p-5">
                     <h3 class="text-base font-semibold text-rg-text">Reference</h3>
 
                     <ul class="mt-4 space-y-2 text-sm text-rg-text2">
