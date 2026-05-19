@@ -8,6 +8,22 @@ use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
+it('renders report success state after submit', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'post',
+            'reportableId' => $post->id,
+        ])
+        ->set('reason', ReportReason::Spam->value)
+        ->call('submit')
+        ->assertSee('Report submitted')
+        ->assertSee('Thanks for helping')
+        ->assertDontSee('data-testid="report-reason-selector"', false);
+});
+
 it('submits comment report from report modal', function () {
     $user = User::factory()->create();
     $comment = Comment::factory()->create([
