@@ -1,7 +1,21 @@
 <div>
     @auth
-        <form data-testid="comment-form" wire:submit.prevent="submit">
-            <p class="text-sm text-rg-muted">Comment form</p>
+        <form data-testid="comment-form" wire:submit.prevent="submit" class="space-y-2">
+            <label for="comment-body" class="block text-xs font-semibold uppercase tracking-wide text-rg-muted">
+                Comment
+            </label>
+
+            <x-ui.textarea
+                id="comment-body"
+                name="body"
+                wire:model="body"
+                rows="3"
+                maxlength="1000"
+                placeholder="Write a comment..."
+                :error="$errors->has('body')"
+            />
+
+            <p class="text-xs text-rg-muted">1000 characters max</p>
         </form>
     @else
         <x-ui.empty-state
