@@ -3,7 +3,31 @@
 use App\Enums\ReportReason;
 use App\Livewire\Reports\ReportModal;
 use App\Models\Post;
+use App\Models\User;
 use Livewire\Livewire;
+
+it('submits post report from report modal', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'post',
+            'reportableId' => $post->id,
+        ])
+        ->set('reason', ReportReason::Spam->value)
+        ->set('message', 'This looks like spam.')
+        ->call('submit')
+        ->assertSet('submitted', true);
+
+    $this->assertDatabaseHas('reports', [
+        'reporter_id' => $user->id,
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'reason' => ReportReason::Spam->value,
+        'message' => 'This looks like spam.',
+    ]);
+});
 
 it('renders report message textarea', function () {
     $post = Post::factory()->published()->create();
