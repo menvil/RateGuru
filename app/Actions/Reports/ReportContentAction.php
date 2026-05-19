@@ -23,6 +23,10 @@ final class ReportContentAction
             throw CannotReportContentException::becauseGuest();
         }
 
+        if (! $user->canReport()) {
+            throw CannotReportContentException::becauseUserIsNotAllowed();
+        }
+
         if (! $content instanceof Post && ! $content instanceof Comment) {
             throw CannotReportContentException::becauseUnsupportedContent();
         }
