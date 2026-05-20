@@ -25,28 +25,36 @@ final class HideCommentAction
             throw CannotHideCommentException::becauseUserIsNotAllowed();
         }
 
-        if ($comment->status === CommentStatus::Hidden) {
-            return;
-        }
-
+        // The status check, mutation, counter refresh, and audit log run
+        // inside a single transaction with a row lock on the comment so two
+        // concurrent hides cannot both pass an idempotency check and emit
+        // duplicate moderation logs. Mirrors HidePostAction.
         DB::transaction(function () use ($user, $comment, $reason) {
-            $post = $comment->post;
-            $fromStatus = $comment->status;
+            $locked = $comment->newQuery()->lockForUpdate()->find($comment->getKey());
 
-            $comment->update(['status' => CommentStatus::Hidden]);
+            if ($locked === null || $locked->status === CommentStatus::Hidden) {
+                return;
+            }
+
+            $post = $locked->post;
+            $fromStatus = $locked->status;
+
+            $locked->forceFill(['status' => CommentStatus::Hidden])->save();
 
             $this->refreshCommentsCount($post);
 
             $this->createModerationLog->handle(
                 moderator: $user,
                 action: ModerationActionType::HideComment,
-                target: $comment,
+                target: $locked,
                 reason: $reason,
                 metadata: [
                     'from_status' => $fromStatus->value,
                     'to_status' => CommentStatus::Hidden->value,
                 ],
             );
+
+            $comment->setRawAttributes($locked->getAttributes(), true);
         });
     }
 }
