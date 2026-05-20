@@ -131,3 +131,16 @@ it('renders the created_at column and sorts by newest first', function () {
         ->assertCanSeeTableRecords([$newer, $older], inOrder: true)
         ->assertTableColumnExists('created_at');
 });
+
+it('filters posts by pending status', function () {
+    $admin = User::factory()->admin()->create();
+    $pending = Post::factory()->pending()->create();
+    $published = Post::factory()->published()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->filterTable('pending')
+        ->assertCanSeeTableRecords([$pending])
+        ->assertCanNotSeeTableRecords([$published]);
+});
