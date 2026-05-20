@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Reports\Tables;
 
+use App\Actions\Reports\IgnoreReportAction;
 use App\Actions\Reports\ResolveReportAction;
 use App\Enums\ReportStatus;
 use App\Models\Comment;
@@ -87,6 +88,28 @@ class ReportsTable
                     ->requiresConfirmation()
                     ->action(function (Report $record, array $data): void {
                         app(ResolveReportAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['note'] ?? null,
+                        );
+                    }),
+                Action::make('ignore')
+                    ->label('Ignore')
+                    ->icon('heroicon-o-no-symbol')
+                    ->color('gray')
+                    ->visible(fn (Report $record): bool =>
+                        $record->status === ReportStatus::Open
+                        && (auth()->user()?->isModerator() === true
+                            || auth()->user()?->isAdmin() === true)
+                    )
+                    ->schema([
+                        Textarea::make('note')
+                            ->label('Ignore note')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Report $record, array $data): void {
+                        app(IgnoreReportAction::class)->handle(
                             auth()->user(),
                             $record,
                             $data['note'] ?? null,
