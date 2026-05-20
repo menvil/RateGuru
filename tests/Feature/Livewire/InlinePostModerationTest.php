@@ -144,3 +144,24 @@ it('renders hide confirmation modal markup for published post', function () {
         ->assertSee('data-testid="hide-confirmation-cancel"', false)
         ->assertSee('data-testid="hide-confirmation-confirm"', false);
 });
+
+it('renders moderation reason input and updates reason for moderator', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertSee('name="moderation_reason"', false)
+        ->assertSee('maxlength="1000"', false)
+        ->set('reason', 'Image violates rules.')
+        ->assertSet('reason', 'Image violates rules.');
+});
+
+it('does not render moderation reason input for normal user', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($user)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertDontSee('name="moderation_reason"', false);
+});
