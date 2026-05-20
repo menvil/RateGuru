@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Posts\Tables;
 use App\Enums\PostStatus;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -54,7 +55,9 @@ class PostsTable
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
-                //
+                Filter::make('pending')
+                    ->label('Pending')
+                    ->query(fn (Builder $query) => $query->where('status', PostStatus::Pending)),
             ])
             ->recordActions([
                 //
