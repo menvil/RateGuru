@@ -203,3 +203,37 @@ it('does not approve pending post when invoked by normal user', function () {
     expect($post->fresh()->status)->toBe(PostStatus::Pending);
     $this->assertDatabaseCount('moderation_logs', 0);
 });
+
+it('hides published post from inline moderation', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->set('reason', 'Reported content.')
+        ->call('hide')
+        ->assertDispatched('post-moderated')
+        ->assertSet('success', 'Post hidden.');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Hidden);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $moderator->id,
+        'action' => ModerationActionType::HidePost->value,
+        'target_id' => $post->id,
+        'reason' => 'Reported content.',
+    ]);
+});
+
+it('shows error when hiding non published post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->call('hide')
+        ->assertNotDispatched('post-moderated')
+        ->assertSet('error', 'Post status is invalid for this moderation action.');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Pending);
+});

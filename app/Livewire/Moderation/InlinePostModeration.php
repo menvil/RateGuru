@@ -3,6 +3,7 @@
 namespace App\Livewire\Moderation;
 
 use App\Actions\Moderation\ApprovePostAction;
+use App\Actions\Moderation\HidePostAction;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use Closure;
@@ -42,9 +43,18 @@ final class InlinePostModeration extends Component
         });
     }
 
-    public function hide(): void
+    public function hide(HidePostAction $hidePostAction): void
     {
-        // wired in RG-439
+        $this->runModerationAction(function () use ($hidePostAction): void {
+            $hidePostAction->handle(
+                moderator: auth()->user(),
+                post: $this->post(),
+                reason: $this->normalizedReason(),
+            );
+
+            $this->success = 'Post hidden.';
+            $this->dispatch('post-moderated', postId: $this->postId, action: 'hidden');
+        });
     }
 
     public function reject(): void
