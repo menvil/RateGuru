@@ -51,3 +51,35 @@ it('hides the hide action from normal users', function () {
         ->get(\App\Filament\Resources\Comments\CommentResource::getUrl('index'))
         ->assertForbidden();
 });
+
+it('allows moderator to restore a hidden comment via the restore table action', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create(['comments_count' => 0]);
+    $comment = Comment::factory()->for($post)->create(['status' => CommentStatus::Hidden]);
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListComments::class)
+        ->callTableAction('restore', $comment, data: ['reason' => 'Restored after review.']);
+
+    expect($comment->fresh()->status)->toBe(CommentStatus::Visible);
+    expect($post->fresh()->comments_count)->toBe(1);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $moderator->id,
+        'action' => ModerationActionType::RestoreComment->value,
+        'target_type' => Comment::class,
+        'target_id' => $comment->id,
+        'reason' => 'Restored after review.',
+    ]);
+});
+
+it('shows the restore action only for hidden comments', function () {
+    $moderator = User::factory()->moderator()->create();
+    $visible = Comment::factory()->create(['status' => CommentStatus::Visible]);
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListComments::class)
+        ->assertTableActionHidden('restore', $visible);
+});
