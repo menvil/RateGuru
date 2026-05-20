@@ -9,6 +9,8 @@ use App\Actions\Moderation\RestorePostAction;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Illuminate\Support\Collection;
 use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -161,7 +163,31 @@ class PostsTable
                     }),
             ])
             ->toolbarActions([
-                //
+                BulkAction::make('bulkHide')
+                    ->label('Hide selected')
+                    ->icon('heroicon-o-eye-slash')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->action(function (Collection $records, array $data): void {
+                        $moderator = auth()->user();
+
+                        $records->each(function (Post $record) use ($moderator, $data): void {
+                            if ($record->status !== PostStatus::Published) {
+                                return;
+                            }
+
+                            app(HidePostAction::class)->handle(
+                                $moderator,
+                                $record,
+                                $data['reason'] ?? null,
+                            );
+                        });
+                    }),
             ]);
     }
 }
