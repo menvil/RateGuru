@@ -188,6 +188,31 @@ class PostsTable
                             );
                         });
                     }),
+                BulkAction::make('bulkApprove')
+                    ->label('Approve selected')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->action(function (Collection $records, array $data): void {
+                        $moderator = auth()->user();
+
+                        $records->each(function (Post $record) use ($moderator, $data): void {
+                            if ($record->status !== PostStatus::Pending) {
+                                return;
+                            }
+
+                            app(ApprovePostAction::class)->handle(
+                                $moderator,
+                                $record,
+                                $data['reason'] ?? null,
+                            );
+                        });
+                    }),
             ]);
     }
 }
