@@ -61,3 +61,41 @@ it('hides the ban action for already banned users', function () {
     Livewire::test(ListUsers::class)
         ->assertTableActionHidden('ban', $banned);
 });
+
+it('allows admin to unban a user via the unban table action', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->banned()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->callTableAction('unban', $target, data: ['reason' => 'Appeal accepted.']);
+
+    expect($target->fresh()->status)->toBe(UserStatus::Active);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $admin->id,
+        'target_type' => User::class,
+        'target_id' => $target->id,
+    ]);
+});
+
+it('hides the unban action from moderators', function () {
+    $moderator = User::factory()->moderator()->create();
+    $target = User::factory()->banned()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('unban', $target);
+});
+
+it('hides the unban action for users who are not banned or shadowbanned', function () {
+    $admin = User::factory()->admin()->create();
+    $active = User::factory()->create(['status' => UserStatus::Active]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('unban', $active);
+});
