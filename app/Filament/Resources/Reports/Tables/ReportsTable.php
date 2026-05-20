@@ -6,7 +6,9 @@ use App\Enums\ReportStatus;
 use App\Models\Comment;
 use App\Models\Post;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ReportsTable
 {
@@ -52,7 +54,11 @@ class ReportsTable
                     ->sortable(),
             ])
             ->defaultSort('created_at', 'desc')
-            ->filters([])
+            ->filters([
+                Filter::make('open')
+                    ->label('Open')
+                    ->query(fn (Builder $query) => $query->where('status', ReportStatus::Open)),
+            ])
             ->recordActions([]);
     }
 }
