@@ -39,12 +39,12 @@
             @endif
 
             <div class="mt-2">
-                <label for="moderation-reason" class="block text-xs text-rg-text2">
+                <label for="moderation-reason-{{ $post->id }}" class="block text-xs text-rg-text2">
                     Reason
                 </label>
                 <x-ui.textarea
                     name="moderation_reason"
-                    id="moderation-reason"
+                    id="moderation-reason-{{ $post->id }}"
                     rows="2"
                     maxlength="1000"
                     placeholder="Optional moderation note..."
