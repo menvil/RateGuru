@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ModerationActionType;
 use App\Enums\UserStatus;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Models\User;
@@ -18,6 +19,7 @@ it('allows admin to ban a user via the ban table action', function () {
 
     $this->assertDatabaseHas('moderation_logs', [
         'moderator_id' => $admin->id,
+        'action' => ModerationActionType::BanUser->value,
         'target_type' => User::class,
         'target_id' => $target->id,
     ]);
@@ -75,6 +77,26 @@ it('allows admin to unban a user via the unban table action', function () {
 
     $this->assertDatabaseHas('moderation_logs', [
         'moderator_id' => $admin->id,
+        'action' => ModerationActionType::UnbanUser->value,
+        'target_type' => User::class,
+        'target_id' => $target->id,
+    ]);
+});
+
+it('allows admin to unban a shadowbanned user via the unban table action', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create(['status' => UserStatus::Shadowbanned]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->callTableAction('unban', $target, data: ['reason' => 'Appeal accepted.']);
+
+    expect($target->fresh()->status)->toBe(UserStatus::Active);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $admin->id,
+        'action' => ModerationActionType::UnbanUser->value,
         'target_type' => User::class,
         'target_id' => $target->id,
     ]);
@@ -115,6 +137,14 @@ it('allows admin to mark a user trusted via the mark trusted action', function (
     $fresh = $target->fresh();
     expect($fresh->trust_level)->toBe(10);
     expect($fresh->status)->toBe(UserStatus::Active);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $admin->id,
+        'action' => ModerationActionType::MarkUserTrusted->value,
+        'target_type' => User::class,
+        'target_id' => $target->id,
+        'reason' => 'Reliable contributor.',
+    ]);
 });
 
 it('hides the mark trusted action from moderators', function () {
@@ -160,6 +190,7 @@ it('allows admin to shadowban a user via the shadowban table action', function (
 
     $this->assertDatabaseHas('moderation_logs', [
         'moderator_id' => $admin->id,
+        'action' => ModerationActionType::ShadowbanUser->value,
         'target_type' => User::class,
         'target_id' => $target->id,
     ]);

@@ -51,11 +51,18 @@ it('filters trusted users in user resource', function () {
         'trust_level' => 0,
         'username' => 'active_user',
     ]);
+    // A high trust_level on a non-active user must not match: the filter
+    // requires both trust_level >= TRUSTED_LEVEL *and* status = Active.
+    $bannedButHighTrust = User::factory()->create([
+        'status' => UserStatus::Banned,
+        'trust_level' => 10,
+        'username' => 'banned_high_trust',
+    ]);
 
     $this->actingAs($admin);
 
     Livewire::test(ListUsers::class)
         ->filterTable('trusted')
         ->assertCanSeeTableRecords([$trusted])
-        ->assertCanNotSeeTableRecords([$active]);
+        ->assertCanNotSeeTableRecords([$active, $bannedButHighTrust]);
 });

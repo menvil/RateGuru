@@ -99,12 +99,14 @@ it('renders a posts count column', function () {
 
     $this->actingAs($admin);
 
+    // Assert the cell state for $author's posts_count column comes from
+    // withCount('posts') and resolves to 2 — this exercises the table
+    // rendering path, not just the underlying loadCount().
     Livewire::test(ListUsers::class)
         ->assertCanSeeTableRecords([$author])
         ->assertTableColumnExists('posts_count')
-        ->assertCanRenderTableColumn('posts_count');
-
-    expect($author->loadCount('posts')->posts_count)->toBe(2);
+        ->assertCanRenderTableColumn('posts_count')
+        ->assertTableColumnStateSet('posts_count', 2, $author);
 });
 
 it('renders a sortable status badge column', function () {
