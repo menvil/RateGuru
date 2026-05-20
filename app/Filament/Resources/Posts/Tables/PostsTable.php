@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Posts\Tables;
 
+use App\Enums\PostStatus;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -28,6 +29,18 @@ class PostsTable
                     ->searchable()
                     ->sortable()
                     ->placeholder('—'),
+                TextColumn::make('status')
+                    ->label('Status')
+                    ->badge()
+                    ->sortable()
+                    ->color(fn (PostStatus $state): string => match ($state) {
+                        PostStatus::Pending => 'warning',
+                        PostStatus::Published => 'success',
+                        PostStatus::Hidden => 'gray',
+                        PostStatus::Rejected => 'danger',
+                        PostStatus::Draft => 'gray',
+                        PostStatus::Deleted => 'danger',
+                    }),
             ])
             ->filters([
                 //
