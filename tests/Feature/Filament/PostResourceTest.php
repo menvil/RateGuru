@@ -66,3 +66,32 @@ it('renders a searchable, sortable title column', function () {
         ->assertCanRenderTableColumn('title')
         ->assertSee('Homemade Pasta');
 });
+
+it('renders the author username column', function () {
+    $admin = User::factory()->admin()->create();
+    $author = User::factory()->create(['username' => 'chef_ivan']);
+    $post = Post::factory()->published()->for($author)->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$post])
+        ->assertTableColumnExists('user.username')
+        ->assertSee('chef_ivan');
+});
+
+it('eager-loads the author to avoid N+1 in the posts table', function () {
+    $admin = User::factory()->admin()->create();
+    Post::factory()->count(3)->published()->create();
+
+    $this->actingAs($admin);
+
+    \DB::enableQueryLog();
+    Livewire::test(ListPosts::class)->assertSuccessful();
+
+    $userLookups = collect(\DB::getQueryLog())
+        ->filter(fn ($q) => str_contains($q['query'], 'from "users"') || str_contains($q['query'], 'from `users`'))
+        ->count();
+
+    expect($userLookups)->toBeLessThanOrEqual(2);
+});
