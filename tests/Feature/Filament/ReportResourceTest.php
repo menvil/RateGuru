@@ -123,6 +123,31 @@ it('renders sortable status badge column in report resource table', function () 
         ->assertSee('open');
 });
 
+it('renders created_at column in report resource table', function () {
+    $admin = User::factory()->admin()->create();
+    $report = Report::factory()->create([
+        'created_at' => now()->subDay(),
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->assertCanSeeTableRecords([$report])
+        ->assertTableColumnExists('created_at')
+        ->assertCanRenderTableColumn('created_at');
+});
+
+it('sorts report resource table by newest report first by default', function () {
+    $admin = User::factory()->admin()->create();
+    $older = Report::factory()->create(['created_at' => now()->subDays(3)]);
+    $newer = Report::factory()->create(['created_at' => now()->subHour()]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->assertCanSeeTableRecords([$newer, $older], inOrder: true);
+});
+
 it('renders Unknown for unrecognised target type without crashing', function () {
     $admin = User::factory()->admin()->create();
     $report = Report::factory()->create([
