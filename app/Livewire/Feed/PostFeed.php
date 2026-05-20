@@ -18,6 +18,9 @@ class PostFeed extends Component
     #[On('post-uploaded')]
     public function refreshAfterUpload(): void {}
 
+    #[On('post-moderated')]
+    public function refreshAfterPostModerated(): void {}
+
     public function render(FeedQuery $feedQuery): View
     {
         return view('livewire.feed.post-feed', [

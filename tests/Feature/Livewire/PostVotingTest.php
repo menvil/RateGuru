@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\PostStatus;
 use App\Enums\VoteType;
 use App\Livewire\Posts\PostVoting;
 use App\Models\Post;
@@ -108,7 +109,7 @@ it('shows an error instead of throwing when the post is no longer available', fu
     $component = Livewire::actingAs($user)
         ->test(PostVoting::class, ['postId' => $post->id]);
 
-    $post->update(['status' => \App\Enums\PostStatus::Hidden]);
+    $post->update(['status' => PostStatus::Hidden]);
 
     $component->call('vote', VoteType::Up->value)
         ->assertOk()

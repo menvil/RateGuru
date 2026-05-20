@@ -2,6 +2,7 @@
 
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
+use App\Livewire\Feed\PostFeed;
 use App\Livewire\Moderation\InlinePostModeration;
 use App\Models\Post;
 use App\Models\User;
@@ -276,4 +277,31 @@ it('restores hidden post from inline moderation', function () {
         'action' => ModerationActionType::RestorePost->value,
         'target_id' => $post->id,
     ]);
+});
+
+it('dispatches post moderated event with post id and action on hide', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->call('hide')
+        ->assertDispatched('post-moderated', postId: $post->id, action: 'hidden');
+});
+
+it('refreshes feed when post is hidden', function () {
+    $moderator = User::factory()->moderator()->create();
+    $visible = Post::factory()->published()->create(['title' => 'Visible post']);
+
+    Livewire::actingAs($moderator)
+        ->test(PostFeed::class)
+        ->assertSee('Visible post')
+        ->call('refreshAfterPostModerated');
+
+    Post::query()->whereKey($visible->id)->update(['status' => PostStatus::Hidden]);
+
+    Livewire::actingAs($moderator)
+        ->test(PostFeed::class)
+        ->dispatch('post-moderated', postId: $visible->id, action: 'hidden')
+        ->assertDontSee('Visible post');
 });
