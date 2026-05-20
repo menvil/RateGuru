@@ -7,6 +7,21 @@
         >
             <x-ui.badge>Moderator</x-ui.badge>
 
+            <div class="mt-2">
+                <label for="moderation-reason" class="block text-xs text-rg-text2">
+                    Reason
+                </label>
+                <x-ui.textarea
+                    name="moderation_reason"
+                    id="moderation-reason"
+                    rows="2"
+                    maxlength="1000"
+                    placeholder="Optional moderation note..."
+                    wire:model.defer="reason"
+                    data-testid="moderation-reason-input"
+                />
+            </div>
+
             <div class="mt-2 flex flex-wrap gap-2">
                 @if ($post->status === \App\Enums\PostStatus::Pending)
                     <x-ui.button
