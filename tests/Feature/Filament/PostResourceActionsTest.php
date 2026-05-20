@@ -89,3 +89,31 @@ it('hides the hide action for non-published posts', function () {
     Livewire::test(ListPosts::class)
         ->assertTableActionHidden('hide', $pending);
 });
+
+it('restores a hidden post via the restore table action', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->hidden()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListPosts::class)
+        ->callTableAction('restore', $post, data: ['reason' => 'Reviewed and restored.']);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'moderator_id' => $moderator->id,
+    ]);
+});
+
+it('hides the restore action for non-hidden posts', function () {
+    $moderator = User::factory()->moderator()->create();
+    $published = Post::factory()->published()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListPosts::class)
+        ->assertTableActionHidden('restore', $published);
+});
