@@ -57,3 +57,17 @@ it('renders comment body excerpt in comment resource table', function () {
         ->assertCanRenderTableColumn('body')
         ->assertSee('This comment should be visible');
 });
+
+it('renders comment author in comment resource table', function () {
+    $admin = User::factory()->admin()->create();
+    $author = User::factory()->create(['username' => 'comment_author']);
+    $comment = Comment::factory()->for($author, 'user')->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->assertCanSeeTableRecords([$comment])
+        ->assertTableColumnExists('user.username')
+        ->assertCanRenderTableColumn('user.username')
+        ->assertSee('comment_author');
+});
