@@ -123,6 +123,33 @@ it('hides the unban action for users who are not banned or shadowbanned', functi
         ->assertTableActionHidden('unban', $active);
 });
 
+it('hides the unban action for the acting admin themselves', function () {
+    // Defence in depth: admins cannot be banned via normal flow, but if
+    // schema drift puts one in a banned state the self-guard must still
+    // prevent the action from rendering. The Banned status here is what
+    // exposes the self-guard — otherwise the status branch would hide
+    // the action for unrelated reasons and the assertion would pass
+    // spuriously.
+    $admin = User::factory()->admin()->create(['status' => UserStatus::Banned]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('unban', $admin);
+});
+
+it('hides the unban action for admin targets', function () {
+    $admin = User::factory()->admin()->create();
+    // Same defence-in-depth: another admin in a banned state must still
+    // not be unbannable through this resource.
+    $adminTarget = User::factory()->admin()->create(['status' => UserStatus::Banned]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('unban', $adminTarget);
+});
+
 it('allows admin to mark a user trusted via the mark trusted action', function () {
     $admin = User::factory()->admin()->create();
     $target = User::factory()->create([
