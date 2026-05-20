@@ -5,6 +5,7 @@ namespace App\Livewire\Moderation;
 use App\Actions\Moderation\ApprovePostAction;
 use App\Actions\Moderation\HidePostAction;
 use App\Actions\Moderation\RejectPostAction;
+use App\Actions\Moderation\RestorePostAction;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use Closure;
@@ -72,9 +73,18 @@ final class InlinePostModeration extends Component
         });
     }
 
-    public function restore(): void
+    public function restore(RestorePostAction $restorePostAction): void
     {
-        // wired in RG-441
+        $this->runModerationAction(function () use ($restorePostAction): void {
+            $restorePostAction->handle(
+                moderator: auth()->user(),
+                post: $this->post(),
+                reason: $this->normalizedReason(),
+            );
+
+            $this->success = 'Post restored.';
+            $this->dispatch('post-moderated', postId: $this->postId, action: 'restored');
+        });
     }
 
     public function render(): View

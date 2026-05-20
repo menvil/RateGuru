@@ -257,3 +257,23 @@ it('rejects pending post from inline moderation', function () {
         'target_id' => $post->id,
     ]);
 });
+
+it('restores hidden post from inline moderation', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->hidden()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->set('reason', 'Restored after review.')
+        ->call('restore')
+        ->assertDispatched('post-moderated')
+        ->assertSet('success', 'Post restored.');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $moderator->id,
+        'action' => ModerationActionType::RestorePost->value,
+        'target_id' => $post->id,
+    ]);
+});
