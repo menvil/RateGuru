@@ -4,6 +4,7 @@ use App\Filament\Resources\Comments\CommentResource;
 use App\Filament\Resources\Comments\Pages\ListComments;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
+use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -70,4 +71,18 @@ it('renders comment author in comment resource table', function () {
         ->assertTableColumnExists('user.username')
         ->assertCanRenderTableColumn('user.username')
         ->assertSee('comment_author');
+});
+
+it('renders related post in comment resource table', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->published()->create(['title' => 'Pasta post']);
+    $comment = Comment::factory()->for($post)->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->assertCanSeeTableRecords([$comment])
+        ->assertTableColumnExists('post.title')
+        ->assertCanRenderTableColumn('post.title')
+        ->assertSee('Pasta post');
 });
