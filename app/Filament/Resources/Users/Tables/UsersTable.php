@@ -6,12 +6,14 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class UsersTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query) => $query->withCount('posts'))
             ->columns([
                 TextColumn::make('username')
                     ->label('Username')
@@ -42,6 +44,10 @@ class UsersTable
                         UserStatus::Banned => 'danger',
                         UserStatus::Shadowbanned => 'gray',
                     }),
+                TextColumn::make('posts_count')
+                    ->label('Posts')
+                    ->numeric()
+                    ->sortable(),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
