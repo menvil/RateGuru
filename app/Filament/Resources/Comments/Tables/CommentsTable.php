@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Comments\Tables;
 
 use App\Actions\Comments\HideCommentAction;
+use App\Actions\Comments\RestoreCommentAction;
 use App\Enums\CommentStatus;
 use App\Filament\Resources\Posts\PostResource;
 use App\Models\Comment;
@@ -80,6 +81,28 @@ class CommentsTable
                     ->requiresConfirmation()
                     ->action(function (Comment $record, array $data): void {
                         app(HideCommentAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['reason'] ?? null,
+                        );
+                    }),
+                Action::make('restore')
+                    ->label('Restore')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('success')
+                    ->visible(fn (Comment $record): bool =>
+                        $record->status === CommentStatus::Hidden
+                        && (auth()->user()?->isModerator() === true
+                            || auth()->user()?->isAdmin() === true)
+                    )
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Comment $record, array $data): void {
+                        app(RestoreCommentAction::class)->handle(
                             auth()->user(),
                             $record,
                             $data['reason'] ?? null,

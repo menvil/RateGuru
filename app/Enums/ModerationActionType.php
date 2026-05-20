@@ -13,4 +13,5 @@ enum ModerationActionType: string
     case ShadowbanUser = 'shadowban_user';
     case MarkUserTrusted = 'mark_user_trusted';
     case HideComment = 'hide_comment';
+    case RestoreComment = 'restore_comment';
 }
