@@ -78,6 +78,19 @@ it('renders a searchable, sortable email column', function () {
         ->assertSee('user@example.com');
 });
 
+it('renders a sortable status badge column', function () {
+    $admin = User::factory()->admin()->create();
+    $banned = User::factory()->banned()->create(['username' => 'banned_user']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertCanSeeTableRecords([$banned])
+        ->assertTableColumnExists('status')
+        ->assertCanRenderTableColumn('status')
+        ->assertSee('banned');
+});
+
 it('renders a sortable role badge column', function () {
     $admin = User::factory()->admin()->create();
     $moderator = User::factory()->moderator()->create(['username' => 'mod_user']);
