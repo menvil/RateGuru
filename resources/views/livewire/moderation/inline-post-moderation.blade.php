@@ -7,6 +7,18 @@
         >
             <x-ui.badge>Moderator</x-ui.badge>
 
+            @if ($error)
+                <p data-testid="moderation-error" class="mt-2 text-xs text-rg-danger">
+                    {{ $error }}
+                </p>
+            @endif
+
+            @if ($success)
+                <p data-testid="moderation-success" class="mt-2 text-xs text-rg-text2">
+                    {{ $success }}
+                </p>
+            @endif
+
             <div class="mt-2">
                 <label for="moderation-reason" class="block text-xs text-rg-text2">
                     Reason

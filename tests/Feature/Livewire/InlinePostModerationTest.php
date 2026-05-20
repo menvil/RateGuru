@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\ModerationActionType;
+use App\Enums\PostStatus;
 use App\Livewire\Moderation\InlinePostModeration;
 use App\Models\Post;
 use App\Models\User;
@@ -164,4 +166,40 @@ it('does not render moderation reason input for normal user', function () {
     Livewire::actingAs($user)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertDontSee('name="moderation_reason"', false);
+});
+
+it('approves pending post from inline moderation', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->set('reason', 'Valid post.')
+        ->call('approve')
+        ->assertDispatched('post-moderated')
+        ->assertSet('error', null)
+        ->assertSet('success', 'Post approved.');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $moderator->id,
+        'action' => ModerationActionType::ApprovePost->value,
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'reason' => 'Valid post.',
+    ]);
+});
+
+it('does not approve pending post when invoked by normal user', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($user)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->call('approve')
+        ->assertNotDispatched('post-moderated');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Pending);
+    $this->assertDatabaseCount('moderation_logs', 0);
 });
