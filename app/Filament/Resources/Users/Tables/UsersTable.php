@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -59,7 +60,9 @@ class UsersTable
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
-                //
+                Filter::make('active')
+                    ->label('Active')
+                    ->query(fn (Builder $query) => $query->where('status', UserStatus::Active)),
             ])
             ->recordActions([
                 //
