@@ -2,9 +2,12 @@
 
 namespace App\Filament\Resources\Users\Tables;
 
+use App\Actions\Moderation\BanUserAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
+use Filament\Actions\Action;
+use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
@@ -76,7 +79,29 @@ class UsersTable
                         ->where('trust_level', '>=', 10)),
             ])
             ->recordActions([
-                //
+                Action::make('ban')
+                    ->label('Ban')
+                    ->icon('heroicon-o-no-symbol')
+                    ->color('danger')
+                    ->visible(fn (User $record): bool =>
+                        auth()->user()?->isAdmin() === true
+                        && auth()->id() !== $record->id
+                        && ! $record->isAdmin()
+                        && $record->status !== UserStatus::Banned
+                    )
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (User $record, array $data): void {
+                        app(BanUserAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['reason'] ?? null,
+                        );
+                    }),
             ]);
     }
 }
