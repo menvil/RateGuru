@@ -146,3 +146,62 @@ it('hides the mark trusted action for already trusted users', function () {
     Livewire::test(ListUsers::class)
         ->assertTableActionHidden('markTrusted', $trusted);
 });
+
+it('allows admin to shadowban a user via the shadowban table action', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create(['status' => UserStatus::Active]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->callTableAction('shadowban', $target, data: ['reason' => 'Suspicious behavior.']);
+
+    expect($target->fresh()->status)->toBe(UserStatus::Shadowbanned);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $admin->id,
+        'target_type' => User::class,
+        'target_id' => $target->id,
+    ]);
+});
+
+it('hides the shadowban action from moderators', function () {
+    $moderator = User::factory()->moderator()->create();
+    $target = User::factory()->create(['status' => UserStatus::Active]);
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('shadowban', $target);
+});
+
+it('hides the shadowban action for admin targets', function () {
+    $admin = User::factory()->admin()->create();
+    $otherAdmin = User::factory()->admin()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('shadowban', $otherAdmin);
+});
+
+it('hides the shadowban action for the acting admin themselves', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('shadowban', $admin);
+});
+
+it('hides the shadowban action for already banned or shadowbanned users', function () {
+    $admin = User::factory()->admin()->create();
+    $shadowbanned = User::factory()->create(['status' => UserStatus::Shadowbanned]);
+    $banned = User::factory()->banned()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('shadowban', $shadowbanned)
+        ->assertTableActionHidden('shadowban', $banned);
+});
