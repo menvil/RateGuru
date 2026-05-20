@@ -41,6 +41,12 @@ class PostsTable
                         PostStatus::Draft => 'gray',
                         PostStatus::Deleted => 'danger',
                     }),
+                TextColumn::make('reports_count')
+                    ->label('Reports')
+                    ->numeric()
+                    ->sortable()
+                    ->badge()
+                    ->color(fn (int $state): string => $state > 0 ? 'danger' : 'gray'),
             ])
             ->filters([
                 //
