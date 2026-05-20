@@ -46,7 +46,12 @@ class ReportsTable
                         ReportStatus::Dismissed, 'dismissed', 'ignored' => 'gray',
                         default => 'gray',
                     }),
+                TextColumn::make('created_at')
+                    ->label('Created')
+                    ->dateTime()
+                    ->sortable(),
             ])
+            ->defaultSort('created_at', 'desc')
             ->filters([])
             ->recordActions([]);
     }
