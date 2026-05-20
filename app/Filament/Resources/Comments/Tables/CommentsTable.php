@@ -2,9 +2,12 @@
 
 namespace App\Filament\Resources\Comments\Tables;
 
+use App\Actions\Comments\HideCommentAction;
 use App\Enums\CommentStatus;
 use App\Filament\Resources\Posts\PostResource;
 use App\Models\Comment;
+use Filament\Actions\Action;
+use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
@@ -59,6 +62,29 @@ class CommentsTable
                     ->label('Reported')
                     ->query(fn (Builder $query) => $query->where('reports_count', '>', 0)),
             ])
-            ->recordActions([]);
+            ->recordActions([
+                Action::make('hide')
+                    ->label('Hide')
+                    ->icon('heroicon-o-eye-slash')
+                    ->color('danger')
+                    ->visible(fn (Comment $record): bool =>
+                        $record->status === CommentStatus::Visible
+                        && (auth()->user()?->isModerator() === true
+                            || auth()->user()?->isAdmin() === true)
+                    )
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Comment $record, array $data): void {
+                        app(HideCommentAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['reason'] ?? null,
+                        );
+                    }),
+            ]);
     }
 }
