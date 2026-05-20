@@ -53,3 +53,16 @@ it('renders an image column in the post resource table', function () {
         ->assertCanSeeTableRecords([$post])
         ->assertTableColumnExists('image_path');
 });
+
+it('renders a searchable, sortable title column', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->published()->create(['title' => 'Homemade Pasta']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$post])
+        ->assertTableColumnExists('title')
+        ->assertCanRenderTableColumn('title')
+        ->assertSee('Homemade Pasta');
+});
