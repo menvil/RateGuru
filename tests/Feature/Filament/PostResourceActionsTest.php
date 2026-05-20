@@ -61,3 +61,31 @@ it('hides the reject action for non-pending posts', function () {
     Livewire::test(ListPosts::class)
         ->assertTableActionHidden('reject', $published);
 });
+
+it('hides a published post via the hide table action', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListPosts::class)
+        ->callTableAction('hide', $post, data: ['reason' => 'Reported content.']);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Hidden);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'moderator_id' => $moderator->id,
+    ]);
+});
+
+it('hides the hide action for non-published posts', function () {
+    $moderator = User::factory()->moderator()->create();
+    $pending = Post::factory()->pending()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListPosts::class)
+        ->assertTableActionHidden('hide', $pending);
+});
