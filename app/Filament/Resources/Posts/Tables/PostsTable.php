@@ -159,6 +159,11 @@ class PostsTable
                     ->modalHeading('Delete post')
                     ->modalDescription('Soft-deletes the post. It can be restored from the database if needed.')
                     ->action(function (Post $record): void {
+                        // Server-side authorization. visible() hides the
+                        // button in the UI but the action endpoint is still
+                        // reachable, so we re-check here before mutating.
+                        abort_unless(auth()->user()?->isAdmin() === true, 403);
+
                         $record->delete();
                     }),
             ])
