@@ -83,3 +83,29 @@ it('shows the restore action only for hidden comments', function () {
     Livewire::test(ListComments::class)
         ->assertTableActionHidden('restore', $visible);
 });
+
+it('allows admin to delete a comment via the delete table action', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->published()->create(['comments_count' => 1]);
+    $comment = Comment::factory()->for($post)->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->callTableAction('delete', $comment);
+
+    $this->assertSoftDeleted('comments', ['id' => $comment->id]);
+    expect($post->fresh()->comments_count)->toBe(0);
+});
+
+it('hides the delete action from moderators', function () {
+    $moderator = User::factory()->moderator()->create();
+    $comment = Comment::factory()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListComments::class)
+        ->assertTableActionHidden('delete', $comment);
+});
