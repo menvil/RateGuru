@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Users\Tables;
 
 use App\Actions\Moderation\BanUserAction;
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Moderation\UnbanUserAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
@@ -119,6 +120,30 @@ class UsersTable
                     ->requiresConfirmation()
                     ->action(function (User $record, array $data): void {
                         app(UnbanUserAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['reason'] ?? null,
+                        );
+                    }),
+                Action::make('markTrusted')
+                    ->label('Mark trusted')
+                    ->icon('heroicon-o-shield-check')
+                    ->color('success')
+                    ->visible(fn (User $record): bool =>
+                        auth()->user()?->isAdmin() === true
+                        && auth()->id() !== $record->id
+                        && $record->role === UserRole::User
+                        && $record->status === UserStatus::Active
+                        && (int) $record->trust_level < MarkUserTrustedAction::TRUSTED_LEVEL
+                    )
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (User $record, array $data): void {
+                        app(MarkUserTrustedAction::class)->handle(
                             auth()->user(),
                             $record,
                             $data['reason'] ?? null,

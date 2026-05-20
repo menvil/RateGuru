@@ -99,3 +99,50 @@ it('hides the unban action for users who are not banned or shadowbanned', functi
     Livewire::test(ListUsers::class)
         ->assertTableActionHidden('unban', $active);
 });
+
+it('allows admin to mark a user trusted via the mark trusted action', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create([
+        'status' => UserStatus::Active,
+        'trust_level' => 0,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->callTableAction('markTrusted', $target, data: ['reason' => 'Reliable contributor.']);
+
+    $fresh = $target->fresh();
+    expect($fresh->trust_level)->toBe(10);
+    expect($fresh->status)->toBe(UserStatus::Active);
+});
+
+it('hides the mark trusted action from moderators', function () {
+    $moderator = User::factory()->moderator()->create();
+    $target = User::factory()->create(['status' => UserStatus::Active]);
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('markTrusted', $target);
+});
+
+it('hides the mark trusted action for admin or moderator targets', function () {
+    $admin = User::factory()->admin()->create();
+    $otherMod = User::factory()->moderator()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('markTrusted', $otherMod);
+});
+
+it('hides the mark trusted action for already trusted users', function () {
+    $admin = User::factory()->admin()->create();
+    $trusted = User::factory()->trusted()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('markTrusted', $trusted);
+});
