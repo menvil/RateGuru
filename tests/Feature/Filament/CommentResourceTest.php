@@ -100,3 +100,19 @@ it('renders sortable status badge column in comment resource table', function ()
         ->assertCanRenderTableColumn('status')
         ->assertSee('hidden');
 });
+
+it('renders comment reports count in comment resource table', function () {
+    $admin = User::factory()->admin()->create();
+    $reported = Comment::factory()->create([
+        'body' => 'Reported comment',
+        'reports_count' => 4,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->assertCanSeeTableRecords([$reported])
+        ->assertTableColumnExists('reports_count')
+        ->assertCanRenderTableColumn('reports_count')
+        ->assertTableColumnStateSet('reports_count', 4, $reported);
+});
