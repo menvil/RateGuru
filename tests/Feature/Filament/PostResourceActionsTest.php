@@ -33,3 +33,31 @@ it('hides the approve action for non-pending posts', function () {
     Livewire::test(ListPosts::class)
         ->assertTableActionHidden('approve', $published);
 });
+
+it('rejects a pending post via the reject table action', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListPosts::class)
+        ->callTableAction('reject', $post, data: ['reason' => 'Invalid content.']);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Rejected);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'moderator_id' => $moderator->id,
+    ]);
+});
+
+it('hides the reject action for non-pending posts', function () {
+    $moderator = User::factory()->moderator()->create();
+    $published = Post::factory()->published()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListPosts::class)
+        ->assertTableActionHidden('reject', $published);
+});

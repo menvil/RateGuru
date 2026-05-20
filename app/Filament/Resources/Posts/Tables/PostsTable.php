@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Posts\Tables;
 
 use App\Actions\Moderation\ApprovePostAction;
+use App\Actions\Moderation\RejectPostAction;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use Filament\Actions\Action;
@@ -86,6 +87,24 @@ class PostsTable
                     ->requiresConfirmation()
                     ->action(function (Post $record, array $data): void {
                         app(ApprovePostAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['reason'] ?? null,
+                        );
+                    }),
+                Action::make('reject')
+                    ->label('Reject')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn (Post $record): bool => $record->status === PostStatus::Pending)
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Post $record, array $data): void {
+                        app(RejectPostAction::class)->handle(
                             auth()->user(),
                             $record,
                             $data['reason'] ?? null,
