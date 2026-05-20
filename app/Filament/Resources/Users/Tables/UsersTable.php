@@ -16,6 +16,11 @@ class UsersTable
                     ->searchable()
                     ->sortable()
                     ->placeholder('—'),
+                TextColumn::make('email')
+                    ->label('Email')
+                    ->searchable()
+                    ->sortable()
+                    ->copyable(),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([

@@ -64,3 +64,16 @@ it('renders a searchable, sortable username column', function () {
         ->assertCanRenderTableColumn('username')
         ->assertSee('chef_ivan');
 });
+
+it('renders a searchable, sortable email column', function () {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->create(['email' => 'user@example.com']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertCanSeeTableRecords([$user])
+        ->assertTableColumnExists('email')
+        ->assertCanRenderTableColumn('email')
+        ->assertSee('user@example.com');
+});
