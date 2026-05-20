@@ -76,3 +76,19 @@ it('does not allow banned moderator to access /admin', function () {
 
     expect($response->getStatusCode())->toBe(403);
 });
+
+it('allows moderator to access /admin', function () {
+    $moderator = User::factory()->moderator()->create();
+
+    $this->actingAs($moderator)
+        ->get('/admin')
+        ->assertOk();
+});
+
+it('allows admin to access /admin', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)
+        ->get('/admin')
+        ->assertOk();
+});
