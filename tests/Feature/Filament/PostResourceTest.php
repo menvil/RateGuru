@@ -107,3 +107,15 @@ it('renders the status column as a badge', function () {
         ->assertTableColumnExists('status')
         ->assertSee('pending');
 });
+
+it('renders the reports_count column', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->published()->create(['reports_count' => 5]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$post])
+        ->assertTableColumnExists('reports_count')
+        ->assertSee('5');
+});
