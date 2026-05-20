@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CommentStatus;
 use App\Filament\Resources\Comments\CommentResource;
 use App\Filament\Resources\Comments\Pages\ListComments;
 use App\Filament\Support\AdminNavigationGroup;
@@ -85,4 +86,17 @@ it('renders related post in comment resource table', function () {
         ->assertTableColumnExists('post.title')
         ->assertCanRenderTableColumn('post.title')
         ->assertSee('Pasta post');
+});
+
+it('renders sortable status badge column in comment resource table', function () {
+    $admin = User::factory()->admin()->create();
+    $hidden = Comment::factory()->create(['status' => CommentStatus::Hidden]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->assertCanSeeTableRecords([$hidden])
+        ->assertTableColumnExists('status')
+        ->assertCanRenderTableColumn('status')
+        ->assertSee('hidden');
 });
