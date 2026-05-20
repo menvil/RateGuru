@@ -45,7 +45,7 @@ class ReportsTable
                     ->color(fn (ReportStatus|string|null $state): string => match ($state) {
                         ReportStatus::Open, 'open' => 'warning',
                         ReportStatus::Resolved, 'resolved' => 'success',
-                        ReportStatus::Dismissed, 'dismissed', 'ignored' => 'gray',
+                        ReportStatus::Ignored, 'ignored' => 'gray',
                         default => 'gray',
                     }),
                 TextColumn::make('created_at')
@@ -61,6 +61,9 @@ class ReportsTable
                 Filter::make('resolved')
                     ->label('Resolved')
                     ->query(fn (Builder $query) => $query->where('status', ReportStatus::Resolved)),
+                Filter::make('ignored')
+                    ->label('Ignored')
+                    ->query(fn (Builder $query) => $query->where('status', ReportStatus::Ignored)),
             ])
             ->recordActions([]);
     }
