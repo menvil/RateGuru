@@ -25,30 +25,36 @@ final class RestoreCommentAction
             throw CannotRestoreCommentException::becauseUserIsNotAllowed();
         }
 
-        if ($comment->status !== CommentStatus::Hidden) {
-            throw CannotRestoreCommentException::becauseCommentStatusIsInvalid();
-        }
-
+        // The status check, mutation, counter refresh, and audit log run
+        // inside a single transaction with a row lock on the comment so two
+        // concurrent restores cannot both observe the Hidden state and emit
+        // duplicate RestoreComment logs. Mirrors HidePostAction.
         DB::transaction(function () use ($moderator, $comment, $reason) {
-            $post = $comment->post;
-            $fromStatus = $comment->status;
+            $locked = $comment->newQuery()->lockForUpdate()->find($comment->getKey());
 
-            $comment->forceFill([
-                'status' => CommentStatus::Visible,
-            ])->save();
+            if ($locked === null || $locked->status !== CommentStatus::Hidden) {
+                throw CannotRestoreCommentException::becauseCommentStatusIsInvalid();
+            }
+
+            $post = $locked->post;
+            $fromStatus = $locked->status;
+
+            $locked->forceFill(['status' => CommentStatus::Visible])->save();
 
             $this->refreshCommentsCount($post);
 
             $this->createModerationLog->handle(
                 moderator: $moderator,
                 action: ModerationActionType::RestoreComment,
-                target: $comment,
+                target: $locked,
                 reason: $reason,
                 metadata: [
                     'from_status' => $fromStatus->value,
                     'to_status' => CommentStatus::Visible->value,
                 ],
             );
+
+            $comment->setRawAttributes($locked->getAttributes(), true);
         });
     }
 }
