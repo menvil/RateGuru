@@ -40,3 +40,22 @@ it('filters banned users in user resource', function () {
         ->assertCanSeeTableRecords([$banned])
         ->assertCanNotSeeTableRecords([$active]);
 });
+
+it('filters trusted users in user resource', function () {
+    $admin = User::factory()->admin()->create();
+    $trusted = User::factory()->trusted()->create([
+        'username' => 'trusted_user',
+    ]);
+    $active = User::factory()->create([
+        'status' => UserStatus::Active,
+        'trust_level' => 0,
+        'username' => 'active_user',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->filterTable('trusted')
+        ->assertCanSeeTableRecords([$trusted])
+        ->assertCanNotSeeTableRecords([$active]);
+});
