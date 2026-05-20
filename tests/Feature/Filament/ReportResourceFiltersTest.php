@@ -33,3 +33,18 @@ it('filters resolved reports in report resource', function () {
         ->assertCanSeeTableRecords([$resolved])
         ->assertCanNotSeeTableRecords([$open]);
 });
+
+it('filters ignored reports in report resource', function () {
+    $admin = User::factory()->admin()->create();
+
+    $ignored = Report::factory()->create(['status' => ReportStatus::Ignored]);
+    $open = Report::factory()->create(['status' => ReportStatus::Open]);
+    $resolved = Report::factory()->create(['status' => ReportStatus::Resolved]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->filterTable('ignored')
+        ->assertCanSeeTableRecords([$ignored])
+        ->assertCanNotSeeTableRecords([$open, $resolved]);
+});
