@@ -12,6 +12,15 @@
                     >
                         Approve
                     </x-ui.button>
+
+                    <x-ui.button
+                        type="button"
+                        variant="danger"
+                        wire:click="reject"
+                        data-testid="moderation-reject"
+                    >
+                        Reject
+                    </x-ui.button>
                 @endif
 
                 @if ($post->status === \App\Enums\PostStatus::Published)
