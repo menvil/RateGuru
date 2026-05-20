@@ -93,3 +93,22 @@ it('does not render hide button for pending post', function () {
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertDontSee('data-testid="moderation-hide"', false);
 });
+
+it('renders reject button for pending post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertSee('data-testid="moderation-reject"', false)
+        ->assertSee('Reject');
+});
+
+it('does not render reject button for published post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="moderation-reject"', false);
+});

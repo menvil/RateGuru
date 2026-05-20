@@ -35,6 +35,11 @@ final class InlinePostModeration extends Component
         // wired in RG-439
     }
 
+    public function reject(): void
+    {
+        // wired in RG-440
+    }
+
     public function render(): View
     {
         return view('livewire.moderation.inline-post-moderation', [
