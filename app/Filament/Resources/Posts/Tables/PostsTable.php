@@ -47,7 +47,12 @@ class PostsTable
                     ->sortable()
                     ->badge()
                     ->color(fn (int $state): string => $state > 0 ? 'danger' : 'gray'),
+                TextColumn::make('created_at')
+                    ->label('Created')
+                    ->dateTime()
+                    ->sortable(),
             ])
+            ->defaultSort('created_at', 'desc')
             ->filters([
                 //
             ])

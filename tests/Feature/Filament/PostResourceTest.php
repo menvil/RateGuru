@@ -119,3 +119,15 @@ it('renders the reports_count column', function () {
         ->assertTableColumnExists('reports_count')
         ->assertSee('5');
 });
+
+it('renders the created_at column and sorts by newest first', function () {
+    $admin = User::factory()->admin()->create();
+    $older = Post::factory()->published()->create(['created_at' => now()->subDays(2)]);
+    $newer = Post::factory()->published()->create(['created_at' => now()->subDay()]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$newer, $older], inOrder: true)
+        ->assertTableColumnExists('created_at');
+});
