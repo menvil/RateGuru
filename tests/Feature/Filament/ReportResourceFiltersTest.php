@@ -19,3 +19,17 @@ it('filters open reports in report resource', function () {
         ->assertCanSeeTableRecords([$open])
         ->assertCanNotSeeTableRecords([$resolved]);
 });
+
+it('filters resolved reports in report resource', function () {
+    $admin = User::factory()->admin()->create();
+
+    $resolved = Report::factory()->create(['status' => ReportStatus::Resolved]);
+    $open = Report::factory()->create(['status' => ReportStatus::Open]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->filterTable('resolved')
+        ->assertCanSeeTableRecords([$resolved])
+        ->assertCanNotSeeTableRecords([$open]);
+});
