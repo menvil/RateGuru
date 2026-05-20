@@ -58,6 +58,9 @@ class PostsTable
                 Filter::make('pending')
                     ->label('Pending')
                     ->query(fn (Builder $query) => $query->where('status', PostStatus::Pending)),
+                Filter::make('published')
+                    ->label('Published')
+                    ->query(fn (Builder $query) => $query->where('status', PostStatus::Published)),
             ])
             ->recordActions([
                 //

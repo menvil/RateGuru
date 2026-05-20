@@ -144,3 +144,16 @@ it('filters posts by pending status', function () {
         ->assertCanSeeTableRecords([$pending])
         ->assertCanNotSeeTableRecords([$published]);
 });
+
+it('filters posts by published status', function () {
+    $admin = User::factory()->admin()->create();
+    $published = Post::factory()->published()->create();
+    $pending = Post::factory()->pending()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->filterTable('published')
+        ->assertCanSeeTableRecords([$published])
+        ->assertCanNotSeeTableRecords([$pending]);
+});
