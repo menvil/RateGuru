@@ -63,6 +63,9 @@ class UsersTable
                 Filter::make('active')
                     ->label('Active')
                     ->query(fn (Builder $query) => $query->where('status', UserStatus::Active)),
+                Filter::make('banned')
+                    ->label('Banned')
+                    ->query(fn (Builder $query) => $query->where('status', UserStatus::Banned)),
             ])
             ->recordActions([
                 //
