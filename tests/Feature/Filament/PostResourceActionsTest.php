@@ -117,3 +117,25 @@ it('hides the restore action for non-hidden posts', function () {
     Livewire::test(ListPosts::class)
         ->assertTableActionHidden('restore', $published);
 });
+
+it('allows admin to soft-delete a post via the delete table action', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->published()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->callTableAction('delete', $post);
+
+    $this->assertSoftDeleted('posts', ['id' => $post->id]);
+});
+
+it('hides the delete action from moderators', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListPosts::class)
+        ->assertTableActionHidden('delete', $post);
+});

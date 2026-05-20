@@ -148,6 +148,17 @@ class PostsTable
                             $data['reason'] ?? null,
                         );
                     }),
+                Action::make('delete')
+                    ->label('Delete')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->visible(fn (): bool => auth()->user()?->isAdmin() === true)
+                    ->requiresConfirmation()
+                    ->modalHeading('Delete post')
+                    ->modalDescription('Soft-deletes the post. It can be restored from the database if needed.')
+                    ->action(function (Post $record): void {
+                        $record->delete();
+                    }),
             ])
             ->toolbarActions([
                 //
