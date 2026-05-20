@@ -26,6 +26,10 @@ class ReportsTable
                         Comment::class => 'gray',
                         default => 'danger',
                     }),
+                TextColumn::make('reason')
+                    ->label('Reason')
+                    ->badge()
+                    ->sortable(),
             ])
             ->filters([])
             ->recordActions([]);

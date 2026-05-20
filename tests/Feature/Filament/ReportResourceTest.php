@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Resources\Reports\Pages\ListReports;
+use App\Enums\ReportReason;
 use App\Filament\Resources\Reports\ReportResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
@@ -75,6 +76,21 @@ it('renders Comment target type in report resource table', function () {
     Livewire::test(ListReports::class)
         ->assertCanSeeTableRecords([$report])
         ->assertSee('Comment');
+});
+
+it('renders report reason in report resource table', function () {
+    $admin = User::factory()->admin()->create();
+    $report = Report::factory()->create([
+        'reason' => ReportReason::Spam,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->assertCanSeeTableRecords([$report])
+        ->assertTableColumnExists('reason')
+        ->assertCanRenderTableColumn('reason')
+        ->assertSee('spam');
 });
 
 it('renders Unknown for unrecognised target type without crashing', function () {
