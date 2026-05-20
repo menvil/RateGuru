@@ -23,6 +23,11 @@ class PostsTable
                     ->searchable()
                     ->sortable()
                     ->limit(60),
+                TextColumn::make('user.username')
+                    ->label('Author')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('—'),
             ])
             ->filters([
                 //
