@@ -41,6 +41,12 @@ it('bulk hide leaves non-published records untouched', function () {
 
     expect($pending->fresh()->status)->toBe(PostStatus::Pending)
         ->and($published->fresh()->status)->toBe(PostStatus::Hidden);
+
+    // The pending row was skipped, not silently moderated — no audit log.
+    $this->assertDatabaseMissing('moderation_logs', [
+        'target_type' => Post::class,
+        'target_id' => $pending->id,
+    ]);
 });
 
 it('bulk-approves selected pending posts via ApprovePostAction', function () {
@@ -78,4 +84,12 @@ it('bulk approve leaves non-pending records untouched', function () {
 
     expect($pending->fresh()->status)->toBe(PostStatus::Published)
         ->and($published->fresh()->status)->toBe(PostStatus::Published);
+
+    // Status alone could match an idempotent no-op approve; assert the
+    // already-published row produced zero audit log entries to prove it
+    // was actually skipped by the closure's guard.
+    $this->assertDatabaseMissing('moderation_logs', [
+        'target_type' => Post::class,
+        'target_id' => $published->id,
+    ]);
 });

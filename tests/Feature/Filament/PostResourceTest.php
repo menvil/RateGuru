@@ -26,9 +26,9 @@ it('allows moderator to access post resource index', function () {
 it('does not allow normal user to access post resource index', function () {
     $user = User::factory()->create();
 
-    $response = $this->actingAs($user)->get(PostResource::getUrl('index'));
-
-    expect($response->getStatusCode())->toBe(403);
+    $this->actingAs($user)
+        ->get(PostResource::getUrl('index'))
+        ->assertForbidden();
 });
 
 it('uses the Post model', function () {
@@ -93,7 +93,7 @@ it('eager-loads the author to avoid N+1 in the posts table', function () {
         ->filter(fn ($q) => str_contains($q['query'], 'from "users"') || str_contains($q['query'], 'from `users`'))
         ->count();
 
-    expect($userLookups)->toBeLessThanOrEqual(2);
+    expect($userLookups)->toBe(1);
 });
 
 it('renders the status column as a badge', function () {
