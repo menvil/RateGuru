@@ -33,6 +33,12 @@ class CommentsTable
                     ->url(fn (Comment $record): ?string => $record->post
                         ? PostResource::getUrl('index', ['tableSearch' => $record->post->title])
                         : null),
+                TextColumn::make('reports_count')
+                    ->label('Reports')
+                    ->numeric()
+                    ->sortable()
+                    ->badge()
+                    ->color(fn (int $state): string => $state > 0 ? 'danger' : 'gray'),
                 TextColumn::make('status')
                     ->label('Status')
                     ->badge()
