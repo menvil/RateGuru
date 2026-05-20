@@ -289,19 +289,21 @@ it('dispatches post moderated event with post id and action on hide', function (
         ->assertDispatched('post-moderated', postId: $post->id, action: 'hidden');
 });
 
-it('refreshes feed when post is hidden', function () {
+it('refreshes feed when post-moderated event is dispatched', function () {
     $moderator = User::factory()->moderator()->create();
     $visible = Post::factory()->published()->create(['title' => 'Visible post']);
 
-    Livewire::actingAs($moderator)
+    // Single PostFeed instance: it must see the post on first render,
+    // then drop it after handling post-moderated. If the #[On('post-moderated')]
+    // listener were missing, the same instance would keep its cached render
+    // and still show the title — making this test fail.
+    $component = Livewire::actingAs($moderator)
         ->test(PostFeed::class)
-        ->assertSee('Visible post')
-        ->call('refreshAfterPostModerated');
+        ->assertSee('Visible post');
 
     Post::query()->whereKey($visible->id)->update(['status' => PostStatus::Hidden]);
 
-    Livewire::actingAs($moderator)
-        ->test(PostFeed::class)
+    $component
         ->dispatch('post-moderated', postId: $visible->id, action: 'hidden')
         ->assertDontSee('Visible post');
 });

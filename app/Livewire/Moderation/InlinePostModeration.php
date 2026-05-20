@@ -100,8 +100,11 @@ final class InlinePostModeration extends Component
 
     public function render(): View
     {
+        // Skip the post lookup for viewers who cannot moderate: the panel
+        // and every reference to $post in the view are guarded by
+        // @if ($this->canModerate), so non-moderators do not need the row.
         return view('livewire.moderation.inline-post-moderation', [
-            'post' => $this->post(),
+            'post' => $this->canModerate() ? $this->post() : null,
         ]);
     }
 
