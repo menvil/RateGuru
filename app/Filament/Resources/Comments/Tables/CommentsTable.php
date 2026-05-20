@@ -6,7 +6,9 @@ use App\Enums\CommentStatus;
 use App\Filament\Resources\Posts\PostResource;
 use App\Models\Comment;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class CommentsTable
 {
@@ -49,7 +51,11 @@ class CommentsTable
                     }),
             ])
             ->defaultSort('created_at', 'desc')
-            ->filters([])
+            ->filters([
+                Filter::make('hidden')
+                    ->label('Hidden')
+                    ->query(fn (Builder $query) => $query->where('status', CommentStatus::Hidden)),
+            ])
             ->recordActions([]);
     }
 }
