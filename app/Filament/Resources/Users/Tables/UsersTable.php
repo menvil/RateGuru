@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Users\Tables;
 
+use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
 class UsersTable
@@ -10,7 +11,11 @@ class UsersTable
     {
         return $table
             ->columns([
-                //
+                TextColumn::make('username')
+                    ->label('Username')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('—'),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([

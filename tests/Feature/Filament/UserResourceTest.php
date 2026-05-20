@@ -51,3 +51,16 @@ it('lists users on the index page', function () {
     Livewire::test(ListUsers::class)
         ->assertCanSeeTableRecords([$admin, $other]);
 });
+
+it('renders a searchable, sortable username column', function () {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->create(['username' => 'chef_ivan']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertCanSeeTableRecords([$user])
+        ->assertTableColumnExists('username')
+        ->assertCanRenderTableColumn('username')
+        ->assertSee('chef_ivan');
+});
