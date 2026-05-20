@@ -64,6 +64,9 @@ class PostsTable
                 Filter::make('hidden')
                     ->label('Hidden')
                     ->query(fn (Builder $query) => $query->where('status', PostStatus::Hidden)),
+                Filter::make('reported')
+                    ->label('Reported')
+                    ->query(fn (Builder $query) => $query->where('reports_count', '>', 0)),
             ])
             ->recordActions([
                 //
