@@ -16,6 +16,11 @@ class CommentsTable
                     ->limit(80)
                     ->wrap()
                     ->searchable(),
+                TextColumn::make('user.username')
+                    ->label('Author')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('—'),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([])
