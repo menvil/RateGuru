@@ -2,10 +2,11 @@
 
 use App\Livewire\Feed\PostFeed;
 use App\Models\Post;
+use App\Models\User;
 use Livewire\Livewire;
 
 it('refreshes feed after upload success event', function () {
-    $user = \App\Models\User::factory()->trusted()->create();
+    $user = User::factory()->trusted()->create();
 
     Livewire::actingAs($user)
         ->test(PostFeed::class)
@@ -14,7 +15,7 @@ it('refreshes feed after upload success event', function () {
 });
 
 it('shows newly published post after upload event', function () {
-    $user = \App\Models\User::factory()->trusted()->create();
+    $user = User::factory()->trusted()->create();
 
     $component = Livewire::actingAs($user)
         ->test(PostFeed::class)

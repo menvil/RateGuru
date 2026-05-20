@@ -17,12 +17,19 @@ final class UploadPostForm extends Component
     use WithFileUploads;
 
     public string $title = '';
+
     public ?string $description = null;
+
     public ?string $sourceUrl = null;
+
     public string $originTruth = 'unknown';
+
     public string $cuisineTruth = 'unknown';
+
     public array $tagIds = [];
+
     public $image = null;
+
     public ?string $submitError = null;
 
     public function mount(): void
