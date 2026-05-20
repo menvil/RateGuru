@@ -10,6 +10,7 @@ use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use Closure;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Route;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 
@@ -29,6 +30,16 @@ final class InlinePostModeration extends Component
         $user = auth()->user();
 
         return $user !== null && ($user->isModerator() || $user->isAdmin());
+    }
+
+    #[Computed]
+    public function adminPostUrl(): ?string
+    {
+        if (Route::has('filament.admin.resources.posts.edit')) {
+            return route('filament.admin.resources.posts.edit', ['record' => $this->postId]);
+        }
+
+        return null;
     }
 
     public function approve(ApprovePostAction $approvePostAction): void

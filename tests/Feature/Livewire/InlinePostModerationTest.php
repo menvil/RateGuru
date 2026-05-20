@@ -305,3 +305,32 @@ it('refreshes feed when post is hidden', function () {
         ->dispatch('post-moderated', postId: $visible->id, action: 'hidden')
         ->assertDontSee('Visible post');
 });
+
+it('renders open in admin link placeholder for moderator', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertSee('data-testid="open-in-admin-link"', false)
+        ->assertSee('Open in admin');
+});
+
+it('does not render open in admin link for normal user', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="open-in-admin-link"', false)
+        ->assertDontSee('Open in admin');
+});
+
+it('does not render broken admin link when filament route is missing', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertDontSee('href="http', false);
+});
