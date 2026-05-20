@@ -79,6 +79,19 @@ it('renders a searchable, sortable email column', function () {
         ->assertSee('user@example.com');
 });
 
+it('renders a reports count placeholder column', function () {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->create(['username' => 'reported_user_placeholder']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertCanSeeTableRecords([$user])
+        ->assertTableColumnExists('reports_count_placeholder')
+        ->assertCanRenderTableColumn('reports_count_placeholder')
+        ->assertSee('—');
+});
+
 it('renders a posts count column', function () {
     $admin = User::factory()->admin()->create();
     $author = User::factory()->create(['username' => 'poster']);
