@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Comments\Tables;
 
+use App\Actions\Comments\DeleteCommentAction;
 use App\Actions\Comments\HideCommentAction;
 use App\Actions\Comments\RestoreCommentAction;
 use App\Enums\CommentStatus;
@@ -106,6 +107,20 @@ class CommentsTable
                             auth()->user(),
                             $record,
                             $data['reason'] ?? null,
+                        );
+                    }),
+                Action::make('delete')
+                    ->label('Delete')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    // Admin-only by design: moderators do hide/restore. The
+                    // backend still enforces this through CommentPolicy.
+                    ->visible(fn (): bool => auth()->user()?->isAdmin() === true)
+                    ->requiresConfirmation()
+                    ->action(function (Comment $record): void {
+                        app(DeleteCommentAction::class)->handle(
+                            auth()->user(),
+                            $record,
                         );
                     }),
             ]);
