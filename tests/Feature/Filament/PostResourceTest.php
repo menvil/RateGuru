@@ -157,3 +157,16 @@ it('filters posts by published status', function () {
         ->assertCanSeeTableRecords([$published])
         ->assertCanNotSeeTableRecords([$pending]);
 });
+
+it('filters posts by hidden status', function () {
+    $admin = User::factory()->admin()->create();
+    $hidden = Post::factory()->hidden()->create();
+    $published = Post::factory()->published()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->filterTable('hidden')
+        ->assertCanSeeTableRecords([$hidden])
+        ->assertCanNotSeeTableRecords([$published]);
+});
