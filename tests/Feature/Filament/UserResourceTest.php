@@ -3,6 +3,7 @@
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -76,6 +77,21 @@ it('renders a searchable, sortable email column', function () {
         ->assertTableColumnExists('email')
         ->assertCanRenderTableColumn('email')
         ->assertSee('user@example.com');
+});
+
+it('renders a posts count column', function () {
+    $admin = User::factory()->admin()->create();
+    $author = User::factory()->create(['username' => 'poster']);
+    Post::factory()->count(2)->for($author)->published()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->assertCanSeeTableRecords([$author])
+        ->assertTableColumnExists('posts_count')
+        ->assertCanRenderTableColumn('posts_count');
+
+    expect($author->loadCount('posts')->posts_count)->toBe(2);
 });
 
 it('renders a sortable status badge column', function () {
