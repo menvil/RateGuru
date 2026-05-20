@@ -2,7 +2,11 @@
 
 namespace App\Filament\Resources\Posts\Tables;
 
+use App\Actions\Moderation\ApprovePostAction;
 use App\Enums\PostStatus;
+use App\Models\Post;
+use Filament\Actions\Action;
+use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -69,7 +73,24 @@ class PostsTable
                     ->query(fn (Builder $query) => $query->where('reports_count', '>', 0)),
             ])
             ->recordActions([
-                //
+                Action::make('approve')
+                    ->label('Approve')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->visible(fn (Post $record): bool => $record->status === PostStatus::Pending)
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Post $record, array $data): void {
+                        app(ApprovePostAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['reason'] ?? null,
+                        );
+                    }),
             ])
             ->toolbarActions([
                 //
