@@ -4,6 +4,7 @@ namespace App\Livewire\Moderation;
 
 use App\Actions\Moderation\ApprovePostAction;
 use App\Actions\Moderation\HidePostAction;
+use App\Actions\Moderation\RejectPostAction;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use Closure;
@@ -57,9 +58,18 @@ final class InlinePostModeration extends Component
         });
     }
 
-    public function reject(): void
+    public function reject(RejectPostAction $rejectPostAction): void
     {
-        // wired in RG-440
+        $this->runModerationAction(function () use ($rejectPostAction): void {
+            $rejectPostAction->handle(
+                moderator: auth()->user(),
+                post: $this->post(),
+                reason: $this->normalizedReason(),
+            );
+
+            $this->success = 'Post rejected.';
+            $this->dispatch('post-moderated', postId: $this->postId, action: 'rejected');
+        });
     }
 
     public function restore(): void
