@@ -61,6 +61,9 @@ class PostsTable
                 Filter::make('published')
                     ->label('Published')
                     ->query(fn (Builder $query) => $query->where('status', PostStatus::Published)),
+                Filter::make('hidden')
+                    ->label('Hidden')
+                    ->query(fn (Builder $query) => $query->where('status', PostStatus::Hidden)),
             ])
             ->recordActions([
                 //
