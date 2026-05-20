@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Posts\Tables;
 use App\Actions\Moderation\ApprovePostAction;
 use App\Actions\Moderation\HidePostAction;
 use App\Actions\Moderation\RejectPostAction;
+use App\Actions\Moderation\RestorePostAction;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use Filament\Actions\Action;
@@ -124,6 +125,24 @@ class PostsTable
                     ->requiresConfirmation()
                     ->action(function (Post $record, array $data): void {
                         app(HidePostAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['reason'] ?? null,
+                        );
+                    }),
+                Action::make('restore')
+                    ->label('Restore')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('success')
+                    ->visible(fn (Post $record): bool => $record->status === PostStatus::Hidden)
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Post $record, array $data): void {
+                        app(RestorePostAction::class)->handle(
                             auth()->user(),
                             $record,
                             $data['reason'] ?? null,
