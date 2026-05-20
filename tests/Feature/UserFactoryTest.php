@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
@@ -25,5 +26,5 @@ it('can create a banned user', function () {
 it('can create a trusted user', function () {
     $user = User::factory()->trusted()->create();
 
-    expect($user->trust_level)->toBeGreaterThanOrEqual(10);
+    expect($user->trust_level)->toBeGreaterThanOrEqual(MarkUserTrustedAction::TRUSTED_LEVEL);
 });
