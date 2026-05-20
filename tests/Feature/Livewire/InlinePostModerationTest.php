@@ -237,3 +237,23 @@ it('shows error when hiding non published post', function () {
 
     expect($post->fresh()->status)->toBe(PostStatus::Pending);
 });
+
+it('rejects pending post from inline moderation', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->set('reason', 'Invalid image.')
+        ->call('reject')
+        ->assertDispatched('post-moderated')
+        ->assertSet('success', 'Post rejected.');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Rejected);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $moderator->id,
+        'action' => ModerationActionType::RejectPost->value,
+        'target_id' => $post->id,
+    ]);
+});
