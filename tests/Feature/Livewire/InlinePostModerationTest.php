@@ -336,3 +336,14 @@ it('does not render broken admin link when filament route is missing', function 
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertDontSee('href="http', false);
 });
+
+it('uses per-post unique reason input id', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertSee('id="moderation-reason-'.$post->id.'"', false)
+        ->assertSee('for="moderation-reason-'.$post->id.'"', false)
+        ->assertDontSee('id="moderation-reason"', false);
+});
