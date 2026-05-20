@@ -23,6 +23,7 @@ it('allows admin to unban a banned user', function () {
         'action' => ModerationActionType::UnbanUser->value,
         'target_type' => User::class,
         'target_id' => $target->id,
+        'reason' => 'Appeal accepted.',
     ]);
 });
 
@@ -33,6 +34,26 @@ it('allows admin to unban a shadowbanned user', function () {
     app(UnbanUserAction::class)->handle(admin: $admin, target: $target);
 
     expect($target->fresh()->status)->toBe(UserStatus::Active);
+});
+
+it('refuses to unban another admin', function () {
+    $admin = User::factory()->admin()->create();
+    // Defence in depth: BanUserAction refuses admins, but if one ever
+    // ends up banned via schema drift or manual DB edits, unban must
+    // still refuse to act on them.
+    $bannedAdmin = User::factory()->admin()->create(['status' => UserStatus::Banned]);
+
+    expect(fn () => app(UnbanUserAction::class)->handle($admin, $bannedAdmin))
+        ->toThrow(CannotModerateUserException::class);
+
+    expect($bannedAdmin->fresh()->status)->toBe(UserStatus::Banned);
+});
+
+it('refuses to unban self', function () {
+    $admin = User::factory()->admin()->create();
+
+    expect(fn () => app(UnbanUserAction::class)->handle($admin, $admin))
+        ->toThrow(CannotModerateUserException::class);
 });
 
 it('does not allow moderator to unban a user', function () {

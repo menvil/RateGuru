@@ -28,6 +28,7 @@ it('allows admin to mark an active normal user as trusted', function () {
         'action' => ModerationActionType::MarkUserTrusted->value,
         'target_type' => User::class,
         'target_id' => $target->id,
+        'reason' => 'Reliable contributor.',
     ]);
 });
 

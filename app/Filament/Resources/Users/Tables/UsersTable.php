@@ -73,13 +73,15 @@ class UsersTable
                     ->label('Banned')
                     ->query(fn (Builder $query) => $query->where('status', UserStatus::Banned)),
                 // Trusted is modelled via the `trust_level` column rather
-                // than a dedicated UserStatus case; we treat >= 10 as
-                // trusted, matching the threshold used by CreatePostAction.
+                // than a dedicated UserStatus case; we treat
+                // trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL as
+                // trusted to share a single source of truth with the
+                // mark-trusted action and CreatePostAction.
                 Filter::make('trusted')
                     ->label('Trusted')
                     ->query(fn (Builder $query) => $query
                         ->where('status', UserStatus::Active)
-                        ->where('trust_level', '>=', 10)),
+                        ->where('trust_level', '>=', MarkUserTrustedAction::TRUSTED_LEVEL)),
             ])
             ->recordActions([
                 Action::make('ban')
@@ -111,6 +113,8 @@ class UsersTable
                     ->color('success')
                     ->visible(fn (User $record): bool =>
                         auth()->user()?->isAdmin() === true
+                        && auth()->id() !== $record->id
+                        && ! $record->isAdmin()
                         && in_array($record->status, [UserStatus::Banned, UserStatus::Shadowbanned], true)
                     )
                     ->schema([

@@ -20,13 +20,21 @@ final class UnbanUserAction
             throw CannotModerateUserException::becauseUserIsNotAllowed();
         }
 
+        if ($admin->id === $target->id) {
+            throw CannotModerateUserException::becauseTargetIsProtected();
+        }
+
         // Re-read the target status under a row lock so a concurrent
         // status change cannot desync the recorded from_status from
         // what is actually mutated.
         DB::transaction(function () use ($admin, $target, $reason) {
             $locked = $target->newQuery()->lockForUpdate()->find($target->getKey());
 
-            if ($locked === null) {
+            // Defence in depth: ban/shadowban actions already refuse to
+            // sanction admin targets, so an admin should never appear here.
+            // Guard anyway in case schema drift or a manual DB edit left
+            // an admin in a banned/shadowbanned state.
+            if ($locked === null || $locked->isAdmin()) {
                 throw CannotModerateUserException::becauseTargetIsProtected();
             }
 
