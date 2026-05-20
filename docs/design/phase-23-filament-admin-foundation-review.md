@@ -6,18 +6,49 @@ Release: `v0.2.4-phase23-filament-admin-foundation`
 
 ## Checklist
 
-- [x] `/admin` path works
-- [x] guest redirected/blocked
-- [x] normal user forbidden (HTTP 403)
-- [x] moderator allowed (HTTP 200)
-- [x] admin allowed (HTTP 200)
-- [x] banned moderator/admin forbidden even when role matches
-- [x] dashboard placeholder visible (`RateGuru Admin`, `Moderation and content tools will appear here`)
-- [x] navigation group names defined in one place (`AdminNavigationGroup`)
-- [x] `RateGuru` branding visible in admin panel
-- [x] no Filament resources created in this phase
-- [x] `composer test` passes
-- [x] `npm run build` passes
+### HTTP contract for `/admin`
+
+- [x] `GET /admin` as **guest** → `302` redirect to `route('filament.admin.auth.login')` (`/admin/login`)
+- [x] `GET /admin` as **normal active user** → `403`
+- [x] `GET /admin` as **active moderator** → `200`
+- [x] `GET /admin` as **active admin** → `200`
+- [x] `GET /admin` as **banned moderator** → `403`
+- [x] `GET /admin` as **banned admin** → `403`
+- [x] `GET /admin` does NOT return `404` (panel mounted)
+
+### Access rule
+
+- [x] `User implements Filament\Models\Contracts\FilamentUser`
+- [x] `User::canAccessPanel(Panel $panel)` returns `false` for any panel whose
+      id is not `admin` (locks against future multi-panel mistakes)
+- [x] For panel id `admin`: returns `true` iff
+      `status === UserStatus::Active && (isAdmin() || isModerator())`
+
+### Dashboard content
+
+- [x] `GET /admin` as admin/moderator renders the string `RateGuru Admin`
+- [x] `GET /admin` as admin/moderator renders the string
+      `Moderation and content tools will appear here`
+- [x] No real widget queries the database in this phase
+
+### Navigation & branding
+
+- [x] Navigation group names are defined exactly once in
+      `app/Filament/Support/AdminNavigationGroup.php`
+      (`CONTENT`, `MODERATION`, `USERS`, `TAXONOMY`, `SYSTEM`)
+- [x] `GET /admin` as admin renders the string `RateGuru` (brand name)
+- [x] Primary palette in `AdminPanelProvider` is `Color::Purple`
+
+### Scope guard
+
+- [x] No `app/Filament/Resources/*.php` files created in this phase
+- [x] No moderation dashboard widgets created in this phase
+
+### Build & tests
+
+- [x] `vendor/bin/pest` — full suite green
+- [x] `npm run build` — green
+- [x] `php artisan migrate:fresh` — green
 
 ## Notes
 

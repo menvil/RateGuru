@@ -3,6 +3,7 @@
 use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
 
 it('exposes filament admin panel at /admin path', function () {
     $response = $this->get('/admin');
@@ -10,8 +11,8 @@ it('exposes filament admin panel at /admin path', function () {
     expect($response->getStatusCode())->not->toBe(404);
 });
 
-it('redirects guest from admin panel to login', function () {
-    $this->get('/admin')->assertRedirect();
+it('redirects guest from admin panel to filament login', function () {
+    $this->get('/admin')->assertRedirect(route('filament.admin.auth.login'));
 });
 
 it('registers the admin panel with id and path "admin"', function () {
@@ -24,6 +25,13 @@ it('registers the admin panel with id and path "admin"', function () {
 
 it('user implements FilamentUser contract', function () {
     expect(new User())->toBeInstanceOf(FilamentUser::class);
+});
+
+it('denies access to non-admin panels even for an active admin', function () {
+    $admin = User::factory()->admin()->create();
+    $otherPanel = Panel::make()->id('other');
+
+    expect($admin->canAccessPanel($otherPanel))->toBeFalse();
 });
 
 it('allows active admin to access the filament panel', function () {
