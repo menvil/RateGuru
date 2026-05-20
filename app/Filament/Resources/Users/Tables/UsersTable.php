@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Users\Tables;
 
 use App\Actions\Moderation\BanUserAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
+use App\Actions\Moderation\ShadowbanUserAction;
 use App\Actions\Moderation\UnbanUserAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
@@ -144,6 +145,30 @@ class UsersTable
                     ->requiresConfirmation()
                     ->action(function (User $record, array $data): void {
                         app(MarkUserTrustedAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['reason'] ?? null,
+                        );
+                    }),
+                Action::make('shadowban')
+                    ->label('Shadowban')
+                    ->icon('heroicon-o-eye-slash')
+                    ->color('warning')
+                    ->visible(fn (User $record): bool =>
+                        auth()->user()?->isAdmin() === true
+                        && auth()->id() !== $record->id
+                        && ! $record->isAdmin()
+                        && $record->status !== UserStatus::Shadowbanned
+                        && $record->status !== UserStatus::Banned
+                    )
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (User $record, array $data): void {
+                        app(ShadowbanUserAction::class)->handle(
                             auth()->user(),
                             $record,
                             $data['reason'] ?? null,
