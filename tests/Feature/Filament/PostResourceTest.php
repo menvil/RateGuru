@@ -1,9 +1,11 @@
 <?php
 
+use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Post;
 use App\Models\User;
+use Livewire\Livewire;
 
 it('allows admin to access post resource index', function () {
     $admin = User::factory()->admin()->create();
@@ -39,4 +41,15 @@ it('lives under the Content navigation group', function () {
 
 it('does not expose create or edit pages in this phase', function () {
     expect(array_keys(PostResource::getPages()))->toBe(['index']);
+});
+
+it('renders an image column in the post resource table', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->published()->create(['image_path' => 'posts/demo.jpg']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$post])
+        ->assertTableColumnExists('image_path');
 });
