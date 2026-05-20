@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Reports\Tables;
 
+use App\Enums\ReportStatus;
 use App\Models\Comment;
 use App\Models\Post;
 use Filament\Tables\Columns\TextColumn;
@@ -35,6 +36,16 @@ class ReportsTable
                     ->searchable()
                     ->sortable()
                     ->placeholder('—'),
+                TextColumn::make('status')
+                    ->label('Status')
+                    ->badge()
+                    ->sortable()
+                    ->color(fn (ReportStatus|string|null $state): string => match ($state) {
+                        ReportStatus::Open, 'open' => 'warning',
+                        ReportStatus::Resolved, 'resolved' => 'success',
+                        ReportStatus::Dismissed, 'dismissed', 'ignored' => 'gray',
+                        default => 'gray',
+                    }),
             ])
             ->filters([])
             ->recordActions([]);

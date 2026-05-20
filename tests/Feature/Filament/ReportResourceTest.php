@@ -2,6 +2,7 @@
 
 use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Enums\ReportReason;
+use App\Enums\ReportStatus;
 use App\Filament\Resources\Reports\ReportResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
@@ -105,6 +106,21 @@ it('renders report reporter in report resource table', function () {
         ->assertTableColumnExists('reporter.username')
         ->assertCanRenderTableColumn('reporter.username')
         ->assertSee('reporter_user');
+});
+
+it('renders sortable status badge column in report resource table', function () {
+    $admin = User::factory()->admin()->create();
+    $report = Report::factory()->create([
+        'status' => ReportStatus::Open,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->assertCanSeeTableRecords([$report])
+        ->assertTableColumnExists('status')
+        ->assertCanRenderTableColumn('status')
+        ->assertSee('open');
 });
 
 it('renders Unknown for unrecognised target type without crashing', function () {
