@@ -1,7 +1,11 @@
 <?php
 
+use App\Enums\CuisineType;
+use App\Enums\OriginType;
 use App\Livewire\Feed\UploadPostForm;
+use App\Models\Post;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Livewire\Livewire;
 
 it('resets form when upload-modal-opened event is dispatched', function () {
@@ -88,7 +92,7 @@ it('has image file input', function () {
 it('accepts image upload property', function () {
     Storage::fake('public');
     $user = User::factory()->create();
-    $file = \Illuminate\Http\UploadedFile::fake()->image('dish.jpg');
+    $file = UploadedFile::fake()->image('dish.jpg');
 
     $component = Livewire::actingAs($user)
         ->test(UploadPostForm::class)
@@ -122,7 +126,7 @@ it('dispatches successful upload event', function () {
     Storage::fake('public');
 
     $user = User::factory()->create();
-    $file = \Illuminate\Http\UploadedFile::fake()->image('dish.jpg');
+    $file = UploadedFile::fake()->image('dish.jpg');
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
@@ -145,7 +149,7 @@ it('does not dispatch event on validation failure', function () {
 it('shows validation error when title is missing', function () {
     Storage::fake('public');
     $user = User::factory()->create();
-    $file = \Illuminate\Http\UploadedFile::fake()->image('dish.jpg');
+    $file = UploadedFile::fake()->image('dish.jpg');
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
@@ -153,7 +157,7 @@ it('shows validation error when title is missing', function () {
         ->call('submit')
         ->assertHasErrors(['title' => 'required']);
 
-    expect(\App\Models\Post::query()->count())->toBe(0);
+    expect(Post::query()->count())->toBe(0);
 });
 
 it('renders validation error placeholders', function () {
@@ -175,14 +179,14 @@ it('shows validation error when image is missing', function () {
         ->call('submit')
         ->assertHasErrors(['image' => 'required']);
 
-    expect(\App\Models\Post::query()->count())->toBe(0);
+    expect(Post::query()->count())->toBe(0);
 });
 
 it('creates post on successful upload', function () {
     Storage::fake('public');
 
     $user = User::factory()->create();
-    $file = \Illuminate\Http\UploadedFile::fake()->image('dish.jpg');
+    $file = UploadedFile::fake()->image('dish.jpg');
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
@@ -191,7 +195,7 @@ it('creates post on successful upload', function () {
         ->set('image', $file)
         ->call('submit');
 
-    expect(\App\Models\Post::query()->where('user_id', $user->id)->where('title', 'Homemade Pasta')->exists())->toBeTrue();
+    expect(Post::query()->where('user_id', $user->id)->where('title', 'Homemade Pasta')->exists())->toBeTrue();
 });
 
 it('renders tag input placeholder', function () {
@@ -221,8 +225,8 @@ it('updates cuisineTruth property', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('cuisineTruth', \App\Enums\CuisineType::Italian->value)
-        ->assertSet('cuisineTruth', \App\Enums\CuisineType::Italian->value);
+        ->set('cuisineTruth', CuisineType::Italian->value)
+        ->assertSet('cuisineTruth', CuisineType::Italian->value);
 });
 
 it('has origin truth selector', function () {
@@ -240,8 +244,8 @@ it('updates originTruth property', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('originTruth', \App\Enums\OriginType::Homemade->value)
-        ->assertSet('originTruth', \App\Enums\OriginType::Homemade->value);
+        ->set('originTruth', OriginType::Homemade->value)
+        ->assertSet('originTruth', OriginType::Homemade->value);
 });
 
 it('has source url input', function () {

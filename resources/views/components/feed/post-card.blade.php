@@ -68,6 +68,12 @@
                     :key="'post-card-report-'.$post->id"
                 />
             </div>
+            <div data-testid="post-card-moderation" wire:click.stop wire:keydown.stop>
+                <livewire:moderation.inline-post-moderation
+                    :post-id="$post->id"
+                    :key="'post-card-moderation-'.$post->id"
+                />
+            </div>
         @endif
     </footer>
 </x-ui.card>

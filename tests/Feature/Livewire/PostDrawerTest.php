@@ -2,6 +2,7 @@
 
 use App\Livewire\Feed\PostDrawer;
 use App\Models\Post;
+use App\Models\User;
 use Livewire\Livewire;
 
 it('can render post drawer component', function () {
@@ -94,7 +95,7 @@ it('renders drawer vote summary', function () {
 });
 
 it('renders drawer author metadata', function () {
-    $user = \App\Models\User::factory()->create([
+    $user = User::factory()->create([
         'name' => 'Demo Chef',
         'username' => 'demo_chef',
     ]);
@@ -151,7 +152,7 @@ it('renders image placeholder when drawer post has no image', function () {
 });
 
 it('renders origin voting panel in drawer', function () {
-    $post = \App\Models\Post::factory()->published()->create();
+    $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('post-drawer-origin-voting', false)
