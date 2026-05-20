@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Comments\Tables;
 
+use App\Enums\CommentStatus;
 use App\Filament\Resources\Posts\PostResource;
 use App\Models\Comment;
 use Filament\Tables\Columns\TextColumn;
@@ -32,6 +33,14 @@ class CommentsTable
                     ->url(fn (Comment $record): ?string => $record->post
                         ? PostResource::getUrl('index', ['tableSearch' => $record->post->title])
                         : null),
+                TextColumn::make('status')
+                    ->label('Status')
+                    ->badge()
+                    ->sortable()
+                    ->color(fn (CommentStatus $state): string => match ($state) {
+                        CommentStatus::Visible => 'success',
+                        CommentStatus::Hidden => 'danger',
+                    }),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([])
