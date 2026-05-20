@@ -25,6 +25,11 @@ final class InlinePostModeration extends Component
         return $user !== null && ($user->isModerator() || $user->isAdmin());
     }
 
+    public function approve(): void
+    {
+        // wired in RG-438
+    }
+
     public function render(): View
     {
         return view('livewire.moderation.inline-post-moderation', [

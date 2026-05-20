@@ -53,3 +53,24 @@ it('shows inline post moderation panel for admin', function () {
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertSee('data-testid="inline-post-moderation-panel"', false);
 });
+
+it('renders approve button for pending post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertSee('data-testid="moderation-approve"', false)
+        ->assertSee('Approve')
+        ->assertSee('wire:click="approve"', false);
+});
+
+it('does not render approve button for published post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="moderation-approve"', false)
+        ->assertDontSee('Approve');
+});
