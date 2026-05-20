@@ -74,3 +74,22 @@ it('does not render approve button for published post', function () {
         ->assertDontSee('data-testid="moderation-approve"', false)
         ->assertDontSee('Approve');
 });
+
+it('renders hide button for published post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertSee('data-testid="moderation-hide"', false)
+        ->assertSee('Hide');
+});
+
+it('does not render hide button for pending post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="moderation-hide"', false);
+});
