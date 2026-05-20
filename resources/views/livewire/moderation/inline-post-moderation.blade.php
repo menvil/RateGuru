@@ -5,7 +5,26 @@
             data-testid="inline-post-moderation-panel"
             class="mt-3 rounded-md border border-rg-border2 bg-rg-card2 p-3"
         >
-            <x-ui.badge>Moderator</x-ui.badge>
+            <div class="flex items-center justify-between gap-2">
+                <x-ui.badge>Moderator</x-ui.badge>
+
+                <div data-testid="open-in-admin-link" class="text-xs">
+                    @if ($this->adminPostUrl)
+                        <a
+                            href="{{ $this->adminPostUrl }}"
+                            target="_blank"
+                            rel="noopener"
+                            class="text-rg-text2 hover:text-rg-text"
+                        >
+                            Open in admin
+                        </a>
+                    @else
+                        <span class="text-rg-muted">
+                            Open in admin
+                        </span>
+                    @endif
+                </div>
+            </div>
 
             @if ($error)
                 <p data-testid="moderation-error" class="mt-2 text-xs text-rg-danger">
