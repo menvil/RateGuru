@@ -4,6 +4,7 @@ namespace App\Livewire\Moderation;
 
 use App\Models\Post;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Computed;
 use Livewire\Component;
 
 final class InlinePostModeration extends Component
@@ -15,6 +16,14 @@ final class InlinePostModeration extends Component
     public ?string $error = null;
 
     public ?string $success = null;
+
+    #[Computed]
+    public function canModerate(): bool
+    {
+        $user = auth()->user();
+
+        return $user !== null && ($user->isModerator() || $user->isAdmin());
+    }
 
     public function render(): View
     {
