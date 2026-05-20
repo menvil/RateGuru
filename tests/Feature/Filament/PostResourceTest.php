@@ -170,3 +170,16 @@ it('filters posts by hidden status', function () {
         ->assertCanSeeTableRecords([$hidden])
         ->assertCanNotSeeTableRecords([$published]);
 });
+
+it('filters posts with reports_count greater than zero', function () {
+    $admin = User::factory()->admin()->create();
+    $reported = Post::factory()->published()->create(['reports_count' => 2]);
+    $clean = Post::factory()->published()->create(['reports_count' => 0]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->filterTable('reported')
+        ->assertCanSeeTableRecords([$reported])
+        ->assertCanNotSeeTableRecords([$clean]);
+});
