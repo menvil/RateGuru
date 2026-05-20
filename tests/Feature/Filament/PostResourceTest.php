@@ -95,3 +95,15 @@ it('eager-loads the author to avoid N+1 in the posts table', function () {
 
     expect($userLookups)->toBeLessThanOrEqual(2);
 });
+
+it('renders the status column as a badge', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->pending()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$post])
+        ->assertTableColumnExists('status')
+        ->assertSee('pending');
+});
