@@ -3,13 +3,16 @@
 namespace App\Filament\Resources\Reports\Tables;
 
 use App\Actions\Comments\HideCommentAction;
+use App\Actions\Moderation\BanUserAction;
 use App\Actions\Moderation\HidePostAction;
 use App\Actions\Reports\IgnoreReportAction;
 use App\Actions\Reports\ResolveReportAction;
 use App\Enums\ReportStatus;
+use App\Enums\UserStatus;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
+use App\Models\User;
 use RuntimeException;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
@@ -148,6 +151,53 @@ class ReportsTable
                             default => throw new RuntimeException('Unsupported report target.'),
                         };
                     }),
+                Action::make('banTargetAuthor')
+                    ->label('Ban target author')
+                    ->icon('heroicon-o-user-minus')
+                    ->color('danger')
+                    ->visible(function (Report $record): bool {
+                        $admin = auth()->user();
+                        $author = self::targetAuthor($record);
+
+                        return $admin?->isAdmin() === true
+                            && $author !== null
+                            && $admin->id !== $author->id
+                            && ! $author->isAdmin()
+                            && $author->status !== UserStatus::Banned;
+                    })
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Report $record, array $data): void {
+                        $author = self::targetAuthor($record);
+
+                        if ($author === null) {
+                            throw new RuntimeException('Report target author not found.');
+                        }
+
+                        app(BanUserAction::class)->handle(
+                            auth()->user(),
+                            $author,
+                            $data['reason'] ?? null,
+                        );
+                    }),
             ]);
+    }
+
+    /**
+     * Resolve the User who authored the reported content (Post or Comment).
+     * Returns null when the target row or its author has been deleted.
+     */
+    private static function targetAuthor(Report $report): ?User
+    {
+        $target = $report->target;
+
+        return match (true) {
+            $target instanceof Post, $target instanceof Comment => $target->user,
+            default => null,
+        };
     }
 }

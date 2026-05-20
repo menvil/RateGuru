@@ -3,6 +3,7 @@
 use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
+use App\Enums\UserStatus;
 use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Models\Comment;
 use App\Models\Post;
@@ -148,6 +149,93 @@ it('hides hideTarget action when target is missing', function () {
 
     Livewire::test(ListReports::class)
         ->assertTableActionHidden('hideTarget', $report);
+});
+
+it('allows admin to ban reported post author from report resource', function () {
+    $admin = User::factory()->admin()->create();
+    $author = User::factory()->create(['status' => UserStatus::Active]);
+    $post = Post::factory()->for($author)->published()->create();
+    $report = Report::factory()->create([
+        'status' => ReportStatus::Open,
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->callTableAction('banTargetAuthor', $report, data: [
+            'reason' => 'Repeated violations.',
+        ])
+        ->assertHasNoTableActionErrors();
+
+    expect($author->fresh()->status)->toBe(UserStatus::Banned);
+});
+
+it('allows admin to ban reported comment author from report resource', function () {
+    $admin = User::factory()->admin()->create();
+    $author = User::factory()->create(['status' => UserStatus::Active]);
+    $comment = Comment::factory()->for($author)->create();
+    $report = Report::factory()->create([
+        'status' => ReportStatus::Open,
+        'target_type' => Comment::class,
+        'target_id' => $comment->id,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->callTableAction('banTargetAuthor', $report, data: [
+            'reason' => 'Abusive author.',
+        ])
+        ->assertHasNoTableActionErrors();
+
+    expect($author->fresh()->status)->toBe(UserStatus::Banned);
+});
+
+it('hides ban target author action from moderators', function () {
+    $moderator = User::factory()->moderator()->create();
+    $author = User::factory()->create();
+    $post = Post::factory()->for($author)->published()->create();
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+    ]);
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListReports::class)
+        ->assertTableActionHidden('banTargetAuthor', $report);
+});
+
+it('hides ban target author action when target author is admin', function () {
+    $admin = User::factory()->admin()->create();
+    $otherAdmin = User::factory()->admin()->create();
+    $post = Post::factory()->for($otherAdmin)->published()->create();
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->assertTableActionHidden('banTargetAuthor', $report);
+});
+
+it('hides ban target author action when author is already banned', function () {
+    $admin = User::factory()->admin()->create();
+    $author = User::factory()->create(['status' => UserStatus::Banned]);
+    $post = Post::factory()->for($author)->published()->create();
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->assertTableActionHidden('banTargetAuthor', $report);
 });
 
 it('hides resolve action from normal users', function () {
