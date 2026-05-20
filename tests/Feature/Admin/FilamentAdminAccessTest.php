@@ -60,3 +60,19 @@ it('does not allow a banned admin to access the filament panel', function () {
 
     expect($admin->canAccessPanel($panel))->toBeFalse();
 });
+
+it('does not allow normal authenticated user to access /admin', function () {
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)->get('/admin');
+
+    expect($response->getStatusCode())->toBe(403);
+});
+
+it('does not allow banned moderator to access /admin', function () {
+    $moderator = User::factory()->moderator()->banned()->create();
+
+    $response = $this->actingAs($moderator)->get('/admin');
+
+    expect($response->getStatusCode())->toBe(403);
+});
