@@ -2,9 +2,13 @@
 
 namespace App\Filament\Resources\Reports\Tables;
 
+use App\Actions\Reports\ResolveReportAction;
 use App\Enums\ReportStatus;
 use App\Models\Comment;
 use App\Models\Post;
+use App\Models\Report;
+use Filament\Actions\Action;
+use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
@@ -65,6 +69,29 @@ class ReportsTable
                     ->label('Ignored')
                     ->query(fn (Builder $query) => $query->where('status', ReportStatus::Ignored)),
             ])
-            ->recordActions([]);
+            ->recordActions([
+                Action::make('resolve')
+                    ->label('Resolve')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->visible(fn (Report $record): bool =>
+                        $record->status === ReportStatus::Open
+                        && (auth()->user()?->isModerator() === true
+                            || auth()->user()?->isAdmin() === true)
+                    )
+                    ->schema([
+                        Textarea::make('note')
+                            ->label('Resolution note')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Report $record, array $data): void {
+                        app(ResolveReportAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['note'] ?? null,
+                        );
+                    }),
+            ]);
     }
 }
