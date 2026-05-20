@@ -7,6 +7,7 @@ use App\Enums\ReportStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class Report extends Model
 {
@@ -26,5 +27,15 @@ class Report extends Model
     public function reporter(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reporter_id');
+    }
+
+    /**
+     * Polymorphic relation to the reported content (Post or Comment).
+     * Returns null when the target row has been deleted; callers must
+     * tolerate that.
+     */
+    public function target(): MorphTo
+    {
+        return $this->morphTo(__FUNCTION__, 'target_type', 'target_id');
     }
 }

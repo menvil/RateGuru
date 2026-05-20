@@ -149,10 +149,14 @@ it('sorts report resource table by newest report first by default', function () 
 });
 
 it('renders Unknown for unrecognised target type without crashing', function () {
+    // Use User::class as a target_type the resource does not know about; the
+    // morphTo eager-load resolves cleanly while the column still falls
+    // through to the 'Unknown' branch.
     $admin = User::factory()->admin()->create();
+    $someone = User::factory()->create();
     $report = Report::factory()->create([
-        'target_type' => 'App\\Models\\Missing',
-        'target_id' => 9999,
+        'target_type' => User::class,
+        'target_id' => $someone->id,
     ]);
 
     $this->actingAs($admin);

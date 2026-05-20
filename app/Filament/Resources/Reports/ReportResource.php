@@ -10,6 +10,7 @@ use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ReportResource extends Resource
 {
@@ -27,6 +28,14 @@ class ReportResource extends Resource
     public static function table(Table $table): Table
     {
         return ReportsTable::configure($table);
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        // Eager-load reporter and the polymorphic target so the table can
+        // render `reporter.username` and dispatch hide/ban actions without
+        // N+1 queries across the moderation queue.
+        return parent::getEloquentQuery()->with(['reporter', 'target']);
     }
 
     public static function getRelations(): array
