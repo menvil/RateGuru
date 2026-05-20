@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
@@ -74,7 +75,7 @@ class UserFactory extends Factory
     public function trusted(): static
     {
         return $this->state(fn () => [
-            'trust_level' => 10,
+            'trust_level' => MarkUserTrustedAction::TRUSTED_LEVEL,
             'status' => UserStatus::Active,
         ]);
     }
