@@ -112,3 +112,22 @@ it('does not render reject button for published post', function () {
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertDontSee('data-testid="moderation-reject"', false);
 });
+
+it('renders restore button for hidden post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->hidden()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertSee('data-testid="moderation-restore"', false)
+        ->assertSee('Restore');
+});
+
+it('does not render restore button for published post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="moderation-restore"', false);
+});

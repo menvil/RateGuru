@@ -33,6 +33,16 @@
                         Hide
                     </x-ui.button>
                 @endif
+
+                @if ($post->status === \App\Enums\PostStatus::Hidden)
+                    <x-ui.button
+                        type="button"
+                        wire:click="restore"
+                        data-testid="moderation-restore"
+                    >
+                        Restore
+                    </x-ui.button>
+                @endif
             </div>
         </div>
     @endif
