@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Users\Tables;
 
 use App\Actions\Moderation\BanUserAction;
+use App\Actions\Moderation\UnbanUserAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
@@ -97,6 +98,27 @@ class UsersTable
                     ->requiresConfirmation()
                     ->action(function (User $record, array $data): void {
                         app(BanUserAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['reason'] ?? null,
+                        );
+                    }),
+                Action::make('unban')
+                    ->label('Unban')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('success')
+                    ->visible(fn (User $record): bool =>
+                        auth()->user()?->isAdmin() === true
+                        && in_array($record->status, [UserStatus::Banned, UserStatus::Shadowbanned], true)
+                    )
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (User $record, array $data): void {
+                        app(UnbanUserAction::class)->handle(
                             auth()->user(),
                             $record,
                             $data['reason'] ?? null,
