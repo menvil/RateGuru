@@ -24,3 +24,22 @@ it('filters hidden comments in comment resource', function () {
         ->assertCanSeeTableRecords([$hidden])
         ->assertCanNotSeeTableRecords([$visible]);
 });
+
+it('filters reported comments in comment resource', function () {
+    $admin = User::factory()->admin()->create();
+    $reported = Comment::factory()->create([
+        'body' => 'Reported comment',
+        'reports_count' => 2,
+    ]);
+    $clean = Comment::factory()->create([
+        'body' => 'Clean comment',
+        'reports_count' => 0,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->filterTable('reported')
+        ->assertCanSeeTableRecords([$reported])
+        ->assertCanNotSeeTableRecords([$clean]);
+});

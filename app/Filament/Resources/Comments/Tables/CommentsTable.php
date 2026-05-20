@@ -55,6 +55,9 @@ class CommentsTable
                 Filter::make('hidden')
                     ->label('Hidden')
                     ->query(fn (Builder $query) => $query->where('status', CommentStatus::Hidden)),
+                Filter::make('reported')
+                    ->label('Reported')
+                    ->query(fn (Builder $query) => $query->where('reports_count', '>', 0)),
             ])
             ->recordActions([]);
     }
