@@ -30,6 +30,11 @@ class ReportsTable
                     ->label('Reason')
                     ->badge()
                     ->sortable(),
+                TextColumn::make('reporter.username')
+                    ->label('Reporter')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('—'),
             ])
             ->filters([])
             ->recordActions([]);

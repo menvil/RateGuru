@@ -93,6 +93,20 @@ it('renders report reason in report resource table', function () {
         ->assertSee('spam');
 });
 
+it('renders report reporter in report resource table', function () {
+    $admin = User::factory()->admin()->create();
+    $reporter = User::factory()->create(['username' => 'reporter_user']);
+    $report = Report::factory()->for($reporter, 'reporter')->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->assertCanSeeTableRecords([$report])
+        ->assertTableColumnExists('reporter.username')
+        ->assertCanRenderTableColumn('reporter.username')
+        ->assertSee('reporter_user');
+});
+
 it('renders Unknown for unrecognised target type without crashing', function () {
     $admin = User::factory()->admin()->create();
     $report = Report::factory()->create([
