@@ -58,6 +58,9 @@ class ReportsTable
                 Filter::make('open')
                     ->label('Open')
                     ->query(fn (Builder $query) => $query->where('status', ReportStatus::Open)),
+                Filter::make('resolved')
+                    ->label('Resolved')
+                    ->query(fn (Builder $query) => $query->where('status', ReportStatus::Resolved)),
             ])
             ->recordActions([]);
     }
