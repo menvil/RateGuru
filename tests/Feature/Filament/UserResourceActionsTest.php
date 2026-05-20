@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\ModerationActionType;
 use App\Enums\UserStatus;
 use App\Filament\Resources\Users\Pages\ListUsers;
@@ -135,7 +136,7 @@ it('allows admin to mark a user trusted via the mark trusted action', function (
         ->callTableAction('markTrusted', $target, data: ['reason' => 'Reliable contributor.']);
 
     $fresh = $target->fresh();
-    expect($fresh->trust_level)->toBe(10);
+    expect($fresh->trust_level)->toBe(MarkUserTrustedAction::TRUSTED_LEVEL);
     expect($fresh->status)->toBe(UserStatus::Active);
 
     $this->assertDatabaseHas('moderation_logs', [

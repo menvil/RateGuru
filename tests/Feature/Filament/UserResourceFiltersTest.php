@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\UserStatus;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Models\User;
@@ -55,7 +56,7 @@ it('filters trusted users in user resource', function () {
     // requires both trust_level >= TRUSTED_LEVEL *and* status = Active.
     $bannedButHighTrust = User::factory()->create([
         'status' => UserStatus::Banned,
-        'trust_level' => 10,
+        'trust_level' => MarkUserTrustedAction::TRUSTED_LEVEL,
         'username' => 'banned_high_trust',
     ]);
 

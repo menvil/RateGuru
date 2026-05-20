@@ -2,6 +2,7 @@
 
 namespace App\Actions\Posts;
 
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
@@ -24,7 +25,8 @@ final class CreatePostAction
             throw CannotCreatePostException::becauseUserIsNotAllowed();
         }
 
-        $isTrusted = $user->trust_level >= 10 && $user->status === UserStatus::Active;
+        $isTrusted = $user->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL
+            && $user->status === UserStatus::Active;
 
         $status      = $isTrusted ? PostStatus::Published : PostStatus::Pending;
         $publishedAt = $isTrusted ? now() : null;
