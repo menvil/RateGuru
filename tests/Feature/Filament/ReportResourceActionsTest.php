@@ -254,15 +254,3 @@ it('hides ban target author action when author is already banned', function () {
     Livewire::test(ListReports::class)
         ->assertTableActionHidden('banTargetAuthor', $report);
 });
-
-it('hides resolve action from normal users', function () {
-    $user = User::factory()->create();
-    $report = Report::factory()->create(['status' => ReportStatus::Open]);
-
-    // Normal users cannot reach the panel, but if the action is rendered for
-    // any reason it must not be invokable.
-    $this->actingAs($user);
-
-    Livewire::test(ListReports::class)
-        ->assertTableActionHidden('resolve', $report);
-})->skip('Normal users are blocked at the panel layer; covered by access tests.');
