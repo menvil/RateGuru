@@ -17,6 +17,13 @@ class TagsTable
                     ->searchable()
                     ->sortable()
                     ->wrap(),
+                TextColumn::make('slug')
+                    ->label('Slug')
+                    ->searchable()
+                    ->sortable()
+                    ->copyable()
+                    ->fontFamily('mono')
+                    ->color('gray'),
             ])
             ->filters([
                 //
