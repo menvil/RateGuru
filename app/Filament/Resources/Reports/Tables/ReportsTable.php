@@ -126,7 +126,7 @@ class ReportsTable
                     ->icon('heroicon-o-eye-slash')
                     ->color('danger')
                     ->visible(fn (Report $record): bool =>
-                        $record->target !== null
+                        ($record->target instanceof Post || $record->target instanceof Comment)
                         && (auth()->user()?->isModerator() === true
                             || auth()->user()?->isAdmin() === true)
                     )
@@ -157,10 +157,16 @@ class ReportsTable
                     ->color('danger')
                     ->visible(function (Report $record): bool {
                         $admin = auth()->user();
+
+                        // Ban is admin-only; bail before resolving the target
+                        // author so moderator rows skip the relation access.
+                        if ($admin?->isAdmin() !== true) {
+                            return false;
+                        }
+
                         $author = self::targetAuthor($record);
 
-                        return $admin?->isAdmin() === true
-                            && $author !== null
+                        return $author !== null
                             && $admin->id !== $author->id
                             && ! $author->isAdmin()
                             && $author->status !== UserStatus::Banned;
