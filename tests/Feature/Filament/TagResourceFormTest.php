@@ -64,6 +64,28 @@ it('auto generates slug from name when creating tag', function () {
     ]);
 });
 
+it('does not overwrite a manually edited slug when the name changes on create', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(CreateTag::class)
+        ->fillForm(['name' => 'Street Food'])
+        ->assertFormSet(['slug' => 'street-food'])
+        // User overrides the auto-generated slug...
+        ->fillForm(['slug' => 'custom-slug'])
+        // ...then tweaks the name again. The slug must be preserved.
+        ->fillForm(['name' => 'Street Food Stalls'])
+        ->assertFormSet(['slug' => 'custom-slug'])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $this->assertDatabaseHas('tags', [
+        'name' => 'Street Food Stalls',
+        'slug' => 'custom-slug',
+    ]);
+});
+
 it('requires a name when creating tag', function () {
     $admin = User::factory()->admin()->create();
 
