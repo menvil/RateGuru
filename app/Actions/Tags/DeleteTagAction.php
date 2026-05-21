@@ -18,7 +18,10 @@ final class DeleteTagAction
      */
     public function handle(User $admin, Tag $tag): void
     {
-        if (! $admin->isAdmin()) {
+        // Authorization (admin-only) lives in TagPolicy::delete. The
+        // "tag is still used by posts" check below is a domain invariant
+        // and stays here.
+        if (! $admin->can('delete', $tag)) {
             throw CannotDeleteTagException::becauseUserIsNotAllowed();
         }
 
