@@ -17,7 +17,7 @@ final class ApprovePostAction
 
     public function handle(User $moderator, Post $post, ?string $reason = null): void
     {
-        if (! $moderator->isModerator() && ! $moderator->isAdmin()) {
+        if (! $moderator->can('approve', $post)) {
             throw CannotModeratePostException::becauseUserIsNotAllowed();
         }
 

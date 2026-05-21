@@ -17,7 +17,7 @@ final class HidePostAction
 
     public function handle(User $moderator, Post $post, ?string $reason = null): void
     {
-        if (! $moderator->isModerator() && ! $moderator->isAdmin()) {
+        if (! $moderator->can('hide', $post)) {
             throw CannotModeratePostException::becauseUserIsNotAllowed();
         }
 

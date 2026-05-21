@@ -17,7 +17,7 @@ final class RestorePostAction
 
     public function handle(User $moderator, Post $post, ?string $reason = null): void
     {
-        if (! $moderator->isModerator() && ! $moderator->isAdmin()) {
+        if (! $moderator->can('restore', $post)) {
             throw CannotModeratePostException::becauseUserIsNotAllowed();
         }
 
