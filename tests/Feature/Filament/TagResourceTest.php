@@ -48,3 +48,27 @@ it('lists tags on the index page', function () {
     Livewire::test(ListTags::class)
         ->assertCanSeeTableRecords([$tag]);
 });
+
+it('renders tag name in tag resource table', function () {
+    $admin = User::factory()->admin()->create();
+
+    Tag::factory()->create([
+        'name' => 'Italian',
+        'slug' => 'italian',
+    ]);
+
+    $this->actingAs($admin)
+        ->get(TagResource::getUrl('index'))
+        ->assertOk()
+        ->assertSee('Italian');
+});
+
+it('renders a searchable, sortable name column', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListTags::class)
+        ->assertTableColumnExists('name')
+        ->assertCanRenderTableColumn('name');
+});
