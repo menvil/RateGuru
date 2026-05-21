@@ -22,19 +22,27 @@ it('throws when the tag is attached to posts', function () {
     $post = Post::factory()->published()->create();
     $post->tags()->attach($tag);
 
-    expect(fn () => app(DeleteTagAction::class)->handle($admin, $tag))
-        ->toThrow(CannotDeleteTagException::class);
+    try {
+        app(DeleteTagAction::class)->handle($admin, $tag);
+        $this->fail('Expected CannotDeleteTagException.');
+    } catch (CannotDeleteTagException $e) {
+        expect($e->reason)->toBe(CannotDeleteTagException::REASON_USED_BY_POSTS);
+    }
 
     $this->assertDatabaseHas('tags', ['id' => $tag->id]);
     expect($post->fresh()->tags()->whereKey($tag->id)->exists())->toBeTrue();
 });
 
-it('throws when a non-admin attempts to delete a tag', function () {
+it('throws a not-allowed reason when a non-admin attempts to delete a tag', function () {
     $moderator = User::factory()->moderator()->create();
     $tag = Tag::factory()->create();
 
-    expect(fn () => app(DeleteTagAction::class)->handle($moderator, $tag))
-        ->toThrow(CannotDeleteTagException::class);
+    try {
+        app(DeleteTagAction::class)->handle($moderator, $tag);
+        $this->fail('Expected CannotDeleteTagException.');
+    } catch (CannotDeleteTagException $e) {
+        expect($e->reason)->toBe(CannotDeleteTagException::REASON_NOT_ALLOWED);
+    }
 
     $this->assertDatabaseHas('tags', ['id' => $tag->id]);
 });

@@ -140,6 +140,25 @@ it('requires a name when creating tag', function () {
         ->assertHasFormErrors(['name' => 'required']);
 });
 
+it('rejects a blank slug whose name-derived value already exists', function () {
+    $admin = User::factory()->admin()->create();
+    Tag::factory()->create(['slug' => 'street-food']);
+
+    $this->actingAs($admin);
+
+    // Slug left blank: the effective slug is generated from the name and
+    // must still be caught by validation before reaching the DB.
+    Livewire::test(CreateTag::class)
+        ->fillForm([
+            'name' => 'Street Food',
+            'slug' => '',
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['slug']);
+
+    expect(Tag::query()->where('slug', 'street-food')->count())->toBe(1);
+});
+
 it('rejects duplicate slug when creating tag', function () {
     $admin = User::factory()->admin()->create();
     Tag::factory()->create(['slug' => 'pasta']);
@@ -211,6 +230,38 @@ it('allows keeping current slug when editing tag', function () {
 
     expect($tag->fresh()->name)->toBe('Pasta Dishes');
     expect($tag->fresh()->slug)->toBe('pasta');
+});
+
+it('rejects a blank slug on edit whose name-derived value already exists', function () {
+    $admin = User::factory()->admin()->create();
+
+    Tag::factory()->create(['slug' => 'street-food']);
+    $tag = Tag::factory()->create(['name' => 'Old', 'slug' => 'old']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(EditTag::class, ['record' => $tag->getRouteKey()])
+        ->fillForm([
+            'name' => 'Street Food',
+            'slug' => '',
+        ])
+        ->call('save')
+        ->assertHasFormErrors(['slug']);
+
+    expect($tag->fresh()->slug)->toBe('old');
+});
+
+it('allows saving a tag without changing its own slug', function () {
+    $admin = User::factory()->admin()->create();
+    $tag = Tag::factory()->create(['name' => 'Pasta', 'slug' => 'pasta']);
+
+    $this->actingAs($admin);
+
+    // Effective slug equals the record's own slug — must not collide with itself.
+    Livewire::test(EditTag::class, ['record' => $tag->getRouteKey()])
+        ->fillForm(['name' => 'Pasta', 'slug' => 'pasta'])
+        ->call('save')
+        ->assertHasNoFormErrors();
 });
 
 it('rejects duplicate slug when editing tag', function () {

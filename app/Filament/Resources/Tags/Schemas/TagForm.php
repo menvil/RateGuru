@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Tags\Schemas;
 
+use App\Models\Tag;
+use App\Rules\UniqueEffectiveTagSlug;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -38,8 +40,16 @@ class TagForm
                 TextInput::make('slug')
                     ->label('Slug')
                     ->maxLength(100)
-                    ->unique(ignoreRecord: true)
                     ->regex('/^[a-z0-9]+(?:-[a-z0-9]+)*$/')
+                    // Validate uniqueness against the *effective* slug — the
+                    // value actually saved, including the name-derived fallback
+                    // when the field is left blank. A plain ->unique() would
+                    // only check the raw (possibly empty) field value and let a
+                    // colliding generated slug reach the DB unique index.
+                    ->rule(fn (Get $get, ?Tag $record): UniqueEffectiveTagSlug => new UniqueEffectiveTagSlug(
+                        $get('name'),
+                        $record?->getKey(),
+                    ))
                     ->helperText('Lowercase, URL-safe. Auto-generated from the name if left blank.'),
             ]);
     }
