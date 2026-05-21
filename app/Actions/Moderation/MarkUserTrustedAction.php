@@ -24,12 +24,11 @@ final class MarkUserTrustedAction
 
     public function handle(User $admin, User $target, ?string $reason = null): void
     {
-        if (! $admin->isAdmin()) {
+        // Authorization (admin role + self protection + target-is-regular-user)
+        // lives in UserPolicy::markTrusted. The in-transaction role/status
+        // guards below remain as defence in depth and domain invariants.
+        if (! $admin->can('markTrusted', $target)) {
             throw CannotModerateUserException::becauseUserIsNotAllowed();
-        }
-
-        if ($admin->id === $target->id) {
-            throw CannotModerateUserException::becauseTargetIsProtected();
         }
 
         DB::transaction(function () use ($admin, $target, $reason) {
