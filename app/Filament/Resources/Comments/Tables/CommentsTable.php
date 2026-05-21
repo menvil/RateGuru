@@ -71,8 +71,7 @@ class CommentsTable
                     ->color('danger')
                     ->visible(fn (Comment $record): bool =>
                         $record->status === CommentStatus::Visible
-                        && (auth()->user()?->isModerator() === true
-                            || auth()->user()?->isAdmin() === true)
+                        && auth()->user()?->can('hide', $record) === true
                     )
                     ->schema([
                         Textarea::make('reason')
@@ -93,8 +92,7 @@ class CommentsTable
                     ->color('success')
                     ->visible(fn (Comment $record): bool =>
                         $record->status === CommentStatus::Hidden
-                        && (auth()->user()?->isModerator() === true
-                            || auth()->user()?->isAdmin() === true)
+                        && auth()->user()?->can('restore', $record) === true
                     )
                     ->schema([
                         Textarea::make('reason')
@@ -113,8 +111,10 @@ class CommentsTable
                     ->label('Delete')
                     ->icon('heroicon-o-trash')
                     ->color('danger')
-                    // Admin-only by design: moderators do hide/restore. The
-                    // backend still enforces this through CommentPolicy.
+                    // Deliberate UI scoping: in the moderation table only
+                    // admins delete; moderators use hide/restore. This is
+                    // intentionally stricter than CommentPolicy::delete
+                    // (owner|admin), which still governs the action itself.
                     ->visible(fn (): bool => auth()->user()?->isAdmin() === true)
                     ->requiresConfirmation()
                     ->action(function (Comment $record): void {

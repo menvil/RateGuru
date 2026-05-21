@@ -45,7 +45,7 @@ class TagsTable
                     ->label('Delete')
                     ->icon('heroicon-o-trash')
                     ->color('danger')
-                    ->visible(fn (): bool => auth()->user()?->isAdmin() === true)
+                    ->visible(fn (Tag $record): bool => auth()->user()?->can('delete', $record) ?? false)
                     ->requiresConfirmation()
                     ->modalDescription('Tags attached to posts cannot be deleted. Detach or merge them first.')
                     ->action(function (Tag $record): void {

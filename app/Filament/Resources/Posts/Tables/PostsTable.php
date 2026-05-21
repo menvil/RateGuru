@@ -154,7 +154,7 @@ class PostsTable
                     ->label('Delete')
                     ->icon('heroicon-o-trash')
                     ->color('danger')
-                    ->visible(fn (): bool => auth()->user()?->isAdmin() === true)
+                    ->visible(fn (Post $record): bool => auth()->user()?->can('delete', $record) ?? false)
                     ->requiresConfirmation()
                     ->modalHeading('Delete post')
                     ->modalDescription('Soft-deletes the post. It can be restored from the database if needed.')
@@ -162,7 +162,7 @@ class PostsTable
                         // Server-side authorization. visible() hides the
                         // button in the UI but the action endpoint is still
                         // reachable, so we re-check here before mutating.
-                        abort_unless(auth()->user()?->isAdmin() === true, 403);
+                        abort_unless(auth()->user()?->can('delete', $record) === true, 403);
 
                         $record->delete();
                     }),
