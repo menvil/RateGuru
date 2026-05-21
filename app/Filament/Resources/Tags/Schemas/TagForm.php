@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Tags\Schemas;
 
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Str;
@@ -18,10 +19,17 @@ class TagForm
                     ->required()
                     ->maxLength(80)
                     ->live(onBlur: true)
-                    ->afterStateUpdated(function (string $operation, ?string $state, Set $set): void {
+                    ->afterStateUpdated(function (string $operation, ?string $state, Get $get, Set $set): void {
                         // Auto-fill the slug from the name only while creating;
                         // editing must never silently rewrite an existing slug.
                         if ($operation !== 'create') {
+                            return;
+                        }
+
+                        // Only auto-fill when the slug is still empty so a slug
+                        // the user has already edited is never clobbered by a
+                        // later change to the name.
+                        if (filled($get('slug'))) {
                             return;
                         }
 
