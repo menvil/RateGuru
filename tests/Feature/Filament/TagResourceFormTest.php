@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Resources\Tags\Pages\CreateTag;
+use App\Filament\Resources\Tags\Pages\EditTag;
 use App\Models\Tag;
 use App\Models\User;
 
@@ -104,4 +105,67 @@ it('rejects non url-safe slug when creating tag', function () {
         ])
         ->call('create')
         ->assertHasFormErrors(['slug']);
+});
+
+it('allows admin to edit tag from tag resource', function () {
+    $admin = User::factory()->admin()->create();
+
+    $tag = Tag::factory()->create([
+        'name' => 'Old Name',
+        'slug' => 'old-name',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(EditTag::class, ['record' => $tag->getRouteKey()])
+        ->fillForm([
+            'name' => 'New Name',
+            'slug' => 'new-name',
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($tag->fresh()->name)->toBe('New Name');
+    expect($tag->fresh()->slug)->toBe('new-name');
+});
+
+it('allows keeping current slug when editing tag', function () {
+    $admin = User::factory()->admin()->create();
+
+    $tag = Tag::factory()->create([
+        'name' => 'Pasta',
+        'slug' => 'pasta',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(EditTag::class, ['record' => $tag->getRouteKey()])
+        ->fillForm([
+            'name' => 'Pasta Dishes',
+            'slug' => 'pasta',
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($tag->fresh()->name)->toBe('Pasta Dishes');
+    expect($tag->fresh()->slug)->toBe('pasta');
+});
+
+it('rejects duplicate slug when editing tag', function () {
+    $admin = User::factory()->admin()->create();
+
+    Tag::factory()->create(['slug' => 'taken']);
+    $tag = Tag::factory()->create(['slug' => 'editable']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(EditTag::class, ['record' => $tag->getRouteKey()])
+        ->fillForm([
+            'name' => 'Editable',
+            'slug' => 'taken',
+        ])
+        ->call('save')
+        ->assertHasFormErrors(['slug']);
+
+    expect($tag->fresh()->slug)->toBe('editable');
 });
