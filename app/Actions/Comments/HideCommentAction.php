@@ -21,7 +21,7 @@ final class HideCommentAction
 
     public function handle(User $user, Comment $comment, ?string $reason = null): void
     {
-        if (! $user->isModerator() && ! $user->isAdmin()) {
+        if (! $user->can('hide', $comment)) {
             throw CannotHideCommentException::becauseUserIsNotAllowed();
         }
 

@@ -89,9 +89,7 @@ class UsersTable
                     ->icon('heroicon-o-no-symbol')
                     ->color('danger')
                     ->visible(fn (User $record): bool =>
-                        auth()->user()?->isAdmin() === true
-                        && auth()->id() !== $record->id
-                        && ! $record->isAdmin()
+                        auth()->user()?->can('ban', $record) === true
                         && $record->status !== UserStatus::Banned
                     )
                     ->schema([
@@ -112,9 +110,7 @@ class UsersTable
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('success')
                     ->visible(fn (User $record): bool =>
-                        auth()->user()?->isAdmin() === true
-                        && auth()->id() !== $record->id
-                        && ! $record->isAdmin()
+                        auth()->user()?->can('unban', $record) === true
                         && in_array($record->status, [UserStatus::Banned, UserStatus::Shadowbanned], true)
                     )
                     ->schema([
@@ -135,9 +131,7 @@ class UsersTable
                     ->icon('heroicon-o-shield-check')
                     ->color('success')
                     ->visible(fn (User $record): bool =>
-                        auth()->user()?->isAdmin() === true
-                        && auth()->id() !== $record->id
-                        && $record->role === UserRole::User
+                        auth()->user()?->can('markTrusted', $record) === true
                         && $record->status === UserStatus::Active
                         && (int) $record->trust_level < MarkUserTrustedAction::TRUSTED_LEVEL
                     )
@@ -159,9 +153,7 @@ class UsersTable
                     ->icon('heroicon-o-eye-slash')
                     ->color('warning')
                     ->visible(fn (User $record): bool =>
-                        auth()->user()?->isAdmin() === true
-                        && auth()->id() !== $record->id
-                        && ! $record->isAdmin()
+                        auth()->user()?->can('shadowban', $record) === true
                         && $record->status !== UserStatus::Shadowbanned
                         && $record->status !== UserStatus::Banned
                     )

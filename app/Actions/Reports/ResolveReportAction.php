@@ -11,7 +11,7 @@ final class ResolveReportAction
 {
     public function handle(User $moderator, Report $report, ?string $note = null): void
     {
-        if (! $moderator->isModerator() && ! $moderator->isAdmin()) {
+        if (! $moderator->can('resolve', $report)) {
             throw CannotResolveReportException::becauseUserIsNotAllowed();
         }
 

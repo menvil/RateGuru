@@ -16,12 +16,11 @@ final class ShadowbanUserAction
 
     public function handle(User $admin, User $target, ?string $reason = null): void
     {
-        if (! $admin->isAdmin()) {
+        // Authorization (admin role + self / target-admin protection) lives
+        // in UserPolicy::shadowban. The in-transaction admin guard below
+        // remains as defence in depth against concurrent role changes.
+        if (! $admin->can('shadowban', $target)) {
             throw CannotModerateUserException::becauseUserIsNotAllowed();
-        }
-
-        if ($admin->id === $target->id) {
-            throw CannotModerateUserException::becauseTargetIsProtected();
         }
 
         // Re-read the target role/status under a row lock so a concurrent

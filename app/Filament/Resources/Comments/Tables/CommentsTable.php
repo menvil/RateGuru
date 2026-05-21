@@ -71,8 +71,7 @@ class CommentsTable
                     ->color('danger')
                     ->visible(fn (Comment $record): bool =>
                         $record->status === CommentStatus::Visible
-                        && (auth()->user()?->isModerator() === true
-                            || auth()->user()?->isAdmin() === true)
+                        && auth()->user()?->can('hide', $record) === true
                     )
                     ->schema([
                         Textarea::make('reason')
@@ -93,8 +92,7 @@ class CommentsTable
                     ->color('success')
                     ->visible(fn (Comment $record): bool =>
                         $record->status === CommentStatus::Hidden
-                        && (auth()->user()?->isModerator() === true
-                            || auth()->user()?->isAdmin() === true)
+                        && auth()->user()?->can('restore', $record) === true
                     )
                     ->schema([
                         Textarea::make('reason')
@@ -113,9 +111,11 @@ class CommentsTable
                     ->label('Delete')
                     ->icon('heroicon-o-trash')
                     ->color('danger')
-                    // Admin-only by design: moderators do hide/restore. The
-                    // backend still enforces this through CommentPolicy.
-                    ->visible(fn (): bool => auth()->user()?->isAdmin() === true)
+                    // Deliberate UI scoping: in the moderation table only
+                    // admins delete; moderators use hide/restore. Encoded as
+                    // CommentPolicy::deleteInModeration so visibility follows
+                    // the same can() source of truth as the other actions.
+                    ->visible(fn (Comment $record): bool => auth()->user()?->can('deleteInModeration', $record) ?? false)
                     ->requiresConfirmation()
                     ->action(function (Comment $record): void {
                         app(DeleteCommentAction::class)->handle(

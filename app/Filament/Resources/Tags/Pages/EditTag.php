@@ -1,0 +1,66 @@
+<?php
+
+namespace App\Filament\Resources\Tags\Pages;
+
+use App\Actions\Tags\DeleteTagAction;
+use App\Exceptions\Tags\CannotDeleteTagException;
+use App\Filament\Resources\Tags\TagResource;
+use App\Models\Tag;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
+use Filament\Resources\Pages\EditRecord;
+use Illuminate\Support\Str;
+
+class EditTag extends EditRecord
+{
+    protected static string $resource = TagResource::class;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('delete')
+                ->label('Delete')
+                ->icon('heroicon-o-trash')
+                ->color('danger')
+                ->visible(fn (): bool => auth()->user()?->can('delete', $this->getRecord()) ?? false)
+                ->requiresConfirmation()
+                ->modalDescription('Tags attached to posts cannot be deleted. Detach or merge them first.')
+                ->action(function (): void {
+                    /** @var Tag $record */
+                    $record = $this->getRecord();
+
+                    try {
+                        app(DeleteTagAction::class)->handle(auth()->user(), $record);
+                    } catch (CannotDeleteTagException $e) {
+                        [$title, $body] = $e->reason === CannotDeleteTagException::REASON_USED_BY_POSTS
+                            ? ['Tag is used by posts', 'Detach or merge this tag before deleting it.']
+                            : ['Cannot delete tag', 'You are not allowed to delete this tag.'];
+
+                        Notification::make()
+                            ->title($title)
+                            ->body($body)
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
+                    Notification::make()
+                        ->title('Tag deleted')
+                        ->success()
+                        ->send();
+
+                    $this->redirect(TagResource::getUrl('index'));
+                }),
+        ];
+    }
+
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        // Use a blank/null check (not truthy) so a deliberate slug like "0"
+        // is preserved rather than falling back to the name.
+        $data['slug'] = Str::slug(filled($data['slug']) ? $data['slug'] : $data['name']);
+
+        return $data;
+    }
+}

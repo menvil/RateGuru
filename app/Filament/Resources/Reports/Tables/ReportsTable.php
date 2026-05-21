@@ -20,12 +20,22 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class ReportsTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            // Eager-load the polymorphic target and its author so the
+            // hideTarget/banTargetAuthor visibility closures (which read
+            // $record->target and its ->user) don't trigger per-row queries.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['target' => function (MorphTo $morphTo): void {
+                $morphTo->morphWith([
+                    Post::class => ['user'],
+                    Comment::class => ['user'],
+                ]);
+            }]))
             ->columns([
                 TextColumn::make('target_type')
                     ->label('Target')
@@ -83,8 +93,7 @@ class ReportsTable
                     ->color('success')
                     ->visible(fn (Report $record): bool =>
                         $record->status === ReportStatus::Open
-                        && (auth()->user()?->isModerator() === true
-                            || auth()->user()?->isAdmin() === true)
+                        && auth()->user()?->can('resolve', $record) === true
                     )
                     ->schema([
                         Textarea::make('note')
@@ -105,8 +114,7 @@ class ReportsTable
                     ->color('gray')
                     ->visible(fn (Report $record): bool =>
                         $record->status === ReportStatus::Open
-                        && (auth()->user()?->isModerator() === true
-                            || auth()->user()?->isAdmin() === true)
+                        && auth()->user()?->can('ignore', $record) === true
                     )
                     ->schema([
                         Textarea::make('note')
@@ -127,8 +135,7 @@ class ReportsTable
                     ->color('danger')
                     ->visible(fn (Report $record): bool =>
                         ($record->target instanceof Post || $record->target instanceof Comment)
-                        && (auth()->user()?->isModerator() === true
-                            || auth()->user()?->isAdmin() === true)
+                        && auth()->user()?->can('hide', $record->target) === true
                     )
                     ->schema([
                         Textarea::make('reason')
@@ -156,19 +163,13 @@ class ReportsTable
                     ->icon('heroicon-o-user-minus')
                     ->color('danger')
                     ->visible(function (Report $record): bool {
-                        $admin = auth()->user();
-
-                        // Ban is admin-only; bail before resolving the target
-                        // author so moderator rows skip the relation access.
-                        if ($admin?->isAdmin() !== true) {
-                            return false;
-                        }
-
+                        // Authorization (admin-only + self / target-admin
+                        // protection) is delegated to UserPolicy::ban; the
+                        // not-already-banned check is a state guard.
                         $author = self::targetAuthor($record);
 
                         return $author !== null
-                            && $admin->id !== $author->id
-                            && ! $author->isAdmin()
+                            && auth()->user()?->can('ban', $author) === true
                             && $author->status !== UserStatus::Banned;
                     })
                     ->schema([

@@ -11,7 +11,7 @@ final class IgnoreReportAction
 {
     public function handle(User $moderator, Report $report, ?string $note = null): void
     {
-        if (! $moderator->isModerator() && ! $moderator->isAdmin()) {
+        if (! $moderator->can('ignore', $report)) {
             throw CannotIgnoreReportException::becauseUserIsNotAllowed();
         }
 
