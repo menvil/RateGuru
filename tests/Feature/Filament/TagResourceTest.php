@@ -72,3 +72,27 @@ it('renders a searchable, sortable name column', function () {
         ->assertTableColumnExists('name')
         ->assertCanRenderTableColumn('name');
 });
+
+it('renders tag slug in tag resource table', function () {
+    $admin = User::factory()->admin()->create();
+
+    Tag::factory()->create([
+        'name' => 'Asian Food',
+        'slug' => 'asian-food',
+    ]);
+
+    $this->actingAs($admin)
+        ->get(TagResource::getUrl('index'))
+        ->assertOk()
+        ->assertSee('asian-food');
+});
+
+it('renders a searchable, sortable slug column', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListTags::class)
+        ->assertTableColumnExists('slug')
+        ->assertCanRenderTableColumn('slug');
+});
