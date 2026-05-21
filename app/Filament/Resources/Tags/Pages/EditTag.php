@@ -22,7 +22,7 @@ class EditTag extends EditRecord
                 ->label('Delete')
                 ->icon('heroicon-o-trash')
                 ->color('danger')
-                ->visible(fn (): bool => auth()->user()?->isAdmin() === true)
+                ->visible(fn (): bool => auth()->user()?->can('delete', $this->getRecord()) ?? false)
                 ->requiresConfirmation()
                 ->modalDescription('Tags attached to posts cannot be deleted. Detach or merge them first.')
                 ->action(function (): void {
