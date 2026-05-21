@@ -70,3 +70,50 @@ it('does not allow admins to ban other admins', function () {
 
     expect((new UserPolicy())->ban($admin, $otherAdmin))->toBeFalse();
 });
+
+dataset('admin sanction abilities', ['unban', 'shadowban']);
+
+it('allows admins to sanction a non-admin target', function (string $ability) {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create();
+
+    expect((new UserPolicy())->{$ability}($admin, $target))->toBeTrue();
+})->with('admin sanction abilities');
+
+it('does not allow non-admins to sanction users', function (string $ability) {
+    $moderator = User::factory()->moderator()->create();
+    $target = User::factory()->create();
+
+    expect((new UserPolicy())->{$ability}($moderator, $target))->toBeFalse();
+})->with('admin sanction abilities');
+
+it('does not allow admins to sanction themselves or other admins', function (string $ability) {
+    $admin = User::factory()->admin()->create();
+    $otherAdmin = User::factory()->admin()->create();
+
+    expect((new UserPolicy())->{$ability}($admin, $admin))->toBeFalse();
+    expect((new UserPolicy())->{$ability}($admin, $otherAdmin))->toBeFalse();
+})->with('admin sanction abilities');
+
+it('allows admins to mark a regular active-eligible user as trusted', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create();
+
+    expect((new UserPolicy())->markTrusted($admin, $target))->toBeTrue();
+});
+
+it('does not allow marking a moderator or admin as trusted', function () {
+    $admin = User::factory()->admin()->create();
+    $moderator = User::factory()->moderator()->create();
+    $otherAdmin = User::factory()->admin()->create();
+
+    expect((new UserPolicy())->markTrusted($admin, $moderator))->toBeFalse();
+    expect((new UserPolicy())->markTrusted($admin, $otherAdmin))->toBeFalse();
+});
+
+it('does not allow non-admins to mark users as trusted', function () {
+    $moderator = User::factory()->moderator()->create();
+    $target = User::factory()->create();
+
+    expect((new UserPolicy())->markTrusted($moderator, $target))->toBeFalse();
+});

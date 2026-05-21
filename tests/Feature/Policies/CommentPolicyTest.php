@@ -35,3 +35,26 @@ it('does not allow moderator to delete a comment they do not own', function () {
 
     expect($moderator->can('delete', $comment))->toBeFalse();
 });
+
+dataset('comment moderation abilities', ['hide', 'restore']);
+
+it('allows moderator to moderate a comment', function (string $ability) {
+    $moderator = User::factory()->moderator()->create();
+    $comment = Comment::factory()->for(User::factory())->create();
+
+    expect($moderator->can($ability, $comment))->toBeTrue();
+})->with('comment moderation abilities');
+
+it('allows admin to moderate a comment', function (string $ability) {
+    $admin = User::factory()->admin()->create();
+    $comment = Comment::factory()->for(User::factory())->create();
+
+    expect($admin->can($ability, $comment))->toBeTrue();
+})->with('comment moderation abilities');
+
+it('does not allow comment owner without role to moderate their comment', function (string $ability) {
+    $owner = User::factory()->create();
+    $comment = Comment::factory()->for($owner)->create();
+
+    expect($owner->can($ability, $comment))->toBeFalse();
+})->with('comment moderation abilities');
