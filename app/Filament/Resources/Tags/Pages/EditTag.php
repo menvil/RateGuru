@@ -32,9 +32,13 @@ class EditTag extends EditRecord
                     try {
                         app(DeleteTagAction::class)->handle(auth()->user(), $record);
                     } catch (CannotDeleteTagException $e) {
+                        [$title, $body] = $e->reason === CannotDeleteTagException::REASON_USED_BY_POSTS
+                            ? ['Tag is used by posts', 'Detach or merge this tag before deleting it.']
+                            : ['Cannot delete tag', 'You are not allowed to delete this tag.'];
+
                         Notification::make()
-                            ->title('Tag is used by posts')
-                            ->body('Detach or merge this tag before deleting it.')
+                            ->title($title)
+                            ->body($body)
                             ->danger()
                             ->send();
 
