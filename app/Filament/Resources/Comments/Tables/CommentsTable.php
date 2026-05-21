@@ -112,10 +112,10 @@ class CommentsTable
                     ->icon('heroicon-o-trash')
                     ->color('danger')
                     // Deliberate UI scoping: in the moderation table only
-                    // admins delete; moderators use hide/restore. This is
-                    // intentionally stricter than CommentPolicy::delete
-                    // (owner|admin), which still governs the action itself.
-                    ->visible(fn (): bool => auth()->user()?->isAdmin() === true)
+                    // admins delete; moderators use hide/restore. Encoded as
+                    // CommentPolicy::deleteInModeration so visibility follows
+                    // the same can() source of truth as the other actions.
+                    ->visible(fn (Comment $record): bool => auth()->user()?->can('deleteInModeration', $record) ?? false)
                     ->requiresConfirmation()
                     ->action(function (Comment $record): void {
                         app(DeleteCommentAction::class)->handle(

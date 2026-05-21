@@ -9,9 +9,7 @@ class UserPolicy
 {
     public function manage(User $actor, User $target): bool
     {
-        return $actor->role === UserRole::Admin
-            && $actor->id !== $target->id
-            && $target->role !== UserRole::Admin;
+        return $this->canSanction($actor, $target);
     }
 
     public function ban(User $actor, User $target): bool

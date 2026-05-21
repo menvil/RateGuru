@@ -20,12 +20,22 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class ReportsTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            // Eager-load the polymorphic target and its author so the
+            // hideTarget/banTargetAuthor visibility closures (which read
+            // $record->target and its ->user) don't trigger per-row queries.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['target' => function (MorphTo $morphTo): void {
+                $morphTo->morphWith([
+                    Post::class => ['user'],
+                    Comment::class => ['user'],
+                ]);
+            }]))
             ->columns([
                 TextColumn::make('target_type')
                     ->label('Target')
