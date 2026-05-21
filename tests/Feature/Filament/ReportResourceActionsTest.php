@@ -151,6 +151,23 @@ it('hides hideTarget action when target is missing', function () {
         ->assertTableActionHidden('hideTarget', $report);
 });
 
+it('hides hideTarget action for unsupported target types', function () {
+    // A target that resolves to neither Post nor Comment must not show the
+    // action, so the RuntimeException path is never reachable from the UI.
+    $moderator = User::factory()->moderator()->create();
+    $someone = User::factory()->create();
+    $report = Report::factory()->create([
+        'status' => ReportStatus::Open,
+        'target_type' => User::class,
+        'target_id' => $someone->id,
+    ]);
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListReports::class)
+        ->assertTableActionHidden('hideTarget', $report);
+});
+
 it('allows admin to ban reported post author from report resource', function () {
     $admin = User::factory()->admin()->create();
     $author = User::factory()->create(['status' => UserStatus::Active]);
