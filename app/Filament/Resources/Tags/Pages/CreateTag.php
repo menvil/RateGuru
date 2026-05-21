@@ -12,7 +12,9 @@ class CreateTag extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        $data['slug'] = Str::slug($data['slug'] ?: $data['name']);
+        // Use a blank/null check (not truthy) so a deliberate slug like "0"
+        // is preserved rather than falling back to the name.
+        $data['slug'] = Str::slug(filled($data['slug']) ? $data['slug'] : $data['name']);
 
         return $data;
     }

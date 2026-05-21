@@ -86,6 +86,46 @@ it('does not overwrite a manually edited slug when the name changes on create', 
     ]);
 });
 
+it('preserves a "0" slug when creating tag instead of falling back to name', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(CreateTag::class)
+        ->fillForm([
+            'name' => 'Zero',
+            'slug' => '0',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $this->assertDatabaseHas('tags', [
+        'name' => 'Zero',
+        'slug' => '0',
+    ]);
+});
+
+it('preserves a "0" slug when editing tag instead of falling back to name', function () {
+    $admin = User::factory()->admin()->create();
+
+    $tag = Tag::factory()->create([
+        'name' => 'Zero',
+        'slug' => 'zero',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(EditTag::class, ['record' => $tag->getRouteKey()])
+        ->fillForm([
+            'name' => 'Zero',
+            'slug' => '0',
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($tag->fresh()->slug)->toBe('0');
+});
+
 it('requires a name when creating tag', function () {
     $admin = User::factory()->admin()->create();
 
