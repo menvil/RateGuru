@@ -140,6 +140,24 @@ it('requires a name when creating tag', function () {
         ->assertHasFormErrors(['name' => 'required']);
 });
 
+it('rejects a blank slug when the name slugifies to empty', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin);
+
+    // A punctuation-only name produces an empty effective slug; this must
+    // fail validation rather than persist an empty slug.
+    Livewire::test(CreateTag::class)
+        ->fillForm([
+            'name' => '!!!',
+            'slug' => '',
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['slug']);
+
+    expect(Tag::query()->count())->toBe(0);
+});
+
 it('rejects a blank slug whose name-derived value already exists', function () {
     $admin = User::factory()->admin()->create();
     Tag::factory()->create(['slug' => 'street-food']);

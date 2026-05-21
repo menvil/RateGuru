@@ -19,6 +19,8 @@ use Illuminate\Support\Str;
  */
 final class UniqueEffectiveTagSlug implements ImplicitRule
 {
+    private bool $slugifiedToEmpty = false;
+
     public function __construct(
         private readonly ?string $name,
         private readonly int|string|null $ignoreId = null,
@@ -26,12 +28,17 @@ final class UniqueEffectiveTagSlug implements ImplicitRule
 
     public function passes($attribute, $value): bool
     {
+        $hasInput = filled($value) || filled($this->name);
         $effective = Str::slug(filled($value) ? (string) $value : (string) $this->name);
 
-        // An empty effective slug is a "name required" concern, handled by
-        // the name field's own validation — not a uniqueness failure.
         if ($effective === '') {
-            return true;
+            // With no input at all, defer to the name field's "required"
+            // rule. But input that slugifies away (e.g. only punctuation)
+            // is an invalid slug we must reject here rather than persist an
+            // empty slug and let it surface as a DB unique error later.
+            $this->slugifiedToEmpty = $hasInput;
+
+            return ! $hasInput;
         }
 
         $query = Tag::query()->where('slug', $effective);
@@ -45,6 +52,8 @@ final class UniqueEffectiveTagSlug implements ImplicitRule
 
     public function message(): string
     {
-        return 'The slug has already been taken.';
+        return $this->slugifiedToEmpty
+            ? 'The slug must contain at least one letter or number.'
+            : 'The slug has already been taken.';
     }
 }

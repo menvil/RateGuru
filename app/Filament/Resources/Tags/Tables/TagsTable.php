@@ -47,7 +47,9 @@ class TagsTable
                     ->color('danger')
                     ->visible(fn (Tag $record): bool => auth()->user()?->can('delete', $record) ?? false)
                     ->requiresConfirmation()
-                    ->modalDescription('Tags attached to posts cannot be deleted. Detach or merge them first.')
+                    ->modalDescription(fn (Tag $record): string => ($record->posts_count ?? 0) > 0
+                        ? 'This tag is attached to posts and cannot be deleted — detach or merge them first.'
+                        : 'Are you sure you want to delete this tag?')
                     ->action(function (Tag $record): void {
                         try {
                             app(DeleteTagAction::class)->handle(auth()->user(), $record);
