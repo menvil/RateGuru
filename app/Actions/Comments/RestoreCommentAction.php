@@ -21,7 +21,7 @@ final class RestoreCommentAction
 
     public function handle(User $moderator, Comment $comment, ?string $reason = null): void
     {
-        if (! $moderator->isModerator() && ! $moderator->isAdmin()) {
+        if (! $moderator->can('restore', $comment)) {
             throw CannotRestoreCommentException::becauseUserIsNotAllowed();
         }
 
