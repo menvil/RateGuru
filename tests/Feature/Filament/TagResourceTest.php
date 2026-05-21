@@ -3,6 +3,7 @@
 use App\Filament\Resources\Tags\Pages\ListTags;
 use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
 use Livewire\Livewire;
@@ -95,4 +96,33 @@ it('renders a searchable, sortable slug column', function () {
     Livewire::test(ListTags::class)
         ->assertTableColumnExists('slug')
         ->assertCanRenderTableColumn('slug');
+});
+
+it('renders posts count in tag resource table', function () {
+    $admin = User::factory()->admin()->create();
+
+    $tag = Tag::factory()->create([
+        'name' => 'Pasta',
+        'slug' => 'pasta',
+    ]);
+
+    $posts = Post::factory()->count(2)->published()->create();
+
+    foreach ($posts as $post) {
+        $post->tags()->attach($tag);
+    }
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListTags::class)
+        ->assertCanSeeTableRecords([$tag])
+        ->assertTableColumnStateSet('posts_count', 2, record: $tag);
+});
+
+it('counts posts from the posts relationship', function () {
+    $tag = Tag::factory()->create();
+    $post = Post::factory()->published()->create();
+    $post->tags()->attach($tag);
+
+    expect($tag->loadCount('posts')->posts_count)->toBe(1);
 });
