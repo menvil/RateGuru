@@ -16,7 +16,7 @@
                 @if($this->unreadCount > 0)
                     <span
                         data-testid="notification-unread-count"
-                        class="inline-flex min-w-5 items-center justify-center rounded-rgPill bg-rg-accent px-1.5 py-0.5 text-[11px] font-bold text-white"
+                        class="inline-flex min-w-5 items-center justify-center rounded-rgPill bg-rg-accent px-1.5 py-0.5 text-[11px] font-bold text-rg-onAccent"
                     >
                         {{ $this->unreadCount }}
                     </span>

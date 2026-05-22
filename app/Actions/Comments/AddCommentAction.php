@@ -10,6 +10,8 @@ use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostCommentedNotification;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 final class AddCommentAction
 {
@@ -57,11 +59,22 @@ final class AddCommentAction
         if ($post->user_id !== $user->id) {
             $post->loadMissing('user');
 
-            $post->user?->notify(new PostCommentedNotification(
-                post: $post,
-                comment: $comment,
-                actor: $user,
-            ));
+            try {
+                $post->user?->notify(new PostCommentedNotification(
+                    post: $post,
+                    comment: $comment,
+                    actor: $user,
+                ));
+            } catch (Throwable $exception) {
+                report($exception);
+
+                Log::error('Failed to send post commented notification.', [
+                    'post_id' => $post->id,
+                    'comment_id' => $comment->id,
+                    'actor_id' => $user->id,
+                    'exception' => $exception->getMessage(),
+                ]);
+            }
         }
 
         return $comment;
