@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Support\AdminNavigationGroup;
+use App\Filament\Widgets\LatestReportsTable;
 use App\Filament\Widgets\PendingPostsWidget;
 use App\Filament\Widgets\ReportedCommentsWidget;
 use App\Filament\Widgets\ReportedPostsWidget;
@@ -32,6 +33,16 @@ class ModerationDashboard extends Page
             ReportedPostsWidget::class,
             ReportedCommentsWidget::class,
             SuspiciousUsersWidget::class,
+        ];
+    }
+
+    /**
+     * @return array<class-string>
+     */
+    protected function getFooterWidgets(): array
+    {
+        return [
+            LatestReportsTable::class,
         ];
     }
 }
