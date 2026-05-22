@@ -51,6 +51,11 @@ final class ProfilePage extends Component
             ->paginate(12);
     }
 
+    public function getDisplayNameProperty(): string
+    {
+        return $this->profileUser->name ?: $this->profileUser->username;
+    }
+
     public function getIsOwnerProperty(): bool
     {
         return auth()->id() === $this->profileUser->id;
