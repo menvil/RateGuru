@@ -3,6 +3,8 @@
 use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
+use App\Exceptions\Moderation\CannotModeratePostException;
+use App\Exceptions\Reports\CannotResolveReportException;
 use App\Filament\Widgets\LatestReportsTable;
 use App\Models\Comment;
 use App\Models\Post;
@@ -165,4 +167,78 @@ it('shows quick resolve only for open reports', function () {
         ->assertTableActionVisible('resolveReport', $openReport)
         ->assertTableActionHidden('resolveReport', $resolvedReport)
         ->assertTableActionHidden('resolveReport', $ignoredReport);
+});
+
+it('does not allow regular user to quick approve post from latest reports table', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->pending()->create();
+
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'status' => ReportStatus::Open,
+    ]);
+
+    expect(fn () => Livewire::actingAs($user)
+        ->test(LatestReportsTable::class)
+        ->callTableAction('approvePost', $report, data: [
+            'reason' => 'Unauthorized approve.',
+        ]))->toThrow(CannotModeratePostException::class);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Pending)
+        ->and($report->fresh()->status)->toBe(ReportStatus::Open);
+
+    $this->assertDatabaseCount('moderation_logs', 0);
+});
+
+it('does not allow regular user to quick hide target from latest reports table', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'status' => ReportStatus::Open,
+    ]);
+
+    expect(fn () => Livewire::actingAs($user)
+        ->test(LatestReportsTable::class)
+        ->callTableAction('hideTarget', $report, data: [
+            'reason' => 'Unauthorized hide.',
+        ]))->toThrow(CannotModeratePostException::class);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published)
+        ->and($report->fresh()->status)->toBe(ReportStatus::Open);
+
+    $this->assertDatabaseCount('moderation_logs', 0);
+});
+
+it('does not allow regular user to quick resolve report from latest reports table', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'status' => ReportStatus::Open,
+        'resolved_by' => null,
+        'resolved_at' => null,
+        'resolution_note' => null,
+    ]);
+
+    expect(fn () => Livewire::actingAs($user)
+        ->test(LatestReportsTable::class)
+        ->callTableAction('resolveReport', $report, data: [
+            'note' => 'Unauthorized resolve.',
+        ]))->toThrow(CannotResolveReportException::class);
+
+    $report->refresh();
+
+    expect($report->status)->toBe(ReportStatus::Open)
+        ->and($report->resolved_by)->toBeNull()
+        ->and($report->resolved_at)->toBeNull()
+        ->and($report->resolution_note)->toBeNull()
+        ->and($post->fresh()->status)->toBe(PostStatus::Published);
+
+    $this->assertDatabaseCount('moderation_logs', 0);
 });

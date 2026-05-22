@@ -6,6 +6,10 @@ use App\Enums\UserStatus;
 use App\Filament\Pages\ModerationDashboard;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Widgets\LatestReportsTable;
+use App\Filament\Widgets\PendingPostsWidget;
+use App\Filament\Widgets\ReportedCommentsWidget;
+use App\Filament\Widgets\ReportedPostsWidget;
+use App\Filament\Widgets\SuspiciousUsersWidget;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
@@ -34,7 +38,7 @@ it('does not allow normal user to access moderation dashboard', function () {
     $user = User::factory()->create();
 
     $this->actingAs($user)
-        ->get('/admin/moderation-dashboard')
+        ->get(ModerationDashboard::getUrl())
         ->assertForbidden();
 });
 
@@ -50,11 +54,9 @@ it('shows pending posts count on moderation dashboard', function () {
     Post::factory()->pending()->count(3)->create();
     Post::factory()->published()->count(2)->create();
 
-    $this->actingAs($admin)
-        ->get(ModerationDashboard::getUrl())
-        ->assertOk()
-        ->assertSee('Pending posts')
-        ->assertSee('3');
+    Livewire::actingAs($admin)
+        ->test(PendingPostsWidget::class)
+        ->assertSeeInOrder(['Pending posts', '3']);
 });
 
 it('shows reported posts count on moderation dashboard', function () {
@@ -67,11 +69,9 @@ it('shows reported posts count on moderation dashboard', function () {
     ]);
     Post::factory()->published()->create(['reports_count' => 0]);
 
-    $this->actingAs($admin)
-        ->get(ModerationDashboard::getUrl())
-        ->assertOk()
-        ->assertSee('Reported posts')
-        ->assertSee('2');
+    Livewire::actingAs($admin)
+        ->test(ReportedPostsWidget::class)
+        ->assertSeeInOrder(['Reported posts', '2']);
 });
 
 it('shows reported comments count on moderation dashboard', function () {
@@ -86,11 +86,9 @@ it('shows reported comments count on moderation dashboard', function () {
         'status' => CommentStatus::Visible,
     ]);
 
-    $this->actingAs($admin)
-        ->get(ModerationDashboard::getUrl())
-        ->assertOk()
-        ->assertSee('Reported comments')
-        ->assertSee('1');
+    Livewire::actingAs($admin)
+        ->test(ReportedCommentsWidget::class)
+        ->assertSeeInOrder(['Reported comments', '1']);
 });
 
 it('shows suspicious users count on moderation dashboard', function () {
@@ -115,11 +113,9 @@ it('shows suspicious users count on moderation dashboard', function () {
         'status' => UserStatus::Active,
     ]);
 
-    $this->actingAs($admin)
-        ->get(ModerationDashboard::getUrl())
-        ->assertOk()
-        ->assertSee('Suspicious users')
-        ->assertSee('3');
+    Livewire::actingAs($admin)
+        ->test(SuspiciousUsersWidget::class)
+        ->assertSeeInOrder(['Suspicious users', '3']);
 });
 
 it('shows latest reports on moderation dashboard', function () {
