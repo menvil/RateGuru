@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Support\AdminNavigationGroup;
+use App\Filament\Widgets\PendingPostsWidget;
 use Filament\Pages\Page;
 use UnitEnum;
 
@@ -17,4 +18,14 @@ class ModerationDashboard extends Page
     protected static ?string $title = 'Moderation Dashboard';
 
     protected static ?string $slug = 'moderation-dashboard';
+
+    /**
+     * @return array<class-string>
+     */
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            PendingPostsWidget::class,
+        ];
+    }
 }
