@@ -31,6 +31,18 @@
                         Edit profile
                     </x-ui.button>
                 @endif
+
+                @if($this->canSeeReportUserPlaceholder)
+                    <x-ui.button
+                        variant="danger"
+                        size="sm"
+                        disabled
+                        data-testid="report-user-placeholder"
+                        title="User reporting is coming soon"
+                    >
+                        Report user
+                    </x-ui.button>
+                @endif
             </div>
         </div>
 
