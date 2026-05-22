@@ -141,3 +141,43 @@ it('renders empty state when user has no published posts', function () {
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertSee('No published posts yet');
 });
+
+it('only shows published posts on profile page', function () {
+    $user = User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    Post::factory()->for($user)->published()->create([
+        'title' => 'Published dish',
+    ]);
+
+    Post::factory()->for($user)->pending()->create([
+        'title' => 'Pending dish',
+    ]);
+
+    Post::factory()->for($user)->hidden()->create([
+        'title' => 'Hidden dish',
+    ]);
+
+    Post::factory()->for($user)->rejected()->create([
+        'title' => 'Rejected dish',
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('Published dish')
+        ->assertDontSee('Pending dish')
+        ->assertDontSee('Hidden dish')
+        ->assertDontSee('Rejected dish');
+});
+
+it('does not show other users posts on profile page', function () {
+    $profileUser = User::factory()->create(['username' => 'chef_ivan']);
+    $otherUser = User::factory()->create(['username' => 'other']);
+
+    Post::factory()->for($profileUser)->published()->create(['title' => 'Own post']);
+    Post::factory()->for($otherUser)->published()->create(['title' => 'Other post']);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('Own post')
+        ->assertDontSee('Other post');
+});
