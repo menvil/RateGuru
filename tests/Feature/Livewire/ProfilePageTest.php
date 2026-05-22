@@ -29,3 +29,12 @@ it('renders selected user in profile page component', function () {
         ->assertSee('chef_ivan')
         ->assertSee('Ivan Chef');
 });
+
+it('renders profile header section', function () {
+    User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('data-testid="profile-header"', false);
+});
