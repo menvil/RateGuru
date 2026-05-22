@@ -1,7 +1,9 @@
 <?php
 
+use App\Enums\CommentStatus;
 use App\Filament\Pages\ModerationDashboard;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
 
@@ -65,4 +67,23 @@ it('shows reported posts count on moderation dashboard', function () {
         ->assertOk()
         ->assertSee('Reported posts')
         ->assertSee('2');
+});
+
+it('shows reported comments count on moderation dashboard', function () {
+    $admin = User::factory()->admin()->create();
+
+    Comment::factory()->create([
+        'reports_count' => 3,
+        'status' => CommentStatus::Visible,
+    ]);
+    Comment::factory()->create([
+        'reports_count' => 0,
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $this->actingAs($admin)
+        ->get(ModerationDashboard::getUrl())
+        ->assertOk()
+        ->assertSee('Reported comments')
+        ->assertSee('1');
 });
