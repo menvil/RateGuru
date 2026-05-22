@@ -7,6 +7,7 @@ use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use App\Models\User;
+use App\Notifications\PostApprovedNotification;
 use Illuminate\Support\Facades\DB;
 
 final class ApprovePostAction
@@ -56,5 +57,14 @@ final class ApprovePostAction
 
             $post->setRawAttributes($locked->getAttributes(), true);
         });
+
+        if ($post->user_id !== $moderator->id) {
+            $post->loadMissing('user');
+
+            $post->user?->notify(new PostApprovedNotification(
+                post: $post,
+                actor: $moderator,
+            ));
+        }
     }
 }
