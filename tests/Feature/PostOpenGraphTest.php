@@ -27,3 +27,24 @@ it('uses post image as open graph image when available', function () {
         ->assertSee('<meta property="og:image"', false)
         ->assertSee('https://rateguru.test/storage/posts/demo.jpg', false);
 });
+
+it('renders open graph title for post show page', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Best Pasta in Sofia',
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('<meta property="og:title" content="Best Pasta in Sofia · RateGuru">', false);
+});
+
+it('escapes open graph title content', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Pasta "Special" <script>',
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertDontSee('<script>', false)
+        ->assertSee('Pasta &quot;Special&quot; &lt;script&gt; · RateGuru', false);
+});
