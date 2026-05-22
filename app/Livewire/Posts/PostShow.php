@@ -36,6 +36,7 @@ final class PostShow extends Component
         $openGraph = app(PostOpenGraph::class);
 
         return view('livewire.posts.post-show', [
+            'ogDescription' => $openGraph->description($this->post),
             'ogImage' => $openGraph->image($this->post),
             'ogTitle' => $openGraph->title($this->post),
             'post' => $this->post,
