@@ -102,8 +102,9 @@ it('renders public user stats on profile page', function () {
     ]);
 
     Post::factory()->for($user)->hidden()->create([
-        'upvotes_count' => 100,
-        'comments_count' => 100,
+        'title' => 'Hidden stats trap',
+        'upvotes_count' => 999999,
+        'comments_count' => 999999,
     ]);
 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
@@ -114,5 +115,29 @@ it('renders public user stats on profile page', function () {
         ->assertSee('8')
         ->assertSee('Comments received')
         ->assertSee('3')
-        ->assertDontSee('100');
+        ->assertDontSee('999999')
+        ->assertDontSee('Hidden stats trap');
+});
+
+it('renders user published posts grid on profile page', function () {
+    $user = User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    Post::factory()->for($user)->published()->create([
+        'title' => 'Published pasta',
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('data-testid="profile-posts-grid"', false)
+        ->assertSee('Published pasta');
+});
+
+it('renders empty state when user has no published posts', function () {
+    User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('No published posts yet');
 });

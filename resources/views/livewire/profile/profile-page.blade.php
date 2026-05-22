@@ -41,4 +41,51 @@
             </x-ui.card>
         </div>
     </section>
+
+    <section data-testid="profile-posts" class="mt-8">
+        <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-base font-semibold text-rg-text">Posts</h2>
+            <span class="text-xs text-rg-muted">{{ $this->posts->total() }}</span>
+        </div>
+
+        @if($this->posts->isEmpty())
+            <x-ui.empty-state
+                title="No published posts yet"
+                description="This user has not published any posts yet."
+            />
+        @else
+            <div data-testid="profile-posts-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                @foreach($this->posts as $post)
+                    <x-ui.card variant="post" data-testid="profile-post-card">
+                        @if($post->image_url)
+                            <img
+                                src="{{ $post->image_url }}"
+                                alt="{{ $post->title }}"
+                                class="aspect-video w-full rounded-rgMedia object-cover"
+                            >
+                        @else
+                            <x-ui.image-placeholder label="Food image" ratio="feed" />
+                        @endif
+
+                        <div class="mt-3">
+                            <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>
+
+                            @if($post->truncated_description)
+                                <p class="mt-1 text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
+                            @endif
+                        </div>
+
+                        <footer class="mt-3 flex items-center gap-4 border-t border-rg-border pt-2.5 text-xs text-rg-muted">
+                            <span>Score <span class="font-semibold text-rg-text2">{{ $post->score }}</span></span>
+                            <span>{{ $post->comments_count ?? 0 }} comments</span>
+                        </footer>
+                    </x-ui.card>
+                @endforeach
+            </div>
+
+            <div class="mt-6">
+                {{ $this->posts->links() }}
+            </div>
+        @endif
+    </section>
 </div>
