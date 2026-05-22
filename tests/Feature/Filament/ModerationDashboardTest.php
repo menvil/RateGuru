@@ -1,12 +1,16 @@
 <?php
 
 use App\Enums\CommentStatus;
+use App\Enums\ReportReason;
 use App\Enums\UserStatus;
 use App\Filament\Pages\ModerationDashboard;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Filament\Widgets\LatestReportsTable;
 use App\Models\Comment;
 use App\Models\Post;
+use App\Models\Report;
 use App\Models\User;
+use Livewire\Livewire;
 
 it('allows admin to access moderation dashboard', function () {
     $admin = User::factory()->admin()->create();
@@ -116,4 +120,35 @@ it('shows suspicious users count on moderation dashboard', function () {
         ->assertOk()
         ->assertSee('Suspicious users')
         ->assertSee('3');
+});
+
+it('shows latest reports on moderation dashboard', function () {
+    $admin = User::factory()->admin()->create();
+    $reporter = User::factory()->create(['username' => 'reporter_ivan']);
+
+    $oldReport = Report::factory()->create([
+        'reporter_id' => $reporter->id,
+        'reason' => ReportReason::Spam,
+        'created_at' => now()->subDays(2),
+    ]);
+
+    $newReport = Report::factory()->create([
+        'reporter_id' => $reporter->id,
+        'reason' => ReportReason::Offensive,
+        'created_at' => now(),
+    ]);
+
+    $this->actingAs($admin)
+        ->get(ModerationDashboard::getUrl())
+        ->assertOk()
+        ->assertSee('Latest reports');
+
+    Livewire::actingAs($admin)
+        ->test(LatestReportsTable::class)
+        ->assertCanSeeTableRecords([$newReport, $oldReport], inOrder: true)
+        ->assertSee('offensive')
+        ->assertSee('spam')
+        ->assertSee('reporter_ivan')
+        ->assertSee('Post')
+        ->assertSee('open');
 });
