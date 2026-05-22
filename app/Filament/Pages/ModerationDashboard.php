@@ -6,6 +6,7 @@ use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Widgets\PendingPostsWidget;
 use App\Filament\Widgets\ReportedCommentsWidget;
 use App\Filament\Widgets\ReportedPostsWidget;
+use App\Filament\Widgets\SuspiciousUsersWidget;
 use Filament\Pages\Page;
 use UnitEnum;
 
@@ -30,6 +31,7 @@ class ModerationDashboard extends Page
             PendingPostsWidget::class,
             ReportedPostsWidget::class,
             ReportedCommentsWidget::class,
+            SuspiciousUsersWidget::class,
         ];
     }
 }
