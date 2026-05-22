@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\CommentStatus;
+use App\Enums\UserStatus;
 use App\Filament\Pages\ModerationDashboard;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
@@ -86,4 +87,33 @@ it('shows reported comments count on moderation dashboard', function () {
         ->assertOk()
         ->assertSee('Reported comments')
         ->assertSee('1');
+});
+
+it('shows suspicious users count on moderation dashboard', function () {
+    $admin = User::factory()->admin()->create();
+
+    $reportedPostAuthor = User::factory()->create();
+    Post::factory()
+        ->for($reportedPostAuthor)
+        ->published()
+        ->create(['reports_count' => 2]);
+
+    $reportedCommentAuthor = User::factory()->create();
+    Comment::factory()
+        ->for($reportedCommentAuthor, 'user')
+        ->create(['reports_count' => 1]);
+
+    User::factory()->create([
+        'status' => UserStatus::Shadowbanned,
+    ]);
+
+    User::factory()->create([
+        'status' => UserStatus::Active,
+    ]);
+
+    $this->actingAs($admin)
+        ->get(ModerationDashboard::getUrl())
+        ->assertOk()
+        ->assertSee('Suspicious users')
+        ->assertSee('3');
 });
