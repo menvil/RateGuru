@@ -10,13 +10,13 @@ use App\Enums\PostStatus;
 use App\Models\Post;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
-use Illuminate\Support\Collection;
 use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class PostsTable
 {
@@ -25,7 +25,7 @@ class PostsTable
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query->with('user'))
             ->columns([
-                ImageColumn::make('image_path')
+                ImageColumn::make('public_image_url')
                     ->label('Image')
                     ->square()
                     ->defaultImageUrl(null),
@@ -83,17 +83,11 @@ class PostsTable
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->visible(fn (Post $record): bool => $record->status === PostStatus::Pending)
-                    ->schema([
-                        Textarea::make('reason')
-                            ->label('Reason')
-                            ->maxLength(1000),
-                    ])
                     ->requiresConfirmation()
-                    ->action(function (Post $record, array $data): void {
+                    ->action(function (Post $record): void {
                         app(ApprovePostAction::class)->handle(
                             auth()->user(),
-                            $record,
-                            $data['reason'] ?? null,
+                            $record
                         );
                     }),
                 Action::make('reject')
@@ -198,23 +192,17 @@ class PostsTable
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->requiresConfirmation()
-                    ->schema([
-                        Textarea::make('reason')
-                            ->label('Reason')
-                            ->maxLength(1000),
-                    ])
-                    ->action(function (Collection $records, array $data): void {
+                    ->action(function (Collection $records): void {
                         $moderator = auth()->user();
 
-                        $records->each(function (Post $record) use ($moderator, $data): void {
+                        $records->each(function (Post $record) use ($moderator): void {
                             if ($record->status !== PostStatus::Pending) {
                                 return;
                             }
 
                             app(ApprovePostAction::class)->handle(
                                 $moderator,
-                                $record,
-                                $data['reason'] ?? null,
+                                $record
                             );
                         });
                     }),

@@ -20,9 +20,9 @@
         </div>
     </div>
 
-    @if($post->image_url)
+    @if($post->public_image_url)
         <img
-            src="{{ $post->image_url }}"
+            src="{{ $post->public_image_url }}"
             alt="{{ $post->title }}"
             class="mt-3 aspect-video w-full rounded-rgMedia object-cover"
         >

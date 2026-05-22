@@ -26,7 +26,7 @@ final class PostOpenGraph
 
     public function image(Post $post): string
     {
-        $imageUrl = trim((string) $post->image_url);
+        $imageUrl = trim((string) $post->public_image_url);
 
         if ($imageUrl !== '') {
             if (Str::startsWith($imageUrl, ['http://', 'https://'])) {

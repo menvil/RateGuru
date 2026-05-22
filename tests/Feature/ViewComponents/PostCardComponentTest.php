@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Post;
+use App\Models\User;
 use Illuminate\Support\Facades\Blade;
 
 it('renders post voting component in post card', function () {
@@ -30,8 +31,23 @@ it('renders post image when image url exists', function () {
     expect($html)->toContain('/storage/posts/1/dish.jpg');
 });
 
+it('renders post image from image path when image url is missing', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Dish',
+        'image_path' => 'posts/1/dish.jpg',
+        'image_url' => null,
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('/storage/posts/1/dish.jpg');
+});
+
 it('renders image placeholder when image url is missing', function () {
-    $post = Post::factory()->published()->make(['image_url' => null]);
+    $post = Post::factory()->published()->make([
+        'image_path' => null,
+        'image_url' => null,
+    ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
@@ -81,7 +97,7 @@ it('renders post stats area', function () {
 });
 
 it('renders post author area', function () {
-    $user = \App\Models\User::factory()->make([
+    $user = User::factory()->make([
         'name' => 'Demo Chef',
         'username' => 'demo_chef',
     ]);

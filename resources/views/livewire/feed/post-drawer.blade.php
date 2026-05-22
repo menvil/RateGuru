@@ -7,9 +7,9 @@
 
     <div wire:loading.remove>
     @if($post)
-        @if($post->image_url)
+        @if($post->public_image_url)
             <img
-                src="{{ $post->image_url }}"
+                src="{{ $post->public_image_url }}"
                 alt="{{ $post->title }}"
                 class="aspect-[4/3] w-full rounded-rgCard object-cover"
             >
