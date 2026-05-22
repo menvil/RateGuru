@@ -8,6 +8,7 @@ use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
+use App\Notifications\PostCommentedNotification;
 use Illuminate\Support\Facades\DB;
 
 final class AddCommentAction
@@ -40,7 +41,7 @@ final class AddCommentAction
             throw CannotCommentException::becauseBodyIsInvalid('Comment body is too long.');
         }
 
-        return DB::transaction(function () use ($user, $post, $body) {
+        $comment = DB::transaction(function () use ($user, $post, $body) {
             $comment = Comment::create([
                 'user_id' => $user->id,
                 'post_id' => $post->id,
@@ -52,5 +53,17 @@ final class AddCommentAction
 
             return $comment;
         });
+
+        if ($post->user_id !== $user->id) {
+            $post->loadMissing('user');
+
+            $post->user?->notify(new PostCommentedNotification(
+                post: $post,
+                comment: $comment,
+                actor: $user,
+            ));
+        }
+
+        return $comment;
     }
 }
