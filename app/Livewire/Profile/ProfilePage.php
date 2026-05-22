@@ -51,6 +51,11 @@ final class ProfilePage extends Component
             ->paginate(12);
     }
 
+    public function getIsOwnerProperty(): bool
+    {
+        return auth()->id() === $this->profileUser->id;
+    }
+
     public function render(): View
     {
         return view('livewire.profile.profile-page');

@@ -181,3 +181,32 @@ it('does not show other users posts on profile page', function () {
         ->assertSee('Own post')
         ->assertDontSee('Other post');
 });
+
+it('shows edit profile placeholder to profile owner', function () {
+    $user = User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('Edit profile')
+        ->assertSee('data-testid="edit-profile-placeholder"', false);
+});
+
+it('does not show edit profile placeholder to other users', function () {
+    User::factory()->create(['username' => 'chef_ivan']);
+    $viewer = User::factory()->create(['username' => 'viewer']);
+
+    Livewire::actingAs($viewer)
+        ->test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertDontSee('Edit profile')
+        ->assertDontSee('data-testid="edit-profile-placeholder"', false);
+});
+
+it('does not show edit profile placeholder to guest', function () {
+    User::factory()->create(['username' => 'chef_ivan']);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertDontSee('Edit profile')
+        ->assertDontSee('data-testid="edit-profile-placeholder"', false);
+});
