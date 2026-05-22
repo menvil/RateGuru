@@ -3,6 +3,7 @@
 namespace App\Livewire\Posts;
 
 use App\Models\Post;
+use App\Support\Seo\PostOpenGraph;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -33,6 +34,7 @@ final class PostShow extends Component
     public function render(): View
     {
         return view('livewire.posts.post-show', [
+            'ogImage' => app(PostOpenGraph::class)->image($this->post),
             'post' => $this->post,
         ]);
     }
