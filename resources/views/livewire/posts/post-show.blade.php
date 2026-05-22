@@ -4,11 +4,10 @@
     <meta property="og:type" content="article">
     <meta property="og:title" content="{{ $post->title }}">
     <meta property="og:description" content="{{ \Illuminate\Support\Str::limit($post->description ?? 'Rate this dish on RateGuru.', 160) }}">
-    <meta property="og:url" content="{{ route('posts.show', $post) }}">
-    @if($post->image_url)
-        <meta property="og:image" content="{{ url($post->image_url) }}">
-    @endif
+    <meta property="og:url" content="{{ canonical_post_url($post) }}">
+    <meta property="og:image" content="{{ $ogImage }}">
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ $ogImage }}">
 @endpush
 
 <div data-testid="post-show" class="mx-auto w-full max-w-2xl">
