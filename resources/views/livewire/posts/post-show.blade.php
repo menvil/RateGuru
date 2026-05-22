@@ -106,15 +106,11 @@
         />
     </section>
 
-    <section class="mt-8" data-testid="post-show-share">
-        <h2 class="mb-3 text-base font-semibold text-rg-text">Share</h2>
-
-        <x-ui.card>
-            <p class="text-sm text-rg-text">Share this post</p>
-            <code class="mt-2 block break-all text-xs text-rg-muted">{{ route('posts.show', $post) }}</code>
-            <p class="mt-2 text-xs text-rg-muted">Copy link behavior will be added later.</p>
-        </x-ui.card>
-    </section>
+    @if($post->status === \App\Enums\PostStatus::Published)
+        <section class="mt-8" data-testid="post-show-share-panel">
+            <x-share.post-share-panel :post="$post" />
+        </section>
+    @endif
 
     <section class="mt-8" data-testid="post-show-related">
         <h2 class="mb-3 text-base font-semibold text-rg-text">Related posts</h2>
