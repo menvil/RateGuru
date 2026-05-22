@@ -63,6 +63,7 @@
                     @include('dev.partials.platerate-detail-post')
                     @include('dev.partials.platerate-results-panel')
                     @include('dev.partials.platerate-comments-panel')
+                    <x-share.post-share-panel :post="$demoPost" url="https://rateguru.test/posts/preview" />
                 </div>
             </div>
         </section>
