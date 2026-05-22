@@ -59,3 +59,28 @@ it('renders avatar fallback when user has no avatar url', function () {
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertSee('data-testid="profile-avatar"', false);
 });
+
+it('renders username and display name on profile page', function () {
+    User::factory()->create([
+        'name' => 'Ivan Chef',
+        'username' => 'chef_ivan',
+        'email' => 'ivan@example.test',
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('data-testid="profile-identity"', false)
+        ->assertSee('Ivan Chef')
+        ->assertSee('@chef_ivan')
+        ->assertDontSee('ivan@example.test');
+});
+
+it('renders username when display name is empty', function () {
+    User::factory()->create([
+        'name' => '',
+        'username' => 'chef_ivan',
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('@chef_ivan')
+        ->assertSee('chef_ivan');
+});

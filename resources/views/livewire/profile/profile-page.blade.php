@@ -13,7 +13,7 @@
                     />
                 </div>
 
-                <div class="min-w-0">
+                <div data-testid="profile-identity" class="min-w-0">
                     <h1 class="text-2xl font-semibold text-rg-text">{{ $profileUser->name ?: $profileUser->username }}</h1>
                     <p class="mt-1 text-sm text-rg-muted">{{ '@' . $profileUser->username }}</p>
                 </div>
