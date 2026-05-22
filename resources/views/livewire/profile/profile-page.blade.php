@@ -23,5 +23,22 @@
                 {{-- Profile actions are added in later Phase 30 tasks. --}}
             </div>
         </div>
+
+        <div data-testid="profile-stats" class="mt-6 grid gap-3 sm:grid-cols-3">
+            <x-ui.card padding="sm" class="text-center">
+                <div class="text-xs font-medium text-rg-muted">Published posts</div>
+                <div class="mt-1 text-lg font-bold text-rg-text">{{ $this->stats['published_posts'] }}</div>
+            </x-ui.card>
+
+            <x-ui.card padding="sm" class="text-center">
+                <div class="text-xs font-medium text-rg-muted">Total upvotes</div>
+                <div class="mt-1 text-lg font-bold text-rg-text">{{ $this->stats['total_upvotes'] }}</div>
+            </x-ui.card>
+
+            <x-ui.card padding="sm" class="text-center">
+                <div class="text-xs font-medium text-rg-muted">Comments received</div>
+                <div class="mt-1 text-lg font-bold text-rg-text">{{ $this->stats['comments_received'] }}</div>
+            </x-ui.card>
+        </div>
     </section>
 </div>

@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Profile\ProfilePage;
+use App\Models\Post;
 use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Livewire\Livewire;
@@ -83,4 +84,35 @@ it('renders username when display name is empty', function () {
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertSee('@chef_ivan')
         ->assertSee('chef_ivan');
+});
+
+it('renders public user stats on profile page', function () {
+    $user = User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    Post::factory()->for($user)->published()->create([
+        'upvotes_count' => 5,
+        'comments_count' => 2,
+    ]);
+
+    Post::factory()->for($user)->published()->create([
+        'upvotes_count' => 3,
+        'comments_count' => 1,
+    ]);
+
+    Post::factory()->for($user)->hidden()->create([
+        'upvotes_count' => 100,
+        'comments_count' => 100,
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('data-testid="profile-stats"', false)
+        ->assertSee('Published posts')
+        ->assertSee('2')
+        ->assertSee('Total upvotes')
+        ->assertSee('8')
+        ->assertSee('Comments received')
+        ->assertSee('3')
+        ->assertDontSee('100');
 });
