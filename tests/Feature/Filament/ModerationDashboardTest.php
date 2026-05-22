@@ -2,6 +2,7 @@
 
 use App\Filament\Pages\ModerationDashboard;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Models\Post;
 use App\Models\User;
 
 it('allows admin to access moderation dashboard', function () {
@@ -34,4 +35,17 @@ it('registers moderation dashboard navigation metadata', function () {
     expect(ModerationDashboard::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
         ->and(ModerationDashboard::getNavigationLabel())->toBe('Moderation Dashboard')
         ->and(ModerationDashboard::getSlug())->toBe('moderation-dashboard');
+});
+
+it('shows pending posts count on moderation dashboard', function () {
+    $admin = User::factory()->admin()->create();
+
+    Post::factory()->pending()->count(3)->create();
+    Post::factory()->published()->count(2)->create();
+
+    $this->actingAs($admin)
+        ->get(ModerationDashboard::getUrl())
+        ->assertOk()
+        ->assertSee('Pending posts')
+        ->assertSee('3');
 });
