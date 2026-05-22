@@ -7,6 +7,11 @@ use Illuminate\Support\Str;
 
 final class PostOpenGraph
 {
+    public function title(Post $post): string
+    {
+        return trim((string) $post->title).' · RateGuru';
+    }
+
     public function image(Post $post): string
     {
         $imageUrl = trim((string) $post->image_url);

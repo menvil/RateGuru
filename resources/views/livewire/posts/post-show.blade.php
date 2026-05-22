@@ -1,12 +1,13 @@
-@section('title', $post->title . ' · ' . config('app.name', 'RateGuru'))
+@section('title', $ogTitle)
 
 @push('meta')
     <meta property="og:type" content="article">
-    <meta property="og:title" content="{{ $post->title }}">
+    <meta property="og:title" content="{{ $ogTitle }}">
     <meta property="og:description" content="{{ \Illuminate\Support\Str::limit($post->description ?? 'Rate this dish on RateGuru.', 160) }}">
     <meta property="og:url" content="{{ canonical_post_url($post) }}">
     <meta property="og:image" content="{{ $ogImage }}">
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ $ogTitle }}">
     <meta name="twitter:image" content="{{ $ogImage }}">
 @endpush
 
