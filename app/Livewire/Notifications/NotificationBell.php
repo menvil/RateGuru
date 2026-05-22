@@ -35,6 +35,24 @@ final class NotificationBell extends Component
             ->get();
     }
 
+    public function markAsRead(string $notificationId): void
+    {
+        if (! auth()->check()) {
+            return;
+        }
+
+        $notification = auth()->user()
+            ->notifications()
+            ->whereKey($notificationId)
+            ->first();
+
+        if ($notification === null) {
+            return;
+        }
+
+        $notification->markAsRead();
+    }
+
     public function render(): View
     {
         return view('livewire.notifications.notification-bell');
