@@ -20,7 +20,17 @@
             </div>
 
             <div class="flex shrink-0 items-center gap-2">
-                {{-- Profile actions are added in later Phase 30 tasks. --}}
+                @if($this->isOwner)
+                    <x-ui.button
+                        variant="secondary"
+                        size="sm"
+                        disabled
+                        data-testid="edit-profile-placeholder"
+                        title="Profile editing coming soon"
+                    >
+                        Edit profile
+                    </x-ui.button>
+                @endif
             </div>
         </div>
 
