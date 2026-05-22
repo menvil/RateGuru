@@ -2,7 +2,10 @@
 
 namespace App\Filament\Widgets;
 
+use App\Actions\Comments\HideCommentAction;
 use App\Actions\Moderation\ApprovePostAction;
+use App\Actions\Moderation\HidePostAction;
+use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
 use App\Models\Comment;
@@ -85,6 +88,36 @@ class LatestReportsTable extends TableWidget
                             $target,
                             $data['reason'] ?? null,
                         );
+                    }),
+                Action::make('hideTarget')
+                    ->label('Hide target')
+                    ->icon('heroicon-o-eye-slash')
+                    ->color('danger')
+                    ->visible(function (Report $record): bool {
+                        $target = $record->target;
+
+                        return ($target instanceof Post && $target->status === PostStatus::Published)
+                            || ($target instanceof Comment && $target->status === CommentStatus::Visible);
+                    })
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Report $record, array $data): void {
+                        $target = $record->target;
+                        $reason = $data['reason'] ?? null;
+
+                        if ($target instanceof Post) {
+                            app(HidePostAction::class)->handle(auth()->user(), $target, $reason);
+
+                            return;
+                        }
+
+                        if ($target instanceof Comment) {
+                            app(HideCommentAction::class)->handle(auth()->user(), $target, $reason);
+                        }
                     }),
             ]);
     }

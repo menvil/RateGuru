@@ -1,8 +1,10 @@
 <?php
 
+use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
 use App\Filament\Widgets\LatestReportsTable;
+use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
@@ -52,4 +54,73 @@ it('shows quick approve only for pending post report targets', function () {
         ->test(LatestReportsTable::class)
         ->assertTableActionVisible('approvePost', $pendingReport)
         ->assertTableActionHidden('approvePost', $publishedReport);
+});
+
+it('quick hides reported post from moderation dashboard latest reports table', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'status' => ReportStatus::Open,
+    ]);
+
+    Livewire::actingAs($moderator)
+        ->test(LatestReportsTable::class)
+        ->callTableAction('hideTarget', $report, data: [
+            'reason' => 'Hidden from dashboard.',
+        ])
+        ->assertHasNoTableActionErrors();
+
+    expect($post->fresh()->status)->toBe(PostStatus::Hidden)
+        ->and($report->fresh()->status)->toBe(ReportStatus::Open);
+});
+
+it('quick hides reported comment from moderation dashboard latest reports table', function () {
+    $moderator = User::factory()->moderator()->create();
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $report = Report::factory()->create([
+        'target_type' => Comment::class,
+        'target_id' => $comment->id,
+        'status' => ReportStatus::Open,
+    ]);
+
+    Livewire::actingAs($moderator)
+        ->test(LatestReportsTable::class)
+        ->callTableAction('hideTarget', $report, data: [
+            'reason' => 'Hidden from dashboard.',
+        ])
+        ->assertHasNoTableActionErrors();
+
+    expect($comment->fresh()->status)->toBe(CommentStatus::Hidden)
+        ->and($report->fresh()->status)->toBe(ReportStatus::Open);
+});
+
+it('shows quick hide only for hideable report targets', function () {
+    $moderator = User::factory()->moderator()->create();
+    $publishedPost = Post::factory()->published()->create();
+    $hiddenPost = Post::factory()->hidden()->create();
+
+    $publishedPostReport = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $publishedPost->id,
+    ]);
+    $hiddenPostReport = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $hiddenPost->id,
+    ]);
+    $missingTargetReport = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => 9999,
+    ]);
+
+    Livewire::actingAs($moderator)
+        ->test(LatestReportsTable::class)
+        ->assertTableActionVisible('hideTarget', $publishedPostReport)
+        ->assertTableActionHidden('hideTarget', $hiddenPostReport)
+        ->assertTableActionHidden('hideTarget', $missingTargetReport);
 });
