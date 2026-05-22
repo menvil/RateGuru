@@ -66,6 +66,52 @@ it('hides unread count when user has no unread notifications', function () {
         ->assertDontSee('data-testid="notification-unread-count"', false);
 });
 
+it('renders notifications dropdown with notification messages', function () {
+    $user = User::factory()->create();
+
+    $user->notify(new TestDatabaseNotification([
+        'message' => 'Your post was approved',
+        'url' => '/posts/1',
+    ]));
+
+    Livewire::actingAs($user)
+        ->test(NotificationBell::class)
+        ->assertSee('data-testid="notifications-dropdown"', false)
+        ->assertSee('Your post was approved');
+});
+
+it('renders notifications empty state', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(NotificationBell::class)
+        ->assertSee('No notifications yet');
+});
+
+it('renders only latest notifications in dropdown', function () {
+    $user = User::factory()->create();
+
+    foreach (range(1, 11) as $index) {
+        $user->notify(new TestDatabaseNotification([
+            'message' => $index === 1 ? 'Old notification' : 'Notification '.$index,
+            'url' => '/posts/'.$index,
+        ]));
+    }
+
+    $user->notifications()->get()->each(function ($notification): void {
+        $index = $notification->data['message'] === 'Old notification'
+            ? 1
+            : (int) str_replace('Notification ', '', $notification->data['message']);
+
+        $notification->forceFill(['created_at' => now()->addSeconds($index)])->save();
+    });
+
+    Livewire::actingAs($user)
+        ->test(NotificationBell::class)
+        ->assertSee('Notification 11')
+        ->assertDontSee('Old notification');
+});
+
 final class TestDatabaseNotification extends Notification
 {
     /**
