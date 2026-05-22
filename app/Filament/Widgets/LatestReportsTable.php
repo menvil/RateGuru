@@ -2,10 +2,14 @@
 
 namespace App\Filament\Widgets;
 
+use App\Actions\Moderation\ApprovePostAction;
+use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
+use Filament\Actions\Action;
+use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
@@ -55,6 +59,33 @@ class LatestReportsTable extends TableWidget
                 TextColumn::make('created_at')
                     ->label('Created')
                     ->dateTime(),
+            ])
+            ->recordActions([
+                Action::make('approvePost')
+                    ->label('Approve post')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->visible(fn (Report $record): bool => $record->target instanceof Post
+                        && $record->target->status === PostStatus::Pending)
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Report $record, array $data): void {
+                        $target = $record->target;
+
+                        if (! $target instanceof Post) {
+                            return;
+                        }
+
+                        app(ApprovePostAction::class)->handle(
+                            auth()->user(),
+                            $target,
+                            $data['reason'] ?? null,
+                        );
+                    }),
             ]);
     }
 }
