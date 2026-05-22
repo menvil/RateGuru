@@ -35,18 +35,31 @@
 
                 <div class="max-h-80 overflow-y-auto">
                     @forelse($this->notifications as $notification)
-                        <a
-                            href="{{ $notification->data['url'] ?? '#' }}"
+                        <div
                             data-testid="notification-item"
                             class="block border-b border-rg-border px-4 py-3 text-sm transition last:border-b-0 hover:bg-rg-card2 {{ $notification->read_at ? 'opacity-60' : '' }}"
                         >
-                            <span class="block font-medium text-rg-text">
-                                {{ $notification->data['message'] ?? 'Notification' }}
-                            </span>
+                            <a href="{{ $notification->data['url'] ?? '#' }}" class="block">
+                                <span class="block font-medium text-rg-text">
+                                    {{ $notification->data['message'] ?? 'Notification' }}
+                                </span>
+                            </a>
+
                             <time class="mt-1 block text-xs text-rg-muted">
                                 {{ $notification->created_at->diffForHumans() }}
                             </time>
-                        </a>
+
+                            @if($notification->read_at === null)
+                                <button
+                                    type="button"
+                                    wire:click.prevent="markAsRead('{{ $notification->id }}')"
+                                    data-testid="mark-notification-read"
+                                    class="mt-2 text-xs font-semibold text-rg-accent2 transition hover:text-rg-accent"
+                                >
+                                    Mark as read
+                                </button>
+                            @endif
+                        </div>
                     @empty
                         <div class="px-4 py-6 text-center text-sm text-rg-muted">
                             No notifications yet

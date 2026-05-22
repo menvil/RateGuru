@@ -112,6 +112,49 @@ it('renders only latest notifications in dropdown', function () {
         ->assertDontSee('Old notification');
 });
 
+it('marks notification as read', function () {
+    $user = User::factory()->create();
+
+    $user->notify(new TestDatabaseNotification([
+        'message' => 'Unread notification',
+    ]));
+
+    $notification = $user->notifications()->first();
+
+    Livewire::actingAs($user)
+        ->test(NotificationBell::class)
+        ->call('markAsRead', $notification->id)
+        ->assertDontSee('data-testid="notification-unread-count"', false);
+
+    expect($notification->fresh()->read_at)->not->toBeNull();
+});
+
+it('does not mark another users notification as read', function () {
+    $owner = User::factory()->create();
+    $attacker = User::factory()->create();
+
+    $owner->notify(new TestDatabaseNotification([
+        'message' => 'Private notification',
+    ]));
+
+    $notification = $owner->notifications()->first();
+
+    Livewire::actingAs($attacker)
+        ->test(NotificationBell::class)
+        ->call('markAsRead', $notification->id);
+
+    expect($notification->fresh()->read_at)->toBeNull();
+});
+
+it('ignores missing notification id when marking as read', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(NotificationBell::class)
+        ->call('markAsRead', 'missing-notification-id')
+        ->assertStatus(200);
+});
+
 final class TestDatabaseNotification extends Notification
 {
     /**
