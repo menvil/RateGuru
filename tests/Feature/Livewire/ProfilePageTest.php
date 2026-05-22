@@ -18,3 +18,14 @@ it('fails profile page component for missing username', function () {
     expect(fn () => Livewire::test(ProfilePage::class, ['username' => 'missing_user']))
         ->toThrow(ModelNotFoundException::class);
 });
+
+it('renders selected user in profile page component', function () {
+    User::factory()->create([
+        'name' => 'Ivan Chef',
+        'username' => 'chef_ivan',
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('chef_ivan')
+        ->assertSee('Ivan Chef');
+});
