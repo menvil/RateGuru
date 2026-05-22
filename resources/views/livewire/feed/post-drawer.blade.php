@@ -47,6 +47,12 @@
             />
         </div>
 
+        @if($post->status === \App\Enums\PostStatus::Published)
+            <div class="mt-6" data-testid="post-drawer-share-panel">
+                <x-share.post-share-panel :post="$post" />
+            </div>
+        @endif
+
         <section class="mt-6" data-testid="post-drawer-origin-voting">
             <h3 class="text-sm font-semibold text-rg-text">Homemade or Restaurant?</h3>
 

@@ -3,6 +3,7 @@
 use App\Livewire\Feed\PostDrawer;
 use App\Models\Post;
 use App\Models\User;
+use App\Support\Urls\PostUrl;
 use Livewire\Livewire;
 
 it('can render post drawer component', function () {
@@ -34,6 +35,23 @@ it('renders selected published post', function () {
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Homemade Carbonara')
         ->assertSee('Creamy pasta with pepper');
+});
+
+it('renders share panel in post drawer for published post', function () {
+    config(['app.url' => 'https://rateguru.test']);
+
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="post-drawer-share-panel"', false)
+        ->assertSee(app(PostUrl::class)->canonical($post));
+});
+
+it('does not render public share panel in drawer for hidden post', function () {
+    $post = Post::factory()->hidden()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="post-drawer-share-panel"', false);
 });
 
 it('does not render hidden post', function () {
