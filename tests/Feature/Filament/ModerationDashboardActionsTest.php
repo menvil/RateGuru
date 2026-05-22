@@ -124,3 +124,45 @@ it('shows quick hide only for hideable report targets', function () {
         ->assertTableActionHidden('hideTarget', $hiddenPostReport)
         ->assertTableActionHidden('hideTarget', $missingTargetReport);
 });
+
+it('quick resolves open report from moderation dashboard latest reports table', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+        'status' => ReportStatus::Open,
+        'resolved_by' => null,
+        'resolved_at' => null,
+    ]);
+
+    Livewire::actingAs($moderator)
+        ->test(LatestReportsTable::class)
+        ->callTableAction('resolveReport', $report, data: [
+            'note' => 'Handled from dashboard.',
+        ])
+        ->assertHasNoTableActionErrors();
+
+    $report->refresh();
+
+    expect($report->status)->toBe(ReportStatus::Resolved)
+        ->and($report->resolved_by)->toBe($moderator->id)
+        ->and($report->resolved_at)->not->toBeNull()
+        ->and($report->resolution_note)->toBe('Handled from dashboard.')
+        ->and($post->fresh()->status)->toBe(PostStatus::Published);
+});
+
+it('shows quick resolve only for open reports', function () {
+    $moderator = User::factory()->moderator()->create();
+
+    $openReport = Report::factory()->create(['status' => ReportStatus::Open]);
+    $resolvedReport = Report::factory()->resolved()->create();
+    $ignoredReport = Report::factory()->create(['status' => ReportStatus::Ignored]);
+
+    Livewire::actingAs($moderator)
+        ->test(LatestReportsTable::class)
+        ->assertTableActionVisible('resolveReport', $openReport)
+        ->assertTableActionHidden('resolveReport', $resolvedReport)
+        ->assertTableActionHidden('resolveReport', $ignoredReport);
+});

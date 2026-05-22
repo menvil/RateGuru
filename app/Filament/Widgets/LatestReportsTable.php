@@ -5,6 +5,7 @@ namespace App\Filament\Widgets;
 use App\Actions\Comments\HideCommentAction;
 use App\Actions\Moderation\ApprovePostAction;
 use App\Actions\Moderation\HidePostAction;
+use App\Actions\Reports\ResolveReportAction;
 use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
@@ -118,6 +119,24 @@ class LatestReportsTable extends TableWidget
                         if ($target instanceof Comment) {
                             app(HideCommentAction::class)->handle(auth()->user(), $target, $reason);
                         }
+                    }),
+                Action::make('resolveReport')
+                    ->label('Resolve')
+                    ->icon('heroicon-o-check')
+                    ->color('success')
+                    ->visible(fn (Report $record): bool => $record->status === ReportStatus::Open)
+                    ->schema([
+                        Textarea::make('note')
+                            ->label('Resolution note')
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (Report $record, array $data): void {
+                        app(ResolveReportAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            $data['note'] ?? null,
+                        );
                     }),
             ]);
     }
