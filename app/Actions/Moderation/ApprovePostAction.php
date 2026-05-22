@@ -7,7 +7,10 @@ use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use App\Models\User;
+use App\Notifications\PostApprovedNotification;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 final class ApprovePostAction
 {
@@ -56,5 +59,24 @@ final class ApprovePostAction
 
             $post->setRawAttributes($locked->getAttributes(), true);
         });
+
+        if ($post->user_id !== $moderator->id) {
+            $post->loadMissing('user');
+
+            try {
+                $post->user?->notify(new PostApprovedNotification(
+                    post: $post,
+                    actor: $moderator,
+                ));
+            } catch (Throwable $exception) {
+                report($exception);
+
+                Log::error('Failed to send post approved notification.', [
+                    'post_id' => $post->id,
+                    'moderator_id' => $moderator->id,
+                    'exception' => $exception->getMessage(),
+                ]);
+            }
+        }
     }
 }
