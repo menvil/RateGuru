@@ -56,6 +56,12 @@ final class ProfilePage extends Component
         return auth()->id() === $this->profileUser->id;
     }
 
+    public function getCanSeeReportUserPlaceholderProperty(): bool
+    {
+        return auth()->check()
+            && auth()->id() !== $this->profileUser->id;
+    }
+
     public function render(): View
     {
         return view('livewire.profile.profile-page');

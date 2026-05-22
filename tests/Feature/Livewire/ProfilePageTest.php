@@ -2,6 +2,7 @@
 
 use App\Livewire\Profile\ProfilePage;
 use App\Models\Post;
+use App\Models\Report;
 use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Livewire\Livewire;
@@ -209,4 +210,52 @@ it('does not show edit profile placeholder to guest', function () {
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertDontSee('Edit profile')
         ->assertDontSee('data-testid="edit-profile-placeholder"', false);
+});
+
+it('shows report user placeholder to authenticated non owner', function () {
+    User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    $viewer = User::factory()->create([
+        'username' => 'viewer',
+    ]);
+
+    Livewire::actingAs($viewer)
+        ->test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('Report user')
+        ->assertSee('data-testid="report-user-placeholder"', false);
+});
+
+it('does not show report user placeholder to profile owner', function () {
+    $owner = User::factory()->create(['username' => 'chef_ivan']);
+
+    Livewire::actingAs($owner)
+        ->test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertDontSee('Report user')
+        ->assertDontSee('data-testid="report-user-placeholder"', false);
+});
+
+it('does not show report user placeholder to guest', function () {
+    User::factory()->create(['username' => 'chef_ivan']);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertDontSee('Report user')
+        ->assertDontSee('data-testid="report-user-placeholder"', false);
+});
+
+it('does not create reports from report user placeholder', function () {
+    User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    $viewer = User::factory()->create([
+        'username' => 'viewer',
+    ]);
+
+    Livewire::actingAs($viewer)
+        ->test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('Report user');
+
+    expect(Report::query()->count())->toBe(0);
 });
