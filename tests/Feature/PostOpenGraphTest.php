@@ -48,3 +48,34 @@ it('escapes open graph title content', function () {
         ->assertDontSee('<script>', false)
         ->assertSee('Pasta &quot;Special&quot; &lt;script&gt; · RateGuru', false);
 });
+
+it('renders open graph description for post show page', function () {
+    $post = Post::factory()->published()->create([
+        'description' => 'A detailed review of a handmade pasta dish in Sofia.',
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('<meta property="og:description" content="A detailed review of a handmade pasta dish in Sofia.">', false);
+});
+
+it('renders fallback open graph description when post has no description', function () {
+    $post = Post::factory()->published()->create([
+        'description' => null,
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('See and rate this post on RateGuru.', false);
+});
+
+it('strips html and truncates open graph description', function () {
+    $post = Post::factory()->published()->create([
+        'description' => '<b>'.str_repeat('Long text ', 40).'</b>',
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('<meta property="og:description" content="'.trim(str_repeat('Long text ', 16)).'">', false)
+        ->assertDontSee('<b>', false);
+});

@@ -12,6 +12,18 @@ final class PostOpenGraph
         return trim((string) $post->title).' · RateGuru';
     }
 
+    public function description(Post $post): string
+    {
+        $description = trim(strip_tags((string) $post->description));
+        $description = trim((string) preg_replace('/\s+/', ' ', $description));
+
+        if ($description === '') {
+            return 'See and rate this post on RateGuru.';
+        }
+
+        return Str::limit($description, 160, '');
+    }
+
     public function image(Post $post): string
     {
         $imageUrl = trim((string) $post->image_url);
