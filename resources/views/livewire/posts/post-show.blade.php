@@ -108,7 +108,7 @@
         />
     </section>
 
-    @if($post->status === \App\Enums\PostStatus::Published)
+    @if($showSharePanel)
         <section class="mt-8" data-testid="post-show-share-panel">
             <x-share.post-share-panel :post="$post" />
         </section>

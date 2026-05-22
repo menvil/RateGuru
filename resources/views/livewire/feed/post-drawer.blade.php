@@ -47,7 +47,7 @@
             />
         </div>
 
-        @if($post->status === \App\Enums\PostStatus::Published)
+        @if($showSharePanel)
             <div class="mt-6" data-testid="post-drawer-share-panel">
                 <x-share.post-share-panel :post="$post" />
             </div>

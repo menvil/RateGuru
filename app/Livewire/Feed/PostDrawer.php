@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Feed;
 
+use App\Enums\PostStatus;
 use App\Models\Post;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
@@ -36,6 +37,7 @@ final class PostDrawer extends Component
 
         return view('livewire.feed.post-drawer', [
             'post' => $post,
+            'showSharePanel' => $post?->status === PostStatus::Published,
         ]);
     }
 }

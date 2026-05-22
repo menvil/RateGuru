@@ -8,22 +8,39 @@
     x-data="{
         copied: false,
         failed: false,
+        manualCopy: false,
         async copyToClipboard() {
+            this.copied = false;
             this.failed = false;
+            this.manualCopy = false;
 
             try {
                 if (navigator.clipboard && window.isSecureContext) {
                     await navigator.clipboard.writeText(this.$refs.copyInput.value);
                 } else {
                     this.$refs.copyInput.select();
-                    document.execCommand('copy');
+                    const success = document.execCommand('copy');
+
+                    if (! success) {
+                        this.showManualCopy();
+                        return;
+                    }
                 }
 
                 this.copied = true;
                 setTimeout(() => this.copied = false, 1600);
             } catch (error) {
-                this.failed = true;
+                this.showManualCopy();
             }
+        },
+        showManualCopy() {
+            this.failed = true;
+            this.manualCopy = true;
+
+            this.$nextTick(() => {
+                this.$refs.copyInput.focus();
+                this.$refs.copyInput.select();
+            });
         }
     }"
     data-testid="copy-link-button"
@@ -34,8 +51,10 @@
         type="text"
         readonly
         value="{{ $url }}"
-        class="sr-only"
+        class="rounded-rgControl border border-rg-border bg-rg-card2 px-3 py-2 font-mono text-xs text-rg-text outline-none"
+        :class="{ 'sr-only': ! manualCopy, 'w-full': manualCopy }"
         data-testid="copy-link-fallback-input"
+        aria-label="Link to copy manually"
     >
 
     <button
@@ -53,6 +72,6 @@
         data-testid="copy-link-error"
         class="text-xs text-rg-danger"
     >
-        Could not copy. Select and copy the link manually.
+        Could not copy automatically. Copy the selected link manually.
     </p>
 </div>

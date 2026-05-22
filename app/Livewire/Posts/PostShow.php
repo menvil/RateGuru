@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Posts;
 
+use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Support\Seo\PostOpenGraph;
 use Illuminate\Contracts\View\View;
@@ -33,13 +34,15 @@ final class PostShow extends Component
 
     public function render(): View
     {
+        $post = $this->post;
         $openGraph = app(PostOpenGraph::class);
 
         return view('livewire.posts.post-show', [
-            'ogDescription' => $openGraph->description($this->post),
-            'ogImage' => $openGraph->image($this->post),
-            'ogTitle' => $openGraph->title($this->post),
-            'post' => $this->post,
+            'ogDescription' => $openGraph->description($post),
+            'ogImage' => $openGraph->image($post),
+            'ogTitle' => $openGraph->title($post),
+            'post' => $post,
+            'showSharePanel' => $post->status === PostStatus::Published,
         ]);
     }
 }
