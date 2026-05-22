@@ -49,3 +49,20 @@ it('shows pending posts count on moderation dashboard', function () {
         ->assertSee('Pending posts')
         ->assertSee('3');
 });
+
+it('shows reported posts count on moderation dashboard', function () {
+    $admin = User::factory()->admin()->create();
+
+    Post::factory()->published()->create(['reports_count' => 2]);
+    Post::factory()->published()->create([
+        'reports_count' => 0,
+        'needs_review' => true,
+    ]);
+    Post::factory()->published()->create(['reports_count' => 0]);
+
+    $this->actingAs($admin)
+        ->get(ModerationDashboard::getUrl())
+        ->assertOk()
+        ->assertSee('Reported posts')
+        ->assertSee('2');
+});
