@@ -4,11 +4,14 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use App\Livewire\Feed\FeedPage;
 use App\Livewire\Posts\PostShow;
+use App\Livewire\Profile\ProfilePage;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', FeedPage::class)->name('feed');
 
 Route::get('/posts/{post}', PostShow::class)->name('posts.show');
+
+Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
 
 Route::get('/dashboard', function () {
     return redirect()->route('feed');
