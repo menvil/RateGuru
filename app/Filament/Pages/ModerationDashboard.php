@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Widgets\PendingPostsWidget;
+use App\Filament\Widgets\ReportedCommentsWidget;
 use App\Filament\Widgets\ReportedPostsWidget;
 use Filament\Pages\Page;
 use UnitEnum;
@@ -28,6 +29,7 @@ class ModerationDashboard extends Page
         return [
             PendingPostsWidget::class,
             ReportedPostsWidget::class,
+            ReportedCommentsWidget::class,
         ];
     }
 }
