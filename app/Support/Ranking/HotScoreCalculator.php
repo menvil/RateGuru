@@ -19,7 +19,9 @@ final class HotScoreCalculator
 
         $netVotes = max(0, $upvotes - $downvotes);
         $raw = 1.0 + $netVotes;
+        $ageHours = max(0, $createdAt->diffInSeconds($now, false)) / 3600;
+        $decay = pow($ageHours + 2.0, 1.5);
 
-        return round($raw, 6);
+        return round($raw / $decay, 6);
     }
 }
