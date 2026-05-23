@@ -5,6 +5,7 @@
 - copied state is rendered;
 - PostDrawer share panel checked;
 - PostShow share panel checked;
+- Share panel displays only for posts with status Published;
 - og:image is absolute and has a static placeholder fallback;
 - og:title is escaped through Blade output;
 - og:description is stripped, truncated, and escaped through Blade output;

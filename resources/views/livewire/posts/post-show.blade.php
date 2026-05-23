@@ -15,9 +15,9 @@
 
 <div data-testid="post-show" class="mx-auto w-full max-w-2xl">
     <div data-testid="post-show-hero">
-        @if($post->image_url)
+        @if($post->public_image_url)
             <img
-                src="{{ $post->image_url }}"
+                src="{{ $post->public_image_url }}"
                 alt="{{ $post->title }}"
                 class="aspect-[16/10] w-full rounded-rgCard object-cover"
             >
@@ -108,7 +108,7 @@
         />
     </section>
 
-    @if($post->status === \App\Enums\PostStatus::Published)
+    @if($showSharePanel)
         <section class="mt-8" data-testid="post-show-share-panel">
             <x-share.post-share-panel :post="$post" />
         </section>

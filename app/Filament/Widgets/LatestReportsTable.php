@@ -71,13 +71,8 @@ class LatestReportsTable extends TableWidget
                     ->color('success')
                     ->visible(fn (Report $record): bool => $record->target instanceof Post
                         && $record->target->status === PostStatus::Pending)
-                    ->schema([
-                        Textarea::make('reason')
-                            ->label('Reason')
-                            ->maxLength(1000),
-                    ])
                     ->requiresConfirmation()
-                    ->action(function (Report $record, array $data): void {
+                    ->action(function (Report $record): void {
                         $target = $record->target;
 
                         if (! $target instanceof Post) {
@@ -86,8 +81,7 @@ class LatestReportsTable extends TableWidget
 
                         app(ApprovePostAction::class)->handle(
                             auth()->user(),
-                            $target,
-                            $data['reason'] ?? null,
+                            $target
                         );
                     }),
                 Action::make('hideTarget')

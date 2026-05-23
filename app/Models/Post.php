@@ -5,10 +5,6 @@ namespace App\Models;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Enums\PostStatus;
-use App\Models\CuisineVote;
-use App\Models\OriginVote;
-use App\Models\PostVote;
-use App\Models\Tag;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -119,6 +115,23 @@ class Post extends Model
     {
         return Attribute::make(
             get: fn () => $this->description ? Str::limit($this->description, 140) : null,
+        );
+    }
+
+    protected function publicImageUrl(): Attribute
+    {
+        return Attribute::make(
+            get: function (): ?string {
+                $path = trim((string) $this->image_path);
+
+                if ($path !== '') {
+                    return '/storage/'.ltrim($path, '/');
+                }
+
+                $url = trim((string) $this->image_url);
+
+                return $url !== '' ? $url : null;
+            },
         );
     }
 }
