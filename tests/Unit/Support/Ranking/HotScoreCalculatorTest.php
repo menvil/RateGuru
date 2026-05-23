@@ -71,3 +71,19 @@ it('decreases hot score with age', function () {
 
     expect($oldScore)->toBeLessThan($newScore);
 });
+
+it('handles newly created posts without division by zero', function () {
+    $calculator = app(HotScoreCalculator::class);
+
+    $now = CarbonImmutable::parse('2026-05-14 12:00:00');
+
+    $score = $calculator->calculate(
+        upvotes: 0,
+        downvotes: 0,
+        commentsCount: 0,
+        createdAt: $now,
+        now: $now,
+    );
+
+    expect($score)->toBeGreaterThan(0);
+});
