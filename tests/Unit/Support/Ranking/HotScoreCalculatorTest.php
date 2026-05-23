@@ -47,3 +47,27 @@ it('does not allow downvotes to make hot score negative', function () {
 
     expect($score)->toBeGreaterThanOrEqual(0);
 });
+
+it('decreases hot score with age', function () {
+    $calculator = app(HotScoreCalculator::class);
+
+    $now = CarbonImmutable::parse('2026-05-14 12:00:00');
+
+    $newScore = $calculator->calculate(
+        upvotes: 10,
+        downvotes: 0,
+        commentsCount: 0,
+        createdAt: CarbonImmutable::parse('2026-05-14 11:00:00'),
+        now: $now,
+    );
+
+    $oldScore = $calculator->calculate(
+        upvotes: 10,
+        downvotes: 0,
+        commentsCount: 0,
+        createdAt: CarbonImmutable::parse('2026-05-13 12:00:00'),
+        now: $now,
+    );
+
+    expect($oldScore)->toBeLessThan($newScore);
+});
