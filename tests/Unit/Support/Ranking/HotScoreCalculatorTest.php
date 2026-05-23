@@ -33,3 +33,17 @@ it('increases hot score with upvotes', function () {
 
     expect($highScore)->toBeGreaterThan($lowScore);
 });
+
+it('does not allow downvotes to make hot score negative', function () {
+    $calculator = app(HotScoreCalculator::class);
+
+    $score = $calculator->calculate(
+        upvotes: 0,
+        downvotes: 10,
+        commentsCount: 0,
+        createdAt: CarbonImmutable::parse('2026-05-14 10:00:00'),
+        now: CarbonImmutable::parse('2026-05-14 12:00:00'),
+    );
+
+    expect($score)->toBeGreaterThanOrEqual(0);
+});
