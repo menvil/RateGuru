@@ -13,6 +13,20 @@ final class RecalculatePostScoreAction
 
     public function handle(Post $post): float
     {
-        throw new \LogicException('Not implemented yet.');
+        $post->refresh();
+
+        $score = $this->calculator->calculate(
+            upvotes: (int) $post->upvotes_count,
+            downvotes: (int) $post->downvotes_count,
+            commentsCount: (int) $post->comments_count,
+            createdAt: $post->created_at,
+            now: now(),
+        );
+
+        $post->forceFill([
+            'hot_score' => $score,
+        ])->save();
+
+        return $score;
     }
 }
