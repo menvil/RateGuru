@@ -6,6 +6,11 @@ use Carbon\CarbonInterface;
 
 final class HotScoreCalculator
 {
+    private const BASE_SCORE = 1.0;
+    private const COMMENT_WEIGHT = 0.5;
+    private const AGE_OFFSET_HOURS = 2.0;
+    private const GRAVITY = 1.5;
+
     public function calculate(
         int $upvotes,
         int $downvotes,
@@ -18,9 +23,10 @@ final class HotScoreCalculator
         $commentsCount = max(0, $commentsCount);
 
         $netVotes = max(0, $upvotes - $downvotes);
-        $raw = 1.0 + $netVotes;
+        $commentContribution = $commentsCount * self::COMMENT_WEIGHT;
+        $raw = self::BASE_SCORE + $netVotes + $commentContribution;
         $ageHours = max(0, $createdAt->diffInSeconds($now, false)) / 3600;
-        $decay = pow($ageHours + 2.0, 1.5);
+        $decay = pow($ageHours + self::AGE_OFFSET_HOURS, self::GRAVITY);
 
         return round($raw / $decay, 6);
     }

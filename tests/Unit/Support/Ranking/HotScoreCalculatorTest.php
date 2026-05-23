@@ -112,3 +112,28 @@ it('increases hot score with comments', function () {
 
     expect($withComments)->toBeGreaterThan($withoutComments);
 });
+
+it('weights comments less than upvotes', function () {
+    $calculator = app(HotScoreCalculator::class);
+
+    $createdAt = CarbonImmutable::parse('2026-05-14 10:00:00');
+    $now = CarbonImmutable::parse('2026-05-14 12:00:00');
+
+    $oneUpvote = $calculator->calculate(
+        upvotes: 1,
+        downvotes: 0,
+        commentsCount: 0,
+        createdAt: $createdAt,
+        now: $now,
+    );
+
+    $oneComment = $calculator->calculate(
+        upvotes: 0,
+        downvotes: 0,
+        commentsCount: 1,
+        createdAt: $createdAt,
+        now: $now,
+    );
+
+    expect($oneComment)->toBeLessThan($oneUpvote);
+});
