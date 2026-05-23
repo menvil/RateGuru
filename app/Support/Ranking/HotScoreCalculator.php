@@ -13,6 +13,13 @@ final class HotScoreCalculator
         CarbonInterface $createdAt,
         CarbonInterface $now,
     ): float {
-        return 0.0;
+        $upvotes = max(0, $upvotes);
+        $downvotes = max(0, $downvotes);
+        $commentsCount = max(0, $commentsCount);
+
+        $netVotes = max(0, $upvotes - $downvotes);
+        $raw = 1.0 + $netVotes;
+
+        return round($raw, 6);
     }
 }
