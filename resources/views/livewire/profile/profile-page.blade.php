@@ -79,9 +79,9 @@
             <div data-testid="profile-posts-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 @foreach($this->posts as $post)
                     <x-ui.card variant="post" data-testid="profile-post-card">
-                        @if($post->image_url)
+                        @if($post->public_image_url)
                             <img
-                                src="{{ $post->image_url }}"
+                                src="{{ $post->public_image_url }}"
                                 alt="{{ $post->title }}"
                                 class="aspect-video w-full rounded-rgMedia object-cover"
                             >

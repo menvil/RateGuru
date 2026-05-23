@@ -1,21 +1,23 @@
-@section('title', $post->title . ' · ' . config('app.name', 'RateGuru'))
+@section('title', $ogTitle)
 
 @push('meta')
     <meta property="og:type" content="article">
-    <meta property="og:title" content="{{ $post->title }}">
-    <meta property="og:description" content="{{ \Illuminate\Support\Str::limit($post->description ?? 'Rate this dish on RateGuru.', 160) }}">
-    <meta property="og:url" content="{{ route('posts.show', $post) }}">
-    @if($post->image_url)
-        <meta property="og:image" content="{{ url($post->image_url) }}">
-    @endif
+    <meta property="og:title" content="{{ $ogTitle }}">
+    <meta property="og:description" content="{{ $ogDescription }}">
+    <meta property="og:url" content="{{ canonical_post_url($post) }}">
+    <meta property="og:image" content="{{ $ogImage }}">
+    <meta name="description" content="{{ $ogDescription }}">
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ $ogTitle }}">
+    <meta name="twitter:description" content="{{ $ogDescription }}">
+    <meta name="twitter:image" content="{{ $ogImage }}">
 @endpush
 
 <div data-testid="post-show" class="mx-auto w-full max-w-2xl">
     <div data-testid="post-show-hero">
-        @if($post->image_url)
+        @if($post->public_image_url)
             <img
-                src="{{ $post->image_url }}"
+                src="{{ $post->public_image_url }}"
                 alt="{{ $post->title }}"
                 class="aspect-[16/10] w-full rounded-rgCard object-cover"
             >
@@ -106,15 +108,11 @@
         />
     </section>
 
-    <section class="mt-8" data-testid="post-show-share">
-        <h2 class="mb-3 text-base font-semibold text-rg-text">Share</h2>
-
-        <x-ui.card>
-            <p class="text-sm text-rg-text">Share this post</p>
-            <code class="mt-2 block break-all text-xs text-rg-muted">{{ route('posts.show', $post) }}</code>
-            <p class="mt-2 text-xs text-rg-muted">Copy link behavior will be added later.</p>
-        </x-ui.card>
-    </section>
+    @if($showSharePanel)
+        <section class="mt-8" data-testid="post-show-share-panel">
+            <x-share.post-share-panel :post="$post" />
+        </section>
+    @endif
 
     <section class="mt-8" data-testid="post-show-related">
         <h2 class="mb-3 text-base font-semibold text-rg-text">Related posts</h2>

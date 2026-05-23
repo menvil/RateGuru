@@ -13,7 +13,7 @@ it('approves a pending post via the approve table action', function () {
     $this->actingAs($moderator);
 
     Livewire::test(ListPosts::class)
-        ->callTableAction('approve', $post, data: ['reason' => 'Valid post.']);
+        ->callTableAction('approve', $post);
 
     expect($post->fresh()->status)->toBe(PostStatus::Published);
 
@@ -22,6 +22,25 @@ it('approves a pending post via the approve table action', function () {
         'target_id' => $post->id,
         'moderator_id' => $moderator->id,
     ]);
+});
+
+it('approve table action does not render a reason form', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListPosts::class)
+        ->assertTableActionExists(
+            'approve',
+            function ($action): bool {
+                $schema = new ReflectionProperty($action, 'schema');
+                $schema->setAccessible(true);
+
+                return $schema->getValue($action) === null;
+            },
+            $post,
+        );
 });
 
 it('hides the approve action for non-pending posts', function () {

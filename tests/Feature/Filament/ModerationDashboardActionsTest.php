@@ -24,9 +24,7 @@ it('quick approves pending post from moderation dashboard latest reports table',
 
     Livewire::actingAs($moderator)
         ->test(LatestReportsTable::class)
-        ->callTableAction('approvePost', $report, data: [
-            'reason' => 'Approved from dashboard.',
-        ]);
+        ->callTableAction('approvePost', $report);
 
     expect($post->fresh()->status)->toBe(PostStatus::Published)
         ->and($report->fresh()->status)->toBe(ReportStatus::Open);
@@ -36,6 +34,28 @@ it('quick approves pending post from moderation dashboard latest reports table',
         'target_type' => Post::class,
         'target_id' => $post->id,
     ]);
+});
+
+it('quick approve action does not render a reason form', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+    ]);
+
+    Livewire::actingAs($moderator)
+        ->test(LatestReportsTable::class)
+        ->assertTableActionExists(
+            'approvePost',
+            function ($action): bool {
+                $schema = new ReflectionProperty($action, 'schema');
+                $schema->setAccessible(true);
+
+                return $schema->getValue($action) === null;
+            },
+            $report,
+        );
 });
 
 it('shows quick approve only for pending post report targets', function () {

@@ -7,9 +7,9 @@
 
     <div wire:loading.remove>
     @if($post)
-        @if($post->image_url)
+        @if($post->public_image_url)
             <img
-                src="{{ $post->image_url }}"
+                src="{{ $post->public_image_url }}"
                 alt="{{ $post->title }}"
                 class="aspect-[4/3] w-full rounded-rgCard object-cover"
             >
@@ -46,6 +46,12 @@
                 :key="'post-drawer-voting-'.$post->id"
             />
         </div>
+
+        @if($showSharePanel)
+            <div class="mt-6" data-testid="post-drawer-share-panel">
+                <x-share.post-share-panel :post="$post" />
+            </div>
+        @endif
 
         <section class="mt-6" data-testid="post-drawer-origin-voting">
             <h3 class="text-sm font-semibold text-rg-text">Homemade or Restaurant?</h3>

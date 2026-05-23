@@ -45,13 +45,18 @@ it('does not expose create or edit pages in this phase', function () {
 
 it('renders an image column in the post resource table', function () {
     $admin = User::factory()->admin()->create();
-    $post = Post::factory()->published()->create(['image_path' => 'posts/demo.jpg']);
+    $post = Post::factory()->published()->create([
+        'image_path' => 'posts/demo.jpg',
+        'image_url' => null,
+    ]);
 
     $this->actingAs($admin);
 
     Livewire::test(ListPosts::class)
         ->assertCanSeeTableRecords([$post])
-        ->assertTableColumnExists('image_path');
+        ->assertTableColumnExists('public_image_url')
+        ->assertCanRenderTableColumn('public_image_url')
+        ->assertTableColumnStateSet('public_image_url', '/storage/posts/demo.jpg', $post);
 });
 
 it('renders a searchable, sortable title column', function () {
@@ -86,10 +91,10 @@ it('eager-loads the author to avoid N+1 in the posts table', function () {
 
     $this->actingAs($admin);
 
-    \DB::enableQueryLog();
+    DB::enableQueryLog();
     Livewire::test(ListPosts::class)->assertSuccessful();
 
-    $userLookups = collect(\DB::getQueryLog())
+    $userLookups = collect(DB::getQueryLog())
         ->filter(fn ($q) => str_contains($q['query'], 'from "users"') || str_contains($q['query'], 'from `users`'))
         ->count();
 

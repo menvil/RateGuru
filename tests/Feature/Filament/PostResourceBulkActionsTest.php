@@ -57,7 +57,7 @@ it('bulk-approves selected pending posts via ApprovePostAction', function () {
     $this->actingAs($moderator);
 
     Livewire::test(ListPosts::class)
-        ->callTableBulkAction('bulkApprove', [$first, $second], data: ['reason' => 'Bulk approval.']);
+        ->callTableBulkAction('bulkApprove', [$first, $second]);
 
     expect($first->fresh()->status)->toBe(PostStatus::Published)
         ->and($second->fresh()->status)->toBe(PostStatus::Published);
@@ -80,7 +80,7 @@ it('bulk approve leaves non-pending records untouched', function () {
     $this->actingAs($moderator);
 
     Livewire::test(ListPosts::class)
-        ->callTableBulkAction('bulkApprove', [$pending, $published], data: ['reason' => 'Mixed selection.']);
+        ->callTableBulkAction('bulkApprove', [$pending, $published]);
 
     expect($pending->fresh()->status)->toBe(PostStatus::Published)
         ->and($published->fresh()->status)->toBe(PostStatus::Published);
@@ -92,4 +92,22 @@ it('bulk approve leaves non-pending records untouched', function () {
         'target_type' => Post::class,
         'target_id' => $published->id,
     ]);
+});
+
+it('bulk approve action does not render a reason form', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->pending()->create();
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListPosts::class)
+        ->assertTableBulkActionExists(
+            'bulkApprove',
+            function ($action): bool {
+                $schema = new ReflectionProperty($action, 'schema');
+                $schema->setAccessible(true);
+
+                return $schema->getValue($action) === null;
+            },
+        );
 });
