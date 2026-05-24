@@ -25,7 +25,7 @@ final class HotScoreCalculator
         $netVotes = max(0, $upvotes - $downvotes);
         $commentContribution = $commentsCount * self::COMMENT_WEIGHT;
         $raw = self::BASE_SCORE + $netVotes + $commentContribution;
-        $ageHours = max(0, $createdAt->diffInSeconds($now, false)) / 3600;
+        $ageHours = abs($createdAt->diffInSeconds($now, false)) / 3600;
         $decay = pow($ageHours + self::AGE_OFFSET_HOURS, self::GRAVITY);
 
         return round($raw / $decay, 6);
