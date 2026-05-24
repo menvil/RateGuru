@@ -88,6 +88,30 @@ it('handles newly created posts without division by zero', function () {
     expect($score)->toBeGreaterThan(0);
 });
 
+it('uses absolute age for future timestamps', function () {
+    $calculator = app(HotScoreCalculator::class);
+
+    $now = CarbonImmutable::parse('2026-05-14 12:00:00');
+
+    $futureScore = $calculator->calculate(
+        upvotes: 0,
+        downvotes: 0,
+        commentsCount: 0,
+        createdAt: CarbonImmutable::parse('2026-05-14 14:00:00'),
+        now: $now,
+    );
+
+    $newScore = $calculator->calculate(
+        upvotes: 0,
+        downvotes: 0,
+        commentsCount: 0,
+        createdAt: $now,
+        now: $now,
+    );
+
+    expect($futureScore)->toBeLessThan($newScore);
+});
+
 it('increases hot score with comments', function () {
     $calculator = app(HotScoreCalculator::class);
 

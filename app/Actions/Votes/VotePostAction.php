@@ -56,7 +56,7 @@ final class VotePostAction
             // Recalculate inside the transaction so a recalc failure rolls
             // back the vote and counters never diverge from post_votes.
             $this->recalculatePostCounters->handle($post->refresh());
-            $this->recalculatePostScore->handle($post->refresh());
+            $this->recalculatePostScore->handle($post);
         });
     }
 }
