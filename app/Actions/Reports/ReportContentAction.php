@@ -4,11 +4,14 @@ namespace App\Actions\Reports;
 
 use App\Enums\ReportReason;
 use App\Enums\ReportStatus;
+use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Reports\CannotReportContentException;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
+use App\Support\AbuseGuards\ActionRateLimiter;
+use App\Support\AbuseGuards\RateLimitKey;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +19,10 @@ use Illuminate\Support\Facades\DB;
 final class ReportContentAction
 {
     private const POST_REVIEW_REPORT_THRESHOLD = 3;
+
+    public function __construct(
+        private readonly ActionRateLimiter $rateLimiter,
+    ) {}
 
     public function handle(
         ?User $user,
@@ -33,6 +40,17 @@ final class ReportContentAction
 
         if (! $content instanceof Post && ! $content instanceof Comment) {
             throw CannotReportContentException::becauseUnsupportedContent();
+        }
+
+        try {
+            $this->rateLimiter->hitOrFail(
+                key: RateLimitKey::userAction('report', $user),
+                maxAttempts: (int) config('rate_limits.report.max_attempts'),
+                decaySeconds: (int) config('rate_limits.report.decay_seconds'),
+                message: 'You are reporting too quickly. Please try again later.',
+            );
+        } catch (RateLimitExceededException $e) {
+            throw CannotReportContentException::becauseRateLimited($e->getMessage());
         }
 
         $alreadyReported = Report::query()

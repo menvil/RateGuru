@@ -63,6 +63,35 @@ it('renders backend error for duplicate report', function () {
         ->assertSee('You have already reported this content.');
 });
 
+it('shows report rate limit error in report modal', function () {
+    config()->set('rate_limits.report.max_attempts', 1);
+    config()->set('rate_limits.report.decay_seconds', 600);
+
+    $user = User::factory()->create();
+    $first = Post::factory()->published()->create();
+    $second = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'post',
+            'reportableId' => $first->id,
+        ])
+        ->set('reason', ReportReason::Spam->value)
+        ->call('submit')
+        ->assertSet('submitted', true);
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'post',
+            'reportableId' => $second->id,
+        ])
+        ->set('reason', ReportReason::Spam->value)
+        ->call('submit')
+        ->assertSet('submitted', false)
+        ->assertHasErrors('report')
+        ->assertSee('You are reporting too quickly. Please try again later.');
+});
+
 it('renders report success state after submit', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

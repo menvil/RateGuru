@@ -25,4 +25,9 @@ final class CannotCommentException extends DomainException
     {
         return new self($message);
     }
+
+    public static function becauseRateLimited(string $message): self
+    {
+        return new self($message);
+    }
 }

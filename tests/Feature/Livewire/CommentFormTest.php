@@ -53,6 +53,28 @@ it('creates comment from form submit', function () {
     ]);
 });
 
+it('shows comment rate limit error in comment form', function () {
+    config()->set('rate_limits.comment.max_attempts', 1);
+    config()->set('rate_limits.comment.decay_seconds', 60);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(CommentForm::class, ['postId' => $post->id])
+        ->set('body', 'First comment')
+        ->call('submit')
+        ->assertDispatched('comment-created');
+
+    Livewire::actingAs($user)
+        ->test(CommentForm::class, ['postId' => $post->id])
+        ->set('body', 'Second comment')
+        ->call('submit')
+        ->assertHasErrors('body')
+        ->assertSee('You are commenting too quickly. Please try again later.')
+        ->assertNotDispatched('comment-created');
+});
+
 it('renders comment textarea', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

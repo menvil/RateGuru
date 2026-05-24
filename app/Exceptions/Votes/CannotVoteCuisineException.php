@@ -25,4 +25,9 @@ final class CannotVoteCuisineException extends DomainException
     {
         return new self('Invalid cuisine vote.');
     }
+
+    public static function becauseRateLimited(string $message): self
+    {
+        return new self($message);
+    }
 }

@@ -25,4 +25,9 @@ final class CannotVoteOriginException extends DomainException
     {
         return new self('Invalid origin vote.');
     }
+
+    public static function becauseRateLimited(string $message): self
+    {
+        return new self($message);
+    }
 }
