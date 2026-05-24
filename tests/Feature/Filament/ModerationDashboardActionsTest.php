@@ -201,9 +201,7 @@ it('does not allow regular user to quick approve post from latest reports table'
 
     expect(fn () => Livewire::actingAs($user)
         ->test(LatestReportsTable::class)
-        ->callTableAction('approvePost', $report, data: [
-            'reason' => 'Unauthorized approve.',
-        ]))->toThrow(CannotModeratePostException::class);
+        ->callTableAction('approvePost', $report))->toThrow(CannotModeratePostException::class);
 
     expect($post->fresh()->status)->toBe(PostStatus::Pending)
         ->and($report->fresh()->status)->toBe(ReportStatus::Open);

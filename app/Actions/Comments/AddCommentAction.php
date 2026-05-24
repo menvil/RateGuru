@@ -3,6 +3,7 @@
 namespace App\Actions\Comments;
 
 use App\Actions\Comments\Concerns\RefreshesPostCommentsCount;
+use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
@@ -18,6 +19,10 @@ final class AddCommentAction
     use RefreshesPostCommentsCount;
 
     private const MAX_BODY_LENGTH = 1000;
+
+    public function __construct(
+        private readonly RecalculatePostScoreAction $recalculatePostScore,
+    ) {}
 
     public function handle(?User $user, Post $post, string $body): Comment
     {
@@ -52,6 +57,7 @@ final class AddCommentAction
             ]);
 
             $this->refreshCommentsCount($post);
+            $this->recalculatePostScore->handle($post->refresh());
 
             return $comment;
         });

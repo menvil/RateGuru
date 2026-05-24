@@ -3,6 +3,7 @@
 namespace App\Actions\Votes;
 
 use App\Actions\Counters\RecalculatePostCountersAction;
+use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
@@ -14,6 +15,7 @@ final class VotePostAction
 {
     public function __construct(
         private readonly RecalculatePostCountersAction $recalculatePostCounters,
+        private readonly RecalculatePostScoreAction $recalculatePostScore,
     ) {}
 
     public function handle(?User $user, Post $post, VoteType $type): void
@@ -54,6 +56,7 @@ final class VotePostAction
             // Recalculate inside the transaction so a recalc failure rolls
             // back the vote and counters never diverge from post_votes.
             $this->recalculatePostCounters->handle($post->refresh());
+            $this->recalculatePostScore->handle($post);
         });
     }
 }
