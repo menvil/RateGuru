@@ -102,6 +102,29 @@ it('calls vote action when up button is clicked', function () {
     ]);
 });
 
+it('shows vote rate limit error without mutating counters', function () {
+    config()->set('rate_limits.vote.max_attempts', 1);
+    config()->set('rate_limits.vote.decay_seconds', 60);
+
+    $user = User::factory()->create();
+    $first = Post::factory()->published()->create(['upvotes_count' => 0]);
+    $second = Post::factory()->published()->create(['upvotes_count' => 0]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $first->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertDispatched('post-voted');
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $second->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', 'You are voting too quickly. Please try again later.')
+        ->assertNotDispatched('post-voted');
+
+    expect($first->fresh()->upvotes_count)->toBe(1);
+    expect($second->fresh()->upvotes_count)->toBe(0);
+});
+
 it('shows an error instead of throwing when the post is no longer available', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

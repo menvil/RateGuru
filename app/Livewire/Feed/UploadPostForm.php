@@ -6,6 +6,7 @@ use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
+use App\Exceptions\Abuse\RateLimitExceededException;
 use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
@@ -72,6 +73,8 @@ final class UploadPostForm extends Component
             $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds']);
             $this->originTruth = OriginType::Unknown->value;
             $this->cuisineTruth = CuisineType::Unknown->value;
+        } catch (RateLimitExceededException $e) {
+            $this->submitError = $e->getMessage();
         } catch (\Throwable $e) {
             report($e);
             $this->submitError = 'Something went wrong while creating your post.';

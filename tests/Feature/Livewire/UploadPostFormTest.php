@@ -136,6 +136,31 @@ it('dispatches successful upload event', function () {
         ->assertDispatched('post-uploaded');
 });
 
+it('shows upload rate limit error without creating another post', function () {
+    Storage::fake('public');
+    config()->set('rate_limits.upload.max_attempts', 1);
+    config()->set('rate_limits.upload.decay_seconds', 600);
+
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'First Dish')
+        ->set('image', UploadedFile::fake()->image('first.jpg'))
+        ->call('submit')
+        ->assertDispatched('post-uploaded');
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Second Dish')
+        ->set('image', UploadedFile::fake()->image('second.jpg'))
+        ->call('submit')
+        ->assertSet('submitError', 'You are uploading too quickly. Please try again later.')
+        ->assertNotDispatched('post-uploaded');
+
+    expect(Post::query()->where('user_id', $user->id)->count())->toBe(1);
+});
+
 it('does not dispatch event on validation failure', function () {
     $user = User::factory()->create();
 

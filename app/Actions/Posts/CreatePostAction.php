@@ -11,12 +11,15 @@ use App\Jobs\ProcessUploadedImageJob;
 use App\Models\Post;
 use App\Models\User;
 use App\Services\Images\ImageStorage;
+use App\Support\AbuseGuards\ActionRateLimiter;
+use App\Support\AbuseGuards\RateLimitKey;
 use Illuminate\Support\Facades\DB;
 
 final class CreatePostAction
 {
     public function __construct(
         private readonly ImageStorage $imageStorage,
+        private readonly ActionRateLimiter $rateLimiter,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
@@ -25,10 +28,17 @@ final class CreatePostAction
             throw CannotCreatePostException::becauseUserIsNotAllowed();
         }
 
+        $this->rateLimiter->hitOrFail(
+            key: RateLimitKey::userAction('upload', $user),
+            maxAttempts: (int) config('rate_limits.upload.max_attempts'),
+            decaySeconds: (int) config('rate_limits.upload.decay_seconds'),
+            message: 'You are uploading too quickly. Please try again later.',
+        );
+
         $isTrusted = $user->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL
             && $user->status === UserStatus::Active;
 
-        $status      = $isTrusted ? PostStatus::Published : PostStatus::Pending;
+        $status = $isTrusted ? PostStatus::Published : PostStatus::Pending;
         $publishedAt = $isTrusted ? now() : null;
 
         $post = DB::transaction(function () use ($user, $data, $status, $publishedAt) {
@@ -37,16 +47,16 @@ final class CreatePostAction
                 : null;
 
             $post = Post::create([
-                'user_id'       => $user->id,
-                'title'         => $data->title,
-                'description'   => $data->description,
-                'source_url'    => $data->sourceUrl,
-                'origin_truth'  => $data->originTruth,
+                'user_id' => $user->id,
+                'title' => $data->title,
+                'description' => $data->description,
+                'source_url' => $data->sourceUrl,
+                'origin_truth' => $data->originTruth,
                 'cuisine_truth' => $data->cuisineTruth,
-                'status'        => $status,
-                'published_at'  => $publishedAt,
-                'image_path'    => $storedImage?->path,
-                'image_url'     => $storedImage?->url,
+                'status' => $status,
+                'published_at' => $publishedAt,
+                'image_path' => $storedImage?->path,
+                'image_url' => $storedImage?->url,
                 'thumbnail_url' => $storedImage?->thumbnailUrl,
             ]);
 

@@ -20,4 +20,9 @@ final class CannotVoteException extends DomainException
     {
         return new self('Post cannot be voted on.');
     }
+
+    public static function becauseRateLimited(string $message): self
+    {
+        return new self($message);
+    }
 }
