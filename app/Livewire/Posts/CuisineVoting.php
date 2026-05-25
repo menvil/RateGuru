@@ -123,9 +123,21 @@ final class CuisineVoting extends Component
 
     public function render(): View
     {
+        $post = $this->post;
+        $currentCuisine = null;
+
+        if ($post !== null && auth()->check()) {
+            $currentCuisine = $post->cuisineVotes()
+                ->where('user_id', auth()->id())
+                ->first()
+                ?->cuisine
+                ?->value;
+        }
+
         return view('livewire.posts.cuisine-voting', [
-            'post' => $this->post,
+            'post' => $post,
             'options' => $this->options(),
+            'currentCuisine' => $currentCuisine,
         ]);
     }
 }
