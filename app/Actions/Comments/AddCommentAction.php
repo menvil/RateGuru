@@ -5,11 +5,14 @@ namespace App\Actions\Comments;
 use App\Actions\Comments\Concerns\RefreshesPostCommentsCount;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
+use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostCommentedNotification;
+use App\Support\AbuseGuards\ActionRateLimiter;
+use App\Support\AbuseGuards\RateLimitKey;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -22,6 +25,7 @@ final class AddCommentAction
 
     public function __construct(
         private readonly RecalculatePostScoreAction $recalculatePostScore,
+        private readonly ActionRateLimiter $rateLimiter,
     ) {}
 
     public function handle(?User $user, Post $post, string $body): Comment
@@ -36,6 +40,17 @@ final class AddCommentAction
 
         if (! $post->canReceiveComments()) {
             throw CannotCommentException::becausePostIsNotPublic();
+        }
+
+        try {
+            $this->rateLimiter->hitOrFail(
+                key: RateLimitKey::userAction('comment', $user),
+                maxAttempts: (int) config('rate_limits.comment.max_attempts'),
+                decaySeconds: (int) config('rate_limits.comment.decay_seconds'),
+                message: 'You are commenting too quickly. Please try again later.',
+            );
+        } catch (RateLimitExceededException $e) {
+            throw CannotCommentException::becauseRateLimited($e->getMessage());
         }
 
         $body = trim($body);

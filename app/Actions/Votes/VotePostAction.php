@@ -5,10 +5,13 @@ namespace App\Actions\Votes;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\VoteType;
+use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\User;
+use App\Support\AbuseGuards\ActionRateLimiter;
+use App\Support\AbuseGuards\RateLimitKey;
 use Illuminate\Support\Facades\DB;
 
 final class VotePostAction
@@ -16,6 +19,7 @@ final class VotePostAction
     public function __construct(
         private readonly RecalculatePostCountersAction $recalculatePostCounters,
         private readonly RecalculatePostScoreAction $recalculatePostScore,
+        private readonly ActionRateLimiter $rateLimiter,
     ) {}
 
     public function handle(?User $user, Post $post, VoteType $type): void
@@ -30,6 +34,17 @@ final class VotePostAction
 
         if (! $post->canReceiveVotes()) {
             throw CannotVoteException::becausePostIsNotPublic();
+        }
+
+        try {
+            $this->rateLimiter->hitOrFail(
+                key: RateLimitKey::userAction('vote', $user),
+                maxAttempts: (int) config('rate_limits.vote.max_attempts'),
+                decaySeconds: (int) config('rate_limits.vote.decay_seconds'),
+                message: 'You are voting too quickly. Please try again later.',
+            );
+        } catch (RateLimitExceededException $e) {
+            throw CannotVoteException::becauseRateLimited($e->getMessage());
         }
 
         DB::transaction(function () use ($user, $post, $type) {

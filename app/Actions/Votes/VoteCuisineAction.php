@@ -4,16 +4,20 @@ namespace App\Actions\Votes;
 
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Enums\CuisineType;
+use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Votes\CannotVoteCuisineException;
 use App\Models\CuisineVote;
 use App\Models\Post;
 use App\Models\User;
+use App\Support\AbuseGuards\ActionRateLimiter;
+use App\Support\AbuseGuards\RateLimitKey;
 use Illuminate\Support\Facades\DB;
 
 final class VoteCuisineAction
 {
     public function __construct(
         private readonly RecalculatePostCountersAction $recalculatePostCounters,
+        private readonly ActionRateLimiter $rateLimiter,
     ) {}
 
     public function handle(?User $user, Post $post, CuisineType $cuisine): void
@@ -32,6 +36,17 @@ final class VoteCuisineAction
 
         if (! $post->canReceiveVotes()) {
             throw CannotVoteCuisineException::becausePostIsNotPublic();
+        }
+
+        try {
+            $this->rateLimiter->hitOrFail(
+                key: RateLimitKey::userAction('vote', $user),
+                maxAttempts: (int) config('rate_limits.vote.max_attempts'),
+                decaySeconds: (int) config('rate_limits.vote.decay_seconds'),
+                message: 'You are voting too quickly. Please try again later.',
+            );
+        } catch (RateLimitExceededException $e) {
+            throw CannotVoteCuisineException::becauseRateLimited($e->getMessage());
         }
 
         DB::transaction(function () use ($user, $post, $cuisine) {
