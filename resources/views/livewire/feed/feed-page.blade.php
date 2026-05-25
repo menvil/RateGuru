@@ -1,35 +1,43 @@
-@php($hasSelectedPost = $selectedPostId !== null)
+@php
+    $hasSelectedPost = $selectedPostId !== null;
+@endphp
 
 <div
-    class="min-h-screen lg:min-h-0"
+    class="min-h-screen lg:h-full lg:min-h-0"
     data-testid="feed-page"
-    x-data
-    x-on:post-selected.window="
-        requestAnimationFrame(() => {
-            const feed = $refs.feedScroll;
-            if (feed) {
-                const card = feed.querySelector('[data-post-id=\'' + $event.detail.postId + '\']');
-                if (card) {
-                    feed.scrollTo({ top: Math.max(card.offsetTop - 80, 0), behavior: 'smooth' });
-                }
-            }
+    x-data="{
+        scrollToSelectedPost(postId) {
+            this.$nextTick(() => {
+                setTimeout(() => {
+                    requestAnimationFrame(() => {
+                        const feed = this.$refs.feedScroll;
+                        if (feed) {
+                            const card = feed.querySelector('[data-post-id=\'' + postId + '\']');
+                            if (card) {
+                                feed.scrollTo({ top: Math.max(card.offsetTop - 80, 0), behavior: 'smooth' });
+                            }
+                        }
 
-            if ($refs.detailScroll) {
-                $refs.detailScroll.scrollTo({ top: 0, behavior: 'auto' });
-            }
-        })
-    "
+                        if (this.$refs.detailScroll) {
+                            this.$refs.detailScroll.scrollTo({ top: 0, behavior: 'auto' });
+                        }
+                    });
+                }, 40);
+            });
+        }
+    }"
+    x-on:post-selected.window="scrollToSelectedPost($event.detail.postId)"
 >
     <div
         class="{{ $hasSelectedPost
-            ? 'grid min-w-0 gap-0 lg:h-[calc(100vh-92px)] lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)] lg:overflow-hidden'
-            : 'grid min-w-0 lg:block' }}"
+            ? 'grid min-w-0 gap-0 lg:h-full lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)] lg:overflow-hidden'
+            : 'grid min-w-0 lg:block lg:h-full' }}"
         data-testid="feed-content-shell"
     >
         <section
             x-ref="feedScroll"
             class="{{ $hasSelectedPost
-                ? 'min-w-0 lg:overflow-y-auto lg:border-r lg:border-rg-border lg:pr-5'
+                ? 'min-w-0 lg:h-full lg:overflow-y-auto lg:border-r lg:border-rg-border lg:pr-6'
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >
@@ -54,7 +62,7 @@
             <aside
                 x-ref="detailScroll"
                 data-testid="post-detail-column"
-                class="min-w-0 pt-5 lg:overflow-y-auto lg:pl-7 lg:pt-0"
+                class="min-w-0 pt-5 lg:h-full lg:overflow-y-auto lg:pl-7 lg:pt-0"
             >
                 <livewire:feed.post-drawer
                     :post-id="$selectedPostId"
