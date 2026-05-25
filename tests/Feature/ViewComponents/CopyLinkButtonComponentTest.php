@@ -43,5 +43,6 @@ it('renders copy button hover affordance', function () {
     expect($html)
         ->toContain('hover:border-rg-border2')
         ->toContain('hover:bg-rg-cardHover')
-        ->toContain('hover:text-rg-text');
+        ->toContain('hover:text-rg-text')
+        ->toContain('focus-visible:ring-rg-accent');
 });

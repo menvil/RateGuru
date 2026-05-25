@@ -15,7 +15,7 @@
         <div class="min-h-screen">
             <header class="border-b border-rg-border bg-rg-topbar" data-testid="app-header">
                 <div class="mx-auto flex min-h-[60px] max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-                    <a href="{{ url('/') }}" class="flex min-w-0 items-center gap-3 rounded-rgControl px-1 py-1 transition-colors hover:bg-rg-card hover:text-rg-text">
+                    <a href="{{ url('/') }}" class="flex min-w-0 items-center gap-3 rounded-rgControl px-1 py-1 transition-colors hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg">
                         <span class="flex size-9 items-center justify-center rounded-rgSm border border-rg-border2 bg-rg-card2 font-semibold text-rg-text">
                             RG
                         </span>

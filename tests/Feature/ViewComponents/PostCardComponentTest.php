@@ -79,7 +79,8 @@ it('renders mobile-safe post card structure', function () {
         ->toContain('overflow-hidden')
         ->toContain('break-words')
         ->toContain('flex-wrap')
-        ->toContain('hover:bg-rg-cardHover');
+        ->toContain('hover:bg-rg-cardHover')
+        ->toContain('focus-visible:ring-rg-accent');
 });
 
 it('does not break when description is missing', function () {
