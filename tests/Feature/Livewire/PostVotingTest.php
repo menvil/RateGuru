@@ -4,6 +4,7 @@ use App\Enums\PostStatus;
 use App\Enums\VoteType;
 use App\Livewire\Posts\PostVoting;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -75,6 +76,24 @@ it('has vote loading state markup', function () {
     Livewire::test(PostVoting::class, ['postId' => $post->id])
         ->assertSee('wire:loading', false)
         ->assertSee('wire:loading.attr="disabled"', false);
+});
+
+it('renders post voting buttons with accessible visual states', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    PostVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'type' => VoteType::Up,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id])
+        ->assertSee('aria-pressed="true"', false)
+        ->assertSee('data-state="active"', false)
+        ->assertSee('border-rg-goodBorder', false)
+        ->assertSee('focus-visible:ring-rg-accent', false);
 });
 
 it('can render post voting component', function () {

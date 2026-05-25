@@ -14,7 +14,7 @@
 - [x] RG-601 accent purple checked.
 - [x] RG-602 header checked.
 - [x] RG-603 upload button checked.
-- [ ] RG-604 vote states checked.
+- [x] RG-604 vote states checked.
 - [ ] RG-605 origin controls checked.
 - [ ] RG-606 cuisine controls checked.
 - [ ] RG-607 drawer width checked.
@@ -62,3 +62,9 @@
 - Header upload CTA now uses `x-ui.button` with the primary accent style, upload icon, and `shadow-rgUpload`.
 - Mobile keeps a compact `Post` label while preserving the `Create post` text in the authenticated header markup.
 - Upload modal Alpine open/close behavior is unchanged.
+
+## RG-604 notes
+
+- Post vote buttons now expose `aria-pressed` and `data-state` for selected state visibility.
+- Upvote active state uses success tokens; downvote active state uses danger tokens; idle buttons keep card surface and accent-border hover.
+- Loading disabled markup is preserved, and focus-visible rings use the accent token.
