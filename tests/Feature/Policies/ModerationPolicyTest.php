@@ -53,3 +53,9 @@ it('does not allow moderator to ban user', function () {
 
     expect(Gate::forUser($moderator)->allows('ban-user'))->toBeFalse();
 });
+
+it('allows admin to ban user', function () {
+    $admin = User::factory()->admin()->create();
+
+    expect(Gate::forUser($admin)->allows('ban-user'))->toBeTrue();
+});

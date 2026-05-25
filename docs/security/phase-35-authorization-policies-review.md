@@ -1,0 +1,22 @@
+# Phase 35 Authorization Policies Review
+
+- PostPolicy registered for posts.
+- CommentPolicy registered for comments.
+- Moderation gates registered: `moderate-content`, `ban-user`.
+- Owner draft post update is allowed.
+- Non-owner draft post update is denied.
+- Published post update is locked.
+- Moderator and admin can hide published posts.
+- Normal users cannot hide posts.
+- Admin can delete posts.
+- Moderator and normal users cannot delete posts.
+- Owner can delete own comment.
+- Non-owner cannot delete another user's comment.
+- Admin can delete any comment.
+- Moderator and admin can hide visible comments.
+- Normal users cannot hide comments.
+- Normal and trusted users cannot moderate content.
+- Moderator and admin can moderate content.
+- Admin can use the cross-cutting `ban-user` gate.
+- Moderator and normal users cannot use the `ban-user` gate.
+- Backend action guards were preserved; policy gates supplement UI/action authorization rather than replacing domain guards.
