@@ -8,7 +8,7 @@
     wire:click="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
     wire:keydown.enter="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
     wire:keydown.space.prevent="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
-    class="cursor-pointer overflow-hidden"
+    class="cursor-pointer overflow-hidden transition-colors hover:border-rg-border2 hover:bg-rg-cardHover"
 >
     <div class="flex min-w-0 items-center gap-2">
         <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />

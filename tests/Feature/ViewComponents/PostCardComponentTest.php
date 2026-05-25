@@ -78,7 +78,8 @@ it('renders mobile-safe post card structure', function () {
     expect($html)
         ->toContain('overflow-hidden')
         ->toContain('break-words')
-        ->toContain('flex-wrap');
+        ->toContain('flex-wrap')
+        ->toContain('hover:bg-rg-cardHover');
 });
 
 it('does not break when description is missing', function () {
