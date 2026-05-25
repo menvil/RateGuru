@@ -11,7 +11,7 @@
 - [x] RG-598 feed spacing checked.
 - [x] RG-599 card radius checked.
 - [x] RG-600 background checked.
-- [ ] RG-601 accent purple checked.
+- [x] RG-601 accent purple checked.
 - [ ] RG-602 header checked.
 - [ ] RG-603 upload button checked.
 - [ ] RG-604 vote states checked.
@@ -44,3 +44,9 @@
 - App shell body, topbar, optional header band, brand mark, and auth text actions now use existing RateGuru dark/background/text tokens.
 - Existing component surfaces already use `bg-rg-card`, `bg-rg-card2`, `border-rg-border`, and `text-rg-*` tokens.
 - Legacy Breeze components still exist for auth/profile internals and will be handled only where they surface in scoped UI tasks.
+
+## RG-601 notes
+
+- Primary button and active sort states now use `text-rg-onAccent` instead of raw `text-white`.
+- Input, textarea, and reference topbar focus rings now use `focus-visible:ring-rg-accent/25` instead of raw RGBA values.
+- UI kit accent examples remain on `bg-rg-accent`, `bg-rg-accentSoft`, `border-rg-accent`, and `text-rg-accent2`.

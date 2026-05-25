@@ -25,6 +25,7 @@ it('renders supported textarea states', function () {
         ->toContain('aria-invalid="true"')
         ->toContain('border-[rgba(239,68,68,0.65)]')
         ->toContain('focus-visible:ring-2')
+        ->toContain('focus-visible:ring-rg-accent/25')
         ->toContain('bg-rg-card2')
         ->toContain('text-rg-text');
 });

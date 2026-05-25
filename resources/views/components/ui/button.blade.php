@@ -9,7 +9,7 @@
 
 @php
     $variants = [
-        'primary' => 'border-transparent bg-rg-accent text-white hover:bg-rg-accentHover',
+        'primary' => 'border-transparent bg-rg-accent text-rg-onAccent hover:bg-rg-accentHover',
         'secondary' => 'border-rg-border2 bg-rg-card text-rg-text2 hover:bg-rg-card2 hover:text-rg-text',
         'ghost' => 'border-transparent bg-transparent text-rg-text2 hover:bg-rg-card2 hover:text-rg-text',
         'danger' => 'border-[rgba(239,68,68,0.45)] bg-[rgba(239,68,68,0.12)] text-[#fca5a5] hover:bg-[rgba(239,68,68,0.18)]',
