@@ -15,6 +15,7 @@ class DemoDatabaseSeeder extends Seeder
         $this->call([
             DemoUsersSeeder::class,
             DemoTagsSeeder::class,
+            DemoPublishedPostsSeeder::class,
         ]);
     }
 }
