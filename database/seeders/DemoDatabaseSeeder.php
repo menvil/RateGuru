@@ -16,6 +16,7 @@ class DemoDatabaseSeeder extends Seeder
             DemoUsersSeeder::class,
             DemoTagsSeeder::class,
             DemoPublishedPostsSeeder::class,
+            DemoPendingPostsSeeder::class,
         ]);
     }
 }
