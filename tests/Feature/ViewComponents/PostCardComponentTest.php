@@ -128,13 +128,15 @@ it('renders post author area', function () {
         ->toContain('@demo_chef');
 });
 
-it('post card dispatches open drawer event with post id', function () {
+it('post card dispatches select post event with post id', function () {
     $post = Post::factory()->published()->make();
     $post->id = 123;
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain("open-post-drawer', { postId: 123 }");
+    expect($html)
+        ->toContain("select-post', { postId: 123 }")
+        ->toContain('grid-cols-[32px_1fr]');
 });
 
 it('renders report button in post card menu for persisted posts', function () {

@@ -86,43 +86,27 @@ it('has alpine upload modal open close behavior', function () {
         ->toContain('@click');
 });
 
-it('renders alpine drawer shell on feed page', function () {
+it('renders reference detail column on feed page', function () {
     $html = $this->get('/')->assertOk()->getContent();
 
     expect($html)
-        ->toContain('data-testid="post-detail-drawer-shell"')
-        ->toContain('drawerOpen')
-        ->toContain('x-show');
+        ->toContain('data-testid="post-detail-column"')
+        ->toContain('lg:grid-cols-[minmax(520px,1fr)_minmax(380px,460px)]')
+        ->not->toContain('data-drawer-id="post-detail-drawer"');
 });
 
-it('renders drawer close button', function () {
+it('renders detail column empty state', function () {
     $html = $this->get('/')->assertOk()->getContent();
 
     expect($html)
-        ->toContain('data-testid="post-drawer-close"')
-        ->toContain('drawerOpen = false');
+        ->toContain('Select a post')
+        ->toContain('Post details will appear here.');
 });
 
-it('closes drawer with escape key markup', function () {
+it('post cards select posts for the detail column', function () {
     $html = $this->get('/')->assertOk()->getContent();
 
     expect($html)
-        ->toContain('@keydown.escape.window')
-        ->toContain('drawerOpen = false');
-});
-
-it('has mobile drawer behavior classes', function () {
-    $html = $this->get('/')->assertOk()->getContent();
-
-    expect($html)
-        ->toContain('data-testid="post-detail-drawer-shell"')
-        ->toContain('bottom-0');
-});
-
-it('has desktop right side drawer behavior classes', function () {
-    $html = $this->get('/')->assertOk()->getContent();
-
-    expect($html)
-        ->toContain('md:right-0')
-        ->toContain('md:inset-y-0');
+        ->toContain('select-post')
+        ->not->toContain('open-post-drawer');
 });

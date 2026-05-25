@@ -15,7 +15,7 @@
             />
         @else
             @foreach($posts as $post)
-                <x-feed.post-card :post="$post" wire:key="{{ $post->id }}" />
+                <x-feed.post-card :post="$post" :selected="$selectedPostId === $post->id" wire:key="{{ $post->id }}" />
             @endforeach
         @endif
     </div>

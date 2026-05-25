@@ -15,6 +15,8 @@ class PostFeed extends Component
 
     public string $sort = 'newest';
 
+    public ?int $selectedPostId = null;
+
     #[On('post-uploaded')]
     public function refreshAfterUpload(): void {}
 
@@ -29,6 +31,7 @@ class PostFeed extends Component
                 tag: $this->tag !== '' ? $this->tag : null,
                 sort: $this->sort,
             ),
+            'selectedPostId' => $this->selectedPostId,
         ]);
     }
 }

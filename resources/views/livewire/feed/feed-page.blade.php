@@ -1,40 +1,28 @@
-<div
-    class="min-h-screen"
-    x-data="{ drawerOpen: false }"
-    data-testid="post-detail-drawer-shell"
-    @post-drawer-opened.window="drawerOpen = true; $dispatch('open-drawer', { id: 'post-detail-drawer' })"
-    @drawer-closed.window="if ($event.detail?.id === 'post-detail-drawer') { drawerOpen = false; $wire.closePostDrawer() }"
->
-    <section class="mx-auto w-full max-w-2xl px-4 py-5 sm:px-6 lg:max-w-3xl lg:px-8 lg:py-8" data-testid="feed-page">
-        <div class="mb-5">
-            <div class="flex items-center gap-3">
+<div class="min-h-screen" data-testid="feed-page">
+    <div class="grid min-w-0 gap-5 lg:grid-cols-[minmax(520px,1fr)_minmax(380px,460px)]">
+        <section class="min-w-0 lg:border-r lg:border-rg-border lg:pr-5" data-testid="feed-layout">
+            <div class="mb-5 flex items-center gap-3">
                 <div class="min-w-0 flex-1">
                     <livewire:feed.category-tabs wire:model.live="category" />
                 </div>
                 <livewire:feed.sort-dropdown wire:model.live="sort" />
             </div>
-        </div>
 
-        <main data-testid="feed-layout">
-            <section>
-                <h2 class="mb-4 text-base font-semibold text-rg-text2">Latest dishes</h2>
-                <livewire:feed.post-feed
-                    :search="$search"
-                    :tag="$category"
-                    :sort="$sort"
-                    :key="'feed-'.md5(json_encode([$search, $category, $sort]))"
-                />
-            </section>
-        </main>
-    </section>
+            <h2 class="mb-4 text-base font-semibold text-rg-text2">Latest dishes</h2>
+            <livewire:feed.post-feed
+                :search="$search"
+                :tag="$category"
+                :sort="$sort"
+                :selected-post-id="$selectedPostId"
+                :key="'feed-'.md5(json_encode([$search, $category, $sort, $selectedPostId]))"
+            />
+        </section>
 
-    <x-ui.drawer
-        id="post-detail-drawer"
-        title="Dish details"
-    >
-        <livewire:feed.post-drawer
-            :post-id="$selectedPostId"
-            :key="'drawer-'.($selectedPostId ?? 'empty')"
-        />
-    </x-ui.drawer>
+        <aside data-testid="post-detail-column" class="min-w-0 lg:sticky lg:top-[76px] lg:max-h-[calc(100vh-92px)] lg:overflow-y-auto">
+            <livewire:feed.post-drawer
+                :post-id="$selectedPostId"
+                :key="'detail-'.($selectedPostId ?? 'empty')"
+            />
+        </aside>
+    </div>
 </div>

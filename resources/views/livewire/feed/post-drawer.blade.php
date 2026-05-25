@@ -7,62 +7,117 @@
 
     <div wire:loading.remove class="transition-opacity duration-200">
     @if($post)
-        @if($post->public_image_url)
-            <img
-                src="{{ $post->public_image_url }}"
-                alt="{{ $post->title }}"
-                class="aspect-[4/3] w-full rounded-rgCard object-cover"
+        <article class="relative rounded-rgCard border border-rg-border bg-rg-card px-5 pb-3.5 pt-5">
+            <button
+                type="button"
+                aria-label="Close"
+                data-testid="post-detail-close"
+                wire:click="$dispatch('clear-selected-post')"
+                class="absolute right-3.5 top-3.5 grid size-8 cursor-pointer place-items-center rounded-rgSm border border-rg-border2 bg-rg-card2 text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
-        @else
-            <x-ui.image-placeholder label="Image preview" ratio="video" />
-        @endif
+                <x-ui.icon name="x" class="size-4" />
+            </button>
 
-        <section class="mt-4">
-            <h2 class="text-lg font-bold text-rg-text">{{ $post->title }}</h2>
+            <p class="text-xs font-medium text-rg-muted">
+                Posted by {{ $post->user?->username ? '@'.$post->user->username : ($post->user?->name ?? 'Unknown user') }}
+                @if($post->published_at)
+                    · {{ $post->published_at->diffForHumans() }}
+                @endif
+            </p>
+            <h2 class="mt-2 pr-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
+
+            <div class="mt-4">
+                @if($post->public_image_url)
+                    <img
+                        src="{{ $post->public_image_url }}"
+                        alt="{{ $post->title }}"
+                        class="aspect-[4/3] w-full rounded-rgMedia object-cover"
+                    >
+                @else
+                    <x-ui.image-placeholder label="Image preview" ratio="detail" />
+                @endif
+            </div>
 
             @if($post->description)
-                <p class="mt-2 text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
+                <p class="mt-3 text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
             @endif
+
+            <footer class="mt-3 flex items-center gap-4">
+                <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
+                <x-ui.action-button icon="share">Share</x-ui.action-button>
+                <x-ui.action-button icon="bookmark">Save</x-ui.action-button>
+            </footer>
+        </article>
+
+        <section data-testid="post-detail-results" class="mt-4 grid gap-6 rounded-rgCard border border-rg-border bg-rg-card p-5 sm:grid-cols-2">
+            <div>
+                <h3 class="text-base font-bold text-rg-text">Results</h3>
+                <p class="mt-1 text-xs text-rg-muted">Score {{ $post->score }}</p>
+
+                @php
+                    $originTotal = max(1, (int) ($post->homemade_votes_count ?? 0) + (int) ($post->restaurant_votes_count ?? 0));
+                    $homemadePct = (int) round(((int) ($post->homemade_votes_count ?? 0) / $originTotal) * 100);
+                    $restaurantPct = 100 - $homemadePct;
+                @endphp
+
+                <div class="mt-4 space-y-3">
+                    <div>
+                        <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
+                            <span>Homemade</span><span>{{ $homemadePct }}%</span>
+                        </div>
+                        <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-good" style="width: {{ $homemadePct }}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
+                            <span>Restaurant</span><span>{{ $restaurantPct }}%</span>
+                        </div>
+                        <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-accent" style="width: {{ $restaurantPct }}%"></div></div>
+                    </div>
+                </div>
+
+                <p class="mt-4 text-[22px] font-bold text-rg-text">{{ $originTotal === 1 && (($post->homemade_votes_count ?? 0) + ($post->restaurant_votes_count ?? 0)) === 0 ? 0 : $originTotal }} votes</p>
+            </div>
+
+            <div>
+                <h3 class="text-base font-bold text-rg-text">Cuisine guess</h3>
+                <div class="mt-4" data-testid="post-drawer-cuisine-voting">
+                    <livewire:posts.cuisine-voting
+                        :post-id="$post->id"
+                        :key="'post-drawer-cuisine-voting-'.$post->id"
+                    />
+                </div>
+            </div>
         </section>
 
-        <div class="mt-4 grid grid-cols-3 gap-2">
-            <div class="rounded-rgCard border border-rg-border bg-rg-card2 p-3 text-center">
-                <div class="text-xs text-rg-muted">Score</div>
-                <div class="mt-1 text-base font-bold text-rg-text">{{ $post->score }}</div>
-            </div>
-            <div class="rounded-rgCard border border-rg-border bg-rg-card2 p-3 text-center">
-                <div class="text-xs text-rg-muted">Homemade</div>
-                <div class="mt-1 text-base font-bold text-rg-text">{{ $post->homemade_votes_count ?? 0 }}</div>
-            </div>
-            <div class="rounded-rgCard border border-rg-border bg-rg-card2 p-3 text-center">
-                <div class="text-xs text-rg-muted">Restaurant</div>
-                <div class="mt-1 text-base font-bold text-rg-text">{{ $post->restaurant_votes_count ?? 0 }}</div>
-            </div>
-        </div>
+        <section class="mt-4 rounded-rgCard border border-rg-border bg-rg-card p-5">
+            <div class="grid gap-4 sm:grid-cols-2">
+                <div data-testid="post-drawer-voting">
+                    <h3 class="text-sm font-semibold text-rg-text">Vote</h3>
+                    <div class="mt-2">
+                        <livewire:posts.post-voting
+                            :post-id="$post->id"
+                            :key="'post-drawer-voting-'.$post->id"
+                        />
+                    </div>
+                </div>
 
-        <div data-testid="post-drawer-voting" class="mt-4">
-            <livewire:posts.post-voting
-                :post-id="$post->id"
-                :key="'post-drawer-voting-'.$post->id"
-            />
-        </div>
+                <div data-testid="post-drawer-origin-voting">
+                    <h3 class="text-sm font-semibold text-rg-text">Homemade or Restaurant?</h3>
+                    <div class="mt-2">
+                        <livewire:posts.origin-voting
+                            :post-id="$post->id"
+                            :key="'post-drawer-origin-voting-'.$post->id"
+                        />
+                    </div>
+                </div>
+            </div>
+        </section>
 
         @if($showSharePanel)
             <div class="mt-6" data-testid="post-drawer-share-panel">
                 <x-share.post-share-panel :post="$post" />
             </div>
         @endif
-
-        <section class="mt-6" data-testid="post-drawer-origin-voting">
-            <h3 class="text-sm font-semibold text-rg-text">Homemade or Restaurant?</h3>
-
-            <div class="mt-2">
-                <livewire:posts.origin-voting
-                    :post-id="$post->id"
-                    :key="'post-drawer-origin-voting-'.$post->id"
-                />
-            </div>
-        </section>
 
         <div class="mt-6 flex justify-end" data-testid="post-drawer-report">
             <livewire:reports.report-modal
@@ -71,17 +126,6 @@
                 :key="'post-drawer-report-'.$post->id"
             />
         </div>
-
-        <section class="mt-6" data-testid="post-drawer-cuisine-voting">
-            <h3 class="text-sm font-semibold text-rg-text">What cuisine is it?</h3>
-
-            <div class="mt-2">
-                <livewire:posts.cuisine-voting
-                    :post-id="$post->id"
-                    :key="'post-drawer-cuisine-voting-'.$post->id"
-                />
-            </div>
-        </section>
 
         <section class="mt-6" data-testid="drawer-comments-slot">
             <div class="mb-3 flex items-center justify-between">

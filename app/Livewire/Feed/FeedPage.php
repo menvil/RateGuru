@@ -30,16 +30,26 @@ class FeedPage extends Component
         $this->normalizeSort();
     }
 
-    #[On('open-post-drawer')]
-    public function openPostDrawer(int $postId): void
+    #[On('select-post')]
+    public function selectPost(int $postId): void
     {
         $this->selectedPostId = $postId;
-        $this->dispatch('post-drawer-opened');
+    }
+
+    #[On('clear-selected-post')]
+    public function clearSelectedPost(): void
+    {
+        $this->selectedPostId = null;
+    }
+
+    public function openPostDrawer(int $postId): void
+    {
+        $this->selectPost($postId);
     }
 
     public function closePostDrawer(): void
     {
-        $this->selectedPostId = null;
+        $this->clearSelectedPost();
     }
 
     private function normalizeSort(): void

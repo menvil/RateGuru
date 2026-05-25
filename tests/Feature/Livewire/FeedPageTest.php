@@ -12,8 +12,8 @@ it('can render feed page component', function () {
 
 it('renders the feed page shell', function () {
     Livewire::test(FeedPage::class)
-        ->assertSee('RateGuru')
-        ->assertSee('Discover dishes');
+        ->assertSee('data-testid="feed-page"', false)
+        ->assertSee('data-testid="post-detail-column"', false);
 });
 
 it('has search state on feed page', function () {
@@ -61,23 +61,22 @@ it('sorts feed when sort is changed to top', function () {
         ->assertSeeInOrder(['High Score', 'Low Score']);
 });
 
-it('selects post for drawer on feed page', function () {
+it('selects post for detail column on feed page', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Drawer Dish',
+        'title' => 'Detail Dish',
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('openPostDrawer', $post->id)
-        ->assertSet('selectedPostId', $post->id)
-        ->assertDispatched('post-drawer-opened');
+        ->call('selectPost', $post->id)
+        ->assertSet('selectedPostId', $post->id);
 });
 
-it('clears selected post when drawer is closed', function () {
+it('clears selected post from detail column', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(FeedPage::class)
-        ->call('openPostDrawer', $post->id)
-        ->call('closePostDrawer')
+        ->call('selectPost', $post->id)
+        ->call('clearSelectedPost')
         ->assertSet('selectedPostId', null);
 });
 
