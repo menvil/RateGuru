@@ -1,4 +1,4 @@
-<div class="flex gap-2 overflow-x-auto pb-1" role="tablist" data-testid="category-tabs">
+<div class="flex flex-wrap gap-2 pb-1" role="tablist" data-testid="category-tabs">
     <button
         type="button"
         role="tab"

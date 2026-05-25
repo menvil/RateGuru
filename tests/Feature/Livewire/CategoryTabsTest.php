@@ -45,7 +45,22 @@ it('marks tag tab as aria-selected when that tag is selected', function () {
         ->assertSeeInOrder(['aria-selected="true"', 'Pasta'], false);
 });
 
-it('has scrollable container for tabs', function () {
+it('has non-scrolling container for a compact tab set', function () {
     Livewire::test(CategoryTabs::class)
-        ->assertSee('data-testid="category-tabs"', false);
+        ->assertSee('data-testid="category-tabs"', false)
+        ->assertDontSee('overflow-x-auto', false);
+});
+
+it('limits the inline tag tabs to five database tags', function () {
+    foreach (range(1, 6) as $index) {
+        Tag::factory()->create([
+            'name' => 'Tag '.$index,
+            'slug' => 'tag-'.$index,
+        ]);
+    }
+
+    Livewire::test(CategoryTabs::class)
+        ->assertSee('Tag 1')
+        ->assertSee('Tag 5')
+        ->assertDontSee('Tag 6');
 });

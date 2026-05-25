@@ -6,11 +6,6 @@
     @drawer-closed.window="if ($event.detail?.id === 'post-detail-drawer') { drawerOpen = false; $wire.closePostDrawer() }"
 >
     <section class="mx-auto w-full max-w-2xl px-4 py-5 sm:px-6 lg:max-w-3xl lg:px-8 lg:py-8" data-testid="feed-page">
-        <header class="mb-5">
-            <h1 class="text-2xl font-bold text-rg-text sm:text-3xl">RateGuru</h1>
-            <p class="mt-1 text-sm text-rg-muted">Discover dishes</p>
-        </header>
-
         <div class="mb-5">
             <div class="flex items-center gap-3">
                 <div class="min-w-0 flex-1">
