@@ -49,6 +49,14 @@ class PostFactory extends Factory
         ]);
     }
 
+    public function draft(): static
+    {
+        return $this->state(fn () => [
+            'status' => PostStatus::Draft,
+            'published_at' => null,
+        ]);
+    }
+
     public function rejected(): static
     {
         return $this->state(fn () => [

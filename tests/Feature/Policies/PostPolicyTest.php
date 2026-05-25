@@ -17,6 +17,29 @@ it('has expected post policy methods', function () {
     expect(method_exists($policy, 'delete'))->toBeTrue();
 });
 
+it('allows user to update own draft post', function () {
+    $user = User::factory()->create();
+
+    $post = Post::factory()
+        ->for($user)
+        ->draft()
+        ->create();
+
+    expect($user->can('update', $post))->toBeTrue();
+});
+
+it('does not allow user to update another users draft post', function () {
+    $owner = User::factory()->create();
+    $other = User::factory()->create();
+
+    $post = Post::factory()
+        ->for($owner)
+        ->draft()
+        ->create();
+
+    expect($other->can('update', $post))->toBeFalse();
+});
+
 dataset('moderation abilities', ['approve', 'reject', 'hide', 'restore']);
 
 it('allows moderator to perform moderation ability', function (string $ability) {
