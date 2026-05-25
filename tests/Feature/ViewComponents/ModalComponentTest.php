@@ -29,6 +29,7 @@ it('renders modal shell accessibility and presentation attributes', function () 
         ->toContain('bg-black/70')
         ->toContain('backdrop-blur-sm')
         ->toContain('sm:max-w-xl')
+        ->toContain('rounded-rgCard')
         ->toContain('border-rg-border2')
         ->toContain('aria-label="Close modal"')
         ->toContain('x-on:click="open = false"');

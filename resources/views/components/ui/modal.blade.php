@@ -31,7 +31,7 @@
 
     <div class="relative mx-auto flex min-h-full items-center justify-center">
         <div
-            class="relative w-full {{ $maxWidthClass }} overflow-hidden rounded-2xl border border-rg-border2 bg-rg-card text-rg-text shadow-rgPopover"
+            class="relative w-full {{ $maxWidthClass }} overflow-hidden rounded-rgCard border border-rg-border2 bg-rg-card text-rg-text shadow-rgPopover"
             x-on:click.stop
         >
             <div class="flex items-start justify-between gap-4 border-b border-rg-border px-5 py-4">

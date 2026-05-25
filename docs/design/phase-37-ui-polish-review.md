@@ -9,7 +9,7 @@
 ## Phase 37 checklist
 
 - [x] RG-598 feed spacing checked.
-- [ ] RG-599 card radius checked.
+- [x] RG-599 card radius checked.
 - [ ] RG-600 background checked.
 - [ ] RG-601 accent purple checked.
 - [ ] RG-602 header checked.
@@ -32,3 +32,9 @@
 - Feed container now uses mobile `px-4 py-5`, desktop `px-8 py-8`, and a wider desktop max width while preserving a focused feed column before the later two-column task.
 - Search, category tabs, sort controls, feed title, loading state, empty state, and cards share the same vertical rhythm.
 - No feed query, sorting, upload, drawer, or voting behavior was changed.
+
+## RG-599 notes
+
+- Card, empty state, dropdown, drawer, and product surfaces already used `rounded-rgCard` / related RateGuru radius tokens.
+- Modal content shell now uses `rounded-rgCard` instead of raw `rounded-2xl`, keeping large surfaces visually related to cards.
+- Control, media, pill, and avatar radii remain on their existing purpose-specific tokens.
