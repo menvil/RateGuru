@@ -29,14 +29,15 @@
                             @post-uploaded.window="open = false"
                             class="flex shrink-0 items-center justify-end gap-2 sm:gap-3"
                         >
-                            <button
-                                type="button"
+                            <x-ui.button
                                 data-testid="open-upload-button"
                                 x-on:click="open = true; $dispatch('upload-modal-opened')"
-                                class="inline-flex h-[38px] items-center justify-center gap-2 rounded-rgControl border border-transparent bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+                                elevated
                             >
-                                + Create post
-                            </button>
+                                <x-ui.icon name="upload" class="size-4" />
+                                <span class="hidden sm:inline">Create post</span>
+                                <span class="sm:hidden">Post</span>
+                            </x-ui.button>
 
                             <livewire:notifications.notification-bell />
 

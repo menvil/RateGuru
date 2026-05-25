@@ -31,6 +31,8 @@ it('renders upload modal shell for authenticated user on feed page', function ()
         ->assertOk()
         ->assertSee('Create post')
         ->assertSee('data-testid="open-upload-button"', false)
+        ->assertSee('shadow-rgUpload', false)
+        ->assertSee('aria-hidden="true"', false)
         ->assertSee('data-testid="upload-modal"', false);
 });
 
