@@ -8,6 +8,7 @@ use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 final class HidePostAction
 {
@@ -17,7 +18,7 @@ final class HidePostAction
 
     public function handle(User $moderator, Post $post, ?string $reason = null): void
     {
-        if (! $moderator->can('hide', $post)) {
+        if (! Gate::forUser($moderator)->allows('moderate-content')) {
             throw CannotModeratePostException::becauseUserIsNotAllowed();
         }
 

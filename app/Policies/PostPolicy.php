@@ -2,11 +2,18 @@
 
 namespace App\Policies;
 
+use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
 
 class PostPolicy
 {
+    public function update(User $user, Post $post): bool
+    {
+        return $post->user_id === $user->id
+            && $post->status === PostStatus::Draft;
+    }
+
     public function approve(User $user, Post $post): bool
     {
         return $this->canModerate($user);
@@ -19,7 +26,8 @@ class PostPolicy
 
     public function hide(User $user, Post $post): bool
     {
-        return $this->canModerate($user);
+        return $this->canModerate($user)
+            && $post->status === PostStatus::Published;
     }
 
     public function restore(User $user, Post $post): bool

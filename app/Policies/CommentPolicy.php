@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\CommentStatus;
 use App\Models\Comment;
 use App\Models\User;
 
@@ -28,7 +29,8 @@ class CommentPolicy
 
     public function hide(User $user, Comment $comment): bool
     {
-        return $this->canModerate($user);
+        return $this->canModerate($user)
+            && $comment->status === CommentStatus::Visible;
     }
 
     public function restore(User $user, Comment $comment): bool
