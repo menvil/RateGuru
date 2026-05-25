@@ -34,7 +34,8 @@ it('supports right side desktop behavior and mobile safe layout', function () {
         ->toContain('md:inset-y-0')
         ->toContain('md:right-0')
         ->toContain('w-full')
-        ->toContain('md:max-w-lg');
+        ->toContain('md:max-w-xl')
+        ->toContain('lg:max-w-2xl');
 });
 
 it('keeps the root event host visible while only animated drawer nodes use x-show', function () {

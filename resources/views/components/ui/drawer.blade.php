@@ -11,8 +11,8 @@
 
     $panelSizeClass = [
         'md' => 'md:max-w-md',
-        'lg' => 'md:max-w-lg',
-        'xl' => 'md:max-w-xl',
+        'lg' => 'md:max-w-xl lg:max-w-2xl',
+        'xl' => 'md:max-w-2xl lg:max-w-3xl',
     ][$size] ?? 'md:max-w-lg';
 
     $panelDesktopClass = $side === 'left'
