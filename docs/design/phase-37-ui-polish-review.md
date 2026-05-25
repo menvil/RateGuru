@@ -20,7 +20,7 @@
 - [x] RG-607 drawer width checked.
 - [x] RG-608 drawer animation checked.
 - [x] RG-609 modal backdrop checked.
-- [ ] RG-610 mobile card checked.
+- [x] RG-610 mobile card checked.
 - [ ] RG-611 desktop two-column checked.
 - [ ] RG-612 hover states checked.
 - [ ] RG-613 focus states checked.
@@ -98,3 +98,9 @@
 - Modal shell backdrop now exposes `data-testid="modal-backdrop"` and keeps the shared `bg-black/70 backdrop-blur-sm` treatment.
 - Modal open/close fade uses 200ms enter / 150ms leave motion-safe opacity transitions with reduced-motion fallback.
 - Upload, report, and confirmation modals continue to inherit the same `x-ui.modal` shell.
+
+## RG-610 notes
+
+- PostCard shell now hides overflow, truncates author metadata, and uses `break-words` on title/description.
+- Stats and vote controls can wrap on narrow screens without changing feed behavior.
+- Image and placeholder aspect ratios remain stable.

@@ -67,6 +67,20 @@ it('renders post title and description', function () {
         ->toContain('Creamy pasta with pepper');
 });
 
+it('renders mobile-safe post card structure', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Very long dish title that should wrap safely on narrow screens',
+        'description' => 'Compact mobile text should not force horizontal scrolling.',
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('overflow-hidden')
+        ->toContain('break-words')
+        ->toContain('flex-wrap');
+});
+
 it('does not break when description is missing', function () {
     $post = Post::factory()->published()->make([
         'title' => 'Dish',

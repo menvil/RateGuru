@@ -8,14 +8,14 @@
     wire:click="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
     wire:keydown.enter="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
     wire:keydown.space.prevent="$dispatch('open-post-drawer', { postId: {{ $post->id }} })"
-    class="cursor-pointer"
+    class="cursor-pointer overflow-hidden"
 >
-    <div class="flex items-center gap-2">
+    <div class="flex min-w-0 items-center gap-2">
         <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
         <div class="min-w-0">
-            <span class="block text-[13px] font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</span>
+            <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</span>
             @if($post->user?->username)
-                <span class="block text-xs text-rg-muted">{{ '@' . $post->user->username }}</span>
+                <span class="block truncate text-xs text-rg-muted">{{ '@' . $post->user->username }}</span>
             @endif
         </div>
     </div>
@@ -33,14 +33,14 @@
     @endif
 
     <div class="mt-3">
-        <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>
+        <h3 class="break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
         @if($post->truncated_description)
-            <p class="mt-1 text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
+            <p class="mt-1 break-words text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
         @endif
     </div>
 
     <footer class="mt-3 border-t border-rg-border pt-2.5">
-        <div class="flex items-center gap-4 text-xs text-rg-muted">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-rg-muted">
             <span>Score <span class="font-semibold text-rg-text2">{{ $post->score }}</span></span>
             <span>{{ $post->comments_count ?? 0 }} comments</span>
         </div>
