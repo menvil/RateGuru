@@ -1,5 +1,5 @@
 <div>
-    <div wire:loading class="grid gap-4 sm:gap-5" data-testid="post-feed-loading">
+    <div wire:loading class="grid gap-4 transition-opacity duration-200 sm:gap-5" data-testid="post-feed-loading">
         <x-ui.card variant="post">
             <x-ui.skeleton shape="block" height="h-48" />
             <x-ui.skeleton shape="line" width="w-3/4" class="mt-3" />
@@ -7,7 +7,7 @@
         </x-ui.card>
     </div>
 
-    <div wire:loading.remove class="grid gap-4 sm:gap-5">
+    <div wire:loading.remove class="grid gap-4 transition-opacity duration-200 sm:gap-5">
         @if($posts->isEmpty())
             <x-ui.empty-state
                 title="No dishes yet"

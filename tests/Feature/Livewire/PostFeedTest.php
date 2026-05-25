@@ -65,7 +65,8 @@ it('renders empty feed state when there are no published posts', function () {
 
 it('has loading skeleton markup', function () {
     Livewire::test(PostFeed::class)
-        ->assertSee('data-testid="post-feed-loading"', false);
+        ->assertSee('data-testid="post-feed-loading"', false)
+        ->assertSee('transition-opacity', false);
 });
 
 it('renders post cards using the post card component', function () {

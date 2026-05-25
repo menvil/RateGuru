@@ -9,7 +9,7 @@
         wire:loading
         wire:target="deleteComment,hideComment,refreshComments"
         data-testid="comments-loading"
-        class="space-y-2"
+        class="space-y-2 transition-opacity duration-200"
     >
         <x-ui.skeleton shape="line" width="w-3/4" />
         <x-ui.skeleton shape="line" width="w-1/2" />
