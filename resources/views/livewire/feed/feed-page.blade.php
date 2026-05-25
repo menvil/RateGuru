@@ -5,24 +5,26 @@
     @post-drawer-opened.window="drawerOpen = true; $dispatch('open-drawer', { id: 'post-detail-drawer' })"
     @drawer-closed.window="if ($event.detail?.id === 'post-detail-drawer') { drawerOpen = false; $wire.closePostDrawer() }"
 >
-    <section class="mx-auto w-full max-w-xl px-4 py-6 sm:px-6 lg:py-10">
-        <header class="mb-6">
+    <section class="mx-auto w-full max-w-2xl px-4 py-5 sm:px-6 lg:max-w-3xl lg:px-8 lg:py-8" data-testid="feed-page">
+        <header class="mb-5">
             <h1 class="text-2xl font-bold text-rg-text sm:text-3xl">RateGuru</h1>
             <p class="mt-1 text-sm text-rg-muted">Discover dishes</p>
         </header>
 
-        <div class="mb-3">
-            <livewire:feed.search-bar wire:model.live="search" />
-        </div>
-
-        <div class="mb-3 flex items-center gap-3">
-            <div class="min-w-0 flex-1">
-                <livewire:feed.category-tabs wire:model.live="category" />
+        <div class="mb-5 space-y-4">
+            <div>
+                <livewire:feed.search-bar wire:model.live="search" />
             </div>
-            <livewire:feed.sort-dropdown wire:model.live="sort" />
+
+            <div class="flex items-center gap-3">
+                <div class="min-w-0 flex-1">
+                    <livewire:feed.category-tabs wire:model.live="category" />
+                </div>
+                <livewire:feed.sort-dropdown wire:model.live="sort" />
+            </div>
         </div>
 
-        <main>
+        <main data-testid="feed-layout">
             <section>
                 <h2 class="mb-4 text-base font-semibold text-rg-text2">Latest dishes</h2>
                 <livewire:feed.post-feed
