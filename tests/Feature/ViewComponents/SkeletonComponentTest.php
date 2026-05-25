@@ -9,7 +9,8 @@ it('renders skeleton with pulse animation classes', function () {
 
     expect($html)
         ->toContain('animate-pulse')
-        ->toContain('bg-white/10');
+        ->toContain('bg-white/10')
+        ->toContain('motion-safe:transition-opacity');
 });
 
 it('supports line, block, and circle shapes', function (string $shape, string $expectedClass) {

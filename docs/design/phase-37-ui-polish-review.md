@@ -25,7 +25,7 @@
 - [x] RG-612 hover states checked.
 - [x] RG-613 focus states checked.
 - [x] RG-614 disabled states checked.
-- [ ] RG-615 loading states checked.
+- [x] RG-615 loading states checked.
 
 ## RG-598 notes
 
@@ -128,3 +128,9 @@
 - Reusable inputs and textareas now use tokenized disabled surface/text classes in addition to cursor and opacity changes.
 - Base buttons and Livewire voting/upload submit controls already carry real `disabled` / `wire:loading.attr="disabled"` behavior.
 - Disabled styling remains token-based and does not affect validation error rendering.
+
+## RG-615 notes
+
+- Skeletons now carry subtle motion-safe opacity transition utilities.
+- Feed, drawer, and comments loading containers now use short opacity transitions to reduce abrupt loading swaps.
+- Final Phase 37 checklist is complete; no browser smoke tests, screenshot baselines, or visual-regression infrastructure were added.

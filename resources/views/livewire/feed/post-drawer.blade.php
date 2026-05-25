@@ -1,11 +1,11 @@
 <div data-testid="post-drawer">
-    <div wire:loading data-testid="post-drawer-loading" class="space-y-4">
+    <div wire:loading data-testid="post-drawer-loading" class="space-y-4 transition-opacity duration-200">
         <x-ui.skeleton shape="block" height="16rem" />
         <x-ui.skeleton shape="line" width="70%" />
         <x-ui.skeleton shape="line" width="45%" />
     </div>
 
-    <div wire:loading.remove>
+    <div wire:loading.remove class="transition-opacity duration-200">
     @if($post)
         @if($post->public_image_url)
             <img
