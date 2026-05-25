@@ -26,3 +26,14 @@ it('renders app brand with hover affordance', function () {
         ->toContain('hover:text-rg-text')
         ->toContain('focus-visible:ring-rg-accent');
 });
+
+it('renders the app header like the PlateRate reference topbar', function () {
+    $html = $this->get('/')->assertOk()->getContent();
+
+    expect($html)
+        ->toContain('h-[60px]')
+        ->toContain('Search tags, users, dishes')
+        ->toContain('data-testid="app-header-search"')
+        ->toContain('text-[22px]')
+        ->toContain('text-rg-accent2');
+});

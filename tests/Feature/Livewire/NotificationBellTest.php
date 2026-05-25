@@ -11,7 +11,9 @@ it('can render notification bell for authenticated user', function () {
     Livewire::actingAs($user)
         ->test(NotificationBell::class)
         ->assertStatus(200)
-        ->assertSee('data-testid="notification-bell"', false);
+        ->assertSee('data-testid="notification-bell"', false)
+        ->assertSee('aria-label="Notifications"', false)
+        ->assertSee('data-testid="notification-bell-icon"', false);
 });
 
 it('does not render notification bell for guest', function () {

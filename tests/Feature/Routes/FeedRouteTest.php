@@ -29,6 +29,7 @@ it('renders upload modal shell for authenticated user on feed page', function ()
     $this->actingAs($user)
         ->get('/')
         ->assertOk()
+        ->assertSee('Upload')
         ->assertSee('Create post')
         ->assertSee('data-testid="open-upload-button"', false)
         ->assertSee('shadow-rgUpload', false)
@@ -46,8 +47,10 @@ it('renders authenticated header actions without changing guest header behavior'
     $this->actingAs($user)
         ->get('/')
         ->assertOk()
+        ->assertSee('data-testid="app-header-search"', false)
         ->assertSee('data-testid="notification-bell"', false)
-        ->assertSee('Log out');
+        ->assertSee('data-testid="header-profile-link"', false)
+        ->assertDontSee('Log out');
 });
 
 it('listens for post uploaded event to close upload modal', function () {
