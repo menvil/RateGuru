@@ -13,7 +13,7 @@ it('seeds pending demo posts', function () {
     $this->seed(DemoPendingPostsSeeder::class);
 
     expect(Post::query()->where('status', PostStatus::Pending)->count())
-        ->toBeGreaterThanOrEqual(3);
+        ->toBe(3);
 });
 
 it('seeds pending posts with authors and tags', function () {

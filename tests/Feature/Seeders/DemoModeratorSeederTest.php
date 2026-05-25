@@ -21,9 +21,10 @@ it('seeds demo moderator with hashed password', function () {
     $this->seed(DemoModeratorSeeder::class);
 
     $moderator = User::query()->where('email', 'moderator@rateguru.test')->firstOrFail();
+    $expectedPassword = env('DEMO_MODERATOR_PASSWORD', 'password');
 
-    expect(Hash::check('password', $moderator->password))->toBeTrue();
-    expect($moderator->password)->not->toBe('password');
+    expect(Hash::check($expectedPassword, $moderator->password))->toBeTrue();
+    expect($moderator->password)->not->toBe($expectedPassword);
 });
 
 it('does not seed demo moderator in production environment', function () {

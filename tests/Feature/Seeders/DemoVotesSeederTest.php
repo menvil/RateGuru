@@ -43,8 +43,12 @@ it('seeds posts with recalculated hot scores', function () {
 it('seeds votes idempotently', function () {
     $this->seed(DemoDatabaseSeeder::class);
     $postVotes = PostVote::query()->count();
+    $originVotes = OriginVote::query()->count();
+    $cuisineVotes = CuisineVote::query()->count();
 
     $this->seed(DemoVotesSeeder::class);
 
     expect(PostVote::query()->count())->toBe($postVotes);
+    expect(OriginVote::query()->count())->toBe($originVotes);
+    expect(CuisineVote::query()->count())->toBe($cuisineVotes);
 });

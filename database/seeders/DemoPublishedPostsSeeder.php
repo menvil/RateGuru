@@ -8,10 +8,14 @@ use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
+use RuntimeException;
 
 class DemoPublishedPostsSeeder extends Seeder
 {
+    private const BASE_PUBLISHED_AT = '2026-05-20 12:00:00';
+
     public function run(): void
     {
         if (! app()->environment(['local', 'testing'])) {
@@ -33,16 +37,21 @@ class DemoPublishedPostsSeeder extends Seeder
                     'status' => PostStatus::Published,
                     'origin_truth' => $demoPost['origin_truth'],
                     'cuisine_truth' => $demoPost['cuisine_truth'],
-                    'published_at' => now()->subHours($index + 1),
+                    'published_at' => CarbonImmutable::parse(self::BASE_PUBLISHED_AT)->subHours($index + 1),
                 ],
             );
 
-            $tagIds = Tag::query()
+            $tags = Tag::query()
                 ->whereIn('slug', $demoPost['tags'])
-                ->pluck('id')
-                ->all();
+                ->get(['id', 'slug']);
 
-            $post->tags()->sync($tagIds);
+            $missingSlugs = array_values(array_diff($demoPost['tags'], $tags->pluck('slug')->all()));
+
+            if ($missingSlugs !== []) {
+                throw new RuntimeException('Missing demo post tags: '.implode(', ', $missingSlugs));
+            }
+
+            $post->tags()->sync($tags->pluck('id')->all());
         }
     }
 
