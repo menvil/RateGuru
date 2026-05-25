@@ -23,7 +23,7 @@
 - [x] RG-610 mobile card checked.
 - [x] RG-611 desktop two-column checked.
 - [x] RG-612 hover states checked.
-- [ ] RG-613 focus states checked.
+- [x] RG-613 focus states checked.
 - [ ] RG-614 disabled states checked.
 - [ ] RG-615 loading states checked.
 
@@ -116,3 +116,9 @@
 - Clickable PostCard surfaces now have subtle border/surface hover feedback.
 - Copy-link buttons now hover both border and surface while keeping text contrast.
 - App and guest brand links have explicit hover affordance without changing navigation behavior.
+
+## RG-613 notes
+
+- Keyboard-reachable PostCard surfaces now have accent focus-visible rings and shell-colored offsets.
+- Copy-link buttons now have the same accent focus-visible treatment as base buttons.
+- App and guest brand links include explicit focus-visible rings.

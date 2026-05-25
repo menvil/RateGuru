@@ -23,5 +23,6 @@ it('renders app brand with hover affordance', function () {
 
     expect($html)
         ->toContain('hover:bg-rg-card')
-        ->toContain('hover:text-rg-text');
+        ->toContain('hover:text-rg-text')
+        ->toContain('focus-visible:ring-rg-accent');
 });
