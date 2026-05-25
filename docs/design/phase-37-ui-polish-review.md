@@ -13,7 +13,7 @@
 - [x] RG-600 background checked.
 - [x] RG-601 accent purple checked.
 - [x] RG-602 header checked.
-- [ ] RG-603 upload button checked.
+- [x] RG-603 upload button checked.
 - [ ] RG-604 vote states checked.
 - [ ] RG-605 origin controls checked.
 - [ ] RG-606 cuisine controls checked.
@@ -56,3 +56,9 @@
 - App header now exposes `data-testid="app-header"` and uses a 60px minimum height to match the reference topbar density.
 - Header spacing is compact and responsive: brand left, authenticated actions right, and no guest-only layout wrap.
 - Existing notification bell is rendered alongside upload/logout for authenticated users without adding new navigation behavior.
+
+## RG-603 notes
+
+- Header upload CTA now uses `x-ui.button` with the primary accent style, upload icon, and `shadow-rgUpload`.
+- Mobile keeps a compact `Post` label while preserving the `Create post` text in the authenticated header markup.
+- Upload modal Alpine open/close behavior is unchanged.
