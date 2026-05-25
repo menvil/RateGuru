@@ -34,6 +34,8 @@ class FeedPage extends Component
     public function selectPost(int $postId): void
     {
         $this->selectedPostId = $postId;
+
+        $this->dispatch('post-selected', postId: $postId);
     }
 
     #[On('clear-selected-post')]

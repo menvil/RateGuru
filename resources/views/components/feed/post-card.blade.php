@@ -6,6 +6,7 @@
 <x-ui.card
     variant="{{ $selected ? 'selected-post' : 'post' }}"
     data-testid="post-card"
+    data-post-id="{{ $post->id }}"
     role="button"
     tabindex="0"
     wire:click="$dispatch('select-post', { postId: {{ $post->id }} })"
@@ -14,7 +15,15 @@
     class="grid cursor-pointer grid-cols-[32px_1fr] gap-2 overflow-hidden transition-colors hover:border-rg-border2 hover:bg-rg-cardHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
 >
     <div data-testid="post-card-voting" class="w-8 pt-1.5" wire:click.stop wire:keydown.stop>
-        <x-ui.vote-rail :score="$post->score" active="none" />
+        @if($post->exists)
+            <livewire:posts.post-voting
+                :post-id="$post->id"
+                variant="rail"
+                :key="'post-card-vote-rail-'.$post->id"
+            />
+        @else
+            <x-ui.vote-rail :score="$post->score" active="none" />
+        @endif
     </div>
 
     <div class="min-w-0">

@@ -13,7 +13,9 @@ it('can render feed page component', function () {
 it('renders the feed page shell', function () {
     Livewire::test(FeedPage::class)
         ->assertSee('data-testid="feed-page"', false)
-        ->assertSee('data-testid="post-detail-column"', false);
+        ->assertSee('data-testid="feed-content-shell"', false)
+        ->assertSee('max-w-[820px]', false)
+        ->assertDontSee('data-testid="post-detail-column"', false);
 });
 
 it('has search state on feed page', function () {
@@ -68,7 +70,10 @@ it('selects post for detail column on feed page', function () {
 
     Livewire::test(FeedPage::class)
         ->call('selectPost', $post->id)
-        ->assertSet('selectedPostId', $post->id);
+        ->assertSet('selectedPostId', $post->id)
+        ->assertDispatched('post-selected', postId: $post->id)
+        ->assertSee('data-testid="post-detail-column"', false)
+        ->assertSee('lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)]', false);
 });
 
 it('clears selected post from detail column', function () {

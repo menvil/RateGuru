@@ -86,21 +86,22 @@ it('has alpine upload modal open close behavior', function () {
         ->toContain('@click');
 });
 
-it('renders reference detail column on feed page', function () {
+it('renders centered reference feed before a post is selected', function () {
     $html = $this->get('/')->assertOk()->getContent();
 
     expect($html)
-        ->toContain('data-testid="post-detail-column"')
-        ->toContain('lg:grid-cols-[minmax(520px,1fr)_minmax(380px,460px)]')
+        ->toContain('data-testid="feed-content-shell"')
+        ->toContain('max-w-[820px]')
+        ->not->toContain('data-testid="post-detail-column"')
         ->not->toContain('data-drawer-id="post-detail-drawer"');
 });
 
-it('renders detail column empty state', function () {
+it('does not reserve detail column before a post is selected', function () {
     $html = $this->get('/')->assertOk()->getContent();
 
     expect($html)
-        ->toContain('Select a post')
-        ->toContain('Post details will appear here.');
+        ->not->toContain('Select a post')
+        ->not->toContain('Post details will appear here.');
 });
 
 it('post cards select posts for the detail column', function () {

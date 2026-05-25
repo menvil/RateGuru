@@ -42,17 +42,31 @@
                 <p class="mt-3 text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
             @endif
 
-            <footer class="mt-3 flex items-center gap-4">
-                <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
-                <x-ui.action-button icon="share">Share</x-ui.action-button>
-                <x-ui.action-button icon="bookmark">Save</x-ui.action-button>
+            <footer class="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-3">
+                <div class="flex items-center gap-4">
+                    <div data-testid="post-drawer-voting" wire:click.stop wire:keydown.stop>
+                        <livewire:posts.post-voting
+                            :post-id="$post->id"
+                            variant="rail"
+                            :key="'post-detail-vote-rail-'.$post->id"
+                        />
+                    </div>
+                    <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
+                    <x-ui.action-button icon="share">Share</x-ui.action-button>
+                    <x-ui.action-button icon="bookmark">Save</x-ui.action-button>
+                </div>
+                <button type="button" class="rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+                    <x-ui.icon name="more" class="size-4" />
+                </button>
             </footer>
         </article>
 
         <section data-testid="post-detail-results" class="mt-4 grid gap-6 rounded-rgCard border border-rg-border bg-rg-card p-5 sm:grid-cols-2">
             <div>
-                <h3 class="text-base font-bold text-rg-text">Results</h3>
-                <p class="mt-1 text-xs text-rg-muted">Score {{ $post->score }}</p>
+                <div class="mb-3 flex items-baseline gap-2">
+                    <h3 class="text-base font-bold text-rg-text">Results</h3>
+                    <span class="text-xs text-rg-muted">Score {{ $post->score }}</span>
+                </div>
 
                 @php
                     $originTotal = max(1, (int) ($post->homemade_votes_count ?? 0) + (int) ($post->restaurant_votes_count ?? 0));
@@ -76,39 +90,22 @@
                 </div>
 
                 <p class="mt-4 text-[22px] font-bold text-rg-text">{{ $originTotal === 1 && (($post->homemade_votes_count ?? 0) + ($post->restaurant_votes_count ?? 0)) === 0 ? 0 : $originTotal }} votes</p>
+
+                <div class="mt-4" data-testid="post-drawer-origin-voting" wire:click.stop wire:keydown.stop>
+                    <livewire:posts.origin-voting
+                        :post-id="$post->id"
+                        :key="'post-drawer-origin-voting-'.$post->id"
+                    />
+                </div>
             </div>
 
             <div>
                 <h3 class="text-base font-bold text-rg-text">Cuisine guess</h3>
-                <div class="mt-4" data-testid="post-drawer-cuisine-voting">
+                <div class="mt-4" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.cuisine-voting
                         :post-id="$post->id"
                         :key="'post-drawer-cuisine-voting-'.$post->id"
                     />
-                </div>
-            </div>
-        </section>
-
-        <section class="mt-4 rounded-rgCard border border-rg-border bg-rg-card p-5">
-            <div class="grid gap-4 sm:grid-cols-2">
-                <div data-testid="post-drawer-voting">
-                    <h3 class="text-sm font-semibold text-rg-text">Vote</h3>
-                    <div class="mt-2">
-                        <livewire:posts.post-voting
-                            :post-id="$post->id"
-                            :key="'post-drawer-voting-'.$post->id"
-                        />
-                    </div>
-                </div>
-
-                <div data-testid="post-drawer-origin-voting">
-                    <h3 class="text-sm font-semibold text-rg-text">Homemade or Restaurant?</h3>
-                    <div class="mt-2">
-                        <livewire:posts.origin-voting
-                            :post-id="$post->id"
-                            :key="'post-drawer-origin-voting-'.$post->id"
-                        />
-                    </div>
                 </div>
             </div>
         </section>

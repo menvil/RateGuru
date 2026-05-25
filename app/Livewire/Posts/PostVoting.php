@@ -13,6 +13,8 @@ final class PostVoting extends Component
 {
     public int $postId;
 
+    public string $variant = 'buttons';
+
     public string $error = '';
 
     public function getPostProperty(): ?Post
