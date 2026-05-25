@@ -16,7 +16,9 @@ it('renders post voting component on post show page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('data-testid="post-show-voting"', false);
+        ->assertSee('data-testid="post-show-voting"', false)
+        ->assertSee('data-testid="post-show-side-panel"', false)
+        ->assertSee('lg:grid-cols-[minmax(0,1fr)_360px]', false);
 });
 
 it('renders published post show page', function () {

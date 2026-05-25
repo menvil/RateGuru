@@ -21,7 +21,7 @@
 - [x] RG-608 drawer animation checked.
 - [x] RG-609 modal backdrop checked.
 - [x] RG-610 mobile card checked.
-- [ ] RG-611 desktop two-column checked.
+- [x] RG-611 desktop two-column checked.
 - [ ] RG-612 hover states checked.
 - [ ] RG-613 focus states checked.
 - [ ] RG-614 disabled states checked.
@@ -104,3 +104,9 @@
 - PostCard shell now hides overflow, truncates author metadata, and uses `break-words` on title/description.
 - Stats and vote controls can wrap on narrow screens without changing feed behavior.
 - Image and placeholder aspect ratios remain stable.
+
+## RG-611 notes
+
+- Post show now uses a responsive `lg:grid-cols-[minmax(0,1fr)_360px]` layout with main post/comments content and an existing side panel.
+- The side panel contains existing voting, vote summary, share, and related sections; no new sidebar content was introduced.
+- Mobile remains single-column because the grid only activates at `lg`.
