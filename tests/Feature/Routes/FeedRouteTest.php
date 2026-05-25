@@ -50,7 +50,9 @@ it('renders authenticated header actions without changing guest header behavior'
         ->assertSee('data-testid="app-header-search"', false)
         ->assertSee('data-testid="notification-bell"', false)
         ->assertSee('data-testid="header-profile-link"', false)
-        ->assertDontSee('Log out');
+        ->assertSee('data-testid="header-user-menu-trigger"', false)
+        ->assertSee('Profile')
+        ->assertSee('Log out');
 });
 
 it('listens for post uploaded event to close upload modal', function () {

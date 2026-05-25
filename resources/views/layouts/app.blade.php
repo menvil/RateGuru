@@ -13,74 +13,100 @@
     </head>
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         <div class="min-h-screen">
-            <header class="flex h-[60px] items-center gap-5 border-b border-rg-border bg-rg-topbar px-5" data-testid="app-header">
-                <a href="{{ url('/') }}" class="shrink-0 rounded-rgControl text-[22px] font-extrabold tracking-normal text-rg-text transition-colors hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg">
-                    Rate<span class="text-rg-accent2">Guru</span>
-                </a>
+            <header class="border-b border-rg-border bg-rg-topbar" data-testid="app-header">
+                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-5 px-5">
+                    <a href="{{ url('/') }}" class="shrink-0 rounded-rgControl text-[22px] font-extrabold tracking-normal text-rg-text transition-colors hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg">
+                        Rate<span class="text-rg-accent2">Guru</span>
+                    </a>
 
-                <form
-                    action="{{ route('feed') }}"
-                    method="GET"
-                    data-testid="app-header-search"
-                    class="relative hidden max-w-[520px] flex-1 md:block"
-                >
-                    <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
-                    <input
-                        type="search"
-                        name="search"
-                        value="{{ request('search') }}"
-                        aria-label="Search tags, users, dishes"
-                        placeholder="Search tags, users, dishes..."
-                        class="h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-3 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
+                    <form
+                        action="{{ route('feed') }}"
+                        method="GET"
+                        data-testid="app-header-search"
+                        class="relative hidden max-w-[520px] flex-1 md:block"
                     >
-                </form>
-
-                @auth
-                    @php
-                        $headerUser = auth()->user();
-                        $profileHref = filled($headerUser->username)
-                            ? route('profile.show', ['username' => $headerUser->username])
-                            : route('profile.edit');
-                    @endphp
-
-                    <div
-                        x-data="{ open: false }"
-                        @keydown.escape.window="open = false"
-                        @post-uploaded.window="open = false"
-                        class="ml-auto flex shrink-0 items-center justify-end gap-3"
-                    >
-                        <x-ui.button
-                            data-testid="open-upload-button"
-                            x-on:click="open = true; $dispatch('upload-modal-opened')"
-                            elevated
+                        <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
+                        <input
+                            type="search"
+                            name="search"
+                            value="{{ request('search') }}"
+                            aria-label="Search tags, users, dishes"
+                            placeholder="Search tags, users, dishes..."
+                            class="h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-3 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
                         >
-                            <x-ui.icon name="upload" class="size-4" />
-                            <span class="hidden sm:inline">Upload</span>
-                        </x-ui.button>
+                    </form>
 
-                        <livewire:notifications.notification-bell />
+                    @auth
+                        @php
+                            $headerUser = auth()->user();
+                            $profileHref = filled($headerUser->username)
+                                ? route('profile.show', ['username' => $headerUser->username])
+                                : route('profile.edit');
+                        @endphp
 
-                        <a
-                            href="{{ $profileHref }}"
-                            data-testid="header-profile-link"
-                            aria-label="Open profile"
-                            class="rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+                        <div
+                            x-data="{ open: false }"
+                            @keydown.escape.window="open = false"
+                            @post-uploaded.window="open = false"
+                            class="ml-auto flex shrink-0 items-center justify-end gap-3"
                         >
-                            <x-ui.avatar
-                                :src="$headerUser->avatar_url"
-                                :name="$headerUser->name ?: $headerUser->username"
-                                color="purple"
-                                size="lg"
-                            />
-                        </a>
+                            <x-ui.button
+                                data-testid="open-upload-button"
+                                x-on:click="open = true; $dispatch('upload-modal-opened')"
+                                elevated
+                            >
+                                <x-ui.icon name="upload" class="size-4" />
+                                <span class="hidden sm:inline">Upload</span>
+                            </x-ui.button>
 
-                        <div data-testid="upload-modal">
-                            <x-ui.modal title="Create post" size="lg">
-                                <livewire:feed.upload-post-form />
-                            </x-ui.modal>
+                            <livewire:notifications.notification-bell />
+
+                            <x-ui.dropdown>
+                                <x-slot:trigger>
+                                    <button
+                                        type="button"
+                                        data-testid="header-user-menu-trigger"
+                                        aria-label="Open user menu"
+                                        class="cursor-pointer rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+                                    >
+                                        <x-ui.avatar
+                                            :src="$headerUser->avatar_url"
+                                            :name="$headerUser->name ?: $headerUser->username"
+                                            color="purple"
+                                            size="lg"
+                                        />
+                                    </button>
+                                </x-slot:trigger>
+
+                                <x-slot:content>
+                                    <a
+                                        href="{{ $profileHref }}"
+                                        data-testid="header-profile-link"
+                                        class="block rounded-rgSm px-3 py-2 text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                    >
+                                        Profile
+                                    </a>
+
+                                    <form method="POST" action="{{ route('logout') }}">
+                                        @csrf
+                                        <button
+                                            type="submit"
+                                            class="block w-full cursor-pointer rounded-rgSm px-3 py-2 text-left text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                        >
+                                            Log out
+                                        </button>
+                                    </form>
+                                </x-slot:content>
+                            </x-ui.dropdown>
+
+                            <div data-testid="upload-modal">
+                                <x-ui.modal title="Create post" size="lg">
+                                    <livewire:feed.upload-post-form />
+                                </x-ui.modal>
+                            </div>
                         </div>
-                    </div>
-                @endauth
+                    @endauth
+                </div>
             </header>
 
             @isset($header)

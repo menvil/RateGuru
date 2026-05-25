@@ -31,7 +31,7 @@
 <button
     {{ $attributes
         ->class([
-            'inline-flex items-center justify-center gap-2 rounded-rgControl border font-semibold transition-colors',
+            'inline-flex cursor-pointer items-center justify-center gap-2 rounded-rgControl border font-semibold transition-colors',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg',
             'disabled:cursor-not-allowed disabled:opacity-45',
             'w-full' => $fullWidth,

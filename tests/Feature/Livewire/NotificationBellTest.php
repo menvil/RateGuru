@@ -13,7 +13,8 @@ it('can render notification bell for authenticated user', function () {
         ->assertStatus(200)
         ->assertSee('data-testid="notification-bell"', false)
         ->assertSee('aria-label="Notifications"', false)
-        ->assertSee('data-testid="notification-bell-icon"', false);
+        ->assertSee('data-testid="notification-bell-icon"', false)
+        ->assertSee('cursor-pointer', false);
 });
 
 it('does not render notification bell for guest', function () {

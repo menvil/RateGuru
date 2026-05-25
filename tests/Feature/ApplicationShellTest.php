@@ -32,6 +32,7 @@ it('renders the app header like the PlateRate reference topbar', function () {
 
     expect($html)
         ->toContain('h-[60px]')
+        ->toContain('max-w-[1440px]')
         ->toContain('Search tags, users, dishes')
         ->toContain('data-testid="app-header-search"')
         ->toContain('text-[22px]')
