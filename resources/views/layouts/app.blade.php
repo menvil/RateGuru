@@ -13,13 +13,13 @@
     </head>
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         <div class="min-h-screen">
-            <header class="border-b border-rg-border bg-rg-topbar">
-                <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-                    <a href="{{ url('/') }}" class="flex items-center gap-3">
+            <header class="border-b border-rg-border bg-rg-topbar" data-testid="app-header">
+                <div class="mx-auto flex min-h-[60px] max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+                    <a href="{{ url('/') }}" class="flex min-w-0 items-center gap-3">
                         <span class="flex size-9 items-center justify-center rounded-rgSm border border-rg-border2 bg-rg-card2 font-semibold text-rg-text">
                             RG
                         </span>
-                        <span class="text-lg font-semibold tracking-normal text-rg-text">RateGuru</span>
+                        <span class="truncate text-lg font-semibold tracking-normal text-rg-text">RateGuru</span>
                     </a>
 
                     @auth
@@ -27,15 +27,18 @@
                             x-data="{ open: false }"
                             @keydown.escape.window="open = false"
                             @post-uploaded.window="open = false"
-                            class="flex items-center gap-4"
+                            class="flex shrink-0 items-center justify-end gap-2 sm:gap-3"
                         >
                             <button
                                 type="button"
+                                data-testid="open-upload-button"
                                 x-on:click="open = true; $dispatch('upload-modal-opened')"
                                 class="inline-flex h-[38px] items-center justify-center gap-2 rounded-rgControl border border-transparent bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                             >
                                 + Create post
                             </button>
+
+                            <livewire:notifications.notification-bell />
 
                             <div data-testid="upload-modal">
                                 <x-ui.modal title="Create post" size="lg">

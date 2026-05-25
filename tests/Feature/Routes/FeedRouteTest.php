@@ -10,6 +10,7 @@ it('serves feed page on home route', function () {
 it('renders base feed layout with section title', function () {
     $this->get('/')
         ->assertOk()
+        ->assertSee('data-testid="app-header"', false)
         ->assertSee('Latest dishes');
 });
 
@@ -29,7 +30,22 @@ it('renders upload modal shell for authenticated user on feed page', function ()
         ->get('/')
         ->assertOk()
         ->assertSee('Create post')
+        ->assertSee('data-testid="open-upload-button"', false)
         ->assertSee('data-testid="upload-modal"', false);
+});
+
+it('renders authenticated header actions without changing guest header behavior', function () {
+    $user = \App\Models\User::factory()->create();
+
+    $this->get('/')
+        ->assertOk()
+        ->assertDontSee('data-testid="notification-bell"', false);
+
+    $this->actingAs($user)
+        ->get('/')
+        ->assertOk()
+        ->assertSee('data-testid="notification-bell"', false)
+        ->assertSee('Log out');
 });
 
 it('listens for post uploaded event to close upload modal', function () {

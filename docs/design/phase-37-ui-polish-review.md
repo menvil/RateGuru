@@ -12,7 +12,7 @@
 - [x] RG-599 card radius checked.
 - [x] RG-600 background checked.
 - [x] RG-601 accent purple checked.
-- [ ] RG-602 header checked.
+- [x] RG-602 header checked.
 - [ ] RG-603 upload button checked.
 - [ ] RG-604 vote states checked.
 - [ ] RG-605 origin controls checked.
@@ -50,3 +50,9 @@
 - Primary button and active sort states now use `text-rg-onAccent` instead of raw `text-white`.
 - Input, textarea, and reference topbar focus rings now use `focus-visible:ring-rg-accent/25` instead of raw RGBA values.
 - UI kit accent examples remain on `bg-rg-accent`, `bg-rg-accentSoft`, `border-rg-accent`, and `text-rg-accent2`.
+
+## RG-602 notes
+
+- App header now exposes `data-testid="app-header"` and uses a 60px minimum height to match the reference topbar density.
+- Header spacing is compact and responsive: brand left, authenticated actions right, and no guest-only layout wrap.
+- Existing notification bell is rendered alongside upload/logout for authenticated users without adding new navigation behavior.
