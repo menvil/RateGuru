@@ -2,14 +2,24 @@
     @if($post === null)
         <span data-testid="origin-voting-unavailable" class="text-xs text-rg-muted">Origin voting unavailable</span>
     @else
-        <div class="flex items-center gap-2">
+        @php
+            $homemadeActive = $currentOrigin === 'homemade';
+            $restaurantActive = $currentOrigin === 'restaurant';
+            $baseClass = 'inline-flex min-w-[5rem] items-center justify-center gap-1 rounded-rgPill border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
+            $idleClass = 'border-rg-border bg-rg-card2 text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-cardHover hover:text-rg-text';
+            $activeClass = 'border-rg-accent bg-rg-accentSoft text-rg-text';
+        @endphp
+
+        <div class="flex flex-wrap items-center gap-2">
             <button
                 type="button"
                 wire:click="vote('homemade')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
                 wire:loading.class="opacity-60 cursor-wait"
-                class="inline-flex min-w-[5rem] items-center justify-center gap-1 rounded-rgPill border border-rg-border bg-rg-card2 px-3 py-1.5 text-sm font-semibold text-rg-text transition hover:border-rg-accentBorder disabled:cursor-wait disabled:opacity-60"
+                aria-pressed="{{ $homemadeActive ? 'true' : 'false' }}"
+                data-state="{{ $homemadeActive ? 'active' : 'idle' }}"
+                class="{{ $baseClass }} {{ $homemadeActive ? $activeClass : $idleClass }}"
             >
                 Homemade
             </button>
@@ -20,7 +30,9 @@
                 wire:target="vote"
                 wire:loading.attr="disabled"
                 wire:loading.class="opacity-60 cursor-wait"
-                class="inline-flex min-w-[5rem] items-center justify-center gap-1 rounded-rgPill border border-rg-border bg-rg-card2 px-3 py-1.5 text-sm font-semibold text-rg-text transition hover:border-rg-accentBorder disabled:cursor-wait disabled:opacity-60"
+                aria-pressed="{{ $restaurantActive ? 'true' : 'false' }}"
+                data-state="{{ $restaurantActive ? 'active' : 'idle' }}"
+                class="{{ $baseClass }} {{ $restaurantActive ? $activeClass : $idleClass }}"
             >
                 Restaurant
             </button>

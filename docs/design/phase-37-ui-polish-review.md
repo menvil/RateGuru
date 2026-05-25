@@ -15,7 +15,7 @@
 - [x] RG-602 header checked.
 - [x] RG-603 upload button checked.
 - [x] RG-604 vote states checked.
-- [ ] RG-605 origin controls checked.
+- [x] RG-605 origin controls checked.
 - [ ] RG-606 cuisine controls checked.
 - [ ] RG-607 drawer width checked.
 - [ ] RG-608 drawer animation checked.
@@ -68,3 +68,9 @@
 - Post vote buttons now expose `aria-pressed` and `data-state` for selected state visibility.
 - Upvote active state uses success tokens; downvote active state uses danger tokens; idle buttons keep card surface and accent-border hover.
 - Loading disabled markup is preserved, and focus-visible rings use the accent token.
+
+## RG-605 notes
+
+- Origin voting pills now expose `aria-pressed` and `data-state` based on the authenticated user's selected origin vote.
+- Selected pills use `bg-rg-accentSoft`, `border-rg-accent`, and readable text tokens; idle pills keep subtle card surfaces.
+- Pills can wrap on narrow widths while preserving distribution bar alignment.
