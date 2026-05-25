@@ -24,7 +24,7 @@
 - [x] RG-611 desktop two-column checked.
 - [x] RG-612 hover states checked.
 - [x] RG-613 focus states checked.
-- [ ] RG-614 disabled states checked.
+- [x] RG-614 disabled states checked.
 - [ ] RG-615 loading states checked.
 
 ## RG-598 notes
@@ -122,3 +122,9 @@
 - Keyboard-reachable PostCard surfaces now have accent focus-visible rings and shell-colored offsets.
 - Copy-link buttons now have the same accent focus-visible treatment as base buttons.
 - App and guest brand links include explicit focus-visible rings.
+
+## RG-614 notes
+
+- Reusable inputs and textareas now use tokenized disabled surface/text classes in addition to cursor and opacity changes.
+- Base buttons and Livewire voting/upload submit controls already carry real `disabled` / `wire:loading.attr="disabled"` behavior.
+- Disabled styling remains token-based and does not affect validation error rendering.
