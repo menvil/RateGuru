@@ -85,6 +85,20 @@ it('allows only admin to delete a post', function () {
     expect($user->can('delete', $post))->toBeFalse();
 });
 
+it('does not allow moderator to delete post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    expect($moderator->can('delete', $post))->toBeFalse();
+});
+
+it('does not allow normal user to delete own published post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->for($user)->published()->create();
+
+    expect($user->can('delete', $post))->toBeFalse();
+});
+
 it('allows moderator to hide published post', function () {
     $moderator = User::factory()->moderator()->create();
     $post = Post::factory()->published()->create();
