@@ -10,6 +10,7 @@ use App\Exceptions\Comments\CannotHideCommentException;
 use App\Models\Comment;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 final class HideCommentAction
 {
@@ -21,7 +22,7 @@ final class HideCommentAction
 
     public function handle(User $user, Comment $comment, ?string $reason = null): void
     {
-        if (! $user->can('hide', $comment)) {
+        if (! Gate::forUser($user)->allows('moderate-content')) {
             throw CannotHideCommentException::becauseUserIsNotAllowed();
         }
 
