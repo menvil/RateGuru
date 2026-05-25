@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
 
@@ -9,7 +10,8 @@ class PostPolicy
 {
     public function update(User $user, Post $post): bool
     {
-        return false;
+        return $post->user_id === $user->id
+            && $post->status === PostStatus::Draft;
     }
 
     public function approve(User $user, Post $post): bool
