@@ -5,11 +5,12 @@
             data-testid="notification-bell"
             class="relative inline-flex items-center"
             @keydown.escape.window="open = false"
+            @close-notification-menu.window="open = false"
         >
             <button
                 type="button"
                 aria-label="Notifications"
-                @click="open = ! open"
+                @click="$dispatch('close-header-user-menu'); open = ! open"
                 class="relative grid size-9 cursor-pointer place-items-center rounded-rgControl border border-rg-border bg-rg-card text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
                 <x-ui.icon name="bell" class="size-4" data-testid="notification-bell-icon" />

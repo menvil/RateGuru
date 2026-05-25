@@ -14,6 +14,7 @@ it('can render notification bell for authenticated user', function () {
         ->assertSee('data-testid="notification-bell"', false)
         ->assertSee('aria-label="Notifications"', false)
         ->assertSee('data-testid="notification-bell-icon"', false)
+        ->assertSee('close-header-user-menu', false)
         ->assertSee('cursor-pointer', false);
 });
 

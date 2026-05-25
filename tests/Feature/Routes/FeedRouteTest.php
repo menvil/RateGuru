@@ -11,7 +11,8 @@ it('renders base feed layout with section title', function () {
     $this->get('/')
         ->assertOk()
         ->assertSee('data-testid="app-header"', false)
-        ->assertSee('Latest dishes');
+        ->assertSee('Latest dishes')
+        ->assertDontSee('data-testid="search-input"', false);
 });
 
 it('uses mobile-safe feed layout', function () {

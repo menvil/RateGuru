@@ -14,7 +14,7 @@
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         <div class="min-h-screen">
             <header class="border-b border-rg-border bg-rg-topbar" data-testid="app-header">
-                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-5 px-5">
+                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-5 px-5 md:grid md:grid-cols-[minmax(0,1fr)_minmax(280px,520px)_minmax(0,1fr)]">
                     <a href="{{ url('/') }}" class="shrink-0 rounded-rgControl text-[22px] font-extrabold tracking-normal text-rg-text transition-colors hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg">
                         Rate<span class="text-rg-accent2">Guru</span>
                     </a>
@@ -23,7 +23,7 @@
                         action="{{ route('feed') }}"
                         method="GET"
                         data-testid="app-header-search"
-                        class="relative hidden max-w-[520px] flex-1 md:block"
+                        class="relative hidden w-full max-w-[520px] justify-self-center md:block"
                     >
                         <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
                         <input
@@ -48,7 +48,7 @@
                             x-data="{ open: false }"
                             @keydown.escape.window="open = false"
                             @post-uploaded.window="open = false"
-                            class="ml-auto flex shrink-0 items-center justify-end gap-3"
+                            class="ml-auto flex shrink-0 items-center justify-end gap-3 md:ml-0 md:justify-self-end"
                         >
                             <x-ui.button
                                 data-testid="open-upload-button"
@@ -61,12 +61,20 @@
 
                             <livewire:notifications.notification-bell />
 
-                            <x-ui.dropdown>
-                                <x-slot:trigger>
+                            <div
+                                x-data="{ userMenuOpen: false }"
+                                class="relative"
+                                @click.outside="userMenuOpen = false"
+                                @keydown.escape.window="userMenuOpen = false"
+                                @close-header-user-menu.window="userMenuOpen = false"
+                            >
                                     <button
                                         type="button"
                                         data-testid="header-user-menu-trigger"
                                         aria-label="Open user menu"
+                                        aria-haspopup="true"
+                                        :aria-expanded="userMenuOpen"
+                                        @click="$dispatch('close-notification-menu'); userMenuOpen = ! userMenuOpen"
                                         class="cursor-pointer rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                                     >
                                         <x-ui.avatar
@@ -76,9 +84,20 @@
                                             size="lg"
                                         />
                                     </button>
-                                </x-slot:trigger>
 
-                                <x-slot:content>
+                                <div
+                                    x-cloak
+                                    x-show="userMenuOpen"
+                                    x-transition:enter="transition ease-out duration-150"
+                                    x-transition:enter-start="opacity-0 scale-95"
+                                    x-transition:enter-end="opacity-100 scale-100"
+                                    x-transition:leave="transition ease-in duration-100"
+                                    x-transition:leave-start="opacity-100 scale-100"
+                                    x-transition:leave-end="opacity-0 scale-95"
+                                    data-testid="header-user-menu"
+                                    class="absolute right-0 z-50 mt-2 min-w-48 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
+                                    style="display: none;"
+                                >
                                     <a
                                         href="{{ $profileHref }}"
                                         data-testid="header-profile-link"
@@ -96,8 +115,8 @@
                                             Log out
                                         </button>
                                     </form>
-                                </x-slot:content>
-                            </x-ui.dropdown>
+                                </div>
+                            </div>
 
                             <div data-testid="upload-modal">
                                 <x-ui.modal title="Create post" size="lg">
@@ -111,13 +130,13 @@
 
             @isset($header)
                 <section class="border-b border-rg-border bg-rg-surface">
-                    <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+                    <div class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
                         {{ $header }}
                     </div>
                 </section>
             @endisset
 
-            <main class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+            <main class="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 lg:px-8">
                 {{ $slot ?? '' }}
                 @yield('content')
             </main>

@@ -11,11 +11,7 @@
             <p class="mt-1 text-sm text-rg-muted">Discover dishes</p>
         </header>
 
-        <div class="mb-5 space-y-4">
-            <div>
-                <livewire:feed.search-bar wire:model.live="search" />
-            </div>
-
+        <div class="mb-5">
             <div class="flex items-center gap-3">
                 <div class="min-w-0 flex-1">
                     <livewire:feed.category-tabs wire:model.live="category" />
