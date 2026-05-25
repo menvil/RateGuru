@@ -6,6 +6,7 @@
         $upActive = $currentVote === 'up';
         $downActive = $currentVote === 'down';
         $score = (int) ($post->score ?? ((int) $post->upvotes_count - (int) $post->downvotes_count));
+        $personalScore = $upActive ? 1 : ($downActive ? -1 : 0);
         $baseClass = 'inline-flex min-w-[3.5rem] items-center justify-center gap-1 rounded-rgPill border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
         $idleClass = 'border-rg-border bg-rg-card2 text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-cardHover hover:text-rg-text';
         $upClass = $upActive
@@ -31,8 +32,12 @@
                 <x-ui.icon name="arrow-up" class="size-4" />
             </button>
 
-            <span class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text2') }} text-[13px] font-bold">
-                {{ $score }}
+            <span
+                class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text2') }} text-[13px] font-bold"
+                title="Your vote"
+                aria-label="Your vote {{ $personalScore }}"
+            >
+                {{ $personalScore }}
             </span>
 
             <button

@@ -70,7 +70,7 @@ it('refreshes both counters when replacing a vote', function () {
         ->assertSee('Down 1');
 });
 
-it('renders the compact rail score correctly when replacing votes', function () {
+it('renders the compact rail personal vote correctly when replacing votes', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'upvotes_count' => 0,
@@ -86,10 +86,12 @@ it('renders the compact rail score correctly when replacing votes', function () 
         ->call('vote', VoteType::Down->value)
         ->assertSee('-1')
         ->call('vote', VoteType::Up->value)
-        ->assertSee('1');
+        ->assertSee('1')
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('0');
 
     expect($post->fresh())
-        ->upvotes_count->toBe(1)
+        ->upvotes_count->toBe(0)
         ->downvotes_count->toBe(0);
 });
 
