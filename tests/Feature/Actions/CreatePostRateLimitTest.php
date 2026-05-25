@@ -44,11 +44,15 @@ it('does not block another user when one user hits upload limit', function () {
 
     app(CreatePostAction::class)->handle($firstUser, new CreatePostData(title: 'First post'));
 
+    $thrown = false;
+
     try {
         app(CreatePostAction::class)->handle($firstUser, new CreatePostData(title: 'Blocked post'));
     } catch (RateLimitExceededException) {
-        // Expected.
+        $thrown = true;
     }
+
+    $this->assertTrue($thrown, 'Expected first user to be rate limited.');
 
     $post = app(CreatePostAction::class)->handle($secondUser, new CreatePostData(title: 'Allowed post'));
 

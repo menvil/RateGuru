@@ -48,11 +48,15 @@ it('does not block another user when first user hits comment limit', function ()
 
     app(AddCommentAction::class)->handle($firstUser, $post, 'First');
 
+    $thrown = false;
+
     try {
         app(AddCommentAction::class)->handle($firstUser, $post->fresh(), 'Blocked');
     } catch (CannotCommentException) {
-        // Expected.
+        $thrown = true;
     }
+
+    $this->assertTrue($thrown, 'Expected first user to be rate limited.');
 
     $comment = app(AddCommentAction::class)->handle($secondUser, $post->fresh(), 'Allowed');
 

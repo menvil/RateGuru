@@ -55,11 +55,15 @@ it('does not block another user when first user hits report limit', function () 
 
     app(ReportContentAction::class)->handle($firstUser, $first, ReportReason::Spam);
 
+    $thrown = false;
+
     try {
         app(ReportContentAction::class)->handle($firstUser, $second, ReportReason::Spam);
     } catch (CannotReportContentException) {
-        // Expected.
+        $thrown = true;
     }
+
+    $this->assertTrue($thrown, 'Expected first user to be rate limited.');
 
     $report = app(ReportContentAction::class)->handle($secondUser, $second, ReportReason::Spam);
 
