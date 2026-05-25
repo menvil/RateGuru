@@ -16,7 +16,7 @@ it('has expected comment policy methods', function () {
     expect(method_exists($policy, 'hide'))->toBeTrue();
 });
 
-it('allows comment owner to delete comment', function () {
+it('allows user to delete own comment', function () {
     $user = User::factory()->create();
 
     $comment = Comment::factory()->for($user)->create();
@@ -24,7 +24,7 @@ it('allows comment owner to delete comment', function () {
     expect($user->can('delete', $comment))->toBeTrue();
 });
 
-it('does not allow other user to delete comment', function () {
+it('does not allow user to delete another users comment', function () {
     $owner = User::factory()->create();
     $other = User::factory()->create();
 
@@ -41,7 +41,7 @@ it('allows admin to delete any comment', function () {
     expect($admin->can('delete', $comment))->toBeTrue();
 });
 
-it('does not allow moderator to delete a comment they do not own', function () {
+it('does not allow moderator to delete comment by default', function () {
     $moderator = User::factory()->moderator()->create();
     $owner = User::factory()->create();
     $comment = Comment::factory()->for($owner)->create();
