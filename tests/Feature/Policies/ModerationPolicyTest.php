@@ -35,3 +35,21 @@ it('does not allow normal user to ban user', function () {
 
     expect(Gate::forUser($user)->allows('ban-user'))->toBeFalse();
 });
+
+it('allows moderator to moderate content', function () {
+    $moderator = User::factory()->moderator()->create();
+
+    expect(Gate::forUser($moderator)->allows('moderate-content'))->toBeTrue();
+});
+
+it('allows admin to moderate content', function () {
+    $admin = User::factory()->admin()->create();
+
+    expect(Gate::forUser($admin)->allows('moderate-content'))->toBeTrue();
+});
+
+it('does not allow moderator to ban user', function () {
+    $moderator = User::factory()->moderator()->create();
+
+    expect(Gate::forUser($moderator)->allows('ban-user'))->toBeFalse();
+});
