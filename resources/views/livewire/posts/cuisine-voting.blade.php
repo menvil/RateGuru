@@ -2,15 +2,24 @@
     @if($post === null)
         <span data-testid="cuisine-voting-unavailable" class="text-xs text-rg-muted">Cuisine voting unavailable</span>
     @else
-        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        @php
+            $baseClass = 'inline-flex min-h-9 items-center justify-center gap-1 rounded-rgPill border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
+            $idleClass = 'border-rg-border bg-rg-card2 text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-cardHover hover:text-rg-text';
+            $activeClass = 'border-rg-accent bg-rg-accentSoft text-rg-text';
+        @endphp
+
+        <div class="flex flex-wrap gap-2">
             @foreach($options as $option)
+                @php($active = $currentCuisine === $option->value)
                 <button
                     type="button"
                     wire:click="vote('{{ $option->value }}')"
                     wire:target="vote"
                     wire:loading.attr="disabled"
                     wire:loading.class="opacity-60 cursor-wait"
-                    class="inline-flex items-center justify-center gap-1 rounded-rgPill border border-rg-border bg-rg-card2 px-3 py-1.5 text-sm font-semibold text-rg-text transition hover:border-rg-accentBorder disabled:cursor-wait disabled:opacity-60"
+                    aria-pressed="{{ $active ? 'true' : 'false' }}"
+                    data-state="{{ $active ? 'active' : 'idle' }}"
+                    class="{{ $baseClass }} {{ $active ? $activeClass : $idleClass }}"
                 >
                     {{ $this->labelFor($option) }}
                 </button>

@@ -16,7 +16,7 @@
 - [x] RG-603 upload button checked.
 - [x] RG-604 vote states checked.
 - [x] RG-605 origin controls checked.
-- [ ] RG-606 cuisine controls checked.
+- [x] RG-606 cuisine controls checked.
 - [ ] RG-607 drawer width checked.
 - [ ] RG-608 drawer animation checked.
 - [ ] RG-609 modal backdrop checked.
@@ -74,3 +74,9 @@
 - Origin voting pills now expose `aria-pressed` and `data-state` based on the authenticated user's selected origin vote.
 - Selected pills use `bg-rg-accentSoft`, `border-rg-accent`, and readable text tokens; idle pills keep subtle card surfaces.
 - Pills can wrap on narrow widths while preserving distribution bar alignment.
+
+## RG-606 notes
+
+- Cuisine vote chips now expose `aria-pressed` and `data-state` based on the authenticated user's selected cuisine vote.
+- Selected chips share the origin pill accent-soft language; idle chips retain subtle card surfaces and accent-border hover.
+- Chips use flexible wrapping with stable minimum height for mobile density.

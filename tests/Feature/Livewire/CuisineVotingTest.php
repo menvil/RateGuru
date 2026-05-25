@@ -81,6 +81,24 @@ it('renders cuisine distribution panel', function () {
         ->assertSee('33%');
 });
 
+it('renders cuisine chips with selected and focus states', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    CuisineVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => CuisineType::Italian,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertSee('aria-pressed="true"', false)
+        ->assertSee('data-state="active"', false)
+        ->assertSee('bg-rg-accentSoft', false)
+        ->assertSee('focus-visible:ring-rg-accent', false);
+});
+
 it('renders zero cuisine distribution safely', function () {
     $post = Post::factory()->published()->create();
 
