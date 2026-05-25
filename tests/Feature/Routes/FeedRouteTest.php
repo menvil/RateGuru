@@ -15,6 +15,14 @@ it('renders base feed layout with section title', function () {
         ->assertDontSee('data-testid="search-input"', false);
 });
 
+it('renders header search with responsive submit behavior', function () {
+    $this->get('/')
+        ->assertOk()
+        ->assertSee('data-testid="app-header-search"', false)
+        ->assertSee('x-on:input.debounce.350ms', false)
+        ->assertSee('x-on:search', false);
+});
+
 it('uses mobile-safe feed layout', function () {
     $response = $this->get('/');
     $response->assertOk();

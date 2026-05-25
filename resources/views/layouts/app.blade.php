@@ -23,6 +23,7 @@
                         action="{{ route('feed') }}"
                         method="GET"
                         data-testid="app-header-search"
+                        x-data
                         class="relative hidden w-full max-w-[520px] justify-self-center md:block"
                     >
                         <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
@@ -32,6 +33,8 @@
                             value="{{ request('search') }}"
                             aria-label="Search tags, users, dishes"
                             placeholder="Search tags, users, dishes..."
+                            x-on:input.debounce.350ms="$el.form.requestSubmit()"
+                            x-on:search="$el.form.requestSubmit()"
                             class="h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-3 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
                         >
                     </form>
@@ -128,18 +131,24 @@
                 </div>
             </header>
 
-            @isset($header)
-                <section class="border-b border-rg-border bg-rg-surface">
-                    <div class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
-                        {{ $header }}
-                    </div>
-                </section>
-            @endisset
+            <div class="mx-auto grid w-full max-w-[1440px] lg:grid-cols-[240px_minmax(0,1fr)]">
+                @include('layouts.partials.app-sidebar')
 
-            <main class="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 lg:px-8">
-                {{ $slot ?? '' }}
-                @yield('content')
-            </main>
+                <div class="min-w-0">
+                    @isset($header)
+                        <section class="border-b border-rg-border bg-rg-surface">
+                            <div class="px-4 py-6 sm:px-6 lg:px-8">
+                                {{ $header }}
+                            </div>
+                        </section>
+                    @endisset
+
+                    <main class="px-4 py-10 sm:px-6 lg:px-8">
+                        {{ $slot ?? '' }}
+                        @yield('content')
+                    </main>
+                </div>
+            </div>
         </div>
     </body>
 </html>

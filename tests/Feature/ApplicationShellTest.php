@@ -39,3 +39,15 @@ it('renders the app header like the PlateRate reference topbar', function () {
         ->toContain('text-[22px]')
         ->toContain('text-rg-accent2');
 });
+
+it('renders the PlateRate reference sidebar shell', function () {
+    $html = $this->get('/')->assertOk()->getContent();
+
+    expect($html)
+        ->toContain('data-testid="app-sidebar"')
+        ->toContain('lg:grid-cols-[240px_minmax(0,1fr)]')
+        ->toContain('CATEGORIES')
+        ->toContain('TOP TAGS')
+        ->toContain('About')
+        ->toContain('Privacy');
+});
