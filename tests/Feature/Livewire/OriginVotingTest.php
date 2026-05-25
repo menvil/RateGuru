@@ -70,6 +70,24 @@ it('renders origin distribution bar', function () {
         ->assertSee('origin-distribution-bar', false);
 });
 
+it('renders origin voting pills with selected and focus states', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    OriginVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'origin' => OriginType::Homemade,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(OriginVoting::class, ['postId' => $post->id])
+        ->assertSee('aria-pressed="true"', false)
+        ->assertSee('data-state="active"', false)
+        ->assertSee('bg-rg-accentSoft', false)
+        ->assertSee('focus-visible:ring-rg-accent', false);
+});
+
 it('renders zero origin distribution safely', function () {
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 0,
