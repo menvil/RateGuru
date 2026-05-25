@@ -26,6 +26,8 @@ it('supports right side desktop behavior and mobile safe layout', function () {
         ->toContain('x-show')
         ->toContain('@click.outside')
         ->toContain('x-on:keydown.escape.window')
+        ->toContain('motion-safe:transition-opacity')
+        ->toContain('motion-safe:transform-gpu')
         ->toContain('fixed inset-0')
         ->toContain('bg-black/70')
         ->toContain('bg-rg-card')

@@ -18,7 +18,7 @@
 - [x] RG-605 origin controls checked.
 - [x] RG-606 cuisine controls checked.
 - [x] RG-607 drawer width checked.
-- [ ] RG-608 drawer animation checked.
+- [x] RG-608 drawer animation checked.
 - [ ] RG-609 modal backdrop checked.
 - [ ] RG-610 mobile card checked.
 - [ ] RG-611 desktop two-column checked.
@@ -86,3 +86,9 @@
 - Large right-side drawers now use `md:max-w-xl lg:max-w-2xl`, landing in the intended desktop width range while keeping `w-full` mobile behavior.
 - XL drawers scale intentionally to `md:max-w-2xl lg:max-w-3xl`; default/mobile positioning is unchanged.
 - Drawer content scrolling and backdrop behavior are unchanged.
+
+## RG-608 notes
+
+- Drawer backdrop and panel transitions now use `motion-safe` transition utilities and `motion-reduce:transition-none`.
+- Existing 200ms enter / 150ms leave timing and translate directions are preserved for responsive close behavior.
+- Close button, escape, backdrop, and click-outside dispatch paths are unchanged.
