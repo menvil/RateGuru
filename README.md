@@ -36,6 +36,9 @@ touch database/database.sqlite
 php artisan migrate
 ```
 
+For a fresh local database with deterministic demo data, see
+[docs/dev/seed-data.md](docs/dev/seed-data.md).
+
 Install and build frontend assets:
 
 ```bash
