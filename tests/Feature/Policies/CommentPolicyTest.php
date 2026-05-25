@@ -2,6 +2,19 @@
 
 use App\Models\Comment;
 use App\Models\User;
+use App\Policies\CommentPolicy;
+use Illuminate\Support\Facades\Gate;
+
+it('has comment policy registered', function () {
+    expect(Gate::getPolicyFor(Comment::class))->toBeInstanceOf(CommentPolicy::class);
+});
+
+it('has expected comment policy methods', function () {
+    $policy = app(CommentPolicy::class);
+
+    expect(method_exists($policy, 'delete'))->toBeTrue();
+    expect(method_exists($policy, 'hide'))->toBeTrue();
+});
 
 it('allows comment owner to delete comment', function () {
     $user = User::factory()->create();
