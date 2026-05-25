@@ -55,8 +55,20 @@ final class PostVoting extends Component
 
     public function render(): View
     {
+        $post = $this->post;
+        $currentVote = null;
+
+        if ($post !== null && auth()->check()) {
+            $currentVote = $post->postVotes()
+                ->where('user_id', auth()->id())
+                ->first()
+                ?->type
+                ?->value;
+        }
+
         return view('livewire.posts.post-voting', [
-            'post' => $this->post,
+            'post' => $post,
+            'currentVote' => $currentVote,
         ]);
     }
 }
