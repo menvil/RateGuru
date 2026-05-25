@@ -26,7 +26,8 @@ class PostPolicy
 
     public function hide(User $user, Post $post): bool
     {
-        return $this->canModerate($user);
+        return $this->canModerate($user)
+            && $post->status === PostStatus::Published;
     }
 
     public function restore(User $user, Post $post): bool
