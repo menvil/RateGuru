@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CommentStatus;
 use App\Models\Comment;
 use App\Models\User;
 use App\Policies\CommentPolicy;
@@ -71,3 +72,13 @@ it('does not allow comment owner without role to moderate their comment', functi
 
     expect($owner->can($ability, $comment))->toBeFalse();
 })->with('comment moderation abilities');
+
+it('does not allow moderator to hide already hidden comment', function () {
+    $moderator = User::factory()->moderator()->create();
+
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Hidden,
+    ]);
+
+    expect($moderator->can('hide', $comment))->toBeFalse();
+});
