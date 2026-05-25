@@ -59,15 +59,34 @@ it('shows error when guest tries to vote origin', function () {
 });
 
 it('renders origin distribution bar', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 3,
+        'restaurant_votes_count' => 1,
+    ]);
+
+    OriginVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'origin' => OriginType::Homemade,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(OriginVoting::class, ['postId' => $post->id])
+        ->assertSee('75%')
+        ->assertSee('25%')
+        ->assertSee('origin-distribution-bar', false);
+});
+
+it('hides origin distribution before the current user votes', function () {
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 3,
         'restaurant_votes_count' => 1,
     ]);
 
     Livewire::test(OriginVoting::class, ['postId' => $post->id])
-        ->assertSee('75%')
-        ->assertSee('25%')
-        ->assertSee('origin-distribution-bar', false);
+        ->assertDontSee('origin-distribution-bar', false)
+        ->assertSee('Vote to reveal results.');
 });
 
 it('renders origin voting pills with selected and focus states', function () {
@@ -89,12 +108,20 @@ it('renders origin voting pills with selected and focus states', function () {
 });
 
 it('renders zero origin distribution safely', function () {
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 0,
         'restaurant_votes_count' => 0,
     ]);
 
-    Livewire::test(OriginVoting::class, ['postId' => $post->id])
+    OriginVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'origin' => OriginType::Homemade,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(OriginVoting::class, ['postId' => $post->id])
         ->assertSee('0%')
         ->assertSee('origin-distribution-bar', false);
 });
@@ -109,11 +136,11 @@ it('refreshes origin counters after vote', function () {
 
     Livewire::actingAs($user)
         ->test(OriginVoting::class, ['postId' => $post->id])
-        ->assertSee('Homemade 0%')
+        ->assertSee('Vote to reveal results.')
         ->call('vote', OriginType::Homemade->value)
         ->assertSee('Homemade 100%')
         ->assertDispatched('origin-voted')
         ->call('vote', OriginType::Restaurant->value)
-        ->assertSee('Restaurant 100%')
-        ->assertSee('Homemade 0%');
+        ->assertSee('Homemade 100%')
+        ->assertDontSee('Restaurant 100%');
 });

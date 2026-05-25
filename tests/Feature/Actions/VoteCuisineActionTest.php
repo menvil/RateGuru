@@ -78,7 +78,7 @@ it('allows user to vote other cuisine on a published post', function () {
     ]);
 });
 
-it('allows user to change cuisine vote', function () {
+it('does not allow user to change cuisine vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -88,13 +88,13 @@ it('allows user to change cuisine vote', function () {
     $this->assertDatabaseHas('cuisine_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'cuisine' => CuisineType::Asian->value,
+        'cuisine' => CuisineType::Italian->value,
     ]);
 
     $this->assertDatabaseMissing('cuisine_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'cuisine' => CuisineType::Italian->value,
+        'cuisine' => CuisineType::Asian->value,
     ]);
 
     expect(CuisineVote::query()

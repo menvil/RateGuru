@@ -44,7 +44,7 @@ it('calls cuisine vote action when italian button is clicked', function () {
     ]);
 });
 
-it('can change cuisine vote through the component', function () {
+it('does not change cuisine vote through the component after first vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -56,7 +56,7 @@ it('can change cuisine vote through the component', function () {
     $this->assertDatabaseHas('cuisine_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'cuisine' => CuisineType::Mexican->value,
+        'cuisine' => CuisineType::Italian->value,
     ]);
 
     expect(CuisineVote::query()
@@ -67,18 +67,30 @@ it('can change cuisine vote through the component', function () {
 });
 
 it('renders cuisine distribution panel', function () {
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
-    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
+    CuisineVote::factory()->for($post)->create(['user_id' => $user->id, 'cuisine' => CuisineType::Italian]);
     CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
     CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Asian]);
 
-    Livewire::test(CuisineVoting::class, ['postId' => $post->id])
+    Livewire::actingAs($user)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
         ->assertSee('data-testid="cuisine-distribution-panel"', false)
         ->assertSee('Italian')
         ->assertSee('67%')
         ->assertSee('Asian')
         ->assertSee('33%');
+});
+
+it('hides cuisine distribution before the current user votes', function () {
+    $post = Post::factory()->published()->create();
+
+    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
+
+    Livewire::test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="cuisine-distribution-panel"', false)
+        ->assertSee('Vote to reveal results.');
 });
 
 it('renders cuisine chips with selected and focus states', function () {
@@ -100,11 +112,19 @@ it('renders cuisine chips with selected and focus states', function () {
 });
 
 it('renders zero cuisine distribution safely', function () {
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
-    Livewire::test(CuisineVoting::class, ['postId' => $post->id])
+    CuisineVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => CuisineType::Italian,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
         ->assertSee('data-testid="cuisine-distribution-panel"', false)
-        ->assertSee('No cuisine votes yet');
+        ->assertSee('100%');
 });
 
 it('refreshes cuisine distribution after vote', function () {
@@ -113,13 +133,13 @@ it('refreshes cuisine distribution after vote', function () {
 
     Livewire::actingAs($user)
         ->test(CuisineVoting::class, ['postId' => $post->id])
-        ->assertSee('No cuisine votes yet')
+        ->assertSee('Vote to reveal results.')
         ->call('vote', CuisineType::Italian->value)
         ->assertSee('Italian')
         ->assertSee('100%');
 });
 
-it('refreshes cuisine distribution after vote change', function () {
+it('keeps cuisine distribution locked after attempted vote change', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -127,12 +147,12 @@ it('refreshes cuisine distribution after vote change', function () {
         ->test(CuisineVoting::class, ['postId' => $post->id])
         ->call('vote', CuisineType::Italian->value)
         ->call('vote', CuisineType::Mexican->value)
-        ->assertSee('Mexican')
+        ->assertSee('Italian')
         ->assertSee('100%');
 
     $this->assertDatabaseHas('cuisine_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'cuisine' => CuisineType::Mexican->value,
+        'cuisine' => CuisineType::Italian->value,
     ]);
 });

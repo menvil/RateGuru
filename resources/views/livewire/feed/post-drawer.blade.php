@@ -72,24 +72,31 @@
                     $originTotal = max(1, (int) ($post->homemade_votes_count ?? 0) + (int) ($post->restaurant_votes_count ?? 0));
                     $homemadePct = (int) round(((int) ($post->homemade_votes_count ?? 0) / $originTotal) * 100);
                     $restaurantPct = 100 - $homemadePct;
+                    $hasOriginVote = auth()->check() && $post->originVotes()
+                        ->where('user_id', auth()->id())
+                        ->exists();
                 @endphp
 
-                <div class="mt-4 space-y-3">
-                    <div>
-                        <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
-                            <span>Homemade</span><span>{{ $homemadePct }}%</span>
+                @if($hasOriginVote)
+                    <div class="mt-4 space-y-3">
+                        <div>
+                            <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
+                                <span>Homemade</span><span>{{ $homemadePct }}%</span>
+                            </div>
+                            <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-good" style="width: {{ $homemadePct }}%"></div></div>
                         </div>
-                        <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-good" style="width: {{ $homemadePct }}%"></div></div>
-                    </div>
-                    <div>
-                        <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
-                            <span>Restaurant</span><span>{{ $restaurantPct }}%</span>
+                        <div>
+                            <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
+                                <span>Restaurant</span><span>{{ $restaurantPct }}%</span>
+                            </div>
+                            <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-accent" style="width: {{ $restaurantPct }}%"></div></div>
                         </div>
-                        <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-accent" style="width: {{ $restaurantPct }}%"></div></div>
                     </div>
-                </div>
 
-                <p class="mt-4 text-[22px] font-bold text-rg-text">{{ $originTotal === 1 && (($post->homemade_votes_count ?? 0) + ($post->restaurant_votes_count ?? 0)) === 0 ? 0 : $originTotal }} votes</p>
+                    <p class="mt-4 text-[22px] font-bold text-rg-text">{{ $originTotal === 1 && (($post->homemade_votes_count ?? 0) + ($post->restaurant_votes_count ?? 0)) === 0 ? 0 : $originTotal }} votes</p>
+                @else
+                    <p class="mt-4 text-sm leading-6 text-rg-muted">Vote to reveal results.</p>
+                @endif
 
                 <div class="mt-4" data-testid="post-drawer-origin-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.origin-voting
