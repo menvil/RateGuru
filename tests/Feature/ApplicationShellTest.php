@@ -7,3 +7,13 @@ it('renders the RateGuru shell', function () {
 
     expect(strip_tags($matches[1] ?? ''))->toContain('RateGuru');
 });
+
+it('uses RateGuru dark background tokens in the app shell', function () {
+    $html = $this->get('/')->assertOk()->getContent();
+
+    expect($html)
+        ->toContain('bg-rg-bg')
+        ->toContain('text-rg-text')
+        ->toContain('bg-rg-topbar')
+        ->toContain('border-rg-border');
+});

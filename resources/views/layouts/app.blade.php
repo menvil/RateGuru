@@ -11,15 +11,15 @@
 
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
-    <body class="min-h-screen bg-zinc-950 font-sans text-zinc-100 antialiased">
+    <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         <div class="min-h-screen">
-            <header class="border-b border-white/10 bg-zinc-950/90">
+            <header class="border-b border-rg-border bg-rg-topbar">
                 <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
                     <a href="{{ url('/') }}" class="flex items-center gap-3">
-                        <span class="flex size-9 items-center justify-center rounded bg-amber-400 font-semibold text-zinc-950">
+                        <span class="flex size-9 items-center justify-center rounded-rgSm border border-rg-border2 bg-rg-card2 font-semibold text-rg-text">
                             RG
                         </span>
-                        <span class="text-lg font-semibold tracking-normal text-white">RateGuru</span>
+                        <span class="text-lg font-semibold tracking-normal text-rg-text">RateGuru</span>
                     </a>
 
                     @auth
@@ -32,7 +32,7 @@
                             <button
                                 type="button"
                                 x-on:click="open = true; $dispatch('upload-modal-opened')"
-                                class="inline-flex items-center justify-center gap-2 rounded-rgControl border border-transparent bg-rg-accent px-4 text-[13px] font-semibold text-white transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg h-[38px]"
+                                class="inline-flex h-[38px] items-center justify-center gap-2 rounded-rgControl border border-transparent bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                             >
                                 + Create post
                             </button>
@@ -45,7 +45,7 @@
 
                             <form method="POST" action="{{ route('logout') }}">
                                 @csrf
-                                <button type="submit" class="text-sm font-medium text-zinc-300 hover:text-white">
+                                <button type="submit" class="text-sm font-medium text-rg-text2 hover:text-rg-text">
                                     {{ __('Log out') }}
                                 </button>
                             </form>
@@ -55,7 +55,7 @@
             </header>
 
             @isset($header)
-                <section class="border-b border-white/10 bg-zinc-900/40">
+                <section class="border-b border-rg-border bg-rg-surface">
                     <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
                         {{ $header }}
                     </div>
