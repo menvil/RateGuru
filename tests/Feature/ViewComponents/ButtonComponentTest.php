@@ -5,7 +5,10 @@ use Illuminate\Support\Facades\Blade;
 it('renders a UI button with slot content', function () {
     $html = Blade::render('<x-ui.button>Upload</x-ui.button>');
 
-    expect($html)->toContain('Upload');
+    expect($html)
+        ->toContain('Upload')
+        ->toContain('bg-rg-accent')
+        ->toContain('text-rg-onAccent');
 });
 
 it('renders supported button options', function () {
