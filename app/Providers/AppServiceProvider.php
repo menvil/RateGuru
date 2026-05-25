@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Policies\ModerationPolicy;
 use App\Services\Images\CloudinaryImageStorage;
 use App\Services\Images\ImageStorage;
 use App\Services\Images\LocalImageStorage;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -27,6 +29,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
+        Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
     }
 }
