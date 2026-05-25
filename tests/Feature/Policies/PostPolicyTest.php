@@ -1,7 +1,21 @@
 <?php
 
+use App\Policies\PostPolicy;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\Gate;
+
+it('has post policy registered', function () {
+    expect(Gate::getPolicyFor(Post::class))->toBeInstanceOf(PostPolicy::class);
+});
+
+it('has expected post policy methods', function () {
+    $policy = app(PostPolicy::class);
+
+    expect(method_exists($policy, 'update'))->toBeTrue();
+    expect(method_exists($policy, 'hide'))->toBeTrue();
+    expect(method_exists($policy, 'delete'))->toBeTrue();
+});
 
 dataset('moderation abilities', ['approve', 'reject', 'hide', 'restore']);
 

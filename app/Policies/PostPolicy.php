@@ -7,6 +7,11 @@ use App\Models\User;
 
 class PostPolicy
 {
+    public function update(User $user, Post $post): bool
+    {
+        return false;
+    }
+
     public function approve(User $user, Post $post): bool
     {
         return $this->canModerate($user);
