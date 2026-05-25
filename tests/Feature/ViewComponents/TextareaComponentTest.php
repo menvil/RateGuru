@@ -27,5 +27,7 @@ it('renders supported textarea states', function () {
         ->toContain('focus-visible:ring-2')
         ->toContain('focus-visible:ring-rg-accent/25')
         ->toContain('bg-rg-card2')
+        ->toContain('disabled:bg-rg-surface')
+        ->toContain('disabled:text-rg-muted')
         ->toContain('text-rg-text');
 });
