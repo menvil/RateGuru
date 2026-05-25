@@ -1,4 +1,4 @@
-<div data-testid="post-voting" class="flex items-center gap-2">
+<div data-testid="post-voting" class="flex flex-wrap items-center gap-2">
     @if($post === null)
         <span data-testid="post-voting-unavailable" class="text-xs text-rg-muted">Voting unavailable</span>
     @else
