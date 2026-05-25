@@ -13,7 +13,7 @@
     <meta name="twitter:image" content="{{ $ogImage }}">
 @endpush
 
-<div data-testid="post-show" class="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+<div data-testid="post-show" x-data="{ shareOpen: false }" class="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
     <main class="min-w-0">
         <div data-testid="post-show-hero">
             @if($post->public_image_url)
@@ -87,6 +87,13 @@
     </main>
 
     <aside class="min-w-0 space-y-6 lg:sticky lg:top-24 lg:self-start" data-testid="post-show-side-panel">
+        <div class="flex items-center justify-end">
+            <livewire:posts.save-post-button
+                :post-id="$post->id"
+                :key="'post-show-save-'.$post->id"
+            />
+        </div>
+
         <div data-testid="post-show-voting">
             <livewire:posts.post-voting
                 :post-id="$post->id"
@@ -112,9 +119,13 @@
         </section>
 
         @if($showSharePanel)
-            <section data-testid="post-show-share-panel">
+            <x-ui.action-button icon="share" x-on:click="shareOpen = true" data-testid="post-show-share-trigger">
+                Share
+            </x-ui.action-button>
+
+            <x-ui.modal title="Share post" state="shareOpen" size="lg">
                 <x-share.post-share-panel :post="$post" />
-            </section>
+            </x-ui.modal>
         @endif
 
         <section data-testid="post-show-related">

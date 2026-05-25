@@ -36,6 +36,10 @@ final class VotePostAction
             throw CannotVoteException::becausePostIsNotPublic();
         }
 
+        if ((int) $post->user_id === (int) $user->id) {
+            throw CannotVoteException::becauseOwnPost();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('vote', $user),

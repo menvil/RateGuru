@@ -15,3 +15,7 @@
 [x-cloak] {
     display: none !important;
 }
+
+.rg-search-input::-webkit-search-cancel-button {
+    cursor: pointer;
+}

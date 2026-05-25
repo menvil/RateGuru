@@ -243,3 +243,19 @@ it('does not allow origin vote on rejected post', function () {
         'user_id' => $user->id,
     ]);
 });
+
+it('does not allow origin voting on own post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
+        ->toThrow(CannotVoteOriginException::class, 'You cannot vote on your own post.');
+
+    $this->assertDatabaseMissing('origin_votes', [
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+    ]);
+});

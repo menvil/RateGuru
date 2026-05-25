@@ -30,6 +30,7 @@ it('renders share panel on post show page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('data-testid="post-show-share-panel"', false)
+        ->assertSee('data-testid="post-show-share-trigger"', false)
+        ->assertSee('data-testid="post-share-panel"', false)
         ->assertSee(app(PostUrl::class)->canonical($post));
 });

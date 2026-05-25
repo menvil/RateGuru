@@ -117,7 +117,8 @@ it('renders share panel on post page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('Share this post')
+        ->assertSee('Share post')
+        ->assertSee('data-testid="post-show-share-trigger"', false)
         ->assertSee(route('posts.show', $post));
 });
 
@@ -137,7 +138,7 @@ it('renders seo title for post page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('<title>Homemade Carbonara · ' . config('app.name', 'RateGuru') . '</title>', false);
+        ->assertSee('<title>Homemade Carbonara · '.config('app.name', 'RateGuru').'</title>', false);
 });
 
 it('renders open graph metadata for post page', function () {

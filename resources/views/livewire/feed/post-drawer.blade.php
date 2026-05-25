@@ -7,7 +7,7 @@
 
     <div wire:loading.remove class="transition-opacity duration-200">
     @if($post)
-        <article class="relative rounded-rgCard border border-rg-border bg-rg-card px-5 pb-3.5 pt-5">
+        <article x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false }" class="relative rounded-rgCard border border-rg-border bg-rg-card px-5 pb-3.5 pt-5">
             <button
                 type="button"
                 aria-label="Close"
@@ -52,13 +52,69 @@
                         />
                     </div>
                     <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
-                    <x-ui.action-button icon="share">Share</x-ui.action-button>
-                    <x-ui.action-button icon="bookmark">Save</x-ui.action-button>
+                    <x-ui.action-button icon="share" x-on:click="shareOpen = true">Share</x-ui.action-button>
+                    <livewire:posts.save-post-button
+                        :post-id="$post->id"
+                        :key="'post-drawer-save-'.$post->id"
+                    />
                 </div>
-                <button type="button" class="rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                    <x-ui.icon name="more" class="size-4" />
-                </button>
+                <div class="relative" wire:click.stop wire:keydown.stop>
+                    <button
+                        type="button"
+                        x-on:click="menuOpen = ! menuOpen"
+                        class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                        aria-label="Post actions"
+                    >
+                        <x-ui.icon name="more" class="size-4" />
+                    </button>
+
+                    <div
+                        x-cloak
+                        x-show="menuOpen"
+                        x-on:click.outside="menuOpen = false"
+                        class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                    >
+                        @if(auth()->id() === $post->user_id)
+                            <button
+                                type="button"
+                                x-on:click="menuOpen = false; deleteOpen = true"
+                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                            >
+                                Delete post
+                            </button>
+                        @else
+                            <span class="block px-3 py-2 text-sm text-rg-muted">No actions</span>
+                        @endif
+                    </div>
+                </div>
             </footer>
+
+            <x-ui.modal title="Share post" state="shareOpen" size="lg">
+                <x-share.post-share-panel :post="$post" />
+            </x-ui.modal>
+
+            <x-ui.modal title="Delete post?" state="deleteOpen" size="sm">
+                <div class="space-y-4">
+                    <p class="text-sm leading-6 text-rg-muted">This will remove the post from public feeds.</p>
+
+                    @if($deleteError)
+                        <p class="text-sm text-rg-dangerText">{{ $deleteError }}</p>
+                    @endif
+
+                    <div class="flex justify-end gap-2">
+                        <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">Cancel</x-ui.button>
+                        <x-ui.button
+                            type="button"
+                            variant="danger"
+                            wire:click="deleteSelectedPost"
+                            wire:loading.attr="disabled"
+                            wire:target="deleteSelectedPost"
+                        >
+                            Delete
+                        </x-ui.button>
+                    </div>
+                </div>
+            </x-ui.modal>
         </article>
 
         <section data-testid="post-detail-results" class="mt-4 grid gap-6 rounded-rgCard border border-rg-border bg-rg-card p-5 sm:grid-cols-2">
@@ -117,27 +173,18 @@
             </div>
         </section>
 
-        @if($showSharePanel)
-            <div class="mt-6" data-testid="post-drawer-share-panel">
-                <x-share.post-share-panel :post="$post" />
+        @if(auth()->id() !== $post->user_id)
+            <div class="mt-6 flex justify-end" data-testid="post-drawer-report">
+                <livewire:reports.report-modal
+                    reportable-type="post"
+                    :reportable-id="$post->id"
+                    :key="'post-drawer-report-'.$post->id"
+                />
             </div>
         @endif
 
-        <div class="mt-6 flex justify-end" data-testid="post-drawer-report">
-            <livewire:reports.report-modal
-                reportable-type="post"
-                :reportable-id="$post->id"
-                :key="'post-drawer-report-'.$post->id"
-            />
-        </div>
-
         <section class="mt-6" data-testid="drawer-comments-slot">
-            <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-rg-text">Comments</h3>
-                <span class="text-xs text-rg-muted">{{ $post->comments_count ?? 0 }}</span>
-            </div>
-
-            <livewire:comments.comments-section :post-id="$post->id" :show-header="false" :key="'drawer-comments-'.$post->id" />
+            <livewire:comments.comments-section :post-id="$post->id" :show-header="true" :key="'drawer-comments-'.$post->id" />
         </section>
 
         <div class="mt-4 flex items-center gap-3">

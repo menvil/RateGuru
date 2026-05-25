@@ -150,6 +150,7 @@ final class CuisineVoting extends Component
             'post' => $post,
             'options' => $this->options(),
             'currentCuisine' => $currentCuisine,
+            'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
         ]);
     }
 }

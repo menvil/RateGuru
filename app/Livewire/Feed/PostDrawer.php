@@ -2,7 +2,9 @@
 
 namespace App\Livewire\Feed;
 
+use App\Actions\Posts\DeletePostAction;
 use App\Enums\PostStatus;
+use App\Exceptions\Posts\CannotDeletePostException;
 use App\Models\Post;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
@@ -11,6 +13,8 @@ use Livewire\Component;
 final class PostDrawer extends Component
 {
     public ?int $postId = null;
+
+    public ?string $deleteError = null;
 
     #[On('post-voted')]
     public function refreshAfterVote(): void
@@ -28,6 +32,32 @@ final class PostDrawer extends Component
     public function refreshAfterCuisineVote(): void
     {
         // Triggers a re-render so the drawer cuisine summary reflects fresh counters.
+    }
+
+    public function deleteSelectedPost(DeletePostAction $deletePostAction): void
+    {
+        if (! auth()->check() || $this->postId === null) {
+            return;
+        }
+
+        $post = Post::query()->find($this->postId);
+
+        if ($post === null) {
+            $this->dispatch('clear-selected-post');
+
+            return;
+        }
+
+        try {
+            $deletePostAction->handle(auth()->user(), $post);
+        } catch (CannotDeletePostException $e) {
+            $this->deleteError = $e->getMessage();
+
+            return;
+        }
+
+        $this->postId = null;
+        $this->dispatch('clear-selected-post');
     }
 
     public function render(): View

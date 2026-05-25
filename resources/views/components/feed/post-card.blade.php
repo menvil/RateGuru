@@ -89,9 +89,16 @@
             <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
             <span class="sr-only">{{ $post->comments_count ?? 0 }} comments</span>
             <x-ui.action-button icon="share">Share</x-ui.action-button>
-            <x-ui.action-button icon="bookmark">Save</x-ui.action-button>
-
             @if($post->exists)
+                <livewire:posts.save-post-button
+                    :post-id="$post->id"
+                    :key="'post-card-save-'.$post->id"
+                />
+            @else
+                <x-ui.action-button icon="bookmark">Save</x-ui.action-button>
+            @endif
+
+            @if($post->exists && auth()->id() !== $post->user_id)
                 <div data-testid="post-card-report" class="ml-auto" wire:click.stop wire:keydown.stop>
                     <livewire:reports.report-modal
                         reportable-type="post"

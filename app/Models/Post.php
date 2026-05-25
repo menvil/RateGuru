@@ -99,6 +99,11 @@ class Post extends Model
         return $this->hasMany(CuisineVote::class);
     }
 
+    public function saves(): HasMany
+    {
+        return $this->hasMany(PostSave::class);
+    }
+
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class);

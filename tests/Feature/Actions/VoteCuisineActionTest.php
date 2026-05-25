@@ -170,3 +170,16 @@ it('does not allow unknown cuisine vote', function () {
         expect(CuisineVote::query()->count())->toBe(0);
     }
 });
+
+it('does not allow cuisine voting on own post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    expect(fn () => app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian))
+        ->toThrow(CannotVoteCuisineException::class, 'You cannot vote on your own post.');
+
+    $this->assertDatabaseMissing('cuisine_votes', [
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+    ]);
+});

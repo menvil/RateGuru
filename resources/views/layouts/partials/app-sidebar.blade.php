@@ -9,7 +9,7 @@
     ];
 
     $categories = ['All', 'Homemade', 'Restaurant', 'Desserts', 'Mains', 'Drinks', 'Breakfast'];
-    $topTags = Tag::query()->orderBy('name')->limit(8)->get();
+    $topTags = Tag::query()->orderBy('name')->limit(5)->get();
     $fallbackTags = ['pasta', 'ramen', 'burger', 'brunch', 'dessert'];
 @endphp
 
@@ -63,10 +63,6 @@
                     </a>
                 @endforeach
             @endforelse
-
-            <a href="#" aria-disabled="true" class="w-full cursor-not-allowed text-xs font-semibold text-rg-accent2 opacity-70">
-                Show more
-            </a>
         </div>
     </div>
 

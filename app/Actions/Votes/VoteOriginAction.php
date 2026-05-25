@@ -38,6 +38,10 @@ final class VoteOriginAction
             throw CannotVoteOriginException::becausePostIsNotPublic();
         }
 
+        if ((int) $post->user_id === (int) $user->id) {
+            throw CannotVoteOriginException::becauseOwnPost();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('vote', $user),

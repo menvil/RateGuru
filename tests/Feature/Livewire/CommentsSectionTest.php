@@ -147,6 +147,70 @@ it('has comments loading state markup', function () {
         ->assertSee('wire:loading', false);
 });
 
+it('renders newest top level comments first', function () {
+    $post = Post::factory()->published()->create();
+
+    Comment::factory()->for($post)->create([
+        'body' => 'Older comment',
+        'status' => CommentStatus::Visible,
+        'created_at' => now()->subHour(),
+    ]);
+
+    Comment::factory()->for($post)->create([
+        'body' => 'Newer comment',
+        'status' => CommentStatus::Visible,
+        'created_at' => now(),
+    ]);
+
+    $html = Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->html();
+
+    expect($html)
+        ->toContain('Newer comment')
+        ->toContain('Older comment');
+    expect(strpos($html, 'Newer comment'))->toBeLessThan(strpos($html, 'Older comment'));
+});
+
+it('can add a reply to a top level comment', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create([
+        'body' => 'Parent comment',
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->call('startReply', $comment->id)
+        ->assertSet('replyingTo', $comment->id)
+        ->set('replyBody', 'Reply body')
+        ->call('submitReply')
+        ->assertSet('replyingTo', null)
+        ->assertSee('Reply body')
+        ->assertSee('data-testid="comment-replies"', false);
+
+    $this->assertDatabaseHas('comments', [
+        'post_id' => $post->id,
+        'parent_id' => $comment->id,
+        'user_id' => $user->id,
+        'body' => 'Reply body',
+    ]);
+});
+
+it('shows view more comments for longer threads', function () {
+    $post = Post::factory()->published()->create();
+
+    Comment::factory()
+        ->count(6)
+        ->for($post)
+        ->create(['status' => CommentStatus::Visible]);
+
+    Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->assertSee('data-testid="view-more-comments"', false)
+        ->call('loadMore')
+        ->assertDontSee('data-testid="view-more-comments"', false);
+});
+
 it('does not 500 when a guest invokes deleteComment', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->create();
@@ -182,5 +246,5 @@ it('targets refreshComments in the loading state', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(CommentsSection::class, ['postId' => $post->id])
-        ->assertSee('wire:target="deleteComment,hideComment,refreshComments"', false);
+        ->assertSee('wire:target="deleteComment,hideComment,refreshComments,submitReply,loadMore"', false);
 });

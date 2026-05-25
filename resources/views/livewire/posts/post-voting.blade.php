@@ -5,9 +5,10 @@
     @php
         $upActive = $currentVote === 'up';
         $downActive = $currentVote === 'down';
+        $votingDisabled = $isOwnPost;
         $score = (int) ($post->score ?? ((int) $post->upvotes_count - (int) $post->downvotes_count));
         $personalScore = $upActive ? 1 : ($downActive ? -1 : 0);
-        $baseClass = 'inline-flex min-w-[3.5rem] items-center justify-center gap-1 rounded-rgPill border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
+        $baseClass = 'inline-flex min-w-[3.5rem] items-center justify-center gap-1 rounded-rgPill border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-60';
         $idleClass = 'border-rg-border bg-rg-card2 text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-cardHover hover:text-rg-text';
         $upClass = $upActive
             ? 'border-rg-goodBorder bg-rg-goodSoft text-rg-good'
@@ -25,9 +26,10 @@
                 wire:click="vote('up')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
+                @disabled($votingDisabled)
                 aria-pressed="{{ $upActive ? 'true' : 'false' }}"
                 data-state="{{ $upActive ? 'active' : 'idle' }}"
-                class="{{ $upActive ? 'text-rg-good' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-wait disabled:opacity-60"
+                class="{{ $upActive ? 'text-rg-good' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-up" class="size-4" />
             </button>
@@ -46,9 +48,10 @@
                 wire:click="vote('down')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
+                @disabled($votingDisabled)
                 aria-pressed="{{ $downActive ? 'true' : 'false' }}"
                 data-state="{{ $downActive ? 'active' : 'idle' }}"
-                class="{{ $downActive ? 'text-rg-accent2' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-wait disabled:opacity-60"
+                class="{{ $downActive ? 'text-rg-accent2' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-down" class="size-4" />
             </button>
@@ -59,7 +62,8 @@
         wire:click="vote('up')"
         wire:target="vote"
         wire:loading.attr="disabled"
-        wire:loading.class="opacity-60 cursor-wait"
+        wire:loading.class="opacity-60 cursor-not-allowed"
+        @disabled($votingDisabled)
         aria-pressed="{{ $upActive ? 'true' : 'false' }}"
         data-state="{{ $upActive ? 'active' : 'idle' }}"
         class="{{ $baseClass }} {{ $upClass }}"
@@ -73,7 +77,8 @@
         wire:click="vote('down')"
         wire:target="vote"
         wire:loading.attr="disabled"
-        wire:loading.class="opacity-60 cursor-wait"
+        wire:loading.class="opacity-60 cursor-not-allowed"
+        @disabled($votingDisabled)
         aria-pressed="{{ $downActive ? 'true' : 'false' }}"
         data-state="{{ $downActive ? 'active' : 'idle' }}"
         class="{{ $baseClass }} {{ $downClass }}"
@@ -86,5 +91,7 @@
 
     @if($error !== '')
         <span data-testid="post-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
+    @elseif(($isOwnPost ?? false) && $variant !== 'rail')
+        <span data-testid="post-voting-error" class="text-xs text-rg-muted">You cannot vote on your own post.</span>
     @endif
 </div>

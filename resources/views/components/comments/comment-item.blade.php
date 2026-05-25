@@ -2,6 +2,7 @@
     'comment',
     'canDelete' => false,
     'canHide' => false,
+    'canReply' => false,
 ])
 
 <article data-testid="comment-item" class="rounded-rgCard border border-rg-border bg-rg-card2 p-3">
@@ -32,15 +33,29 @@
 
     <p class="mt-2 text-sm leading-6 text-rg-text">{{ $comment->body }}</p>
 
-    @if ($comment->exists)
-        <div data-testid="comment-report" class="mt-2 flex justify-end">
+    <div class="mt-2 flex items-center justify-end gap-3">
+        @auth
+            @if($canReply)
+                <button
+                    type="button"
+                    wire:click="startReply({{ $comment->id }})"
+                    class="cursor-pointer text-xs font-semibold text-rg-muted transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                >
+                    Reply
+                </button>
+            @endif
+        @endauth
+
+        @if ($comment->exists && auth()->id() !== $comment->user_id)
+            <div data-testid="comment-report">
             <livewire:reports.report-modal
                 reportable-type="comment"
                 :reportable-id="$comment->id"
                 :key="'comment-report-'.$comment->id"
             />
-        </div>
-    @endif
+            </div>
+        @endif
+    </div>
 
     @if ($canDelete || $canHide)
         <div class="mt-2 flex justify-end gap-3">

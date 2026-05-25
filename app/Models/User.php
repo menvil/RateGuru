@@ -78,6 +78,11 @@ class User extends Authenticatable implements FilamentUser
         return $this->hasMany(Comment::class);
     }
 
+    public function postSaves(): HasMany
+    {
+        return $this->hasMany(PostSave::class);
+    }
+
     public function canAccessPanel(Panel $panel): bool
     {
         if ($panel->getId() !== 'admin') {

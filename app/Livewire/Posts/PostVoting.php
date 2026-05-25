@@ -84,6 +84,7 @@ final class PostVoting extends Component
         return view('livewire.posts.post-voting', [
             'post' => $post,
             'currentVote' => $currentVote,
+            'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
         ]);
     }
 

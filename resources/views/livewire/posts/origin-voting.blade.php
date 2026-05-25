@@ -6,7 +6,8 @@
             $homemadeActive = $currentOrigin === 'homemade';
             $restaurantActive = $currentOrigin === 'restaurant';
             $hasVoted = $currentOrigin !== null;
-            $baseClass = 'inline-flex h-9 min-w-[7.25rem] cursor-pointer items-center justify-center gap-1.5 rounded-rgPill border px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
+            $votingDisabled = $hasVoted || $isOwnPost;
+            $baseClass = 'inline-flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 rounded-rgPill border px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
             $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-card2 hover:text-rg-text';
             $homemadeClass = $homemadeActive
                 ? 'border-rg-good bg-rg-goodSoft text-rg-good'
@@ -16,14 +17,14 @@
                 : $idleClass;
         @endphp
 
-        <div class="flex flex-wrap items-center gap-2.5">
+        <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <button
                 type="button"
                 wire:click="vote('homemade')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
-                wire:loading.class="opacity-60 cursor-wait"
-                @disabled($hasVoted)
+                wire:loading.class="opacity-60 cursor-not-allowed"
+                @disabled($votingDisabled)
                 aria-pressed="{{ $homemadeActive ? 'true' : 'false' }}"
                 data-state="{{ $homemadeActive ? 'active' : 'idle' }}"
                 class="{{ $baseClass }} {{ $homemadeClass }}"
@@ -37,8 +38,8 @@
                 wire:click="vote('restaurant')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
-                wire:loading.class="opacity-60 cursor-wait"
-                @disabled($hasVoted)
+                wire:loading.class="opacity-60 cursor-not-allowed"
+                @disabled($votingDisabled)
                 aria-pressed="{{ $restaurantActive ? 'true' : 'false' }}"
                 data-state="{{ $restaurantActive ? 'active' : 'idle' }}"
                 class="{{ $baseClass }} {{ $restaurantClass }}"
@@ -68,6 +69,8 @@
 
         @if($error !== '')
             <span data-testid="origin-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
+        @elseif(($isOwnPost ?? false) && ! $hasVoted)
+            <span data-testid="origin-voting-error" class="text-xs text-rg-muted">You cannot vote on your own post.</span>
         @endif
     @endif
 </div>

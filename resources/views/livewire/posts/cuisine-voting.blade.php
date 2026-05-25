@@ -4,7 +4,8 @@
     @else
         @php
             $hasVoted = $currentCuisine !== null;
-            $baseClass = 'inline-flex h-8 min-w-12 cursor-pointer items-center justify-center rounded-rgControl border px-2.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
+            $votingDisabled = $hasVoted || $isOwnPost;
+            $baseClass = 'inline-flex h-8 min-w-12 cursor-pointer items-center justify-center rounded-rgControl border px-2.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
             $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-card2 hover:text-rg-text';
             $activeClass = 'border-rg-accent bg-rg-accentSoft text-rg-accent2';
         @endphp
@@ -17,8 +18,8 @@
                     wire:click="vote('{{ $option->value }}')"
                     wire:target="vote"
                     wire:loading.attr="disabled"
-                    wire:loading.class="opacity-60 cursor-wait"
-                    @disabled($hasVoted)
+                    wire:loading.class="opacity-60 cursor-not-allowed"
+                    @disabled($votingDisabled)
                     aria-pressed="{{ $active ? 'true' : 'false' }}"
                     data-state="{{ $active ? 'active' : 'idle' }}"
                     class="{{ $baseClass }} {{ $active ? $activeClass : $idleClass }}"
@@ -56,6 +57,8 @@
 
         @if($error !== '')
             <span data-testid="cuisine-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
+        @elseif(($isOwnPost ?? false) && ! $hasVoted)
+            <span data-testid="cuisine-voting-error" class="text-xs text-rg-muted">You cannot vote on your own post.</span>
         @endif
     @endif
 </div>

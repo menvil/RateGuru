@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\User;
+
 it('serves feed page on home route', function () {
     $this->get('/')
         ->assertOk()
@@ -19,7 +21,7 @@ it('renders header search with responsive submit behavior', function () {
     $this->get('/')
         ->assertOk()
         ->assertSee('data-testid="app-header-search"', false)
-        ->assertSee('x-on:input.debounce.350ms', false)
+        ->assertDontSee('x-on:input.debounce.350ms', false)
         ->assertSee('x-on:search', false);
 });
 
@@ -33,7 +35,7 @@ it('uses mobile-safe feed layout', function () {
 });
 
 it('renders upload modal shell for authenticated user on feed page', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
 
     $this->actingAs($user)
         ->get('/')
@@ -47,7 +49,7 @@ it('renders upload modal shell for authenticated user on feed page', function ()
 });
 
 it('renders authenticated header actions without changing guest header behavior', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
 
     $this->get('/')
         ->assertOk()
@@ -65,7 +67,7 @@ it('renders authenticated header actions without changing guest header behavior'
 });
 
 it('listens for post uploaded event to close upload modal', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
 
     $html = $this->actingAs($user)->get('/')->getContent();
 
@@ -75,7 +77,7 @@ it('listens for post uploaded event to close upload modal', function () {
 });
 
 it('has alpine upload modal open close behavior', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
 
     $html = $this->actingAs($user)->get('/')->getContent();
 

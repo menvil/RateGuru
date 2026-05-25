@@ -28,7 +28,7 @@ final class AddCommentAction
         private readonly ActionRateLimiter $rateLimiter,
     ) {}
 
-    public function handle(?User $user, Post $post, string $body): Comment
+    public function handle(?User $user, Post $post, string $body, ?Comment $parent = null): Comment
     {
         if ($user === null) {
             throw CannotCommentException::becauseGuest();
@@ -63,10 +63,15 @@ final class AddCommentAction
             throw CannotCommentException::becauseBodyIsInvalid('Comment body is too long.');
         }
 
-        $comment = DB::transaction(function () use ($user, $post, $body) {
+        if ($parent !== null && ((int) $parent->post_id !== (int) $post->id || $parent->parent_id !== null)) {
+            throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+        }
+
+        $comment = DB::transaction(function () use ($user, $post, $body, $parent) {
             $comment = Comment::create([
                 'user_id' => $user->id,
                 'post_id' => $post->id,
+                'parent_id' => $parent?->id,
                 'body' => $body,
                 'status' => CommentStatus::Visible,
             ]);

@@ -38,6 +38,10 @@ final class VoteCuisineAction
             throw CannotVoteCuisineException::becausePostIsNotPublic();
         }
 
+        if ((int) $post->user_id === (int) $user->id) {
+            throw CannotVoteCuisineException::becauseOwnPost();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('vote', $user),
