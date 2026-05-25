@@ -17,3 +17,11 @@ it('uses RateGuru dark background tokens in the app shell', function () {
         ->toContain('bg-rg-topbar')
         ->toContain('border-rg-border');
 });
+
+it('renders app brand with hover affordance', function () {
+    $html = $this->get('/')->assertOk()->getContent();
+
+    expect($html)
+        ->toContain('hover:bg-rg-card')
+        ->toContain('hover:text-rg-text');
+});

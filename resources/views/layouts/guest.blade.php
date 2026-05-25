@@ -13,7 +13,7 @@
         <main class="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
             <section class="w-full max-w-md">
                 <div class="mb-8 flex justify-center">
-                    <a href="{{ url('/') }}" class="flex items-center gap-3">
+                    <a href="{{ url('/') }}" class="flex items-center gap-3 rounded-rgControl px-1 py-1 transition-colors hover:bg-rg-card hover:text-rg-text">
                         <span class="flex size-10 items-center justify-center rounded bg-rg-accent font-semibold text-rg-onAccent">
                             RG
                         </span>

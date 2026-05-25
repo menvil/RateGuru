@@ -22,7 +22,7 @@
 - [x] RG-609 modal backdrop checked.
 - [x] RG-610 mobile card checked.
 - [x] RG-611 desktop two-column checked.
-- [ ] RG-612 hover states checked.
+- [x] RG-612 hover states checked.
 - [ ] RG-613 focus states checked.
 - [ ] RG-614 disabled states checked.
 - [ ] RG-615 loading states checked.
@@ -110,3 +110,9 @@
 - Post show now uses a responsive `lg:grid-cols-[minmax(0,1fr)_360px]` layout with main post/comments content and an existing side panel.
 - The side panel contains existing voting, vote summary, share, and related sections; no new sidebar content was introduced.
 - Mobile remains single-column because the grid only activates at `lg`.
+
+## RG-612 notes
+
+- Clickable PostCard surfaces now have subtle border/surface hover feedback.
+- Copy-link buttons now hover both border and surface while keeping text contrast.
+- App and guest brand links have explicit hover affordance without changing navigation behavior.
