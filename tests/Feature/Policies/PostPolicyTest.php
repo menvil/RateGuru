@@ -40,6 +40,17 @@ it('does not allow user to update another users draft post', function () {
     expect($other->can('update', $post))->toBeFalse();
 });
 
+it('does not allow user to update own published post after lock rule', function () {
+    $user = User::factory()->create();
+
+    $post = Post::factory()
+        ->for($user)
+        ->published()
+        ->create();
+
+    expect($user->can('update', $post))->toBeFalse();
+});
+
 dataset('moderation abilities', ['approve', 'reject', 'hide', 'restore']);
 
 it('allows moderator to perform moderation ability', function (string $ability) {
