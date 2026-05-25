@@ -20,6 +20,7 @@ class DemoDatabaseSeeder extends Seeder
             DemoHiddenPostsSeeder::class,
             DemoCommentsSeeder::class,
             DemoVotesSeeder::class,
+            DemoReportsSeeder::class,
         ]);
     }
 }
