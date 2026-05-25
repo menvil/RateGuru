@@ -51,7 +51,7 @@ it('does not allow user to update own published post after lock rule', function 
     expect($user->can('update', $post))->toBeFalse();
 });
 
-dataset('moderation abilities', ['approve', 'reject', 'hide', 'restore']);
+dataset('moderation abilities', ['approve', 'reject', 'restore']);
 
 it('allows moderator to perform moderation ability', function (string $ability) {
     $moderator = User::factory()->moderator()->create();
@@ -83,4 +83,32 @@ it('allows only admin to delete a post', function () {
     expect($admin->can('delete', $post))->toBeTrue();
     expect($moderator->can('delete', $post))->toBeFalse();
     expect($user->can('delete', $post))->toBeFalse();
+});
+
+it('allows moderator to hide published post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    expect($moderator->can('hide', $post))->toBeTrue();
+});
+
+it('allows admin to hide published post', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->published()->create();
+
+    expect($admin->can('hide', $post))->toBeTrue();
+});
+
+it('does not allow normal user to hide post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    expect($user->can('hide', $post))->toBeFalse();
+});
+
+it('does not allow moderator to hide already hidden post', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->hidden()->create();
+
+    expect($moderator->can('hide', $post))->toBeFalse();
 });
