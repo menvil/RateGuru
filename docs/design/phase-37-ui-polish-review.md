@@ -10,7 +10,7 @@
 
 - [x] RG-598 feed spacing checked.
 - [x] RG-599 card radius checked.
-- [ ] RG-600 background checked.
+- [x] RG-600 background checked.
 - [ ] RG-601 accent purple checked.
 - [ ] RG-602 header checked.
 - [ ] RG-603 upload button checked.
@@ -38,3 +38,9 @@
 - Card, empty state, dropdown, drawer, and product surfaces already used `rounded-rgCard` / related RateGuru radius tokens.
 - Modal content shell now uses `rounded-rgCard` instead of raw `rounded-2xl`, keeping large surfaces visually related to cards.
 - Control, media, pill, and avatar radii remain on their existing purpose-specific tokens.
+
+## RG-600 notes
+
+- App shell body, topbar, optional header band, brand mark, and auth text actions now use existing RateGuru dark/background/text tokens.
+- Existing component surfaces already use `bg-rg-card`, `bg-rg-card2`, `border-rg-border`, and `text-rg-*` tokens.
+- Legacy Breeze components still exist for auth/profile internals and will be handled only where they surface in scoped UI tasks.
