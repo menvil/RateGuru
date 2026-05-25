@@ -17,7 +17,7 @@
 - [x] RG-604 vote states checked.
 - [x] RG-605 origin controls checked.
 - [x] RG-606 cuisine controls checked.
-- [ ] RG-607 drawer width checked.
+- [x] RG-607 drawer width checked.
 - [ ] RG-608 drawer animation checked.
 - [ ] RG-609 modal backdrop checked.
 - [ ] RG-610 mobile card checked.
@@ -80,3 +80,9 @@
 - Cuisine vote chips now expose `aria-pressed` and `data-state` based on the authenticated user's selected cuisine vote.
 - Selected chips share the origin pill accent-soft language; idle chips retain subtle card surfaces and accent-border hover.
 - Chips use flexible wrapping with stable minimum height for mobile density.
+
+## RG-607 notes
+
+- Large right-side drawers now use `md:max-w-xl lg:max-w-2xl`, landing in the intended desktop width range while keeping `w-full` mobile behavior.
+- XL drawers scale intentionally to `md:max-w-2xl lg:max-w-3xl`; default/mobile positioning is unchanged.
+- Drawer content scrolling and backdrop behavior are unchanged.
