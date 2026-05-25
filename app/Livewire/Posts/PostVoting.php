@@ -43,8 +43,16 @@ final class PostVoting extends Component
             return;
         }
 
+        $currentVote = $this->currentVoteFor($post);
+
+        if ($currentVote === $voteType) {
+            return;
+        }
+
+        $voteToApply = $currentVote ?? $voteType;
+
         try {
-            $votePostAction->handle(auth()->user(), $post, $voteType);
+            $votePostAction->handle(auth()->user(), $post, $voteToApply);
         } catch (CannotVoteException $e) {
             $this->error = $e->getMessage();
 
@@ -69,17 +77,25 @@ final class PostVoting extends Component
         $post = $this->post;
         $currentVote = null;
 
-        if ($post !== null && auth()->check()) {
-            $currentVote = $post->postVotes()
-                ->where('user_id', auth()->id())
-                ->first()
-                ?->type
-                ?->value;
+        if ($post !== null) {
+            $currentVote = $this->currentVoteFor($post)?->value;
         }
 
         return view('livewire.posts.post-voting', [
             'post' => $post,
             'currentVote' => $currentVote,
         ]);
+    }
+
+    private function currentVoteFor(Post $post): ?VoteType
+    {
+        if (! auth()->check()) {
+            return null;
+        }
+
+        return $post->postVotes()
+            ->where('user_id', auth()->id())
+            ->first()
+            ?->type;
     }
 }

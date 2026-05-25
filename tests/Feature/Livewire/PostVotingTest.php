@@ -22,7 +22,7 @@ it('refreshes vote counters after upvote', function () {
         ->assertSee('Up 1');
 });
 
-it('refreshes vote counters after toggling upvote off', function () {
+it('keeps upvote active when clicked again in the UI', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'upvotes_count' => 0,
@@ -34,7 +34,11 @@ it('refreshes vote counters after toggling upvote off', function () {
         ->call('vote', VoteType::Up->value)
         ->assertSee('Up 1')
         ->call('vote', VoteType::Up->value)
-        ->assertSee('Up 0');
+        ->assertSee('Up 1');
+
+    expect($post->fresh())
+        ->upvotes_count->toBe(1)
+        ->downvotes_count->toBe(0);
 });
 
 it('ignores an invalid vote type without throwing', function () {
@@ -53,7 +57,7 @@ it('ignores an invalid vote type without throwing', function () {
     expect($post->fresh()->upvotes_count)->toBe(0);
 });
 
-it('refreshes both counters when replacing a vote', function () {
+it('clears the current vote before applying the opposite vote in the UI', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'upvotes_count' => 0,
@@ -64,6 +68,9 @@ it('refreshes both counters when replacing a vote', function () {
         ->test(PostVoting::class, ['postId' => $post->id])
         ->call('vote', VoteType::Up->value)
         ->assertSee('Up 1')
+        ->assertSee('Down 0')
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('Up 0')
         ->assertSee('Down 0')
         ->call('vote', VoteType::Down->value)
         ->assertSee('Up 0')
@@ -84,14 +91,18 @@ it('renders the compact rail personal vote correctly when replacing votes', func
         ->call('vote', VoteType::Up->value)
         ->assertSee('1')
         ->call('vote', VoteType::Down->value)
+        ->assertSee('0')
+        ->call('vote', VoteType::Down->value)
         ->assertSee('-1')
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('0')
         ->call('vote', VoteType::Up->value)
         ->assertSee('1')
         ->call('vote', VoteType::Up->value)
-        ->assertSee('0');
+        ->assertSee('1');
 
     expect($post->fresh())
-        ->upvotes_count->toBe(0)
+        ->upvotes_count->toBe(1)
         ->downvotes_count->toBe(0);
 });
 
