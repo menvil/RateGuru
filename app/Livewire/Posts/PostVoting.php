@@ -7,6 +7,7 @@ use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 final class PostVoting extends Component
@@ -53,6 +54,14 @@ final class PostVoting extends Component
         unset($this->post);
 
         $this->dispatch('post-voted', postId: $this->postId);
+    }
+
+    #[On('post-voted')]
+    public function refreshAfterPostVote(int $postId): void
+    {
+        if ($postId === $this->postId) {
+            unset($this->post);
+        }
     }
 
     public function render(): View

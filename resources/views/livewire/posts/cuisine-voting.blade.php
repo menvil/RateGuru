@@ -3,9 +3,9 @@
         <span data-testid="cuisine-voting-unavailable" class="text-xs text-rg-muted">Cuisine voting unavailable</span>
     @else
         @php
-            $baseClass = 'inline-flex min-h-9 items-center justify-center gap-1 rounded-rgPill border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
-            $idleClass = 'border-rg-border bg-rg-card2 text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-cardHover hover:text-rg-text';
-            $activeClass = 'border-rg-accent bg-rg-accentSoft text-rg-text';
+            $baseClass = 'inline-flex h-8 min-w-12 cursor-pointer items-center justify-center rounded-rgControl border px-2.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
+            $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-card2 hover:text-rg-text';
+            $activeClass = 'border-rg-accent bg-rg-accentSoft text-rg-accent2';
         @endphp
 
         <div class="flex flex-wrap gap-2">
@@ -21,7 +21,8 @@
                     data-state="{{ $active ? 'active' : 'idle' }}"
                     class="{{ $baseClass }} {{ $active ? $activeClass : $idleClass }}"
                 >
-                    {{ $this->labelFor($option) }}
+                    <span class="sr-only">{{ $this->labelFor($option) }}</span>
+                    <span aria-hidden="true">{{ $this->shortLabelFor($option) }}</span>
                 </button>
             @endforeach
         </div>

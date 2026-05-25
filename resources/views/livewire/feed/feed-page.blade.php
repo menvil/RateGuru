@@ -3,7 +3,7 @@
 @endphp
 
 <div
-    class="min-h-screen lg:h-full lg:min-h-0"
+    class="min-h-screen"
     data-testid="feed-page"
     x-data="{
         scrollToSelectedPost(postId) {
@@ -14,7 +14,8 @@
                         if (feed) {
                             const card = feed.querySelector('[data-post-id=\'' + postId + '\']');
                             if (card) {
-                                feed.scrollTo({ top: Math.max(card.offsetTop - 80, 0), behavior: 'smooth' });
+                                const top = card.getBoundingClientRect().top + window.scrollY - 84;
+                                window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
                             }
                         }
 
@@ -30,14 +31,14 @@
 >
     <div
         class="{{ $hasSelectedPost
-            ? 'grid min-w-0 gap-0 lg:h-full lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)] lg:overflow-hidden'
-            : 'grid min-w-0 lg:block lg:h-full' }}"
+            ? 'grid min-w-0 gap-0 lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)]'
+            : 'grid min-w-0 lg:block' }}"
         data-testid="feed-content-shell"
     >
         <section
             x-ref="feedScroll"
             class="{{ $hasSelectedPost
-                ? 'min-w-0 lg:h-full lg:overflow-y-auto lg:border-r lg:border-rg-border lg:pr-6'
+                ? 'min-w-0 lg:border-r lg:border-rg-border lg:pr-6'
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >
@@ -62,7 +63,7 @@
             <aside
                 x-ref="detailScroll"
                 data-testid="post-detail-column"
-                class="min-w-0 pt-5 lg:h-full lg:overflow-y-auto lg:pl-7 lg:pt-0"
+                class="min-w-0 pt-5 lg:sticky lg:top-[84px] lg:max-h-[calc(100vh-108px)] lg:overflow-y-auto lg:pl-7 lg:pt-0"
             >
                 <livewire:feed.post-drawer
                     :post-id="$selectedPostId"

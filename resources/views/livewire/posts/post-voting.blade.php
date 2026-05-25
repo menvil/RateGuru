@@ -26,7 +26,7 @@
                 wire:loading.attr="disabled"
                 aria-pressed="{{ $upActive ? 'true' : 'false' }}"
                 data-state="{{ $upActive ? 'active' : 'idle' }}"
-                class="{{ $upActive ? 'text-rg-good' : 'text-rg-muted' }} rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-wait disabled:opacity-60"
+                class="{{ $upActive ? 'text-rg-good' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-wait disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-up" class="size-4" />
             </button>
@@ -43,7 +43,7 @@
                 wire:loading.attr="disabled"
                 aria-pressed="{{ $downActive ? 'true' : 'false' }}"
                 data-state="{{ $downActive ? 'active' : 'idle' }}"
-                class="{{ $downActive ? 'text-rg-accent2' : 'text-rg-muted' }} rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-wait disabled:opacity-60"
+                class="{{ $downActive ? 'text-rg-accent2' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-wait disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-down" class="size-4" />
             </button>

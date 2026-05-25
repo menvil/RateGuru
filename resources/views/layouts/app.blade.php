@@ -135,10 +135,10 @@
                 </div>
             </header>
 
-            <div class="mx-auto grid w-full max-w-[1440px] lg:grid-cols-[240px_minmax(0,1fr)] {{ $isFeedRoute ? 'lg:h-[calc(100vh-60px)] lg:min-h-0 lg:overflow-hidden' : '' }}">
+            <div class="mx-auto grid w-full max-w-[1440px] lg:grid-cols-[240px_minmax(0,1fr)]">
                 @include('layouts.partials.app-sidebar')
 
-                <div class="min-w-0 {{ $isFeedRoute ? 'lg:min-h-0' : '' }}">
+                <div class="min-w-0">
                     @isset($header)
                         <section class="border-b border-rg-border bg-rg-surface">
                             <div class="px-4 py-6 sm:px-6 lg:px-8">
@@ -147,7 +147,7 @@
                         </section>
                     @endisset
 
-                    <main class="{{ $isFeedRoute ? 'min-h-0 px-4 py-4 sm:px-6 lg:h-full lg:overflow-hidden lg:px-6 lg:py-6' : 'px-4 py-10 sm:px-6 lg:px-8' }}">
+                    <main class="{{ $isFeedRoute ? 'px-4 py-6 sm:px-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8' }}">
                         {{ $slot ?? '' }}
                         @yield('content')
                     </main>

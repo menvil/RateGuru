@@ -37,6 +37,18 @@ final class CuisineVoting extends Component
         };
     }
 
+    public function shortLabelFor(CuisineType $cuisine): string
+    {
+        return match ($cuisine) {
+            CuisineType::Italian => 'IT',
+            CuisineType::Asian => 'AS',
+            CuisineType::American => 'US',
+            CuisineType::Mexican => 'MX',
+            CuisineType::Other => 'OT',
+            CuisineType::Unknown => 'UN',
+        };
+    }
+
     public function getPostProperty(): ?Post
     {
         return Post::query()

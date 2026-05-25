@@ -84,7 +84,7 @@ it('renders origin voting pills with selected and focus states', function () {
         ->test(OriginVoting::class, ['postId' => $post->id])
         ->assertSee('aria-pressed="true"', false)
         ->assertSee('data-state="active"', false)
-        ->assertSee('bg-rg-accentSoft', false)
+        ->assertSee('bg-rg-goodSoft', false)
         ->assertSee('focus-visible:ring-rg-accent', false);
 });
 

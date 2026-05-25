@@ -13,7 +13,7 @@
     $fallbackTags = ['pasta', 'ramen', 'burger', 'brunch', 'dessert'];
 @endphp
 
-<aside data-testid="app-sidebar" class="hidden w-60 shrink-0 flex-col border-r border-rg-border bg-rg-sidebar px-4 py-5 lg:flex">
+<aside data-testid="app-sidebar" class="hidden w-60 shrink-0 flex-col border-r border-rg-border bg-rg-sidebar px-4 py-5 lg:sticky lg:top-[60px] lg:flex lg:h-[calc(100vh-60px)]">
     <nav class="space-y-1" aria-label="Primary">
         @foreach ($navItems as $item)
             <a

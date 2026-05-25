@@ -5,12 +5,17 @@
         @php
             $homemadeActive = $currentOrigin === 'homemade';
             $restaurantActive = $currentOrigin === 'restaurant';
-            $baseClass = 'inline-flex min-w-[5rem] items-center justify-center gap-1 rounded-rgPill border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
-            $idleClass = 'border-rg-border bg-rg-card2 text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-cardHover hover:text-rg-text';
-            $activeClass = 'border-rg-accent bg-rg-accentSoft text-rg-text';
+            $baseClass = 'inline-flex h-9 min-w-[7.25rem] cursor-pointer items-center justify-center gap-1.5 rounded-rgPill border px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-wait disabled:opacity-60';
+            $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-card2 hover:text-rg-text';
+            $homemadeClass = $homemadeActive
+                ? 'border-rg-good bg-rg-goodSoft text-rg-good'
+                : $idleClass;
+            $restaurantClass = $restaurantActive
+                ? 'border-rg-accent bg-rg-accentSoft text-rg-accent2'
+                : $idleClass;
         @endphp
 
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2.5">
             <button
                 type="button"
                 wire:click="vote('homemade')"
@@ -19,8 +24,9 @@
                 wire:loading.class="opacity-60 cursor-wait"
                 aria-pressed="{{ $homemadeActive ? 'true' : 'false' }}"
                 data-state="{{ $homemadeActive ? 'active' : 'idle' }}"
-                class="{{ $baseClass }} {{ $homemadeActive ? $activeClass : $idleClass }}"
+                class="{{ $baseClass }} {{ $homemadeClass }}"
             >
+                <x-ui.icon name="leaf" class="size-3.5" />
                 Homemade
             </button>
 
@@ -32,8 +38,9 @@
                 wire:loading.class="opacity-60 cursor-wait"
                 aria-pressed="{{ $restaurantActive ? 'true' : 'false' }}"
                 data-state="{{ $restaurantActive ? 'active' : 'idle' }}"
-                class="{{ $baseClass }} {{ $restaurantActive ? $activeClass : $idleClass }}"
+                class="{{ $baseClass }} {{ $restaurantClass }}"
             >
+                <x-ui.icon name="chef" class="size-3.5" />
                 Restaurant
             </button>
         </div>

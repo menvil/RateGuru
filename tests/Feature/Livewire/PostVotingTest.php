@@ -70,6 +70,41 @@ it('refreshes both counters when replacing a vote', function () {
         ->assertSee('Down 1');
 });
 
+it('renders the compact rail score correctly when replacing votes', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 0,
+        'downvotes_count' => 0,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('post-voting-rail', false)
+        ->assertSee('0')
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('1')
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('-1')
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('1');
+
+    expect($post->fresh())
+        ->upvotes_count->toBe(1)
+        ->downvotes_count->toBe(0);
+});
+
+it('refreshes matching post voting instances after another rail votes', function () {
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 1,
+        'downvotes_count' => 0,
+    ]);
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('1')
+        ->dispatch('post-voted', postId: $post->id)
+        ->assertSee('1');
+});
+
 it('has vote loading state markup', function () {
     $post = Post::factory()->published()->create();
 
