@@ -13,7 +13,7 @@ it('seeds hidden demo posts', function () {
     $this->seed(DemoHiddenPostsSeeder::class);
 
     expect(Post::query()->where('status', PostStatus::Hidden)->count())
-        ->toBeGreaterThanOrEqual(2);
+        ->toBe(2);
 });
 
 it('seeds hidden posts with authors and tags', function () {

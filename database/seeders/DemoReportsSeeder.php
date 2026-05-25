@@ -8,11 +8,14 @@ use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Seeder;
 
 class DemoReportsSeeder extends Seeder
 {
+    private const SEED_TIME = '2026-05-20 12:00:00';
+
     public function run(): void
     {
         if (! app()->environment(['local', 'testing'])) {
@@ -21,6 +24,7 @@ class DemoReportsSeeder extends Seeder
 
         $reporter = User::query()->where('email', 'alice@rateguru.test')->firstOrFail();
         $resolver = User::query()->where('email', 'trusted@rateguru.test')->firstOrFail();
+        $seedTime = CarbonImmutable::parse(self::SEED_TIME);
 
         $targets = [
             [
@@ -44,7 +48,7 @@ class DemoReportsSeeder extends Seeder
                 'message' => 'Demo resolved report for report resource checks.',
                 'status' => ReportStatus::Resolved,
                 'resolved_by' => $resolver->id,
-                'resolved_at' => now()->subHour(),
+                'resolved_at' => $seedTime->subHour(),
                 'resolution_note' => 'Demo resolution note.',
             ],
             [
@@ -54,7 +58,7 @@ class DemoReportsSeeder extends Seeder
                 'message' => 'Demo ignored report for filter checks.',
                 'status' => ReportStatus::Ignored,
                 'resolved_by' => $resolver->id,
-                'resolved_at' => now()->subMinutes(30),
+                'resolved_at' => $seedTime->subMinutes(30),
                 'resolution_note' => 'Demo ignored report note.',
             ],
         ];

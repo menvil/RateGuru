@@ -12,6 +12,7 @@ it('seeds demo users', function () {
 
     expect(User::query()->where('email', 'alice@rateguru.test')->exists())->toBeTrue();
     expect(User::query()->where('email', 'bob@rateguru.test')->exists())->toBeTrue();
+    expect(User::query()->where('email', 'carla@rateguru.test')->exists())->toBeTrue();
     expect(User::query()->where('email', 'trusted@rateguru.test')->exists())->toBeTrue();
 });
 
@@ -26,7 +27,7 @@ it('seeds users with expected roles and statuses', function () {
     $trusted = User::query()->where('email', 'trusted@rateguru.test')->firstOrFail();
 
     expect($trusted->status)->toBe(UserStatus::Active);
-    expect($trusted->trust_level)->toBeGreaterThanOrEqual(MarkUserTrustedAction::TRUSTED_LEVEL);
+    expect($trusted->trust_level)->toBe(MarkUserTrustedAction::TRUSTED_LEVEL);
 
     expect(User::query()->where('email', 'banned@rateguru.test')->firstOrFail()->status)
         ->toBe(UserStatus::Banned);

@@ -14,7 +14,7 @@ it('seeds published demo posts', function () {
     $this->seed(DemoPublishedPostsSeeder::class);
 
     expect(Post::query()->where('status', PostStatus::Published)->count())
-        ->toBeGreaterThanOrEqual(6);
+        ->toBe(6);
 });
 
 it('seeds published posts with authors and tags', function () {
