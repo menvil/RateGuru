@@ -19,13 +19,20 @@
 <div
     x-show="{{ $state }}"
     x-cloak
+    x-transition:enter="motion-safe:transition-opacity motion-reduce:transition-none ease-out duration-200"
+    x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100"
+    x-transition:leave="motion-safe:transition-opacity motion-reduce:transition-none ease-in duration-150"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
     class="fixed inset-0 z-50 overflow-y-auto px-4 py-6 sm:px-6"
     role="dialog"
     aria-modal="true"
     aria-labelledby="{{ $titleId }}"
 >
     <div
-        class="fixed inset-0 bg-black/70 backdrop-blur-sm"
+        data-testid="modal-backdrop"
+        class="fixed inset-0 bg-black/70 backdrop-blur-sm motion-safe:transition-opacity motion-reduce:transition-none"
         x-on:click="{{ $state }} = false"
     ></div>
 

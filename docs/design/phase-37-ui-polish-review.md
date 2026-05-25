@@ -19,7 +19,7 @@
 - [x] RG-606 cuisine controls checked.
 - [x] RG-607 drawer width checked.
 - [x] RG-608 drawer animation checked.
-- [ ] RG-609 modal backdrop checked.
+- [x] RG-609 modal backdrop checked.
 - [ ] RG-610 mobile card checked.
 - [ ] RG-611 desktop two-column checked.
 - [ ] RG-612 hover states checked.
@@ -92,3 +92,9 @@
 - Drawer backdrop and panel transitions now use `motion-safe` transition utilities and `motion-reduce:transition-none`.
 - Existing 200ms enter / 150ms leave timing and translate directions are preserved for responsive close behavior.
 - Close button, escape, backdrop, and click-outside dispatch paths are unchanged.
+
+## RG-609 notes
+
+- Modal shell backdrop now exposes `data-testid="modal-backdrop"` and keeps the shared `bg-black/70 backdrop-blur-sm` treatment.
+- Modal open/close fade uses 200ms enter / 150ms leave motion-safe opacity transitions with reduced-motion fallback.
+- Upload, report, and confirmation modals continue to inherit the same `x-ui.modal` shell.
