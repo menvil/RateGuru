@@ -35,13 +35,22 @@ class PostPolicy
         return $this->canModerate($user);
     }
 
-    /**
-     * Deleting a post is destructive and is reserved for admins; moderators
-     * use hide/restore instead.
-     */
     public function delete(User $user, Post $post): bool
     {
         return $user->isAdmin();
+    }
+
+    public function deleteFromFeed(User $user, Post $post): bool
+    {
+        return (int) $post->user_id === (int) $user->id
+            || $user->isAdmin()
+            || $user->isModerator();
+    }
+
+    public function report(User $user, Post $post): bool
+    {
+        return $user->canReport()
+            && (int) $post->user_id !== (int) $user->id;
     }
 
     private function canModerate(User $user): bool

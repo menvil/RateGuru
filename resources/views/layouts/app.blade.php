@@ -12,10 +12,6 @@
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
-        @php
-            $isFeedRoute = request()->routeIs('feed');
-        @endphp
-
         <div class="min-h-screen">
             <header class="sticky top-0 z-40 border-b border-rg-border bg-rg-topbar" data-testid="app-header">
                 <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-5 px-5 md:grid md:grid-cols-[minmax(0,1fr)_minmax(280px,520px)_minmax(0,1fr)]">
@@ -43,13 +39,6 @@
                     </form>
 
                     @auth
-                        @php
-                            $headerUser = auth()->user();
-                            $profileHref = filled($headerUser->username)
-                                ? route('profile.show', ['username' => $headerUser->username])
-                                : route('profile.edit');
-                        @endphp
-
                         <div
                             x-data="{ open: false }"
                             @keydown.escape.window="open = false"
@@ -84,8 +73,8 @@
                                         class="cursor-pointer rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                                     >
                                         <x-ui.avatar
-                                            :src="$headerUser->avatar_url"
-                                            :name="$headerUser->name ?: $headerUser->username"
+                                            :src="auth()->user()->avatar_url"
+                                            :name="auth()->user()->name ?: auth()->user()->username"
                                             color="purple"
                                             size="lg"
                                         />

@@ -16,11 +16,22 @@ it('can render post drawer component', function () {
 });
 
 it('renders report button in post drawer', function () {
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+    Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('data-testid="open-report-modal"', false)
         ->assertSee('Report');
+});
+
+it('does not render report button in post drawer for the owner', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    Livewire::actingAs($owner)
+        ->test(PostDrawer::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="open-report-modal"', false);
 });
 
 it('renders post voting component in drawer', function () {

@@ -1,15 +1,3 @@
-@props([
-    'comment',
-    'canDelete' => false,
-    'canHide' => false,
-    'canReply' => false,
-])
-
-@php
-    $canReport = $comment->exists && auth()->id() !== $comment->user_id;
-    $hasMenuActions = $canDelete || $canHide || $canReport;
-@endphp
-
 <article
     data-testid="comment-item"
     class="grid grid-cols-[32px_minmax(0,1fr)] gap-2.5 text-[13px]"

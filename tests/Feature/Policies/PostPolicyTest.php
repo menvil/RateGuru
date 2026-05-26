@@ -1,8 +1,8 @@
 <?php
 
-use App\Policies\PostPolicy;
 use App\Models\Post;
 use App\Models\User;
+use App\Policies\PostPolicy;
 use Illuminate\Support\Facades\Gate;
 
 it('has post policy registered', function () {
@@ -15,6 +15,8 @@ it('has expected post policy methods', function () {
     expect(method_exists($policy, 'update'))->toBeTrue();
     expect(method_exists($policy, 'hide'))->toBeTrue();
     expect(method_exists($policy, 'delete'))->toBeTrue();
+    expect(method_exists($policy, 'deleteFromFeed'))->toBeTrue();
+    expect(method_exists($policy, 'report'))->toBeTrue();
 });
 
 it('allows user to update own draft post', function () {
@@ -74,29 +76,44 @@ it('does not allow normal user to perform moderation ability', function (string 
     expect($user->can($ability, $post))->toBeFalse();
 })->with('moderation abilities');
 
-it('allows only admin to delete a post', function () {
+it('allows only admin to delete a post through the admin policy ability', function () {
     $admin = User::factory()->admin()->create();
     $moderator = User::factory()->moderator()->create();
-    $user = User::factory()->create();
-    $post = Post::factory()->create();
+    $owner = User::factory()->create();
+    $other = User::factory()->create();
+    $post = Post::factory()->for($owner)->create();
 
     expect($admin->can('delete', $post))->toBeTrue();
     expect($moderator->can('delete', $post))->toBeFalse();
-    expect($user->can('delete', $post))->toBeFalse();
+    expect($owner->can('delete', $post))->toBeFalse();
+    expect($other->can('delete', $post))->toBeFalse();
 });
 
-it('does not allow moderator to delete post', function () {
+it('allows owners and moderators to delete from the public feed consistently with the delete action', function () {
+    $admin = User::factory()->admin()->create();
     $moderator = User::factory()->moderator()->create();
+    $owner = User::factory()->create();
+    $other = User::factory()->create();
+    $post = Post::factory()->for($owner)->create();
+
+    expect($admin->can('deleteFromFeed', $post))->toBeTrue();
+    expect($moderator->can('deleteFromFeed', $post))->toBeTrue();
+    expect($owner->can('deleteFromFeed', $post))->toBeTrue();
+    expect($other->can('deleteFromFeed', $post))->toBeFalse();
+});
+
+it('allows users to report another users post', function () {
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
-    expect($moderator->can('delete', $post))->toBeFalse();
+    expect($user->can('report', $post))->toBeTrue();
 });
 
-it('does not allow normal user to delete own published post', function () {
+it('does not allow users to report their own post', function () {
     $user = User::factory()->create();
     $post = Post::factory()->for($user)->published()->create();
 
-    expect($user->can('delete', $post))->toBeFalse();
+    expect($user->can('report', $post))->toBeFalse();
 });
 
 it('allows moderator to hide published post', function () {

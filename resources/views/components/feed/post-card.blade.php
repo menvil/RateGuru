@@ -1,14 +1,3 @@
-@props([
-    'post',
-    'selected' => false,
-])
-
-@php
-    $voteResults = $post->exists ? app(\App\Services\PostVoteResultService::class) : null;
-    $originDistribution = $voteResults ? $voteResults->originDistribution($post, auth()->user()) : null;
-    $cuisineDistribution = $voteResults ? $voteResults->cuisineDistribution($post, auth()->user()) : null;
-@endphp
-
 <x-ui.card
     variant="{{ $selected ? 'selected-post' : 'post' }}"
     data-testid="post-card"
@@ -48,12 +37,6 @@
             </div>
 
             @if($post->exists)
-                @php
-                    $postCardUser = auth()->user();
-                    $canReportPost = auth()->id() !== $post->user_id;
-                    $canDeletePost = $postCardUser !== null && ((int) $postCardUser->id === (int) $post->user_id || $postCardUser->isAdmin() || $postCardUser->isModerator());
-                @endphp
-
                 <div class="relative -mt-1 ml-auto" x-data="{ postMenuOpen: false, deleteOpen: false }" wire:click.stop wire:keydown.stop>
                     <button
                         type="button"

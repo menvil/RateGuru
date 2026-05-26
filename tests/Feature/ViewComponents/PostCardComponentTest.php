@@ -165,7 +165,10 @@ it('post card dispatches select post event with post id', function () {
 });
 
 it('renders report button in post card menu for persisted posts', function () {
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
+
+    $this->actingAs($user);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
@@ -175,6 +178,8 @@ it('renders report button in post card menu for persisted posts', function () {
 });
 
 it('does not render report button for unsaved post preview', function () {
+    $this->actingAs(User::factory()->create());
+
     $post = Post::factory()->published()->make(['title' => 'Preview dish']);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
@@ -182,6 +187,17 @@ it('does not render report button for unsaved post preview', function () {
     expect($html)
         ->toContain('Preview dish')
         ->not->toContain('data-testid="post-card-report"');
+});
+
+it('does not render report button for the post owner', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    $this->actingAs($owner);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->not->toContain('data-testid="post-card-report"');
 });
 
 it('renders delete action in the post card menu for the owner', function () {
@@ -196,6 +212,17 @@ it('renders delete action in the post card menu for the owner', function () {
         ->toContain('data-testid="post-card-delete"')
         ->toContain('Delete post')
         ->toContain("delete-post', { postId: {$post->id} }");
+});
+
+it('renders delete action in the post card menu for moderators', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    $this->actingAs($moderator);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('data-testid="post-card-delete"');
 });
 
 it('does not render delete action in the post card menu for another user', function () {
@@ -276,4 +303,14 @@ it('renders origin badges without breaking on unsaved post', function () {
     expect($html)->toContain('Restaurant 1');
     // Unsaved posts must not render the interactive Livewire origin component.
     expect($html)->not->toContain('post-card-origin-voting');
+});
+
+it('keeps post card vote and authorization logic in the component class', function () {
+    $view = file_get_contents(resource_path('views/components/feed/post-card.blade.php'));
+
+    expect($view)
+        ->not->toContain('PostVoteResultService')
+        ->not->toContain('app(')
+        ->not->toContain('$canDeletePost =')
+        ->not->toContain('$canReportPost =');
 });

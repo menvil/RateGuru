@@ -74,12 +74,6 @@
                         x-on:click.outside="menuOpen = false"
                         class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
-                        @php
-                            $drawerUser = auth()->user();
-                            $canDeletePost = $drawerUser !== null && ((int) $drawerUser->id === (int) $post->user_id || $drawerUser->isAdmin() || $drawerUser->isModerator());
-                            $canReportPost = auth()->id() !== $post->user_id;
-                        @endphp
-
                         @if($canReportPost)
                             <div class="rounded-rgSm px-3 py-1.5 transition hover:bg-rg-card">
                                 <livewire:reports.report-modal

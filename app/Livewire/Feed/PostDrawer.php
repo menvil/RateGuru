@@ -80,6 +80,8 @@ final class PostDrawer extends Component
             'post' => $post,
             'originDistribution' => $post ? $postVoteResultService->originDistribution($post, auth()->user()) : null,
             'cuisineDistribution' => $post ? $postVoteResultService->cuisineDistribution($post, auth()->user()) : null,
+            'canDeletePost' => $post ? (auth()->user()?->can('deleteFromFeed', $post) ?? false) : false,
+            'canReportPost' => $post ? (auth()->user()?->can('report', $post) ?? false) : false,
             'showSharePanel' => $post?->status === PostStatus::Published,
         ]);
     }

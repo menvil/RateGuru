@@ -5,6 +5,7 @@ namespace App\Livewire\Feed;
 use App\Actions\Posts\DeletePostAction;
 use App\Exceptions\Posts\CannotDeletePostException;
 use App\Models\Post;
+use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
@@ -98,6 +99,7 @@ class FeedPage extends Component
 
     public function render(): View
     {
-        return view('livewire.feed.feed-page');
+        return view('livewire.feed.feed-page')
+            ->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

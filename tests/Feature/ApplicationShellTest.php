@@ -51,3 +51,23 @@ it('renders the PlateRate reference sidebar shell', function () {
         ->toContain('About')
         ->toContain('Privacy');
 });
+
+it('keeps app layout route/profile decisions in the composer layer', function () {
+    $view = file_get_contents(resource_path('views/layouts/app.blade.php'));
+
+    expect($view)
+        ->not->toContain('$isFeedRoute = request()')
+        ->not->toContain('$profileHref =')
+        ->toContain('$isFeedRoute')
+        ->toContain('$profileHref');
+});
+
+it('keeps sidebar data preparation out of the sidebar partial', function () {
+    $view = file_get_contents(resource_path('views/layouts/partials/app-sidebar.blade.php'));
+
+    expect($view)
+        ->not->toContain('Tag::query')
+        ->not->toContain('request(')
+        ->not->toContain('route(')
+        ->not->toContain('str(');
+});
