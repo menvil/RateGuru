@@ -8,7 +8,7 @@
         </div>
     @endif
 
-    <div class="{{ $showHeader ? 'mt-4' : '' }}">
+    <div class="{{ $showHeader ? 'mt-4 mb-[22px]' : 'mb-[22px]' }}">
         <livewire:comments.comment-form :post-id="$postId" :key="'comment-form-'.$postId" />
     </div>
 
@@ -16,21 +16,21 @@
         wire:loading
         wire:target="deleteComment,hideComment,refreshComments,submitReply,loadMore"
         data-testid="comments-loading"
-        class="mt-5 space-y-2 transition-opacity duration-200"
+        class="space-y-2 transition-opacity duration-200"
     >
         <x-ui.skeleton shape="line" width="w-3/4" />
         <x-ui.skeleton shape="line" width="w-1/2" />
     </div>
 
     @if ($this->comments->isEmpty())
-        <div class="mt-5">
+        <div>
             <x-ui.empty-state
                 title="No comments yet"
                 description="Be the first to comment."
             />
         </div>
     @else
-        <div class="mt-5 space-y-4">
+        <div class="space-y-4">
             @foreach ($this->comments as $comment)
                 <x-comments.comment-item
                     :comment="$comment"
