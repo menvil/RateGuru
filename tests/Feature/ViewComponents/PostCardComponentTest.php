@@ -137,7 +137,7 @@ it('post card dispatches select post event with post id', function () {
     expect($html)
         ->toContain("select-post', { postId: 123 }")
         ->toContain('post-card-voting')
-        ->toContain('block cursor-pointer');
+        ->toContain('grid-cols-[32px_minmax(0,1fr)]');
 });
 
 it('renders report button in post card menu for persisted posts', function () {

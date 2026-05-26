@@ -123,8 +123,8 @@ it('renders drawer author metadata', function () {
     $post = Post::factory()->published()->for($user)->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Demo Chef')
-        ->assertSee('@demo_chef');
+        ->assertSee('@demo_chef')
+        ->assertDontSee('Demo Chef');
 });
 
 it('renders large post image in drawer', function () {

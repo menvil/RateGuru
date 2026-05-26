@@ -47,8 +47,8 @@
                     <div data-testid="post-drawer-voting" wire:click.stop wire:keydown.stop>
                         <livewire:posts.post-voting
                             :post-id="$post->id"
-                            variant="rail"
-                            :key="'post-detail-vote-rail-'.$post->id"
+                            variant="pill"
+                            :key="'post-detail-vote-pill-'.$post->id"
                         />
                     </div>
                     <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
@@ -128,22 +128,25 @@
                     $originTotal = max(1, (int) ($post->homemade_votes_count ?? 0) + (int) ($post->restaurant_votes_count ?? 0));
                     $homemadePct = (int) round(((int) ($post->homemade_votes_count ?? 0) / $originTotal) * 100);
                     $restaurantPct = 100 - $homemadePct;
-                    $hasOriginVote = auth()->check() && $post->originVotes()
-                        ->where('user_id', auth()->id())
-                        ->exists();
+                    $currentOrigin = auth()->check()
+                        ? $post->originVotes()->where('user_id', auth()->id())->first()?->origin?->value
+                        : null;
+                    $hasOriginVote = $currentOrigin !== null;
                 @endphp
 
                 @if($hasOriginVote)
+                    <p class="mt-1 text-xs text-rg-muted">You voted: {{ ucfirst($currentOrigin) }}</p>
+
                     <div class="mt-4 space-y-3">
                         <div>
                             <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
-                                <span>Homemade</span><span>{{ $homemadePct }}%</span>
+                                <span>Homemade</span><span>{{ $homemadePct }}% ({{ $post->homemade_votes_count ?? 0 }})</span>
                             </div>
                             <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-good" style="width: {{ $homemadePct }}%"></div></div>
                         </div>
                         <div>
                             <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
-                                <span>Restaurant</span><span>{{ $restaurantPct }}%</span>
+                                <span>Restaurant</span><span>{{ $restaurantPct }}% ({{ $post->restaurant_votes_count ?? 0 }})</span>
                             </div>
                             <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-accent" style="width: {{ $restaurantPct }}%"></div></div>
                         </div>
@@ -163,7 +166,7 @@
             </div>
 
             <div>
-                <h3 class="text-base font-bold text-rg-text">Cuisine guess</h3>
+                <h3 class="text-base font-bold text-rg-text">Cuisine guess distribution</h3>
                 <div class="mt-4" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.cuisine-voting
                         :post-id="$post->id"
@@ -186,22 +189,6 @@
         <section class="mt-6" data-testid="drawer-comments-slot">
             <livewire:comments.comments-section :post-id="$post->id" :show-header="true" :key="'drawer-comments-'.$post->id" />
         </section>
-
-        <div class="mt-4 flex items-center gap-3">
-            <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
-
-            <div>
-                <div class="text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
-
-                @if($post->user?->username)
-                    <div class="text-xs text-rg-muted">{{ '@' . $post->user->username }}</div>
-                @endif
-
-                @if($post->published_at)
-                    <div class="text-xs text-rg-muted">{{ $post->published_at->diffForHumans() }}</div>
-                @endif
-            </div>
-        </div>
     @elseif($postId)
         <x-ui.error-message
             title="Post not found"

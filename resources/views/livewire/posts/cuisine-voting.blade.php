@@ -35,6 +35,10 @@
                 @if($this->distribution['total'] === 0)
                     <span class="text-xs text-rg-muted">No cuisine votes yet</span>
                 @else
+                    <p class="text-xs text-rg-muted">
+                        You voted: {{ $currentCuisine ? $this->labelFor(\App\Enums\CuisineType::from($currentCuisine)) : '' }}
+                    </p>
+
                     @foreach($this->distribution['rows'] as $row)
                         <div class="flex flex-col gap-1">
                             <div class="flex justify-between text-xs text-rg-muted">

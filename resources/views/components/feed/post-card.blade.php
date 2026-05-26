@@ -12,8 +12,20 @@
     wire:click="$dispatch('select-post', { postId: {{ $post->id }} })"
     wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->id }} })"
     wire:keydown.space.prevent="$dispatch('select-post', { postId: {{ $post->id }} })"
-    class="block cursor-pointer overflow-hidden transition-colors hover:border-rg-border2 hover:bg-rg-cardHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+    class="grid cursor-pointer grid-cols-[32px_minmax(0,1fr)] gap-3 overflow-hidden transition-colors hover:border-rg-border2 hover:bg-rg-cardHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
 >
+    <div data-testid="post-card-voting" class="w-8 pt-1.5" wire:click.stop wire:keydown.stop>
+        @if($post->exists)
+            <livewire:posts.post-voting
+                :post-id="$post->id"
+                variant="rail"
+                :key="'post-card-vote-rail-'.$post->id"
+            />
+        @else
+            <x-ui.vote-rail :score="$post->score" active="none" />
+        @endif
+    </div>
+
     <div class="min-w-0">
         <div class="flex min-w-0 items-center gap-2">
             <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
@@ -74,17 +86,6 @@
         </div>
 
         <footer class="mt-3.5 flex flex-wrap items-center gap-4 border-t border-rg-border pt-2.5">
-            <div data-testid="post-card-voting" wire:click.stop wire:keydown.stop>
-                @if($post->exists)
-                    <livewire:posts.post-voting
-                        :post-id="$post->id"
-                        variant="rail"
-                        :key="'post-card-vote-rail-'.$post->id"
-                    />
-                @else
-                    <x-ui.vote-rail :score="$post->score" active="none" />
-                @endif
-            </div>
             <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
             <span class="sr-only">{{ $post->comments_count ?? 0 }} comments</span>
             <x-ui.action-button icon="share">Share</x-ui.action-button>

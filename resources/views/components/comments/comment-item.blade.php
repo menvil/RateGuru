@@ -5,7 +5,16 @@
     'canReply' => false,
 ])
 
-<article data-testid="comment-item" class="grid grid-cols-[32px_minmax(0,1fr)] gap-2.5 text-[13px]">
+@php
+    $canReport = $comment->exists && auth()->id() !== $comment->user_id;
+    $hasActions = $canReply || $canDelete || $canHide || $canReport;
+@endphp
+
+<article
+    data-testid="comment-item"
+    class="grid grid-cols-[32px_minmax(0,1fr)] gap-2.5 text-[13px]"
+    x-data="{ actionsOpen: false }"
+>
     <x-ui.avatar
         :src="$comment->user?->avatar_url"
         :name="$comment->user?->name ?? 'User'"
@@ -27,38 +36,53 @@
 
         <p class="mt-1 break-words leading-5 text-rg-text2">{{ $comment->body }}</p>
 
-        <div class="mt-2 flex items-center gap-3">
-            @auth
-                @if($canReply)
-                    <button
-                        type="button"
-                        wire:click="startReply({{ $comment->id }})"
-                        class="cursor-pointer text-xs font-semibold text-rg-muted transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                    >
-                        Reply
-                    </button>
-                @endif
-            @endauth
+        @if($hasActions)
+            <div class="relative mt-2 inline-flex" wire:click.stop wire:keydown.stop>
+                <button
+                    type="button"
+                    aria-label="Comment actions"
+                    x-on:click="actionsOpen = ! actionsOpen"
+                    class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                >
+                    <x-ui.icon name="more" class="size-4" />
+                </button>
 
-            @if ($comment->exists && auth()->id() !== $comment->user_id)
-                <div data-testid="comment-report">
-                    <livewire:reports.report-modal
-                        reportable-type="comment"
-                        :reportable-id="$comment->id"
-                        :key="'comment-report-'.$comment->id"
-                    />
-                </div>
-            @endif
-        </div>
+                <div
+                    x-cloak
+                    x-show="actionsOpen"
+                    x-on:click.outside="actionsOpen = false"
+                    class="absolute left-0 top-full z-20 mt-2 w-40 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                >
+                    @auth
+                        @if($canReply)
+                            <button
+                                type="button"
+                                wire:click="startReply({{ $comment->id }})"
+                                x-on:click="actionsOpen = false"
+                                class="block w-full cursor-pointer rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                            >
+                                Reply
+                            </button>
+                        @endif
+                    @endauth
 
-        @if ($canDelete || $canHide)
-            <div class="mt-2 flex gap-3">
+                    @if($canReport)
+                        <div data-testid="comment-report" class="rounded-rgSm px-3 py-2 transition hover:bg-rg-card">
+                            <livewire:reports.report-modal
+                                reportable-type="comment"
+                                :reportable-id="$comment->id"
+                                :key="'comment-report-'.$comment->id"
+                            />
+                        </div>
+                    @endif
+
                 @if ($canHide)
                     <button
                         type="button"
                         wire:click="hideComment({{ $comment->id }})"
                         wire:confirm="Hide this comment?"
-                        class="cursor-pointer text-xs font-semibold text-rg-muted transition hover:text-rg-dangerText"
+                        x-on:click="actionsOpen = false"
+                        class="block w-full cursor-pointer rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                     >
                         Hide
                     </button>
@@ -69,11 +93,13 @@
                         type="button"
                         wire:click="deleteComment({{ $comment->id }})"
                         wire:confirm="Delete this comment?"
-                        class="cursor-pointer text-xs font-semibold text-rg-muted transition hover:text-rg-dangerText"
+                        x-on:click="actionsOpen = false"
+                        class="block w-full cursor-pointer rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                     >
                         Delete
                     </button>
                 @endif
+                </div>
             </div>
         @endif
     </div>
