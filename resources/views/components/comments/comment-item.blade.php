@@ -93,23 +93,30 @@
         <p class="mt-1 break-words leading-5 text-rg-text2">{{ $comment->body }}</p>
 
         <div class="mt-2 flex items-center gap-3.5 text-[12.5px] text-rg-muted" wire:click.stop wire:keydown.stop>
-            <div class="flex items-center gap-1.5">
-                <button
-                    type="button"
-                    aria-label="Upvote comment"
-                    class="cursor-pointer bg-transparent p-0.5 text-rg-muted transition hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                >
-                    <x-ui.icon name="arrow-up" class="size-3.5" />
-                </button>
-                <span class="text-[12.5px] font-semibold text-rg-text2">0</span>
-                <button
-                    type="button"
-                    aria-label="Downvote comment"
-                    class="cursor-pointer bg-transparent p-0.5 text-rg-muted transition hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                >
-                    <x-ui.icon name="arrow-down" class="size-3.5" />
-                </button>
-            </div>
+            @if($comment->exists)
+                <livewire:comments.comment-voting
+                    :comment-id="$comment->id"
+                    :key="'comment-voting-'.$comment->id"
+                />
+            @else
+                <div class="flex items-center gap-1.5">
+                    <button
+                        type="button"
+                        aria-label="Vote up"
+                        class="cursor-pointer bg-transparent p-0.5 text-rg-muted transition hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    >
+                        <x-ui.icon name="arrow-up" class="size-3.5" />
+                    </button>
+                    <span class="text-[12.5px] font-semibold text-rg-text2">0</span>
+                    <button
+                        type="button"
+                        aria-label="Vote down"
+                        class="cursor-pointer bg-transparent p-0.5 text-rg-muted transition hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    >
+                        <x-ui.icon name="arrow-down" class="size-3.5" />
+                    </button>
+                </div>
+            @endif
 
             @auth
                 @if($canReply)

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\CommentStatus;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -40,5 +41,22 @@ class Comment extends Model
     public function replies(): HasMany
     {
         return $this->hasMany(self::class, 'parent_id');
+    }
+
+    public function commentVotes(): HasMany
+    {
+        return $this->hasMany(CommentVote::class);
+    }
+
+    public function canReceiveVotes(): bool
+    {
+        return $this->status === CommentStatus::Visible;
+    }
+
+    protected function score(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => ($this->upvotes_count ?? 0) - ($this->downvotes_count ?? 0),
+        );
     }
 }

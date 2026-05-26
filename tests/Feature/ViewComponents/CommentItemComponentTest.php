@@ -44,9 +44,21 @@ it('keeps comment actions out of the reply and vote row', function () {
         'comment' => $comment,
     ]);
 
-    $actionsRow = substr($html, strpos($html, 'Upvote comment'));
+    $actionsRow = substr($html, strpos($html, 'comment-voting'));
 
     expect($actionsRow)->not->toContain('aria-label="Comment actions"');
+});
+
+it('renders live comment voting for persisted comments', function () {
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)->toContain('comment-voting-'.$comment->id);
 });
 
 it('does not break comment item report button for unsaved comment preview', function () {

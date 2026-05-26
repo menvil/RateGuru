@@ -21,6 +21,8 @@ class CommentFactory extends Factory
             'body' => fake()->sentence(12),
             'status' => CommentStatus::Visible,
             'reports_count' => 0,
+            'upvotes_count' => 0,
+            'downvotes_count' => 0,
         ];
     }
 }
