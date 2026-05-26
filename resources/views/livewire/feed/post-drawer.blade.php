@@ -5,7 +5,7 @@
         <x-ui.skeleton shape="line" width="45%" />
     </div>
 
-    <div wire:loading.remove class="overflow-y-auto px-7 pb-10 pt-6 transition-opacity duration-200">
+    <div wire:loading.remove class="overflow-y-auto px-5 pb-8 pt-4 transition-opacity duration-200">
     @if($post)
         <article x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false }" class="relative rounded-rgCard border border-rg-border bg-rg-card px-5 pb-3.5 pt-5">
             <button

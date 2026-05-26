@@ -15,7 +15,7 @@
                 maxlength="1000"
                 placeholder="Add a comment..."
                 @class([
-                    'h-8 flex-1 bg-transparent text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:outline-none',
+                    'h-8 flex-1 border-0 bg-transparent p-0 text-[13.5px] text-rg-text outline-none ring-0 placeholder:text-rg-muted focus:border-0 focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0',
                     'text-rg-dangerText' => $errors->has('body'),
                 ])
             >
@@ -25,14 +25,6 @@
                     {{ $message }}
                 </p>
             @enderror
-
-            <button
-                type="button"
-                aria-label="Attach image"
-                class="grid size-8 cursor-pointer place-items-center rounded-rgSm bg-transparent p-1 text-rg-muted transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-            >
-                <x-ui.icon name="image" class="size-[17px]" />
-            </button>
 
             <x-ui.button
                 type="submit"
