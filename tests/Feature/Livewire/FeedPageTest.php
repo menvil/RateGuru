@@ -1,8 +1,10 @@
 <?php
 
+use App\Enums\PostStatus;
 use App\Livewire\Feed\FeedPage;
 use App\Models\Post;
 use App\Models\Tag;
+use App\Models\User;
 use Livewire\Livewire;
 
 it('can render feed page component', function () {
@@ -83,6 +85,32 @@ it('clears selected post from detail column', function () {
         ->call('selectPost', $post->id)
         ->call('clearSelectedPost')
         ->assertSet('selectedPostId', null);
+});
+
+it('deletes an owned post from the feed page action menu event', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    Livewire::actingAs($user)
+        ->test(FeedPage::class)
+        ->call('selectPost', $post->id)
+        ->call('deletePost', $post->id)
+        ->assertSet('selectedPostId', null)
+        ->assertDispatched('post-deleted', postId: $post->id);
+
+    expect(Post::withTrashed()->find($post->id)->status)->toBe(PostStatus::Deleted);
+});
+
+it('does not delete another users post from the feed page action menu event', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(FeedPage::class)
+        ->call('deletePost', $post->id)
+        ->assertNotDispatched('post-deleted');
+
+    expect(Post::query()->find($post->id))->not->toBeNull();
 });
 
 it('filters feed when category is selected', function () {

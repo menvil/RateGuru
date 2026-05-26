@@ -5,12 +5,12 @@
         @php
             $hasVoted = $currentCuisine !== null;
             $votingDisabled = $hasVoted || $isOwnPost;
-            $baseClass = 'inline-flex h-8 min-w-12 cursor-pointer items-center justify-center rounded-rgSm border px-2.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
+            $baseClass = 'inline-flex h-7 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-rgSm border px-2 text-[11.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
             $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-card2 hover:text-rg-text';
             $activeClass = 'border-rg-accent bg-rg-accentSoft text-rg-accent2';
         @endphp
 
-        <div class="flex flex-wrap gap-2">
+        <div class="grid grid-cols-5 gap-1.5">
             @foreach($options as $option)
                 @php($active = $currentCuisine === $option->value)
                 <button
@@ -29,35 +29,6 @@
                 </button>
             @endforeach
         </div>
-
-        @if($hasVoted)
-            <div data-testid="cuisine-distribution-panel" class="flex flex-col gap-2">
-                @if($this->distribution['total'] === 0)
-                    <span class="text-xs text-rg-muted">No cuisine votes yet</span>
-                @else
-                    <p class="text-xs text-rg-muted">
-                        You voted: {{ $currentCuisine ? $this->labelFor(\App\Enums\CuisineType::from($currentCuisine)) : '' }}
-                    </p>
-
-                    @foreach($this->distribution['rows'] as $row)
-                        <div class="flex flex-col gap-1">
-                            <div class="flex justify-between text-xs text-rg-muted">
-                                <span>{{ $row['label'] }}</span>
-                                <span>{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
-                            </div>
-                            <div class="h-2 w-full overflow-hidden rounded-rgPill bg-rg-card2">
-                                <div
-                                    class="h-2 rounded-rgPill bg-rg-accent transition-all"
-                                    style="width: {{ $row['percentage'] }}%"
-                                ></div>
-                            </div>
-                        </div>
-                    @endforeach
-                @endif
-            </div>
-        @else
-            <p class="text-xs text-rg-muted">Vote to reveal results.</p>
-        @endif
 
         @if($error !== '')
             <span data-testid="cuisine-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>

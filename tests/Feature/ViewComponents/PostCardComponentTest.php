@@ -160,6 +160,31 @@ it('does not render report button for unsaved post preview', function () {
         ->not->toContain('data-testid="post-card-report"');
 });
 
+it('renders delete action in the post card menu for the owner', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    $this->actingAs($user);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('data-testid="post-card-delete"')
+        ->toContain('Delete post')
+        ->toContain("delete-post', { postId: {$post->id} }");
+});
+
+it('does not render delete action in the post card menu for another user', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $this->actingAs($user);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->not->toContain('data-testid="post-card-delete"');
+});
+
 it('renders origin voting component in post card for persisted posts', function () {
     $post = Post::factory()->published()->create();
 

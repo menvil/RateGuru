@@ -27,9 +27,9 @@
     </div>
 
     <div class="min-w-0">
-        <div class="flex min-w-0 items-center gap-2">
+        <div class="flex min-w-0 items-start gap-2">
             <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
-            <div class="min-w-0">
+            <div class="min-w-0 flex-1">
                 <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</span>
                 <span class="block truncate text-xs text-rg-muted">
                     @if($post->user?->username)
@@ -40,6 +40,81 @@
                     @endif
                 </span>
             </div>
+
+            @if($post->exists)
+                @php
+                    $postCardUser = auth()->user();
+                    $canReportPost = auth()->id() !== $post->user_id;
+                    $canDeletePost = $postCardUser !== null && ((int) $postCardUser->id === (int) $post->user_id || $postCardUser->isAdmin() || $postCardUser->isModerator());
+                @endphp
+
+                <div class="relative -mt-1 ml-auto" x-data="{ postMenuOpen: false, deleteOpen: false }" wire:click.stop wire:keydown.stop>
+                    <button
+                        type="button"
+                        x-on:click="postMenuOpen = ! postMenuOpen"
+                        aria-label="Post actions"
+                        class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    >
+                        <x-ui.icon name="more" class="size-4" />
+                    </button>
+
+                    <div
+                        x-cloak
+                        x-show="postMenuOpen"
+                        x-on:click.outside="postMenuOpen = false"
+                        class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                    >
+                        @if($canReportPost)
+                            <div data-testid="post-card-report" class="rounded-rgSm px-3 py-2 transition hover:bg-rg-card">
+                                <livewire:reports.report-modal
+                                    reportable-type="post"
+                                    :reportable-id="$post->id"
+                                    :key="'post-card-report-'.$post->id"
+                                />
+                            </div>
+                        @endif
+
+                        @if($canDeletePost)
+                            <button
+                                type="button"
+                                data-testid="post-card-delete"
+                                x-on:click="postMenuOpen = false; deleteOpen = true"
+                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                            >
+                                Delete post
+                            </button>
+                        @endif
+
+                        <livewire:moderation.inline-post-moderation
+                            :post-id="$post->id"
+                            variant="menu"
+                            :key="'post-card-moderation-'.$post->id"
+                        />
+
+                        @if(! $canReportPost && ! $canDeletePost)
+                            <span class="block px-3 py-2 text-sm text-rg-muted">No actions</span>
+                        @endif
+                    </div>
+
+                    <x-ui.modal title="Delete post?" state="deleteOpen" size="sm">
+                        <div class="space-y-4">
+                            <p class="text-sm leading-6 text-rg-muted">This will remove the post from public feeds.</p>
+
+                            <div class="flex justify-end gap-2">
+                                <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">Cancel</x-ui.button>
+                                <x-ui.button
+                                    type="button"
+                                    variant="danger"
+                                    wire:click="$dispatch('delete-post', { postId: {{ $post->id }} })"
+                                    x-on:click="deleteOpen = false"
+                                >
+                                    Delete
+                                </x-ui.button>
+                            </div>
+                        </div>
+                    </x-ui.modal>
+                </div>
+            @endif
         </div>
 
         <h3 class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
@@ -98,21 +173,6 @@
                 <x-ui.action-button icon="bookmark">Save</x-ui.action-button>
             @endif
 
-            @if($post->exists && auth()->id() !== $post->user_id)
-                <div data-testid="post-card-report" class="ml-auto" wire:click.stop wire:keydown.stop>
-                    <livewire:reports.report-modal
-                        reportable-type="post"
-                        :reportable-id="$post->id"
-                        :key="'post-card-report-'.$post->id"
-                    />
-                </div>
-                <div data-testid="post-card-moderation" wire:click.stop wire:keydown.stop>
-                    <livewire:moderation.inline-post-moderation
-                        :post-id="$post->id"
-                        :key="'post-card-moderation-'.$post->id"
-                    />
-                </div>
-            @endif
         </footer>
     </div>
 </x-ui.card>

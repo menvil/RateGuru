@@ -24,6 +24,8 @@ final class InlinePostModeration extends Component
 
     public ?string $success = null;
 
+    public string $variant = 'panel';
+
     #[Computed]
     public function canModerate(): bool
     {

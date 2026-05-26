@@ -49,24 +49,6 @@
             </button>
         </div>
 
-        @if($hasVoted)
-            <div data-testid="origin-distribution-bar" class="flex flex-col gap-1">
-                <div class="flex justify-between text-xs text-rg-muted">
-                    <span>Homemade {{ $this->originDistribution['homemadePct'] }}% ({{ $this->originDistribution['homemade'] }})</span>
-                    <span>Restaurant {{ $this->originDistribution['restaurantPct'] }}% ({{ $this->originDistribution['restaurant'] }})</span>
-                </div>
-
-                <div class="h-2 w-full overflow-hidden rounded-rgPill bg-rg-card2">
-                    <div
-                        class="h-2 rounded-rgPill bg-rg-accent transition-all"
-                        style="width: {{ $this->originDistribution['homemadePct'] }}%"
-                    ></div>
-                </div>
-            </div>
-        @else
-            <p class="text-xs text-rg-muted">Vote to reveal results.</p>
-        @endif
-
         @if($error !== '')
             <span data-testid="origin-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
         @elseif(($isOwnPost ?? false) && ! $hasVoted)

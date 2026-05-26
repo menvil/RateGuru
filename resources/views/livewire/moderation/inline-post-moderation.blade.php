@@ -1,5 +1,88 @@
 <div data-testid="inline-post-moderation">
     @if ($this->canModerate)
+        @if ($variant === 'menu')
+            <div x-data="{ compactHideOpen: false }" data-testid="inline-post-moderation-menu" class="border-t border-rg-border2 pt-1">
+                @if ($this->adminPostUrl)
+                    <a
+                        href="{{ $this->adminPostUrl }}"
+                        target="_blank"
+                        rel="noopener"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    >
+                        Open in admin
+                    </a>
+                @endif
+
+                @if ($post->status === \App\Enums\PostStatus::Pending)
+                    <button
+                        type="button"
+                        wire:click="approve"
+                        data-testid="moderation-approve"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    >
+                        Approve
+                    </button>
+
+                    <button
+                        type="button"
+                        wire:click="reject"
+                        data-testid="moderation-reject"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                    >
+                        Reject
+                    </button>
+                @endif
+
+                @if ($post->status === \App\Enums\PostStatus::Published)
+                    <button
+                        type="button"
+                        x-on:click="compactHideOpen = true"
+                        data-testid="moderation-hide"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                    >
+                        Hide
+                    </button>
+
+                    <x-ui.modal title="Hide this post?" state="compactHideOpen">
+                        <p class="text-sm text-rg-text2">
+                            This will remove the post from public feeds.
+                        </p>
+
+                        <x-slot:footer>
+                            <x-ui.button
+                                type="button"
+                                variant="secondary"
+                                x-on:click="compactHideOpen = false"
+                                data-testid="hide-confirmation-cancel"
+                            >
+                                Cancel
+                            </x-ui.button>
+
+                            <x-ui.button
+                                type="button"
+                                variant="danger"
+                                wire:click="hide"
+                                x-on:click="compactHideOpen = false"
+                                data-testid="hide-confirmation-confirm"
+                            >
+                                Confirm hide
+                            </x-ui.button>
+                        </x-slot:footer>
+                    </x-ui.modal>
+                @endif
+
+                @if ($post->status === \App\Enums\PostStatus::Hidden)
+                    <button
+                        type="button"
+                        wire:click="restore"
+                        data-testid="moderation-restore"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    >
+                        Restore
+                    </button>
+                @endif
+            </div>
+        @else
         <div
             x-data="{ confirmHideOpen: false }"
             data-testid="inline-post-moderation-panel"
@@ -126,5 +209,6 @@
                 </div>
             @endif
         </div>
+        @endif
     @endif
 </div>

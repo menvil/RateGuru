@@ -2,6 +2,9 @@
 
 namespace App\Livewire\Feed;
 
+use App\Actions\Posts\DeletePostAction;
+use App\Exceptions\Posts\CannotDeletePostException;
+use App\Models\Post;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
@@ -19,6 +22,8 @@ class FeedPage extends Component
     public string $sort = 'newest';
 
     public ?int $selectedPostId = null;
+
+    public ?string $deleteError = null;
 
     public function mount(): void
     {
@@ -42,6 +47,36 @@ class FeedPage extends Component
     public function clearSelectedPost(): void
     {
         $this->selectedPostId = null;
+    }
+
+    #[On('delete-post')]
+    public function deletePost(int $postId, DeletePostAction $deletePostAction): void
+    {
+        $this->deleteError = null;
+
+        if (! auth()->check()) {
+            return;
+        }
+
+        $post = Post::query()->find($postId);
+
+        if ($post === null) {
+            return;
+        }
+
+        try {
+            $deletePostAction->handle(auth()->user(), $post);
+        } catch (CannotDeletePostException $e) {
+            $this->deleteError = $e->getMessage();
+
+            return;
+        }
+
+        if ($this->selectedPostId === $postId) {
+            $this->selectedPostId = null;
+        }
+
+        $this->dispatch('post-deleted', postId: $postId);
     }
 
     public function openPostDrawer(int $postId): void

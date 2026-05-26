@@ -31,14 +31,14 @@
 >
     <div
         class="{{ $hasSelectedPost
-            ? 'grid min-w-0 gap-0 lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)]'
+            ? 'grid min-w-0 gap-5 lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)]'
             : 'grid min-w-0 lg:block' }}"
         data-testid="feed-content-shell"
     >
         <section
             x-ref="feedScroll"
             class="{{ $hasSelectedPost
-                ? 'min-w-0 lg:border-r lg:border-rg-border lg:px-5'
+                ? 'min-w-0'
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >
@@ -63,7 +63,7 @@
             <aside
                 x-ref="detailScroll"
                 data-testid="post-detail-column"
-                class="min-w-0 pt-5 lg:sticky lg:top-[72px] lg:max-h-[calc(100vh-96px)] lg:overflow-y-auto lg:pt-0"
+                class="min-w-0 pt-5 lg:sticky lg:top-[80px] lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:pt-0"
             >
                 <livewire:feed.post-drawer
                     :post-id="$selectedPostId"

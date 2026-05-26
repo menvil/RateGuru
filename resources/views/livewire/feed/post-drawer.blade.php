@@ -5,9 +5,9 @@
         <x-ui.skeleton shape="line" width="45%" />
     </div>
 
-    <div wire:loading.remove class="overflow-y-auto p-5 pb-8 transition-opacity duration-200">
+    <div wire:loading.remove class="overflow-y-auto transition-opacity duration-200">
     @if($post)
-        <article x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false }" class="relative rounded-rgCard border border-rg-border bg-rg-card px-5 pb-3.5 pt-5">
+        <article x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false }" class="relative rounded-rgCard border border-rg-border bg-rg-card p-5">
             <button
                 type="button"
                 aria-label="Close"
@@ -102,6 +102,7 @@
 
                         <livewire:moderation.inline-post-moderation
                             :post-id="$post->id"
+                            variant="menu"
                             :key="'post-drawer-menu-moderation-'.$post->id"
                         />
 
