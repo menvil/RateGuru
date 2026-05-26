@@ -242,8 +242,8 @@ it('renders feed card vote results after the current user votes', function () {
 
     expect($html)
         ->toContain('data-testid="post-card-origin-results"')
-        ->toContain('60%')
-        ->toContain('40%')
+        ->toContain('60% (3)')
+        ->toContain('40% (2)')
         ->toContain('data-testid="post-card-cuisine-results"')
         ->toContain('MX')
         ->toContain('50% (1)');

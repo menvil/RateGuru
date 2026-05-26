@@ -141,49 +141,49 @@
             </div>
         @endif
 
-        <div class="mt-3 space-y-3" wire:click.stop wire:keydown.stop>
+        <div class="mt-3 space-y-2.5" wire:click.stop wire:keydown.stop>
             @if($post->exists)
                 <div data-testid="post-card-origin-voting">
-                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">What do you think?</p>
+                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">What do you think?</p>
                     <livewire:posts.origin-voting
                         :post-id="$post->id"
                         :key="'post-card-origin-voting-'.$post->id"
                     />
 
                     @if($originDistribution['current'])
-                        <div data-testid="post-card-origin-results" class="mt-3">
-                            <div class="mb-1.5 flex justify-between">
-                                <span class="text-[12px] font-semibold text-rg-good">Homemade</span>
-                                <span class="text-[12px] text-rg-text2">Restaurant</span>
+                        <div data-testid="post-card-origin-results" class="mt-2">
+                            <div class="mb-1 flex justify-between">
+                                <span class="text-[11.5px] font-semibold text-rg-good">Homemade</span>
+                                <span class="text-[11.5px] text-rg-text2">Restaurant</span>
                             </div>
-                            <div class="mb-2 flex justify-between">
-                                <span class="text-lg font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}%</span>
-                                <span class="text-lg font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}%</span>
+                            <div class="mb-1.5 flex justify-between">
+                                <span class="text-sm font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
+                                <span class="text-sm font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
                             </div>
                             <div class="relative h-2 overflow-hidden rounded-rgPill bg-rg-card2">
                                 <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
                             </div>
-                            <div class="mt-2 text-[11.5px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
+                            <div class="mt-1.5 text-[11px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
                         </div>
                     @endif
                 </div>
 
                 <div data-testid="post-card-cuisine-voting">
-                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">Cuisine guess:</p>
+                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Cuisine guess:</p>
                     <livewire:posts.cuisine-voting
                         :post-id="$post->id"
                         :key="'post-card-cuisine-voting-'.$post->id"
                     />
 
                     @if($cuisineDistribution['current'])
-                        <div data-testid="post-card-cuisine-results" class="mt-3 flex flex-col gap-2">
+                        <div data-testid="post-card-cuisine-results" class="mt-2 flex flex-col gap-1.5">
                             @foreach($cuisineDistribution['rows'] as $row)
-                                <div class="grid grid-cols-[28px_minmax(0,1fr)_48px] items-center gap-2">
-                                    <span class="text-[11.5px] font-semibold text-rg-text2">{{ $row['label'] }}</span>
+                                <div class="grid grid-cols-[24px_minmax(0,1fr)_52px] items-center gap-1.5">
+                                    <span class="text-[11px] font-semibold text-rg-text2">{{ $row['label'] }}</span>
                                     <div class="h-2 overflow-hidden rounded-rgPill bg-rg-card2">
                                         <div class="h-full rounded-rgPill bg-rg-accent" style="width: {{ $row['percentage'] }}%"></div>
                                     </div>
-                                    <span class="text-right text-[11.5px] text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
+                                    <span class="text-right text-[11px] text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
                                 </div>
                             @endforeach
                         </div>

@@ -160,8 +160,8 @@
                     <span class="text-[13px] text-rg-text2">Restaurant</span>
                 </div>
                 <div class="mb-2 flex justify-between">
-                    <span class="text-[22px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}%</span>
-                    <span class="text-[22px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}%</span>
+                    <span class="text-[22px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
+                    <span class="text-[22px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
                 </div>
                 <div class="relative h-2 overflow-hidden rounded-rgPill bg-rg-card2">
                     <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
@@ -180,12 +180,12 @@
 
                 <div class="flex flex-col gap-2">
                     @foreach($cuisineDistribution['rows'] as $row)
-                        <div class="grid grid-cols-[28px_minmax(0,1fr)_36px] items-center gap-2.5">
+                        <div class="grid grid-cols-[28px_minmax(0,1fr)_52px] items-center gap-2.5">
                             <span class="text-xs font-semibold text-rg-text2">{{ $row['label'] }}</span>
                             <div class="h-2 overflow-hidden rounded-rgPill bg-rg-card2">
                                 <div class="h-full rounded-rgPill bg-rg-accent" style="width: {{ $row['percentage'] }}%"></div>
                             </div>
-                            <span class="text-right text-xs text-rg-text2">{{ $row['percentage'] }}%</span>
+                            <span class="text-right text-xs text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
                         </div>
                     @endforeach
                 </div>
