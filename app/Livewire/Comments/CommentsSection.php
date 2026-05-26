@@ -99,6 +99,12 @@ final class CommentsSection extends Component
 
     public function submitReply(AddCommentAction $addCommentAction): void
     {
+        if (! auth()->check()) {
+            $this->addError('replyBody', 'You must be signed in to reply.');
+
+            return;
+        }
+
         if ($this->replyingTo === null) {
             return;
         }

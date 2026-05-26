@@ -49,7 +49,7 @@ final class PostVoting extends Component
             return;
         }
 
-        $voteToApply = $currentVote ?? $voteType;
+        $voteToApply = $voteType;
 
         try {
             $votePostAction->handle(auth()->user(), $post, $voteToApply);
@@ -85,6 +85,11 @@ final class PostVoting extends Component
             'post' => $post,
             'currentVote' => $currentVote,
             'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
+            'upActive' => $currentVote === VoteType::Up->value,
+            'downActive' => $currentVote === VoteType::Down->value,
+            'votingDisabled' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
+            'score' => (int) ($post?->score ?? 0),
+            'personalScore' => $currentVote === VoteType::Up->value ? 1 : ($currentVote === VoteType::Down->value ? -1 : 0),
         ]);
     }
 

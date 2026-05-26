@@ -63,8 +63,14 @@ final class AddCommentAction
             throw CannotCommentException::becauseBodyIsInvalid('Comment body is too long.');
         }
 
-        if ($parent !== null && ((int) $parent->post_id !== (int) $post->id || $parent->parent_id !== null)) {
-            throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+        if ($parent !== null) {
+            if (! $parent->exists || $parent->id === null) {
+                throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+            }
+
+            if ((int) $parent->post_id !== (int) $post->id || $parent->parent_id !== null) {
+                throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+            }
         }
 
         $comment = DB::transaction(function () use ($user, $post, $body, $parent) {

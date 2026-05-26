@@ -21,10 +21,19 @@
 }
 
 .rg-comment-input,
-.rg-comment-input:focus,
-.rg-comment-input:focus-visible {
+.rg-comment-input:focus {
     border: 0 !important;
     outline: 0 !important;
+    box-shadow: none !important;
+    --tw-ring-color: transparent !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+}
+
+.rg-comment-input:focus-visible {
+    border: 0 !important;
+    outline: 2px solid var(--rg-accent) !important;
+    outline-offset: 2px !important;
     box-shadow: none !important;
     --tw-ring-color: transparent !important;
     --tw-ring-shadow: 0 0 #0000 !important;

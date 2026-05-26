@@ -5,8 +5,6 @@
         @php
             $homemadeActive = $currentOrigin === 'homemade';
             $restaurantActive = $currentOrigin === 'restaurant';
-            $hasVoted = $currentOrigin !== null;
-            $votingDisabled = $hasVoted || $isOwnPost;
             $baseClass = 'inline-flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 rounded-rgControl border px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
             $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-card2 hover:text-rg-text';
             $homemadeClass = $homemadeActive

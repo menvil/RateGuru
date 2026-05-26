@@ -83,6 +83,7 @@ final class OriginVoting extends Component
         if ($post !== null && auth()->check()) {
             $currentOrigin = $post->originVotes()
                 ->where('user_id', auth()->id())
+                ->latest('id')
                 ->first()
                 ?->origin
                 ?->value;
@@ -92,6 +93,8 @@ final class OriginVoting extends Component
             'post' => $post,
             'currentOrigin' => $currentOrigin,
             'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
+            'hasVoted' => $currentOrigin !== null,
+            'votingDisabled' => $currentOrigin !== null || ($post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id()),
         ]);
     }
 }

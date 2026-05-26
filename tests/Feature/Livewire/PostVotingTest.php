@@ -71,9 +71,6 @@ it('clears the current vote before applying the opposite vote in the UI', functi
         ->assertSee('Down 0')
         ->call('vote', VoteType::Down->value)
         ->assertSee('Up 0')
-        ->assertSee('Down 0')
-        ->call('vote', VoteType::Down->value)
-        ->assertSee('Up 0')
         ->assertSee('Down 1');
 });
 
@@ -91,11 +88,7 @@ it('renders the compact rail personal vote correctly when replacing votes', func
         ->call('vote', VoteType::Up->value)
         ->assertSee('1')
         ->call('vote', VoteType::Down->value)
-        ->assertSee('0')
-        ->call('vote', VoteType::Down->value)
         ->assertSee('-1')
-        ->call('vote', VoteType::Up->value)
-        ->assertSee('0')
         ->call('vote', VoteType::Up->value)
         ->assertSee('1')
         ->call('vote', VoteType::Up->value)
@@ -126,6 +119,17 @@ it('refreshes matching post voting instances after another rail votes', function
         ->assertSee('1')
         ->dispatch('post-voted', postId: $post->id)
         ->assertSee('1');
+});
+
+it('renders distinct test ids for rail and pill variants', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('data-testid="post-voting-rail"', false);
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id, 'variant' => 'pill'])
+        ->assertSee('data-testid="post-voting-pill"', false)
+        ->assertDontSee('data-testid="post-voting-rail"', false);
 });
 
 it('has vote loading state markup', function () {

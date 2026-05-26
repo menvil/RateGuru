@@ -9,7 +9,8 @@ it('renders skeleton with pulse animation classes', function () {
 
     expect($html)
         ->toContain('animate-pulse')
-        ->toContain('bg-white/10')
+        ->toContain('bg-rg-card2')
+        ->toContain('border-rg-borderSoft')
         ->toContain('motion-safe:transition-opacity');
 });
 

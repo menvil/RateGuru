@@ -7,13 +7,6 @@
     @if($comment === null)
         <span data-testid="comment-voting-unavailable" class="text-xs text-rg-muted">Voting unavailable</span>
     @else
-        @php
-            $upActive = $currentVote === 'up';
-            $downActive = $currentVote === 'down';
-            $votingDisabled = $isOwnComment;
-            $score = (int) ($comment->score ?? ((int) $comment->upvotes_count - (int) $comment->downvotes_count));
-        @endphp
-
         <button
             type="button"
             aria-label="Vote up"

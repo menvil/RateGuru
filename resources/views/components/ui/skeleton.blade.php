@@ -32,7 +32,7 @@
     aria-hidden="true"
     {{ $attributes->merge([
         'class' => trim(implode(' ', [
-            'animate-pulse border border-white/10 bg-white/10 motion-safe:transition-opacity motion-safe:duration-200 motion-reduce:transition-none',
+            'animate-pulse border border-rg-borderSoft bg-rg-card2 motion-safe:transition-opacity motion-safe:duration-200 motion-reduce:transition-none',
             $shapeClasses['shape'],
             $width ?? $shapeClasses['width'],
             $height ?? $shapeClasses['height'],

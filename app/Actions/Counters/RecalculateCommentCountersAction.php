@@ -15,22 +15,22 @@ final class RecalculateCommentCountersAction
     public function handle(Comment $comment): array
     {
         return DB::transaction(function () use ($comment): array {
-            Comment::query()
+            $lockedComment = Comment::query()
                 ->whereKey($comment->getKey())
                 ->lockForUpdate()
-                ->first();
+                ->firstOrFail();
 
             $upvotes = CommentVote::query()
-                ->where('comment_id', $comment->id)
+                ->where('comment_id', $lockedComment->id)
                 ->where('type', VoteType::Up)
                 ->count();
 
             $downvotes = CommentVote::query()
-                ->where('comment_id', $comment->id)
+                ->where('comment_id', $lockedComment->id)
                 ->where('type', VoteType::Down)
                 ->count();
 
-            $comment->forceFill([
+            $lockedComment->forceFill([
                 'upvotes_count' => $upvotes,
                 'downvotes_count' => $downvotes,
             ])->save();

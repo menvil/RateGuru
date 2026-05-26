@@ -50,6 +50,22 @@ it('keeps an active comment vote when clicked again in the UI', function () {
         ->downvotes_count->toBe(0);
 });
 
+it('switches comment votes immediately in the UI', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
+
+    Livewire::actingAs($user)
+        ->test(CommentVoting::class, ['commentId' => $comment->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('1')
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('-1');
+
+    expect($comment->fresh())
+        ->upvotes_count->toBe(0)
+        ->downvotes_count->toBe(1);
+});
+
 it('stops comment vote clicks from triggering parent comment row actions', function () {
     $comment = Comment::factory()->create();
 

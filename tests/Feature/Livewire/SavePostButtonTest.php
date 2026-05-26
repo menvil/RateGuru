@@ -14,7 +14,15 @@ it('toggles a saved post for authenticated users', function () {
         ->assertSee('Save')
         ->call('toggle')
         ->assertSet('saved', true)
-        ->assertSee('Saved')
+        ->assertSee('Saved');
+
+    $this->assertDatabaseHas('post_saves', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(SavePostButton::class, ['postId' => $post->id])
         ->call('toggle')
         ->assertSet('saved', false);
 

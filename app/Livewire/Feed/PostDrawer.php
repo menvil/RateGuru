@@ -37,6 +37,8 @@ final class PostDrawer extends Component
 
     public function deleteSelectedPost(DeletePostAction $deletePostAction): void
     {
+        $this->deleteError = null;
+
         if (! auth()->check() || $this->postId === null) {
             return;
         }
@@ -44,6 +46,7 @@ final class PostDrawer extends Component
         $post = Post::query()->find($this->postId);
 
         if ($post === null) {
+            $this->deleteError = null;
             $this->dispatch('clear-selected-post');
 
             return;
@@ -58,6 +61,7 @@ final class PostDrawer extends Component
         }
 
         $this->postId = null;
+        $this->deleteError = null;
         $this->dispatch('clear-selected-post');
     }
 

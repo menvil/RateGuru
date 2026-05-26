@@ -6,6 +6,7 @@ use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotDeletePostException;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 final class DeletePostAction
 {
@@ -15,7 +16,9 @@ final class DeletePostAction
             throw CannotDeletePostException::becauseUserIsNotAllowed();
         }
 
-        $post->forceFill(['status' => PostStatus::Deleted])->save();
-        $post->delete();
+        DB::transaction(function () use ($post): void {
+            $post->forceFill(['status' => PostStatus::Deleted])->save();
+            $post->delete();
+        });
     }
 }

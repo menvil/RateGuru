@@ -54,3 +54,25 @@ it('does not allow duplicate comment vote for same user and comment', function (
         'updated_at' => now(),
     ]))->toThrow(QueryException::class);
 });
+
+it('does not allow invalid comment vote type values', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $commentId = DB::table('comments')->insertGetId([
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+        'body' => 'Useful comment',
+        'status' => CommentStatus::Visible->value,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    expect(fn () => DB::table('comment_votes')->insert([
+        'comment_id' => $commentId,
+        'user_id' => $user->id,
+        'type' => 'sideways',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]))->toThrow(QueryException::class);
+});

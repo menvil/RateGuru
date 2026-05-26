@@ -46,8 +46,6 @@ final class SavePostButton extends Component
 
     public function render(): View
     {
-        $this->saved = $this->isSaved();
-
         return view('livewire.posts.save-post-button');
     }
 

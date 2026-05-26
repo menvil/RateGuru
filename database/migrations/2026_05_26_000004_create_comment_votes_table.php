@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('comment_id')->constrained()->cascadeOnDelete();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('type');
+            $table->enum('type', ['up', 'down']);
             $table->timestamps();
 
             $table->unique(['comment_id', 'user_id']);

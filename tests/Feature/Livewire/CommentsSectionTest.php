@@ -197,6 +197,26 @@ it('can add a reply to a top level comment', function () {
     ]);
 });
 
+it('does not let guests submit replies through the component action', function () {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create([
+        'body' => 'Parent comment',
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->set('replyingTo', $comment->id)
+        ->set('replyBody', 'Guest reply')
+        ->call('submitReply')
+        ->assertHasErrors('replyBody')
+        ->assertSee('You must be signed in to reply.');
+
+    $this->assertDatabaseMissing('comments', [
+        'parent_id' => $comment->id,
+        'body' => 'Guest reply',
+    ]);
+});
+
 it('renders reply form with the compact comment composer styling', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

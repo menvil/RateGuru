@@ -111,7 +111,8 @@ it('renders comment validation error on empty submit', function () {
         ->test(CommentForm::class, ['postId' => $post->id])
         ->set('body', '')
         ->call('submit')
-        ->assertSee('data-testid="comment-body-error"', false);
+        ->assertSee('data-testid="comment-body-error"', false)
+        ->assertSee('text-xs text-rg-dangerText', false);
 
     $this->assertDatabaseCount('comments', 0);
 });

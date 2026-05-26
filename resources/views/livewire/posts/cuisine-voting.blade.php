@@ -3,8 +3,6 @@
         <span data-testid="cuisine-voting-unavailable" class="text-xs text-rg-muted">Cuisine voting unavailable</span>
     @else
         @php
-            $hasVoted = $currentCuisine !== null;
-            $votingDisabled = $hasVoted || $isOwnPost;
             $baseClass = 'inline-flex h-8 min-w-11 cursor-pointer items-center justify-center rounded-rgSm border px-2.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
             $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:bg-rg-card2';
             $activeClass = 'border-rg-accentBorder bg-rg-accentSoft text-rg-accent2';

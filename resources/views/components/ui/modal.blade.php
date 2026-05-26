@@ -32,7 +32,7 @@
 >
     <div
         data-testid="modal-backdrop"
-        class="fixed inset-0 bg-black/70 backdrop-blur-sm motion-safe:transition-opacity motion-reduce:transition-none"
+        class="fixed inset-0 bg-rg-overlay backdrop-blur-sm motion-safe:transition-opacity motion-reduce:transition-none"
         x-on:click="{{ $state }} = false"
     ></div>
 

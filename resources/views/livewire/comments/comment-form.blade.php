@@ -21,7 +21,7 @@
             >
 
             @error('body')
-                <p data-testid="comment-body-error" class="sr-only">
+                <p data-testid="comment-body-error" class="text-xs text-rg-dangerText">
                     {{ $message }}
                 </p>
             @enderror

@@ -47,7 +47,7 @@ final class CommentVoting extends Component
             return;
         }
 
-        $voteToApply = $currentVote ?? $voteType;
+        $voteToApply = $voteType;
 
         try {
             $voteCommentAction->handle(auth()->user(), $comment, $voteToApply);
@@ -83,6 +83,10 @@ final class CommentVoting extends Component
             'comment' => $comment,
             'currentVote' => $currentVote,
             'isOwnComment' => $comment !== null && auth()->check() && (int) $comment->user_id === (int) auth()->id(),
+            'upActive' => $currentVote === VoteType::Up->value,
+            'downActive' => $currentVote === VoteType::Down->value,
+            'votingDisabled' => $comment !== null && auth()->check() && (int) $comment->user_id === (int) auth()->id(),
+            'score' => (int) ($comment?->score ?? 0),
         ]);
     }
 

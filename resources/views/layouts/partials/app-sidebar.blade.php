@@ -53,7 +53,7 @@
         <p class="px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-rg-muted">TOP TAGS</p>
         <div class="mt-3 flex flex-wrap gap-2 px-3">
             @forelse ($topTags as $tag)
-                <a href="{{ route('feed', ['category' => $tag->slug]) }}" class="rounded-rgPill border border-rg-border bg-rg-card px-2.5 py-1 text-xs font-semibold text-rg-text2 transition hover:border-rg-accent hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+                <a href="{{ route('feed', ['search' => $tag->slug]) }}" class="rounded-rgPill border border-rg-border bg-rg-card px-2.5 py-1 text-xs font-semibold text-rg-text2 transition hover:border-rg-accent hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
                     #{{ $tag->slug }}
                 </a>
             @empty
