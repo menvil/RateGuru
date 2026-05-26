@@ -74,29 +74,62 @@ it('clears the current vote before applying the opposite vote in the UI', functi
         ->assertSee('Down 1');
 });
 
-it('renders the compact rail personal vote correctly when replacing votes', function () {
+it('renders the compact rail score correctly when replacing votes', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
-        'upvotes_count' => 0,
-        'downvotes_count' => 0,
+        'upvotes_count' => 3,
+        'downvotes_count' => 2,
+    ]);
+
+    PostVote::factory()->count(3)->for($post)->create(['type' => VoteType::Up]);
+    PostVote::factory()->count(2)->for($post)->create(['type' => VoteType::Down]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('data-testid="post-voting-rail"', false)
+        ->assertSee('aria-label="Score 1"', false)
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('aria-label="Score 2"', false)
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('aria-label="Score 0"', false)
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('aria-label="Score 2"', false)
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('aria-label="Score 2"', false);
+
+    expect($post->fresh())
+        ->upvotes_count->toBe(4)
+        ->downvotes_count->toBe(2);
+});
+
+it('keeps rail and pill variants on the same aggregate score after voting', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 3,
+        'downvotes_count' => 2,
+    ]);
+
+    PostVote::factory()->count(2)->for($post)->create(['type' => VoteType::Up]);
+    PostVote::factory()->count(2)->for($post)->create(['type' => VoteType::Down]);
+    PostVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'type' => VoteType::Up,
     ]);
 
     Livewire::actingAs($user)
         ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
-        ->assertSee('post-voting-rail', false)
-        ->assertSee('0')
-        ->call('vote', VoteType::Up->value)
-        ->assertSee('1')
+        ->assertSee('aria-label="Score 1"', false)
         ->call('vote', VoteType::Down->value)
-        ->assertSee('-1')
-        ->call('vote', VoteType::Up->value)
-        ->assertSee('1')
-        ->call('vote', VoteType::Up->value)
-        ->assertSee('1');
+        ->assertSee('aria-label="Score -1"', false);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'pill'])
+        ->assertSee('aria-label="Score -1"', false);
 
     expect($post->fresh())
-        ->upvotes_count->toBe(1)
-        ->downvotes_count->toBe(0);
+        ->upvotes_count->toBe(2)
+        ->downvotes_count->toBe(3);
 });
 
 it('stops rail vote clicks from bubbling to the feed card', function () {

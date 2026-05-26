@@ -36,10 +36,10 @@
 
             <span
                 class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text2') }} text-[13px] font-bold"
-                title="Your vote"
-                aria-label="Your vote {{ $personalScore }}"
+                title="Score"
+                aria-label="Score {{ $score }}"
             >
-                {{ $personalScore }}
+                {{ $score }}
             </span>
 
             <button

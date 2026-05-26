@@ -89,7 +89,6 @@ final class PostVoting extends Component
             'downActive' => $currentVote === VoteType::Down->value,
             'votingDisabled' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
             'score' => (int) ($post?->score ?? 0),
-            'personalScore' => $currentVote === VoteType::Up->value ? 1 : ($currentVote === VoteType::Down->value ? -1 : 0),
         ]);
     }
 
