@@ -1,4 +1,9 @@
-<div data-testid="post-voting" class="{{ in_array($variant, ['rail', 'pill'], true) ? 'flex justify-center' : 'flex flex-wrap items-center gap-2' }}">
+<div
+    data-testid="post-voting"
+    x-on:click.stop
+    x-on:keydown.stop
+    class="{{ in_array($variant, ['rail', 'pill'], true) ? 'flex justify-center' : 'flex flex-wrap items-center gap-2' }}"
+>
     @if($post === null)
         <span data-testid="post-voting-unavailable" class="text-xs text-rg-muted">Voting unavailable</span>
     @else
@@ -23,7 +28,7 @@
             <button
                 type="button"
                 aria-label="Vote up"
-                wire:click="vote('up')"
+                wire:click.stop="vote('up')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
                 @disabled($votingDisabled)
@@ -45,7 +50,7 @@
             <button
                 type="button"
                 aria-label="Vote down"
-                wire:click="vote('down')"
+                wire:click.stop="vote('down')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
                 @disabled($votingDisabled)
@@ -61,7 +66,7 @@
             <button
                 type="button"
                 aria-label="Vote up"
-                wire:click="vote('up')"
+                wire:click.stop="vote('up')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
                 @disabled($votingDisabled)
@@ -83,7 +88,7 @@
             <button
                 type="button"
                 aria-label="Vote down"
-                wire:click="vote('down')"
+                wire:click.stop="vote('down')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
                 @disabled($votingDisabled)
@@ -97,7 +102,7 @@
     @else
     <button
         type="button"
-        wire:click="vote('up')"
+        wire:click.stop="vote('up')"
         wire:target="vote"
         wire:loading.attr="disabled"
         wire:loading.class="opacity-60 cursor-not-allowed"
@@ -112,7 +117,7 @@
 
     <button
         type="button"
-        wire:click="vote('down')"
+        wire:click.stop="vote('down')"
         wire:target="vote"
         wire:loading.attr="disabled"
         wire:loading.class="opacity-60 cursor-not-allowed"

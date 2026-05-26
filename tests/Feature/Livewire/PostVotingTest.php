@@ -106,6 +106,16 @@ it('renders the compact rail personal vote correctly when replacing votes', func
         ->downvotes_count->toBe(0);
 });
 
+it('stops rail vote clicks from bubbling to the feed card', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('x-on:click.stop', false)
+        ->assertSee('x-on:keydown.stop', false)
+        ->assertSee('wire:click.stop="vote(\'up\')"', false)
+        ->assertSee('wire:click.stop="vote(\'down\')"', false);
+});
+
 it('refreshes matching post voting instances after another rail votes', function () {
     $post = Post::factory()->published()->create([
         'upvotes_count' => 1,
