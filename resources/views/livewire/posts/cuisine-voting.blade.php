@@ -39,7 +39,7 @@
                         <div class="flex flex-col gap-1">
                             <div class="flex justify-between text-xs text-rg-muted">
                                 <span>{{ $row['label'] }}</span>
-                                <span>{{ $row['count'] }} · {{ $row['percentage'] }}%</span>
+                                <span>{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
                             </div>
                             <div class="h-2 w-full overflow-hidden rounded-rgPill bg-rg-card2">
                                 <div

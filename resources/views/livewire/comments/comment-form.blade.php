@@ -15,7 +15,7 @@
                 maxlength="1000"
                 placeholder="Add a comment..."
                 @class([
-                    'h-8 flex-1 border-0 bg-transparent p-0 text-[13.5px] text-rg-text outline-none ring-0 placeholder:text-rg-muted focus:border-0 focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0',
+                    'rg-comment-input h-8 flex-1 appearance-none border-0 bg-transparent p-0 text-[13.5px] text-rg-text shadow-none outline-none ring-0 placeholder:text-rg-muted focus:border-0 focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0',
                     'text-rg-dangerText' => $errors->has('body'),
                 ])
             >
