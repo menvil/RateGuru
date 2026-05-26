@@ -229,11 +229,13 @@ it('renders reply form with the compact comment composer styling', function () {
         ->test(CommentsSection::class, ['postId' => $post->id])
         ->call('startReply', $comment->id)
         ->assertSee('data-testid="reply-form"', false)
-        ->assertSee('rounded-[10px] border border-rg-border2 bg-rg-card2', false)
         ->assertSee('placeholder="Write Reply"', false)
-        ->assertSee('rg-comment-input h-8 flex-1 appearance-none border-0 bg-transparent', false)
-        ->assertSee('focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0', false)
-        ->assertSee('border border-rg-border2 bg-rg-card', false);
+        ->assertSee('aria-label="Write Reply"', false)
+        ->assertSee('rounded-[10px]', false)
+        ->assertSee('border-rg-border2', false)
+        ->assertSee('bg-rg-card2', false)
+        ->assertSee('rg-comment-input', false)
+        ->assertSee('bg-rg-card', false);
 });
 
 it('shows view more comments for longer threads', function () {

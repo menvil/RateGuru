@@ -51,6 +51,7 @@
                             name="replyBody"
                             type="text"
                             wire:model="replyBody"
+                            aria-label="Write Reply"
                             maxlength="1000"
                             placeholder="Write Reply"
                             @class([

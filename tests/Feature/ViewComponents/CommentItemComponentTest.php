@@ -54,7 +54,10 @@ it('keeps comment actions out of the reply and vote row', function () {
     ]);
 
     $commentVotingPosition = strpos($html, 'comment-voting');
-    $actionsRow = $commentVotingPosition === false ? '' : substr($html, $commentVotingPosition);
+
+    expect($commentVotingPosition)->not->toBeFalse();
+
+    $actionsRow = substr($html, $commentVotingPosition);
 
     expect($actionsRow)->not->toContain('aria-label="Comment actions"');
 });
