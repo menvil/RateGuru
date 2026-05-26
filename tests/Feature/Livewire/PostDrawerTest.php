@@ -15,7 +15,7 @@ it('renders report button in post drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('data-testid="post-drawer-report"', false)
+        ->assertSee('data-testid="open-report-modal"', false)
         ->assertSee('Report');
 });
 
@@ -106,12 +106,11 @@ it('renders drawer vote summary', function () {
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Score')
-        ->assertSee('9')
+        ->assertSee('Results')
+        ->assertSee('(unvoted)')
         ->assertSee('Homemade')
-        ->assertSee('7')
         ->assertSee('Restaurant')
-        ->assertSee('5');
+        ->assertSee('0 votes');
 });
 
 it('renders drawer author metadata', function () {

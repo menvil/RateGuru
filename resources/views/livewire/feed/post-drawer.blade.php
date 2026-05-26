@@ -5,7 +5,7 @@
         <x-ui.skeleton shape="line" width="45%" />
     </div>
 
-    <div wire:loading.remove class="overflow-y-auto px-5 pb-8 pt-4 transition-opacity duration-200">
+    <div wire:loading.remove class="overflow-y-auto p-5 pb-8 transition-opacity duration-200">
     @if($post)
         <article x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false }" class="relative rounded-rgCard border border-rg-border bg-rg-card px-5 pb-3.5 pt-5">
             <button
@@ -74,7 +74,23 @@
                         x-on:click.outside="menuOpen = false"
                         class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
-                        @if(auth()->id() === $post->user_id)
+                        @php
+                            $drawerUser = auth()->user();
+                            $canDeletePost = $drawerUser !== null && ((int) $drawerUser->id === (int) $post->user_id || $drawerUser->isAdmin() || $drawerUser->isModerator());
+                            $canReportPost = auth()->id() !== $post->user_id;
+                        @endphp
+
+                        @if($canReportPost)
+                            <div class="rounded-rgSm px-3 py-2 transition hover:bg-rg-card">
+                                <livewire:reports.report-modal
+                                    reportable-type="post"
+                                    :reportable-id="$post->id"
+                                    :key="'post-drawer-menu-report-'.$post->id"
+                                />
+                            </div>
+                        @endif
+
+                        @if($canDeletePost)
                             <button
                                 type="button"
                                 x-on:click="menuOpen = false; deleteOpen = true"
@@ -82,7 +98,14 @@
                             >
                                 Delete post
                             </button>
-                        @else
+                        @endif
+
+                        <livewire:moderation.inline-post-moderation
+                            :post-id="$post->id"
+                            :key="'post-drawer-menu-moderation-'.$post->id"
+                        />
+
+                        @if(! $canReportPost && ! $canDeletePost)
                             <span class="block px-3 py-2 text-sm text-rg-muted">No actions</span>
                         @endif
                     </div>
@@ -121,41 +144,25 @@
             <div>
                 <div class="mb-3 flex items-baseline gap-2">
                     <h3 class="text-base font-bold text-rg-text">Results</h3>
-                    <span class="text-xs text-rg-muted">Score {{ $post->score }}</span>
+                    <span class="text-xs text-rg-muted">({{ $originDistribution['current'] ?? null ? 'voted' : 'unvoted' }})</span>
                 </div>
 
-                @php
-                    $originTotal = max(1, (int) ($post->homemade_votes_count ?? 0) + (int) ($post->restaurant_votes_count ?? 0));
-                    $homemadePct = (int) round(((int) ($post->homemade_votes_count ?? 0) / $originTotal) * 100);
-                    $restaurantPct = 100 - $homemadePct;
-                    $currentOrigin = auth()->check()
-                        ? $post->originVotes()->where('user_id', auth()->id())->first()?->origin?->value
-                        : null;
-                    $hasOriginVote = $currentOrigin !== null;
-                @endphp
-
-                @if($hasOriginVote)
-                    <p class="mt-1 text-xs text-rg-muted">You voted: {{ ucfirst($currentOrigin) }}</p>
-
-                    <div class="mt-4 space-y-3">
-                        <div>
-                            <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
-                                <span>Homemade</span><span>{{ $homemadePct }}% ({{ $post->homemade_votes_count ?? 0 }})</span>
-                            </div>
-                            <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-good" style="width: {{ $homemadePct }}%"></div></div>
-                        </div>
-                        <div>
-                            <div class="mb-1 flex justify-between text-xs font-semibold text-rg-text2">
-                                <span>Restaurant</span><span>{{ $restaurantPct }}% ({{ $post->restaurant_votes_count ?? 0 }})</span>
-                            </div>
-                            <div class="h-2 rounded-rgPill bg-rg-card2"><div class="h-2 rounded-rgPill bg-rg-accent" style="width: {{ $restaurantPct }}%"></div></div>
-                        </div>
-                    </div>
-
-                    <p class="mt-4 text-[22px] font-bold text-rg-text">{{ $originTotal === 1 && (($post->homemade_votes_count ?? 0) + ($post->restaurant_votes_count ?? 0)) === 0 ? 0 : $originTotal }} votes</p>
-                @else
-                    <p class="mt-4 text-sm leading-6 text-rg-muted">Vote to reveal results.</p>
+                @if($originDistribution['current'])
+                    <p class="mb-3 text-xs text-rg-muted">You voted: {{ ucfirst($originDistribution['current']) }}</p>
                 @endif
+
+                <div class="mb-1.5 flex justify-between">
+                    <span class="text-[13px] font-semibold text-rg-good">Homemade</span>
+                    <span class="text-[13px] text-rg-text2">Restaurant</span>
+                </div>
+                <div class="mb-2 flex justify-between">
+                    <span class="text-[22px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}%</span>
+                    <span class="text-[22px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}%</span>
+                </div>
+                <div class="relative h-2 overflow-hidden rounded-rgPill bg-rg-card2">
+                    <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
+                </div>
+                <div class="mt-2.5 text-[11.5px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
 
                 <div class="mt-4" data-testid="post-drawer-origin-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.origin-voting
@@ -166,7 +173,19 @@
             </div>
 
             <div>
-                <h3 class="text-base font-bold text-rg-text">Cuisine guess distribution</h3>
+                <h3 class="mb-3.5 text-sm font-bold text-rg-text">Cuisine guess distribution</h3>
+                <div class="flex flex-col gap-2">
+                    @foreach($cuisineDistribution['rows'] as $row)
+                        <div class="grid grid-cols-[28px_minmax(0,1fr)_36px] items-center gap-2.5">
+                            <span class="text-xs font-semibold text-rg-text2">{{ $row['label'] }}</span>
+                            <div class="h-2 overflow-hidden rounded-rgPill bg-rg-card2">
+                                <div class="h-full rounded-rgPill bg-rg-accent" style="width: {{ $row['percentage'] }}%"></div>
+                            </div>
+                            <span class="text-right text-xs text-rg-text2">{{ $row['percentage'] }}%</span>
+                        </div>
+                    @endforeach
+                </div>
+
                 <div class="mt-4" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.cuisine-voting
                         :post-id="$post->id"
@@ -175,16 +194,6 @@
                 </div>
             </div>
         </section>
-
-        @if(auth()->id() !== $post->user_id)
-            <div class="mt-6 flex justify-end" data-testid="post-drawer-report">
-                <livewire:reports.report-modal
-                    reportable-type="post"
-                    :reportable-id="$post->id"
-                    :key="'post-drawer-report-'.$post->id"
-                />
-            </div>
-        @endif
 
         <section class="mt-6" data-testid="drawer-comments-slot">
             <livewire:comments.comments-section :post-id="$post->id" :show-header="true" :key="'drawer-comments-'.$post->id" />

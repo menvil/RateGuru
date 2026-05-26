@@ -14,7 +14,7 @@
                         if (feed) {
                             const card = feed.querySelector('[data-post-id=\'' + postId + '\']');
                             if (card) {
-                                const top = card.getBoundingClientRect().top + window.scrollY - 72;
+                                const top = card.getBoundingClientRect().top + window.scrollY - 80;
                                 window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
                             }
                         }
@@ -38,7 +38,7 @@
         <section
             x-ref="feedScroll"
             class="{{ $hasSelectedPost
-                ? 'min-w-0 lg:border-r lg:border-rg-border lg:pr-6'
+                ? 'min-w-0 lg:border-r lg:border-rg-border lg:px-5'
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >

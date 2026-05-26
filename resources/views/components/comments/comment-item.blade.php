@@ -7,7 +7,7 @@
 
 @php
     $canReport = $comment->exists && auth()->id() !== $comment->user_id;
-    $hasActions = $canReply || $canDelete || $canHide || $canReport;
+    $hasMenuActions = $canDelete || $canHide || $canReport;
 @endphp
 
 <article
@@ -36,8 +36,40 @@
 
         <p class="mt-1 break-words leading-5 text-rg-text2">{{ $comment->body }}</p>
 
-        @if($hasActions)
-            <div class="relative mt-2 inline-flex" wire:click.stop wire:keydown.stop>
+        <div class="mt-2 flex items-center gap-3.5 text-[12.5px] text-rg-muted" wire:click.stop wire:keydown.stop>
+            <div class="flex items-center gap-1.5">
+                <button
+                    type="button"
+                    aria-label="Upvote comment"
+                    class="cursor-pointer bg-transparent p-0.5 text-rg-muted transition hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                >
+                    <x-ui.icon name="arrow-up" class="size-3.5" />
+                </button>
+                <span class="text-[12.5px] font-semibold text-rg-text2">0</span>
+                <button
+                    type="button"
+                    aria-label="Downvote comment"
+                    class="cursor-pointer bg-transparent p-0.5 text-rg-muted transition hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                >
+                    <x-ui.icon name="arrow-down" class="size-3.5" />
+                </button>
+            </div>
+
+            @auth
+                @if($canReply)
+                    <button
+                        type="button"
+                        wire:click="startReply({{ $comment->id }})"
+                        class="flex cursor-pointer items-center gap-1 bg-transparent p-0 text-[12.5px] text-rg-muted transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    >
+                        <x-ui.icon name="reply" class="size-[13px]" />
+                        Reply
+                    </button>
+                @endif
+            @endauth
+
+            @if($hasMenuActions)
+                <div class="relative inline-flex">
                 <button
                     type="button"
                     aria-label="Comment actions"
@@ -53,19 +85,6 @@
                     x-on:click.outside="actionsOpen = false"
                     class="absolute left-0 top-full z-20 mt-2 w-40 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                 >
-                    @auth
-                        @if($canReply)
-                            <button
-                                type="button"
-                                wire:click="startReply({{ $comment->id }})"
-                                x-on:click="actionsOpen = false"
-                                class="block w-full cursor-pointer rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                            >
-                                Reply
-                            </button>
-                        @endif
-                    @endauth
-
                     @if($canReport)
                         <div data-testid="comment-report" class="rounded-rgSm px-3 py-2 transition hover:bg-rg-card">
                             <livewire:reports.report-modal
@@ -101,6 +120,7 @@
                 @endif
                 </div>
             </div>
-        @endif
+            @endif
+        </div>
     </div>
 </article>
