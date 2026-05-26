@@ -65,7 +65,7 @@
                         class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReportPost)
-                            <div data-testid="post-card-report" class="rounded-rgSm px-3 py-2 transition hover:bg-rg-card">
+                            <div data-testid="post-card-report" class="rounded-rgSm px-3 py-1.5 transition hover:bg-rg-card">
                                 <livewire:reports.report-modal
                                     reportable-type="post"
                                     :reportable-id="$post->id"
@@ -79,7 +79,7 @@
                                 type="button"
                                 data-testid="post-card-delete"
                                 x-on:click="postMenuOpen = false; deleteOpen = true"
-                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                             >
                                 Delete post
                             </button>

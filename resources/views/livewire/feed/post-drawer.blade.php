@@ -81,7 +81,7 @@
                         @endphp
 
                         @if($canReportPost)
-                            <div class="rounded-rgSm px-3 py-2 transition hover:bg-rg-card">
+                            <div class="rounded-rgSm px-3 py-1.5 transition hover:bg-rg-card">
                                 <livewire:reports.report-modal
                                     reportable-type="post"
                                     :reportable-id="$post->id"
@@ -94,7 +94,7 @@
                             <button
                                 type="button"
                                 x-on:click="menuOpen = false; deleteOpen = true"
-                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                             >
                                 Delete post
                             </button>
@@ -148,9 +148,12 @@
                     <span class="text-xs text-rg-muted">({{ $originDistribution['current'] ?? null ? 'voted' : 'unvoted' }})</span>
                 </div>
 
-                @if($originDistribution['current'])
-                    <p class="mb-3 text-xs text-rg-muted">You voted: {{ ucfirst($originDistribution['current']) }}</p>
-                @endif
+                <div class="mb-3" data-testid="post-drawer-origin-voting" wire:click.stop wire:keydown.stop>
+                    <livewire:posts.origin-voting
+                        :post-id="$post->id"
+                        :key="'post-drawer-origin-voting-'.$post->id"
+                    />
+                </div>
 
                 <div class="mb-1.5 flex justify-between">
                     <span class="text-[13px] font-semibold text-rg-good">Homemade</span>
@@ -164,17 +167,17 @@
                     <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
                 </div>
                 <div class="mt-2.5 text-[11.5px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
-
-                <div class="mt-4" data-testid="post-drawer-origin-voting" wire:click.stop wire:keydown.stop>
-                    <livewire:posts.origin-voting
-                        :post-id="$post->id"
-                        :key="'post-drawer-origin-voting-'.$post->id"
-                    />
-                </div>
             </div>
 
             <div>
                 <h3 class="mb-3.5 text-sm font-bold text-rg-text">Cuisine guess distribution</h3>
+                <div class="mb-3" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
+                    <livewire:posts.cuisine-voting
+                        :post-id="$post->id"
+                        :key="'post-drawer-cuisine-voting-'.$post->id"
+                    />
+                </div>
+
                 <div class="flex flex-col gap-2">
                     @foreach($cuisineDistribution['rows'] as $row)
                         <div class="grid grid-cols-[28px_minmax(0,1fr)_36px] items-center gap-2.5">
@@ -185,13 +188,6 @@
                             <span class="text-right text-xs text-rg-text2">{{ $row['percentage'] }}%</span>
                         </div>
                     @endforeach
-                </div>
-
-                <div class="mt-4" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
-                    <livewire:posts.cuisine-voting
-                        :post-id="$post->id"
-                        :key="'post-drawer-cuisine-voting-'.$post->id"
-                    />
                 </div>
             </div>
         </section>

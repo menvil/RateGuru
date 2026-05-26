@@ -22,17 +22,73 @@
     />
 
     <div class="min-w-0">
-        <p>
-            <span class="font-semibold text-rg-text">
-                {{ $comment->user?->username ? '@'.$comment->user->username : ($comment->user?->name ?? 'Unknown user') }}
-            </span>
+        <div class="flex min-w-0 items-start justify-between gap-2">
+            <p class="min-w-0">
+                <span class="font-semibold text-rg-text">
+                    {{ $comment->user?->username ? '@'.$comment->user->username : ($comment->user?->name ?? 'Unknown user') }}
+                </span>
 
-            @if ($comment->created_at)
-                <time datetime="{{ $comment->created_at->toIso8601String() }}" class="text-xs text-rg-muted">
-                    {{ $comment->created_at->diffForHumans() }}
-                </time>
+                @if ($comment->created_at)
+                    <time datetime="{{ $comment->created_at->toIso8601String() }}" class="text-xs text-rg-muted">
+                        {{ $comment->created_at->diffForHumans() }}
+                    </time>
+                @endif
+            </p>
+
+            @if($hasMenuActions)
+                <div class="relative -mt-1 inline-flex shrink-0" wire:click.stop wire:keydown.stop>
+                    <button
+                        type="button"
+                        aria-label="Comment actions"
+                        x-on:click="actionsOpen = ! actionsOpen"
+                        class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    >
+                        <x-ui.icon name="more" class="size-4" />
+                    </button>
+
+                    <div
+                        x-cloak
+                        x-show="actionsOpen"
+                        x-on:click.outside="actionsOpen = false"
+                        class="absolute right-0 top-full z-20 mt-2 w-40 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                    >
+                        @if($canReport)
+                            <div data-testid="comment-report" class="rounded-rgSm px-3 py-1.5 transition hover:bg-rg-card">
+                                <livewire:reports.report-modal
+                                    reportable-type="comment"
+                                    :reportable-id="$comment->id"
+                                    :key="'comment-report-'.$comment->id"
+                                />
+                            </div>
+                        @endif
+
+                        @if ($canHide)
+                            <button
+                                type="button"
+                                wire:click="hideComment({{ $comment->id }})"
+                                wire:confirm="Hide this comment?"
+                                x-on:click="actionsOpen = false"
+                                class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
+                            >
+                                Hide
+                            </button>
+                        @endif
+
+                        @if ($canDelete)
+                            <button
+                                type="button"
+                                wire:click="deleteComment({{ $comment->id }})"
+                                wire:confirm="Delete this comment?"
+                                x-on:click="actionsOpen = false"
+                                class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
+                            >
+                                Delete
+                            </button>
+                        @endif
+                    </div>
+                </div>
             @endif
-        </p>
+        </div>
 
         <p class="mt-1 break-words leading-5 text-rg-text2">{{ $comment->body }}</p>
 
@@ -67,60 +123,6 @@
                     </button>
                 @endif
             @endauth
-
-            @if($hasMenuActions)
-                <div class="relative inline-flex">
-                <button
-                    type="button"
-                    aria-label="Comment actions"
-                    x-on:click="actionsOpen = ! actionsOpen"
-                    class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                >
-                    <x-ui.icon name="more" class="size-4" />
-                </button>
-
-                <div
-                    x-cloak
-                    x-show="actionsOpen"
-                    x-on:click.outside="actionsOpen = false"
-                    class="absolute left-0 top-full z-20 mt-2 w-40 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
-                >
-                    @if($canReport)
-                        <div data-testid="comment-report" class="rounded-rgSm px-3 py-2 transition hover:bg-rg-card">
-                            <livewire:reports.report-modal
-                                reportable-type="comment"
-                                :reportable-id="$comment->id"
-                                :key="'comment-report-'.$comment->id"
-                            />
-                        </div>
-                    @endif
-
-                @if ($canHide)
-                    <button
-                        type="button"
-                        wire:click="hideComment({{ $comment->id }})"
-                        wire:confirm="Hide this comment?"
-                        x-on:click="actionsOpen = false"
-                        class="block w-full cursor-pointer rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
-                    >
-                        Hide
-                    </button>
-                @endif
-
-                @if ($canDelete)
-                    <button
-                        type="button"
-                        wire:click="deleteComment({{ $comment->id }})"
-                        wire:confirm="Delete this comment?"
-                        x-on:click="actionsOpen = false"
-                        class="block w-full cursor-pointer rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
-                    >
-                        Delete
-                    </button>
-                @endif
-                </div>
-            </div>
-            @endif
         </div>
     </div>
 </article>

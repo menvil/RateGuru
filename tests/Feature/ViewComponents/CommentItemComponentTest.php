@@ -19,6 +19,36 @@ it('renders report button in comment item for persisted comment', function () {
         ->toContain('Report');
 });
 
+it('renders comment actions menu in the comment header', function () {
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)
+        ->toContain('items-start justify-between')
+        ->toContain('aria-label="Comment actions"')
+        ->toContain('absolute right-0 top-full')
+        ->toContain('py-1.5');
+});
+
+it('keeps comment actions out of the reply and vote row', function () {
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    $actionsRow = substr($html, strpos($html, 'Upvote comment'));
+
+    expect($actionsRow)->not->toContain('aria-label="Comment actions"');
+});
+
 it('does not break comment item report button for unsaved comment preview', function () {
     $comment = Comment::factory()->make(['body' => 'Preview']);
 

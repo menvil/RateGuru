@@ -1,13 +1,13 @@
 <div data-testid="inline-post-moderation">
     @if ($this->canModerate)
         @if ($variant === 'menu')
-            <div x-data="{ compactHideOpen: false }" data-testid="inline-post-moderation-menu" class="border-t border-rg-border2 pt-1">
+            <div x-data="{ compactHideOpen: false }" data-testid="inline-post-moderation-menu">
                 @if ($this->adminPostUrl)
                     <a
                         href="{{ $this->adminPostUrl }}"
                         target="_blank"
                         rel="noopener"
-                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
                         Open in admin
                     </a>
@@ -18,7 +18,7 @@
                         type="button"
                         wire:click="approve"
                         data-testid="moderation-approve"
-                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
                         Approve
                     </button>
@@ -27,7 +27,7 @@
                         type="button"
                         wire:click="reject"
                         data-testid="moderation-reject"
-                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                     >
                         Reject
                     </button>
@@ -38,7 +38,7 @@
                         type="button"
                         x-on:click="compactHideOpen = true"
                         data-testid="moderation-hide"
-                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                     >
                         Hide
                     </button>
@@ -76,7 +76,7 @@
                         type="button"
                         wire:click="restore"
                         data-testid="moderation-restore"
-                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-2 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
                         Restore
                     </button>

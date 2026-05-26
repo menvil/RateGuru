@@ -179,6 +179,18 @@ it('renders origin voting panel in drawer', function () {
         ->assertSee('Restaurant');
 });
 
+it('renders drawer origin controls before result labels', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSeeInOrder([
+            'post-drawer-origin-voting',
+            'Homemade</span>',
+            'Restaurant</span>',
+        ], false)
+        ->assertDontSee('You voted:');
+});
+
 it('renders cuisine voting buttons in drawer', function () {
     $post = Post::factory()->published()->create();
 
@@ -189,4 +201,15 @@ it('renders cuisine voting buttons in drawer', function () {
         ->assertSee('American')
         ->assertSee('Mexican')
         ->assertSee('Other');
+});
+
+it('renders drawer cuisine controls directly under the distribution heading', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSeeInOrder([
+            'Cuisine guess distribution',
+            'data-testid="post-drawer-cuisine-voting"',
+            'grid-cols-[28px_minmax(0,1fr)_36px]',
+        ], false);
 });
