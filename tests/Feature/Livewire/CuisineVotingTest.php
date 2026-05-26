@@ -111,6 +111,16 @@ it('renders cuisine chips with selected and focus states', function () {
         ->assertSee('focus-visible:ring-rg-accent', false);
 });
 
+it('renders cuisine chips with reference feed sizing', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertSee('flex flex-wrap gap-2', false)
+        ->assertSee('inline-flex h-8 min-w-11', false)
+        ->assertSee('rounded-rgSm border px-2.5 text-xs font-semibold', false)
+        ->assertSee('border-rg-border2 bg-transparent text-rg-text2 hover:bg-rg-card2', false);
+});
+
 it('keeps zero cuisine distribution out of the inline voting controls', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

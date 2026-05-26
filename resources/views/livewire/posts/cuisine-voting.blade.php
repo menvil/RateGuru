@@ -5,12 +5,12 @@
         @php
             $hasVoted = $currentCuisine !== null;
             $votingDisabled = $hasVoted || $isOwnPost;
-            $baseClass = 'inline-flex h-7 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-rgSm border px-2 text-[11.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
-            $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-card2 hover:text-rg-text';
-            $activeClass = 'border-rg-accent bg-rg-accentSoft text-rg-accent2';
+            $baseClass = 'inline-flex h-8 min-w-11 cursor-pointer items-center justify-center rounded-rgSm border px-2.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
+            $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:bg-rg-card2';
+            $activeClass = 'border-rg-accentBorder bg-rg-accentSoft text-rg-accent2';
         @endphp
 
-        <div class="grid grid-cols-5 gap-1.5">
+        <div class="flex flex-wrap gap-2">
             @foreach($options as $option)
                 @php($active = $currentCuisine === $option->value)
                 <button

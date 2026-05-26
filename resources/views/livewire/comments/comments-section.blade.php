@@ -42,25 +42,45 @@
                 />
 
                 @if($replyingTo === $comment->id)
-                    <form wire:submit.prevent="submitReply" class="ml-4 flex min-h-[42px] items-center gap-2 border-l border-rg-border pl-4" data-testid="reply-form">
-                        <textarea
+                    <form
+                        wire:submit.prevent="submitReply"
+                        class="ml-4 flex min-h-[50px] items-center gap-2.5 rounded-[10px] border border-rg-border2 bg-rg-card2 py-2 pl-3.5 pr-2"
+                        data-testid="reply-form"
+                    >
+                        <input
                             name="replyBody"
+                            type="text"
                             wire:model="replyBody"
-                            rows="1"
                             maxlength="1000"
-                            placeholder="Write a reply..."
+                            placeholder="Write Reply"
                             @class([
-                                'min-h-[32px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-5 text-rg-text placeholder:text-rg-muted focus-visible:outline-none',
+                                'rg-comment-input h-8 flex-1 appearance-none border-0 bg-transparent p-0 text-[13.5px] text-rg-text shadow-none outline-none ring-0 placeholder:text-rg-muted focus:border-0 focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0',
                                 'text-rg-dangerText' => $errors->has('replyBody'),
                             ])
-                        ></textarea>
+                        >
 
                         @error('replyBody')
                             <p class="sr-only">{{ $message }}</p>
                         @enderror
 
-                        <x-ui.button type="button" size="sm" variant="ghost" wire:click="cancelReply">Cancel</x-ui.button>
-                        <x-ui.button type="submit" size="sm" wire:loading.attr="disabled" wire:target="submitReply">Reply</x-ui.button>
+                        <x-ui.button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            class="h-8 rounded-rgSm border border-rg-border2 bg-rg-card px-3 text-[12.5px]"
+                            wire:click="cancelReply"
+                        >
+                            Cancel
+                        </x-ui.button>
+                        <x-ui.button
+                            type="submit"
+                            size="sm"
+                            class="h-8 rounded-rgSm px-4 text-[12.5px]"
+                            wire:loading.attr="disabled"
+                            wire:target="submitReply"
+                        >
+                            Reply
+                        </x-ui.button>
                     </form>
                 @endif
 

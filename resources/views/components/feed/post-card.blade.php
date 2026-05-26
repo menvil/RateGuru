@@ -157,8 +157,8 @@
                                 <span class="text-[11.5px] text-rg-text2">Restaurant</span>
                             </div>
                             <div class="mb-1.5 flex justify-between">
-                                <span class="text-sm font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
-                                <span class="text-sm font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
+                                <span class="text-[22px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
+                                <span class="text-[22px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
                             </div>
                             <div class="relative h-2 overflow-hidden rounded-rgPill bg-rg-card2">
                                 <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>

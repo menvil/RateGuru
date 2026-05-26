@@ -197,6 +197,25 @@ it('can add a reply to a top level comment', function () {
     ]);
 });
 
+it('renders reply form with the compact comment composer styling', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create([
+        'body' => 'Parent comment',
+        'status' => CommentStatus::Visible,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->call('startReply', $comment->id)
+        ->assertSee('data-testid="reply-form"', false)
+        ->assertSee('rounded-[10px] border border-rg-border2 bg-rg-card2', false)
+        ->assertSee('placeholder="Write Reply"', false)
+        ->assertSee('rg-comment-input h-8 flex-1 appearance-none border-0 bg-transparent', false)
+        ->assertSee('focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0', false)
+        ->assertSee('border border-rg-border2 bg-rg-card', false);
+});
+
 it('shows view more comments for longer threads', function () {
     $post = Post::factory()->published()->create();
 
