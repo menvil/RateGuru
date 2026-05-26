@@ -286,3 +286,15 @@ it('can render report modal component', function () {
     ])->assertStatus(200)
         ->assertSee('data-testid="report-modal"', false);
 });
+
+it('renders compact report trigger with symmetric menu padding support', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(ReportModal::class, [
+        'reportableType' => 'post',
+        'reportableId' => $post->id,
+    ])
+        ->assertSee('class="leading-none"', false)
+        ->assertSee('inline-flex h-5', false)
+        ->assertSee('leading-none text-rg-muted', false);
+});

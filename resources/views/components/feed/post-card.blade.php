@@ -3,6 +3,12 @@
     'selected' => false,
 ])
 
+@php
+    $voteResults = $post->exists ? app(\App\Services\PostVoteResultService::class) : null;
+    $originDistribution = $voteResults ? $voteResults->originDistribution($post, auth()->user()) : null;
+    $cuisineDistribution = $voteResults ? $voteResults->cuisineDistribution($post, auth()->user()) : null;
+@endphp
+
 <x-ui.card
     variant="{{ $selected ? 'selected-post' : 'post' }}"
     data-testid="post-card"
@@ -119,6 +125,10 @@
 
         <h3 class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
 
+        @if($post->truncated_description)
+            <p class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
+        @endif
+
         @if($post->public_image_url)
             <img
                 src="{{ $post->public_image_url }}"
@@ -131,10 +141,6 @@
             </div>
         @endif
 
-        @if($post->truncated_description)
-            <p class="mt-3 break-words text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
-        @endif
-
         <div class="mt-3 space-y-3" wire:click.stop wire:keydown.stop>
             @if($post->exists)
                 <div data-testid="post-card-origin-voting">
@@ -143,6 +149,23 @@
                         :post-id="$post->id"
                         :key="'post-card-origin-voting-'.$post->id"
                     />
+
+                    @if($originDistribution['current'])
+                        <div data-testid="post-card-origin-results" class="mt-3">
+                            <div class="mb-1.5 flex justify-between">
+                                <span class="text-[12px] font-semibold text-rg-good">Homemade</span>
+                                <span class="text-[12px] text-rg-text2">Restaurant</span>
+                            </div>
+                            <div class="mb-2 flex justify-between">
+                                <span class="text-lg font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}%</span>
+                                <span class="text-lg font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}%</span>
+                            </div>
+                            <div class="relative h-2 overflow-hidden rounded-rgPill bg-rg-card2">
+                                <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
+                            </div>
+                            <div class="mt-2 text-[11.5px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
+                        </div>
+                    @endif
                 </div>
 
                 <div data-testid="post-card-cuisine-voting">
@@ -151,6 +174,20 @@
                         :post-id="$post->id"
                         :key="'post-card-cuisine-voting-'.$post->id"
                     />
+
+                    @if($cuisineDistribution['current'])
+                        <div data-testid="post-card-cuisine-results" class="mt-3 flex flex-col gap-2">
+                            @foreach($cuisineDistribution['rows'] as $row)
+                                <div class="grid grid-cols-[28px_minmax(0,1fr)_48px] items-center gap-2">
+                                    <span class="text-[11.5px] font-semibold text-rg-text2">{{ $row['label'] }}</span>
+                                    <div class="h-2 overflow-hidden rounded-rgPill bg-rg-card2">
+                                        <div class="h-full rounded-rgPill bg-rg-accent" style="width: {{ $row['percentage'] }}%"></div>
+                                    </div>
+                                    <span class="text-right text-[11.5px] text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
             @else
                 <div class="flex flex-wrap gap-2">

@@ -1,5 +1,9 @@
 <?php
 
+use App\Enums\CuisineType;
+use App\Enums\OriginType;
+use App\Models\CuisineVote;
+use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\Blade;
@@ -65,6 +69,26 @@ it('renders post title and description', function () {
     expect($html)
         ->toContain('Homemade Carbonara')
         ->toContain('Creamy pasta with pepper');
+});
+
+it('renders post description under the title before the image', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Street Tacos',
+        'description' => 'Corn tortillas, salsa, cilantro, and a street-food presentation',
+        'image_url' => '/storage/posts/1/tacos.jpg',
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    $titlePosition = strpos($html, 'Street Tacos');
+    $descriptionPosition = strpos($html, 'Corn tortillas, salsa, cilantro, and a street-food presentation');
+    $imagePosition = strpos($html, '/storage/posts/1/tacos.jpg');
+
+    expect($titlePosition)->not->toBeFalse()
+        ->and($descriptionPosition)->not->toBeFalse()
+        ->and($imagePosition)->not->toBeFalse()
+        ->and($titlePosition)->toBeLessThan($descriptionPosition)
+        ->and($descriptionPosition)->toBeLessThan($imagePosition);
 });
 
 it('renders mobile-safe post card structure', function () {
@@ -191,6 +215,53 @@ it('renders origin voting component in post card for persisted posts', function 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)->toContain('post-card-origin-voting');
+});
+
+it('renders feed card vote results after the current user votes', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 3,
+        'restaurant_votes_count' => 2,
+    ]);
+
+    OriginVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'origin' => OriginType::Homemade,
+    ]);
+
+    CuisineVote::factory()->for($post)->create([
+        'user_id' => $user->id,
+        'cuisine' => CuisineType::Mexican,
+    ]);
+    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
+
+    $this->actingAs($user);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('data-testid="post-card-origin-results"')
+        ->toContain('60%')
+        ->toContain('40%')
+        ->toContain('data-testid="post-card-cuisine-results"')
+        ->toContain('MX')
+        ->toContain('50% (1)');
+});
+
+it('does not render feed card vote results before the current user votes', function () {
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 3,
+        'restaurant_votes_count' => 2,
+    ]);
+
+    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->not->toContain('data-testid="post-card-origin-results"')
+        ->not->toContain('data-testid="post-card-cuisine-results"');
 });
 
 it('renders origin badges without breaking on unsaved post', function () {
