@@ -1,32 +1,36 @@
-<section data-testid="comments-section" class="space-y-4">
+<section data-testid="comments-section" class="rounded-rgCard border border-rg-border bg-rg-card p-5">
     @if ($showHeader)
         <div class="flex items-center justify-between gap-3">
-            <h3 class="text-sm font-semibold text-rg-text">Comments <span class="text-rg-muted">{{ $this->totalComments }}</span></h3>
-            <button type="button" class="rounded-rgPill border border-rg-border2 bg-rg-card2 px-3 py-1 text-xs font-semibold text-rg-text2">
-                Newest
+            <h3 class="text-base font-bold text-rg-text">Comments ({{ $this->totalComments }})</h3>
+            <button type="button" class="cursor-pointer text-xs font-semibold text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+                Top
             </button>
         </div>
     @endif
 
-    <livewire:comments.comment-form :post-id="$postId" :key="'comment-form-'.$postId" />
+    <div class="{{ $showHeader ? 'mt-4' : '' }}">
+        <livewire:comments.comment-form :post-id="$postId" :key="'comment-form-'.$postId" />
+    </div>
 
     <div
         wire:loading
         wire:target="deleteComment,hideComment,refreshComments,submitReply,loadMore"
         data-testid="comments-loading"
-        class="space-y-2 transition-opacity duration-200"
+        class="mt-5 space-y-2 transition-opacity duration-200"
     >
         <x-ui.skeleton shape="line" width="w-3/4" />
         <x-ui.skeleton shape="line" width="w-1/2" />
     </div>
 
     @if ($this->comments->isEmpty())
-        <x-ui.empty-state
-            title="No comments yet"
-            description="Be the first to comment."
-        />
+        <div class="mt-5">
+            <x-ui.empty-state
+                title="No comments yet"
+                description="Be the first to comment."
+            />
+        </div>
     @else
-        <div class="space-y-3">
+        <div class="mt-5 space-y-4">
             @foreach ($this->comments as $comment)
                 <x-comments.comment-item
                     :comment="$comment"
@@ -37,31 +41,30 @@
                 />
 
                 @if($replyingTo === $comment->id)
-                    <form wire:submit.prevent="submitReply" class="ml-4 space-y-2 border-l border-rg-border pl-4" data-testid="reply-form">
-                        <x-ui.textarea
+                    <form wire:submit.prevent="submitReply" class="ml-4 flex min-h-[42px] items-center gap-2 border-l border-rg-border pl-4" data-testid="reply-form">
+                        <textarea
                             name="replyBody"
                             wire:model="replyBody"
-                            rows="2"
+                            rows="1"
                             maxlength="1000"
                             placeholder="Write a reply..."
-                            :error="$errors->has('replyBody')"
-                        />
+                            @class([
+                                'min-h-[32px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-5 text-rg-text placeholder:text-rg-muted focus-visible:outline-none',
+                                'text-rg-dangerText' => $errors->has('replyBody'),
+                            ])
+                        ></textarea>
 
                         @error('replyBody')
-                            <p class="text-xs text-rg-dangerText">{{ $message }}</p>
+                            <p class="sr-only">{{ $message }}</p>
                         @enderror
 
-                        <div class="flex justify-end gap-2">
-                            <x-ui.button type="button" size="sm" variant="ghost" wire:click="cancelReply">Cancel</x-ui.button>
-                            <x-ui.button type="submit" size="sm" wire:loading.attr="disabled" wire:target="submitReply">
-                                Reply
-                            </x-ui.button>
-                        </div>
+                        <x-ui.button type="button" size="sm" variant="ghost" wire:click="cancelReply">Cancel</x-ui.button>
+                        <x-ui.button type="submit" size="sm" wire:loading.attr="disabled" wire:target="submitReply">Reply</x-ui.button>
                     </form>
                 @endif
 
                 @if($comment->replies->isNotEmpty())
-                    <div class="ml-4 space-y-2 border-l border-rg-border pl-4" data-testid="comment-replies">
+                    <div class="ml-4 space-y-4 border-l border-rg-border pl-4" data-testid="comment-replies">
                         @foreach($comment->replies as $reply)
                             <x-comments.comment-item
                                 :comment="$reply"

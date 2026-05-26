@@ -5,7 +5,7 @@
         @php
             $hasVoted = $currentCuisine !== null;
             $votingDisabled = $hasVoted || $isOwnPost;
-            $baseClass = 'inline-flex h-8 min-w-12 cursor-pointer items-center justify-center rounded-rgControl border px-2.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
+            $baseClass = 'inline-flex h-8 min-w-12 cursor-pointer items-center justify-center rounded-rgSm border px-2.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
             $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:border-rg-accentBorder hover:bg-rg-card2 hover:text-rg-text';
             $activeClass = 'border-rg-accent bg-rg-accentSoft text-rg-accent2';
         @endphp

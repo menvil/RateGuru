@@ -12,7 +12,7 @@
     wire:click="$dispatch('select-post', { postId: {{ $post->id }} })"
     wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->id }} })"
     wire:keydown.space.prevent="$dispatch('select-post', { postId: {{ $post->id }} })"
-    class="grid cursor-pointer grid-cols-[32px_1fr] gap-2 overflow-hidden transition-colors hover:border-rg-border2 hover:bg-rg-cardHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+    class="grid cursor-pointer grid-cols-[32px_minmax(0,1fr)] gap-3 overflow-hidden transition-colors hover:border-rg-border2 hover:bg-rg-cardHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
 >
     <div data-testid="post-card-voting" class="w-8 pt-1.5" wire:click.stop wire:keydown.stop>
         @if($post->exists)

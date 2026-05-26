@@ -7,8 +7,8 @@
     $variants = [
         'default' => 'border-rg-border bg-rg-card p-4',
         'panel' => 'border-rg-border bg-rg-card p-5',
-        'post' => 'border-rg-border bg-rg-card p-[14px]',
-        'selected-post' => 'border-rg-accent bg-rg-card p-[14px] shadow-rgSelected',
+        'post' => 'border-rg-border bg-rg-card p-4',
+        'selected-post' => 'border-rg-accent bg-rg-card p-4 shadow-rgSelected',
         'detail' => 'border-rg-border bg-rg-card p-5',
         'results' => 'border-rg-border bg-rg-card p-5',
         'comment' => 'border-rg-border bg-rg-card p-5',
