@@ -71,6 +71,9 @@ it('clears the current vote before applying the opposite vote in the UI', functi
         ->assertSee('Down 0')
         ->call('vote', VoteType::Down->value)
         ->assertSee('Up 0')
+        ->assertSee('Down 0')
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('Up 0')
         ->assertSee('Down 1');
 });
 
@@ -91,9 +94,11 @@ it('renders the compact rail score correctly when replacing votes', function () 
         ->call('vote', VoteType::Up->value)
         ->assertSee('aria-label="Score 2"', false)
         ->call('vote', VoteType::Down->value)
+        ->assertSee('aria-label="Score 1"', false)
+        ->call('vote', VoteType::Down->value)
         ->assertSee('aria-label="Score 0"', false)
         ->call('vote', VoteType::Up->value)
-        ->assertSee('aria-label="Score 2"', false)
+        ->assertSee('aria-label="Score 1"', false)
         ->call('vote', VoteType::Up->value)
         ->assertSee('aria-label="Score 2"', false);
 
@@ -120,6 +125,8 @@ it('keeps rail and pill variants on the same aggregate score after voting', func
     Livewire::actingAs($user)
         ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
         ->assertSee('aria-label="Score 1"', false)
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('aria-label="Score 0"', false)
         ->call('vote', VoteType::Down->value)
         ->assertSee('aria-label="Score -1"', false);
 

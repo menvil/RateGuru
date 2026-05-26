@@ -62,7 +62,7 @@ final class VotePostAction
                 if ($existingVote->type === $type) {
                     $existingVote->delete();
                 } else {
-                    $existingVote->update(['type' => $type]);
+                    $existingVote->delete();
                 }
             } else {
                 PostVote::create([
