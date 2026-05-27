@@ -30,6 +30,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $upActive ? 'true' : 'false' }}"
                 data-state="{{ $upActive ? 'active' : 'idle' }}"
+                data-testid="post-upvote-button-{{ $post->id }}"
                 class="{{ $upActive ? 'text-rg-good' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-up" class="size-4" />
@@ -39,6 +40,7 @@
                 class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text2') }} text-[13px] font-bold"
                 title="Score"
                 aria-label="Score {{ $score }}"
+                data-testid="post-upvote-count-{{ $post->id }}"
             >
                 {{ $score }}
             </span>
@@ -68,6 +70,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $upActive ? 'true' : 'false' }}"
                 data-state="{{ $upActive ? 'active' : 'idle' }}"
+                data-testid="post-upvote-button-{{ $post->id }}"
                 class="{{ $upActive ? 'text-rg-good' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-0.5 transition hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-up" class="size-4" />
@@ -77,6 +80,7 @@
                 class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text') }} min-w-4 text-center text-[13px] font-bold"
                 title="Score"
                 aria-label="Score {{ $score }}"
+                data-testid="post-upvote-count-{{ $post->id }}"
             >
                 {{ $score }}
             </span>
@@ -105,11 +109,14 @@
         @disabled($votingDisabled)
         aria-pressed="{{ $upActive ? 'true' : 'false' }}"
         data-state="{{ $upActive ? 'active' : 'idle' }}"
+        data-testid="post-upvote-button-{{ $post->id }}"
         class="{{ $baseClass }} {{ $upClass }}"
     >
         <span wire:loading.remove wire:target="vote">▲ Up {{ $post->upvotes_count }}</span>
         <span wire:loading wire:target="vote">…</span>
     </button>
+
+    <span class="sr-only" data-testid="post-upvote-count-{{ $post->id }}">{{ $post->upvotes_count }}</span>
 
     <button
         type="button"
