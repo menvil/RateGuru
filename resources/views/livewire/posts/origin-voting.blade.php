@@ -25,6 +25,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $homemadeActive ? 'true' : 'false' }}"
                 data-state="{{ $homemadeActive ? 'active' : 'idle' }}"
+                data-testid="origin-vote-homemade-{{ $post->id }}"
                 class="{{ $baseClass }} {{ $homemadeClass }}"
             >
                 <x-ui.icon name="leaf" class="size-3.5" />
@@ -40,6 +41,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $restaurantActive ? 'true' : 'false' }}"
                 data-state="{{ $restaurantActive ? 'active' : 'idle' }}"
+                data-testid="origin-vote-restaurant-{{ $post->id }}"
                 class="{{ $baseClass }} {{ $restaurantClass }}"
             >
                 <x-ui.icon name="chef" class="size-3.5" />
