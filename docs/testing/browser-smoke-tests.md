@@ -18,8 +18,9 @@ Local prerequisites:
 - Browser tests use the normal Laravel testing database configuration from
   `phpunit.xml` and reset state with `RefreshDatabase`.
 
-The suite is intentionally separate from `composer test` so regular unit,
-feature, and Livewire tests stay fast.
+The suite is intentionally separate from `composer test`, which runs only the
+Unit and Feature testsuites, so regular unit, feature, and Livewire tests stay
+fast.
 
 Phase 38 browser tests cover critical flows only:
 
