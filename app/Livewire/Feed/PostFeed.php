@@ -3,6 +3,7 @@
 namespace App\Livewire\Feed;
 
 use App\Queries\Feed\FeedQuery;
+use App\Services\PostVoteResultService;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -23,15 +24,26 @@ class PostFeed extends Component
     #[On('post-moderated')]
     public function refreshAfterPostModerated(): void {}
 
-    public function render(FeedQuery $feedQuery): View
+    public function render(FeedQuery $feedQuery, PostVoteResultService $postVoteResultService): View
     {
+        $posts = $feedQuery->get(
+            search: $this->search !== '' ? $this->search : null,
+            tag: $this->tag !== '' ? $this->tag : null,
+            sort: $this->sort,
+        );
+        $user = auth()->user();
+
         return view('livewire.feed.post-feed', [
-            'posts' => $feedQuery->get(
-                search: $this->search !== '' ? $this->search : null,
-                tag: $this->tag !== '' ? $this->tag : null,
-                sort: $this->sort,
-            ),
+            'posts' => $posts,
             'selectedPostId' => $this->selectedPostId,
+            'originDistributions' => $postVoteResultService->originDistributions($posts, $user),
+            'cuisineDistributions' => $postVoteResultService->cuisineDistributions($posts, $user),
+            'deletePermissions' => $posts
+                ->mapWithKeys(fn ($post): array => [(int) $post->id => $user?->can('deleteFromFeed', $post) ?? false])
+                ->all(),
+            'reportPermissions' => $posts
+                ->mapWithKeys(fn ($post): array => [(int) $post->id => $user?->can('report', $post) ?? false])
+                ->all(),
         ]);
     }
 }

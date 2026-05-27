@@ -3,7 +3,6 @@
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Models\CuisineVote;
-use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\Blade;
@@ -172,12 +171,9 @@ it('post card uses a null select post id for unsaved previews', function () {
 });
 
 it('renders report button in post card menu for persisted posts', function () {
-    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
-    $this->actingAs($user);
-
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+    $html = Blade::render('<x-feed.post-card :post="$post" :can-report-post="true" />', ['post' => $post]);
 
     expect($html)
         ->toContain('data-testid="post-card-report"')
@@ -208,12 +204,9 @@ it('does not render report button for the post owner', function () {
 });
 
 it('renders delete action in the post card menu for the owner', function () {
-    $user = User::factory()->create();
-    $post = Post::factory()->published()->for($user)->create();
+    $post = Post::factory()->published()->create();
 
-    $this->actingAs($user);
-
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+    $html = Blade::render('<x-feed.post-card :post="$post" :can-delete-post="true" />', ['post' => $post]);
 
     expect($html)
         ->toContain('data-testid="post-card-delete"')
@@ -222,12 +215,9 @@ it('renders delete action in the post card menu for the owner', function () {
 });
 
 it('renders delete action in the post card menu for moderators', function () {
-    $moderator = User::factory()->moderator()->create();
     $post = Post::factory()->published()->create();
 
-    $this->actingAs($moderator);
-
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+    $html = Blade::render('<x-feed.post-card :post="$post" :can-delete-post="true" />', ['post' => $post]);
 
     expect($html)->toContain('data-testid="post-card-delete"');
 });
@@ -252,27 +242,31 @@ it('renders origin voting component in post card for persisted posts', function 
 });
 
 it('renders feed card vote results after the current user votes', function () {
-    $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 3,
         'restaurant_votes_count' => 2,
     ]);
+    $originDistribution = [
+        'homemade' => 3,
+        'restaurant' => 2,
+        'homemadePct' => 60,
+        'restaurantPct' => 40,
+        'total' => 5,
+        'current' => OriginType::Homemade->value,
+    ];
+    $cuisineDistribution = [
+        'rows' => [
+            ['label' => 'IT', 'count' => 1, 'percentage' => 50],
+            ['label' => 'MX', 'count' => 1, 'percentage' => 50],
+        ],
+        'total' => 2,
+        'current' => CuisineType::Mexican->value,
+    ];
 
-    OriginVote::factory()->create([
-        'user_id' => $user->id,
-        'post_id' => $post->id,
-        'origin' => OriginType::Homemade,
-    ]);
-
-    CuisineVote::factory()->for($post)->create([
-        'user_id' => $user->id,
-        'cuisine' => CuisineType::Mexican,
-    ]);
-    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
-
-    $this->actingAs($user);
-
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+    $html = Blade::render(
+        '<x-feed.post-card :post="$post" :origin-distribution="$originDistribution" :cuisine-distribution="$cuisineDistribution" />',
+        compact('post', 'originDistribution', 'cuisineDistribution'),
+    );
 
     expect($html)
         ->toContain('data-testid="post-card-origin-results"')
@@ -312,12 +306,16 @@ it('renders origin badges without breaking on unsaved post', function () {
     expect($html)->not->toContain('post-card-origin-voting');
 });
 
-it('keeps post card vote and authorization logic in the component class', function () {
+it('keeps post card free of service locator vote and authorization queries', function () {
+    $component = file_get_contents(app_path('View/Components/Feed/PostCard.php'));
     $view = file_get_contents(resource_path('views/components/feed/post-card.blade.php'));
 
     expect($view)
         ->not->toContain('PostVoteResultService')
-        ->not->toContain('app(')
-        ->not->toContain('$canDeletePost =')
-        ->not->toContain('$canReportPost =');
+        ->not->toContain('app(');
+
+    expect($component)
+        ->not->toContain('PostVoteResultService')
+        ->not->toContain('auth()')
+        ->not->toContain('app(');
 });

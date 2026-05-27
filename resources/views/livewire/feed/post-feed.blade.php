@@ -15,7 +15,15 @@
             />
         @else
             @foreach($posts as $post)
-                <x-feed.post-card :post="$post" :selected="$selectedPostId === $post->id" wire:key="{{ $post->id }}" />
+                <x-feed.post-card
+                    :post="$post"
+                    :selected="$selectedPostId === $post->id"
+                    :origin-distribution="$originDistributions[$post->id] ?? null"
+                    :cuisine-distribution="$cuisineDistributions[$post->id] ?? null"
+                    :can-delete-post="$deletePermissions[$post->id] ?? false"
+                    :can-report-post="$reportPermissions[$post->id] ?? false"
+                    wire:key="{{ $post->id }}"
+                />
             @endforeach
         @endif
     </div>

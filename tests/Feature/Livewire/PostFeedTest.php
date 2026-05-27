@@ -1,6 +1,10 @@
 <?php
 
+use App\Enums\CuisineType;
+use App\Enums\OriginType;
 use App\Livewire\Feed\PostFeed;
+use App\Models\CuisineVote;
+use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
@@ -75,4 +79,34 @@ it('renders post cards using the post card component', function () {
     Livewire::test(PostFeed::class)
         ->assertSee('data-testid="post-card"', false)
         ->assertSee('Homemade Carbonara');
+});
+
+it('passes bulk loaded post card vote results and permissions into feed cards', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'title' => 'Bulk Loaded Results',
+        'homemade_votes_count' => 3,
+        'restaurant_votes_count' => 2,
+    ]);
+
+    OriginVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'origin' => OriginType::Homemade,
+    ]);
+
+    CuisineVote::factory()->for($post)->create([
+        'user_id' => $user->id,
+        'cuisine' => CuisineType::Mexican,
+    ]);
+    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
+
+    Livewire::actingAs($user)
+        ->test(PostFeed::class)
+        ->assertSee('Bulk Loaded Results')
+        ->assertSee('data-testid="post-card-origin-results"', false)
+        ->assertSee('60% (3)')
+        ->assertSee('40% (2)')
+        ->assertSee('data-testid="post-card-cuisine-results"', false)
+        ->assertSee('50% (1)');
 });
