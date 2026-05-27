@@ -39,7 +39,7 @@
 
         </div>
 
-        <h3 class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
+        <h3 data-testid="post-card-title" class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
 
         @if($post->truncated_description)
             <p class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
@@ -136,6 +136,7 @@
                         type="button"
                         x-on:click="postMenuOpen = ! postMenuOpen"
                         aria-label="Post actions"
+                        data-testid="post-actions-menu-{{ $post->id }}"
                         class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
                         <x-ui.icon name="more" class="size-4" />

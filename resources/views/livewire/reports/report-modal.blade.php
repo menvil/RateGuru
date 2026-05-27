@@ -1,19 +1,18 @@
 <div
-    data-testid="report-modal"
     class="leading-none"
     x-data="{ reportOpen: false }"
     @keydown.escape.window="reportOpen = false"
 >
     <button
         type="button"
-        data-testid="open-report-modal"
+        data-testid="report-button"
         @click="reportOpen = true"
         class="inline-flex h-5 cursor-pointer items-center text-xs font-semibold leading-none text-rg-muted transition hover:text-rg-dangerText"
     >
         Report
     </button>
 
-    <x-ui.modal title="Report content" state="reportOpen">
+    <x-ui.modal title="Report content" state="reportOpen" data-testid="report-modal">
         @if($submitted)
             <div data-testid="report-success">
                 <x-ui.empty-state

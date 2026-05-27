@@ -9,6 +9,7 @@
 
             <input
                 id="comment-body"
+                data-testid="comment-body"
                 name="body"
                 type="text"
                 wire:model="body"
@@ -28,6 +29,7 @@
 
             <x-ui.button
                 type="submit"
+                data-testid="comment-submit"
                 size="sm"
                 class="h-8 rounded-rgSm px-4 text-[12.5px]"
                 wire:loading.attr="disabled"
