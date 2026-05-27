@@ -24,7 +24,7 @@
                     · {{ $post->published_at->diffForHumans() }}
                 @endif
             </p>
-            <h2 class="mt-2 pr-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
+            <h2 data-testid="post-drawer-title" class="mt-2 pr-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
 
             <div class="mt-4">
                 @if($post->public_image_url)

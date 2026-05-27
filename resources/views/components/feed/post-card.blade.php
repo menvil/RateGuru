@@ -39,7 +39,7 @@
 
         </div>
 
-        <h3 class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
+        <h3 data-testid="post-card-title" class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
 
         @if($post->truncated_description)
             <p class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
