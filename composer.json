@@ -56,7 +56,7 @@
             "@php artisan config:clear --ansi @no_additional_args",
             "@php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature"
         ],
-        "test:browser": "php artisan test --testsuite=Browser",
+        "test:browser": "@php -d memory_limit=512M vendor/bin/pest --testsuite=Browser",
         "test:feature": "pest tests/Feature",
         "test:unit": "pest tests/Unit",
         "post-autoload-dump": [
