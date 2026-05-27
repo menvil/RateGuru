@@ -21,7 +21,7 @@ it('renders report button in post drawer', function () {
 
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('data-testid="open-report-modal"', false)
+        ->assertSee('data-testid="report-button"', false)
         ->assertSee('Report');
 });
 
@@ -31,7 +31,7 @@ it('does not render report button in post drawer for the owner', function () {
 
     Livewire::actingAs($owner)
         ->test(PostDrawer::class, ['postId' => $post->id])
-        ->assertDontSee('data-testid="open-report-modal"', false);
+        ->assertDontSee('data-testid="report-button"', false);
 });
 
 it('renders post voting component in drawer', function () {
