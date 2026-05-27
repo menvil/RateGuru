@@ -141,6 +141,7 @@ final class CuisineVoting extends Component
         if ($post !== null && auth()->check()) {
             $currentCuisine = $post->cuisineVotes()
                 ->where('user_id', auth()->id())
+                ->latest('id')
                 ->first()
                 ?->cuisine
                 ?->value;

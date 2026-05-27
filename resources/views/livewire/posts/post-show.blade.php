@@ -63,7 +63,7 @@
             @if($post->source_url)
                 <a
                     href="{{ $post->source_url }}"
-                    rel="nofollow noopener"
+                    rel="nofollow noopener noreferrer"
                     target="_blank"
                     class="text-xs font-semibold text-rg-accent2 hover:underline"
                 >

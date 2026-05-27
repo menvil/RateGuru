@@ -1,14 +1,23 @@
 <aside data-testid="app-sidebar" class="hidden w-60 shrink-0 flex-col border-r border-rg-border bg-rg-sidebar px-4 py-5 lg:sticky lg:top-[60px] lg:flex lg:h-[calc(100vh-60px)]">
     <nav class="space-y-1" aria-label="Primary">
         @foreach ($navItems as $item)
-            <a
-                href="{{ $item['href'] }}"
-                @if ($item['href'] === '#') aria-disabled="true" @endif
-                class="{{ $item['active'] ? 'border-rg-border2 bg-rg-card2 text-rg-text' : 'border-transparent text-rg-text2 hover:bg-rg-card hover:text-rg-text' }} flex h-10 items-center gap-3 rounded-rgControl border px-3.5 text-[13.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent {{ $item['href'] === '#' ? 'cursor-not-allowed opacity-70' : '' }}"
-            >
-                <x-ui.icon :name="$item['icon']" class="size-4" />
-                {{ $item['label'] }}
-            </a>
+            @if ($item['href'] === '#')
+                <span
+                    aria-disabled="true"
+                    class="flex h-10 cursor-not-allowed items-center gap-3 rounded-rgControl border border-transparent px-3.5 text-[13.5px] font-semibold text-rg-text2 opacity-70"
+                >
+                    <x-ui.icon :name="$item['icon']" class="size-4" />
+                    {{ $item['label'] }}
+                </span>
+            @else
+                <a
+                    href="{{ $item['href'] }}"
+                    class="{{ $item['active'] ? 'border-rg-border2 bg-rg-card2 text-rg-text' : 'border-transparent text-rg-text2 hover:bg-rg-card hover:text-rg-text' }} flex h-10 items-center gap-3 rounded-rgControl border px-3.5 text-[13.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                >
+                    <x-ui.icon :name="$item['icon']" class="size-4" />
+                    {{ $item['label'] }}
+                </a>
+            @endif
         @endforeach
     </nav>
 

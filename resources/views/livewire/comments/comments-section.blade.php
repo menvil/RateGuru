@@ -2,7 +2,7 @@
     @if ($showHeader)
         <div class="flex items-center justify-between gap-3">
             <h3 class="text-base font-bold text-rg-text">Comments ({{ $this->totalComments }})</h3>
-            <button type="button" class="flex h-8 cursor-pointer items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-2.5 text-[12.5px] text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+            <button type="button" disabled class="flex h-8 cursor-not-allowed items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-2.5 text-[12.5px] text-rg-text2 opacity-70">
                 Top
                 <x-ui.icon name="chevron-down" class="size-3.5" />
             </button>
@@ -61,7 +61,7 @@
                         >
 
                         @error('replyBody')
-                            <p class="sr-only">{{ $message }}</p>
+                            <p class="text-xs text-rg-dangerText" role="alert" aria-live="polite">{{ $message }}</p>
                         @enderror
 
                         <x-ui.button

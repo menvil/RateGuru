@@ -153,15 +153,22 @@ it('renders post author area', function () {
 });
 
 it('post card dispatches select post event with post id', function () {
-    $post = Post::factory()->published()->make();
-    $post->id = 123;
+    $post = Post::factory()->published()->create();
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)
-        ->toContain("select-post', { postId: 123 }")
+        ->toContain("select-post', { postId: {$post->id} }")
         ->toContain('post-card-voting')
         ->toContain('grid-cols-[32px_minmax(0,1fr)]');
+});
+
+it('post card uses a null select post id for unsaved previews', function () {
+    $post = Post::factory()->published()->make();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain("select-post', { postId: null }");
 });
 
 it('renders report button in post card menu for persisted posts', function () {

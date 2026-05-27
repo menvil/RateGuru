@@ -5,6 +5,7 @@ namespace App\Actions\Posts;
 use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 final class TogglePostSaveAction
@@ -24,12 +25,30 @@ final class TogglePostSaveAction
                 return false;
             }
 
-            PostSave::query()->create([
-                'user_id' => $user->id,
-                'post_id' => $post->id,
-            ]);
+            try {
+                PostSave::query()->create([
+                    'user_id' => $user->id,
+                    'post_id' => $post->id,
+                ]);
+            } catch (QueryException $e) {
+                if (! $this->isUniqueConstraintViolation($e)) {
+                    throw $e;
+                }
+
+                return PostSave::query()
+                    ->where('user_id', $user->id)
+                    ->where('post_id', $post->id)
+                    ->exists();
+            }
 
             return true;
         });
+    }
+
+    private function isUniqueConstraintViolation(QueryException $e): bool
+    {
+        return $e->getCode() === '23000'
+            || str_contains(strtolower($e->getMessage()), 'unique constraint')
+            || str_contains(strtolower($e->getMessage()), 'duplicate');
     }
 }

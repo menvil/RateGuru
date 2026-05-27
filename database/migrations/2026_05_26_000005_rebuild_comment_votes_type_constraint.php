@@ -40,8 +40,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        // The previous schema used the same columns without a type check.
-        // Leaving the constrained table in place is safer than rebuilding
-        // it to accept invalid vote types.
+        // Intentionally irreversible: dropping the check would allow invalid
+        // vote types again. See docs/design/phase-37-ui-polish-review.md.
+        throw new RuntimeException('This migration is intentionally irreversible.');
     }
 };

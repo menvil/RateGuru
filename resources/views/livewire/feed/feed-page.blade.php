@@ -55,7 +55,7 @@
                 :tag="$category"
                 :sort="$sort"
                 :selected-post-id="$selectedPostId"
-                :key="'feed-'.md5(json_encode([$search, $category, $sort, $selectedPostId]))"
+                :key="'feed-'.md5(json_encode([$search, $category, $sort]))"
             />
         </section>
 

@@ -11,7 +11,7 @@ class CommentVote extends Model
 {
     use HasFactory;
 
-    protected $guarded = [];
+    protected $fillable = ['comment_id', 'user_id', 'type'];
 
     protected function casts(): array
     {

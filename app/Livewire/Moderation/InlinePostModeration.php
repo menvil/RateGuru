@@ -27,6 +27,8 @@ final class InlinePostModeration extends Component
 
     public string $variant = 'panel';
 
+    private ?Post $cachedPost = null;
+
     #[Computed]
     public function canModerate(): bool
     {
@@ -140,7 +142,7 @@ final class InlinePostModeration extends Component
 
     private function post(): Post
     {
-        return Post::query()->findOrFail($this->postId);
+        return $this->cachedPost ??= Post::query()->findOrFail($this->postId);
     }
 
     private function normalizedReason(): ?string

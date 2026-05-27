@@ -100,7 +100,7 @@
                             :key="'post-drawer-menu-moderation-'.$post->id"
                         />
 
-                        @if(! $canReportPost && ! $canDeletePost)
+                        @if(! $canReportPost && ! $canDeletePost && ! $canModeratePost)
                             <span class="block px-3 py-2 text-sm text-rg-muted">No actions</span>
                         @endif
                     </div>
