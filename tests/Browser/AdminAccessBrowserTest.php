@@ -11,3 +11,12 @@ it('denies admin access to normal user', function () {
         ->assertPathIs('/admin')
         ->assertSee('403');
 });
+
+it('allows moderator to access admin panel', function () {
+    actingAs(User::factory()->moderator()->create());
+
+    visit('/admin')
+        ->assertPathIs('/admin')
+        ->assertSee('RateGuru Admin')
+        ->assertPresent('[data-testid="admin-dashboard"]');
+});
