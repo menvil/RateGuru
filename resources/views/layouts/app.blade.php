@@ -113,8 +113,8 @@
                                 </div>
                             </div>
 
-                            <div data-testid="upload-modal">
-                                <x-ui.modal title="Create post" size="lg">
+                            <div>
+                                <x-ui.modal title="Create post" size="lg" data-testid="upload-modal">
                                     <livewire:feed.upload-post-form />
                                 </x-ui.modal>
                             </div>

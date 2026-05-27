@@ -17,6 +17,7 @@
 @endphp
 
 <div
+    {{ $attributes }}
     x-show="{{ $state }}"
     x-cloak
     x-transition:enter="motion-safe:transition-opacity motion-reduce:transition-none ease-out duration-200"
