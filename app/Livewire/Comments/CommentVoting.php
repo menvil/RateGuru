@@ -2,10 +2,9 @@
 
 namespace App\Livewire\Comments;
 
-use App\Actions\Votes\VoteCommentAction;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteCommentException;
-use App\Models\Comment;
+use App\Services\Comments\CommentVotingService;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -16,14 +15,7 @@ final class CommentVoting extends Component
 
     public string $error = '';
 
-    public function getCommentProperty(): ?Comment
-    {
-        return Comment::query()
-            ->whereNull('deleted_at')
-            ->find($this->commentId);
-    }
-
-    public function vote(string $type, VoteCommentAction $voteCommentAction): void
+    public function vote(string $type, CommentVotingService $commentVotingService): void
     {
         $this->error = '';
 
@@ -33,7 +25,7 @@ final class CommentVoting extends Component
             return;
         }
 
-        $comment = $this->comment;
+        $comment = $commentVotingService->comment($this->commentId);
 
         if ($comment === null) {
             $this->error = 'This comment is no longer available.';
@@ -41,7 +33,7 @@ final class CommentVoting extends Component
             return;
         }
 
-        $currentVote = $this->currentVoteFor($comment);
+        $currentVote = $commentVotingService->currentVote(auth()->user(), $comment->id);
 
         if ($currentVote === $voteType) {
             return;
@@ -50,14 +42,12 @@ final class CommentVoting extends Component
         $voteToApply = $voteType;
 
         try {
-            $voteCommentAction->handle(auth()->user(), $comment, $voteToApply);
+            $commentVotingService->vote(auth()->user(), $comment->id, $voteToApply);
         } catch (CannotVoteCommentException $e) {
             $this->error = $e->getMessage();
 
             return;
         }
-
-        unset($this->comment);
 
         $this->dispatch('comment-voted', commentId: $this->commentId);
     }
@@ -65,18 +55,16 @@ final class CommentVoting extends Component
     #[On('comment-voted')]
     public function refreshAfterCommentVote(int $commentId): void
     {
-        if ($commentId === $this->commentId) {
-            unset($this->comment);
-        }
+        //
     }
 
-    public function render(): View
+    public function render(CommentVotingService $commentVotingService): View
     {
-        $comment = $this->comment;
+        $comment = $commentVotingService->comment($this->commentId);
         $currentVote = null;
 
         if ($comment !== null) {
-            $currentVote = $this->currentVoteFor($comment)?->value;
+            $currentVote = $commentVotingService->currentVote(auth()->user(), $comment->id)?->value;
         }
 
         return view('livewire.comments.comment-voting', [
@@ -88,17 +76,5 @@ final class CommentVoting extends Component
             'votingDisabled' => $comment !== null && auth()->check() && (int) $comment->user_id === (int) auth()->id(),
             'score' => (int) ($comment?->score ?? 0),
         ]);
-    }
-
-    private function currentVoteFor(Comment $comment): ?VoteType
-    {
-        if (! auth()->check()) {
-            return null;
-        }
-
-        return $comment->commentVotes()
-            ->where('user_id', auth()->id())
-            ->first()
-            ?->type;
     }
 }

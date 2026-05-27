@@ -2,9 +2,7 @@
 
 namespace App\Livewire\Feed;
 
-use App\Actions\Posts\DeletePostAction;
-use App\Exceptions\Posts\CannotDeletePostException;
-use App\Models\Post;
+use App\Services\Feed\FeedPostDeletionService;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
@@ -51,25 +49,19 @@ class FeedPage extends Component
     }
 
     #[On('delete-post')]
-    public function deletePost(int $postId, DeletePostAction $deletePostAction): void
+    public function deletePost(int $postId, FeedPostDeletionService $feedPostDeletionService): void
     {
         $this->deleteError = null;
 
-        if (! auth()->check()) {
+        $result = $feedPostDeletionService->deleteForUser(auth()->user(), $postId);
+
+        if ($result->error !== null) {
+            $this->deleteError = $result->error;
+
             return;
         }
 
-        $post = Post::query()->find($postId);
-
-        if ($post === null) {
-            return;
-        }
-
-        try {
-            $deletePostAction->handle(auth()->user(), $post);
-        } catch (CannotDeletePostException $e) {
-            $this->deleteError = $e->getMessage();
-
+        if (! $result->deleted) {
             return;
         }
 

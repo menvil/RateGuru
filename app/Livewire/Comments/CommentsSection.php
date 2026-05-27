@@ -2,13 +2,12 @@
 
 namespace App\Livewire\Comments;
 
-use App\Actions\Comments\AddCommentAction;
 use App\Actions\Comments\DeleteCommentAction;
 use App\Actions\Comments\HideCommentAction;
 use App\Enums\CommentStatus;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
-use App\Models\Post;
+use App\Services\Comments\CommentReplyService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
@@ -72,16 +71,9 @@ final class CommentsSection extends Component
         unset($this->comments);
     }
 
-    public function startReply(int $commentId): void
+    public function startReply(int $commentId, CommentReplyService $commentReplyService): void
     {
-        $exists = Comment::query()
-            ->where('post_id', $this->postId)
-            ->where('status', CommentStatus::Visible)
-            ->whereNull('parent_id')
-            ->whereKey($commentId)
-            ->exists();
-
-        if (! $exists) {
+        if (! $commentReplyService->canStartReply($this->postId, $commentId)) {
             return;
         }
 
@@ -97,40 +89,26 @@ final class CommentsSection extends Component
         $this->resetErrorBag('replyBody');
     }
 
-    public function submitReply(AddCommentAction $addCommentAction): void
+    public function submitReply(CommentReplyService $commentReplyService): void
     {
-        if (! auth()->check()) {
-            $this->addError('replyBody', 'You must be signed in to reply.');
-
-            return;
-        }
-
         if ($this->replyingTo === null) {
             return;
         }
 
-        $post = Post::query()->published()->find($this->postId);
-        $parent = Comment::query()
-            ->where('post_id', $this->postId)
-            ->where('status', CommentStatus::Visible)
-            ->whereNull('parent_id')
-            ->find($this->replyingTo);
-
-        if ($post === null || $parent === null) {
-            $this->addError('replyBody', 'Reply target is unavailable.');
-
-            return;
-        }
-
         try {
-            $comment = $addCommentAction->handle(
+            $comment = $commentReplyService->createReply(
                 user: auth()->user(),
-                post: $post,
+                postId: $this->postId,
+                parentCommentId: $this->replyingTo,
                 body: $this->replyBody,
-                parent: $parent,
             );
         } catch (CannotCommentException $e) {
-            $this->addError('replyBody', $e->getMessage());
+            $this->addError(
+                'replyBody',
+                $e->getMessage() === 'Guests cannot comment.'
+                    ? 'You must be signed in to reply.'
+                    : $e->getMessage(),
+            );
 
             return;
         }
