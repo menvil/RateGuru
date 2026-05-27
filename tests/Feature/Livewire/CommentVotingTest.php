@@ -34,7 +34,7 @@ it('records an upvote from the comment voting component', function () {
     ]);
 });
 
-it('keeps an active comment vote when clicked again in the UI', function () {
+it('toggles an active comment vote off when clicked again in the UI', function () {
     $user = User::factory()->create();
     $comment = Comment::factory()->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
 
@@ -43,10 +43,10 @@ it('keeps an active comment vote when clicked again in the UI', function () {
         ->call('vote', VoteType::Up->value)
         ->assertSee('1')
         ->call('vote', VoteType::Up->value)
-        ->assertSee('1');
+        ->assertSee('0');
 
     expect($comment->fresh())
-        ->upvotes_count->toBe(1)
+        ->upvotes_count->toBe(0)
         ->downvotes_count->toBe(0);
 });
 

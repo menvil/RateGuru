@@ -168,7 +168,12 @@ it('renders newest top level comments first', function () {
     expect($html)
         ->toContain('Newer comment')
         ->toContain('Older comment');
-    expect(strpos($html, 'Newer comment'))->toBeLessThan(strpos($html, 'Older comment'));
+    $newerPosition = strpos($html, 'Newer comment');
+    $olderPosition = strpos($html, 'Older comment');
+
+    expect($newerPosition)->not->toBeFalse()
+        ->and($olderPosition)->not->toBeFalse()
+        ->and($newerPosition)->toBeLessThan($olderPosition);
 });
 
 it('sorts comments by newest for guests', function () {
@@ -218,7 +223,12 @@ it('sorts comments by top score for guests', function () {
         ->assertSet('commentSort', 'top')
         ->html();
 
-    expect(strpos($html, 'High score comment'))->toBeLessThan(strpos($html, 'Low score comment'));
+    $highPosition = strpos($html, 'High score comment');
+    $lowPosition = strpos($html, 'Low score comment');
+
+    expect($highPosition)->not->toBeFalse()
+        ->and($lowPosition)->not->toBeFalse()
+        ->and($highPosition)->toBeLessThan($lowPosition);
 });
 
 it('sorts comments by hot engagement for guests', function () {
@@ -245,7 +255,12 @@ it('sorts comments by hot engagement for guests', function () {
         ->assertSet('commentSort', 'hot')
         ->html();
 
-    expect(strpos($html, 'Active comment'))->toBeLessThan(strpos($html, 'Quiet comment'));
+    $activePosition = strpos($html, 'Active comment');
+    $quietPosition = strpos($html, 'Quiet comment');
+
+    expect($activePosition)->not->toBeFalse()
+        ->and($quietPosition)->not->toBeFalse()
+        ->and($activePosition)->toBeLessThan($quietPosition);
 });
 
 it('can add a reply to a top level comment', function () {

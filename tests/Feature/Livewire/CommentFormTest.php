@@ -112,7 +112,7 @@ it('renders comment validation error on empty submit', function () {
         ->set('body', '')
         ->call('submit')
         ->assertSee('data-testid="comment-body-error"', false)
-        ->assertSee('text-xs text-rg-dangerText', false);
+        ->assertSee('Comment body is required.');
 
     $this->assertDatabaseCount('comments', 0);
 });

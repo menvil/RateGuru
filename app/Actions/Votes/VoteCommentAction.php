@@ -50,8 +50,13 @@ final class VoteCommentAction
         }
 
         DB::transaction(function () use ($user, $comment, $type): void {
+            $lockedComment = Comment::query()
+                ->whereKey($comment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
             $existingVote = CommentVote::query()
-                ->where('comment_id', $comment->id)
+                ->where('comment_id', $lockedComment->id)
                 ->where('user_id', $user->id)
                 ->lockForUpdate()
                 ->first();
@@ -65,12 +70,12 @@ final class VoteCommentAction
             } else {
                 CommentVote::create([
                     'user_id' => $user->id,
-                    'comment_id' => $comment->id,
+                    'comment_id' => $lockedComment->id,
                     'type' => $type,
                 ]);
             }
 
-            $this->recalculateCommentCounters->handle($comment->refresh());
+            $this->recalculateCommentCounters->handle($lockedComment->refresh());
         });
     }
 }

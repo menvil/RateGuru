@@ -44,6 +44,9 @@ class PostFeed extends Component
             'reportPermissions' => $posts
                 ->mapWithKeys(fn ($post): array => [(int) $post->id => $user?->can('report', $post) ?? false])
                 ->all(),
+            'moderationPermissions' => $posts
+                ->mapWithKeys(fn ($post): array => [(int) $post->id => $user !== null && ($user->isModerator() || $user->isAdmin())])
+                ->all(),
         ]);
     }
 }

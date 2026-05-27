@@ -32,8 +32,8 @@
 
         @if($error !== '')
             <span data-testid="cuisine-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
-        @elseif(($isOwnPost ?? false) && ! $hasVoted)
-            <span data-testid="cuisine-voting-error" class="text-xs text-rg-muted">You cannot vote on your own post.</span>
+        @elseif($voteErrorMessage)
+            <span data-testid="cuisine-voting-error" class="text-xs text-rg-muted">{{ $voteErrorMessage }}</span>
         @endif
     @endif
 </div>

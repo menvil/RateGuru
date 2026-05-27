@@ -39,4 +39,8 @@ it('asks guests to log in before saving', function () {
         ->call('toggle')
         ->assertSet('saved', false)
         ->assertSee('Log in to save posts.');
+
+    $this->assertDatabaseMissing('post_saves', [
+        'post_id' => $post->id,
+    ]);
 });

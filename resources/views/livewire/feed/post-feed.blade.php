@@ -22,6 +22,7 @@
                     :cuisine-distribution="$cuisineDistributions[$post->id] ?? null"
                     :can-delete-post="$deletePermissions[$post->id] ?? false"
                     :can-report-post="$reportPermissions[$post->id] ?? false"
+                    :can-moderate-post="$moderationPermissions[$post->id] ?? false"
                     wire:key="{{ $post->id }}"
                 />
             @endforeach

@@ -35,10 +35,6 @@ final class CommentVoting extends Component
 
         $currentVote = $commentVotingService->currentVote(auth()->user(), $comment->id);
 
-        if ($currentVote === $voteType) {
-            return;
-        }
-
         $voteToApply = $voteType;
 
         try {

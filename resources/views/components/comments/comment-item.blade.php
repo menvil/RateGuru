@@ -28,6 +28,8 @@
                     <button
                         type="button"
                         aria-label="Comment actions"
+                        aria-controls="comment-actions-{{ $comment->id }}"
+                        x-bind:aria-expanded="actionsOpen"
                         x-on:click="actionsOpen = ! actionsOpen"
                         class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
@@ -35,6 +37,7 @@
                     </button>
 
                     <div
+                        id="comment-actions-{{ $comment->id }}"
                         x-cloak
                         x-show="actionsOpen"
                         x-on:click.outside="actionsOpen = false"

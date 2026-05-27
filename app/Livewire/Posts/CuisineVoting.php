@@ -156,6 +156,9 @@ final class CuisineVoting extends Component
             'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
             'hasVoted' => $currentCuisine !== null,
             'votingDisabled' => $currentCuisine !== null || ($post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id()),
+            'voteErrorMessage' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id() && $currentCuisine === null
+                ? 'You cannot vote on your own post.'
+                : null,
         ]);
     }
 }

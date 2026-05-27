@@ -16,6 +16,8 @@ final class PostCard extends Component
 
     public bool $canReportPost = false;
 
+    public bool $canModeratePost = false;
+
     public function __construct(
         public Post $post,
         public bool $selected = false,
@@ -23,11 +25,13 @@ final class PostCard extends Component
         ?array $cuisineDistribution = null,
         bool $canDeletePost = false,
         bool $canReportPost = false,
+        bool $canModeratePost = false,
     ) {
         $this->originDistribution = $originDistribution;
         $this->cuisineDistribution = $cuisineDistribution;
         $this->canDeletePost = $canDeletePost;
         $this->canReportPost = $canReportPost;
+        $this->canModeratePost = $canModeratePost;
     }
 
     public function render(): View

@@ -225,6 +225,16 @@ it('places post card actions menu in the footer row', function () {
         ->toContain('aria-label="Post actions"');
 });
 
+it('does not show no actions fallback when moderation actions may render', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" :can-moderate-post="true" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('post-card-moderation')
+        ->not->toContain('No actions');
+});
+
 it('hides save action from guests on feed cards', function () {
     $post = Post::factory()->published()->create();
 

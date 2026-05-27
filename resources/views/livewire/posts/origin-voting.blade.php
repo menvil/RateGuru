@@ -49,7 +49,7 @@
 
         @if($error !== '')
             <span data-testid="origin-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
-        @elseif(($isOwnPost ?? false) && ! $hasVoted)
+        @elseif($showOwnPostVoteError)
             <span data-testid="origin-voting-error" class="text-xs text-rg-muted">You cannot vote on your own post.</span>
         @endif
     @endif

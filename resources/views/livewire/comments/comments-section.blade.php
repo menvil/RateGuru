@@ -9,12 +9,15 @@
                     class="flex h-8 cursor-pointer items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-2.5 text-[12.5px] text-rg-text2 transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     data-testid="comments-sort-trigger"
                     aria-haspopup="true"
+                    aria-controls="comments-sort-menu"
+                    x-bind:aria-expanded="open"
                 >
                     {{ ['top' => 'Top', 'newest' => 'Newest', 'hot' => 'Hot'][$commentSort] ?? 'Top' }}
                     <x-ui.icon name="chevron-down" class="size-3.5" />
                 </button>
 
                 <div
+                    id="comments-sort-menu"
                     x-cloak
                     x-show="open"
                     class="absolute right-0 z-20 mt-2 w-32 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"

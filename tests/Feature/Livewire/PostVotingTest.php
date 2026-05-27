@@ -144,7 +144,9 @@ it('stops rail vote clicks from bubbling to the feed card', function () {
 
     Livewire::test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
         ->assertSee('x-on:click.stop', false)
-        ->assertSee('x-on:keydown.stop', false)
+        ->assertSee('x-on:keydown.enter.stop', false)
+        ->assertSee('x-on:keydown.space.stop', false)
+        ->assertDontSee('x-on:keydown.stop', false)
         ->assertSee('wire:click.stop="vote(\'up\')"', false)
         ->assertSee('wire:click.stop="vote(\'down\')"', false);
 });

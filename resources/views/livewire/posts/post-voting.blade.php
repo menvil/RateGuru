@@ -1,7 +1,8 @@
 <div
     data-testid="post-voting"
     x-on:click.stop
-    x-on:keydown.stop
+    x-on:keydown.enter.stop
+    x-on:keydown.space.stop
     class="{{ in_array($variant, ['rail', 'pill'], true) ? 'flex justify-center' : 'flex flex-wrap items-center gap-2' }}"
 >
     @if($post === null)
