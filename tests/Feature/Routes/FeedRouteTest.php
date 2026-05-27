@@ -53,7 +53,9 @@ it('renders authenticated header actions without changing guest header behavior'
 
     $this->get('/')
         ->assertOk()
-        ->assertDontSee('data-testid="notification-bell"', false);
+        ->assertDontSee('data-testid="notification-bell"', false)
+        ->assertSee('data-testid="header-login-link"', false)
+        ->assertSee('Log in');
 
     $this->actingAs($user)
         ->get('/')
@@ -62,6 +64,7 @@ it('renders authenticated header actions without changing guest header behavior'
         ->assertSee('data-testid="notification-bell"', false)
         ->assertSee('data-testid="header-profile-link"', false)
         ->assertSee('data-testid="header-user-menu-trigger"', false)
+        ->assertDontSee('data-testid="header-login-link"', false)
         ->assertSee('Profile')
         ->assertSee('Log out');
 });

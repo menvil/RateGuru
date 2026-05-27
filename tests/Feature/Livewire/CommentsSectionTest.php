@@ -171,6 +171,83 @@ it('renders newest top level comments first', function () {
     expect(strpos($html, 'Newer comment'))->toBeLessThan(strpos($html, 'Older comment'));
 });
 
+it('sorts comments by newest for guests', function () {
+    $post = Post::factory()->published()->create();
+
+    Comment::factory()->for($post)->create([
+        'body' => 'Older comment',
+        'status' => CommentStatus::Visible,
+        'created_at' => now()->subHour(),
+    ]);
+
+    Comment::factory()->for($post)->create([
+        'body' => 'Newer comment',
+        'status' => CommentStatus::Visible,
+        'created_at' => now(),
+    ]);
+
+    $html = Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->call('setCommentSort', 'newest')
+        ->assertSet('commentSort', 'newest')
+        ->html();
+
+    expect(strpos($html, 'Newer comment'))->toBeLessThan(strpos($html, 'Older comment'));
+});
+
+it('sorts comments by top score for guests', function () {
+    $post = Post::factory()->published()->create();
+
+    Comment::factory()->for($post)->create([
+        'body' => 'Low score comment',
+        'status' => CommentStatus::Visible,
+        'upvotes_count' => 1,
+        'downvotes_count' => 0,
+        'created_at' => now(),
+    ]);
+
+    Comment::factory()->for($post)->create([
+        'body' => 'High score comment',
+        'status' => CommentStatus::Visible,
+        'upvotes_count' => 8,
+        'downvotes_count' => 1,
+        'created_at' => now()->subHour(),
+    ]);
+
+    $html = Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->call('setCommentSort', 'top')
+        ->assertSet('commentSort', 'top')
+        ->html();
+
+    expect(strpos($html, 'High score comment'))->toBeLessThan(strpos($html, 'Low score comment'));
+});
+
+it('sorts comments by hot engagement for guests', function () {
+    $post = Post::factory()->published()->create();
+
+    Comment::factory()->for($post)->create([
+        'body' => 'Quiet comment',
+        'status' => CommentStatus::Visible,
+        'upvotes_count' => 1,
+        'downvotes_count' => 0,
+        'created_at' => now(),
+    ]);
+
+    Comment::factory()->for($post)->create([
+        'body' => 'Active comment',
+        'status' => CommentStatus::Visible,
+        'upvotes_count' => 3,
+        'downvotes_count' => 2,
+        'created_at' => now()->subHour(),
+    ]);
+
+    $html = Livewire::test(CommentsSection::class, ['postId' => $post->id])
+        ->call('setCommentSort', 'hot')
+        ->assertSet('commentSort', 'hot')
+        ->html();
+
+    expect(strpos($html, 'Active comment'))->toBeLessThan(strpos($html, 'Quiet comment'));
+});
+
 it('can add a reply to a top level comment', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

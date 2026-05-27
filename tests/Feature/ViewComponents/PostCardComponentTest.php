@@ -214,6 +214,27 @@ it('renders delete action in the post card menu for the owner', function () {
         ->toContain("delete-post', { postId: {$post->id} }");
 });
 
+it('places post card actions menu in the footer row', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" :can-delete-post="true" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('justify-between')
+        ->toContain('bottom-full right-0')
+        ->toContain('aria-label="Post actions"');
+});
+
+it('hides save action from guests on feed cards', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->not->toContain('data-testid="save-post-button"')
+        ->not->toContain('>Save<');
+});
+
 it('renders delete action in the post card menu for moderators', function () {
     $post = Post::factory()->published()->create();
 

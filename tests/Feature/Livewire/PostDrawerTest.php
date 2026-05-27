@@ -58,10 +58,20 @@ it('renders share panel in post drawer for published post', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Share post')
+        ->assertSee('Share this post')
         ->assertSee('data-testid="post-share-panel"', false)
+        ->assertSee('data-testid="post-share-copy"', false)
+        ->assertDontSee('Open post')
         ->assertDontSee('data-testid="post-drawer-share-panel"', false)
         ->assertSee(app(PostUrl::class)->canonical($post));
+});
+
+it('hides save action from guests in the post drawer', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="save-post-button"', false)
+        ->assertDontSee('>Save<', false);
 });
 
 it('does not render public share panel in drawer for hidden post', function () {
@@ -237,6 +247,8 @@ it('renders cuisine voting buttons in drawer', function () {
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('data-testid="post-drawer-cuisine-voting"', false)
+        ->assertSee('flex-nowrap', false)
+        ->assertSee('h-7 min-w-9', false)
         ->assertSee('Italian')
         ->assertSee('Asian')
         ->assertSee('American')

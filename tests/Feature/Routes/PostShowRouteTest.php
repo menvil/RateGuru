@@ -117,9 +117,20 @@ it('renders share panel on post page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('Share post')
+        ->assertSee('Share this post')
         ->assertSee('data-testid="post-show-share-trigger"', false)
+        ->assertSee('data-testid="post-share-copy"', false)
+        ->assertDontSee('Open post')
         ->assertSee(route('posts.show', $post));
+});
+
+it('hides save action from guests on post page', function () {
+    $post = Post::factory()->published()->create();
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertDontSee('data-testid="save-post-button"', false)
+        ->assertDontSee('>Save<', false);
 });
 
 it('renders related posts placeholder', function () {

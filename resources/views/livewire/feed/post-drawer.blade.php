@@ -53,10 +53,12 @@
                     </div>
                     <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
                     <x-ui.action-button icon="share" x-on:click="shareOpen = true">Share</x-ui.action-button>
-                    <livewire:posts.save-post-button
-                        :post-id="$post->id"
-                        :key="'post-drawer-save-'.$post->id"
-                    />
+                    @auth
+                        <livewire:posts.save-post-button
+                            :post-id="$post->id"
+                            :key="'post-drawer-save-'.$post->id"
+                        />
+                    @endauth
                 </div>
                 <div class="relative" wire:click.stop wire:keydown.stop>
                     <button
@@ -107,7 +109,7 @@
                 </div>
             </footer>
 
-            <x-ui.modal title="Share post" state="shareOpen" size="lg">
+            <x-ui.modal title="Share this post" state="shareOpen" size="lg">
                 <x-share.post-share-panel :post="$post" />
             </x-ui.modal>
 
@@ -168,6 +170,7 @@
                 <div class="mb-3" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.cuisine-voting
                         :post-id="$post->id"
+                        variant="compact"
                         :key="'post-drawer-cuisine-voting-'.$post->id"
                     />
                 </div>

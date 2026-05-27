@@ -15,6 +15,8 @@ final class CuisineVoting extends Component
 {
     public int $postId;
 
+    public string $variant = 'default';
+
     public string $error = '';
 
     /**

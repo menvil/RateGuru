@@ -2,10 +2,37 @@
     @if ($showHeader)
         <div class="flex items-center justify-between gap-3">
             <h3 class="text-base font-bold text-rg-text">Comments ({{ $this->totalComments }})</h3>
-            <button type="button" disabled class="flex h-8 cursor-not-allowed items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-2.5 text-[12.5px] text-rg-text2 opacity-70">
-                Top
-                <x-ui.icon name="chevron-down" class="size-3.5" />
-            </button>
+            <div class="relative" x-data="{ open: false }" x-on:click.outside="open = false">
+                <button
+                    type="button"
+                    x-on:click="open = ! open"
+                    class="flex h-8 cursor-pointer items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-2.5 text-[12.5px] text-rg-text2 transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    data-testid="comments-sort-trigger"
+                    aria-haspopup="true"
+                >
+                    {{ ['top' => 'Top', 'newest' => 'Newest', 'hot' => 'Hot'][$commentSort] ?? 'Top' }}
+                    <x-ui.icon name="chevron-down" class="size-3.5" />
+                </button>
+
+                <div
+                    x-cloak
+                    x-show="open"
+                    class="absolute right-0 z-20 mt-2 w-32 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                    data-testid="comments-sort-menu"
+                >
+                    @foreach(['top' => 'Top', 'newest' => 'Newest', 'hot' => 'Hot'] as $value => $label)
+                        <button
+                            type="button"
+                            wire:click="setCommentSort('{{ $value }}')"
+                            x-on:click="open = false"
+                            aria-pressed="{{ $commentSort === $value ? 'true' : 'false' }}"
+                            class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-[12.5px] transition {{ $commentSort === $value ? 'bg-rg-accentSoft text-rg-accent2' : 'text-rg-text2 hover:bg-rg-card' }}"
+                        >
+                            {{ $label }}
+                        </button>
+                    @endforeach
+                </div>
+            </div>
         </div>
     @endif
 

@@ -88,10 +88,12 @@
 
     <aside class="min-w-0 space-y-6 lg:sticky lg:top-24 lg:self-start" data-testid="post-show-side-panel">
         <div class="flex items-center justify-end">
-            <livewire:posts.save-post-button
-                :post-id="$post->id"
-                :key="'post-show-save-'.$post->id"
-            />
+            @auth
+                <livewire:posts.save-post-button
+                    :post-id="$post->id"
+                    :key="'post-show-save-'.$post->id"
+                />
+            @endauth
         </div>
 
         <div data-testid="post-show-voting">
@@ -123,7 +125,7 @@
                 Share
             </x-ui.action-button>
 
-            <x-ui.modal title="Share post" state="shareOpen" size="lg">
+            <x-ui.modal title="Share this post" state="shareOpen" size="lg">
                 <x-share.post-share-panel :post="$post" />
             </x-ui.modal>
         @endif

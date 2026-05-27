@@ -63,7 +63,7 @@
             <aside
                 x-ref="detailScroll"
                 data-testid="post-detail-column"
-                class="min-w-0 pt-5 lg:sticky lg:top-[80px] lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:pl-5 lg:pt-0"
+                class="min-w-0 pt-5 lg:sticky lg:top-[80px] lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:pl-5 lg:pr-5 lg:pt-0"
             >
                 <livewire:feed.post-drawer
                     :post-id="$selectedPostId"

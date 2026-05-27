@@ -18,6 +18,7 @@
         'arrow-down' => '<path d="M12 5v14"/><path d="m6 13 6 6 6-6"/>',
         'chevron-down' => '<path d="m6 9 6 6 6-6"/>',
         'image' => '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="m21 15-5-5L5 19"/>',
+        'copy' => '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
         'x' => '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
         'bookmark' => '<path d="M19 21 12 17 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/>',
         'leaf' => '<path d="M11 20A7 7 0 0 1 4 13c0-5 4-8 12-9 1 8-2 12-7 12-2 0-4-1-5-3"/><path d="M4 20c2-4 5-7 10-9"/>',

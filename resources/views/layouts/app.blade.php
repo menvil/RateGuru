@@ -119,6 +119,16 @@
                                 </x-ui.modal>
                             </div>
                         </div>
+                    @else
+                        <div class="ml-auto flex shrink-0 items-center justify-end md:ml-0 md:justify-self-end">
+                            <a
+                                href="{{ route('login') }}"
+                                data-testid="header-login-link"
+                                class="inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl border border-rg-border2 bg-rg-card px-4 text-[13px] font-semibold text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+                            >
+                                Log in
+                            </a>
+                        </div>
                     @endauth
                 </div>
             </header>

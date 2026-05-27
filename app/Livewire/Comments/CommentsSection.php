@@ -22,6 +22,8 @@ final class CommentsSection extends Component
 
     public int $visibleCount = 5;
 
+    public string $commentSort = 'top';
+
     public ?int $replyingTo = null;
 
     public string $replyBody = '';
@@ -40,7 +42,13 @@ final class CommentsSection extends Component
                     ->with('user')
                     ->oldest(),
             ])
-            ->latest()
+            ->when($this->commentSort === 'newest', fn ($query) => $query->latest())
+            ->when($this->commentSort === 'top', fn ($query) => $query
+                ->orderByRaw('(upvotes_count - downvotes_count) DESC')
+                ->latest())
+            ->when($this->commentSort === 'hot', fn ($query) => $query
+                ->orderByRaw('(upvotes_count + downvotes_count) DESC')
+                ->latest())
             ->limit($this->visibleCount)
             ->get();
     }
@@ -67,6 +75,18 @@ final class CommentsSection extends Component
     public function loadMore(): void
     {
         $this->visibleCount += 5;
+
+        unset($this->comments);
+    }
+
+    public function setCommentSort(string $sort): void
+    {
+        if (! in_array($sort, ['top', 'newest', 'hot'], true)) {
+            return;
+        }
+
+        $this->commentSort = $sort;
+        $this->visibleCount = 5;
 
         unset($this->comments);
     }
