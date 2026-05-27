@@ -18,6 +18,8 @@ final class PostCard extends Component
 
     public bool $canModeratePost = false;
 
+    public bool $showNoActionsFallback = false;
+
     public function __construct(
         public Post $post,
         public bool $selected = false,
@@ -32,6 +34,7 @@ final class PostCard extends Component
         $this->canDeletePost = $canDeletePost;
         $this->canReportPost = $canReportPost;
         $this->canModeratePost = $canModeratePost;
+        $this->showNoActionsFallback = ! ($canReportPost || $canDeletePost || $canModeratePost);
     }
 
     public function render(): View

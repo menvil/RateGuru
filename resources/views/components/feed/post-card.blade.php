@@ -174,7 +174,7 @@
                             :key="'post-card-moderation-'.$post->id"
                         />
 
-                        @if(! $canReportPost && ! $canDeletePost && ! $canModeratePost)
+                        @if($showNoActionsFallback)
                             <span class="block px-3 py-2 text-sm text-rg-muted">No actions</span>
                         @endif
                     </div>

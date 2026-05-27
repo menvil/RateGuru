@@ -196,7 +196,12 @@ it('sorts comments by newest for guests', function () {
         ->assertSet('commentSort', 'newest')
         ->html();
 
-    expect(strpos($html, 'Newer comment'))->toBeLessThan(strpos($html, 'Older comment'));
+    $newerPosition = strpos($html, 'Newer comment');
+    $olderPosition = strpos($html, 'Older comment');
+
+    expect($newerPosition)->not->toBeFalse()
+        ->and($olderPosition)->not->toBeFalse()
+        ->and($newerPosition)->toBeLessThan($olderPosition);
 });
 
 it('sorts comments by top score for guests', function () {
