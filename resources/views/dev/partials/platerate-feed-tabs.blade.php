@@ -3,7 +3,7 @@
         @foreach (['All' => true, 'Homemade' => false, 'Restaurant' => false, 'Top' => false] as $label => $active)
             <button
                 type="button"
-                class="{{ $active ? 'border-rg-accent bg-rg-accent text-white' : 'border-rg-border2 bg-rg-card text-rg-text2 hover:bg-rg-card2' }} h-9 rounded-rgPill border px-4 text-[13px] font-semibold transition"
+                class="{{ $active ? 'border-rg-accent bg-rg-accent text-rg-onAccent' : 'border-rg-border2 bg-rg-card text-rg-text2 hover:bg-rg-card2' }} h-9 rounded-rgPill border px-4 text-[13px] font-semibold transition"
             >
                 {{ $label }}
             </button>

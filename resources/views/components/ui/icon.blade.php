@@ -11,13 +11,18 @@
         'bell' => '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 7h18s-3 0-3-7"/><path d="M10 21h4"/>',
         'comment' => '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/>',
         'share' => '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/>',
+        'reply' => '<path d="M9 5 3 11l6 6"/><path d="M3 11h10a7 7 0 0 1 7 7v1"/>',
         'save' => '<path d="M19 21 12 17 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/>',
         'more' => '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
-        'arrow-up' => '<path d="m6 15 6-6 6 6"/>',
-        'arrow-down' => '<path d="m6 9 6 6 6-6"/>',
+        'arrow-up' => '<path d="M12 19V5"/><path d="m6 11 6-6 6 6"/>',
+        'arrow-down' => '<path d="M12 5v14"/><path d="m6 13 6 6 6-6"/>',
+        'chevron-down' => '<path d="m6 9 6 6 6-6"/>',
         'image' => '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="m21 15-5-5L5 19"/>',
+        'copy' => '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
         'x' => '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
         'bookmark' => '<path d="M19 21 12 17 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/>',
+        'leaf' => '<path d="M11 20A7 7 0 0 1 4 13c0-5 4-8 12-9 1 8-2 12-7 12-2 0-4-1-5-3"/><path d="M4 20c2-4 5-7 10-9"/>',
+        'chef' => '<path d="M6 13.5h12"/><path d="M7 13.5 8 21h8l1-7.5"/><path d="M8 8a4 4 0 0 1 8 0 3 3 0 1 1 1 5H7a3 3 0 1 1 1-5Z"/>',
     ];
 @endphp
 

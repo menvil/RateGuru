@@ -36,7 +36,7 @@
                 wire:click="$set('sort', '{{ $value }}')"
                 @click="open = false"
                 aria-pressed="{{ $sort === $value ? 'true' : 'false' }}"
-                class="flex w-full items-center rounded-rgControl px-3 py-1.5 text-left text-[13px] transition-colors {{ $sort === $value ? 'bg-rg-accent text-white' : 'text-rg-text2 hover:bg-rg-card2 hover:text-rg-text' }}"
+                class="flex w-full items-center rounded-rgControl px-3 py-1.5 text-left text-[13px] transition-colors {{ $sort === $value ? 'bg-rg-accent text-rg-onAccent' : 'text-rg-text2 hover:bg-rg-card2 hover:text-rg-text' }}"
             >
                 {{ $label }}
             </button>

@@ -2,6 +2,8 @@
 
 namespace App\Livewire\Feed;
 
+use App\Services\Feed\FeedPostDeletionService;
+use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
@@ -20,6 +22,8 @@ class FeedPage extends Component
 
     public ?int $selectedPostId = null;
 
+    public ?string $deleteError = null;
+
     public function mount(): void
     {
         $this->normalizeSort();
@@ -30,16 +34,52 @@ class FeedPage extends Component
         $this->normalizeSort();
     }
 
-    #[On('open-post-drawer')]
-    public function openPostDrawer(int $postId): void
+    #[On('select-post')]
+    public function selectPost(int $postId): void
     {
         $this->selectedPostId = $postId;
-        $this->dispatch('post-drawer-opened');
+
+        $this->dispatch('post-selected', postId: $postId);
+    }
+
+    #[On('clear-selected-post')]
+    public function clearSelectedPost(): void
+    {
+        $this->selectedPostId = null;
+    }
+
+    #[On('delete-post')]
+    public function deletePost(int $postId, FeedPostDeletionService $feedPostDeletionService): void
+    {
+        $this->deleteError = null;
+
+        $result = $feedPostDeletionService->deleteForUser(auth()->user(), $postId);
+
+        if ($result->error !== null) {
+            $this->deleteError = $result->error;
+
+            return;
+        }
+
+        if (! $result->deleted) {
+            return;
+        }
+
+        if ($this->selectedPostId === $postId) {
+            $this->selectedPostId = null;
+        }
+
+        $this->dispatch('post-deleted', postId: $postId);
+    }
+
+    public function openPostDrawer(int $postId): void
+    {
+        $this->selectPost($postId);
     }
 
     public function closePostDrawer(): void
     {
-        $this->selectedPostId = null;
+        $this->clearSelectedPost();
     }
 
     private function normalizeSort(): void
@@ -51,6 +91,7 @@ class FeedPage extends Component
 
     public function render(): View
     {
-        return view('livewire.feed.feed-page');
+        return view('livewire.feed.feed-page')
+            ->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

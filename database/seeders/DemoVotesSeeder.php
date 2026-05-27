@@ -35,14 +35,14 @@ class DemoVotesSeeder extends Seeder
             ->get()
             ->each(function (Post $post) use ($users) {
                 $voters = $users
-                    ->where('id', '!==', $post->user_id)
-                    ->take(4)
+                    ->where('id', '!=', $post->user_id)
+                    ->take(8)
                     ->values();
 
                 foreach ($voters as $index => $user) {
                     PostVote::query()->updateOrCreate(
                         ['post_id' => $post->id, 'user_id' => $user->id],
-                        ['type' => $index === 3 ? VoteType::Down : VoteType::Up],
+                        ['type' => in_array($index, [3, 6], true) ? VoteType::Down : VoteType::Up],
                     );
 
                     OriginVote::query()->updateOrCreate(

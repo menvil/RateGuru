@@ -38,6 +38,10 @@ final class VoteOriginAction
             throw CannotVoteOriginException::becausePostIsNotPublic();
         }
 
+        if ((int) $post->user_id === (int) $user->id) {
+            throw CannotVoteOriginException::becauseOwnPost();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('vote', $user),
@@ -57,16 +61,10 @@ final class VoteOriginAction
                 ->first();
 
             if ($existingVote !== null) {
-                // Product decision (Phase 14): clicking the already-selected
-                // origin keeps it selected. It is a no-op — the vote is NOT
-                // cleared. Origin is a classification choice, not a like;
-                // clearing requires an explicit separate action. Skip the
-                // recalculation entirely since nothing changed.
-                if ($existingVote->origin === $origin) {
-                    return;
-                }
-
-                $existingVote->update(['origin' => $origin]);
+                // Origin classification is locked after the first vote.
+                // Results are revealed after voting, but changing the vote is
+                // intentionally not allowed from the product UI.
+                return;
             } else {
                 OriginVote::create([
                     'user_id' => $user->id,

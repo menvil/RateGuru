@@ -77,8 +77,25 @@ final class OriginVoting extends Component
 
     public function render(): View
     {
+        $post = $this->post;
+        $currentOrigin = null;
+
+        if ($post !== null && auth()->check()) {
+            $currentOrigin = $post->originVotes()
+                ->where('user_id', auth()->id())
+                ->latest('id')
+                ->first()
+                ?->origin
+                ?->value;
+        }
+
         return view('livewire.posts.origin-voting', [
-            'post' => $this->post,
+            'post' => $post,
+            'currentOrigin' => $currentOrigin,
+            'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
+            'hasVoted' => $currentOrigin !== null,
+            'votingDisabled' => $currentOrigin !== null || ($post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id()),
+            'showOwnPostVoteError' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id() && $currentOrigin === null,
         ]);
     }
 }

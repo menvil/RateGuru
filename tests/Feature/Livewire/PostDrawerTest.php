@@ -1,6 +1,10 @@
 <?php
 
+use App\Enums\CuisineType;
+use App\Enums\OriginType;
 use App\Livewire\Feed\PostDrawer;
+use App\Models\CuisineVote;
+use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\User;
 use App\Support\Urls\PostUrl;
@@ -12,11 +16,22 @@ it('can render post drawer component', function () {
 });
 
 it('renders report button in post drawer', function () {
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('data-testid="post-drawer-report"', false)
+    Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="open-report-modal"', false)
         ->assertSee('Report');
+});
+
+it('does not render report button in post drawer for the owner', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    Livewire::actingAs($owner)
+        ->test(PostDrawer::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="open-report-modal"', false);
 });
 
 it('renders post voting component in drawer', function () {
@@ -43,15 +58,27 @@ it('renders share panel in post drawer for published post', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('data-testid="post-drawer-share-panel"', false)
+        ->assertSee('Share this post')
+        ->assertSee('data-testid="post-share-panel"', false)
+        ->assertSee('data-testid="post-share-copy"', false)
+        ->assertDontSee('Open post')
+        ->assertDontSee('data-testid="post-drawer-share-panel"', false)
         ->assertSee(app(PostUrl::class)->canonical($post));
+});
+
+it('hides save action from guests in the post drawer', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="save-post-button"', false)
+        ->assertDontSee('>Save<', false);
 });
 
 it('does not render public share panel in drawer for hidden post', function () {
     $post = Post::factory()->hidden()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertDontSee('data-testid="post-drawer-share-panel"', false);
+        ->assertDontSee('data-testid="post-share-panel"', false);
 });
 
 it('does not render hidden post', function () {
@@ -104,12 +131,11 @@ it('renders drawer vote summary', function () {
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Score')
-        ->assertSee('9')
+        ->assertSee('Results')
+        ->assertSee('(unvoted)')
         ->assertSee('Homemade')
-        ->assertSee('7')
         ->assertSee('Restaurant')
-        ->assertSee('5');
+        ->assertSee('0 votes');
 });
 
 it('renders drawer author metadata', function () {
@@ -121,8 +147,8 @@ it('renders drawer author metadata', function () {
     $post = Post::factory()->published()->for($user)->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Demo Chef')
-        ->assertSee('@demo_chef');
+        ->assertSee('@demo_chef')
+        ->assertDontSee('Demo Chef');
 });
 
 it('renders large post image in drawer', function () {
@@ -178,14 +204,65 @@ it('renders origin voting panel in drawer', function () {
         ->assertSee('Restaurant');
 });
 
+it('renders drawer origin controls before result labels', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSeeInOrder([
+            'post-drawer-origin-voting',
+            'Homemade</span>',
+            'Restaurant</span>',
+        ], false)
+        ->assertDontSee('You voted:');
+});
+
+it('renders drawer result percentages with vote counts after voting', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 3,
+        'restaurant_votes_count' => 2,
+    ]);
+
+    OriginVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'origin' => OriginType::Homemade,
+    ]);
+
+    CuisineVote::factory()->for($post)->create([
+        'user_id' => $user->id,
+        'cuisine' => CuisineType::Mexican,
+    ]);
+    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
+
+    Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('60% (3)')
+        ->assertSee('40% (2)')
+        ->assertSee('50% (1)');
+});
+
 it('renders cuisine voting buttons in drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('data-testid="post-drawer-cuisine-voting"', false)
+        ->assertSee('flex-nowrap', false)
+        ->assertSee('h-7 min-w-9', false)
         ->assertSee('Italian')
         ->assertSee('Asian')
         ->assertSee('American')
         ->assertSee('Mexican')
         ->assertSee('Other');
+});
+
+it('renders drawer cuisine controls directly under the distribution heading', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSeeInOrder([
+            'Cuisine guess distribution',
+            'data-testid="post-drawer-cuisine-voting"',
+            'grid-cols-[28px_minmax(0,1fr)_52px]',
+        ], false);
 });

@@ -2,44 +2,38 @@
     @if($post === null)
         <span data-testid="cuisine-voting-unavailable" class="text-xs text-rg-muted">Cuisine voting unavailable</span>
     @else
-        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        @php
+            $baseClass = $variant === 'compact'
+                ? 'inline-flex h-7 min-w-9 cursor-pointer items-center justify-center rounded-rgSm border px-2 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70'
+                : 'inline-flex h-8 min-w-11 cursor-pointer items-center justify-center rounded-rgSm border px-2.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg disabled:cursor-not-allowed disabled:opacity-70';
+            $idleClass = 'border-rg-border2 bg-transparent text-rg-text2 hover:bg-rg-card2';
+            $activeClass = 'border-rg-accentBorder bg-rg-accentSoft text-rg-accent2';
+        @endphp
+
+        <div class="{{ $variant === 'compact' ? 'flex flex-nowrap gap-1.5' : 'flex flex-wrap gap-2' }}">
             @foreach($options as $option)
+                @php($active = $currentCuisine === $option->value)
                 <button
                     type="button"
                     wire:click="vote('{{ $option->value }}')"
                     wire:target="vote"
                     wire:loading.attr="disabled"
-                    wire:loading.class="opacity-60 cursor-wait"
-                    class="inline-flex items-center justify-center gap-1 rounded-rgPill border border-rg-border bg-rg-card2 px-3 py-1.5 text-sm font-semibold text-rg-text transition hover:border-rg-accentBorder disabled:cursor-wait disabled:opacity-60"
+                    wire:loading.class="opacity-60 cursor-not-allowed"
+                    @disabled($votingDisabled)
+                    aria-pressed="{{ $active ? 'true' : 'false' }}"
+                    data-state="{{ $active ? 'active' : 'idle' }}"
+                    class="{{ $baseClass }} {{ $active ? $activeClass : $idleClass }}"
                 >
-                    {{ $this->labelFor($option) }}
+                    <span class="sr-only">{{ $this->labelFor($option) }}</span>
+                    <span aria-hidden="true">{{ $this->shortLabelFor($option) }}</span>
                 </button>
             @endforeach
         </div>
 
-        <div data-testid="cuisine-distribution-panel" class="flex flex-col gap-2">
-            @if($this->distribution['total'] === 0)
-                <span class="text-xs text-rg-muted">No cuisine votes yet</span>
-            @else
-                @foreach($this->distribution['rows'] as $row)
-                    <div class="flex flex-col gap-1">
-                        <div class="flex justify-between text-xs text-rg-muted">
-                            <span>{{ $row['label'] }}</span>
-                            <span>{{ $row['count'] }} · {{ $row['percentage'] }}%</span>
-                        </div>
-                        <div class="h-2 w-full overflow-hidden rounded-rgPill bg-rg-card2">
-                            <div
-                                class="h-2 rounded-rgPill bg-rg-accent transition-all"
-                                style="width: {{ $row['percentage'] }}%"
-                            ></div>
-                        </div>
-                    </div>
-                @endforeach
-            @endif
-        </div>
-
         @if($error !== '')
             <span data-testid="cuisine-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
+        @elseif($voteErrorMessage)
+            <span data-testid="cuisine-voting-error" class="text-xs text-rg-muted">{{ $voteErrorMessage }}</span>
         @endif
     @endif
 </div>

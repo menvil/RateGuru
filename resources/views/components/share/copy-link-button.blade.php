@@ -60,7 +60,7 @@
     <button
         type="button"
         @click="copyToClipboard"
-        class="inline-flex h-[34px] items-center justify-center rounded-rgControl border border-rg-border bg-rg-card2 px-3 text-xs font-semibold text-rg-text transition-colors hover:bg-rg-card"
+        class="inline-flex h-[34px] items-center justify-center rounded-rgControl border border-rg-border bg-rg-card2 px-3 text-xs font-semibold text-rg-text2 transition-colors hover:border-rg-border2 hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
     >
         <span x-show="! copied">{{ $label }}</span>
         <span x-show="copied" x-cloak>{{ $copiedLabel }}</span>

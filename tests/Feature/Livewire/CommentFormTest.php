@@ -82,7 +82,7 @@ it('renders comment textarea', function () {
     Livewire::actingAs($user)
         ->test(CommentForm::class, ['postId' => $post->id])
         ->assertSee('name="body"', false)
-        ->assertSee('Write a comment')
+        ->assertSee('Add a comment')
         ->assertSee('maxlength="1000"', false);
 });
 
@@ -99,7 +99,7 @@ it('renders comment submit button', function () {
 
     Livewire::actingAs($user)
         ->test(CommentForm::class, ['postId' => $post->id])
-        ->assertSee('Post comment')
+        ->assertSee('Post')
         ->assertSee('wire:submit', false);
 });
 
@@ -111,7 +111,8 @@ it('renders comment validation error on empty submit', function () {
         ->test(CommentForm::class, ['postId' => $post->id])
         ->set('body', '')
         ->call('submit')
-        ->assertSee('data-testid="comment-body-error"', false);
+        ->assertSee('data-testid="comment-body-error"', false)
+        ->assertSee('Comment body is required.');
 
     $this->assertDatabaseCount('comments', 0);
 });

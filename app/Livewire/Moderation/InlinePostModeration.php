@@ -6,6 +6,7 @@ use App\Actions\Moderation\ApprovePostAction;
 use App\Actions\Moderation\HidePostAction;
 use App\Actions\Moderation\RejectPostAction;
 use App\Actions\Moderation\RestorePostAction;
+use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use Closure;
@@ -24,6 +25,10 @@ final class InlinePostModeration extends Component
 
     public ?string $success = null;
 
+    public string $variant = 'panel';
+
+    private ?Post $cachedPost = null;
+
     #[Computed]
     public function canModerate(): bool
     {
@@ -40,6 +45,33 @@ final class InlinePostModeration extends Component
         }
 
         return null;
+    }
+
+    #[Computed]
+    public function canApprove(): bool
+    {
+        return $this->canModerate()
+            && $this->post()->status === PostStatus::Pending;
+    }
+
+    #[Computed]
+    public function canReject(): bool
+    {
+        return $this->canApprove();
+    }
+
+    #[Computed]
+    public function canHide(): bool
+    {
+        return $this->canModerate()
+            && $this->post()->status === PostStatus::Published;
+    }
+
+    #[Computed]
+    public function canRestore(): bool
+    {
+        return $this->canModerate()
+            && $this->post()->status === PostStatus::Hidden;
     }
 
     public function approve(ApprovePostAction $approvePostAction): void
@@ -110,7 +142,7 @@ final class InlinePostModeration extends Component
 
     private function post(): Post
     {
-        return Post::query()->findOrFail($this->postId);
+        return $this->cachedPost ??= Post::query()->findOrFail($this->postId);
     }
 
     private function normalizedReason(): ?string

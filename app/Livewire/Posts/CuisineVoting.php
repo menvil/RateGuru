@@ -15,6 +15,8 @@ final class CuisineVoting extends Component
 {
     public int $postId;
 
+    public string $variant = 'default';
+
     public string $error = '';
 
     /**
@@ -34,6 +36,18 @@ final class CuisineVoting extends Component
             CuisineType::Mexican => 'Mexican',
             CuisineType::Other => 'Other',
             CuisineType::Unknown => 'Unknown',
+        };
+    }
+
+    public function shortLabelFor(CuisineType $cuisine): string
+    {
+        return match ($cuisine) {
+            CuisineType::Italian => 'IT',
+            CuisineType::Asian => 'AS',
+            CuisineType::American => 'US',
+            CuisineType::Mexican => 'MX',
+            CuisineType::Other => 'OT',
+            CuisineType::Unknown => 'UN',
         };
     }
 
@@ -123,9 +137,28 @@ final class CuisineVoting extends Component
 
     public function render(): View
     {
+        $post = $this->post;
+        $currentCuisine = null;
+
+        if ($post !== null && auth()->check()) {
+            $currentCuisine = $post->cuisineVotes()
+                ->where('user_id', auth()->id())
+                ->latest('id')
+                ->first()
+                ?->cuisine
+                ?->value;
+        }
+
         return view('livewire.posts.cuisine-voting', [
-            'post' => $this->post,
+            'post' => $post,
             'options' => $this->options(),
+            'currentCuisine' => $currentCuisine,
+            'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
+            'hasVoted' => $currentCuisine !== null,
+            'votingDisabled' => $currentCuisine !== null || ($post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id()),
+            'voteErrorMessage' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id() && $currentCuisine === null
+                ? 'You cannot vote on your own post.'
+                : null,
         ]);
     }
 }

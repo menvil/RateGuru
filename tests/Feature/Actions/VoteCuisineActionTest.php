@@ -78,7 +78,7 @@ it('allows user to vote other cuisine on a published post', function () {
     ]);
 });
 
-it('allows user to change cuisine vote', function () {
+it('does not allow user to change cuisine vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -88,13 +88,13 @@ it('allows user to change cuisine vote', function () {
     $this->assertDatabaseHas('cuisine_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'cuisine' => CuisineType::Asian->value,
+        'cuisine' => CuisineType::Italian->value,
     ]);
 
     $this->assertDatabaseMissing('cuisine_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'cuisine' => CuisineType::Italian->value,
+        'cuisine' => CuisineType::Asian->value,
     ]);
 
     expect(CuisineVote::query()
@@ -169,4 +169,17 @@ it('does not allow unknown cuisine vote', function () {
     } catch (CannotVoteCuisineException $e) {
         expect(CuisineVote::query()->count())->toBe(0);
     }
+});
+
+it('does not allow cuisine voting on own post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    expect(fn () => app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian))
+        ->toThrow(CannotVoteCuisineException::class, 'You cannot vote on your own post.');
+
+    $this->assertDatabaseMissing('cuisine_votes', [
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+    ]);
 });

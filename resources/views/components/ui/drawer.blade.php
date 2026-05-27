@@ -11,8 +11,8 @@
 
     $panelSizeClass = [
         'md' => 'md:max-w-md',
-        'lg' => 'md:max-w-lg',
-        'xl' => 'md:max-w-xl',
+        'lg' => 'md:max-w-xl lg:max-w-2xl',
+        'xl' => 'md:max-w-2xl lg:max-w-3xl',
     ][$size] ?? 'md:max-w-lg';
 
     $panelDesktopClass = $side === 'left'
@@ -35,10 +35,10 @@
     <div
         x-show="open"
         x-on:click="open = false; $dispatch('drawer-closed', { id: drawerId })"
-        x-transition:enter="transition-opacity ease-out duration-200"
+        x-transition:enter="motion-safe:transition-opacity motion-reduce:transition-none ease-out duration-200"
         x-transition:enter-start="opacity-0"
         x-transition:enter-end="opacity-100"
-        x-transition:leave="transition-opacity ease-in duration-150"
+        x-transition:leave="motion-safe:transition-opacity motion-reduce:transition-none ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
         class="pointer-events-auto fixed inset-0 bg-black/70"
@@ -48,10 +48,10 @@
     <aside
         x-show="open"
         @click.outside="open = false; $dispatch('drawer-closed', { id: drawerId })"
-        x-transition:enter="transform transition ease-out duration-200"
+        x-transition:enter="motion-safe:transform-gpu motion-safe:transition motion-reduce:transition-none ease-out duration-200"
         x-transition:enter-start="{{ $enterStartClass }}"
         x-transition:enter-end="translate-x-0"
-        x-transition:leave="transform transition ease-in duration-150"
+        x-transition:leave="motion-safe:transform-gpu motion-safe:transition motion-reduce:transition-none ease-in duration-150"
         x-transition:leave-start="translate-x-0"
         x-transition:leave-end="{{ $leaveEndClass }}"
         role="dialog"

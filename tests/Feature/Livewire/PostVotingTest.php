@@ -4,6 +4,7 @@ use App\Enums\PostStatus;
 use App\Enums\VoteType;
 use App\Livewire\Posts\PostVoting;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -21,7 +22,7 @@ it('refreshes vote counters after upvote', function () {
         ->assertSee('Up 1');
 });
 
-it('refreshes vote counters after toggling upvote off', function () {
+it('keeps upvote active when clicked again in the UI', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'upvotes_count' => 0,
@@ -33,7 +34,11 @@ it('refreshes vote counters after toggling upvote off', function () {
         ->call('vote', VoteType::Up->value)
         ->assertSee('Up 1')
         ->call('vote', VoteType::Up->value)
-        ->assertSee('Up 0');
+        ->assertSee('Up 1');
+
+    expect($post->fresh())
+        ->upvotes_count->toBe(1)
+        ->downvotes_count->toBe(0);
 });
 
 it('ignores an invalid vote type without throwing', function () {
@@ -52,7 +57,7 @@ it('ignores an invalid vote type without throwing', function () {
     expect($post->fresh()->upvotes_count)->toBe(0);
 });
 
-it('refreshes both counters when replacing a vote', function () {
+it('clears the current vote before applying the opposite vote in the UI', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'upvotes_count' => 0,
@@ -66,7 +71,107 @@ it('refreshes both counters when replacing a vote', function () {
         ->assertSee('Down 0')
         ->call('vote', VoteType::Down->value)
         ->assertSee('Up 0')
+        ->assertSee('Down 0')
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('Up 0')
         ->assertSee('Down 1');
+});
+
+it('renders the compact rail score correctly when replacing votes', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 3,
+        'downvotes_count' => 2,
+    ]);
+
+    PostVote::factory()->count(3)->for($post)->create(['type' => VoteType::Up]);
+    PostVote::factory()->count(2)->for($post)->create(['type' => VoteType::Down]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('data-testid="post-voting-rail"', false)
+        ->assertSee('aria-label="Score 1"', false)
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('aria-label="Score 2"', false)
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('aria-label="Score 1"', false)
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('aria-label="Score 0"', false)
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('aria-label="Score 1"', false)
+        ->call('vote', VoteType::Up->value)
+        ->assertSee('aria-label="Score 2"', false);
+
+    expect($post->fresh())
+        ->upvotes_count->toBe(4)
+        ->downvotes_count->toBe(2);
+});
+
+it('keeps rail and pill variants on the same aggregate score after voting', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 3,
+        'downvotes_count' => 2,
+    ]);
+
+    PostVote::factory()->count(2)->for($post)->create(['type' => VoteType::Up]);
+    PostVote::factory()->count(2)->for($post)->create(['type' => VoteType::Down]);
+    PostVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'type' => VoteType::Up,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('aria-label="Score 1"', false)
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('aria-label="Score 0"', false)
+        ->call('vote', VoteType::Down->value)
+        ->assertSee('aria-label="Score -1"', false);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'pill'])
+        ->assertSee('aria-label="Score -1"', false);
+
+    expect($post->fresh())
+        ->upvotes_count->toBe(2)
+        ->downvotes_count->toBe(3);
+});
+
+it('stops rail vote clicks from bubbling to the feed card', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('x-on:click.stop', false)
+        ->assertSee('x-on:keydown.enter.stop', false)
+        ->assertSee('x-on:keydown.space.stop', false)
+        ->assertDontSee('x-on:keydown.stop', false)
+        ->assertSee('wire:click.stop="vote(\'up\')"', false)
+        ->assertSee('wire:click.stop="vote(\'down\')"', false);
+});
+
+it('refreshes matching post voting instances after another rail votes', function () {
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 1,
+        'downvotes_count' => 0,
+    ]);
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('1')
+        ->dispatch('post-voted', postId: $post->id)
+        ->assertSee('1');
+});
+
+it('renders distinct test ids for rail and pill variants', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->assertSee('data-testid="post-voting-rail"', false);
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id, 'variant' => 'pill'])
+        ->assertSee('data-testid="post-voting-pill"', false)
+        ->assertDontSee('data-testid="post-voting-rail"', false);
 });
 
 it('has vote loading state markup', function () {
@@ -75,6 +180,24 @@ it('has vote loading state markup', function () {
     Livewire::test(PostVoting::class, ['postId' => $post->id])
         ->assertSee('wire:loading', false)
         ->assertSee('wire:loading.attr="disabled"', false);
+});
+
+it('renders post voting buttons with accessible visual states', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    PostVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'type' => VoteType::Up,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PostVoting::class, ['postId' => $post->id])
+        ->assertSee('aria-pressed="true"', false)
+        ->assertSee('data-state="active"', false)
+        ->assertSee('border-rg-goodBorder', false)
+        ->assertSee('focus-visible:ring-rg-accent', false);
 });
 
 it('can render post voting component', function () {

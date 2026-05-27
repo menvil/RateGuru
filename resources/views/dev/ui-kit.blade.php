@@ -185,7 +185,7 @@
                                 <p class="text-sm font-semibold text-rg-text">Create post / Upload dish</p>
 
                                 <div class="grid grid-cols-2 gap-2 rounded-rgControl bg-rg-card2 p-1">
-                                    <button type="button" class="rounded-rgSm bg-rg-accent px-3 py-2 text-xs font-semibold text-white">Photo</button>
+                                    <button type="button" class="rounded-rgSm bg-rg-accent px-3 py-2 text-xs font-semibold text-rg-onAccent">Photo</button>
                                     <button type="button" class="rounded-rgSm px-3 py-2 text-xs font-semibold text-rg-text2">Link</button>
                                 </div>
 

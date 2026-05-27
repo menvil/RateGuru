@@ -167,3 +167,16 @@ it('sets comments count to visible comments count after adding comment', functio
 
     expect($post->fresh()->comments_count)->toBe(1);
 });
+
+it('rejects replies to unsaved parent comments', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $parent = Comment::factory()->for($post)->make();
+
+    expect(fn () => app(AddCommentAction::class)->handle($user, $post, 'Reply body', $parent))
+        ->toThrow(CannotCommentException::class, 'Reply target is unavailable.');
+
+    $this->assertDatabaseMissing('comments', [
+        'body' => 'Reply body',
+    ]);
+});

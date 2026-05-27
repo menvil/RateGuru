@@ -6,9 +6,12 @@ use App\Models\User;
 use Illuminate\Support\Facades\Blade;
 
 it('renders report button in comment item for persisted comment', function () {
+    $user = User::factory()->create();
     $comment = Comment::factory()->create([
         'status' => CommentStatus::Visible,
     ]);
+
+    $this->actingAs($user);
 
     $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
         'comment' => $comment,
@@ -19,7 +22,61 @@ it('renders report button in comment item for persisted comment', function () {
         ->toContain('Report');
 });
 
+it('renders comment actions menu in the comment header', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $this->actingAs($user);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)
+        ->toContain('items-start justify-between')
+        ->toContain('aria-label="Comment actions"')
+        ->toContain('absolute right-0 top-full')
+        ->toContain('py-1.5');
+});
+
+it('keeps comment actions out of the reply and vote row', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $this->actingAs($user);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    $commentVotingPosition = strpos($html, 'comment-voting');
+
+    expect($commentVotingPosition)->not->toBeFalse();
+
+    $actionsRow = substr($html, $commentVotingPosition);
+
+    expect($actionsRow)->not->toContain('aria-label="Comment actions"');
+});
+
+it('renders live comment voting for persisted comments', function () {
+    $comment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)->toContain('comment-voting-'.$comment->id);
+});
+
 it('does not break comment item report button for unsaved comment preview', function () {
+    $this->actingAs(User::factory()->create());
+
     $comment = Comment::factory()->make(['body' => 'Preview']);
 
     $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
@@ -29,6 +86,15 @@ it('does not break comment item report button for unsaved comment preview', func
     expect($html)
         ->toContain('Preview')
         ->not->toContain('data-testid="comment-report"');
+});
+
+it('keeps comment action flags in the component class', function () {
+    $view = file_get_contents(resource_path('views/components/comments/comment-item.blade.php'));
+
+    expect($view)
+        ->not->toContain('$canReport =')
+        ->not->toContain('$hasMenuActions =')
+        ->not->toContain('auth()->id()');
 });
 
 it('renders comment item component with body', function () {

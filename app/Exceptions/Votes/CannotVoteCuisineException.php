@@ -16,6 +16,11 @@ final class CannotVoteCuisineException extends DomainException
         return new self('User is not allowed to vote on cuisine.');
     }
 
+    public static function becauseOwnPost(): self
+    {
+        return new self('You cannot vote on your own post.');
+    }
+
     public static function becausePostIsNotPublic(): self
     {
         return new self('Post cannot receive cuisine votes.');

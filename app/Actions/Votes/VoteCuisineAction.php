@@ -38,6 +38,10 @@ final class VoteCuisineAction
             throw CannotVoteCuisineException::becausePostIsNotPublic();
         }
 
+        if ((int) $post->user_id === (int) $user->id) {
+            throw CannotVoteCuisineException::becauseOwnPost();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('vote', $user),
@@ -57,16 +61,10 @@ final class VoteCuisineAction
                 ->first();
 
             if ($existingVote !== null) {
-                // Product decision (Phase 15): clicking the already-selected
-                // cuisine keeps it selected. It is a no-op — the vote is NOT
-                // cleared. Cuisine is a classification choice, not a like;
-                // clearing requires an explicit separate action. Skip the
-                // recalculation entirely since nothing changed.
-                if ($existingVote->cuisine === $cuisine) {
-                    return;
-                }
-
-                $existingVote->update(['cuisine' => $cuisine]);
+                // Cuisine classification is locked after the first vote.
+                // Results are revealed after voting, but changing the vote is
+                // intentionally not allowed from the product UI.
+                return;
             } else {
                 CuisineVote::create([
                     'user_id' => $user->id,

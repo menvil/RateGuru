@@ -79,11 +79,22 @@ it('toggles downvote off when clicked again', function () {
     expect($post->fresh()->downvotes_count)->toBe(0);
 });
 
-it('replaces upvote with downvote', function () {
+it('clears upvote before allowing a downvote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
     app(VotePostAction::class)->handle($user, $post, VoteType::Up);
+    app(VotePostAction::class)->handle($user, $post->fresh(), VoteType::Down);
+
+    $this->assertDatabaseMissing('post_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+    ]);
+
+    expect(PostVote::query()->count())->toBe(0);
+    expect($post->fresh()->upvotes_count)->toBe(0);
+    expect($post->fresh()->downvotes_count)->toBe(0);
+
     app(VotePostAction::class)->handle($user, $post->fresh(), VoteType::Down);
 
     $this->assertDatabaseHas('post_votes', [
@@ -92,16 +103,26 @@ it('replaces upvote with downvote', function () {
         'type' => VoteType::Down->value,
     ]);
 
-    expect(PostVote::query()->count())->toBe(1);
     expect($post->fresh()->upvotes_count)->toBe(0);
     expect($post->fresh()->downvotes_count)->toBe(1);
 });
 
-it('replaces downvote with upvote', function () {
+it('clears downvote before allowing an upvote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
     app(VotePostAction::class)->handle($user, $post, VoteType::Down);
+    app(VotePostAction::class)->handle($user, $post->fresh(), VoteType::Up);
+
+    $this->assertDatabaseMissing('post_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+    ]);
+
+    expect(PostVote::query()->count())->toBe(0);
+    expect($post->fresh()->upvotes_count)->toBe(0);
+    expect($post->fresh()->downvotes_count)->toBe(0);
+
     app(VotePostAction::class)->handle($user, $post->fresh(), VoteType::Up);
 
     $this->assertDatabaseHas('post_votes', [
@@ -110,7 +131,6 @@ it('replaces downvote with upvote', function () {
         'type' => VoteType::Up->value,
     ]);
 
-    expect(PostVote::query()->count())->toBe(1);
     expect($post->fresh()->upvotes_count)->toBe(1);
     expect($post->fresh()->downvotes_count)->toBe(0);
 });
@@ -141,6 +161,23 @@ it('does not allow banned user to vote', function () {
         app(VotePostAction::class)->handle($user, $post, VoteType::Up);
         $this->fail('Expected CannotVoteException was not thrown.');
     } catch (CannotVoteException $e) {
+        expect(PostVote::query()->count())->toBe(0);
+        expect($post->fresh()->upvotes_count)->toBe(0);
+    }
+});
+
+it('does not allow users to vote on their own posts', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create([
+        'upvotes_count' => 0,
+        'downvotes_count' => 0,
+    ]);
+
+    try {
+        app(VotePostAction::class)->handle($user, $post, VoteType::Up);
+        $this->fail('Expected CannotVoteException was not thrown.');
+    } catch (CannotVoteException $e) {
+        expect($e->getMessage())->toBe('You cannot vote on your own post.');
         expect(PostVote::query()->count())->toBe(0);
         expect($post->fresh()->upvotes_count)->toBe(0);
     }

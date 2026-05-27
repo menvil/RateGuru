@@ -44,7 +44,7 @@ it('calls cuisine vote action when italian button is clicked', function () {
     ]);
 });
 
-it('can change cuisine vote through the component', function () {
+it('does not change cuisine vote through the component after first vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -56,7 +56,7 @@ it('can change cuisine vote through the component', function () {
     $this->assertDatabaseHas('cuisine_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'cuisine' => CuisineType::Mexican->value,
+        'cuisine' => CuisineType::Italian->value,
     ]);
 
     expect(CuisineVote::query()
@@ -66,42 +66,90 @@ it('can change cuisine vote through the component', function () {
     )->toBe(1);
 });
 
-it('renders cuisine distribution panel', function () {
+it('does not render inline cuisine distribution after the current user votes', function () {
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
-    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
+    CuisineVote::factory()->for($post)->create(['user_id' => $user->id, 'cuisine' => CuisineType::Italian]);
     CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
     CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Asian]);
 
-    Livewire::test(CuisineVoting::class, ['postId' => $post->id])
-        ->assertSee('data-testid="cuisine-distribution-panel"', false)
+    Livewire::actingAs($user)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="cuisine-distribution-panel"', false)
         ->assertSee('Italian')
-        ->assertSee('67%')
+        ->assertSee('aria-pressed="true"', false)
         ->assertSee('Asian')
-        ->assertSee('33%');
+        ->assertDontSee('Vote to reveal results.');
 });
 
-it('renders zero cuisine distribution safely', function () {
+it('hides cuisine distribution before the current user votes', function () {
+    $post = Post::factory()->published()->create();
+
+    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
+
+    Livewire::test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="cuisine-distribution-panel"', false)
+        ->assertDontSee('Vote to reveal results.');
+});
+
+it('renders cuisine chips with selected and focus states', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    CuisineVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => CuisineType::Italian,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertSee('aria-pressed="true"', false)
+        ->assertSee('data-state="active"', false)
+        ->assertSee('bg-rg-accentSoft', false)
+        ->assertSee('focus-visible:ring-rg-accent', false);
+});
+
+it('renders cuisine chips with reference feed sizing', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(CuisineVoting::class, ['postId' => $post->id])
-        ->assertSee('data-testid="cuisine-distribution-panel"', false)
-        ->assertSee('No cuisine votes yet');
+        ->assertSee('flex flex-wrap gap-2', false)
+        ->assertSee('inline-flex h-8 min-w-11', false)
+        ->assertSee('rounded-rgSm border px-2.5 text-xs font-semibold', false)
+        ->assertSee('border-rg-border2 bg-transparent text-rg-text2 hover:bg-rg-card2', false);
 });
 
-it('refreshes cuisine distribution after vote', function () {
+it('keeps zero cuisine distribution out of the inline voting controls', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    CuisineVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'cuisine' => CuisineType::Italian,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertDontSee('data-testid="cuisine-distribution-panel"', false)
+        ->assertSee('aria-pressed="true"', false);
+});
+
+it('refreshes cuisine selected state after vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
     Livewire::actingAs($user)
         ->test(CuisineVoting::class, ['postId' => $post->id])
-        ->assertSee('No cuisine votes yet')
+        ->assertDontSee('Vote to reveal results.')
         ->call('vote', CuisineType::Italian->value)
         ->assertSee('Italian')
-        ->assertSee('100%');
+        ->assertSee('aria-pressed="true"', false);
 });
 
-it('refreshes cuisine distribution after vote change', function () {
+it('keeps cuisine distribution locked after attempted vote change', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -109,12 +157,12 @@ it('refreshes cuisine distribution after vote change', function () {
         ->test(CuisineVoting::class, ['postId' => $post->id])
         ->call('vote', CuisineType::Italian->value)
         ->call('vote', CuisineType::Mexican->value)
-        ->assertSee('Mexican')
-        ->assertSee('100%');
+        ->assertSee('Italian')
+        ->assertSee('aria-pressed="true"', false);
 
     $this->assertDatabaseHas('cuisine_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'cuisine' => CuisineType::Mexican->value,
+        'cuisine' => CuisineType::Italian->value,
     ]);
 });

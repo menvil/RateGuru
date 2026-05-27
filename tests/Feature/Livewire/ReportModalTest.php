@@ -258,7 +258,8 @@ it('has alpine report modal open close behavior', function () {
         ->assertSee('x-cloak', false)
         ->assertSee('@keydown.escape.window', false)
         ->assertSee('data-testid="open-report-modal"', false)
-        ->assertSee('data-testid="close-report-modal"', false);
+        ->assertSee('Close modal')
+        ->assertDontSee('data-testid="close-report-modal"', false);
 });
 
 it('renders report reasons', function () {
@@ -284,4 +285,16 @@ it('can render report modal component', function () {
         'reportableId' => $post->id,
     ])->assertStatus(200)
         ->assertSee('data-testid="report-modal"', false);
+});
+
+it('renders compact report trigger with symmetric menu padding support', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(ReportModal::class, [
+        'reportableType' => 'post',
+        'reportableId' => $post->id,
+    ])
+        ->assertSee('class="leading-none"', false)
+        ->assertSee('inline-flex h-5', false)
+        ->assertSee('leading-none text-rg-muted', false);
 });

@@ -4,6 +4,7 @@ namespace App\Livewire\Profile;
 
 use App\Models\Post;
 use App\Models\User;
+use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Component;
@@ -69,6 +70,7 @@ final class ProfilePage extends Component
 
     public function render(): View
     {
-        return view('livewire.profile.profile-page');
+        return view('livewire.profile.profile-page')
+            ->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

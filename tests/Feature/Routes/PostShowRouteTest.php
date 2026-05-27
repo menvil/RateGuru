@@ -16,7 +16,9 @@ it('renders post voting component on post show page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('data-testid="post-show-voting"', false);
+        ->assertSee('data-testid="post-show-voting"', false)
+        ->assertSee('data-testid="post-show-side-panel"', false)
+        ->assertSee('lg:grid-cols-[minmax(0,1fr)_360px]', false);
 });
 
 it('renders published post show page', function () {
@@ -116,7 +118,19 @@ it('renders share panel on post page', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('Share this post')
+        ->assertSee('data-testid="post-show-share-trigger"', false)
+        ->assertSee('data-testid="post-share-copy"', false)
+        ->assertDontSee('Open post')
         ->assertSee(route('posts.show', $post));
+});
+
+it('hides save action from guests on post page', function () {
+    $post = Post::factory()->published()->create();
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertDontSee('data-testid="save-post-button"', false)
+        ->assertDontSee('>Save<', false);
 });
 
 it('renders related posts placeholder', function () {
@@ -135,7 +149,7 @@ it('renders seo title for post page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('<title>Homemade Carbonara · ' . config('app.name', 'RateGuru') . '</title>', false);
+        ->assertSee('<title>Homemade Carbonara · '.config('app.name', 'RateGuru').'</title>', false);
 });
 
 it('renders open graph metadata for post page', function () {

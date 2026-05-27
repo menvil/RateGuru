@@ -15,7 +15,7 @@ class CategoryTabs extends Component
     public function render(): View
     {
         return view('livewire.feed.category-tabs', [
-            'tags' => Tag::query()->orderBy('name')->limit(10)->get(),
+            'tags' => Tag::query()->orderBy('name')->limit(5)->get(),
         ]);
     }
 }

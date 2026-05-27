@@ -27,7 +27,9 @@ it('accepts initial sort prop', function () {
 
 it('marks the active sort option with aria-pressed', function () {
     Livewire::test(SortDropdown::class, ['sort' => 'top'])
-        ->assertSee('aria-pressed="true"', false);
+        ->assertSee('aria-pressed="true"', false)
+        ->assertSee('bg-rg-accent', false)
+        ->assertSee('text-rg-onAccent', false);
 });
 
 it('has a testid for the dropdown container', function () {

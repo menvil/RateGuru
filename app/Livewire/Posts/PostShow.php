@@ -5,6 +5,7 @@ namespace App\Livewire\Posts;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Support\Seo\PostOpenGraph;
+use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -43,6 +44,6 @@ final class PostShow extends Component
             'ogTitle' => $openGraph->title($post),
             'post' => $post,
             'showSharePanel' => $post->status === PostStatus::Published,
-        ]);
+        ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

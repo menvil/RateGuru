@@ -1,8 +1,10 @@
 <?php
 
+use App\Enums\PostStatus;
 use App\Livewire\Feed\FeedPage;
 use App\Models\Post;
 use App\Models\Tag;
+use App\Models\User;
 use Livewire\Livewire;
 
 it('can render feed page component', function () {
@@ -12,8 +14,10 @@ it('can render feed page component', function () {
 
 it('renders the feed page shell', function () {
     Livewire::test(FeedPage::class)
-        ->assertSee('RateGuru')
-        ->assertSee('Discover dishes');
+        ->assertSee('data-testid="feed-page"', false)
+        ->assertSee('data-testid="feed-content-shell"', false)
+        ->assertSee('max-w-[820px]', false)
+        ->assertDontSee('data-testid="post-detail-column"', false);
 });
 
 it('has search state on feed page', function () {
@@ -61,24 +65,52 @@ it('sorts feed when sort is changed to top', function () {
         ->assertSeeInOrder(['High Score', 'Low Score']);
 });
 
-it('selects post for drawer on feed page', function () {
+it('selects post for detail column on feed page', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Drawer Dish',
+        'title' => 'Detail Dish',
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('openPostDrawer', $post->id)
+        ->call('selectPost', $post->id)
         ->assertSet('selectedPostId', $post->id)
-        ->assertDispatched('post-drawer-opened');
+        ->assertDispatched('post-selected', postId: $post->id)
+        ->assertSee('data-testid="post-detail-column"', false)
+        ->assertSee('lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)]', false);
 });
 
-it('clears selected post when drawer is closed', function () {
+it('clears selected post from detail column', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(FeedPage::class)
-        ->call('openPostDrawer', $post->id)
-        ->call('closePostDrawer')
+        ->call('selectPost', $post->id)
+        ->call('clearSelectedPost')
         ->assertSet('selectedPostId', null);
+});
+
+it('deletes an owned post from the feed page action menu event', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    Livewire::actingAs($user)
+        ->test(FeedPage::class)
+        ->call('selectPost', $post->id)
+        ->call('deletePost', $post->id)
+        ->assertSet('selectedPostId', null)
+        ->assertDispatched('post-deleted', postId: $post->id);
+
+    expect(Post::withTrashed()->find($post->id)->status)->toBe(PostStatus::Deleted);
+});
+
+it('does not delete another users post from the feed page action menu event', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(FeedPage::class)
+        ->call('deletePost', $post->id)
+        ->assertNotDispatched('post-deleted');
+
+    expect(Post::query()->find($post->id))->not->toBeNull();
 });
 
 it('filters feed when category is selected', function () {

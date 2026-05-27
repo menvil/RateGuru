@@ -1,5 +1,6 @@
 <div
     data-testid="report-modal"
+    class="leading-none"
     x-data="{ reportOpen: false }"
     @keydown.escape.window="reportOpen = false"
 >
@@ -7,7 +8,7 @@
         type="button"
         data-testid="open-report-modal"
         @click="reportOpen = true"
-        class="text-xs font-semibold text-rg-muted transition hover:text-rg-dangerText"
+        class="inline-flex h-5 cursor-pointer items-center text-xs font-semibold leading-none text-rg-muted transition hover:text-rg-dangerText"
     >
         Report
     </button>
@@ -99,17 +100,5 @@
                 </div>
             </form>
         @endif
-
-        <x-slot:footer>
-            <x-ui.button
-                type="button"
-                variant="secondary"
-                size="sm"
-                data-testid="close-report-modal"
-                @click="reportOpen = false"
-            >
-                Close
-            </x-ui.button>
-        </x-slot:footer>
     </x-ui.modal>
 </div>

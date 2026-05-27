@@ -47,7 +47,7 @@ it('allows user to vote restaurant on a published post', function () {
     expect($post->fresh()->restaurant_votes_count)->toBe(1);
 });
 
-it('allows user to change origin vote from homemade to restaurant', function () {
+it('does not allow user to change origin vote from homemade to restaurant', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 0,
@@ -60,7 +60,7 @@ it('allows user to change origin vote from homemade to restaurant', function () 
     $this->assertDatabaseHas('origin_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'origin' => OriginType::Restaurant->value,
+        'origin' => OriginType::Homemade->value,
     ]);
 
     expect(OriginVote::query()
@@ -69,11 +69,11 @@ it('allows user to change origin vote from homemade to restaurant', function () 
         ->count()
     )->toBe(1);
 
-    expect($post->fresh()->homemade_votes_count)->toBe(0);
-    expect($post->fresh()->restaurant_votes_count)->toBe(1);
+    expect($post->fresh()->homemade_votes_count)->toBe(1);
+    expect($post->fresh()->restaurant_votes_count)->toBe(0);
 });
 
-it('allows user to change origin vote from restaurant to homemade', function () {
+it('does not allow user to change origin vote from restaurant to homemade', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 0,
@@ -89,8 +89,14 @@ it('allows user to change origin vote from restaurant to homemade', function () 
         ->count()
     )->toBe(1);
 
-    expect($post->fresh()->restaurant_votes_count)->toBe(0);
-    expect($post->fresh()->homemade_votes_count)->toBe(1);
+    $this->assertDatabaseHas('origin_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'origin' => OriginType::Restaurant->value,
+    ]);
+
+    expect($post->fresh()->restaurant_votes_count)->toBe(1);
+    expect($post->fresh()->homemade_votes_count)->toBe(0);
 });
 
 // Product decision (Phase 14): a repeated click on the already-selected
@@ -231,6 +237,22 @@ it('does not allow origin vote on rejected post', function () {
 
     expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
         ->toThrow(CannotVoteOriginException::class);
+
+    $this->assertDatabaseMissing('origin_votes', [
+        'post_id' => $post->id,
+        'user_id' => $user->id,
+    ]);
+});
+
+it('does not allow origin voting on own post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create([
+        'homemade_votes_count' => 0,
+        'restaurant_votes_count' => 0,
+    ]);
+
+    expect(fn () => app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade))
+        ->toThrow(CannotVoteOriginException::class, 'You cannot vote on your own post.');
 
     $this->assertDatabaseMissing('origin_votes', [
         'post_id' => $post->id,
