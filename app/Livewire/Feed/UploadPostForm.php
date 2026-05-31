@@ -7,6 +7,7 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Models\Tag;
 use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
@@ -97,6 +98,10 @@ final class UploadPostForm extends Component
 
     public function render(): View
     {
-        return view('livewire.feed.upload-post-form');
+        return view('livewire.feed.upload-post-form', [
+            'tags' => Tag::query()
+                ->orderBy('name')
+                ->get(['id', 'name']),
+        ]);
     }
 }

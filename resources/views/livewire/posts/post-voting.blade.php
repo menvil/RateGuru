@@ -3,7 +3,7 @@
     x-on:click.stop
     x-on:keydown.enter.stop
     x-on:keydown.space.stop
-    class="{{ in_array($variant, ['rail', 'pill'], true) ? 'flex justify-center' : 'flex flex-wrap items-center gap-2' }}"
+    class="{{ $variant === 'rail' ? 'flex flex-col items-center gap-1' : ($variant === 'pill' ? 'flex flex-col items-start gap-1' : 'flex flex-wrap items-center gap-2') }}"
 >
     @if($post === null)
         <span data-testid="post-voting-unavailable" class="text-xs text-rg-muted">Voting unavailable</span>

@@ -32,31 +32,49 @@
             </div>
         </div>
 
-        <div x-data="{ previewUrl: null }">
+        <div x-data="{ previewUrl: null, fileName: null }">
             <x-input-label for="image" value="Image" />
-            <input
-                id="image"
-                name="image"
-                type="file"
-                accept="image/*"
-                wire:model="image"
-                class="mt-1 block w-full text-sm text-rg-text2 file:mr-3 file:rounded-rgControl file:border-0 file:bg-rg-card2 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-rg-text file:transition file:hover:bg-rg-card"
-                x-on:change="
-                    const file = $event.target.files[0];
-                    if (!file) { previewUrl = null; return; }
-                    const reader = new FileReader();
-                    reader.onload = e => previewUrl = e.target.result;
-                    reader.readAsDataURL(file);
-                "
-            />
-            <div class="mt-2">
+            <label
+                for="image"
+                class="mt-1 flex cursor-pointer flex-col items-center justify-center rounded-rgCard border border-dashed border-rg-border2 bg-rg-card2 px-4 py-6 text-center transition hover:border-rg-accentBorder hover:bg-rg-card"
+                data-testid="upload-image-dropzone"
+            >
+                <input
+                    id="image"
+                    name="image"
+                    type="file"
+                    accept="image/*"
+                    wire:model="image"
+                    class="sr-only"
+                    x-on:change="
+                        const file = $event.target.files[0];
+                        if (!file) { previewUrl = null; fileName = null; return; }
+                        fileName = file.name;
+                        const reader = new FileReader();
+                        reader.onload = e => previewUrl = e.target.result;
+                        reader.readAsDataURL(file);
+                    "
+                />
+
                 <template x-if="previewUrl">
-                    <img :src="previewUrl" alt="Selected image preview" class="max-h-48 w-full rounded-rgCard object-cover" />
+                    <img :src="previewUrl" alt="Selected image preview" class="max-h-56 w-full rounded-rgMedia object-contain" />
                 </template>
-                <div x-show="!previewUrl">
-                    <x-ui.image-placeholder label="Image preview" ratio="video" />
+
+                <div x-show="!previewUrl" class="flex flex-col items-center gap-2">
+                    <span class="grid size-10 place-items-center rounded-rgPill border border-rg-border2 bg-rg-card text-rg-muted">
+                        <x-ui.icon name="upload" class="size-5" />
+                    </span>
+                    <div>
+                        <p class="text-sm font-semibold text-rg-text">Choose a file or drag & drop it here</p>
+                        <p class="mt-1 text-xs text-rg-muted">JPEG, PNG, GIF up to 5MB</p>
+                    </div>
+                    <span class="mt-1 inline-flex h-9 items-center rounded-rgControl border border-rg-border2 bg-rg-card px-4 text-[13px] font-semibold text-rg-text">
+                        Browse File
+                    </span>
                 </div>
-            </div>
+
+                <p x-show="fileName" x-text="fileName" class="mt-2 text-xs text-rg-muted"></p>
+            </label>
             <div data-testid="field-error-image" class="mt-1">
                 <x-input-error :messages="$errors->get('image')" />
             </div>
@@ -116,8 +134,25 @@
 
         <div>
             <x-input-label value="Tags" />
-            <div class="mt-1 rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 py-2 text-sm text-rg-muted">
-                Tag selection coming soon
+            <div class="mt-1 flex flex-wrap gap-2 rounded-rgControl border border-rg-border2 bg-rg-card2 p-2" data-testid="upload-tags">
+                @forelse($tags as $tag)
+                    <label class="inline-flex cursor-pointer items-center gap-2 rounded-rgPill border border-rg-border2 bg-rg-card px-3 py-1.5 text-[13px] font-semibold text-rg-text2 transition hover:border-rg-accentBorder hover:text-rg-text">
+                        <input
+                            type="checkbox"
+                            value="{{ $tag->id }}"
+                            wire:model="tagIds"
+                            class="size-3.5 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-rg-accent"
+                            data-testid="upload-tag-{{ $tag->id }}"
+                        >
+                        {{ $tag->name }}
+                    </label>
+                @empty
+                    <span class="px-1 text-sm text-rg-muted">No tags available.</span>
+                @endforelse
+            </div>
+            <div data-testid="field-error-tags" class="mt-1">
+                <x-input-error :messages="$errors->get('tagIds')" />
+                <x-input-error :messages="$errors->get('tagIds.*')" />
             </div>
         </div>
 

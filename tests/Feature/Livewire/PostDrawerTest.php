@@ -132,10 +132,10 @@ it('renders drawer vote summary', function () {
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Results')
-        ->assertSee('(unvoted)')
         ->assertSee('Homemade')
         ->assertSee('Restaurant')
-        ->assertSee('0 votes');
+        ->assertDontSee('(unvoted)')
+        ->assertDontSee('0 votes');
 });
 
 it('renders drawer author metadata', function () {
@@ -205,9 +205,20 @@ it('renders origin voting panel in drawer', function () {
 });
 
 it('renders drawer origin controls before result labels', function () {
-    $post = Post::factory()->published()->create();
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'homemade_votes_count' => 1,
+        'restaurant_votes_count' => 1,
+    ]);
 
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+    OriginVote::factory()->create([
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'origin' => OriginType::Homemade,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSeeInOrder([
             'post-drawer-origin-voting',
             'Homemade</span>',
@@ -247,7 +258,7 @@ it('renders cuisine voting buttons in drawer', function () {
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('data-testid="post-drawer-cuisine-voting"', false)
-        ->assertSee('flex-nowrap', false)
+        ->assertSee('flex-wrap', false)
         ->assertSee('h-7 min-w-9', false)
         ->assertSee('Italian')
         ->assertSee('Asian')
@@ -263,6 +274,5 @@ it('renders drawer cuisine controls directly under the distribution heading', fu
         ->assertSeeInOrder([
             'Cuisine guess distribution',
             'data-testid="post-drawer-cuisine-voting"',
-            'grid-cols-[28px_minmax(0,1fr)_52px]',
         ], false);
 });

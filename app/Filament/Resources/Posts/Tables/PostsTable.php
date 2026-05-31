@@ -27,6 +27,7 @@ class PostsTable
             ->columns([
                 ImageColumn::make('public_image_url')
                     ->label('Image')
+                    ->getStateUsing(fn (Post $record): ?string => $record->public_image_url ? url($record->public_image_url) : null)
                     ->square()
                     ->defaultImageUrl(null),
                 TextColumn::make('title')

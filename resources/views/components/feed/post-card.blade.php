@@ -4,7 +4,7 @@
     data-post-id="{{ $post->id }}"
     role="button"
     tabindex="0"
-    x-data="{ postMenuOpen: false, deleteOpen: false }"
+    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false }"
     wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.space.prevent="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
@@ -46,11 +46,19 @@
         @endif
 
         @if($post->public_image_url)
-            <img
-                src="{{ $post->public_image_url }}"
-                alt="{{ $post->title }}"
-                class="mt-3 aspect-[16/10] w-full rounded-rgMedia object-cover"
+            <button
+                type="button"
+                class="mt-3 block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                x-on:click.stop="imageOpen = true"
+                data-testid="post-card-image-open"
+                aria-label="Open image fullscreen"
             >
+                <img
+                    src="{{ $post->public_image_url }}"
+                    alt="{{ $post->title }}"
+                    class="aspect-[16/10] w-full rounded-rgMedia object-cover"
+                >
+            </button>
         @else
             <div class="mt-3">
                 <x-ui.image-placeholder label="Food image" ratio="feed" />
@@ -66,7 +74,7 @@
                         :key="'post-card-origin-voting-'.$post->id"
                     />
 
-                    @if(data_get($originDistribution, 'current'))
+                    @if(data_get($originDistribution, 'current') && data_get($originDistribution, 'total') > 0)
                         <div data-testid="post-card-origin-results" class="mt-2">
                             <div class="mb-1 flex justify-between">
                                 <span class="text-[11.5px] font-semibold text-rg-good">Homemade</span>
@@ -91,7 +99,7 @@
                         :key="'post-card-cuisine-voting-'.$post->id"
                     />
 
-                    @if(data_get($cuisineDistribution, 'current'))
+                    @if(data_get($cuisineDistribution, 'current') && data_get($cuisineDistribution, 'total') > 0)
                         <div data-testid="post-card-cuisine-results" class="mt-2 flex flex-col gap-1.5">
                             @foreach($cuisineDistribution['rows'] as $row)
                                 <div class="grid grid-cols-[24px_minmax(0,1fr)_52px] items-center gap-1.5">
@@ -115,9 +123,18 @@
 
         <footer class="mt-3.5 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-2.5">
             <div class="flex flex-wrap items-center gap-4">
-                <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
+                <x-ui.action-button
+                    icon="comment"
+                    wire:click.stop="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }}, focus: 'comments' })"
+                >
+                    {{ $post->comments_count ?? 0 }}
+                </x-ui.action-button>
                 <span class="sr-only">{{ $post->comments_count ?? 0 }} comments</span>
-                <x-ui.action-button icon="share">Share</x-ui.action-button>
+                @if($post->exists)
+                    <x-ui.action-button icon="share" x-on:click.stop="shareOpen = true">Share</x-ui.action-button>
+                @else
+                    <x-ui.action-button icon="share">Share</x-ui.action-button>
+                @endif
                 @auth
                     @if($post->exists)
                         <livewire:posts.save-post-button
@@ -130,7 +147,7 @@
                 @endauth
             </div>
 
-            @if($post->exists)
+            @if($post->exists && ($canReportPost || $canDeletePost || $canModeratePost))
                 <div class="relative ml-auto" wire:click.stop wire:keydown.stop>
                     <button
                         type="button"
@@ -175,9 +192,6 @@
                             :key="'post-card-moderation-'.$post->id"
                         />
 
-                        @if($showNoActionsFallback)
-                            <span class="block px-3 py-2 text-sm text-rg-muted">No actions</span>
-                        @endif
                     </div>
                 </div>
 
@@ -199,6 +213,23 @@
                     </div>
                 </x-ui.modal>
             @endif
+
+            @if($post->exists)
+                <x-ui.modal title="Share this post" state="shareOpen" size="lg">
+                    <x-share.post-share-panel :post="$post" />
+                </x-ui.modal>
+            @endif
         </footer>
+
+        @if($post->public_image_url)
+            <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
+                <img
+                    src="{{ $post->public_image_url }}"
+                    alt="{{ $post->title }}"
+                    class="max-h-[80vh] w-full rounded-rgMedia object-contain"
+                    data-testid="post-fullscreen-image"
+                >
+            </x-ui.modal>
+        @endif
     </div>
 </x-ui.card>

@@ -31,7 +31,12 @@ final class CommentForm extends Component
                 body: $this->body,
             );
         } catch (CannotCommentException $e) {
-            $this->addError('body', $e->getMessage());
+            $this->addError(
+                'body',
+                $e->getMessage() === 'Guests cannot comment.'
+                    ? 'You must be signed in to comment.'
+                    : $e->getMessage(),
+            );
 
             return;
         }

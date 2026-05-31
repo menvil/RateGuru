@@ -33,7 +33,14 @@
             </label>
         </div>
 
-        <div class="flex items-center justify-end mt-4">
+        <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+            @if (Route::has('register'))
+                <a class="rounded-md text-sm font-semibold text-rg-accent2 hover:text-rg-text focus:outline-none focus:ring-2 focus:ring-rg-accent" href="{{ route('register') }}">
+                    {{ __('Create account') }}
+                </a>
+            @endif
+
+            <div class="flex items-center justify-end">
             @if (Route::has('password.request'))
                 <a class="underline text-sm text-rg-muted hover:text-rg-text2 rounded-md focus:outline-none focus:ring-2 focus:ring-rg-accent" href="{{ route('password.request') }}">
                     {{ __('Forgot your password?') }}
@@ -43,6 +50,7 @@
             <x-primary-button class="ms-3" data-testid="login-submit">
                 {{ __('Log in') }}
             </x-primary-button>
+            </div>
         </div>
     </form>
 </x-guest-layout>

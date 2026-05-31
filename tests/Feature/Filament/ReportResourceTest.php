@@ -4,7 +4,6 @@ use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Enums\ReportReason;
 use App\Enums\ReportStatus;
 use App\Filament\Resources\Reports\ReportResource;
-use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
@@ -39,8 +38,8 @@ it('uses the Report model', function () {
     expect(ReportResource::getModel())->toBe(Report::class);
 });
 
-it('lives under the Moderation navigation group', function () {
-    expect(ReportResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION);
+it('renders in the flat admin navigation', function () {
+    expect(ReportResource::getNavigationGroup())->toBeNull();
 });
 
 it('does not expose create or edit pages in this phase', function () {

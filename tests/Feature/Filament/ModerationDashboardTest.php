@@ -4,7 +4,6 @@ use App\Enums\CommentStatus;
 use App\Enums\ReportReason;
 use App\Enums\UserStatus;
 use App\Filament\Pages\ModerationDashboard;
-use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Widgets\LatestReportsTable;
 use App\Filament\Widgets\PendingPostsWidget;
 use App\Filament\Widgets\ReportedCommentsWidget;
@@ -43,7 +42,7 @@ it('does not allow normal user to access moderation dashboard', function () {
 });
 
 it('registers moderation dashboard navigation metadata', function () {
-    expect(ModerationDashboard::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
+    expect(ModerationDashboard::shouldRegisterNavigation())->toBeFalse()
         ->and(ModerationDashboard::getNavigationLabel())->toBe('Moderation Dashboard')
         ->and(ModerationDashboard::getSlug())->toBe('moderation-dashboard');
 });

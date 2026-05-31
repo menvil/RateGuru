@@ -3,7 +3,6 @@
 use App\Enums\CommentStatus;
 use App\Filament\Resources\Comments\CommentResource;
 use App\Filament\Resources\Comments\Pages\ListComments;
-use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
@@ -37,8 +36,8 @@ it('uses the Comment model', function () {
     expect(CommentResource::getModel())->toBe(Comment::class);
 });
 
-it('lives under the Moderation navigation group', function () {
-    expect(CommentResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION);
+it('renders in the flat admin navigation', function () {
+    expect(CommentResource::getNavigationGroup())->toBeNull();
 });
 
 it('does not expose create or edit pages in this phase', function () {

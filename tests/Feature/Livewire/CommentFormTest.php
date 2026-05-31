@@ -15,12 +15,13 @@ it('can render comment form component for authenticated user', function () {
         ->assertSee('data-testid="comment-form"', false);
 });
 
-it('renders login prompt for guest', function () {
+it('renders comment form for guest', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(CommentForm::class, ['postId' => $post->id])
-        ->assertSee('Log in to comment')
-        ->assertDontSee('data-testid="comment-form"', false);
+        ->assertSee('data-testid="comment-form"', false)
+        ->assertSee('name="body"', false)
+        ->assertSee('Add a comment');
 });
 
 it('does not let a guest create a comment via the submit action', function () {
@@ -31,6 +32,7 @@ it('does not let a guest create a comment via the submit action', function () {
         ->call('submit')
         ->assertOk()
         ->assertHasErrors('body')
+        ->assertSee('You must be signed in to comment.')
         ->assertNotDispatched('comment-created');
 
     $this->assertDatabaseCount('comments', 0);
@@ -86,11 +88,11 @@ it('renders comment textarea', function () {
         ->assertSee('maxlength="1000"', false);
 });
 
-it('does not render textarea for guest', function () {
+it('renders textarea for guest', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(CommentForm::class, ['postId' => $post->id])
-        ->assertDontSee('name="body"', false);
+        ->assertSee('name="body"', false);
 });
 
 it('renders comment submit button', function () {

@@ -2,23 +2,23 @@
 
 use App\Models\User;
 
-it('renders the filament dashboard placeholder for moderator', function () {
+it('renders the moderation dashboard for moderator', function () {
     $moderator = User::factory()->moderator()->create();
 
     $this->actingAs($moderator)
         ->get('/admin')
         ->assertOk()
-        ->assertSee('RateGuru Admin')
-        ->assertSee('Moderation and content tools will appear here');
+        ->assertSee('Moderation Dashboard')
+        ->assertSee('data-testid="admin-dashboard"', false);
 });
 
-it('renders the filament dashboard placeholder for admin', function () {
+it('renders the moderation dashboard for admin', function () {
     $admin = User::factory()->admin()->create();
 
     $this->actingAs($admin)
         ->get('/admin')
         ->assertOk()
-        ->assertSee('RateGuru Admin');
+        ->assertSee('Moderation Dashboard');
 });
 
 it('renders RateGuru branding in the admin panel', function () {

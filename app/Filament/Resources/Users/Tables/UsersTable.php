@@ -10,6 +10,7 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
 use Filament\Actions\Action;
+use Filament\Actions\EditAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -84,6 +85,7 @@ class UsersTable
                         ->where('trust_level', '>=', MarkUserTrustedAction::TRUSTED_LEVEL)),
             ])
             ->recordActions([
+                EditAction::make(),
                 Action::make('ban')
                     ->label('Ban')
                     ->icon('heroicon-o-no-symbol')

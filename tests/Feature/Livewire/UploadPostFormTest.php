@@ -223,13 +223,15 @@ it('creates post on successful upload', function () {
     expect(Post::query()->where('user_id', $user->id)->where('title', 'Homemade Pasta')->exists())->toBeTrue();
 });
 
-it('renders tag input placeholder', function () {
+it('renders selectable tags', function () {
     $user = User::factory()->create();
+    $tag = \App\Models\Tag::factory()->create(['name' => 'Italian']);
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSee('Tags')
-        ->assertSee('Tag selection coming soon');
+        ->assertSee('Italian')
+        ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
 });
 
 it('has cuisine truth selector', function () {

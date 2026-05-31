@@ -34,7 +34,7 @@ class UserFactory extends Factory
             'avatar_url' => null,
             'role' => UserRole::User,
             'status' => UserStatus::Active,
-            'trust_level' => 0,
+            'trust_level' => MarkUserTrustedAction::TRUSTED_LEVEL,
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),

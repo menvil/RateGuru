@@ -23,6 +23,8 @@ class ModerationDashboard extends Page
 
     protected static ?string $slug = 'moderation-dashboard';
 
+    protected static bool $shouldRegisterNavigation = false;
+
     /**
      * @return array<class-string>
      */
