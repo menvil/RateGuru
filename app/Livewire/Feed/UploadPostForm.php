@@ -40,20 +40,14 @@ final class UploadPostForm extends Component
     {
         abort_unless(auth()->check(), 403);
 
-        $this->tags = Tag::query()
-            ->orderBy('name')
-            ->get(['id', 'name'])
-            ->map(fn (Tag $tag): array => [
-                'id' => $tag->id,
-                'name' => $tag->name,
-            ])
-            ->all();
+        $this->loadTags();
     }
 
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
         $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'submitError']);
+        $this->loadTags();
         $this->originTruth = OriginType::Unknown->value;
         $this->cuisineTruth = CuisineType::Unknown->value;
         $this->resetValidation();
@@ -112,5 +106,17 @@ final class UploadPostForm extends Component
         return view('livewire.feed.upload-post-form', [
             'tags' => $this->tags,
         ]);
+    }
+
+    private function loadTags(): void
+    {
+        $this->tags = Tag::query()
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (Tag $tag): array => [
+                'id' => $tag->id,
+                'name' => $tag->name,
+            ])
+            ->all();
     }
 }

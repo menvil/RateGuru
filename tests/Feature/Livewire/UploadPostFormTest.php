@@ -256,6 +256,23 @@ it('does not query tags again during form interaction hydration', function () {
     expect($tagQueries)->toBe(0);
 });
 
+it('refreshes selectable tags when the upload modal opens again', function () {
+    $user = User::factory()->create();
+    Tag::factory()->create(['name' => 'InitialTagForTest']);
+
+    $component = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('InitialTagForTest')
+        ->assertDontSee('NewTagAfterMount');
+
+    $newTag = Tag::factory()->create(['name' => 'NewTagAfterMount']);
+
+    $component
+        ->dispatch('upload-modal-opened')
+        ->assertSee('NewTagAfterMount')
+        ->assertSee('data-testid="upload-tag-'.$newTag->id.'"', false);
+});
+
 it('has cuisine truth selector', function () {
     $user = User::factory()->create();
 
