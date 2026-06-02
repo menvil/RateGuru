@@ -34,6 +34,7 @@
 ## Queues
 
 - Decide `QUEUE_CONNECTION`.
+- See [queue worker docs](queue-worker.md).
 - Configure a worker if an async queue driver is used.
 
 ## Build

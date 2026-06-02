@@ -45,3 +45,17 @@ it('links storage symlink docs from deployment readme', function () {
 
     expect($content)->toContain('storage-symlink.md');
 });
+
+it('has queue worker deployment docs', function () {
+    $path = base_path('docs/deployment/queue-worker.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('QUEUE_CONNECTION');
+    expect($content)->toContain('php artisan queue:work');
+    expect($content)->toContain('sync');
+    expect($content)->toContain('Redis is not required');
+    expect($content)->toContain('php artisan queue:restart');
+});
