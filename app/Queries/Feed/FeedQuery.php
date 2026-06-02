@@ -59,10 +59,21 @@ final class FeedQuery
         ?string $search = null,
         ?string $tag = null,
         string $sort = 'newest',
-        int $perPage = 20,
+        ?int $perPage = null,
     ): LengthAwarePaginator {
-        $perPage = max(1, min($perPage, 50));
+        return $this->query(search: $search, tag: $tag, sort: $sort)
+            ->paginate($this->normalizePerPage($perPage));
+    }
 
-        return $this->query(search: $search, tag: $tag, sort: $sort)->paginate($perPage);
+    private function normalizePerPage(?int $perPage): int
+    {
+        $default = (int) config('feed.default_per_page', 12);
+        $max = (int) config('feed.max_per_page', 50);
+
+        if ($perPage === null || $perPage < 1) {
+            return $default;
+        }
+
+        return min($perPage, $max);
     }
 }
