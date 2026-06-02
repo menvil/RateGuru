@@ -20,6 +20,7 @@
 ## Storage
 
 - Confirm the public storage symlink exists.
+- See [storage symlink docs](storage-symlink.md).
 - Ensure `storage/app`, `storage/app/public`, `storage/logs`, and `bootstrap/cache` are writable.
 - Confirm upload disk configuration.
 
