@@ -12,6 +12,12 @@ Capture the desktop feed screenshot:
 php artisan visual:screenshot feed-desktop
 ```
 
+Capture the mobile feed screenshot:
+
+```bash
+php artisan visual:screenshot feed-mobile
+```
+
 Save into approved baselines instead of current screenshots:
 
 ```bash
@@ -35,6 +41,7 @@ php artisan visual:screenshot feed-desktop --fresh
 | Target | Viewport | State | Output |
 | --- | --- | --- | --- |
 | `feed-desktop` | `1440x1000` | Public feed with deterministic published post | `tests/Visual/current/feed-desktop.png` |
+| `feed-mobile` | `390x844` | Public feed with deterministic published post | `tests/Visual/current/feed-mobile.png` |
 
 ## Paths
 
@@ -58,6 +65,6 @@ tests/Visual/diff/
 
 ## Review
 
-For RG-626, compare `tests/Visual/current/feed-desktop.png` manually against
-the RateGuru design contract and `/dev/ui-kit` reference direction before
-approving any baseline in a later task.
+Compare generated screenshots manually against the RateGuru design contract
+and `/dev/ui-kit` reference direction before approving any baseline in a later
+task.

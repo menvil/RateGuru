@@ -10,7 +10,7 @@ use InvalidArgumentException;
 class CaptureVisualScreenshotCommand extends Command
 {
     protected $signature = 'visual:screenshot
-        {target=all : feed-desktop|all}
+        {target=all : feed-desktop|feed-mobile|all}
         {--baseline : Save into tests/Visual/baselines instead of current}
         {--fresh : Run migrate:fresh --seed before screenshots}';
 
