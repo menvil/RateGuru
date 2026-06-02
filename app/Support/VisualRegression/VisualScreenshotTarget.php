@@ -12,6 +12,7 @@ final readonly class VisualScreenshotTarget
         public int $viewportHeight,
         public string $outputFile,
         public bool $authenticated = false,
+        public ?string $routeModel = null,
         public ?string $clickSelector = null,
         public ?string $afterClickWaitSelector = null,
     ) {}

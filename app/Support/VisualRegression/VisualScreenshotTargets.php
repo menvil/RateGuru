@@ -49,6 +49,15 @@ final class VisualScreenshotTargets
                 clickSelector: '[data-testid="post-card"]',
                 afterClickWaitSelector: '[data-testid="post-drawer"]',
             ),
+            'post-show' => new VisualScreenshotTarget(
+                name: 'post-show',
+                routeName: 'posts.show',
+                waitSelector: '[data-testid="post-show"]',
+                viewportWidth: 1440,
+                viewportHeight: 1000,
+                outputFile: 'post-show.png',
+                routeModel: 'post',
+            ),
         ];
     }
 

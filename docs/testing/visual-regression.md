@@ -30,6 +30,12 @@ Capture the post drawer open state:
 php artisan visual:screenshot post-drawer
 ```
 
+Capture the standalone post show page:
+
+```bash
+php artisan visual:screenshot post-show
+```
+
 Save into approved baselines instead of current screenshots:
 
 ```bash
@@ -56,6 +62,7 @@ php artisan visual:screenshot feed-desktop --fresh
 | `feed-mobile` | `390x844` | Public feed with deterministic published post | `tests/Visual/current/feed-mobile.png` |
 | `upload-modal` | `1440x1000` | Authenticated feed with upload modal open | `tests/Visual/current/upload-modal.png` |
 | `post-drawer` | `1440x1000` | Public feed with deterministic post drawer open | `tests/Visual/current/post-drawer.png` |
+| `post-show` | `1440x1000` | Standalone deterministic post show page | `tests/Visual/current/post-show.png` |
 
 ## Paths
 
