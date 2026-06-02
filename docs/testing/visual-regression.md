@@ -89,3 +89,9 @@ tests/Visual/diff/
 Compare generated screenshots manually against the RateGuru design contract
 and `/dev/ui-kit` reference direction before approving any baseline in a later
 task.
+
+## Approved Baselines
+
+| Baseline | Status |
+| --- | --- |
+| `feed-desktop.png` | Approved in RG-631 |
