@@ -30,6 +30,7 @@
 - Serve the app over HTTPS from the web server or proxy.
 - Do not run demo seeders in production.
 - Do not keep demo admin credentials in production.
+- See [admin user creation docs](admin-user-creation.md).
 - Create a real admin with the admin creation command when available.
 
 ## Queues

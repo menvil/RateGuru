@@ -72,3 +72,17 @@ it('has migration deployment docs', function () {
     expect($content)->toContain('backup');
     expect($content)->toContain('Never run migrate:fresh in production');
 });
+
+it('has admin user creation docs', function () {
+    $path = base_path('docs/deployment/admin-user-creation.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('php artisan rateguru:admin:create');
+    expect($content)->toContain('--email');
+    expect($content)->toContain('--username');
+    expect($content)->toContain('Do not use demo admin credentials in production');
+    expect($content)->toContain('password is hashed');
+});
