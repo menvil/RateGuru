@@ -7,3 +7,4 @@ Deployment prep docs collect operational checks for staging and production.
 - [Queue worker](queue-worker.md)
 - [Deployment migrations](migrations.md)
 - [Admin user creation](admin-user-creation.md)
+- [SQLite backup strategy](sqlite-backup-strategy.md)

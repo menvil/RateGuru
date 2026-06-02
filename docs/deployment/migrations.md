@@ -9,6 +9,7 @@ php artisan migrate --force
 ## Before running migrations
 
 - take a database backup;
+- for SQLite deployments, follow [SQLite backup strategy](sqlite-backup-strategy.md);
 - check pending migrations;
 - review destructive migrations;
 - ensure deployment rollback plan exists.
