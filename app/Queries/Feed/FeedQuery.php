@@ -71,7 +71,7 @@ final class FeedQuery
         $max = (int) config('feed.max_per_page', 50);
 
         if ($perPage === null || $perPage < 1) {
-            return $default;
+            return max(1, min($default, $max));
         }
 
         return min($perPage, $max);

@@ -23,6 +23,9 @@ The web or PHP user must be able to write:
 ```txt
 storage/app
 storage/app/public
+storage/framework/views
+storage/framework/sessions
+storage/framework/cache/data
 storage/logs
 bootstrap/cache
 ```
