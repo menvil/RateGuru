@@ -8,6 +8,8 @@ use App\Services\Images\CloudinaryImageStorage;
 use App\Services\Images\ImageStorage;
 use App\Services\Images\LocalImageStorage;
 use App\Support\View\AppLayoutData;
+use App\Support\VisualRegression\PestVisualScreenshotRunner;
+use App\Support\VisualRegression\VisualScreenshotRunner;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -16,6 +18,8 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->bind(VisualScreenshotRunner::class, PestVisualScreenshotRunner::class);
+
         $this->app->bind(ImageStorage::class, function () {
             $driver = config('rateguru.images.driver');
 
