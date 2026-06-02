@@ -15,7 +15,7 @@ Real feed cache is not enabled in Phase 41.
 Post list cache keys should use the `post-list:feed` prefix and include normalized filters:
 
 ```txt
-post-list:feed:page=1:perPage=12:search=pasta:sort=newest:tag=italian
+post-list:feed:page=1:perPage=12:search="pasta":sort="newest":tag="italian"
 ```
 
 ## Future invalidation triggers

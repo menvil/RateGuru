@@ -29,7 +29,7 @@ it('generates stable post list cache keys from filters', function () {
     ]);
 
     expect($key)->toContain('post-list:feed');
-    expect($key)->toContain('sort=newest');
-    expect($key)->toContain('search=pasta');
-    expect($key)->toBe('post-list:feed:page=1:perPage=12:search=pasta:sort=newest:tag=italian');
+    expect($key)->toContain('sort="newest"');
+    expect($key)->toContain('search="pasta"');
+    expect($key)->toBe('post-list:feed:page=1:perPage=12:search="pasta":sort="newest":tag="italian"');
 });
