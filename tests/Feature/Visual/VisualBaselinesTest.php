@@ -20,3 +20,10 @@ it('has approved upload modal visual baseline', function () {
     expect(file_exists($path))->toBeTrue()
         ->and(filesize($path))->toBeGreaterThan(0);
 });
+
+it('has approved post drawer visual baseline', function () {
+    $path = base_path('tests/Visual/baselines/post-drawer.png');
+
+    expect(file_exists($path))->toBeTrue()
+        ->and(filesize($path))->toBeGreaterThan(0);
+});
