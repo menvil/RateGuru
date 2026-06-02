@@ -38,6 +38,13 @@
                 for="image"
                 class="mt-1 flex cursor-pointer flex-col items-center justify-center rounded-rgCard border border-dashed border-rg-border2 bg-rg-card2 px-4 py-6 text-center transition hover:border-rg-accentBorder hover:bg-rg-card"
                 data-testid="upload-image-dropzone"
+                x-on:dragover.prevent
+                x-on:drop.prevent="
+                    const file = $event.dataTransfer.files[0];
+                    if (!file) { previewUrl = null; fileName = null; return; }
+                    $refs.image.files = $event.dataTransfer.files;
+                    $refs.image.dispatchEvent(new Event('change', { bubbles: true }));
+                "
             >
                 <input
                     id="image"
@@ -45,6 +52,7 @@
                     type="file"
                     accept="image/*"
                     wire:model="image"
+                    x-ref="image"
                     class="sr-only"
                     x-on:change="
                         const file = $event.target.files[0];

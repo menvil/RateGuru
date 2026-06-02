@@ -31,6 +31,12 @@ class CaptureVisualScreenshotCommand extends Command
         }
 
         if ((bool) $this->option('fresh')) {
+            if (! app()->environment(['local', 'testing', 'ci'])) {
+                $this->components->error('The --fresh option may only be used in local, testing, or ci environments.');
+
+                return self::FAILURE;
+            }
+
             $this->call('migrate:fresh', ['--seed' => true]);
         }
 

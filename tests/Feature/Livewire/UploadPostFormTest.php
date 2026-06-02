@@ -227,12 +227,12 @@ it('creates post on successful upload', function () {
 
 it('renders selectable tags', function () {
     $user = User::factory()->create();
-    $tag = Tag::factory()->create(['name' => 'Italian']);
+    $tag = Tag::factory()->create(['name' => 'UniqueTagForTest']);
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSee('Tags')
-        ->assertSee('Italian')
+        ->assertSee('UniqueTagForTest')
         ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
 });
 

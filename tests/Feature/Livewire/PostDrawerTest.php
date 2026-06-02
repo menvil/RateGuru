@@ -253,6 +253,16 @@ it('renders drawer result percentages with vote counts after voting', function (
         ->assertSee('50% (1)');
 });
 
+it('keeps drawer result visibility logic in the Livewire component', function () {
+    $view = file_get_contents(resource_path('views/livewire/feed/post-drawer.blade.php'));
+
+    expect($view)
+        ->toContain('$showOriginDistribution')
+        ->toContain('$showCuisineDistribution')
+        ->not->toContain("originDistribution['current']")
+        ->not->toContain("cuisineDistribution['current']");
+});
+
 it('renders cuisine voting buttons in drawer', function () {
     $post = Post::factory()->published()->create();
 

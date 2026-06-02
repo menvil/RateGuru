@@ -74,7 +74,7 @@
                         :key="'post-card-origin-voting-'.$post->id"
                     />
 
-                    @if(data_get($originDistribution, 'current') && data_get($originDistribution, 'total') > 0)
+                    @if($showOriginResults)
                         <div data-testid="post-card-origin-results" class="mt-2">
                             <div class="mb-1 flex justify-between">
                                 <span class="text-[11.5px] font-semibold text-rg-good">Homemade</span>
@@ -99,7 +99,7 @@
                         :key="'post-card-cuisine-voting-'.$post->id"
                     />
 
-                    @if(data_get($cuisineDistribution, 'current') && data_get($cuisineDistribution, 'total') > 0)
+                    @if($showCuisineResults)
                         <div data-testid="post-card-cuisine-results" class="mt-2 flex flex-col gap-1.5">
                             @foreach($cuisineDistribution['rows'] as $row)
                                 <div class="grid grid-cols-[24px_minmax(0,1fr)_52px] items-center gap-1.5">
