@@ -125,7 +125,7 @@ final class CommentsSection extends Component
         } catch (CannotCommentException $e) {
             $this->addError(
                 'replyBody',
-                $e->getMessage() === 'Guests cannot comment.'
+                $e->isGuest()
                     ? 'You must be signed in to reply.'
                     : $e->getMessage(),
             );

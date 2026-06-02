@@ -4,7 +4,6 @@ namespace App\Filament\Resources\Reports;
 
 use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Filament\Resources\Reports\Tables\ReportsTable;
-use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
@@ -23,9 +22,11 @@ class ReportResource extends Resource
 
     protected static ?string $navigationLabel = 'Reports';
 
+    protected static ?int $navigationSort = 3;
+
     public static function getNavigationGroup(): ?string
     {
-        return AdminNavigationGroup::MODERATION;
+        return null;
     }
 
     public static function table(Table $table): Table

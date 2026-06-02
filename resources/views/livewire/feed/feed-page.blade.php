@@ -25,9 +25,28 @@
                     });
                 }, 40);
             });
+        },
+        scrollToDetailTarget(target) {
+            if (!target) {
+                return;
+            }
+
+            this.$nextTick(() => {
+                setTimeout(() => {
+                    requestAnimationFrame(() => {
+                        const detail = this.$refs.detailScroll;
+                        const selector = target === 'comments' ? '[data-testid=\'drawer-comments-slot\']' : null;
+                        const targetEl = selector && detail ? detail.querySelector(selector) : null;
+
+                        if (detail && targetEl) {
+                            detail.scrollTo({ top: targetEl.offsetTop - 12, behavior: 'smooth' });
+                        }
+                    });
+                }, 80);
+            });
         }
     }"
-    x-on:post-selected.window="scrollToSelectedPost($event.detail.postId)"
+    x-on:post-selected.window="scrollToSelectedPost($event.detail.postId); scrollToDetailTarget($event.detail.focus)"
 >
     <div
         class="{{ $hasSelectedPost

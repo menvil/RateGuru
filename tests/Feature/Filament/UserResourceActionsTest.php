@@ -36,6 +36,16 @@ it('hides the ban action from moderators', function () {
         ->assertTableActionHidden('ban', $target);
 });
 
+it('hides the edit action from moderators', function () {
+    $moderator = User::factory()->moderator()->create();
+    $target = User::factory()->create(['status' => UserStatus::Active]);
+
+    $this->actingAs($moderator);
+
+    Livewire::test(ListUsers::class)
+        ->assertTableActionHidden('edit', $target);
+});
+
 it('hides the ban action for admin targets', function () {
     $admin = User::factory()->admin()->create();
     $otherAdmin = User::factory()->admin()->create();

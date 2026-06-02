@@ -15,7 +15,7 @@ use App\Services\Images\StoredImage;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 
-it('creates a pending post for normal user', function () {
+it('creates a published post for default trusted user', function () {
     $user = User::factory()->create();
 
     $data = new CreatePostData(
@@ -34,8 +34,8 @@ it('creates a pending post for normal user', function () {
     expect($post->exists)->toBeTrue();
     expect($post->user_id)->toBe($user->id);
     expect($post->title)->toBe('Homemade pasta');
-    expect($post->status)->toBe(PostStatus::Pending);
-    expect($post->published_at)->toBeNull();
+    expect($post->status)->toBe(PostStatus::Published);
+    expect($post->published_at)->not->toBeNull();
 });
 
 it('creates a published post for trusted user', function () {

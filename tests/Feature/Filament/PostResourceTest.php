@@ -2,7 +2,6 @@
 
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Posts\PostResource;
-use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
@@ -35,8 +34,8 @@ it('uses the Post model', function () {
     expect(PostResource::getModel())->toBe(Post::class);
 });
 
-it('lives under the Content navigation group', function () {
-    expect(PostResource::getNavigationGroup())->toBe(AdminNavigationGroup::CONTENT);
+it('renders in the flat admin navigation', function () {
+    expect(PostResource::getNavigationGroup())->toBeNull();
 });
 
 it('does not expose create or edit pages in this phase', function () {
@@ -56,7 +55,8 @@ it('renders an image column in the post resource table', function () {
         ->assertCanSeeTableRecords([$post])
         ->assertTableColumnExists('public_image_url')
         ->assertCanRenderTableColumn('public_image_url')
-        ->assertTableColumnStateSet('public_image_url', '/storage/posts/demo.jpg', $post);
+        ->assertTableColumnStateSet('public_image_url', url('/storage/posts/demo.jpg'), $post)
+        ->assertSee(url('/storage/posts/demo.jpg'), false);
 });
 
 it('renders a searchable, sortable title column', function () {
@@ -69,7 +69,20 @@ it('renders a searchable, sortable title column', function () {
         ->assertCanSeeTableRecords([$post])
         ->assertTableColumnExists('title')
         ->assertCanRenderTableColumn('title')
-        ->assertSee('Homemade Pasta');
+        ->assertSee('Homemade Pasta')
+        ->assertSee(route('posts.show', $post), false);
+});
+
+it('does not link non-published post titles to the public post page', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->pending()->create(['title' => 'Pending Pasta']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$post])
+        ->assertSee('Pending Pasta')
+        ->assertDontSee(route('posts.show', $post), false);
 });
 
 it('renders the author username column', function () {

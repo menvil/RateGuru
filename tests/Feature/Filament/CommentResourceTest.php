@@ -3,7 +3,6 @@
 use App\Enums\CommentStatus;
 use App\Filament\Resources\Comments\CommentResource;
 use App\Filament\Resources\Comments\Pages\ListComments;
-use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
@@ -37,8 +36,8 @@ it('uses the Comment model', function () {
     expect(CommentResource::getModel())->toBe(Comment::class);
 });
 
-it('lives under the Moderation navigation group', function () {
-    expect(CommentResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION);
+it('renders in the flat admin navigation', function () {
+    expect(CommentResource::getNavigationGroup())->toBeNull();
 });
 
 it('does not expose create or edit pages in this phase', function () {
@@ -47,7 +46,8 @@ it('does not expose create or edit pages in this phase', function () {
 
 it('renders comment body excerpt in comment resource table', function () {
     $admin = User::factory()->admin()->create();
-    $comment = Comment::factory()->create([
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create([
         'body' => 'This comment should be visible as an excerpt in the admin table.',
     ]);
 
@@ -57,7 +57,8 @@ it('renders comment body excerpt in comment resource table', function () {
         ->assertCanSeeTableRecords([$comment])
         ->assertTableColumnExists('body')
         ->assertCanRenderTableColumn('body')
-        ->assertSee('This comment should be visible');
+        ->assertSee('This comment should be visible')
+        ->assertSee(route('posts.show', $comment->post).'#comment-'.$comment->id, false);
 });
 
 it('renders comment author in comment resource table', function () {
@@ -85,7 +86,25 @@ it('renders related post in comment resource table', function () {
         ->assertCanSeeTableRecords([$comment])
         ->assertTableColumnExists('post.title')
         ->assertCanRenderTableColumn('post.title')
-        ->assertSee('Pasta post');
+        ->assertSee('Pasta post')
+        ->assertSee(route('posts.show', $post), false);
+});
+
+it('does not link comments to public pages for non-published posts', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->pending()->create(['title' => 'Pending post']);
+    $comment = Comment::factory()->for($post)->create([
+        'body' => 'Comment on pending post',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->assertCanSeeTableRecords([$comment])
+        ->assertSee('Comment on pending post')
+        ->assertSee('Pending post')
+        ->assertDontSee(route('posts.show', $post), false)
+        ->assertDontSee(route('posts.show', $post).'#comment-'.$comment->id, false);
 });
 
 it('renders sortable status badge column in comment resource table', function () {

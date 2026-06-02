@@ -107,14 +107,14 @@ it('has trust_level column on users table', function () {
     expect(Schema::hasColumn('users', 'trust_level'))->toBeTrue();
 });
 
-it('defaults user trust level to zero', function () {
+it('defaults user trust level to trusted', function () {
     $user = User::query()->create([
         'name' => 'Chef Ivan',
         'email' => 'trust-chef@example.com',
         'password' => 'password',
     ]);
 
-    expect($user->fresh()->trust_level)->toBe(0);
+    expect($user->fresh()->trust_level)->toBe(\App\Actions\Moderation\MarkUserTrustedAction::TRUSTED_LEVEL);
 });
 
 it('stores user trust level', function () {
@@ -123,8 +123,8 @@ it('stores user trust level', function () {
     expect($user->fresh()->trust_level)->toBe(10);
 });
 
-it('creates zero trust level from factory', function () {
+it('creates trusted level from factory', function () {
     $user = User::factory()->create();
 
-    expect($user->trust_level)->toBe(0);
+    expect($user->trust_level)->toBe(\App\Actions\Moderation\MarkUserTrustedAction::TRUSTED_LEVEL);
 });

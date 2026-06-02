@@ -36,3 +36,11 @@ it('renders modal shell accessibility and presentation attributes', function () 
         ->toContain('aria-label="Close modal"')
         ->toContain('x-on:click="open = false"');
 });
+
+it('stops modal clicks from bubbling to clickable parents', function () {
+    $html = Blade::render('<x-ui.modal title="Share">Share content</x-ui.modal>');
+
+    expect($html)
+        ->toContain('x-on:click.stop')
+        ->toContain('x-on:click.stop="open = false"');
+});

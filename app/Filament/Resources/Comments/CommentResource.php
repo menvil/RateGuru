@@ -4,7 +4,6 @@ namespace App\Filament\Resources\Comments;
 
 use App\Filament\Resources\Comments\Pages\ListComments;
 use App\Filament\Resources\Comments\Tables\CommentsTable;
-use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
 use BackedEnum;
 use Filament\Resources\Resource;
@@ -22,9 +21,11 @@ class CommentResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'body';
 
+    protected static ?int $navigationSort = 2;
+
     public static function getNavigationGroup(): ?string
     {
-        return AdminNavigationGroup::MODERATION;
+        return null;
     }
 
     public static function table(Table $table): Table

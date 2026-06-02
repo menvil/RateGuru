@@ -54,12 +54,11 @@
     </div>
 
     @if ($this->comments->isEmpty())
-        <div>
-            <x-ui.empty-state
-                title="No comments yet"
-                description="Be the first to comment."
-            />
-        </div>
+        <x-ui.empty-state
+            title="No comments yet"
+            description="Be the first to comment."
+            data-testid="comments-empty"
+        />
     @else
         <div class="space-y-4">
             @foreach ($this->comments as $comment)

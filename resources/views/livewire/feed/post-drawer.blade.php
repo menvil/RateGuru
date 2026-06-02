@@ -7,7 +7,7 @@
 
     <div wire:loading.remove class="overflow-y-auto transition-opacity duration-200">
     @if($post)
-        <article x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false }" class="relative rounded-rgCard border border-rg-border bg-rg-card p-5">
+        <article x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false, imageOpen: false }" class="relative rounded-rgCard border border-rg-border bg-rg-card p-5">
             <button
                 type="button"
                 aria-label="Close"
@@ -28,11 +28,19 @@
 
             <div class="mt-4">
                 @if($post->public_image_url)
-                    <img
-                        src="{{ $post->public_image_url }}"
-                        alt="{{ $post->title }}"
-                        class="aspect-[4/3] w-full rounded-rgMedia object-cover"
+                    <button
+                        type="button"
+                        class="block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                        x-on:click.stop="imageOpen = true"
+                        data-testid="post-drawer-image-open"
+                        aria-label="Open image fullscreen"
                     >
+                        <img
+                            src="{{ $post->public_image_url }}"
+                            alt="{{ $post->title }}"
+                            class="aspect-[4/3] w-full rounded-rgMedia object-cover"
+                        >
+                    </button>
                 @else
                     <x-ui.image-placeholder label="Image preview" ratio="detail" />
                 @endif
@@ -60,6 +68,7 @@
                         />
                     @endauth
                 </div>
+                @if($canReportPost || $canDeletePost || $canModeratePost)
                 <div class="relative" wire:click.stop wire:keydown.stop>
                     <button
                         type="button"
@@ -102,16 +111,25 @@
                             :key="'post-drawer-menu-moderation-'.$post->id"
                         />
 
-                        @if(! $canReportPost && ! $canDeletePost && ! $canModeratePost)
-                            <span class="block px-3 py-2 text-sm text-rg-muted">No actions</span>
-                        @endif
                     </div>
                 </div>
+                @endif
             </footer>
 
             <x-ui.modal title="Share this post" state="shareOpen" size="lg">
                 <x-share.post-share-panel :post="$post" />
             </x-ui.modal>
+
+            @if($post->public_image_url)
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
+                    <img
+                        src="{{ $post->public_image_url }}"
+                        alt="{{ $post->title }}"
+                        class="max-h-[80vh] w-full rounded-rgMedia object-contain"
+                        data-testid="post-fullscreen-image"
+                    >
+                </x-ui.modal>
+            @endif
 
             <x-ui.modal title="Delete post?" state="deleteOpen" size="sm">
                 <div class="space-y-4">
@@ -137,11 +155,10 @@
             </x-ui.modal>
         </article>
 
-        <section data-testid="post-detail-results" class="mt-4 grid gap-6 rounded-rgCard border border-rg-border bg-rg-card p-5 sm:grid-cols-2">
-            <div>
+        <section data-testid="post-detail-results" class="mt-4 grid min-w-0 gap-5 rounded-rgCard border border-rg-border bg-rg-card p-4 sm:grid-cols-2 sm:p-5">
+            <div class="min-w-0">
                 <div class="mb-3 flex items-baseline gap-2">
                     <h3 class="text-base font-bold text-rg-text">Results</h3>
-                    <span class="text-xs text-rg-muted">({{ $originDistribution['current'] ?? null ? 'voted' : 'unvoted' }})</span>
                 </div>
 
                 <div class="mb-3" data-testid="post-drawer-origin-voting" wire:click.stop wire:keydown.stop>
@@ -151,21 +168,23 @@
                     />
                 </div>
 
-                <div class="mb-1.5 flex justify-between">
-                    <span class="text-[13px] font-semibold text-rg-good">Homemade</span>
-                    <span class="text-[13px] text-rg-text2">Restaurant</span>
-                </div>
-                <div class="mb-2 flex justify-between">
-                    <span class="text-[22px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
-                    <span class="text-[22px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
-                </div>
-                <div class="relative h-2 overflow-hidden rounded-rgPill bg-rg-card2">
-                    <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
-                </div>
-                <div class="mt-2.5 text-[11.5px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
+                @if($showOriginDistribution)
+                    <div class="mb-1.5 flex justify-between gap-3">
+                        <span class="text-[13px] font-semibold text-rg-good">Homemade</span>
+                        <span class="text-[13px] text-rg-text2">Restaurant</span>
+                    </div>
+                    <div class="mb-2 flex justify-between gap-3">
+                        <span class="text-[20px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
+                        <span class="text-[20px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
+                    </div>
+                    <div class="relative h-2 overflow-hidden rounded-rgPill bg-rg-card2">
+                        <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
+                    </div>
+                    <div class="mt-2.5 text-[11.5px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
+                @endif
             </div>
 
-            <div>
+            <div class="min-w-0">
                 <h3 class="mb-3.5 text-sm font-bold text-rg-text">Cuisine guess distribution</h3>
                 <div class="mb-3" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.cuisine-voting
@@ -175,17 +194,19 @@
                     />
                 </div>
 
-                <div class="flex flex-col gap-2">
-                    @foreach($cuisineDistribution['rows'] as $row)
-                        <div class="grid grid-cols-[28px_minmax(0,1fr)_52px] items-center gap-2.5">
-                            <span class="text-xs font-semibold text-rg-text2">{{ $row['label'] }}</span>
-                            <div class="h-2 overflow-hidden rounded-rgPill bg-rg-card2">
-                                <div class="h-full rounded-rgPill bg-rg-accent" style="width: {{ $row['percentage'] }}%"></div>
+                @if($showCuisineDistribution)
+                    <div class="flex flex-col gap-2">
+                        @foreach($cuisineDistribution['rows'] as $row)
+                            <div class="grid min-w-0 grid-cols-[24px_minmax(0,1fr)_46px] items-center gap-2">
+                                <span class="text-xs font-semibold text-rg-text2">{{ $row['label'] }}</span>
+                                <div class="h-2 min-w-0 overflow-hidden rounded-rgPill bg-rg-card2">
+                                    <div class="h-full rounded-rgPill bg-rg-accent" style="width: {{ $row['percentage'] }}%"></div>
+                                </div>
+                                <span class="text-right text-[11px] text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
                             </div>
-                            <span class="text-right text-xs text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
-                        </div>
-                    @endforeach
-                </div>
+                        @endforeach
+                    </div>
+                @endif
             </div>
         </section>
 

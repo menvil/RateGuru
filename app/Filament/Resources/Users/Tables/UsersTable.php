@@ -10,6 +10,7 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
 use Filament\Actions\Action;
+use Filament\Actions\EditAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -84,12 +85,13 @@ class UsersTable
                         ->where('trust_level', '>=', MarkUserTrustedAction::TRUSTED_LEVEL)),
             ])
             ->recordActions([
+                EditAction::make()
+                    ->visible(fn (User $record): bool => auth()->user()?->can('manage', $record) === true),
                 Action::make('ban')
                     ->label('Ban')
                     ->icon('heroicon-o-no-symbol')
                     ->color('danger')
-                    ->visible(fn (User $record): bool =>
-                        auth()->user()?->can('ban', $record) === true
+                    ->visible(fn (User $record): bool => auth()->user()?->can('ban', $record) === true
                         && $record->status !== UserStatus::Banned
                     )
                     ->schema([
@@ -109,8 +111,7 @@ class UsersTable
                     ->label('Unban')
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('success')
-                    ->visible(fn (User $record): bool =>
-                        auth()->user()?->can('unban', $record) === true
+                    ->visible(fn (User $record): bool => auth()->user()?->can('unban', $record) === true
                         && in_array($record->status, [UserStatus::Banned, UserStatus::Shadowbanned], true)
                     )
                     ->schema([
@@ -130,8 +131,7 @@ class UsersTable
                     ->label('Mark trusted')
                     ->icon('heroicon-o-shield-check')
                     ->color('success')
-                    ->visible(fn (User $record): bool =>
-                        auth()->user()?->can('markTrusted', $record) === true
+                    ->visible(fn (User $record): bool => auth()->user()?->can('markTrusted', $record) === true
                         && $record->status === UserStatus::Active
                         && (int) $record->trust_level < MarkUserTrustedAction::TRUSTED_LEVEL
                     )
@@ -152,8 +152,7 @@ class UsersTable
                     ->label('Shadowban')
                     ->icon('heroicon-o-eye-slash')
                     ->color('warning')
-                    ->visible(fn (User $record): bool =>
-                        auth()->user()?->can('shadowban', $record) === true
+                    ->visible(fn (User $record): bool => auth()->user()?->can('shadowban', $record) === true
                         && $record->status !== UserStatus::Shadowbanned
                         && $record->status !== UserStatus::Banned
                     )

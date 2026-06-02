@@ -27,13 +27,20 @@ class PostsTable
             ->columns([
                 ImageColumn::make('public_image_url')
                     ->label('Image')
+                    ->getStateUsing(fn (Post $record): ?string => $record->public_image_url ? url($record->public_image_url) : null)
                     ->square()
-                    ->defaultImageUrl(null),
+                    ->defaultImageUrl(null)
+                    ->url(fn (Post $record): ?string => $record->public_image_url ? url($record->public_image_url) : null)
+                    ->openUrlInNewTab(),
                 TextColumn::make('title')
                     ->label('Title')
                     ->searchable()
                     ->sortable()
-                    ->limit(60),
+                    ->limit(60)
+                    ->url(fn (Post $record): ?string => $record->status === PostStatus::Published
+                        ? route('posts.show', $record)
+                        : null)
+                    ->openUrlInNewTab(),
                 TextColumn::make('user.username')
                     ->label('Author')
                     ->searchable()

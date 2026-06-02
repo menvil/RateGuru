@@ -7,6 +7,7 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Models\Tag;
 use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
@@ -33,15 +34,20 @@ final class UploadPostForm extends Component
 
     public ?string $submitError = null;
 
+    public array $tags = [];
+
     public function mount(): void
     {
         abort_unless(auth()->check(), 403);
+
+        $this->loadTags();
     }
 
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
         $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'submitError']);
+        $this->loadTags();
         $this->originTruth = OriginType::Unknown->value;
         $this->cuisineTruth = CuisineType::Unknown->value;
         $this->resetValidation();
@@ -97,6 +103,20 @@ final class UploadPostForm extends Component
 
     public function render(): View
     {
-        return view('livewire.feed.upload-post-form');
+        return view('livewire.feed.upload-post-form', [
+            'tags' => $this->tags,
+        ]);
+    }
+
+    private function loadTags(): void
+    {
+        $this->tags = Tag::query()
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (Tag $tag): array => [
+                'id' => $tag->id,
+                'name' => $tag->name,
+            ])
+            ->all();
     }
 }

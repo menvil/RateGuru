@@ -2,7 +2,6 @@
 
 use App\Filament\Resources\Tags\Pages\ListTags;
 use App\Filament\Resources\Tags\TagResource;
-use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
@@ -36,8 +35,8 @@ it('uses the Tag model', function () {
     expect(TagResource::getModel())->toBe(Tag::class);
 });
 
-it('lives under the Taxonomy navigation group', function () {
-    expect(TagResource::getNavigationGroup())->toBe(AdminNavigationGroup::TAXONOMY);
+it('renders in the flat admin navigation', function () {
+    expect(TagResource::getNavigationGroup())->toBeNull();
 });
 
 it('lists tags on the index page', function () {

@@ -1,18 +1,14 @@
 <?php
 
 use App\Enums\CommentStatus;
-use App\Enums\ReportReason;
 use App\Enums\UserStatus;
 use App\Filament\Pages\ModerationDashboard;
-use App\Filament\Support\AdminNavigationGroup;
-use App\Filament\Widgets\LatestReportsTable;
 use App\Filament\Widgets\PendingPostsWidget;
 use App\Filament\Widgets\ReportedCommentsWidget;
 use App\Filament\Widgets\ReportedPostsWidget;
 use App\Filament\Widgets\SuspiciousUsersWidget;
 use App\Models\Comment;
 use App\Models\Post;
-use App\Models\Report;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -22,7 +18,10 @@ it('allows admin to access moderation dashboard', function () {
     $this->actingAs($admin)
         ->get(ModerationDashboard::getUrl())
         ->assertOk()
-        ->assertSee('data-testid="moderation-dashboard"', false);
+        ->assertSee('Dashboard')
+        ->assertDontSee('Moderation Dashboard')
+        ->assertDontSee('Latest reports')
+        ->assertDontSee('data-testid="admin-dashboard"', false);
 });
 
 it('allows moderator to access moderation dashboard', function () {
@@ -31,7 +30,9 @@ it('allows moderator to access moderation dashboard', function () {
     $this->actingAs($moderator)
         ->get(ModerationDashboard::getUrl())
         ->assertOk()
-        ->assertSee('Moderation Dashboard');
+        ->assertSee('Dashboard')
+        ->assertDontSee('Moderation Dashboard')
+        ->assertDontSee('Latest reports');
 });
 
 it('does not allow normal user to access moderation dashboard', function () {
@@ -43,9 +44,16 @@ it('does not allow normal user to access moderation dashboard', function () {
 });
 
 it('registers moderation dashboard navigation metadata', function () {
-    expect(ModerationDashboard::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
-        ->and(ModerationDashboard::getNavigationLabel())->toBe('Moderation Dashboard')
+    expect(ModerationDashboard::shouldRegisterNavigation())->toBeFalse()
+        ->and(ModerationDashboard::getNavigationLabel())->toBe('Dashboard')
         ->and(ModerationDashboard::getSlug())->toBe('moderation-dashboard');
+});
+
+it('renders moderation dashboard widgets horizontally without latest reports table', function () {
+    $dashboard = app(ModerationDashboard::class);
+
+    expect($dashboard->getHeaderWidgetsColumns())->toBe(4)
+        ->and($dashboard->getVisibleFooterWidgets())->toBeEmpty();
 });
 
 it('shows pending posts count on moderation dashboard', function () {
@@ -116,35 +124,4 @@ it('shows suspicious users count on moderation dashboard', function () {
     Livewire::actingAs($admin)
         ->test(SuspiciousUsersWidget::class)
         ->assertSeeInOrder(['Suspicious users', '3']);
-});
-
-it('shows latest reports on moderation dashboard', function () {
-    $admin = User::factory()->admin()->create();
-    $reporter = User::factory()->create(['username' => 'reporter_ivan']);
-
-    $oldReport = Report::factory()->create([
-        'reporter_id' => $reporter->id,
-        'reason' => ReportReason::Spam,
-        'created_at' => now()->subDays(2),
-    ]);
-
-    $newReport = Report::factory()->create([
-        'reporter_id' => $reporter->id,
-        'reason' => ReportReason::Offensive,
-        'created_at' => now(),
-    ]);
-
-    $this->actingAs($admin)
-        ->get(ModerationDashboard::getUrl())
-        ->assertOk()
-        ->assertSee('Latest reports');
-
-    Livewire::actingAs($admin)
-        ->test(LatestReportsTable::class)
-        ->assertCanSeeTableRecords([$newReport, $oldReport], inOrder: true)
-        ->assertSee('offensive')
-        ->assertSee('spam')
-        ->assertSee('reporter_ivan')
-        ->assertSee('Post')
-        ->assertSee('open');
 });

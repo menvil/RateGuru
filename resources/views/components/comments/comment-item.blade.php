@@ -1,4 +1,5 @@
 <article
+    id="comment-{{ $comment->id }}"
     data-testid="comment-item"
     class="grid grid-cols-[32px_minmax(0,1fr)] gap-2.5 text-[13px]"
     x-data="{ actionsOpen: false }"

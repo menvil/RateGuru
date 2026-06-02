@@ -58,6 +58,12 @@
 /.pest.cache
 /coverage
 
+/tests/Browser/Screenshots
+/tests/Visual/current/*
+!/tests/Visual/current/.gitkeep
+/tests/Visual/diff/*
+!/tests/Visual/diff/.gitkeep
+
 .DS_Store
 Thumbs.db
 .phpactor.json

@@ -7,13 +7,13 @@ use App\Actions\Moderation\BanUserAction;
 use App\Actions\Moderation\HidePostAction;
 use App\Actions\Reports\IgnoreReportAction;
 use App\Actions\Reports\ResolveReportAction;
+use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
 use App\Enums\UserStatus;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
-use RuntimeException;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\TextColumn;
@@ -21,6 +21,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use RuntimeException;
 
 class ReportsTable
 {
@@ -33,7 +34,7 @@ class ReportsTable
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['target' => function (MorphTo $morphTo): void {
                 $morphTo->morphWith([
                     Post::class => ['user'],
-                    Comment::class => ['user'],
+                    Comment::class => ['post', 'user'],
                 ]);
             }]))
             ->columns([
@@ -50,6 +51,13 @@ class ReportsTable
                         Comment::class => 'gray',
                         default => 'danger',
                     }),
+                TextColumn::make('target_title')
+                    ->label('Open target')
+                    ->state(fn (Report $record): string => self::targetTitle($record))
+                    ->limit(70)
+                    ->wrap()
+                    ->url(fn (Report $record): ?string => self::targetUrl($record))
+                    ->openUrlInNewTab(),
                 TextColumn::make('reason')
                     ->label('Reason')
                     ->badge()
@@ -91,8 +99,7 @@ class ReportsTable
                     ->label('Resolve')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn (Report $record): bool =>
-                        $record->status === ReportStatus::Open
+                    ->visible(fn (Report $record): bool => $record->status === ReportStatus::Open
                         && auth()->user()?->can('resolve', $record) === true
                     )
                     ->schema([
@@ -112,8 +119,7 @@ class ReportsTable
                     ->label('Ignore')
                     ->icon('heroicon-o-no-symbol')
                     ->color('gray')
-                    ->visible(fn (Report $record): bool =>
-                        $record->status === ReportStatus::Open
+                    ->visible(fn (Report $record): bool => $record->status === ReportStatus::Open
                         && auth()->user()?->can('ignore', $record) === true
                     )
                     ->schema([
@@ -133,8 +139,7 @@ class ReportsTable
                     ->label('Hide target')
                     ->icon('heroicon-o-eye-slash')
                     ->color('danger')
-                    ->visible(fn (Report $record): bool =>
-                        ($record->target instanceof Post || $record->target instanceof Comment)
+                    ->visible(fn (Report $record): bool => ($record->target instanceof Post || $record->target instanceof Comment)
                         && auth()->user()?->can('hide', $record->target) === true
                     )
                     ->schema([
@@ -204,6 +209,28 @@ class ReportsTable
 
         return match (true) {
             $target instanceof Post, $target instanceof Comment => $target->user,
+            default => null,
+        };
+    }
+
+    private static function targetTitle(Report $report): string
+    {
+        $target = $report->target;
+
+        return match (true) {
+            $target instanceof Post => $target->title,
+            $target instanceof Comment => $target->body,
+            default => 'Target unavailable',
+        };
+    }
+
+    private static function targetUrl(Report $report): ?string
+    {
+        $target = $report->target;
+
+        return match (true) {
+            $target instanceof Post && $target->status === PostStatus::Published => route('posts.show', $target),
+            $target instanceof Comment && $target->post?->status === PostStatus::Published => route('posts.show', $target->post).'#comment-'.$target->id,
             default => null,
         };
     }

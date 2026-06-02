@@ -10,7 +10,7 @@
             $activeClass = 'border-rg-accentBorder bg-rg-accentSoft text-rg-accent2';
         @endphp
 
-        <div class="{{ $variant === 'compact' ? 'flex flex-nowrap gap-1.5' : 'flex flex-wrap gap-2' }}">
+        <div class="{{ $variant === 'compact' ? 'flex flex-wrap gap-1.5' : 'flex flex-wrap gap-2' }}">
             @foreach($options as $option)
                 @php($active = $currentCuisine === $option->value)
                 <button

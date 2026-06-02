@@ -35,11 +35,11 @@ class FeedPage extends Component
     }
 
     #[On('select-post')]
-    public function selectPost(int $postId): void
+    public function selectPost(int $postId, ?string $focus = null): void
     {
         $this->selectedPostId = $postId;
 
-        $this->dispatch('post-selected', postId: $postId);
+        $this->dispatch('post-selected', postId: $postId, focus: $focus);
     }
 
     #[On('clear-selected-post')]

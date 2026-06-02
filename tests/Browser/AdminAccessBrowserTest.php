@@ -17,6 +17,7 @@ it('allows moderator to access admin panel', function () {
 
     visit('/admin')
         ->assertPathIs('/admin')
-        ->assertSee('RateGuru Admin')
-        ->assertPresent('[data-testid="admin-dashboard"]');
+        ->assertSee('Dashboard')
+        ->assertDontSee('Moderation Dashboard')
+        ->assertNotPresent('[data-testid="admin-dashboard"]');
 });

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use Database\Factories\UserFactory;
@@ -21,6 +22,15 @@ class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+
+    protected static function booted(): void
+    {
+        static::creating(function (User $user): void {
+            if ($user->trust_level === null) {
+                $user->trust_level = MarkUserTrustedAction::TRUSTED_LEVEL;
+            }
+        });
+    }
 
     /**
      * Get the attributes that should be cast.
