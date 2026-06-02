@@ -27,6 +27,7 @@
     x-transition:leave="motion-safe:transition-opacity motion-reduce:transition-none ease-in duration-150"
     x-transition:leave-start="opacity-100"
     x-transition:leave-end="opacity-0"
+    x-on:click.stop
     class="fixed inset-0 z-50 overflow-y-auto px-4 py-6 sm:px-6"
     role="dialog"
     aria-modal="true"
@@ -35,7 +36,7 @@
     <div
         data-testid="modal-backdrop"
         class="fixed inset-0 bg-rg-overlay backdrop-blur-sm motion-safe:transition-opacity motion-reduce:transition-none"
-        x-on:click="{{ $state }} = false"
+        x-on:click.stop="{{ $state }} = false"
     ></div>
 
     <div class="relative mx-auto flex min-h-full items-center justify-center">

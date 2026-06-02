@@ -22,7 +22,7 @@
             >
 
             @error('body')
-                <p data-testid="comment-body-error" class="mt-1 text-xs text-rg-dangerText">
+                <p data-testid="comment-body-error" class="mt-1 text-xs text-rg-dangerText" role="alert" aria-live="polite">
                     {{ $message }}
                 </p>
             @enderror

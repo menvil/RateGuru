@@ -350,3 +350,13 @@ it('keeps post card free of service locator vote and authorization queries', fun
         ->not->toContain('auth()')
         ->not->toContain('app(');
 });
+
+it('keeps post card result visibility logic in the component class', function () {
+    $view = file_get_contents(resource_path('views/components/feed/post-card.blade.php'));
+
+    expect($view)
+        ->toContain('$showOriginResults')
+        ->toContain('$showCuisineResults')
+        ->not->toContain('data_get($originDistribution')
+        ->not->toContain('data_get($cuisineDistribution');
+});

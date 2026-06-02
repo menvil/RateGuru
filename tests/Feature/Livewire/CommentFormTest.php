@@ -38,6 +38,19 @@ it('does not let a guest create a comment via the submit action', function () {
     $this->assertDatabaseCount('comments', 0);
 });
 
+it('renders accessible comment validation errors', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(CommentForm::class, ['postId' => $post->id])
+        ->set('body', '')
+        ->call('submit')
+        ->assertSee('data-testid="comment-body-error"', false)
+        ->assertSee('role="alert"', false)
+        ->assertSee('aria-live="polite"', false);
+});
+
 it('creates comment from form submit', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

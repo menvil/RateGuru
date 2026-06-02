@@ -76,14 +76,25 @@ final class PostDrawer extends Component
                 ->find($this->postId);
         }
 
+        $originDistribution = $post ? $postVoteResultService->originDistribution($post, auth()->user()) : null;
+        $cuisineDistribution = $post ? $postVoteResultService->cuisineDistribution($post, auth()->user()) : null;
+
         return view('livewire.feed.post-drawer', [
             'post' => $post,
-            'originDistribution' => $post ? $postVoteResultService->originDistribution($post, auth()->user()) : null,
-            'cuisineDistribution' => $post ? $postVoteResultService->cuisineDistribution($post, auth()->user()) : null,
+            'originDistribution' => $originDistribution,
+            'cuisineDistribution' => $cuisineDistribution,
+            'showOriginDistribution' => $this->shouldShowDistribution($originDistribution),
+            'showCuisineDistribution' => $this->shouldShowDistribution($cuisineDistribution),
             'canDeletePost' => $post ? (auth()->user()?->can('deleteFromFeed', $post) ?? false) : false,
             'canReportPost' => $post ? (auth()->user()?->can('report', $post) ?? false) : false,
             'canModeratePost' => $post ? (auth()->user()?->can('hide', $post) ?? false) : false,
             'showSharePanel' => $post?->status === PostStatus::Published,
         ]);
+    }
+
+    private function shouldShowDistribution(?array $distribution): bool
+    {
+        return filled($distribution['current'] ?? null)
+            && (int) ($distribution['total'] ?? 0) > 0;
     }
 }

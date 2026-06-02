@@ -94,6 +94,20 @@ it('fails clearly for an unknown visual screenshot target', function () {
         ->assertExitCode(1);
 });
 
+it('blocks fresh visual screenshots outside safe environments', function () {
+    app()->bind(VisualScreenshotRunner::class, FakeVisualScreenshotRunner::class);
+    app()->detectEnvironment(fn (): string => 'production');
+
+    $this->artisan('visual:screenshot', [
+        'target' => 'feed-desktop',
+        '--fresh' => true,
+    ])
+        ->expectsOutputToContain('The --fresh option may only be used in local, testing, or ci environments.')
+        ->assertExitCode(1);
+
+    app()->detectEnvironment(fn (): string => 'testing');
+});
+
 final class FakeVisualScreenshotRunner implements VisualScreenshotRunner
 {
     public function capture(VisualScreenshotTarget $target, bool $baseline = false): void

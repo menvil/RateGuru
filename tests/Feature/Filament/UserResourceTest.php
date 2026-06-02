@@ -75,6 +75,16 @@ it('validates username uniqueness when editing a user', function () {
         ->assertHasFormErrors(['username' => 'unique']);
 });
 
+it('does not allow moderators to edit users directly', function () {
+    $moderator = User::factory()->moderator()->create();
+    $user = User::factory()->create(['status' => UserStatus::Active]);
+
+    $this->actingAs($moderator);
+
+    Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
+        ->assertForbidden();
+});
+
 it('does not allow normal user to access user resource index', function () {
     $user = User::factory()->create();
 

@@ -168,7 +168,7 @@
                     />
                 </div>
 
-                @if(($originDistribution['current'] ?? null) && ($originDistribution['total'] ?? 0) > 0)
+                @if($showOriginDistribution)
                     <div class="mb-1.5 flex justify-between gap-3">
                         <span class="text-[13px] font-semibold text-rg-good">Homemade</span>
                         <span class="text-[13px] text-rg-text2">Restaurant</span>
@@ -194,7 +194,7 @@
                     />
                 </div>
 
-                @if(($cuisineDistribution['current'] ?? null) && ($cuisineDistribution['total'] ?? 0) > 0)
+                @if($showCuisineDistribution)
                     <div class="flex flex-col gap-2">
                         @foreach($cuisineDistribution['rows'] as $row)
                             <div class="grid min-w-0 grid-cols-[24px_minmax(0,1fr)_46px] items-center gap-2">

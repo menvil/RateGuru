@@ -2,15 +2,14 @@
 
 namespace App\Filament\Pages;
 
-use App\Filament\Widgets\PendingPostsWidget;
-use App\Filament\Widgets\ReportedCommentsWidget;
-use App\Filament\Widgets\ReportedPostsWidget;
-use App\Filament\Widgets\SuspiciousUsersWidget;
+use App\Filament\Pages\Concerns\HasModerationDashboardWidgets;
 use Filament\Pages\Dashboard as BaseDashboard;
 use Filament\Support\Enums\Width;
 
 class Dashboard extends BaseDashboard
 {
+    use HasModerationDashboardWidgets;
+
     protected string $view = 'filament.pages.moderation-dashboard';
 
     protected Width|string|null $maxContentWidth = Width::SevenExtraLarge;
@@ -32,20 +31,5 @@ class Dashboard extends BaseDashboard
     public function getColumns(): int|array
     {
         return 1;
-    }
-
-    public function getHeaderWidgetsColumns(): int|array
-    {
-        return 4;
-    }
-
-    protected function getHeaderWidgets(): array
-    {
-        return [
-            PendingPostsWidget::class,
-            ReportedPostsWidget::class,
-            ReportedCommentsWidget::class,
-            SuspiciousUsersWidget::class,
-        ];
     }
 }
