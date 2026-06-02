@@ -21,7 +21,7 @@ final class FeedQuery
     ): Builder {
         $query = $this->base()
             ->published()
-            ->with('user');
+            ->with(['user', 'tags']);
 
         if ($tag !== null && $tag !== '') {
             $query->whereHas('tags', function (Builder $tagQuery) use ($tag) {
