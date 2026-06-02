@@ -56,6 +56,25 @@ it('allows admin to edit user identity and password', function () {
         ->and(Hash::check('new-password', $fresh->password))->toBeTrue();
 });
 
+it('validates username uniqueness when editing a user', function () {
+    $admin = User::factory()->admin()->create();
+    User::factory()->create(['username' => 'taken_username']);
+    $user = User::factory()->create(['username' => 'original_username']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
+        ->fillForm([
+            'name' => $user->name,
+            'username' => 'taken_username',
+            'email' => $user->email,
+            'role' => $user->role->value,
+            'status' => $user->status->value,
+        ])
+        ->call('save')
+        ->assertHasFormErrors(['username' => 'unique']);
+});
+
 it('does not allow normal user to access user resource index', function () {
     $user = User::factory()->create();
 

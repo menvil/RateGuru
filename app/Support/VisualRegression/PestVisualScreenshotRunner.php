@@ -12,8 +12,6 @@ final class PestVisualScreenshotRunner implements VisualScreenshotRunner
             PHP_BINARY,
             base_path('vendor/bin/pest'),
             base_path('tests/Browser/VisualScreenshotBrowserTest.php'),
-            '--filter',
-            'captures requested visual screenshot target',
         ], base_path(), [
             'VISUAL_SCREENSHOT_TARGET' => $target->name,
             'VISUAL_SCREENSHOT_OUTPUT' => $target->outputPath($baseline),
