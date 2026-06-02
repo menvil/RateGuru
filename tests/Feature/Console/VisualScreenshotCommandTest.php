@@ -43,6 +43,21 @@ it('resolves upload modal screenshot target', function () {
         ->and($target->outputPath(baseline: true))->toEndWith('tests/Visual/baselines/upload-modal.png');
 });
 
+it('resolves post drawer screenshot target', function () {
+    $target = app(VisualScreenshotTargets::class)->get('post-drawer');
+
+    expect($target->name)->toBe('post-drawer')
+        ->and($target->routeName)->toBe('feed')
+        ->and($target->waitSelector)->toBe('[data-testid="feed-page"]')
+        ->and($target->viewportWidth)->toBe(1440)
+        ->and($target->viewportHeight)->toBe(1000)
+        ->and($target->authenticated)->toBeFalse()
+        ->and($target->clickSelector)->toBe('[data-testid="post-card"]')
+        ->and($target->afterClickWaitSelector)->toBe('[data-testid="post-drawer"]')
+        ->and($target->outputPath())->toEndWith('tests/Visual/current/post-drawer.png')
+        ->and($target->outputPath(baseline: true))->toEndWith('tests/Visual/baselines/post-drawer.png');
+});
+
 it('captures feed desktop screenshot through the command runner', function () {
     app()->bind(VisualScreenshotRunner::class, FakeVisualScreenshotRunner::class);
 
@@ -62,7 +77,7 @@ it('fails clearly for an unknown visual screenshot target', function () {
 
     $this->artisan('visual:screenshot', ['target' => 'missing-target'])
         ->expectsOutputToContain('Unknown visual screenshot target [missing-target].')
-        ->expectsOutputToContain('Available targets: all, feed-desktop, feed-mobile, upload-modal')
+        ->expectsOutputToContain('Available targets: all, feed-desktop, feed-mobile, upload-modal, post-drawer')
         ->assertExitCode(1);
 });
 

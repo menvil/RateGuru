@@ -39,6 +39,16 @@ final class VisualScreenshotTargets
                 clickSelector: '[data-testid="open-upload-button"]',
                 afterClickWaitSelector: '[data-testid="upload-modal"]',
             ),
+            'post-drawer' => new VisualScreenshotTarget(
+                name: 'post-drawer',
+                routeName: 'feed',
+                waitSelector: '[data-testid="feed-page"]',
+                viewportWidth: 1440,
+                viewportHeight: 1000,
+                outputFile: 'post-drawer.png',
+                clickSelector: '[data-testid="post-card"]',
+                afterClickWaitSelector: '[data-testid="post-drawer"]',
+            ),
         ];
     }
 
