@@ -59,8 +59,10 @@ it('renders Post target type in report resource table', function () {
     Livewire::test(ListReports::class)
         ->assertCanSeeTableRecords([$report])
         ->assertTableColumnExists('target_type')
+        ->assertTableColumnExists('target_title')
         ->assertCanRenderTableColumn('target_type')
-        ->assertSee('Post');
+        ->assertSee('Post')
+        ->assertSee(route('posts.show', $post), false);
 });
 
 it('renders Comment target type in report resource table', function () {
@@ -75,7 +77,8 @@ it('renders Comment target type in report resource table', function () {
 
     Livewire::test(ListReports::class)
         ->assertCanSeeTableRecords([$report])
-        ->assertSee('Comment');
+        ->assertSee('Comment')
+        ->assertSee(route('posts.show', $comment->post).'#comment-'.$comment->id, false);
 });
 
 it('renders report reason in report resource table', function () {

@@ -55,7 +55,8 @@ it('renders an image column in the post resource table', function () {
         ->assertCanSeeTableRecords([$post])
         ->assertTableColumnExists('public_image_url')
         ->assertCanRenderTableColumn('public_image_url')
-        ->assertTableColumnStateSet('public_image_url', url('/storage/posts/demo.jpg'), $post);
+        ->assertTableColumnStateSet('public_image_url', url('/storage/posts/demo.jpg'), $post)
+        ->assertSee(url('/storage/posts/demo.jpg'), false);
 });
 
 it('renders a searchable, sortable title column', function () {
@@ -68,7 +69,8 @@ it('renders a searchable, sortable title column', function () {
         ->assertCanSeeTableRecords([$post])
         ->assertTableColumnExists('title')
         ->assertCanRenderTableColumn('title')
-        ->assertSee('Homemade Pasta');
+        ->assertSee('Homemade Pasta')
+        ->assertSee(route('posts.show', $post), false);
 });
 
 it('renders the author username column', function () {

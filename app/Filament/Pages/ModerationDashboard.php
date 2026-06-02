@@ -3,7 +3,6 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Support\AdminNavigationGroup;
-use App\Filament\Widgets\LatestReportsTable;
 use App\Filament\Widgets\PendingPostsWidget;
 use App\Filament\Widgets\ReportedCommentsWidget;
 use App\Filament\Widgets\ReportedPostsWidget;
@@ -17,13 +16,18 @@ class ModerationDashboard extends Page
 
     protected static string|UnitEnum|null $navigationGroup = AdminNavigationGroup::MODERATION;
 
-    protected static ?string $navigationLabel = 'Moderation Dashboard';
+    protected static ?string $navigationLabel = 'Dashboard';
 
-    protected static ?string $title = 'Moderation Dashboard';
+    protected static ?string $title = 'Dashboard';
 
     protected static ?string $slug = 'moderation-dashboard';
 
     protected static bool $shouldRegisterNavigation = false;
+
+    public function getHeaderWidgetsColumns(): int|array
+    {
+        return 4;
+    }
 
     /**
      * @return array<class-string>
@@ -35,16 +39,6 @@ class ModerationDashboard extends Page
             ReportedPostsWidget::class,
             ReportedCommentsWidget::class,
             SuspiciousUsersWidget::class,
-        ];
-    }
-
-    /**
-     * @return array<class-string>
-     */
-    protected function getFooterWidgets(): array
-    {
-        return [
-            LatestReportsTable::class,
         ];
     }
 }

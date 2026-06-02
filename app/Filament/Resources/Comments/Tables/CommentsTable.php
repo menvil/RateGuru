@@ -25,7 +25,11 @@ class CommentsTable
                     ->label('Comment')
                     ->limit(80)
                     ->wrap()
-                    ->searchable(),
+                    ->searchable()
+                    ->url(fn (Comment $record): ?string => $record->post_id !== null
+                        ? route('posts.show', $record->post_id).'#comment-'.$record->id
+                        : null)
+                    ->openUrlInNewTab(),
                 TextColumn::make('user.username')
                     ->label('Author')
                     ->searchable()
@@ -38,7 +42,7 @@ class CommentsTable
                     ->sortable()
                     ->placeholder('—')
                     ->url(fn (Comment $record): ?string => $record->post
-                        ? PostResource::getUrl('index', ['tableSearch' => $record->post->title])
+                        ? route('posts.show', $record->post)
                         : null),
                 TextColumn::make('reports_count')
                     ->label('Reports')

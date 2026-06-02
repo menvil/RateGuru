@@ -12,6 +12,8 @@ class ReportedPostsWidget extends StatsOverviewWidget
 {
     protected static bool $isLazy = false;
 
+    protected int|string|array $columnSpan = 1;
+
     /**
      * @return array<Stat>
      */

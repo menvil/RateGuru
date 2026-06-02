@@ -22,6 +22,8 @@ class LatestReportsTable extends TableWidget
 {
     protected static bool $isLazy = false;
 
+    protected int|string|array $columnSpan = 'full';
+
     public function table(Table $table): Table
     {
         return $table
@@ -45,6 +47,13 @@ class LatestReportsTable extends TableWidget
                         Comment::class => 'Comment',
                         default => 'Unknown',
                     }),
+                TextColumn::make('target_title')
+                    ->label('Open target')
+                    ->state(fn (Report $record): string => self::targetTitle($record))
+                    ->limit(70)
+                    ->wrap()
+                    ->url(fn (Report $record): ?string => self::targetUrl($record))
+                    ->openUrlInNewTab(),
                 TextColumn::make('reason')
                     ->label('Reason')
                     ->badge(),
@@ -133,5 +142,27 @@ class LatestReportsTable extends TableWidget
                         );
                     }),
             ]);
+    }
+
+    private static function targetTitle(Report $report): string
+    {
+        $target = $report->target;
+
+        return match (true) {
+            $target instanceof Post => $target->title,
+            $target instanceof Comment => $target->body,
+            default => 'Target unavailable',
+        };
+    }
+
+    private static function targetUrl(Report $report): ?string
+    {
+        $target = $report->target;
+
+        return match (true) {
+            $target instanceof Post => route('posts.show', $target),
+            $target instanceof Comment && $target->post_id !== null => route('posts.show', $target->post_id).'#comment-'.$target->id,
+            default => null,
+        };
     }
 }

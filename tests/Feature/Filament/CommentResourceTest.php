@@ -56,7 +56,8 @@ it('renders comment body excerpt in comment resource table', function () {
         ->assertCanSeeTableRecords([$comment])
         ->assertTableColumnExists('body')
         ->assertCanRenderTableColumn('body')
-        ->assertSee('This comment should be visible');
+        ->assertSee('This comment should be visible')
+        ->assertSee(route('posts.show', $comment->post).'#comment-'.$comment->id, false);
 });
 
 it('renders comment author in comment resource table', function () {
@@ -84,7 +85,8 @@ it('renders related post in comment resource table', function () {
         ->assertCanSeeTableRecords([$comment])
         ->assertTableColumnExists('post.title')
         ->assertCanRenderTableColumn('post.title')
-        ->assertSee('Pasta post');
+        ->assertSee('Pasta post')
+        ->assertSee(route('posts.show', $post), false);
 });
 
 it('renders sortable status badge column in comment resource table', function () {
