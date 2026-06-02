@@ -19,7 +19,9 @@ final class FeedQuery
         ?string $tag = null,
         string $sort = 'newest',
     ): Builder {
-        $query = $this->base()->published();
+        $query = $this->base()
+            ->published()
+            ->with('user');
 
         if ($tag !== null && $tag !== '') {
             $query->whereHas('tags', function (Builder $tagQuery) use ($tag) {

@@ -2,6 +2,7 @@
 
 use App\Models\Post;
 use App\Models\Tag;
+use App\Models\User;
 use App\Queries\Feed\FeedQuery;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
@@ -14,6 +15,21 @@ it('returns only published posts', function () {
     $posts = app(FeedQuery::class)->get();
 
     expect($posts->pluck('id')->all())->toBe([$published->id]);
+});
+
+it('loads authors for feed posts', function () {
+    $author = User::factory()->create();
+
+    Post::factory()
+        ->for($author, 'user')
+        ->published()
+        ->create();
+
+    $posts = app(FeedQuery::class)->paginate();
+
+    $first = $posts->items()[0];
+
+    expect($first->relationLoaded('user'))->toBeTrue();
 });
 
 it('sorts published posts by newest', function () {
