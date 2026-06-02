@@ -95,3 +95,4 @@ task.
 | Baseline | Status |
 | --- | --- |
 | `feed-desktop.png` | Approved in RG-631 |
+| `feed-mobile.png` | Approved in RG-632 |
