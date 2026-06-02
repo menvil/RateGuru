@@ -13,8 +13,7 @@ class CreateAdminUserCommand extends Command
     protected $signature = 'rateguru:admin:create
         {--email= : Admin email}
         {--username= : Admin username}
-        {--name= : Admin display name}
-        {--password= : Admin password for non-interactive/testing usage}';
+        {--name= : Admin display name}';
 
     protected $description = 'Create a production admin user.';
 
@@ -48,10 +47,7 @@ class CreateAdminUserCommand extends Command
             return self::FAILURE;
         }
 
-        $passwordOption = $this->option('password');
-        $password = is_string($passwordOption) && $passwordOption !== ''
-            ? $passwordOption
-            : $this->secret('Password');
+        $password = $this->secret('Password');
 
         if (! is_string($password) || strlen($password) < 12) {
             $this->error('Password must be at least 12 characters.');
@@ -59,24 +55,26 @@ class CreateAdminUserCommand extends Command
             return self::FAILURE;
         }
 
-        $confirmation = is_string($passwordOption) && $passwordOption !== ''
-            ? $password
-            : $this->secret('Confirm password');
-
-        if ($password !== $confirmation) {
+        if ($this->secret('Confirm password') !== $password) {
             $this->error('Passwords do not match.');
 
             return self::FAILURE;
         }
 
-        User::create([
-            'email' => $email,
-            'username' => $username,
-            'name' => $name,
-            'password' => Hash::make($password),
-            'role' => UserRole::Admin,
-            'status' => UserStatus::Active,
-        ]);
+        try {
+            User::create([
+                'email' => $email,
+                'username' => $username,
+                'name' => $name,
+                'password' => Hash::make($password),
+                'role' => UserRole::Admin,
+                'status' => UserStatus::Active,
+            ]);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+            $this->error('A user with this email or username already exists.');
+
+            return self::FAILURE;
+        }
 
         $this->info('Admin user created.');
 

@@ -19,6 +19,7 @@ Confirm the actual production path from `DB_DATABASE`.
 Stop writes or put the app in maintenance mode, then copy:
 
 ```bash
+mkdir -p backups
 cp database/database.sqlite backups/database-$(date +%Y%m%d-%H%M%S).sqlite
 ```
 
@@ -27,14 +28,17 @@ cp database/database.sqlite backups/database-$(date +%Y%m%d-%H%M%S).sqlite
 Use the sqlite shell:
 
 ```bash
+mkdir -p backups
 sqlite3 database/database.sqlite ".backup 'backups/database-$(date +%Y%m%d-%H%M%S).sqlite'"
 ```
 
 ## Before migrations
 
-Always create a backup before:
+Always create a backup before running migrations:
 
 ```bash
+mkdir -p backups
+cp database/database.sqlite backups/database-$(date +%Y%m%d-%H%M%S).sqlite
 php artisan migrate --force
 ```
 

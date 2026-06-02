@@ -25,7 +25,7 @@ class PostListCacheManager
         ksort($filters);
 
         $parts = collect($filters)
-            ->map(fn ($value, string $key): string => $key.'='.(string) $value)
+            ->map(fn ($value, string $key): string => $key.'='.json_encode($value))
             ->implode(':');
 
         return 'post-list:feed:'.$parts;

@@ -80,6 +80,6 @@ final class VotePostAction
             $this->recalculatePostScore->handle($post);
         });
 
-        $this->postListCache->invalidateForPost($post->refresh());
+        $this->postListCache->invalidateForPost($post);
     }
 }

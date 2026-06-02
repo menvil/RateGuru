@@ -33,7 +33,7 @@ php artisan migrate:fresh --seed
 
 ## Recommended deploy order
 
-1. Put app in maintenance mode if needed.
+1. Put app in maintenance mode if needed: `php artisan down`.
 2. Backup database.
 3. Pull or release new code.
 4. Run `composer install --no-dev --optimize-autoloader`.
@@ -41,4 +41,5 @@ php artisan migrate:fresh --seed
 6. Run migrations with `php artisan migrate --force`.
 7. Clear and cache config/routes/views.
 8. Restart queue workers if used.
-9. Smoke test feed, login, admin, and upload.
+9. Bring app back up: `php artisan up`.
+10. Smoke test feed, login, admin, and upload.

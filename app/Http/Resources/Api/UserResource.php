@@ -28,6 +28,6 @@ final class UserResource extends JsonResource
             return null;
         }
 
-        return route('profile.show', ['username' => $this->username], absolute: true);
+        return rtrim((string) config('app.url'), '/').route('profile.show', ['username' => $this->username], absolute: false);
     }
 }

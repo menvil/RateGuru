@@ -84,7 +84,7 @@ final class VoteCuisineAction
         });
 
         if ($changed) {
-            $this->postListCache->invalidateForPost($post->refresh());
+            $this->postListCache->invalidateForPost($post);
         }
     }
 
