@@ -1,0 +1,50 @@
+<?php
+
+namespace App\Support\VisualRegression;
+
+use InvalidArgumentException;
+
+final class VisualScreenshotTargets
+{
+    /**
+     * @return array<string, VisualScreenshotTarget>
+     */
+    public function all(): array
+    {
+        return [
+            'feed-desktop' => new VisualScreenshotTarget(
+                name: 'feed-desktop',
+                routeName: 'feed',
+                waitSelector: '[data-testid="feed-page"]',
+                viewportWidth: 1440,
+                viewportHeight: 1000,
+                outputFile: 'feed-desktop.png',
+            ),
+        ];
+    }
+
+    public function get(string $name): VisualScreenshotTarget
+    {
+        return $this->all()[$name] ?? throw new InvalidArgumentException("Unknown visual screenshot target [{$name}].");
+    }
+
+    /**
+     * @return list<VisualScreenshotTarget>
+     */
+    public function resolve(string $name): array
+    {
+        if ($name === 'all') {
+            return array_values($this->all());
+        }
+
+        return [$this->get($name)];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function names(): array
+    {
+        return array_keys($this->all());
+    }
+}
