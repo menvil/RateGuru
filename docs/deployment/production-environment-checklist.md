@@ -15,6 +15,7 @@
 - Confirm the SQLite path or database credentials.
 - Take a backup before deployment.
 - For SQLite, see [SQLite backup strategy](sqlite-backup-strategy.md).
+- For future PostgreSQL planning, see [SQLite to PostgreSQL migration note](sqlite-to-postgresql-migration.md).
 - See [deployment migration docs](migrations.md).
 - Run production migrations with `php artisan migrate --force`.
 - Never run destructive reset commands against production data.
