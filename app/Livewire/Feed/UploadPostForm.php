@@ -89,10 +89,20 @@ final class UploadPostForm extends Component
 
     protected function rules(): array
     {
+        $imageMimes = implode(',', config('uploads.images.mimes', ['jpg', 'jpeg', 'png', 'webp']));
+
         return [
             'title' => ['required', 'string', 'min:3', 'max:120'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'image' => ['required', 'image', 'max:5120'],
+            'image' => [
+                'required',
+                'image',
+                'mimes:'.$imageMimes,
+                'max:'.config('uploads.images.max_kilobytes', 5120),
+                Rule::dimensions()
+                    ->maxWidth((int) config('uploads.images.max_width', 6000))
+                    ->maxHeight((int) config('uploads.images.max_height', 6000)),
+            ],
             'sourceUrl' => ['nullable', 'url', 'max:2048'],
             'originTruth' => ['nullable', Rule::enum(OriginType::class)],
             'cuisineTruth' => ['nullable', Rule::enum(CuisineType::class)],
