@@ -6,3 +6,4 @@ Deployment prep docs collect operational checks for staging and production.
 - [Storage symlink](storage-symlink.md)
 - [Queue worker](queue-worker.md)
 - [Deployment migrations](migrations.md)
+- [Admin user creation](admin-user-creation.md)
