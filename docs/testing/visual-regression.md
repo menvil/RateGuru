@@ -6,6 +6,10 @@ add automatic pixel diff failures in CI.
 
 ## Commands
 
+Visual screenshots use the same Pest Browser runner as the Phase 38 browser
+smoke tests. The command starts its own Laravel test server through the browser
+runner, so no separate `php artisan serve` process is required.
+
 Capture the desktop feed screenshot:
 
 ```bash
@@ -46,6 +50,12 @@ Run every registered target:
 
 ```bash
 php artisan visual:screenshot all
+```
+
+Regenerate every approved baseline after an intentional visual change:
+
+```bash
+php artisan visual:screenshot all --baseline
 ```
 
 Use `--fresh` when you want to refresh the database before capture:
@@ -89,6 +99,27 @@ tests/Visual/diff/
 Compare generated screenshots manually against the RateGuru design contract
 and `/dev/ui-kit` reference direction before approving any baseline in a later
 task.
+
+Use this workflow for public UI changes:
+
+```bash
+composer test:browser
+php artisan visual:screenshot all
+```
+
+Then compare:
+
+```txt
+tests/Visual/current/
+tests/Visual/baselines/
+```
+
+Only update baselines with `--baseline` when the visual change is intentional
+and reviewed. Do not update baselines to hide broken images, layout overflow,
+debug text, validation errors, or accidental styling drift.
+
+Phase 39 intentionally does not add automatic pixel comparison or CI failures.
+`tests/Visual/diff/` is reserved for a later visual-diff phase.
 
 ## Approved Baselines
 

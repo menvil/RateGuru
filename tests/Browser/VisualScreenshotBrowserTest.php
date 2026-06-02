@@ -8,8 +8,8 @@ use Pest\Browser\Support\Screenshot;
 use function Pest\Laravel\actingAs;
 
 it('captures requested visual screenshot target', function () {
-    $targetName = env('VISUAL_SCREENSHOT_TARGET');
-    $outputPath = env('VISUAL_SCREENSHOT_OUTPUT');
+    $targetName = env('VISUAL_SCREENSHOT_TARGET', 'feed-desktop');
+    $outputPath = env('VISUAL_SCREENSHOT_OUTPUT', base_path('tests/Visual/current/feed-desktop.png'));
 
     expect($targetName)->toBeString()->not->toBeEmpty();
     expect($outputPath)->toBeString()->not->toBeEmpty();
