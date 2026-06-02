@@ -21,13 +21,11 @@ final class PostResource extends JsonResource
             'image_url' => $this->public_image_url,
             'thumbnail_url' => $this->thumbnail_url,
             'canonical_url' => $this->canonicalUrl(),
-            'author' => $this->whenLoaded('user', fn () => [
-                'id' => $this->user->id,
-                'username' => $this->user->username,
-                'display_name' => $this->user->name,
-                'avatar_url' => $this->user->avatar_url,
-                'profile_url' => $this->profileUrl(),
-            ], null),
+            'author' => $this->whenLoaded(
+                'user',
+                fn () => UserResource::make($this->user)->resolve($request),
+                null,
+            ),
             'tags' => $this->whenLoaded('tags', fn () => $this->tags
                 ->map(fn ($tag) => [
                     'name' => $tag->name,
@@ -57,12 +55,4 @@ final class PostResource extends JsonResource
         return app(PostUrl::class)->canonical($this->resource);
     }
 
-    private function profileUrl(): ?string
-    {
-        if (! $this->user->username || ! Route::has('profile.show')) {
-            return null;
-        }
-
-        return route('profile.show', ['username' => $this->user->username], absolute: true);
-    }
 }
