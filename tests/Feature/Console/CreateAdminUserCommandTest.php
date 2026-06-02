@@ -45,7 +45,7 @@ it('fails when admin email already exists', function () {
         '--name' => 'Admin Two',
         '--password' => 'secret-password',
     ])
-        ->expectsOutput('A user with this email already exists.')
+        ->expectsOutput('A user with this email or username already exists.')
         ->assertExitCode(1);
 
     expect(User::where('email', 'admin@example.test')->count())->toBe(1);
@@ -62,7 +62,7 @@ it('fails when admin username already exists', function () {
         '--name' => 'Admin User',
         '--password' => 'secret-password',
     ])
-        ->expectsOutput('A user with this username already exists.')
+        ->expectsOutput('A user with this email or username already exists.')
         ->assertExitCode(1);
 });
 

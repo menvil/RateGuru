@@ -61,11 +61,7 @@ final class VotePostAction
                 ->first();
 
             if ($existingVote !== null) {
-                if ($existingVote->type === $type) {
-                    $existingVote->delete();
-                } else {
-                    $existingVote->delete();
-                }
+                $existingVote->delete();
             } else {
                 PostVote::create([
                     'user_id' => $user->id,

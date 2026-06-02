@@ -74,6 +74,6 @@ final class FeedQuery
             return max(1, min($default, $max));
         }
 
-        return min($perPage, $max);
+        return max(1, min($perPage, $max));
     }
 }

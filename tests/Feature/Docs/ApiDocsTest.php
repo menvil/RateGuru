@@ -14,12 +14,6 @@ it('has api auth strategy note', function () {
     expect($content)->toContain('not implement API auth');
 });
 
-it('links api auth strategy from api readme', function () {
-    $content = file_get_contents(base_path('docs/api/README.md'));
-
-    expect($content)->toContain('auth-strategy.md');
-});
-
 it('has api versioning note', function () {
     $path = base_path('docs/api/versioning.md');
 

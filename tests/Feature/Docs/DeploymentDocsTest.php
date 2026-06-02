@@ -37,6 +37,9 @@ it('has storage symlink deployment docs', function () {
     expect($content)->toContain('storage/app/public');
     expect($content)->toContain('public/storage');
     expect($content)->toContain('Permissions');
+    expect($content)->toContain('storage/framework/views');
+    expect($content)->toContain('storage/framework/sessions');
+    expect($content)->toContain('storage/framework/cache/data');
     expect($content)->toContain('Do not chmod 777 blindly');
 });
 
@@ -69,6 +72,7 @@ it('has migration deployment docs', function () {
 
     expect($content)->toContain('php artisan migrate --force');
     expect($content)->toContain('php artisan migrate:status');
+    expect($content)->toContain('php artisan up');
     expect($content)->toContain('backup');
     expect($content)->toContain('Never run migrate:fresh in production');
 });
@@ -97,6 +101,7 @@ it('has sqlite backup strategy note', function () {
     expect($content)->toContain('SQLite');
     expect($content)->toContain('database/database.sqlite');
     expect($content)->toContain('.backup');
+    expect($content)->toContain('mkdir -p backups');
     expect($content)->toContain('Restore');
     expect($content)->toContain('Before migrations');
     expect($content)->toContain('off-server');

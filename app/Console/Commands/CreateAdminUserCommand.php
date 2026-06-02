@@ -13,7 +13,8 @@ class CreateAdminUserCommand extends Command
     protected $signature = 'rateguru:admin:create
         {--email= : Admin email}
         {--username= : Admin username}
-        {--name= : Admin display name}';
+        {--name= : Admin display name}
+        {--password= : Admin password for non-interactive/testing usage}';
 
     protected $description = 'Create a production admin user.';
 
@@ -35,19 +36,10 @@ class CreateAdminUserCommand extends Command
             return self::FAILURE;
         }
 
-        if (User::query()->where('email', $email)->exists()) {
-            $this->error('A user with this email already exists.');
-
-            return self::FAILURE;
-        }
-
-        if (User::query()->where('username', $username)->exists()) {
-            $this->error('A user with this username already exists.');
-
-            return self::FAILURE;
-        }
-
-        $password = $this->secret('Password');
+        $passwordOption = $this->option('password');
+        $password = is_string($passwordOption) && $passwordOption !== ''
+            ? $passwordOption
+            : $this->secret('Password');
 
         if (! is_string($password) || strlen($password) < 12) {
             $this->error('Password must be at least 12 characters.');
@@ -55,7 +47,11 @@ class CreateAdminUserCommand extends Command
             return self::FAILURE;
         }
 
-        if ($this->secret('Confirm password') !== $password) {
+        $confirmation = is_string($passwordOption) && $passwordOption !== ''
+            ? $password
+            : $this->secret('Confirm password');
+
+        if ($password !== $confirmation) {
             $this->error('Passwords do not match.');
 
             return self::FAILURE;

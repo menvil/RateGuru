@@ -224,7 +224,7 @@ it('rejects uploaded images above configured max size', function () {
         ->set('title', 'Huge Image Test')
         ->set('image', $file)
         ->call('submit')
-        ->assertHasErrors(['image'])
+        ->assertHasErrors(['image' => 'max'])
         ->assertNotDispatched('post-uploaded');
 
     expect(Post::query()->count())->toBe(0);
@@ -373,6 +373,62 @@ it('updates sourceUrl property', function () {
         ->test(UploadPostForm::class)
         ->set('sourceUrl', 'https://example.com/original')
         ->assertSet('sourceUrl', 'https://example.com/original');
+});
+
+it('rejects uploaded images with disallowed mime type', function () {
+    Storage::fake('public');
+    config()->set('uploads.images.mimes', ['jpg', 'jpeg', 'png', 'webp']);
+
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->create('file.pdf', 100, 'application/pdf');
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'PDF Upload Test')
+        ->set('image', $file)
+        ->call('submit')
+        ->assertHasErrors(['image'])
+        ->assertNotDispatched('post-uploaded');
+
+    expect(Post::query()->count())->toBe(0);
+});
+
+it('rejects uploaded images exceeding configured max dimensions', function () {
+    Storage::fake('public');
+    config()->set('uploads.images.max_width', 6000);
+    config()->set('uploads.images.max_height', 6000);
+
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('huge.jpg', 7000, 7000);
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Huge Dimensions Test')
+        ->set('image', $file)
+        ->call('submit')
+        ->assertHasErrors(['image'])
+        ->assertNotDispatched('post-uploaded');
+
+    expect(Post::query()->count())->toBe(0);
+});
+
+it('allows uploaded images within configured max dimensions', function () {
+    Storage::fake('public');
+    config()->set('uploads.images.max_width', 6000);
+    config()->set('uploads.images.max_height', 6000);
+
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('ok.jpg', 800, 600);
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Valid Dimensions Test')
+        ->set('image', $file)
+        ->call('submit')
+        ->assertHasNoErrors(['image'])
+        ->assertDispatched('post-uploaded');
+
+    expect(Post::query()->where('title', 'Valid Dimensions Test')->exists())->toBeTrue();
 });
 
 it('has alpine image preview markup', function () {

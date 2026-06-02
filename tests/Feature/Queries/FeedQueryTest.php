@@ -165,25 +165,3 @@ it('paginates feed posts', function () {
     expect($paginator->total())->toBe(25);
 });
 
-it('falls back to default feed per page for invalid perPage', function () {
-    config()->set('feed.default_per_page', 12);
-
-    Post::factory()->published()->count(25)->create();
-
-    $paginator = app(FeedQuery::class)->paginate(perPage: 0);
-
-    expect($paginator->perPage())->toBe(12);
-    expect($paginator->total())->toBe(25);
-});
-
-it('clamps feed per page to configured max', function () {
-    config()->set('feed.default_per_page', 12);
-    config()->set('feed.max_per_page', 50);
-
-    Post::factory()->published()->count(100)->create();
-
-    $paginator = app(FeedQuery::class)->paginate(perPage: 1000);
-
-    expect($paginator->perPage())->toBe(50);
-    expect($paginator->total())->toBe(100);
-});

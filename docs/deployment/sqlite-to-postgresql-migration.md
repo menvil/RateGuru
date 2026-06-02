@@ -17,20 +17,22 @@ Consider PostgreSQL when:
 
 ## High-level migration path
 
-1. Freeze schema changes.
-2. Backup SQLite.
-3. Create PostgreSQL database.
-4. Configure `.env` for PostgreSQL in staging.
-5. Run Laravel migrations on PostgreSQL.
-6. Export data from SQLite.
-7. Import data into PostgreSQL.
-8. Verify row counts and critical relations.
-9. Run test suite against PostgreSQL.
-10. Run browser smoke tests.
-11. Run visual screenshots if UI data changed.
-12. Complete a staging rehearsal.
-13. Rehearse rollback.
-14. Schedule production cutover.
+1. Put app in maintenance mode: `php artisan down`.
+2. Freeze schema changes.
+3. Backup SQLite.
+4. Create PostgreSQL database.
+5. Configure `.env` for PostgreSQL in staging.
+6. Run Laravel migrations on PostgreSQL.
+7. Export data from SQLite.
+8. Import data into PostgreSQL.
+9. Verify row counts and critical relations.
+10. Run test suite against PostgreSQL.
+11. Run browser smoke tests.
+12. Run visual screenshots if UI data changed.
+13. Complete a staging rehearsal.
+14. Rehearse rollback.
+15. Bring app back up: `php artisan up`.
+16. Schedule production cutover.
 
 ## Things to verify
 
