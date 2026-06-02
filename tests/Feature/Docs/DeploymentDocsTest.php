@@ -59,3 +59,16 @@ it('has queue worker deployment docs', function () {
     expect($content)->toContain('Redis is not required');
     expect($content)->toContain('php artisan queue:restart');
 });
+
+it('has migration deployment docs', function () {
+    $path = base_path('docs/deployment/migrations.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('php artisan migrate --force');
+    expect($content)->toContain('php artisan migrate:status');
+    expect($content)->toContain('backup');
+    expect($content)->toContain('Never run migrate:fresh in production');
+});
