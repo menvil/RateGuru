@@ -26,7 +26,7 @@ it('captures requested visual screenshot target', function () {
         actingAs($user);
     }
 
-    Post::factory()
+    $post = Post::factory()
         ->for($user)
         ->published()
         ->create([
@@ -42,7 +42,11 @@ it('captures requested visual screenshot target', function () {
         mkdir($browserScreenshotDirectory, 0755, true);
     }
 
-    $page = visit(route($target->routeName))
+    $url = $target->routeModel === 'post'
+        ? route($target->routeName, $post)
+        : route($target->routeName);
+
+    $page = visit($url)
         ->resize($target->viewportWidth, $target->viewportHeight)
         ->assertPresent($target->waitSelector)
         ->assertSee('Visual Baseline Feed Post');
