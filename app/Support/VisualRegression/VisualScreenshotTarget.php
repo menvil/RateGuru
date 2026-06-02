@@ -11,6 +11,9 @@ final readonly class VisualScreenshotTarget
         public int $viewportWidth,
         public int $viewportHeight,
         public string $outputFile,
+        public bool $authenticated = false,
+        public ?string $clickSelector = null,
+        public ?string $afterClickWaitSelector = null,
     ) {}
 
     public function outputPath(bool $baseline = false): string
