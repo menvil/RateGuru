@@ -86,3 +86,18 @@ it('has admin user creation docs', function () {
     expect($content)->toContain('Do not use demo admin credentials in production');
     expect($content)->toContain('password is hashed');
 });
+
+it('has sqlite backup strategy note', function () {
+    $path = base_path('docs/deployment/sqlite-backup-strategy.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('SQLite');
+    expect($content)->toContain('database/database.sqlite');
+    expect($content)->toContain('.backup');
+    expect($content)->toContain('Restore');
+    expect($content)->toContain('Before migrations');
+    expect($content)->toContain('off-server');
+});
