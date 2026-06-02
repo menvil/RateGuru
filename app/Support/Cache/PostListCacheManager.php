@@ -5,7 +5,7 @@ namespace App\Support\Cache;
 use App\Models\Post;
 use Closure;
 
-final class PostListCacheManager
+class PostListCacheManager
 {
     public function remember(string $key, Closure $callback): mixed
     {

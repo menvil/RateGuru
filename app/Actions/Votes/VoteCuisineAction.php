@@ -11,6 +11,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Cache\PostListCacheManager;
 use Illuminate\Support\Facades\DB;
 
 final class VoteCuisineAction
@@ -18,6 +19,7 @@ final class VoteCuisineAction
     public function __construct(
         private readonly RecalculatePostCountersAction $recalculatePostCounters,
         private readonly ActionRateLimiter $rateLimiter,
+        private readonly PostListCacheManager $postListCache,
     ) {}
 
     public function handle(?User $user, Post $post, CuisineType $cuisine): void
@@ -53,7 +55,7 @@ final class VoteCuisineAction
             throw CannotVoteCuisineException::becauseRateLimited($e->getMessage());
         }
 
-        DB::transaction(function () use ($user, $post, $cuisine) {
+        $changed = DB::transaction(function () use ($user, $post, $cuisine): bool {
             $existingVote = CuisineVote::query()
                 ->where('post_id', $post->id)
                 ->where('user_id', $user->id)
@@ -64,7 +66,7 @@ final class VoteCuisineAction
                 // Cuisine classification is locked after the first vote.
                 // Results are revealed after voting, but changing the vote is
                 // intentionally not allowed from the product UI.
-                return;
+                return false;
             } else {
                 CuisineVote::create([
                     'user_id' => $user->id,
@@ -77,7 +79,13 @@ final class VoteCuisineAction
             // back the vote. refresh() returns the non-null model (fresh()
             // is nullable and would not satisfy the handle() signature).
             $this->recalculatePostCounters->handle($post->refresh());
+
+            return true;
         });
+
+        if ($changed) {
+            $this->postListCache->invalidateForPost($post->refresh());
+        }
     }
 
     private function isValidVoteCuisine(CuisineType $cuisine): bool
