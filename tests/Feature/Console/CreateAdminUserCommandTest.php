@@ -5,21 +5,27 @@ use App\Enums\UserStatus;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 
+afterEach(function () {
+    putenv('ADMIN_PASSWORD');
+});
+
 it('has admin user creation command', function () {
+    putenv('ADMIN_PASSWORD=secret-password');
+
     $this->artisan('rateguru:admin:create', [
         '--email' => 'admin@example.test',
         '--username' => 'admin',
         '--name' => 'Admin User',
-        '--password' => 'secret-password',
     ])->assertExitCode(0);
 });
 
 it('creates admin user from command options', function () {
+    putenv('ADMIN_PASSWORD=secret-password');
+
     $this->artisan('rateguru:admin:create', [
         '--email' => 'admin@example.test',
         '--username' => 'admin',
         '--name' => 'Admin User',
-        '--password' => 'secret-password',
     ])
         ->expectsOutput('Admin user created.')
         ->assertExitCode(0);
@@ -35,6 +41,8 @@ it('creates admin user from command options', function () {
 });
 
 it('fails when admin email already exists', function () {
+    putenv('ADMIN_PASSWORD=secret-password');
+
     User::factory()->create([
         'email' => 'admin@example.test',
     ]);
@@ -43,7 +51,6 @@ it('fails when admin email already exists', function () {
         '--email' => 'admin@example.test',
         '--username' => 'admin2',
         '--name' => 'Admin Two',
-        '--password' => 'secret-password',
     ])
         ->expectsOutput('A user with this email or username already exists.')
         ->assertExitCode(1);
@@ -52,6 +59,8 @@ it('fails when admin email already exists', function () {
 });
 
 it('fails when admin username already exists', function () {
+    putenv('ADMIN_PASSWORD=secret-password');
+
     User::factory()->create([
         'username' => 'admin',
     ]);
@@ -60,7 +69,6 @@ it('fails when admin username already exists', function () {
         '--email' => 'admin@example.test',
         '--username' => 'admin',
         '--name' => 'Admin User',
-        '--password' => 'secret-password',
     ])
         ->expectsOutput('A user with this email or username already exists.')
         ->assertExitCode(1);
@@ -71,7 +79,6 @@ it('fails with invalid email', function () {
         '--email' => 'not-an-email',
         '--username' => 'admin',
         '--name' => 'Admin User',
-        '--password' => 'secret-password',
     ])
         ->expectsOutput('A valid --email is required.')
         ->assertExitCode(1);
@@ -81,18 +88,18 @@ it('requires username', function () {
     $this->artisan('rateguru:admin:create', [
         '--email' => 'admin@example.test',
         '--name' => 'Admin User',
-        '--password' => 'secret-password',
     ])
         ->expectsOutput('--username is required.')
         ->assertExitCode(1);
 });
 
 it('requires sufficiently long password', function () {
+    putenv('ADMIN_PASSWORD=short');
+
     $this->artisan('rateguru:admin:create', [
         '--email' => 'admin@example.test',
         '--username' => 'admin',
         '--name' => 'Admin User',
-        '--password' => 'short',
     ])
         ->expectsOutput('Password must be at least 12 characters.')
         ->assertExitCode(1);

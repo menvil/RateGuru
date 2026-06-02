@@ -15,14 +15,13 @@ The command prompts for a hidden password and confirmation.
 
 ## Non-interactive usage
 
-`--password` exists for tests or controlled non-interactive environments:
+Set the `ADMIN_PASSWORD` environment variable to skip the interactive prompt:
 
 ```bash
-php artisan rateguru:admin:create \
+ADMIN_PASSWORD="replace-with-a-strong-unique-password" php artisan rateguru:admin:create \
   --email=admin@example.com \
   --username=admin \
-  --name="Admin User" \
-  --password="replace-with-a-strong-unique-password"
+  --name="Admin User"
 ```
 
 ## Production rules

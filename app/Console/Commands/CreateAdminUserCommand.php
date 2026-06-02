@@ -13,8 +13,7 @@ class CreateAdminUserCommand extends Command
     protected $signature = 'rateguru:admin:create
         {--email= : Admin email}
         {--username= : Admin username}
-        {--name= : Admin display name}
-        {--password= : Admin password for non-interactive/testing usage}';
+        {--name= : Admin display name}';
 
     protected $description = 'Create a production admin user.';
 
@@ -36,9 +35,9 @@ class CreateAdminUserCommand extends Command
             return self::FAILURE;
         }
 
-        $passwordOption = $this->option('password');
-        $password = is_string($passwordOption) && $passwordOption !== ''
-            ? $passwordOption
+        $envPassword = getenv('ADMIN_PASSWORD');
+        $password = is_string($envPassword) && $envPassword !== ''
+            ? $envPassword
             : $this->secret('Password');
 
         if (! is_string($password) || strlen($password) < 12) {
@@ -47,7 +46,7 @@ class CreateAdminUserCommand extends Command
             return self::FAILURE;
         }
 
-        $confirmation = is_string($passwordOption) && $passwordOption !== ''
+        $confirmation = is_string($envPassword) && $envPassword !== ''
             ? $password
             : $this->secret('Confirm password');
 

@@ -380,11 +380,11 @@ it('rejects uploaded images with disallowed mime type', function () {
     config()->set('uploads.images.mimes', ['jpg', 'jpeg', 'png', 'webp']);
 
     $user = User::factory()->create();
-    $file = UploadedFile::fake()->create('file.pdf', 100, 'application/pdf');
+    $file = UploadedFile::fake()->image('file.gif');
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'PDF Upload Test')
+        ->set('title', 'GIF Upload Test')
         ->set('image', $file)
         ->call('submit')
         ->assertHasErrors(['image'])
@@ -406,7 +406,7 @@ it('rejects uploaded images exceeding configured max dimensions', function () {
         ->set('title', 'Huge Dimensions Test')
         ->set('image', $file)
         ->call('submit')
-        ->assertHasErrors(['image'])
+        ->assertHasErrors(['image' => 'dimensions'])
         ->assertNotDispatched('post-uploaded');
 
     expect(Post::query()->count())->toBe(0);
