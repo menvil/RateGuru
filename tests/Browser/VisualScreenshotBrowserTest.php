@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Post;
+use App\Models\User;
 use App\Support\VisualRegression\VisualScreenshotTargets;
 use Pest\Browser\Support\Screenshot;
 
@@ -13,9 +14,20 @@ it('captures requested visual screenshot target', function () {
 
     $target = app(VisualScreenshotTargets::class)->get($targetName);
 
-    Post::factory()->published()->create([
-        'title' => 'Visual Baseline Feed Desktop Post',
+    $user = User::factory()->create([
+        'name' => 'Visual Demo Chef',
+        'username' => 'visual_demo',
+        'email' => 'visual-demo@example.com',
     ]);
+
+    Post::factory()
+        ->for($user)
+        ->published()
+        ->create([
+            'title' => 'Visual Baseline Feed Post',
+            'description' => 'Stable screenshot content for RateGuru visual regression baselines.',
+            'published_at' => now()->subMinute(),
+        ]);
 
     $browserScreenshot = 'visual/'.$target->name;
     $browserScreenshotDirectory = dirname(Screenshot::path($browserScreenshot));
@@ -27,7 +39,7 @@ it('captures requested visual screenshot target', function () {
     visit(route($target->routeName))
         ->resize($target->viewportWidth, $target->viewportHeight)
         ->assertPresent($target->waitSelector)
-        ->assertSee('Visual Baseline Feed Desktop Post')
+        ->assertSee('Visual Baseline Feed Post')
         ->screenshot(false, $browserScreenshot);
 
     $sourcePath = Screenshot::path($browserScreenshot);

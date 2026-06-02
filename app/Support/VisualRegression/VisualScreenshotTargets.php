@@ -20,6 +20,14 @@ final class VisualScreenshotTargets
                 viewportHeight: 1000,
                 outputFile: 'feed-desktop.png',
             ),
+            'feed-mobile' => new VisualScreenshotTarget(
+                name: 'feed-mobile',
+                routeName: 'feed',
+                waitSelector: '[data-testid="feed-page"]',
+                viewportWidth: 390,
+                viewportHeight: 844,
+                outputFile: 'feed-mobile.png',
+            ),
         ];
     }
 
