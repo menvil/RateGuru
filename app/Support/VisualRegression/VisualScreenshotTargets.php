@@ -28,6 +28,17 @@ final class VisualScreenshotTargets
                 viewportHeight: 844,
                 outputFile: 'feed-mobile.png',
             ),
+            'upload-modal' => new VisualScreenshotTarget(
+                name: 'upload-modal',
+                routeName: 'feed',
+                waitSelector: '[data-testid="feed-page"]',
+                viewportWidth: 1440,
+                viewportHeight: 1000,
+                outputFile: 'upload-modal.png',
+                authenticated: true,
+                clickSelector: '[data-testid="open-upload-button"]',
+                afterClickWaitSelector: '[data-testid="upload-modal"]',
+            ),
         ];
     }
 

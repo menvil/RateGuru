@@ -5,6 +5,8 @@ use App\Models\User;
 use App\Support\VisualRegression\VisualScreenshotTargets;
 use Pest\Browser\Support\Screenshot;
 
+use function Pest\Laravel\actingAs;
+
 it('captures requested visual screenshot target', function () {
     $targetName = env('VISUAL_SCREENSHOT_TARGET');
     $outputPath = env('VISUAL_SCREENSHOT_OUTPUT');
@@ -19,6 +21,10 @@ it('captures requested visual screenshot target', function () {
         'username' => 'visual_demo',
         'email' => 'visual-demo@example.com',
     ]);
+
+    if ($target->authenticated) {
+        actingAs($user);
+    }
 
     Post::factory()
         ->for($user)
@@ -36,11 +42,22 @@ it('captures requested visual screenshot target', function () {
         mkdir($browserScreenshotDirectory, 0755, true);
     }
 
-    visit(route($target->routeName))
+    $page = visit(route($target->routeName))
         ->resize($target->viewportWidth, $target->viewportHeight)
         ->assertPresent($target->waitSelector)
-        ->assertSee('Visual Baseline Feed Post')
-        ->screenshot(false, $browserScreenshot);
+        ->assertSee('Visual Baseline Feed Post');
+
+    if ($target->clickSelector !== null) {
+        $page = $page->click($target->clickSelector);
+    }
+
+    if ($target->afterClickWaitSelector !== null) {
+        $page = $page
+            ->assertVisible($target->afterClickWaitSelector)
+            ->wait(0.2);
+    }
+
+    $page->screenshot(false, $browserScreenshot);
 
     $sourcePath = Screenshot::path($browserScreenshot);
 
