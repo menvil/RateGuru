@@ -32,6 +32,19 @@ it('loads authors for feed posts', function () {
     expect($first->relationLoaded('user'))->toBeTrue();
 });
 
+it('loads tags for feed posts', function () {
+    $tag = Tag::factory()->create();
+
+    $post = Post::factory()->published()->create();
+    $post->tags()->attach($tag);
+
+    $posts = app(FeedQuery::class)->paginate();
+
+    $first = $posts->items()[0];
+
+    expect($first->relationLoaded('tags'))->toBeTrue();
+});
+
 it('sorts published posts by newest', function () {
     $old = Post::factory()->published()->create([
         'published_at' => now()->subDay(),
