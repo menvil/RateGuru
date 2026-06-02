@@ -209,6 +209,49 @@ it('shows validation error when image is missing', function () {
     expect(Post::query()->count())->toBe(0);
 });
 
+it('rejects uploaded images above configured max size', function () {
+    Storage::fake('public');
+    config()->set('uploads.images.max_kilobytes', 5120);
+
+    $user = User::factory()->create();
+
+    $file = UploadedFile::fake()
+        ->image('huge.jpg')
+        ->size(6000);
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Huge Image Test')
+        ->set('image', $file)
+        ->call('submit')
+        ->assertHasErrors(['image'])
+        ->assertNotDispatched('post-uploaded');
+
+    expect(Post::query()->count())->toBe(0);
+    Storage::disk('public')->assertMissing('posts/'.$file->hashName());
+});
+
+it('allows uploaded images within configured max size', function () {
+    Storage::fake('public');
+    config()->set('uploads.images.max_kilobytes', 5120);
+
+    $user = User::factory()->create();
+
+    $file = UploadedFile::fake()
+        ->image('ok.jpg')
+        ->size(1000);
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Allowed Image Test')
+        ->set('image', $file)
+        ->call('submit')
+        ->assertHasNoErrors(['image'])
+        ->assertDispatched('post-uploaded');
+
+    expect(Post::query()->where('title', 'Allowed Image Test')->exists())->toBeTrue();
+});
+
 it('creates post on successful upload', function () {
     Storage::fake('public');
 
