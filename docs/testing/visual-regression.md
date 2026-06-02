@@ -97,3 +97,4 @@ task.
 | `feed-desktop.png` | Approved in RG-631 |
 | `feed-mobile.png` | Approved in RG-632 |
 | `upload-modal.png` | Approved in RG-633 |
+| `post-drawer.png` | Approved in RG-634 |
