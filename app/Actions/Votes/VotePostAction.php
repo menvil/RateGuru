@@ -12,6 +12,7 @@ use App\Models\PostVote;
 use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Cache\PostListCacheManager;
 use Illuminate\Support\Facades\DB;
 
 final class VotePostAction
@@ -20,6 +21,7 @@ final class VotePostAction
         private readonly RecalculatePostCountersAction $recalculatePostCounters,
         private readonly RecalculatePostScoreAction $recalculatePostScore,
         private readonly ActionRateLimiter $rateLimiter,
+        private readonly PostListCacheManager $postListCache,
     ) {}
 
     public function handle(?User $user, Post $post, VoteType $type): void
@@ -77,5 +79,7 @@ final class VotePostAction
             $this->recalculatePostCounters->handle($post->refresh());
             $this->recalculatePostScore->handle($post);
         });
+
+        $this->postListCache->invalidateForPost($post->refresh());
     }
 }

@@ -11,6 +11,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Cache\PostListCacheManager;
 use Illuminate\Support\Facades\DB;
 
 final class VoteOriginAction
@@ -18,6 +19,7 @@ final class VoteOriginAction
     public function __construct(
         private readonly RecalculatePostCountersAction $recalculatePostCounters,
         private readonly ActionRateLimiter $rateLimiter,
+        private readonly PostListCacheManager $postListCache,
     ) {}
 
     public function handle(?User $user, Post $post, OriginType $origin): void
@@ -53,7 +55,7 @@ final class VoteOriginAction
             throw CannotVoteOriginException::becauseRateLimited($e->getMessage());
         }
 
-        DB::transaction(function () use ($user, $post, $origin) {
+        $changed = DB::transaction(function () use ($user, $post, $origin): bool {
             $existingVote = OriginVote::query()
                 ->where('post_id', $post->id)
                 ->where('user_id', $user->id)
@@ -64,7 +66,7 @@ final class VoteOriginAction
                 // Origin classification is locked after the first vote.
                 // Results are revealed after voting, but changing the vote is
                 // intentionally not allowed from the product UI.
-                return;
+                return false;
             } else {
                 OriginVote::create([
                     'user_id' => $user->id,
@@ -76,6 +78,12 @@ final class VoteOriginAction
             // Recalculate inside the transaction so a recalc failure rolls
             // back the vote and counters never diverge from origin_votes.
             $this->recalculatePostCounters->handle($post->refresh());
+
+            return true;
         });
+
+        if ($changed) {
+            $this->postListCache->invalidateForPost($post->refresh());
+        }
     }
 }
