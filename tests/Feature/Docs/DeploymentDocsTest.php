@@ -101,3 +101,40 @@ it('has sqlite backup strategy note', function () {
     expect($content)->toContain('Before migrations');
     expect($content)->toContain('off-server');
 });
+
+it('has sqlite to postgresql migration note', function () {
+    $path = base_path('docs/deployment/sqlite-to-postgresql-migration.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('SQLite');
+    expect($content)->toContain('PostgreSQL');
+    expect($content)->toContain('staging rehearsal');
+    expect($content)->toContain('rollback');
+    expect($content)->toContain('not implemented in Phase 42');
+});
+
+it('links all deployment docs from deployment readme', function () {
+    $content = file_get_contents(base_path('docs/deployment/README.md'));
+
+    expect($content)->toContain('production-environment-checklist.md');
+    expect($content)->toContain('storage-symlink.md');
+    expect($content)->toContain('queue-worker.md');
+    expect($content)->toContain('migrations.md');
+    expect($content)->toContain('admin-user-creation.md');
+    expect($content)->toContain('sqlite-backup-strategy.md');
+    expect($content)->toContain('sqlite-to-postgresql-migration.md');
+});
+
+it('has phase 42 deployment prep review', function () {
+    $path = base_path('docs/deployment/phase-42-deployment-prep-review.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('Production checklist exists');
+    expect($content)->toContain('No real deploy automation was added');
+});
