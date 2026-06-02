@@ -25,3 +25,23 @@ it('links production checklist from deployment readme', function () {
 
     expect($content)->toContain('production-environment-checklist.md');
 });
+
+it('has storage symlink deployment docs', function () {
+    $path = base_path('docs/deployment/storage-symlink.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('php artisan storage:link');
+    expect($content)->toContain('storage/app/public');
+    expect($content)->toContain('public/storage');
+    expect($content)->toContain('Permissions');
+    expect($content)->toContain('Do not chmod 777 blindly');
+});
+
+it('links storage symlink docs from deployment readme', function () {
+    $content = file_get_contents(base_path('docs/deployment/README.md'));
+
+    expect($content)->toContain('storage-symlink.md');
+});
