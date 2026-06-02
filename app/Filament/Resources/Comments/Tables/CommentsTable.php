@@ -6,7 +6,7 @@ use App\Actions\Comments\DeleteCommentAction;
 use App\Actions\Comments\HideCommentAction;
 use App\Actions\Comments\RestoreCommentAction;
 use App\Enums\CommentStatus;
-use App\Filament\Resources\Posts\PostResource;
+use App\Enums\PostStatus;
 use App\Models\Comment;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
@@ -20,14 +20,15 @@ class CommentsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('post'))
             ->columns([
                 TextColumn::make('body')
                     ->label('Comment')
                     ->limit(80)
                     ->wrap()
                     ->searchable()
-                    ->url(fn (Comment $record): ?string => $record->post_id !== null
-                        ? route('posts.show', $record->post_id).'#comment-'.$record->id
+                    ->url(fn (Comment $record): ?string => $record->post?->status === PostStatus::Published
+                        ? route('posts.show', $record->post).'#comment-'.$record->id
                         : null)
                     ->openUrlInNewTab(),
                 TextColumn::make('user.username')
@@ -41,7 +42,7 @@ class CommentsTable
                     ->searchable()
                     ->sortable()
                     ->placeholder('—')
-                    ->url(fn (Comment $record): ?string => $record->post
+                    ->url(fn (Comment $record): ?string => $record->post?->status === PostStatus::Published
                         ? route('posts.show', $record->post)
                         : null),
                 TextColumn::make('reports_count')
@@ -73,8 +74,7 @@ class CommentsTable
                     ->label('Hide')
                     ->icon('heroicon-o-eye-slash')
                     ->color('danger')
-                    ->visible(fn (Comment $record): bool =>
-                        $record->status === CommentStatus::Visible
+                    ->visible(fn (Comment $record): bool => $record->status === CommentStatus::Visible
                         && auth()->user()?->can('hide', $record) === true
                     )
                     ->schema([
@@ -94,8 +94,7 @@ class CommentsTable
                     ->label('Restore')
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('success')
-                    ->visible(fn (Comment $record): bool =>
-                        $record->status === CommentStatus::Hidden
+                    ->visible(fn (Comment $record): bool => $record->status === CommentStatus::Hidden
                         && auth()->user()?->can('restore', $record) === true
                     )
                     ->schema([

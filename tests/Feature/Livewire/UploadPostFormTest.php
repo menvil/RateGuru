@@ -4,8 +4,10 @@ use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\Post;
+use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 it('resets form when upload-modal-opened event is dispatched', function () {
@@ -225,13 +227,33 @@ it('creates post on successful upload', function () {
 
 it('renders selectable tags', function () {
     $user = User::factory()->create();
-    $tag = \App\Models\Tag::factory()->create(['name' => 'Italian']);
+    $tag = Tag::factory()->create(['name' => 'Italian']);
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSee('Tags')
         ->assertSee('Italian')
         ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
+});
+
+it('does not query tags again during form interaction hydration', function () {
+    $user = User::factory()->create();
+    Tag::factory()->create(['name' => 'Italian']);
+
+    DB::enableQueryLog();
+
+    $component = Livewire::actingAs($user)
+        ->test(UploadPostForm::class);
+
+    DB::flushQueryLog();
+
+    $component->set('title', 'Hydrated title');
+
+    $tagQueries = collect(DB::getQueryLog())
+        ->filter(fn (array $query): bool => str_contains($query['query'], 'from "tags"') || str_contains($query['query'], 'from `tags`'))
+        ->count();
+
+    expect($tagQueries)->toBe(0);
 });
 
 it('has cuisine truth selector', function () {

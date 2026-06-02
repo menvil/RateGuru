@@ -46,7 +46,8 @@ it('does not expose create or edit pages in this phase', function () {
 
 it('renders comment body excerpt in comment resource table', function () {
     $admin = User::factory()->admin()->create();
-    $comment = Comment::factory()->create([
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create([
         'body' => 'This comment should be visible as an excerpt in the admin table.',
     ]);
 
@@ -87,6 +88,23 @@ it('renders related post in comment resource table', function () {
         ->assertCanRenderTableColumn('post.title')
         ->assertSee('Pasta post')
         ->assertSee(route('posts.show', $post), false);
+});
+
+it('does not link comments to public pages for non-published posts', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->pending()->create(['title' => 'Pending post']);
+    $comment = Comment::factory()->for($post)->create([
+        'body' => 'Comment on pending post',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListComments::class)
+        ->assertCanSeeTableRecords([$comment])
+        ->assertSee('Comment on pending post')
+        ->assertSee('Pending post')
+        ->assertDontSee(route('posts.show', $post), false)
+        ->assertDontSee(route('posts.show', $post).'#comment-'.$comment->id, false);
 });
 
 it('renders sortable status badge column in comment resource table', function () {

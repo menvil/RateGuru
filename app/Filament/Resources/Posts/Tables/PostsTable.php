@@ -37,7 +37,9 @@ class PostsTable
                     ->searchable()
                     ->sortable()
                     ->limit(60)
-                    ->url(fn (Post $record): string => route('posts.show', $record))
+                    ->url(fn (Post $record): ?string => $record->status === PostStatus::Published
+                        ? route('posts.show', $record)
+                        : null)
                     ->openUrlInNewTab(),
                 TextColumn::make('user.username')
                     ->label('Author')

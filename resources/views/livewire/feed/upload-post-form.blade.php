@@ -139,12 +139,12 @@
                     <label class="inline-flex cursor-pointer items-center gap-2 rounded-rgPill border border-rg-border2 bg-rg-card px-3 py-1.5 text-[13px] font-semibold text-rg-text2 transition hover:border-rg-accentBorder hover:text-rg-text">
                         <input
                             type="checkbox"
-                            value="{{ $tag->id }}"
+                            value="{{ $tag['id'] }}"
                             wire:model="tagIds"
                             class="size-3.5 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-rg-accent"
-                            data-testid="upload-tag-{{ $tag->id }}"
+                            data-testid="upload-tag-{{ $tag['id'] }}"
                         >
-                        {{ $tag->name }}
+                        {{ $tag['name'] }}
                     </label>
                 @empty
                     <span class="px-1 text-sm text-rg-muted">No tags available.</span>

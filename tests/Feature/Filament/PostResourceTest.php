@@ -73,6 +73,18 @@ it('renders a searchable, sortable title column', function () {
         ->assertSee(route('posts.show', $post), false);
 });
 
+it('does not link non-published post titles to the public post page', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->pending()->create(['title' => 'Pending Pasta']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$post])
+        ->assertSee('Pending Pasta')
+        ->assertDontSee(route('posts.show', $post), false);
+});
+
 it('renders the author username column', function () {
     $admin = User::factory()->admin()->create();
     $author = User::factory()->create(['username' => 'chef_ivan']);

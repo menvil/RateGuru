@@ -34,9 +34,20 @@ final class UploadPostForm extends Component
 
     public ?string $submitError = null;
 
+    public array $tags = [];
+
     public function mount(): void
     {
         abort_unless(auth()->check(), 403);
+
+        $this->tags = Tag::query()
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (Tag $tag): array => [
+                'id' => $tag->id,
+                'name' => $tag->name,
+            ])
+            ->all();
     }
 
     #[On('upload-modal-opened')]
@@ -99,9 +110,7 @@ final class UploadPostForm extends Component
     public function render(): View
     {
         return view('livewire.feed.upload-post-form', [
-            'tags' => Tag::query()
-                ->orderBy('name')
-                ->get(['id', 'name']),
+            'tags' => $this->tags,
         ]);
     }
 }

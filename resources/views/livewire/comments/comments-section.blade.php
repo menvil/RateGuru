@@ -54,10 +54,11 @@
     </div>
 
     @if ($this->comments->isEmpty())
-        <div class="py-6 text-center" data-testid="comments-empty">
-            <h4 class="text-sm font-semibold text-rg-text">No comments yet</h4>
-            <p class="mt-1 text-sm text-rg-muted">Be the first to comment.</p>
-        </div>
+        <x-ui.empty-state
+            title="No comments yet"
+            description="Be the first to comment."
+            data-testid="comments-empty"
+        />
     @else
         <div class="space-y-4">
             @foreach ($this->comments as $comment)

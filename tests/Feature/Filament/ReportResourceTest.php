@@ -1,8 +1,8 @@
 <?php
 
-use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Enums\ReportReason;
 use App\Enums\ReportStatus;
+use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Filament\Resources\Reports\ReportResource;
 use App\Models\Comment;
 use App\Models\Post;
@@ -65,9 +65,26 @@ it('renders Post target type in report resource table', function () {
         ->assertSee(route('posts.show', $post), false);
 });
 
+it('does not link reported non-published posts to the public post page', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->pending()->create(['title' => 'Pending reported post']);
+    $report = Report::factory()->create([
+        'target_type' => Post::class,
+        'target_id' => $post->id,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->assertCanSeeTableRecords([$report])
+        ->assertSee('Pending reported post')
+        ->assertDontSee(route('posts.show', $post), false);
+});
+
 it('renders Comment target type in report resource table', function () {
     $admin = User::factory()->admin()->create();
-    $comment = Comment::factory()->create();
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create();
     $report = Report::factory()->create([
         'target_type' => Comment::class,
         'target_id' => $comment->id,
@@ -79,6 +96,23 @@ it('renders Comment target type in report resource table', function () {
         ->assertCanSeeTableRecords([$report])
         ->assertSee('Comment')
         ->assertSee(route('posts.show', $comment->post).'#comment-'.$comment->id, false);
+});
+
+it('does not link reported comments when their post is not published', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->pending()->create();
+    $comment = Comment::factory()->for($post)->create(['body' => 'Reported pending comment']);
+    $report = Report::factory()->create([
+        'target_type' => Comment::class,
+        'target_id' => $comment->id,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListReports::class)
+        ->assertCanSeeTableRecords([$report])
+        ->assertSee('Reported pending comment')
+        ->assertDontSee(route('posts.show', $post).'#comment-'.$comment->id, false);
 });
 
 it('renders report reason in report resource table', function () {
