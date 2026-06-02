@@ -56,3 +56,31 @@ it('does not perform n plus one queries when accessing feed post tags', function
 
     expect($queryCount)->toBeLessThanOrEqual(6);
 });
+
+it('provides vote count attributes for feed posts', function () {
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 3,
+        'downvotes_count' => 1,
+        'comments_count' => 2,
+    ]);
+
+    $posts = app(FeedQuery::class)->paginate();
+
+    $first = collect($posts->items())->firstWhere('id', $post->id);
+
+    expect($first->upvotes_count)->toBe(3);
+    expect($first->downvotes_count)->toBe(1);
+    expect($first->comments_count)->toBe(2);
+});
+
+it('does not load full vote relations for feed counts', function () {
+    Post::factory()->published()->create();
+
+    $posts = app(FeedQuery::class)->paginate();
+
+    $first = $posts->items()[0];
+
+    expect($first->relationLoaded('postVotes'))->toBeFalse();
+    expect($first->relationLoaded('originVotes'))->toBeFalse();
+    expect($first->relationLoaded('cuisineVotes'))->toBeFalse();
+});
