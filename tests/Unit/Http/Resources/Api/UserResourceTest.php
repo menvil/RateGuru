@@ -73,6 +73,18 @@ it('includes public profile url when username is available', function () {
     expect($data['profile_url'])->toContain('/u/alice');
 });
 
+it('builds profile url from configured app url instead of request host', function () {
+    config()->set('app.url', 'https://rateguru.example');
+
+    $user = User::factory()->create([
+        'username' => 'alice',
+    ]);
+
+    $data = (new ApiUserResource($user))->resolve();
+
+    expect($data['profile_url'])->toBe('https://rateguru.example/u/alice');
+});
+
 it('uses user resource shape for post and comment authors', function () {
     $author = User::factory()->create([
         'username' => 'author',
