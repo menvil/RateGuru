@@ -183,7 +183,7 @@ it('does not show other users posts on profile page', function () {
         ->assertDontSee('Other post');
 });
 
-it('shows edit profile placeholder to profile owner', function () {
+it('shows edit profile link to profile owner', function () {
     $user = User::factory()->create([
         'username' => 'chef_ivan',
     ]);
@@ -191,25 +191,26 @@ it('shows edit profile placeholder to profile owner', function () {
     Livewire::actingAs($user)
         ->test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertSee('Edit profile')
-        ->assertSee('data-testid="edit-profile-placeholder"', false);
+        ->assertSee('data-testid="edit-profile-link"', false)
+        ->assertSee(route('profile.edit'), false);
 });
 
-it('does not show edit profile placeholder to other users', function () {
+it('does not show edit profile link to other users', function () {
     User::factory()->create(['username' => 'chef_ivan']);
     $viewer = User::factory()->create(['username' => 'viewer']);
 
     Livewire::actingAs($viewer)
         ->test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertDontSee('Edit profile')
-        ->assertDontSee('data-testid="edit-profile-placeholder"', false);
+        ->assertDontSee('data-testid="edit-profile-link"', false);
 });
 
-it('does not show edit profile placeholder to guest', function () {
+it('does not show edit profile link to guest', function () {
     User::factory()->create(['username' => 'chef_ivan']);
 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertDontSee('Edit profile')
-        ->assertDontSee('data-testid="edit-profile-placeholder"', false);
+        ->assertDontSee('data-testid="edit-profile-link"', false);
 });
 
 it('shows report user placeholder to authenticated non owner', function () {

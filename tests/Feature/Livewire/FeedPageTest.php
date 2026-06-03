@@ -1,9 +1,10 @@
 <?php
 
+use App\Enums\CuisineType;
+use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Livewire\Feed\FeedPage;
 use App\Models\Post;
-use App\Models\Tag;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -35,9 +36,10 @@ it('filters feed results when search state changes', function () {
         ->assertDontSee('Chocolate Cake');
 });
 
-it('has category state on feed page', function () {
+it('has rating filter state on feed page', function () {
     Livewire::test(FeedPage::class)
-        ->assertSet('category', null);
+        ->assertSet('origin', [])
+        ->assertSet('cuisine', []);
 });
 
 it('has sort state on feed page with default newest', function () {
@@ -113,18 +115,72 @@ it('does not delete another users post from the feed page action menu event', fu
     expect(Post::query()->find($post->id))->not->toBeNull();
 });
 
-it('filters feed when category is selected', function () {
-    $pasta = Tag::factory()->create(['slug' => 'pasta']);
-    $dessert = Tag::factory()->create(['slug' => 'dessert']);
+it('renders rating filters instead of category tags in the feed header', function () {
+    Livewire::test(FeedPage::class)
+        ->assertSee('data-testid="feed-rating-filters"', false)
+        ->assertSee('Origin')
+        ->assertSee('Cuisine guess')
+        ->assertDontSee('data-testid="category-tabs"', false);
+});
 
-    $matching = Post::factory()->published()->create(['title' => 'Pasta Dish']);
-    $matching->tags()->attach($pasta);
-
-    $other = Post::factory()->published()->create(['title' => 'Cake']);
-    $other->tags()->attach($dessert);
+it('filters feed when origin filter is selected', function () {
+    Post::factory()->published()->create([
+        'title' => 'Home Dish',
+        'origin_truth' => OriginType::Homemade,
+    ]);
+    Post::factory()->published()->create([
+        'title' => 'Restaurant Dish',
+        'origin_truth' => OriginType::Restaurant,
+    ]);
 
     Livewire::test(FeedPage::class)
-        ->set('category', 'pasta')
-        ->assertSee('Pasta Dish')
+        ->call('toggleOrigin', OriginType::Homemade->value)
+        ->assertSee('Home Dish')
+        ->assertDontSee('Restaurant Dish');
+});
+
+it('supports selecting multiple origin filters', function () {
+    Post::factory()->published()->create([
+        'title' => 'Home Dish',
+        'origin_truth' => OriginType::Homemade,
+    ]);
+    Post::factory()->published()->create([
+        'title' => 'Restaurant Dish',
+        'origin_truth' => OriginType::Restaurant,
+    ]);
+
+    Livewire::test(FeedPage::class)
+        ->call('toggleOrigin', OriginType::Homemade->value)
+        ->call('toggleOrigin', OriginType::Restaurant->value)
+        ->assertSee('Home Dish')
+        ->assertSee('Restaurant Dish');
+});
+
+it('filters feed when cuisine filter is selected', function () {
+    Post::factory()->published()->create([
+        'title' => 'Italian Dish',
+        'cuisine_truth' => CuisineType::Italian,
+    ]);
+    Post::factory()->published()->create([
+        'title' => 'Asian Dish',
+        'cuisine_truth' => CuisineType::Asian,
+    ]);
+
+    Livewire::test(FeedPage::class)
+        ->call('toggleCuisine', CuisineType::Italian->value)
+        ->assertSee('Italian Dish')
+        ->assertDontSee('Asian Dish');
+});
+
+it('does not search feed until at least three characters are entered', function () {
+    Post::factory()->published()->create(['title' => 'Pasta']);
+    Post::factory()->published()->create(['title' => 'Cake']);
+
+    Livewire::test(FeedPage::class)
+        ->set('search', 'pa')
+        ->assertSee('Pasta')
+        ->assertSee('Cake')
+        ->set('search', 'pas')
+        ->assertSee('Pasta')
         ->assertDontSee('Cake');
 });

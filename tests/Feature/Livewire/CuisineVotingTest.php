@@ -29,6 +29,26 @@ it('does not record a cuisine vote when an unauthenticated guest votes', functio
     $this->assertDatabaseCount('cuisine_votes', 0);
 });
 
+it('does not show own post cuisine vote error before attempting to vote', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    Livewire::actingAs($owner)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
+        ->assertDontSee('You cannot vote on your own post.');
+});
+
+it('shows own post cuisine vote error after attempting to vote', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    Livewire::actingAs($owner)
+        ->test(CuisineVoting::class, ['postId' => $post->id])
+        ->call('vote', CuisineType::Italian->value)
+        ->assertSet('error', 'You cannot vote on your own post.')
+        ->assertSee('You cannot vote on your own post.');
+});
+
 it('calls cuisine vote action when italian button is clicked', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

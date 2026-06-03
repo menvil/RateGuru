@@ -275,8 +275,24 @@ it('renders selectable tags', function () {
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSee('Tags')
+        ->assertSee('data-testid="upload-tag-search"', false)
+        ->assertSee('data-testid="upload-tag-menu"', false)
         ->assertSee('UniqueTagForTest')
         ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
+});
+
+it('filters upload tags while typing and toggles selected tags', function () {
+    $user = User::factory()->create();
+    $matching = Tag::factory()->create(['name' => 'Carbonara']);
+    Tag::factory()->create(['name' => 'Sushi']);
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('tagSearch', 'carb')
+        ->assertSee('Carbonara')
+        ->call('toggleTag', $matching->id)
+        ->assertSet('tagIds', [$matching->id])
+        ->assertSee('data-testid="upload-selected-tags"', false);
 });
 
 it('does not query tags again during form interaction hydration', function () {

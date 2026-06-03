@@ -135,9 +135,7 @@
     @endif
     @endif
 
-    @if($error !== '')
+    @if($error !== '' && $variant !== 'rail')
         <span data-testid="post-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
-    @elseif(($isOwnPost ?? false) && $variant !== 'rail')
-        <span data-testid="post-voting-error" class="text-xs text-rg-muted">You cannot vote on your own post.</span>
     @endif
 </div>

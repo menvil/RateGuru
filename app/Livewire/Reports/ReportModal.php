@@ -19,6 +19,8 @@ final class ReportModal extends Component
 
     public int $reportableId;
 
+    public string $variant = 'link';
+
     public string $reason = '';
 
     public ?string $message = null;

@@ -4,7 +4,8 @@
     data-post-id="{{ $post->id }}"
     role="button"
     tabindex="0"
-    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false }"
+    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false, postVoteError: '' }"
+    x-on:post-vote-error.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = $event.detail.message"
     wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.space.prevent="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
@@ -81,10 +82,10 @@
                                 <span class="text-[11.5px] text-rg-text2">Restaurant</span>
                             </div>
                             <div class="mb-1.5 flex justify-between">
-                                <span class="text-[22px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
-                                <span class="text-[22px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
+                                <span class="whitespace-nowrap text-[18px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
+                                <span class="whitespace-nowrap text-[18px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
                             </div>
-                            <div class="relative h-2 overflow-hidden rounded-rgPill bg-rg-card2">
+                            <div class="relative h-1.5 overflow-hidden rounded-rgPill bg-rg-card2">
                                 <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
                             </div>
                             <div class="mt-1.5 text-[11px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
@@ -104,10 +105,10 @@
                             @foreach($cuisineDistribution['rows'] as $row)
                                 <div class="grid grid-cols-[24px_minmax(0,1fr)_52px] items-center gap-1.5">
                                     <span class="text-[11px] font-semibold text-rg-text2">{{ $row['label'] }}</span>
-                                    <div class="h-2 overflow-hidden rounded-rgPill bg-rg-card2">
+                                    <div class="h-1.5 overflow-hidden rounded-rgPill bg-rg-card2">
                                         <div class="h-full rounded-rgPill bg-rg-accent" style="width: {{ $row['percentage'] }}%"></div>
                                     </div>
-                                    <span class="text-right text-[11px] text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
+                                    <span class="whitespace-nowrap text-right text-[11px] text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
                                 </div>
                             @endforeach
                         </div>
@@ -166,10 +167,11 @@
                         class="absolute bottom-full right-0 z-20 mb-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReportPost)
-                            <div data-testid="post-card-report" class="rounded-rgSm px-3 py-1.5 transition hover:bg-rg-card">
+                            <div data-testid="post-card-report">
                                 <livewire:reports.report-modal
                                     reportable-type="post"
                                     :reportable-id="$post->id"
+                                    variant="menu"
                                     :key="'post-card-report-'.$post->id"
                                 />
                             </div>
@@ -220,6 +222,14 @@
                 </x-ui.modal>
             @endif
         </footer>
+
+        <p
+            x-cloak
+            x-show="postVoteError"
+            x-text="postVoteError"
+            data-testid="post-card-vote-error"
+            class="mt-2 text-xs font-medium text-rg-danger"
+        ></p>
 
         @if($post->public_image_url)
             <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">

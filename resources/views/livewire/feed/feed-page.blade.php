@@ -61,20 +61,129 @@
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >
-            <div class="mb-5 flex items-center gap-3">
+            <div class="mb-5 flex flex-wrap items-center gap-3">
                 <div class="min-w-0 flex-1">
-                    <livewire:feed.category-tabs wire:model.live="category" />
+                    <div class="flex flex-wrap items-center gap-2" data-testid="feed-rating-filters">
+                        <div class="relative" x-data="{ open: false }" x-on:click.outside="open = false">
+                            <button
+                                type="button"
+                                x-on:click="open = ! open"
+                                class="flex h-9 cursor-pointer items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-3 text-[12.5px] font-semibold text-rg-text2 transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                                data-testid="origin-filter-trigger"
+                                aria-haspopup="true"
+                                x-bind:aria-expanded="open"
+                            >
+                                Origin
+                                @if(count((array) $origin) > 0)
+                                    <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $origin) }}</span>
+                                @endif
+                                <x-ui.icon name="chevron-down" class="size-3.5" />
+                            </button>
+
+                            <div
+                                x-cloak
+                                x-show="open"
+                                class="absolute left-0 z-20 mt-2 w-48 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                                data-testid="origin-filter-menu"
+                            >
+                                @foreach([
+                                    ['value' => 'homemade', 'label' => 'Homemade'],
+                                    ['value' => 'restaurant', 'label' => 'Restaurant'],
+                                ] as $filter)
+                                    <button
+                                        type="button"
+                                        wire:click="toggleOrigin('{{ $filter['value'] }}')"
+                                        class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-1.5 text-left text-[12.5px] font-semibold text-rg-text2 transition hover:bg-rg-card"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            @checked(in_array($filter['value'], (array) $origin, true))
+                                            class="size-3.5 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-rg-accent"
+                                            tabindex="-1"
+                                            readonly
+                                        >
+                                        {{ $filter['label'] }}
+                                    </button>
+                                @endforeach
+
+                                <button
+                                    type="button"
+                                    wire:click="clearOriginFilters"
+                                    class="mt-1 block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-[12px] font-semibold text-rg-muted transition hover:bg-rg-card hover:text-rg-text"
+                                >
+                                    Clear
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="relative" x-data="{ open: false }" x-on:click.outside="open = false">
+                            <button
+                                type="button"
+                                x-on:click="open = ! open"
+                                class="flex h-9 cursor-pointer items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-3 text-[12.5px] font-semibold text-rg-text2 transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                                data-testid="cuisine-filter-trigger"
+                                aria-haspopup="true"
+                                x-bind:aria-expanded="open"
+                            >
+                                Cuisine guess
+                                @if(count((array) $cuisine) > 0)
+                                    <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $cuisine) }}</span>
+                                @endif
+                                <x-ui.icon name="chevron-down" class="size-3.5" />
+                            </button>
+
+                            <div
+                                x-cloak
+                                x-show="open"
+                                class="absolute left-0 z-20 mt-2 w-52 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                                data-testid="cuisine-filter-menu"
+                            >
+                                @foreach([
+                                    ['value' => 'italian', 'label' => 'Italian'],
+                                    ['value' => 'asian', 'label' => 'Asian'],
+                                    ['value' => 'american', 'label' => 'American'],
+                                    ['value' => 'mexican', 'label' => 'Mexican'],
+                                    ['value' => 'other', 'label' => 'Other'],
+                                ] as $filter)
+                                    <button
+                                        type="button"
+                                        wire:click="toggleCuisine('{{ $filter['value'] }}')"
+                                        class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-1.5 text-left text-[12.5px] font-semibold text-rg-text2 transition hover:bg-rg-card"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            @checked(in_array($filter['value'], (array) $cuisine, true))
+                                            class="size-3.5 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-rg-accent"
+                                            tabindex="-1"
+                                            readonly
+                                        >
+                                        {{ $filter['label'] }}
+                                    </button>
+                                @endforeach
+
+                                <button
+                                    type="button"
+                                    wire:click="clearCuisineFilters"
+                                    class="mt-1 block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-[12px] font-semibold text-rg-muted transition hover:bg-rg-card hover:text-rg-text"
+                                >
+                                    Clear
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <livewire:feed.sort-dropdown wire:model.live="sort" />
             </div>
 
             <h2 class="mb-4 text-base font-semibold text-rg-text2">Latest dishes</h2>
             <livewire:feed.post-feed
-                :search="$search"
+                :search="$this->effectiveSearch()"
                 :tag="$category"
+                :origin="$origin"
+                :cuisine="$cuisine"
                 :sort="$sort"
                 :selected-post-id="$selectedPostId"
-                :key="'feed-'.md5(json_encode([$search, $category, $sort]))"
+                :key="'feed-'.md5(json_encode([$search, $category, $origin, $cuisine, $sort]))"
             />
         </section>
 

@@ -69,6 +69,13 @@ class UserResource extends Resource
                     UserStatus::Shadowbanned->value => 'Shadowbanned',
                 ])
                 ->required(),
+            TextInput::make('trust_level')
+                ->label('Trust level')
+                ->numeric()
+                ->minValue(0)
+                ->maxValue(255)
+                ->required()
+                ->helperText('Trusted users publish immediately. Lower this below the trusted threshold to send new posts to moderation.'),
             TextInput::make('password')
                 ->label('New password')
                 ->password()

@@ -56,7 +56,7 @@
                                     type="button"
                                     wire:click.prevent="markAsRead('{{ $notification->id }}')"
                                     data-testid="mark-notification-read"
-                                    class="mt-2 text-xs font-semibold text-rg-accent2 transition hover:text-rg-accent"
+                                    class="mt-2 cursor-pointer text-xs font-semibold text-rg-accent2 transition hover:text-rg-accent"
                                 >
                                     Mark as read
                                 </button>

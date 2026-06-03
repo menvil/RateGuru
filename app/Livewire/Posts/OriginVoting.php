@@ -94,8 +94,7 @@ final class OriginVoting extends Component
             'currentOrigin' => $currentOrigin,
             'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
             'hasVoted' => $currentOrigin !== null,
-            'votingDisabled' => $currentOrigin !== null || ($post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id()),
-            'showOwnPostVoteError' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id() && $currentOrigin === null,
+            'votingDisabled' => $currentOrigin !== null,
         ]);
     }
 }

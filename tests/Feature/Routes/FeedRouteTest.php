@@ -45,7 +45,8 @@ it('renders upload modal shell for authenticated user on feed page', function ()
         ->assertSee('data-testid="open-upload-button"', false)
         ->assertSee('shadow-rgUpload', false)
         ->assertSee('aria-hidden="true"', false)
-        ->assertSee('data-testid="upload-modal"', false);
+        ->assertSee('data-testid="upload-modal"', false)
+        ->assertSee('overflow-visible', false);
 });
 
 it('renders authenticated header actions without changing guest header behavior', function () {

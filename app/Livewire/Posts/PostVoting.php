@@ -55,6 +55,7 @@ final class PostVoting extends Component
             $votePostAction->handle(auth()->user(), $post, $voteToApply);
         } catch (CannotVoteException $e) {
             $this->error = $e->getMessage();
+            $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
 
             return;
         }
@@ -87,7 +88,7 @@ final class PostVoting extends Component
             'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
-            'votingDisabled' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
+            'votingDisabled' => false,
             'score' => (int) ($post?->score ?? 0),
         ]);
     }

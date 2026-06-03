@@ -2,7 +2,6 @@
 
 namespace App\Livewire\Posts;
 
-use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Support\Seo\PostOpenGraph;
 use App\Support\View\AppLayoutData;
@@ -33,6 +32,18 @@ final class PostShow extends Component
         // Triggers a re-render so the vote summary panel reflects fresh counters.
     }
 
+    #[On('origin-voted')]
+    public function refreshAfterOriginVote(): void
+    {
+        // Triggers a re-render so the origin summary reflects fresh counters.
+    }
+
+    #[On('cuisine-voted')]
+    public function refreshAfterCuisineVote(): void
+    {
+        // Triggers a re-render after cuisine votes.
+    }
+
     public function render(): View
     {
         $post = $this->post;
@@ -43,7 +54,6 @@ final class PostShow extends Component
             'ogImage' => $openGraph->image($post),
             'ogTitle' => $openGraph->title($post),
             'post' => $post,
-            'showSharePanel' => $post->status === PostStatus::Published,
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

@@ -32,8 +32,6 @@
 
         @if($error !== '')
             <span data-testid="cuisine-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
-        @elseif($voteErrorMessage)
-            <span data-testid="cuisine-voting-error" class="text-xs text-rg-muted">{{ $voteErrorMessage }}</span>
         @endif
     @endif
 </div>

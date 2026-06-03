@@ -30,10 +30,15 @@ class DemoCommentsSeeder extends Seeder
             ->each(function (Post $post) use ($users) {
                 $commenters = $users
                     ->where('id', '!==', $post->user_id)
-                    ->take(2)
                     ->values();
 
-                foreach ($commenters as $index => $user) {
+                if ($commenters->isEmpty()) {
+                    return;
+                }
+
+                foreach (range(0, 4) as $index) {
+                    $user = $commenters[$index % $commenters->count()];
+
                     Comment::query()->updateOrCreate(
                         [
                             'post_id' => $post->id,
@@ -54,6 +59,9 @@ class DemoCommentsSeeder extends Seeder
     {
         return match ($index) {
             0 => 'Demo comment: this plate is useful for feed and post show checks.',
+            1 => 'The texture and plating make this one easy to compare.',
+            2 => 'Useful demo comment for lazy loading and sort checks.',
+            3 => 'I would vote differently after seeing the full image.',
             default => 'Demo comment for '.$post->title,
         };
     }

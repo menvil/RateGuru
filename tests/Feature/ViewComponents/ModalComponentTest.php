@@ -44,3 +44,11 @@ it('stops modal clicks from bubbling to clickable parents', function () {
         ->toContain('x-on:click.stop')
         ->toContain('x-on:click.stop="open = false"');
 });
+
+it('can render a modal panel with visible overflow for dropdown menus', function () {
+    $html = Blade::render('<x-ui.modal title="Upload" allow-overflow>Upload content</x-ui.modal>');
+
+    expect($html)
+        ->toContain('overflow-visible')
+        ->not->toContain('overflow-hidden rounded-rgCard');
+});

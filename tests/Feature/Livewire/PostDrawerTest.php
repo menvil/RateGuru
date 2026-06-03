@@ -22,7 +22,9 @@ it('renders report button in post drawer', function () {
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('data-testid="report-button"', false)
-        ->assertSee('Report');
+        ->assertSee('Report')
+        ->assertSee('text-rg-dangerText', false)
+        ->assertSee('hover:bg-rg-dangerSoft', false);
 });
 
 it('does not render report button in post drawer for the owner', function () {
@@ -147,8 +149,10 @@ it('renders drawer author metadata', function () {
     $post = Post::factory()->published()->for($user)->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="post-drawer-meta"', false)
+        ->assertSee('Demo Chef')
         ->assertSee('@demo_chef')
-        ->assertDontSee('Demo Chef');
+        ->assertDontSee('Posted by');
 });
 
 it('renders large post image in drawer', function () {
@@ -171,6 +175,19 @@ it('renders drawer post title and description', function () {
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Homemade Carbonara')
         ->assertSee('Creamy pasta with pepper');
+});
+
+it('renders drawer description under title before image', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Drawer Tacos',
+        'description' => 'Description should sit below the title',
+        'image_url' => '/storage/posts/1/drawer-tacos.jpg',
+    ]);
+
+    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
+
+    expect(strpos($html, 'Drawer Tacos'))->toBeLessThan(strpos($html, 'Description should sit below the title'));
+    expect(strpos($html, 'Description should sit below the title'))->toBeLessThan(strpos($html, '/storage/posts/1/drawer-tacos.jpg'));
 });
 
 it('does not break when drawer post description is missing', function () {
@@ -282,7 +299,7 @@ it('renders drawer cuisine controls directly under the distribution heading', fu
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSeeInOrder([
-            'Cuisine guess distribution',
+            'Cuisine guess:',
             'data-testid="post-drawer-cuisine-voting"',
         ], false);
 });
