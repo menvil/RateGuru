@@ -36,8 +36,24 @@ it('renders for authenticated user', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('Create post')
+        ->assertSee('Upload post')
         ->assertStatus(200);
+});
+
+it('opens upload modal with generic labels', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Title')
+        ->assertSee('Image')
+        ->assertSee('Source')
+        ->assertSee('Category')
+        ->assertDontSee('Dish title')
+        ->assertDontSee('Origin')
+        ->assertDontSee('Cuisine')
+        ->assertDontSee('Homemade')
+        ->assertDontSee('Restaurant');
 });
 
 it('blocks guest users', function () {
@@ -337,10 +353,10 @@ it('has cuisine truth selector', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('Italian')
-        ->assertSee('Asian')
-        ->assertSee('American')
-        ->assertSee('Mexican')
+        ->assertSee('Category A')
+        ->assertSee('Category B')
+        ->assertSee('Category C')
+        ->assertSee('Category D')
         ->assertSee('Other')
         ->assertSee('Keep unknown');
 });
@@ -359,8 +375,8 @@ it('has origin truth selector', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('Homemade')
-        ->assertSee('Restaurant')
+        ->assertSee('Source A')
+        ->assertSee('Source B')
         ->assertSee('Keep unknown');
 });
 

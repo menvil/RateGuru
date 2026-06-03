@@ -53,12 +53,23 @@ it('renders upload modal shell for authenticated user on feed page', function ()
         ->get('/')
         ->assertOk()
         ->assertSee('Upload')
-        ->assertSee('Create post')
+        ->assertSee('Upload post')
         ->assertSee('data-testid="open-upload-button"', false)
         ->assertSee('shadow-rgUpload', false)
         ->assertSee('aria-hidden="true"', false)
         ->assertSee('data-testid="upload-modal"', false)
         ->assertSee('overflow-visible', false);
+});
+
+it('renders generic upload copy for authenticated users', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('feed'))
+        ->assertOk()
+        ->assertSee('Upload post')
+        ->assertDontSee('Upload dish')
+        ->assertDontSee('Food photo');
 });
 
 it('renders authenticated header actions without changing guest header behavior', function () {
