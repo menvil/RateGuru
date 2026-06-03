@@ -61,9 +61,48 @@
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >
-            <div class="mb-5 flex items-center gap-3">
+            <div class="mb-5 flex flex-wrap items-center gap-3">
                 <div class="min-w-0 flex-1">
-                    <livewire:feed.category-tabs wire:model.live="category" />
+                    <div class="flex flex-wrap items-center gap-2" data-testid="feed-rating-filters">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="mr-0.5 text-[12px] font-semibold text-rg-muted">Origin</span>
+                            @foreach([
+                                ['value' => null, 'label' => 'Any'],
+                                ['value' => 'homemade', 'label' => 'Homemade'],
+                                ['value' => 'restaurant', 'label' => 'Restaurant'],
+                            ] as $filter)
+                                <button
+                                    type="button"
+                                    wire:click="$set('origin', @js($filter['value']))"
+                                    aria-pressed="{{ $origin === $filter['value'] ? 'true' : 'false' }}"
+                                    class="h-8 cursor-pointer rounded-rgSm border px-2.5 text-[12.5px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent {{ $origin === $filter['value'] ? 'border-rg-accent bg-rg-accentSoft text-rg-accent2' : 'border-rg-border2 bg-rg-card2 text-rg-text2 hover:bg-rg-cardHover hover:text-rg-text' }}"
+                                >
+                                    {{ $filter['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="mr-0.5 text-[12px] font-semibold text-rg-muted">Cuisine guess:</span>
+                            @foreach([
+                                ['value' => null, 'label' => 'Any'],
+                                ['value' => 'italian', 'label' => 'IT'],
+                                ['value' => 'asian', 'label' => 'AS'],
+                                ['value' => 'american', 'label' => 'US'],
+                                ['value' => 'mexican', 'label' => 'MX'],
+                                ['value' => 'other', 'label' => 'OT'],
+                            ] as $filter)
+                                <button
+                                    type="button"
+                                    wire:click="$set('cuisine', @js($filter['value']))"
+                                    aria-pressed="{{ $cuisine === $filter['value'] ? 'true' : 'false' }}"
+                                    class="h-8 min-w-9 cursor-pointer rounded-rgSm border px-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent {{ $cuisine === $filter['value'] ? 'border-rg-accent bg-rg-accentSoft text-rg-accent2' : 'border-rg-border2 bg-rg-card2 text-rg-text2 hover:bg-rg-cardHover hover:text-rg-text' }}"
+                                >
+                                    {{ $filter['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
                 </div>
                 <livewire:feed.sort-dropdown wire:model.live="sort" />
             </div>
@@ -72,9 +111,11 @@
             <livewire:feed.post-feed
                 :search="$search"
                 :tag="$category"
+                :origin="$origin"
+                :cuisine="$cuisine"
                 :sort="$sort"
                 :selected-post-id="$selectedPostId"
-                :key="'feed-'.md5(json_encode([$search, $category, $sort]))"
+                :key="'feed-'.md5(json_encode([$search, $category, $origin, $cuisine, $sort]))"
             />
         </section>
 

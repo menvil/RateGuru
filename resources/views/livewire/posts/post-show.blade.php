@@ -13,64 +13,126 @@
     <meta name="twitter:image" content="{{ $ogImage }}">
 @endpush
 
-<div data-testid="post-show" x-data="{ shareOpen: false }" class="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+<div data-testid="post-show" x-data="{ imageOpen: false }" class="mx-auto w-full max-w-[820px]">
     <main class="min-w-0">
-        <div data-testid="post-show-hero">
-            @if($post->public_image_url)
-                <img
-                    src="{{ $post->public_image_url }}"
-                    alt="{{ $post->title }}"
-                    class="aspect-[16/10] w-full rounded-rgCard object-cover"
-                >
-            @else
-                <x-ui.image-placeholder label="Image preview" ratio="video" />
-            @endif
-        </div>
-
-        <section class="mt-6">
-            <h1 class="break-words text-2xl font-bold text-rg-text sm:text-3xl">{{ $post->title }}</h1>
-
-            @if($post->description)
-                <p class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
-            @endif
-        </section>
-
-        <section class="mt-6 flex flex-wrap items-center gap-4" data-testid="post-show-meta">
-            <div class="flex min-w-0 items-center gap-3">
+        <article class="rounded-rgCard border border-rg-border bg-rg-card p-5">
+            <section class="flex min-w-0 items-start gap-3" data-testid="post-show-meta">
                 <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
 
                 <div class="min-w-0">
                     <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
 
-                    @if($post->user?->username)
-                        <div class="truncate text-xs text-rg-muted">{{ '@' . $post->user->username }}</div>
-                    @endif
-
-                    @if($post->published_at)
-                        <div class="text-xs text-rg-muted">{{ $post->published_at->diffForHumans() }}</div>
-                    @endif
+                    <div class="truncate text-xs text-rg-muted">
+                        @if($post->user?->username)
+                            {{ '@' . $post->user->username }}
+                        @endif
+                        @if($post->published_at)
+                            {{ $post->user?->username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
+                        @endif
+                    </div>
                 </div>
+            </section>
+
+            <section class="mt-4">
+                <h1 class="break-words text-2xl font-bold text-rg-text sm:text-3xl">{{ $post->title }}</h1>
+
+                @if($post->description)
+                    <p class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
+                @endif
+            </section>
+
+            <div class="mt-4" data-testid="post-show-hero">
+            @if($post->public_image_url)
+                <button
+                    type="button"
+                    class="block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    x-on:click.stop="imageOpen = true"
+                    data-testid="post-show-image-open"
+                    aria-label="Open image fullscreen"
+                >
+                    <img
+                        src="{{ $post->public_image_url }}"
+                        alt="{{ $post->title }}"
+                        class="aspect-[16/10] w-full rounded-rgMedia object-cover"
+                    >
+                </button>
+            @else
+                <x-ui.image-placeholder label="Image preview" ratio="video" />
+            @endif
             </div>
 
-            @if($post->tags->isNotEmpty())
-                <div class="flex flex-wrap items-center gap-2">
+            <section class="mt-5 space-y-5" data-testid="post-show-rating-controls">
+                <div data-testid="post-show-origin-voting" wire:click.stop wire:keydown.stop>
+                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">What do you think?</p>
+                    <livewire:posts.origin-voting
+                        :post-id="$post->id"
+                        :key="'post-show-origin-voting-'.$post->id"
+                    />
+                </div>
+
+                <div data-testid="post-show-cuisine-voting" wire:click.stop wire:keydown.stop>
+                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">Cuisine guess:</p>
+                    <livewire:posts.cuisine-voting
+                        :post-id="$post->id"
+                        :key="'post-show-cuisine-voting-'.$post->id"
+                    />
+                </div>
+            </section>
+
+            <section class="mt-5 border-t border-rg-border pt-4" data-testid="post-show-voting">
+                <livewire:posts.post-voting
+                    :post-id="$post->id"
+                    :key="'post-show-voting-'.$post->id"
+                />
+            </section>
+
+            <section class="mt-4 grid grid-cols-3 gap-2" aria-label="Voting summary" data-testid="post-show-vote-summary">
+                <x-ui.card class="text-center">
+                    <div class="text-xs text-rg-muted">Score</div>
+                    <div class="mt-1 text-base font-bold text-rg-text">{{ $post->score }}</div>
+                </x-ui.card>
+
+                <x-ui.card class="text-center">
+                    <div class="text-xs text-rg-muted">Homemade</div>
+                    <div class="mt-1 text-base font-bold text-rg-text">{{ $post->homemade_votes_count ?? 0 }}</div>
+                </x-ui.card>
+
+                <x-ui.card class="text-center">
+                    <div class="text-xs text-rg-muted">Restaurant</div>
+                    <div class="mt-1 text-base font-bold text-rg-text">{{ $post->restaurant_votes_count ?? 0 }}</div>
+                </x-ui.card>
+            </section>
+
+            @if($post->tags->isNotEmpty() || $post->source_url)
+                <section class="mt-4 flex flex-wrap items-center gap-2">
                     @foreach($post->tags as $tag)
                         <x-ui.badge>{{ $tag->name }}</x-ui.badge>
                     @endforeach
-                </div>
+
+                    @if($post->source_url)
+                        <a
+                            href="{{ $post->source_url }}"
+                            rel="nofollow noopener noreferrer"
+                            target="_blank"
+                            class="text-xs font-semibold text-rg-accent2 hover:underline"
+                        >
+                            Source
+                        </a>
+                    @endif
+                </section>
             @endif
 
-            @if($post->source_url)
-                <a
-                    href="{{ $post->source_url }}"
-                    rel="nofollow noopener noreferrer"
-                    target="_blank"
-                    class="text-xs font-semibold text-rg-accent2 hover:underline"
-                >
-                    Source
-                </a>
+            @if($post->public_image_url)
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
+                    <img
+                        src="{{ $post->public_image_url }}"
+                        alt="{{ $post->title }}"
+                        class="max-h-[80vh] w-full rounded-rgMedia object-contain"
+                        data-testid="post-fullscreen-image"
+                    >
+                </x-ui.modal>
             @endif
-        </section>
+        </article>
 
         <section class="mt-8" data-testid="post-show-comments">
             <div class="mb-3 flex items-center justify-between">
@@ -85,58 +147,4 @@
             />
         </section>
     </main>
-
-    <aside class="min-w-0 space-y-6 lg:sticky lg:top-24 lg:self-start" data-testid="post-show-side-panel">
-        <div class="flex items-center justify-end">
-            @auth
-                <livewire:posts.save-post-button
-                    :post-id="$post->id"
-                    :key="'post-show-save-'.$post->id"
-                />
-            @endauth
-        </div>
-
-        <div data-testid="post-show-voting">
-            <livewire:posts.post-voting
-                :post-id="$post->id"
-                :key="'post-show-voting-'.$post->id"
-            />
-        </div>
-
-        <section class="grid grid-cols-3 gap-2" aria-label="Voting summary" data-testid="post-show-vote-summary">
-            <x-ui.card class="text-center">
-                <div class="text-xs text-rg-muted">Score</div>
-                <div class="mt-1 text-base font-bold text-rg-text">{{ $post->score }}</div>
-            </x-ui.card>
-
-            <x-ui.card class="text-center">
-                <div class="text-xs text-rg-muted">Homemade</div>
-                <div class="mt-1 text-base font-bold text-rg-text">{{ $post->homemade_votes_count ?? 0 }}</div>
-            </x-ui.card>
-
-            <x-ui.card class="text-center">
-                <div class="text-xs text-rg-muted">Restaurant</div>
-                <div class="mt-1 text-base font-bold text-rg-text">{{ $post->restaurant_votes_count ?? 0 }}</div>
-            </x-ui.card>
-        </section>
-
-        @if($showSharePanel)
-            <x-ui.action-button icon="share" x-on:click="shareOpen = true" data-testid="post-show-share-trigger">
-                Share
-            </x-ui.action-button>
-
-            <x-ui.modal title="Share this post" state="shareOpen" size="lg">
-                <x-share.post-share-panel :post="$post" />
-            </x-ui.modal>
-        @endif
-
-        <section data-testid="post-show-related">
-            <h2 class="mb-3 text-base font-semibold text-rg-text">Related posts</h2>
-
-            <x-ui.empty-state
-                title="Related dishes will appear here"
-                description="Related post recommendations will be added later."
-            />
-        </section>
-    </aside>
 </div>

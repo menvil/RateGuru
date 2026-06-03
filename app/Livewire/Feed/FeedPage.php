@@ -17,6 +17,12 @@ class FeedPage extends Component
     #[Url(as: 'category', except: null)]
     public ?string $category = null;
 
+    #[Url(as: 'origin', except: null)]
+    public ?string $origin = null;
+
+    #[Url(as: 'cuisine', except: null)]
+    public ?string $cuisine = null;
+
     #[Url(as: 'sort', except: 'newest')]
     public string $sort = 'newest';
 
@@ -27,11 +33,22 @@ class FeedPage extends Component
     public function mount(): void
     {
         $this->normalizeSort();
+        $this->normalizeFilters();
     }
 
     public function updatedSort(): void
     {
         $this->normalizeSort();
+    }
+
+    public function updatedOrigin(): void
+    {
+        $this->normalizeFilters();
+    }
+
+    public function updatedCuisine(): void
+    {
+        $this->normalizeFilters();
     }
 
     #[On('select-post')]
@@ -86,6 +103,17 @@ class FeedPage extends Component
     {
         if (! in_array($this->sort, ['newest', 'top', 'hot'], true)) {
             $this->sort = 'newest';
+        }
+    }
+
+    private function normalizeFilters(): void
+    {
+        if (! in_array($this->origin, [null, 'homemade', 'restaurant'], true)) {
+            $this->origin = null;
+        }
+
+        if (! in_array($this->cuisine, [null, 'italian', 'asian', 'american', 'mexican', 'other'], true)) {
+            $this->cuisine = null;
         }
     }
 

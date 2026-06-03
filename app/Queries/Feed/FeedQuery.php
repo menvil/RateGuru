@@ -2,6 +2,8 @@
 
 namespace App\Queries\Feed;
 
+use App\Enums\CuisineType;
+use App\Enums\OriginType;
 use App\Models\Post;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,6 +20,8 @@ final class FeedQuery
         ?string $search = null,
         ?string $tag = null,
         string $sort = 'newest',
+        ?string $origin = null,
+        ?string $cuisine = null,
     ): Builder {
         $query = $this->base()
             ->published()
@@ -27,6 +31,18 @@ final class FeedQuery
             $query->whereHas('tags', function (Builder $tagQuery) use ($tag) {
                 $tagQuery->where('slug', $tag);
             });
+        }
+
+        $originType = $origin !== null ? OriginType::tryFrom($origin) : null;
+
+        if ($originType !== null && $originType !== OriginType::Unknown) {
+            $query->where('origin_truth', $originType);
+        }
+
+        $cuisineType = $cuisine !== null ? CuisineType::tryFrom($cuisine) : null;
+
+        if ($cuisineType !== null && $cuisineType !== CuisineType::Unknown) {
+            $query->where('cuisine_truth', $cuisineType);
         }
 
         if ($search !== null && trim($search) !== '') {
@@ -51,8 +67,10 @@ final class FeedQuery
         ?string $search = null,
         ?string $tag = null,
         string $sort = 'newest',
+        ?string $origin = null,
+        ?string $cuisine = null,
     ): Collection {
-        return $this->query($search, $tag, $sort)->get();
+        return $this->query($search, $tag, $sort, $origin, $cuisine)->get();
     }
 
     public function paginate(
@@ -60,8 +78,10 @@ final class FeedQuery
         ?string $tag = null,
         string $sort = 'newest',
         ?int $perPage = null,
+        ?string $origin = null,
+        ?string $cuisine = null,
     ): LengthAwarePaginator {
-        return $this->query(search: $search, tag: $tag, sort: $sort)
+        return $this->query(search: $search, tag: $tag, sort: $sort, origin: $origin, cuisine: $cuisine)
             ->paginate($this->normalizePerPage($perPage));
     }
 

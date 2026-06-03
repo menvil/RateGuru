@@ -26,6 +26,10 @@
             </p>
             <h2 data-testid="post-drawer-title" class="mt-2 pr-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
 
+            @if($post->description)
+                <p class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
+            @endif
+
             <div class="mt-4">
                 @if($post->public_image_url)
                     <button
@@ -45,10 +49,6 @@
                     <x-ui.image-placeholder label="Image preview" ratio="detail" />
                 @endif
             </div>
-
-            @if($post->description)
-                <p class="mt-3 text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
-            @endif
 
             <footer class="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-3">
                 <div class="flex items-center gap-4">
@@ -155,7 +155,7 @@
             </x-ui.modal>
         </article>
 
-        <section data-testid="post-detail-results" class="mt-4 grid min-w-0 gap-5 rounded-rgCard border border-rg-border bg-rg-card p-4 sm:grid-cols-2 sm:p-5">
+        <section data-testid="post-detail-results" class="mt-4 min-w-0 space-y-5 rounded-rgCard border border-rg-border bg-rg-card p-4 sm:p-5">
             <div class="min-w-0">
                 <div class="mb-3 flex items-baseline gap-2">
                     <h3 class="text-base font-bold text-rg-text">Results</h3>
@@ -184,8 +184,8 @@
                 @endif
             </div>
 
-            <div class="min-w-0">
-                <h3 class="mb-3.5 text-sm font-bold text-rg-text">Cuisine guess distribution</h3>
+            <div class="min-w-0 border-t border-rg-border pt-4">
+                <h3 class="mb-3.5 text-sm font-bold text-rg-text">Cuisine guess:</h3>
                 <div class="mb-3" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.cuisine-voting
                         :post-id="$post->id"

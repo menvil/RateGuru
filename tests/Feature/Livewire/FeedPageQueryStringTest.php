@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\CuisineType;
+use App\Enums\OriginType;
 use App\Livewire\Feed\FeedPage;
 use App\Models\Post;
 use App\Models\Tag;
@@ -43,6 +45,50 @@ it('sets category property from query string', function () {
     Livewire::withQueryParams(['category' => 'pasta'])
         ->test(FeedPage::class)
         ->assertSet('category', 'pasta');
+});
+
+it('hydrates origin from query string', function () {
+    Post::factory()->published()->create([
+        'title' => 'Home Dish',
+        'origin_truth' => OriginType::Homemade,
+    ]);
+
+    Post::factory()->published()->create([
+        'title' => 'Restaurant Dish',
+        'origin_truth' => OriginType::Restaurant,
+    ]);
+
+    $this->get('/?origin=homemade')
+        ->assertSee('Home Dish')
+        ->assertDontSee('Restaurant Dish');
+});
+
+it('sets origin property from query string', function () {
+    Livewire::withQueryParams(['origin' => 'restaurant'])
+        ->test(FeedPage::class)
+        ->assertSet('origin', 'restaurant');
+});
+
+it('hydrates cuisine from query string', function () {
+    Post::factory()->published()->create([
+        'title' => 'Italian Dish',
+        'cuisine_truth' => CuisineType::Italian,
+    ]);
+
+    Post::factory()->published()->create([
+        'title' => 'Mexican Dish',
+        'cuisine_truth' => CuisineType::Mexican,
+    ]);
+
+    $this->get('/?cuisine=italian')
+        ->assertSee('Italian Dish')
+        ->assertDontSee('Mexican Dish');
+});
+
+it('sets cuisine property from query string', function () {
+    Livewire::withQueryParams(['cuisine' => 'mexican'])
+        ->test(FeedPage::class)
+        ->assertSet('cuisine', 'mexican');
 });
 
 it('hydrates sort from query string', function () {

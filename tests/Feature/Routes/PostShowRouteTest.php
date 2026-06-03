@@ -17,8 +17,9 @@ it('renders post voting component on post show page', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('data-testid="post-show-voting"', false)
-        ->assertSee('data-testid="post-show-side-panel"', false)
-        ->assertSee('lg:grid-cols-[minmax(0,1fr)_360px]', false);
+        ->assertSee('data-testid="post-show-rating-controls"', false)
+        ->assertDontSee('data-testid="post-show-side-panel"', false)
+        ->assertDontSee('lg:grid-cols-[minmax(0,1fr)_360px]', false);
 });
 
 it('renders published post show page', function () {
@@ -42,7 +43,34 @@ it('renders post hero image', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('/storage/posts/1/dish.jpg')
-        ->assertSee('alt="Dish"', false);
+        ->assertSee('alt="Dish"', false)
+        ->assertSee('data-testid="post-show-image-open"', false)
+        ->assertSee('data-testid="post-fullscreen-image"', false);
+});
+
+it('renders post show content in feed card order', function () {
+    $user = User::factory()->create([
+        'name' => 'Demo Chef',
+        'username' => 'demo_chef',
+    ]);
+
+    $post = Post::factory()->published()->for($user)->create([
+        'title' => 'Ordered Dish',
+        'description' => 'Description should sit below title',
+        'image_url' => '/storage/posts/1/ordered.jpg',
+    ]);
+
+    $response = $this->get(route('posts.show', $post))->assertOk();
+    $html = $response->getContent();
+
+    $metaPosition = strpos($html, 'data-testid="post-show-meta"');
+    $titlePosition = strpos($html, '<h1', $metaPosition);
+    $descriptionPosition = strpos($html, 'Description should sit below title', $titlePosition);
+    $imagePosition = strpos($html, 'data-testid="post-show-hero"', $descriptionPosition);
+
+    expect(strpos($html, 'Demo Chef', $metaPosition))->toBeLessThan($titlePosition);
+    expect($titlePosition)->toBeLessThan($descriptionPosition);
+    expect($descriptionPosition)->toBeLessThan($imagePosition);
 });
 
 it('renders hero image placeholder when image is missing', function () {
@@ -112,16 +140,14 @@ it('renders the comments section on post page', function () {
         ->assertDontSee('Comments will appear here');
 });
 
-it('renders share panel on post page', function () {
+it('does not render share side panel on post page', function () {
     $post = Post::factory()->published()->create();
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('Share this post')
-        ->assertSee('data-testid="post-show-share-trigger"', false)
-        ->assertSee('data-testid="post-share-copy"', false)
-        ->assertDontSee('Open post')
-        ->assertSee(route('posts.show', $post));
+        ->assertDontSee('Share this post')
+        ->assertDontSee('data-testid="post-show-share-trigger"', false)
+        ->assertDontSee('data-testid="post-share-copy"', false);
 });
 
 it('hides save action from guests on post page', function () {
@@ -133,13 +159,13 @@ it('hides save action from guests on post page', function () {
         ->assertDontSee('>Save<', false);
 });
 
-it('renders related posts placeholder', function () {
+it('does not render related posts placeholder', function () {
     $post = Post::factory()->published()->create();
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('Related posts')
-        ->assertSee('Related dishes will appear here');
+        ->assertDontSee('Related posts')
+        ->assertDontSee('Related dishes will appear here');
 });
 
 it('renders seo title for post page', function () {

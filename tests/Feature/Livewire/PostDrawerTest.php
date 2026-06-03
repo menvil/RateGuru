@@ -173,6 +173,19 @@ it('renders drawer post title and description', function () {
         ->assertSee('Creamy pasta with pepper');
 });
 
+it('renders drawer description under title before image', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Drawer Tacos',
+        'description' => 'Description should sit below the title',
+        'image_url' => '/storage/posts/1/drawer-tacos.jpg',
+    ]);
+
+    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
+
+    expect(strpos($html, 'Drawer Tacos'))->toBeLessThan(strpos($html, 'Description should sit below the title'));
+    expect(strpos($html, 'Description should sit below the title'))->toBeLessThan(strpos($html, '/storage/posts/1/drawer-tacos.jpg'));
+});
+
 it('does not break when drawer post description is missing', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Dish',
@@ -282,7 +295,7 @@ it('renders drawer cuisine controls directly under the distribution heading', fu
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSeeInOrder([
-            'Cuisine guess distribution',
+            'Cuisine guess:',
             'data-testid="post-drawer-cuisine-voting"',
         ], false);
 });
