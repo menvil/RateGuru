@@ -126,12 +126,32 @@ it('renders user published posts grid on profile page', function () {
     ]);
 
     Post::factory()->for($user)->published()->create([
-        'title' => 'Published pasta',
+        'title' => 'Published sample post',
     ]);
 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertSee('data-testid="profile-posts-grid"', false)
-        ->assertSee('Published pasta');
+        ->assertSee('Published sample post');
+});
+
+it('renders generic profile copy', function () {
+    $user = User::factory()->create([
+        'username' => 'alice',
+    ]);
+
+    Post::factory()->for($user)->published()->create([
+        'title' => 'Generic profile post',
+        'image_path' => null,
+        'image_url' => null,
+    ]);
+
+    $this->get(route('profile.show', $user->username))
+        ->assertOk()
+        ->assertSee('Posts')
+        ->assertSee('Generic profile post')
+        ->assertDontSee('Dishes')
+        ->assertDontSee('Food')
+        ->assertDontSee('Food image');
 });
 
 it('renders empty state when user has no published posts', function () {
@@ -149,26 +169,26 @@ it('only shows published posts on profile page', function () {
     ]);
 
     Post::factory()->for($user)->published()->create([
-        'title' => 'Published dish',
+        'title' => 'Published post',
     ]);
 
     Post::factory()->for($user)->pending()->create([
-        'title' => 'Pending dish',
+        'title' => 'Pending post',
     ]);
 
     Post::factory()->for($user)->hidden()->create([
-        'title' => 'Hidden dish',
+        'title' => 'Hidden post',
     ]);
 
     Post::factory()->for($user)->rejected()->create([
-        'title' => 'Rejected dish',
+        'title' => 'Rejected post',
     ]);
 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertSee('Published dish')
-        ->assertDontSee('Pending dish')
-        ->assertDontSee('Hidden dish')
-        ->assertDontSee('Rejected dish');
+        ->assertSee('Published post')
+        ->assertDontSee('Pending post')
+        ->assertDontSee('Hidden post')
+        ->assertDontSee('Rejected post');
 });
 
 it('does not show other users posts on profile page', function () {

@@ -84,7 +84,7 @@
                                 class="aspect-video w-full rounded-rgMedia object-cover"
                             >
                         @else
-                            <x-ui.image-placeholder label="Food image" ratio="feed" />
+                            <x-ui.image-placeholder label="Post image" ratio="feed" />
                         @endif
 
                         <div class="mt-3">
