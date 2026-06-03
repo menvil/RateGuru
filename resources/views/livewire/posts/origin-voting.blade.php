@@ -1,6 +1,6 @@
 <div data-testid="origin-voting" class="flex flex-col gap-2">
     @if($post === null)
-        <span data-testid="origin-voting-unavailable" class="text-xs text-rg-muted">Origin voting unavailable</span>
+        <span data-testid="origin-voting-unavailable" class="text-xs text-rg-muted">Source voting unavailable</span>
     @else
         @php
             $homemadeActive = $currentOrigin === 'homemade';
@@ -29,7 +29,7 @@
                 class="{{ $baseClass }} {{ $homemadeClass }}"
             >
                 <x-ui.icon name="leaf" class="size-3.5" />
-                Homemade
+                Source A
             </button>
 
             <button
@@ -45,7 +45,7 @@
                 class="{{ $baseClass }} {{ $restaurantClass }}"
             >
                 <x-ui.icon name="chef" class="size-3.5" />
-                Restaurant
+                Source B
             </button>
         </div>
 

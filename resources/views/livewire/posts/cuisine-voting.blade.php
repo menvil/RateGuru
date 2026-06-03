@@ -1,6 +1,6 @@
 <div data-testid="cuisine-voting" class="flex flex-col gap-3">
     @if($post === null)
-        <span data-testid="cuisine-voting-unavailable" class="text-xs text-rg-muted">Cuisine voting unavailable</span>
+        <span data-testid="cuisine-voting-unavailable" class="text-xs text-rg-muted">Category voting unavailable</span>
     @else
         @php
             $baseClass = $variant === 'compact'

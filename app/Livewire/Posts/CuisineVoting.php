@@ -30,10 +30,10 @@ final class CuisineVoting extends Component
     public function labelFor(CuisineType $cuisine): string
     {
         return match ($cuisine) {
-            CuisineType::Italian => 'Italian',
-            CuisineType::Asian => 'Asian',
-            CuisineType::American => 'American',
-            CuisineType::Mexican => 'Mexican',
+            CuisineType::Italian => 'Category A',
+            CuisineType::Asian => 'Category B',
+            CuisineType::American => 'Category C',
+            CuisineType::Mexican => 'Category D',
             CuisineType::Other => 'Other',
             CuisineType::Unknown => 'Unknown',
         };
@@ -42,10 +42,10 @@ final class CuisineVoting extends Component
     public function shortLabelFor(CuisineType $cuisine): string
     {
         return match ($cuisine) {
-            CuisineType::Italian => 'IT',
-            CuisineType::Asian => 'AS',
-            CuisineType::American => 'US',
-            CuisineType::Mexican => 'MX',
+            CuisineType::Italian => 'A',
+            CuisineType::Asian => 'B',
+            CuisineType::American => 'C',
+            CuisineType::Mexican => 'D',
             CuisineType::Other => 'OT',
             CuisineType::Unknown => 'UN',
         };

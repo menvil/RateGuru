@@ -12,8 +12,8 @@ it('can render origin voting component', function () {
 
     Livewire::test(OriginVoting::class, ['postId' => $post->id])
         ->assertStatus(200)
-        ->assertSee('Homemade')
-        ->assertSee('Restaurant');
+        ->assertSee('Source A')
+        ->assertSee('Source B');
 });
 
 it('calls origin vote action when homemade button is clicked', function () {
@@ -162,5 +162,5 @@ it('refreshes origin counters after vote', function () {
         ->assertDispatched('origin-voted')
         ->call('vote', OriginType::Restaurant->value)
         ->assertSee('data-state="active"', false)
-        ->assertDontSee('Restaurant 100%');
+        ->assertDontSee('Source B 100%');
 });

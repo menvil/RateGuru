@@ -132,10 +132,10 @@ final class PostVoteResultService
 
                 return [
                     'label' => match ($cuisine) {
-                        CuisineType::Italian => 'IT',
-                        CuisineType::Asian => 'AS',
-                        CuisineType::American => 'US',
-                        CuisineType::Mexican => 'MX',
+                        CuisineType::Italian => 'A',
+                        CuisineType::Asian => 'B',
+                        CuisineType::American => 'C',
+                        CuisineType::Mexican => 'D',
                         CuisineType::Other => 'OT',
                         CuisineType::Unknown => 'UN',
                     },

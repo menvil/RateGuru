@@ -75,7 +75,7 @@
 
             <section class="mt-5 space-y-5" data-testid="post-show-rating-controls">
                 <div data-testid="post-show-origin-voting" wire:click.stop wire:keydown.stop>
-                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">What do you think?</p>
+                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">Source</p>
                     <livewire:posts.origin-voting
                         :post-id="$post->id"
                         :key="'post-show-origin-voting-'.$post->id"
@@ -83,7 +83,7 @@
                 </div>
 
                 <div data-testid="post-show-cuisine-voting" wire:click.stop wire:keydown.stop>
-                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">Cuisine guess:</p>
+                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">Category</p>
                     <livewire:posts.cuisine-voting
                         :post-id="$post->id"
                         :key="'post-show-cuisine-voting-'.$post->id"
@@ -105,12 +105,12 @@
                 </x-ui.card>
 
                 <x-ui.card class="text-center">
-                    <div class="text-xs text-rg-muted">Homemade</div>
+                    <div class="text-xs text-rg-muted">Source A</div>
                     <div class="mt-1 text-base font-bold text-rg-text">{{ $post->homemade_votes_count ?? 0 }}</div>
                 </x-ui.card>
 
                 <x-ui.card class="text-center">
-                    <div class="text-xs text-rg-muted">Restaurant</div>
+                    <div class="text-xs text-rg-muted">Source B</div>
                     <div class="mt-1 text-base font-bold text-rg-text">{{ $post->restaurant_votes_count ?? 0 }}</div>
                 </x-ui.card>
             </section>
