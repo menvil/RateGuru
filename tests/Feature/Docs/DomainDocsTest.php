@@ -12,3 +12,16 @@ it('has food domain hardcode audit document', function () {
     expect($content)->toContain('Dish');
     expect($content)->toContain('Action');
 });
+
+it('has generic rating vocabulary documentation', function () {
+    $path = base_path('docs/domain/generic-rating-vocabulary.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('Post');
+    expect($content)->toContain('Rating Group');
+    expect($content)->toContain('Rating Option');
+    expect($content)->toContain('Rating Vote');
+});
