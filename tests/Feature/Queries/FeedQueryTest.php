@@ -129,6 +129,23 @@ it('filters published posts by origin truth', function () {
     expect($posts->pluck('id')->all())->toBe([$matching->id]);
 });
 
+it('filters published posts by multiple origin truths', function () {
+    $homemade = Post::factory()->published()->create([
+        'origin_truth' => OriginType::Homemade,
+    ]);
+
+    $restaurant = Post::factory()->published()->create([
+        'origin_truth' => OriginType::Restaurant,
+    ]);
+
+    $posts = app(FeedQuery::class)->get(origin: [
+        OriginType::Homemade->value,
+        OriginType::Restaurant->value,
+    ]);
+
+    expect($posts->pluck('id')->all())->toBe([$restaurant->id, $homemade->id]);
+});
+
 it('filters published posts by cuisine truth', function () {
     $matching = Post::factory()->published()->create([
         'cuisine_truth' => CuisineType::Italian,

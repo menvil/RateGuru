@@ -30,3 +30,26 @@ it('renders post show page without share side panel', function () {
         ->assertDontSee('data-testid="post-show-share-trigger"', false)
         ->assertDontSee('data-testid="post-share-panel"', false);
 });
+
+it('renders post show comments header with count and top sort', function () {
+    $post = Post::factory()->published()->create([
+        'comments_count' => 0,
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('Comments (0)')
+        ->assertSee('data-testid="comments-sort-trigger"', false)
+        ->assertSee('Top');
+});
+
+it('has post show comment scroll action', function () {
+    $post = Post::factory()->published()->create([
+        'comments_count' => 3,
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('data-testid="post-show-comments-scroll"', false)
+        ->assertSee('scrollToComments');
+});

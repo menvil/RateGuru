@@ -59,7 +59,12 @@
                             :key="'post-detail-vote-pill-'.$post->id"
                         />
                     </div>
-                    <x-ui.action-button icon="comment">{{ $post->comments_count ?? 0 }}</x-ui.action-button>
+                    <x-ui.action-button
+                        icon="comment"
+                        x-on:click="$dispatch('post-selected', { postId: {{ $post->id }}, focus: 'comments' })"
+                    >
+                        {{ $post->comments_count ?? 0 }}
+                    </x-ui.action-button>
                     <x-ui.action-button icon="share" x-on:click="shareOpen = true">Share</x-ui.action-button>
                     @auth
                         <livewire:posts.save-post-button
@@ -86,10 +91,11 @@
                         class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReportPost)
-                            <div class="rounded-rgSm px-3 py-1.5 transition hover:bg-rg-card">
+                            <div>
                                 <livewire:reports.report-modal
                                     reportable-type="post"
                                     :reportable-id="$post->id"
+                                    variant="menu"
                                     :key="'post-drawer-menu-report-'.$post->id"
                                 />
                             </div>

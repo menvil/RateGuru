@@ -36,6 +36,8 @@ final class UploadPostForm extends Component
 
     public array $tags = [];
 
+    public string $tagSearch = '';
+
     public function mount(): void
     {
         abort_unless(auth()->check(), 403);
@@ -46,7 +48,7 @@ final class UploadPostForm extends Component
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
-        $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'submitError']);
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'tagSearch', 'submitError']);
         $this->loadTags();
         $this->originTruth = OriginType::Unknown->value;
         $this->cuisineTruth = CuisineType::Unknown->value;
@@ -77,6 +79,7 @@ final class UploadPostForm extends Component
             $this->dispatch('post-uploaded', postId: $post->id);
 
             $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds']);
+            $this->tagSearch = '';
             $this->originTruth = OriginType::Unknown->value;
             $this->cuisineTruth = CuisineType::Unknown->value;
         } catch (RateLimitExceededException $e) {
@@ -115,18 +118,87 @@ final class UploadPostForm extends Component
     {
         return view('livewire.feed.upload-post-form', [
             'tags' => $this->tags,
+            'selectedTags' => $this->selectedTags(),
+            'popularTags' => $this->popularTags(),
+            'filteredTags' => $this->filteredTags(),
         ]);
+    }
+
+    public function toggleTag(int $tagId): void
+    {
+        $tagIds = collect($this->tagIds)
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values();
+
+        if ($tagIds->contains($tagId)) {
+            $this->tagIds = $tagIds
+                ->reject(fn (int $id): bool => $id === $tagId)
+                ->values()
+                ->all();
+
+            return;
+        }
+
+        if ($tagIds->count() >= 10) {
+            return;
+        }
+
+        $this->tagIds = $tagIds
+            ->push($tagId)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function loadTags(): void
     {
         $this->tags = Tag::query()
+            ->withCount('posts')
             ->orderBy('name')
             ->get(['id', 'name'])
             ->map(fn (Tag $tag): array => [
                 'id' => $tag->id,
                 'name' => $tag->name,
+                'posts_count' => $tag->posts_count,
             ])
+            ->all();
+    }
+
+    private function selectedTags(): array
+    {
+        $selectedIds = collect($this->tagIds)->map(fn ($id): int => (int) $id)->all();
+
+        return collect($this->tags)
+            ->filter(fn (array $tag): bool => in_array((int) $tag['id'], $selectedIds, true))
+            ->values()
+            ->all();
+    }
+
+    private function popularTags(): array
+    {
+        return collect($this->tags)
+            ->sortByDesc(fn (array $tag): int => (int) ($tag['posts_count'] ?? 0))
+            ->take(4)
+            ->values()
+            ->all();
+    }
+
+    private function filteredTags(): array
+    {
+        $search = trim($this->tagSearch);
+        $tags = collect($this->tags);
+
+        if ($search !== '') {
+            $tags = $tags->filter(fn (array $tag): bool => str_contains(
+                mb_strtolower($tag['name']),
+                mb_strtolower($search),
+            ));
+        }
+
+        return $tags
+            ->take(12)
+            ->values()
             ->all();
     }
 }

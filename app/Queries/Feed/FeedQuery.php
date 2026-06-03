@@ -20,8 +20,8 @@ final class FeedQuery
         ?string $search = null,
         ?string $tag = null,
         string $sort = 'newest',
-        ?string $origin = null,
-        ?string $cuisine = null,
+        array|string|null $origin = null,
+        array|string|null $cuisine = null,
     ): Builder {
         $query = $this->base()
             ->published()
@@ -33,16 +33,16 @@ final class FeedQuery
             });
         }
 
-        $originType = $origin !== null ? OriginType::tryFrom($origin) : null;
+        $originTypes = $this->originTypes($origin);
 
-        if ($originType !== null && $originType !== OriginType::Unknown) {
-            $query->where('origin_truth', $originType);
+        if ($originTypes !== []) {
+            $query->whereIn('origin_truth', $originTypes);
         }
 
-        $cuisineType = $cuisine !== null ? CuisineType::tryFrom($cuisine) : null;
+        $cuisineTypes = $this->cuisineTypes($cuisine);
 
-        if ($cuisineType !== null && $cuisineType !== CuisineType::Unknown) {
-            $query->where('cuisine_truth', $cuisineType);
+        if ($cuisineTypes !== []) {
+            $query->whereIn('cuisine_truth', $cuisineTypes);
         }
 
         if ($search !== null && trim($search) !== '') {
@@ -67,8 +67,8 @@ final class FeedQuery
         ?string $search = null,
         ?string $tag = null,
         string $sort = 'newest',
-        ?string $origin = null,
-        ?string $cuisine = null,
+        array|string|null $origin = null,
+        array|string|null $cuisine = null,
     ): Collection {
         return $this->query($search, $tag, $sort, $origin, $cuisine)->get();
     }
@@ -78,11 +78,37 @@ final class FeedQuery
         ?string $tag = null,
         string $sort = 'newest',
         ?int $perPage = null,
-        ?string $origin = null,
-        ?string $cuisine = null,
+        array|string|null $origin = null,
+        array|string|null $cuisine = null,
     ): LengthAwarePaginator {
         return $this->query(search: $search, tag: $tag, sort: $sort, origin: $origin, cuisine: $cuisine)
             ->paginate($this->normalizePerPage($perPage));
+    }
+
+    /**
+     * @return list<OriginType>
+     */
+    private function originTypes(array|string|null $origin): array
+    {
+        return collect((array) $origin)
+            ->map(fn ($value): ?OriginType => is_string($value) ? OriginType::tryFrom($value) : null)
+            ->filter(fn (?OriginType $type): bool => $type !== null && $type !== OriginType::Unknown)
+            ->unique(fn (OriginType $type): string => $type->value)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<CuisineType>
+     */
+    private function cuisineTypes(array|string|null $cuisine): array
+    {
+        return collect((array) $cuisine)
+            ->map(fn ($value): ?CuisineType => is_string($value) ? CuisineType::tryFrom($value) : null)
+            ->filter(fn (?CuisineType $type): bool => $type !== null && $type !== CuisineType::Unknown)
+            ->unique(fn (CuisineType $type): string => $type->value)
+            ->values()
+            ->all();
     }
 
     private function normalizePerPage(?int $perPage): int

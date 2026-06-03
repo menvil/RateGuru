@@ -13,7 +13,19 @@
     <meta name="twitter:image" content="{{ $ogImage }}">
 @endpush
 
-<div data-testid="post-show" x-data="{ imageOpen: false }" class="mx-auto w-full max-w-[820px]">
+<div
+    data-testid="post-show"
+    x-data="{
+        imageOpen: false,
+        scrollToComments() {
+            const comments = this.$refs.postComments;
+            if (comments) {
+                comments.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+    }"
+    class="mx-auto w-full max-w-[820px]"
+>
     <main class="min-w-0">
         <article class="rounded-rgCard border border-rg-border bg-rg-card p-5">
             <section class="flex min-w-0 items-start gap-3" data-testid="post-show-meta">
@@ -103,6 +115,12 @@
                 </x-ui.card>
             </section>
 
+            <div class="mt-3">
+                <x-ui.action-button icon="comment" x-on:click="scrollToComments()" data-testid="post-show-comments-scroll">
+                    {{ $post->comments_count ?? 0 }}
+                </x-ui.action-button>
+            </div>
+
             @if($post->tags->isNotEmpty() || $post->source_url)
                 <section class="mt-4 flex flex-wrap items-center gap-2">
                     @foreach($post->tags as $tag)
@@ -134,15 +152,10 @@
             @endif
         </article>
 
-        <section class="mt-8" data-testid="post-show-comments">
-            <div class="mb-3 flex items-center justify-between">
-                <h2 class="text-base font-semibold text-rg-text">Comments</h2>
-                <span class="text-xs text-rg-muted">{{ $post->comments_count ?? 0 }}</span>
-            </div>
-
+        <section class="mt-8 scroll-mt-24" data-testid="post-show-comments" x-ref="postComments">
             <livewire:comments.comments-section
                 :post-id="$post->id"
-                :show-header="false"
+                :show-header="true"
                 :key="'comments-'.$post->id"
             />
         </section>

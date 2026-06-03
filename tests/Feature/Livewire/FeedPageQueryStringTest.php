@@ -66,7 +66,23 @@ it('hydrates origin from query string', function () {
 it('sets origin property from query string', function () {
     Livewire::withQueryParams(['origin' => 'restaurant'])
         ->test(FeedPage::class)
-        ->assertSet('origin', 'restaurant');
+        ->assertSet('origin', ['restaurant']);
+});
+
+it('hydrates multiple origin filters from query string', function () {
+    Post::factory()->published()->create([
+        'title' => 'Home Dish',
+        'origin_truth' => OriginType::Homemade,
+    ]);
+
+    Post::factory()->published()->create([
+        'title' => 'Restaurant Dish',
+        'origin_truth' => OriginType::Restaurant,
+    ]);
+
+    $this->get('/?origin[0]=homemade&origin[1]=restaurant')
+        ->assertSee('Home Dish')
+        ->assertSee('Restaurant Dish');
 });
 
 it('hydrates cuisine from query string', function () {
@@ -88,7 +104,7 @@ it('hydrates cuisine from query string', function () {
 it('sets cuisine property from query string', function () {
     Livewire::withQueryParams(['cuisine' => 'mexican'])
         ->test(FeedPage::class)
-        ->assertSet('cuisine', 'mexican');
+        ->assertSet('cuisine', ['mexican']);
 });
 
 it('hydrates sort from query string', function () {

@@ -38,8 +38,8 @@ it('filters feed results when search state changes', function () {
 
 it('has rating filter state on feed page', function () {
     Livewire::test(FeedPage::class)
-        ->assertSet('origin', null)
-        ->assertSet('cuisine', null);
+        ->assertSet('origin', [])
+        ->assertSet('cuisine', []);
 });
 
 it('has sort state on feed page with default newest', function () {
@@ -119,7 +119,7 @@ it('renders rating filters instead of category tags in the feed header', functio
     Livewire::test(FeedPage::class)
         ->assertSee('data-testid="feed-rating-filters"', false)
         ->assertSee('Origin')
-        ->assertSee('Cuisine guess:')
+        ->assertSee('Cuisine guess')
         ->assertDontSee('data-testid="category-tabs"', false);
 });
 
@@ -134,9 +134,26 @@ it('filters feed when origin filter is selected', function () {
     ]);
 
     Livewire::test(FeedPage::class)
-        ->set('origin', OriginType::Homemade->value)
+        ->call('toggleOrigin', OriginType::Homemade->value)
         ->assertSee('Home Dish')
         ->assertDontSee('Restaurant Dish');
+});
+
+it('supports selecting multiple origin filters', function () {
+    Post::factory()->published()->create([
+        'title' => 'Home Dish',
+        'origin_truth' => OriginType::Homemade,
+    ]);
+    Post::factory()->published()->create([
+        'title' => 'Restaurant Dish',
+        'origin_truth' => OriginType::Restaurant,
+    ]);
+
+    Livewire::test(FeedPage::class)
+        ->call('toggleOrigin', OriginType::Homemade->value)
+        ->call('toggleOrigin', OriginType::Restaurant->value)
+        ->assertSee('Home Dish')
+        ->assertSee('Restaurant Dish');
 });
 
 it('filters feed when cuisine filter is selected', function () {
@@ -150,7 +167,20 @@ it('filters feed when cuisine filter is selected', function () {
     ]);
 
     Livewire::test(FeedPage::class)
-        ->set('cuisine', CuisineType::Italian->value)
+        ->call('toggleCuisine', CuisineType::Italian->value)
         ->assertSee('Italian Dish')
         ->assertDontSee('Asian Dish');
+});
+
+it('does not search feed until at least three characters are entered', function () {
+    Post::factory()->published()->create(['title' => 'Pasta']);
+    Post::factory()->published()->create(['title' => 'Cake']);
+
+    Livewire::test(FeedPage::class)
+        ->set('search', 'pa')
+        ->assertSee('Pasta')
+        ->assertSee('Cake')
+        ->set('search', 'pas')
+        ->assertSee('Pasta')
+        ->assertDontSee('Cake');
 });

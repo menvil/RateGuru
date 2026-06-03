@@ -14,9 +14,9 @@ class PostFeed extends Component
 
     public ?string $tag = null;
 
-    public ?string $origin = null;
+    public mixed $origin = [];
 
-    public ?string $cuisine = null;
+    public mixed $cuisine = [];
 
     public string $sort = 'newest';
 
@@ -34,8 +34,8 @@ class PostFeed extends Component
             search: $this->search !== '' ? $this->search : null,
             tag: $this->tag !== '' ? $this->tag : null,
             sort: $this->sort,
-            origin: $this->origin !== '' ? $this->origin : null,
-            cuisine: $this->cuisine !== '' ? $this->cuisine : null,
+            origin: $this->origin,
+            cuisine: $this->cuisine,
         );
         $user = auth()->user();
 

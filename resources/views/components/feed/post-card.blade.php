@@ -166,10 +166,11 @@
                         class="absolute bottom-full right-0 z-20 mb-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReportPost)
-                            <div data-testid="post-card-report" class="rounded-rgSm px-3 py-1.5 transition hover:bg-rg-card">
+                            <div data-testid="post-card-report">
                                 <livewire:reports.report-modal
                                     reportable-type="post"
                                     :reportable-id="$post->id"
+                                    variant="menu"
                                     :key="'post-card-report-'.$post->id"
                                 />
                             </div>

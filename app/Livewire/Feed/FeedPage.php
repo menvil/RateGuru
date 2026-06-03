@@ -17,11 +17,11 @@ class FeedPage extends Component
     #[Url(as: 'category', except: null)]
     public ?string $category = null;
 
-    #[Url(as: 'origin', except: null)]
-    public ?string $origin = null;
+    #[Url(as: 'origin', except: [])]
+    public mixed $origin = [];
 
-    #[Url(as: 'cuisine', except: null)]
-    public ?string $cuisine = null;
+    #[Url(as: 'cuisine', except: [])]
+    public mixed $cuisine = [];
 
     #[Url(as: 'sort', except: 'newest')]
     public string $sort = 'newest';
@@ -49,6 +49,26 @@ class FeedPage extends Component
     public function updatedCuisine(): void
     {
         $this->normalizeFilters();
+    }
+
+    public function toggleOrigin(string $origin): void
+    {
+        $this->origin = $this->toggleFilterValue($this->origin, $origin, ['homemade', 'restaurant']);
+    }
+
+    public function clearOriginFilters(): void
+    {
+        $this->origin = [];
+    }
+
+    public function toggleCuisine(string $cuisine): void
+    {
+        $this->cuisine = $this->toggleFilterValue($this->cuisine, $cuisine, ['italian', 'asian', 'american', 'mexican', 'other']);
+    }
+
+    public function clearCuisineFilters(): void
+    {
+        $this->cuisine = [];
     }
 
     #[On('select-post')]
@@ -108,13 +128,49 @@ class FeedPage extends Component
 
     private function normalizeFilters(): void
     {
-        if (! in_array($this->origin, [null, 'homemade', 'restaurant'], true)) {
-            $this->origin = null;
+        $this->origin = $this->normalizeFilterValues($this->origin, ['homemade', 'restaurant']);
+        $this->cuisine = $this->normalizeFilterValues($this->cuisine, ['italian', 'asian', 'american', 'mexican', 'other']);
+    }
+
+    /**
+     * @param  list<string>  $allowed
+     * @return list<string>
+     */
+    private function normalizeFilterValues(mixed $value, array $allowed): array
+    {
+        return collect((array) $value)
+            ->filter(fn ($item): bool => is_string($item) && in_array($item, $allowed, true))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<string>  $allowed
+     * @return list<string>
+     */
+    private function toggleFilterValue(mixed $current, string $value, array $allowed): array
+    {
+        if (! in_array($value, $allowed, true)) {
+            return $this->normalizeFilterValues($current, $allowed);
         }
 
-        if (! in_array($this->cuisine, [null, 'italian', 'asian', 'american', 'mexican', 'other'], true)) {
-            $this->cuisine = null;
+        $values = $this->normalizeFilterValues($current, $allowed);
+
+        if (in_array($value, $values, true)) {
+            return array_values(array_diff($values, [$value]));
         }
+
+        $values[] = $value;
+
+        return $this->normalizeFilterValues($values, $allowed);
+    }
+
+    public function effectiveSearch(): ?string
+    {
+        $search = trim($this->search);
+
+        return strlen($search) >= 3 ? $search : null;
     }
 
     public function render(): View

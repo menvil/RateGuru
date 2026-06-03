@@ -21,15 +21,13 @@
 
             <div class="flex shrink-0 items-center gap-2">
                 @if($this->isOwner)
-                    <x-ui.button
-                        variant="secondary"
-                        size="sm"
-                        disabled
-                        data-testid="edit-profile-placeholder"
-                        title="Profile editing coming soon"
+                    <a
+                        href="{{ route('profile.edit') }}"
+                        data-testid="edit-profile-link"
+                        class="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-rgControl border border-rg-border2 bg-rg-card px-3 text-xs font-semibold text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                     >
                         Edit profile
-                    </x-ui.button>
+                    </a>
                 @endif
 
                 @if($this->canSeeReportUserPlaceholder)
