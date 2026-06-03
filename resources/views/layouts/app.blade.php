@@ -52,7 +52,7 @@
                                 elevated
                             >
                                 <x-ui.icon name="upload" class="size-4" />
-                                <span class="hidden sm:inline">Upload</span>
+                                <span class="hidden sm:inline">Upload post</span>
                             </x-ui.button>
 
                             <livewire:notifications.notification-bell />
@@ -115,7 +115,7 @@
                             </div>
 
                             <div>
-                                <x-ui.modal title="Create post" size="lg" data-testid="upload-modal" allow-overflow>
+                                <x-ui.modal title="Upload post" size="lg" data-testid="upload-modal" allow-overflow>
                                     <livewire:feed.upload-post-form />
                                 </x-ui.modal>
                             </div>

@@ -1,6 +1,6 @@
 @php use App\Enums\OriginType; use App\Enums\CuisineType; @endphp
 <div data-testid="upload-post-form">
-    <h2 class="sr-only">Create post</h2>
+    <h2 class="sr-only">Upload post</h2>
 
     <form wire:submit.prevent="submit" class="space-y-4">
         <div>
@@ -9,7 +9,7 @@
                 id="title"
                 name="title"
                 wire:model.defer="title"
-                placeholder="Dish title"
+                placeholder="Title"
                 class="mt-1"
             />
             <div data-testid="field-error-title" class="mt-1">
@@ -104,7 +104,7 @@
         </div>
 
         <div>
-            <x-input-label for="originTruth" value="Origin" />
+            <x-input-label for="originTruth" value="Source" />
             <select
                 id="originTruth"
                 name="originTruth"
@@ -112,8 +112,8 @@
                 class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
             >
                 <option value="{{ OriginType::Unknown->value }}">Keep unknown</option>
-                <option value="{{ OriginType::Homemade->value }}">Homemade</option>
-                <option value="{{ OriginType::Restaurant->value }}">Restaurant</option>
+                <option value="{{ OriginType::Homemade->value }}">Source A</option>
+                <option value="{{ OriginType::Restaurant->value }}">Source B</option>
             </select>
             <div data-testid="field-error-origin-truth" class="mt-1">
                 <x-input-error :messages="$errors->get('originTruth')" />
@@ -121,7 +121,7 @@
         </div>
 
         <div>
-            <x-input-label for="cuisineTruth" value="Cuisine" />
+            <x-input-label for="cuisineTruth" value="Category" />
             <select
                 id="cuisineTruth"
                 name="cuisineTruth"
@@ -129,10 +129,10 @@
                 class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
             >
                 <option value="{{ CuisineType::Unknown->value }}">Keep unknown</option>
-                <option value="{{ CuisineType::Italian->value }}">Italian</option>
-                <option value="{{ CuisineType::Asian->value }}">Asian</option>
-                <option value="{{ CuisineType::American->value }}">American</option>
-                <option value="{{ CuisineType::Mexican->value }}">Mexican</option>
+                <option value="{{ CuisineType::Italian->value }}">Category A</option>
+                <option value="{{ CuisineType::Asian->value }}">Category B</option>
+                <option value="{{ CuisineType::American->value }}">Category C</option>
+                <option value="{{ CuisineType::Mexican->value }}">Category D</option>
                 <option value="{{ CuisineType::Other->value }}">Other</option>
             </select>
             <div data-testid="field-error-cuisine-truth" class="mt-1">
