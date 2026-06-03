@@ -31,6 +31,18 @@ it('renders post show page without share side panel', function () {
         ->assertDontSee('data-testid="post-share-panel"', false);
 });
 
+it('uses feed-card title and description sizing on post show page', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Smaller Post Title',
+        'description' => 'Post description should match feed sizing.',
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('text-base font-bold leading-snug', false)
+        ->assertSee('text-[13px] leading-snug', false);
+});
+
 it('renders post show comments header with count and top sort', function () {
     $post = Post::factory()->published()->create([
         'comments_count' => 0,

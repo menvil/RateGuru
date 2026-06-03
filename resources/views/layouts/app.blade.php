@@ -115,7 +115,7 @@
                             </div>
 
                             <div>
-                                <x-ui.modal title="Create post" size="lg" data-testid="upload-modal">
+                                <x-ui.modal title="Create post" size="lg" data-testid="upload-modal" allow-overflow>
                                     <livewire:feed.upload-post-form />
                                 </x-ui.modal>
                             </div>

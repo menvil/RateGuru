@@ -316,6 +316,8 @@ it('renders feed card vote results after the current user votes', function () {
         ->toContain('data-testid="post-card-origin-results"')
         ->toContain('60% (3)')
         ->toContain('40% (2)')
+        ->toContain('whitespace-nowrap text-[18px]')
+        ->toContain('h-1.5 overflow-hidden rounded-rgPill')
         ->toContain('data-testid="post-card-cuisine-results"')
         ->toContain('MX')
         ->toContain('50% (1)');

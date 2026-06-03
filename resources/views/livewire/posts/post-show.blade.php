@@ -46,10 +46,10 @@
             </section>
 
             <section class="mt-4">
-                <h1 class="break-words text-2xl font-bold text-rg-text sm:text-3xl">{{ $post->title }}</h1>
+                <h1 class="break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h1>
 
                 @if($post->description)
-                    <p class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
+                    <p class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->description }}</p>
                 @endif
             </section>
 

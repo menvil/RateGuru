@@ -14,7 +14,9 @@ it('toggles a saved post for authenticated users', function () {
         ->assertSee('Save')
         ->call('toggle')
         ->assertSet('saved', true)
-        ->assertSee('Saved');
+        ->assertDontSee('>Saved<', false)
+        ->assertSee('aria-pressed="true"', false)
+        ->assertSee('fill-current', false);
 
     $this->assertDatabaseHas('post_saves', [
         'user_id' => $user->id,
@@ -24,7 +26,8 @@ it('toggles a saved post for authenticated users', function () {
     Livewire::actingAs($user)
         ->test(SavePostButton::class, ['postId' => $post->id])
         ->call('toggle')
-        ->assertSet('saved', false);
+        ->assertSet('saved', false)
+        ->assertDontSee('Removed');
 
     $this->assertDatabaseMissing('post_saves', [
         'user_id' => $user->id,

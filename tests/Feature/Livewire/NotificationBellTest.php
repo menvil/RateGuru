@@ -127,6 +127,8 @@ it('marks notification as read', function () {
 
     Livewire::actingAs($user)
         ->test(NotificationBell::class)
+        ->assertSee('data-testid="mark-notification-read"', false)
+        ->assertSee('cursor-pointer', false)
         ->call('markAsRead', $notification->id)
         ->assertDontSee('data-testid="notification-unread-count"', false);
 
@@ -162,7 +164,7 @@ it('ignores missing notification id when marking as read', function () {
 final class TestDatabaseNotification extends Notification
 {
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function __construct(private readonly array $data) {}
 
