@@ -25,3 +25,16 @@ it('has generic rating vocabulary documentation', function () {
     expect($content)->toContain('Rating Option');
     expect($content)->toContain('Rating Vote');
 });
+
+it('has legacy domain compatibility note', function () {
+    $path = base_path('docs/domain/legacy-domain-compatibility.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('legacy');
+    expect($content)->toContain('Phase 44');
+    expect($content)->toContain('origin_votes');
+    expect($content)->toContain('cuisine_votes');
+});
