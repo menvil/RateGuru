@@ -134,8 +134,8 @@ it('renders drawer vote summary', function () {
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Results')
-        ->assertSee('Homemade')
-        ->assertSee('Restaurant')
+        ->assertSee('Source A')
+        ->assertSee('Source B')
         ->assertDontSee('(unvoted)')
         ->assertDontSee('0 votes');
 });
@@ -217,8 +217,8 @@ it('renders origin voting panel in drawer', function () {
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('post-drawer-origin-voting', false)
-        ->assertSee('Homemade')
-        ->assertSee('Restaurant');
+        ->assertSee('Source A')
+        ->assertSee('Source B');
 });
 
 it('renders drawer origin controls before result labels', function () {
@@ -238,8 +238,8 @@ it('renders drawer origin controls before result labels', function () {
         ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSeeInOrder([
             'post-drawer-origin-voting',
-            'Homemade</span>',
-            'Restaurant</span>',
+            'Source A</span>',
+            'Source B</span>',
         ], false)
         ->assertDontSee('You voted:');
 });
@@ -287,10 +287,10 @@ it('renders cuisine voting buttons in drawer', function () {
         ->assertSee('data-testid="post-drawer-cuisine-voting"', false)
         ->assertSee('flex-wrap', false)
         ->assertSee('h-7 min-w-9', false)
-        ->assertSee('Italian')
-        ->assertSee('Asian')
-        ->assertSee('American')
-        ->assertSee('Mexican')
+        ->assertSee('Category A')
+        ->assertSee('Category B')
+        ->assertSee('Category C')
+        ->assertSee('Category D')
         ->assertSee('Other');
 });
 
@@ -299,7 +299,7 @@ it('renders drawer cuisine controls directly under the distribution heading', fu
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSeeInOrder([
-            'Cuisine guess:',
+            'Category',
             'data-testid="post-drawer-cuisine-voting"',
         ], false);
 });

@@ -12,10 +12,10 @@ it('can render cuisine voting component', function () {
 
     Livewire::test(CuisineVoting::class, ['postId' => $post->id])
         ->assertStatus(200)
-        ->assertSee('Italian')
-        ->assertSee('Asian')
-        ->assertSee('American')
-        ->assertSee('Mexican')
+        ->assertSee('Category A')
+        ->assertSee('Category B')
+        ->assertSee('Category C')
+        ->assertSee('Category D')
         ->assertSee('Other');
 });
 
@@ -97,9 +97,9 @@ it('does not render inline cuisine distribution after the current user votes', f
     Livewire::actingAs($user)
         ->test(CuisineVoting::class, ['postId' => $post->id])
         ->assertDontSee('data-testid="cuisine-distribution-panel"', false)
-        ->assertSee('Italian')
+        ->assertSee('Category A')
         ->assertSee('aria-pressed="true"', false)
-        ->assertSee('Asian')
+        ->assertSee('Category B')
         ->assertDontSee('Vote to reveal results.');
 });
 
@@ -165,7 +165,7 @@ it('refreshes cuisine selected state after vote', function () {
         ->test(CuisineVoting::class, ['postId' => $post->id])
         ->assertDontSee('Vote to reveal results.')
         ->call('vote', CuisineType::Italian->value)
-        ->assertSee('Italian')
+        ->assertSee('Category A')
         ->assertSee('aria-pressed="true"', false);
 });
 
@@ -177,7 +177,7 @@ it('keeps cuisine distribution locked after attempted vote change', function () 
         ->test(CuisineVoting::class, ['postId' => $post->id])
         ->call('vote', CuisineType::Italian->value)
         ->call('vote', CuisineType::Mexican->value)
-        ->assertSee('Italian')
+        ->assertSee('Category A')
         ->assertSee('aria-pressed="true"', false);
 
     $this->assertDatabaseHas('cuisine_votes', [

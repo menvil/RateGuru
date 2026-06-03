@@ -120,9 +120,9 @@ it('renders vote summary panels on post page', function () {
         ->assertOk()
         ->assertSee('Score')
         ->assertSee('9')
-        ->assertSee('Homemade')
+        ->assertSee('Source A')
         ->assertSee('7')
-        ->assertSee('Restaurant')
+        ->assertSee('Source B')
         ->assertSee('5')
         ->assertSee('data-testid="post-show-vote-summary"', false);
 });

@@ -187,8 +187,8 @@
 
                 @if($showOriginDistribution)
                     <div class="mb-1.5 flex justify-between gap-3">
-                        <span class="text-[13px] font-semibold text-rg-good">Homemade</span>
-                        <span class="text-[13px] text-rg-text2">Restaurant</span>
+                        <span class="text-[13px] font-semibold text-rg-good">Source A</span>
+                        <span class="text-[13px] text-rg-text2">Source B</span>
                     </div>
                     <div class="mb-2 flex justify-between gap-3">
                         <span class="text-[20px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
@@ -202,7 +202,7 @@
             </div>
 
             <div class="min-w-0 border-t border-rg-border pt-4">
-                <h3 class="mb-3.5 text-sm font-bold text-rg-text">Cuisine guess:</h3>
+                <h3 class="mb-3.5 text-sm font-bold text-rg-text">Category</h3>
                 <div class="mb-3" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.cuisine-voting
                         :post-id="$post->id"

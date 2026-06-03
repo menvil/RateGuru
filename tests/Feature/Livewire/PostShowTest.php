@@ -15,6 +15,21 @@ it('can render post show component for published post', function () {
         ->assertSee('Homemade Carbonara');
 });
 
+it('renders generic post show copy', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Generic Test Post',
+    ]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('Generic Test Post')
+        ->assertSee('Source')
+        ->assertSee('Category')
+        ->assertDontSee('Cuisine guess')
+        ->assertDontSee('Homemade')
+        ->assertDontSee('Restaurant');
+});
+
 it('does not resolve an unpublished post', function () {
     $post = Post::factory()->hidden()->create();
 

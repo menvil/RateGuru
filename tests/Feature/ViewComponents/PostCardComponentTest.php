@@ -300,8 +300,8 @@ it('renders feed card vote results after the current user votes', function () {
     ];
     $cuisineDistribution = [
         'rows' => [
-            ['label' => 'IT', 'count' => 1, 'percentage' => 50],
-            ['label' => 'MX', 'count' => 1, 'percentage' => 50],
+            ['label' => 'A', 'count' => 1, 'percentage' => 50],
+            ['label' => 'D', 'count' => 1, 'percentage' => 50],
         ],
         'total' => 2,
         'current' => CuisineType::Mexican->value,
@@ -319,7 +319,7 @@ it('renders feed card vote results after the current user votes', function () {
         ->toContain('whitespace-nowrap text-[18px]')
         ->toContain('h-1.5 overflow-hidden rounded-rgPill')
         ->toContain('data-testid="post-card-cuisine-results"')
-        ->toContain('MX')
+        ->toContain('D')
         ->toContain('50% (1)');
 });
 
