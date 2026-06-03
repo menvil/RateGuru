@@ -18,13 +18,24 @@
                 <x-ui.icon name="x" class="size-4" />
             </button>
 
-            <p class="text-xs font-medium text-rg-muted">
-                Posted by {{ $post->user?->username ? '@'.$post->user->username : ($post->user?->name ?? 'Unknown user') }}
-                @if($post->published_at)
-                    · {{ $post->published_at->diffForHumans() }}
-                @endif
-            </p>
-            <h2 data-testid="post-drawer-title" class="mt-2 pr-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
+            <section class="flex min-w-0 items-start gap-3 pr-10" data-testid="post-drawer-meta">
+                <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
+
+                <div class="min-w-0">
+                    <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+
+                    <div class="truncate text-xs text-rg-muted">
+                        @if($post->user?->username)
+                            {{ '@' . $post->user->username }}
+                        @endif
+                        @if($post->published_at)
+                            {{ $post->user?->username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
+                        @endif
+                    </div>
+                </div>
+            </section>
+
+            <h2 data-testid="post-drawer-title" class="mt-4 pr-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
 
             @if($post->description)
                 <p class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>

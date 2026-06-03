@@ -177,7 +177,20 @@ it('renders report button in post card menu for persisted posts', function () {
 
     expect($html)
         ->toContain('data-testid="post-card-report"')
-        ->toContain('Report');
+        ->toContain('Report')
+        ->toContain('text-rg-dangerText')
+        ->toContain('hover:bg-rg-dangerSoft');
+});
+
+it('renders feed card vote error placeholder below footer actions', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('x-on:post-vote-error.window')
+        ->toContain('data-testid="post-card-vote-error"')
+        ->toContain('postVoteError');
 });
 
 it('does not render report button for unsaved post preview', function () {

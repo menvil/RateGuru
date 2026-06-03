@@ -58,6 +58,26 @@ it('shows error when guest tries to vote origin', function () {
     expect(OriginVote::query()->count())->toBe(0);
 });
 
+it('does not show own post origin vote error before attempting to vote', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    Livewire::actingAs($owner)
+        ->test(OriginVoting::class, ['postId' => $post->id])
+        ->assertDontSee('You cannot vote on your own post.');
+});
+
+it('shows own post origin vote error after attempting to vote', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    Livewire::actingAs($owner)
+        ->test(OriginVoting::class, ['postId' => $post->id])
+        ->call('vote', OriginType::Homemade->value)
+        ->assertSet('error', 'You cannot vote on your own post.')
+        ->assertSee('You cannot vote on your own post.');
+});
+
 it('does not render inline origin distribution after the current user votes', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([

@@ -4,7 +4,8 @@
     data-post-id="{{ $post->id }}"
     role="button"
     tabindex="0"
-    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false }"
+    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false, postVoteError: '' }"
+    x-on:post-vote-error.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = $event.detail.message"
     wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.space.prevent="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
@@ -221,6 +222,14 @@
                 </x-ui.modal>
             @endif
         </footer>
+
+        <p
+            x-cloak
+            x-show="postVoteError"
+            x-text="postVoteError"
+            data-testid="post-card-vote-error"
+            class="mt-2 text-xs font-medium text-rg-danger"
+        ></p>
 
         @if($post->public_image_url)
             <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">

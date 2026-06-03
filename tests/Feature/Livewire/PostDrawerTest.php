@@ -22,7 +22,9 @@ it('renders report button in post drawer', function () {
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('data-testid="report-button"', false)
-        ->assertSee('Report');
+        ->assertSee('Report')
+        ->assertSee('text-rg-dangerText', false)
+        ->assertSee('hover:bg-rg-dangerSoft', false);
 });
 
 it('does not render report button in post drawer for the owner', function () {
@@ -147,8 +149,10 @@ it('renders drawer author metadata', function () {
     $post = Post::factory()->published()->for($user)->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="post-drawer-meta"', false)
+        ->assertSee('Demo Chef')
         ->assertSee('@demo_chef')
-        ->assertDontSee('Demo Chef');
+        ->assertDontSee('Posted by');
 });
 
 it('renders large post image in drawer', function () {
