@@ -73,7 +73,7 @@
                                 aria-haspopup="true"
                                 x-bind:aria-expanded="open"
                             >
-                                Origin
+                                Source
                                 @if(count((array) $origin) > 0)
                                     <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $origin) }}</span>
                                 @endif
@@ -87,8 +87,8 @@
                                 data-testid="origin-filter-menu"
                             >
                                 @foreach([
-                                    ['value' => 'homemade', 'label' => 'Homemade'],
-                                    ['value' => 'restaurant', 'label' => 'Restaurant'],
+                                    ['value' => 'homemade', 'label' => 'Source A'],
+                                    ['value' => 'restaurant', 'label' => 'Source B'],
                                 ] as $filter)
                                     <button
                                         type="button"
@@ -125,7 +125,7 @@
                                 aria-haspopup="true"
                                 x-bind:aria-expanded="open"
                             >
-                                Cuisine guess
+                                Category
                                 @if(count((array) $cuisine) > 0)
                                     <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $cuisine) }}</span>
                                 @endif
@@ -139,10 +139,10 @@
                                 data-testid="cuisine-filter-menu"
                             >
                                 @foreach([
-                                    ['value' => 'italian', 'label' => 'Italian'],
-                                    ['value' => 'asian', 'label' => 'Asian'],
-                                    ['value' => 'american', 'label' => 'American'],
-                                    ['value' => 'mexican', 'label' => 'Mexican'],
+                                    ['value' => 'italian', 'label' => 'Category A'],
+                                    ['value' => 'asian', 'label' => 'Category B'],
+                                    ['value' => 'american', 'label' => 'Category C'],
+                                    ['value' => 'mexican', 'label' => 'Category D'],
                                     ['value' => 'other', 'label' => 'Other'],
                                 ] as $filter)
                                     <button
@@ -175,7 +175,7 @@
                 <livewire:feed.sort-dropdown wire:model.live="sort" />
             </div>
 
-            <h2 class="mb-4 text-base font-semibold text-rg-text2">Latest dishes</h2>
+            <h2 class="mb-4 text-base font-semibold text-rg-text2">Latest posts</h2>
             <livewire:feed.post-feed
                 :search="$this->effectiveSearch()"
                 :tag="$category"

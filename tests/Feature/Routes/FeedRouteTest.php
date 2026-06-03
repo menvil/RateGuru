@@ -13,8 +13,20 @@ it('renders base feed layout with section title', function () {
     $this->get('/')
         ->assertOk()
         ->assertSee('data-testid="app-header"', false)
-        ->assertSee('Latest dishes')
+        ->assertSee('Latest posts')
         ->assertDontSee('data-testid="search-input"', false);
+});
+
+it('renders generic feed copy', function () {
+    $this->get(route('feed'))
+        ->assertOk()
+        ->assertSee('Latest posts')
+        ->assertSee('Source')
+        ->assertSee('Category')
+        ->assertDontSee('Latest dishes')
+        ->assertDontSee('Cuisine guess')
+        ->assertDontSee('>Origin<', false)
+        ->assertDontSee('>Dish<', false);
 });
 
 it('renders header search with responsive submit behavior', function () {

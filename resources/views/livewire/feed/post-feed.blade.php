@@ -10,8 +10,8 @@
     <div wire:loading.remove class="grid gap-4 transition-opacity duration-200 sm:gap-5">
         @if($posts->isEmpty())
             <x-ui.empty-state
-                title="No dishes yet"
-                description="Published dishes will appear here."
+                title="No posts yet"
+                description="Published posts will appear here."
             />
         @else
             @foreach($posts as $post)
