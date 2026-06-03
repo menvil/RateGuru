@@ -44,7 +44,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         View::composer('layouts.partials.app-sidebar', function ($view): void {
-            $categories = collect(['All', 'Homemade', 'Restaurant', 'Desserts', 'Mains', 'Drinks', 'Breakfast'])
+            $categories = collect(['All', 'Source A', 'Source B', 'Category A', 'Category B', 'Category C', 'Category D'])
                 ->map(function (string $category): array {
                     $slug = str($category)->lower()->slug()->toString();
 
@@ -66,7 +66,7 @@ class AppServiceProvider extends ServiceProvider
                 ])
                 ->all();
 
-            $fallbackTags = collect(['pasta', 'ramen', 'burger', 'brunch', 'dessert'])
+            $fallbackTags = collect(['sample-a', 'sample-b', 'sample-c', 'sample-d', 'sample-e'])
                 ->map(fn (string $tag): array => [
                     'label' => '#'.$tag,
                     'href' => route('feed', ['search' => $tag]),

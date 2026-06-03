@@ -62,7 +62,7 @@
             </button>
         @else
             <div class="mt-3">
-                <x-ui.image-placeholder label="Food image" ratio="feed" />
+                <x-ui.image-placeholder label="Post image" ratio="feed" />
             </div>
         @endif
 
@@ -78,8 +78,8 @@
                     @if($showOriginResults)
                         <div data-testid="post-card-origin-results" class="mt-2">
                             <div class="mb-1 flex justify-between">
-                                <span class="text-[11.5px] font-semibold text-rg-good">Homemade</span>
-                                <span class="text-[11.5px] text-rg-text2">Restaurant</span>
+                                <span class="text-[11.5px] font-semibold text-rg-good">Source A</span>
+                                <span class="text-[11.5px] text-rg-text2">Source B</span>
                             </div>
                             <div class="mb-1.5 flex justify-between">
                                 <span class="whitespace-nowrap text-[18px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
@@ -94,7 +94,7 @@
                 </div>
 
                 <div data-testid="post-card-cuisine-voting">
-                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Cuisine guess:</p>
+                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Category:</p>
                     <livewire:posts.cuisine-voting
                         :post-id="$post->id"
                         :key="'post-card-cuisine-voting-'.$post->id"
@@ -116,8 +116,8 @@
                 </div>
             @else
                 <div class="flex flex-wrap gap-2">
-                    <x-ui.badge>Homemade {{ $post->homemade_votes_count ?? 0 }}</x-ui.badge>
-                    <x-ui.badge>Restaurant {{ $post->restaurant_votes_count ?? 0 }}</x-ui.badge>
+                    <x-ui.badge>Source A {{ $post->homemade_votes_count ?? 0 }}</x-ui.badge>
+                    <x-ui.badge>Source B {{ $post->restaurant_votes_count ?? 0 }}</x-ui.badge>
                 </div>
             @endif
         </div>

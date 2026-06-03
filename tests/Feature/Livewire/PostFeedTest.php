@@ -23,7 +23,7 @@ it('shows newly published post after upload event', function () {
 
     $component = Livewire::actingAs($user)
         ->test(PostFeed::class)
-        ->assertSee('No dishes yet');
+        ->assertSee('No posts yet');
 
     Post::factory()->published()->create([
         'user_id' => $user->id,
@@ -56,14 +56,14 @@ it('does not show pending post title', function () {
 
 it('shows empty feed state when no published posts exist', function () {
     Livewire::test(PostFeed::class)
-        ->assertSee('No dishes yet');
+        ->assertSee('No posts yet');
 });
 
 it('renders empty feed state when there are no published posts', function () {
     Post::factory()->pending()->create(['title' => 'Pending Dish']);
 
     Livewire::test(PostFeed::class)
-        ->assertSee('No dishes yet')
+        ->assertSee('No posts yet')
         ->assertDontSee('Pending Dish');
 });
 

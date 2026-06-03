@@ -118,8 +118,8 @@ it('does not delete another users post from the feed page action menu event', fu
 it('renders rating filters instead of category tags in the feed header', function () {
     Livewire::test(FeedPage::class)
         ->assertSee('data-testid="feed-rating-filters"', false)
-        ->assertSee('Origin')
-        ->assertSee('Cuisine guess')
+        ->assertSee('Source')
+        ->assertSee('Category')
         ->assertDontSee('data-testid="category-tabs"', false);
 });
 

@@ -54,7 +54,7 @@ it('renders image placeholder when image url is missing', function () {
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('Food image');
+    expect($html)->toContain('Post image');
 });
 
 it('renders post title and description', function () {
@@ -131,8 +131,8 @@ it('renders post stats area', function () {
     expect($html)
         ->toContain('9')
         ->toContain('5 comments')
-        ->toContain('Homemade')
-        ->toContain('Restaurant');
+        ->toContain('Source A')
+        ->toContain('Source B');
 });
 
 it('renders post author area', function () {
@@ -346,8 +346,8 @@ it('renders origin badges without breaking on unsaved post', function () {
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('Homemade 2');
-    expect($html)->toContain('Restaurant 1');
+    expect($html)->toContain('Source A 2');
+    expect($html)->toContain('Source B 1');
     // Unsaved posts must not render the interactive Livewire origin component.
     expect($html)->not->toContain('post-card-origin-voting');
 });
