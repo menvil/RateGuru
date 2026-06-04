@@ -38,3 +38,15 @@ it('has legacy domain compatibility note', function () {
     expect($content)->toContain('origin_votes');
     expect($content)->toContain('cuisine_votes');
 });
+
+it('has phase 43 domain refactor review checklist', function () {
+    $path = base_path('docs/domain/phase-43-domain-refactor-review.md');
+
+    expect(file_exists($path))->toBeTrue();
+
+    $content = file_get_contents($path);
+
+    expect($content)->toContain('generic rating platform');
+    expect($content)->toContain('forbidden words');
+    expect($content)->toContain('Phase 44');
+});
