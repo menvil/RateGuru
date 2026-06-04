@@ -7,7 +7,7 @@ use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('can render cuisine voting component', function () {
+it('can render category voting component', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(CuisineVoting::class, ['postId' => $post->id])
@@ -19,7 +19,7 @@ it('can render cuisine voting component', function () {
         ->assertSee('Other');
 });
 
-it('does not record a cuisine vote when an unauthenticated guest votes', function () {
+it('does not record a category vote when an unauthenticated guest votes', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(CuisineVoting::class, ['postId' => $post->id])
@@ -29,7 +29,7 @@ it('does not record a cuisine vote when an unauthenticated guest votes', functio
     $this->assertDatabaseCount('cuisine_votes', 0);
 });
 
-it('does not show own post cuisine vote error before attempting to vote', function () {
+it('does not show own post category vote error before attempting to vote', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
@@ -38,7 +38,7 @@ it('does not show own post cuisine vote error before attempting to vote', functi
         ->assertDontSee('You cannot vote on your own post.');
 });
 
-it('shows own post cuisine vote error after attempting to vote', function () {
+it('shows own post category vote error after attempting to vote', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
@@ -49,7 +49,7 @@ it('shows own post cuisine vote error after attempting to vote', function () {
         ->assertSee('You cannot vote on your own post.');
 });
 
-it('calls cuisine vote action when italian button is clicked', function () {
+it('records category option A vote when clicked', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -64,7 +64,7 @@ it('calls cuisine vote action when italian button is clicked', function () {
     ]);
 });
 
-it('does not change cuisine vote through the component after first vote', function () {
+it('does not change category vote through the component after first vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -86,7 +86,7 @@ it('does not change cuisine vote through the component after first vote', functi
     )->toBe(1);
 });
 
-it('does not render inline cuisine distribution after the current user votes', function () {
+it('does not render inline category distribution after the current user votes', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -103,7 +103,7 @@ it('does not render inline cuisine distribution after the current user votes', f
         ->assertDontSee('Vote to reveal results.');
 });
 
-it('hides cuisine distribution before the current user votes', function () {
+it('hides category distribution before the current user votes', function () {
     $post = Post::factory()->published()->create();
 
     CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
@@ -113,7 +113,7 @@ it('hides cuisine distribution before the current user votes', function () {
         ->assertDontSee('Vote to reveal results.');
 });
 
-it('renders cuisine chips with selected and focus states', function () {
+it('renders category chips with selected and focus states', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -131,7 +131,7 @@ it('renders cuisine chips with selected and focus states', function () {
         ->assertSee('focus-visible:ring-rg-accent', false);
 });
 
-it('renders cuisine chips with reference feed sizing', function () {
+it('renders category chips with reference feed sizing', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(CuisineVoting::class, ['postId' => $post->id])
@@ -141,7 +141,7 @@ it('renders cuisine chips with reference feed sizing', function () {
         ->assertSee('border-rg-border2 bg-transparent text-rg-text2 hover:bg-rg-card2', false);
 });
 
-it('keeps zero cuisine distribution out of the inline voting controls', function () {
+it('keeps zero category distribution out of the inline voting controls', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -157,7 +157,7 @@ it('keeps zero cuisine distribution out of the inline voting controls', function
         ->assertSee('aria-pressed="true"', false);
 });
 
-it('refreshes cuisine selected state after vote', function () {
+it('refreshes category selected state after vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -169,7 +169,7 @@ it('refreshes cuisine selected state after vote', function () {
         ->assertSee('aria-pressed="true"', false);
 });
 
-it('keeps cuisine distribution locked after attempted vote change', function () {
+it('keeps category distribution locked after attempted vote change', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 

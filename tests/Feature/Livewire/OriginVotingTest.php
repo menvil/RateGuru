@@ -7,7 +7,7 @@ use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('can render origin voting component', function () {
+it('can render source voting component', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(OriginVoting::class, ['postId' => $post->id])
@@ -16,7 +16,7 @@ it('can render origin voting component', function () {
         ->assertSee('Source B');
 });
 
-it('calls origin vote action when homemade button is clicked', function () {
+it('records source option A vote when clicked', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -32,7 +32,7 @@ it('calls origin vote action when homemade button is clicked', function () {
     ]);
 });
 
-it('calls origin vote action when restaurant button is clicked', function () {
+it('records source option B vote when clicked', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -48,7 +48,7 @@ it('calls origin vote action when restaurant button is clicked', function () {
     ]);
 });
 
-it('shows error when guest tries to vote origin', function () {
+it('shows error when guest tries to vote source option', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(OriginVoting::class, ['postId' => $post->id])
@@ -58,7 +58,7 @@ it('shows error when guest tries to vote origin', function () {
     expect(OriginVote::query()->count())->toBe(0);
 });
 
-it('does not show own post origin vote error before attempting to vote', function () {
+it('does not show own post source vote error before attempting to vote', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
@@ -67,7 +67,7 @@ it('does not show own post origin vote error before attempting to vote', functio
         ->assertDontSee('You cannot vote on your own post.');
 });
 
-it('shows own post origin vote error after attempting to vote', function () {
+it('shows own post source vote error after attempting to vote', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
@@ -78,7 +78,7 @@ it('shows own post origin vote error after attempting to vote', function () {
         ->assertSee('You cannot vote on your own post.');
 });
 
-it('does not render inline origin distribution after the current user votes', function () {
+it('does not render inline source distribution after the current user votes', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 3,
@@ -98,7 +98,7 @@ it('does not render inline origin distribution after the current user votes', fu
         ->assertDontSee('Vote to reveal results.');
 });
 
-it('hides origin distribution before the current user votes', function () {
+it('hides source distribution before the current user votes', function () {
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 3,
         'restaurant_votes_count' => 1,
@@ -109,7 +109,7 @@ it('hides origin distribution before the current user votes', function () {
         ->assertDontSee('Vote to reveal results.');
 });
 
-it('renders origin voting pills with selected and focus states', function () {
+it('renders source option pills with selected and focus states', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
@@ -127,7 +127,7 @@ it('renders origin voting pills with selected and focus states', function () {
         ->assertSee('focus-visible:ring-rg-accent', false);
 });
 
-it('keeps zero origin distribution out of the inline voting controls', function () {
+it('keeps zero source distribution out of the inline voting controls', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 0,
@@ -146,7 +146,7 @@ it('keeps zero origin distribution out of the inline voting controls', function 
         ->assertDontSee('origin-distribution-bar', false);
 });
 
-it('refreshes origin counters after vote', function () {
+it('refreshes source counters after vote', function () {
     $user = User::factory()->create();
 
     $post = Post::factory()->published()->create([
