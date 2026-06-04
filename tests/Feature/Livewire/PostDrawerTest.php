@@ -217,7 +217,7 @@ it('renders source voting panel in drawer', function () {
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Source')
-        ->assertSee('post-drawer-origin-voting', false)
+        ->assertSee('post-drawer-source-voting', false)
         ->assertSee('Source A')
         ->assertSee('Source B')
         ->assertDontSee('Results');
@@ -239,7 +239,7 @@ it('renders drawer source controls before result labels', function () {
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSeeInOrder([
-            'post-drawer-origin-voting',
+            'post-drawer-source-voting',
             'Source A</span>',
             'Source B</span>',
         ], false)
@@ -286,7 +286,7 @@ it('renders category voting buttons in drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('data-testid="post-drawer-cuisine-voting"', false)
+        ->assertSee('data-testid="post-drawer-category-voting"', false)
         ->assertSee('flex-wrap', false)
         ->assertSee('h-7 min-w-9', false)
         ->assertSee('Category A')
@@ -302,6 +302,6 @@ it('renders drawer category controls directly under the distribution heading', f
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSeeInOrder([
             'Category',
-            'data-testid="post-drawer-cuisine-voting"',
+            'data-testid="post-drawer-category-voting"',
         ], false);
 });

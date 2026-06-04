@@ -68,11 +68,11 @@
 
         <div class="mt-3 space-y-2.5" wire:click.stop wire:keydown.stop>
             @if($post->exists)
-                <div data-testid="post-card-origin-voting">
+                <div data-testid="post-card-source-voting">
                     <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Source</p>
-                    <livewire:posts.origin-voting
+                    <livewire:posts.source-voting
                         :post-id="$post->id"
-                        :key="'post-card-origin-voting-'.$post->id"
+                        :key="'post-card-source-voting-'.$post->id"
                     />
 
                     @if($showOriginResults)
@@ -93,11 +93,11 @@
                     @endif
                 </div>
 
-                <div data-testid="post-card-cuisine-voting">
+                <div data-testid="post-card-category-voting">
                     <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Category:</p>
-                    <livewire:posts.cuisine-voting
+                    <livewire:posts.category-voting
                         :post-id="$post->id"
-                        :key="'post-card-cuisine-voting-'.$post->id"
+                        :key="'post-card-category-voting-'.$post->id"
                     />
 
                     @if($showCuisineResults)

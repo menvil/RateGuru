@@ -74,19 +74,19 @@
             </div>
 
             <section class="mt-5 space-y-5" data-testid="post-show-rating-controls">
-                <div data-testid="post-show-origin-voting" wire:click.stop wire:keydown.stop>
+                <div data-testid="post-show-source-voting" wire:click.stop wire:keydown.stop>
                     <p class="mb-2 text-[13px] font-semibold text-rg-text2">Source</p>
-                    <livewire:posts.origin-voting
+                    <livewire:posts.source-voting
                         :post-id="$post->id"
-                        :key="'post-show-origin-voting-'.$post->id"
+                        :key="'post-show-source-voting-'.$post->id"
                     />
                 </div>
 
-                <div data-testid="post-show-cuisine-voting" wire:click.stop wire:keydown.stop>
+                <div data-testid="post-show-category-voting" wire:click.stop wire:keydown.stop>
                     <p class="mb-2 text-[13px] font-semibold text-rg-text2">Category</p>
-                    <livewire:posts.cuisine-voting
+                    <livewire:posts.category-voting
                         :post-id="$post->id"
-                        :key="'post-show-cuisine-voting-'.$post->id"
+                        :key="'post-show-category-voting-'.$post->id"
                     />
                 </div>
             </section>
