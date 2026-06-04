@@ -99,7 +99,7 @@ final class ReportModal extends Component
             ReportReason::Offensive => 'Offensive',
             ReportReason::Fake => 'Fake',
             ReportReason::Copyright => 'Copyright',
-            ReportReason::NotFood => 'Not food',
+            ReportReason::NotFood => 'Wrong category',
             ReportReason::Other => 'Other',
         };
     }
