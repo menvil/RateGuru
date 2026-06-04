@@ -11,7 +11,10 @@ use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
-final class CuisineVoting extends Component
+/**
+ * @deprecated Use CategoryVoting for new UI code until Phase 44 replaces legacy category storage.
+ */
+class CuisineVoting extends Component
 {
     public int $postId;
 
@@ -22,7 +25,7 @@ final class CuisineVoting extends Component
     /**
      * @return list<CuisineType>
      */
-    private function options(): array
+    protected function options(): array
     {
         return CuisineType::votable();
     }
