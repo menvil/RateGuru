@@ -282,7 +282,10 @@ it('renders origin voting component in post card for persisted posts', function 
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('post-card-origin-voting');
+    expect($html)
+        ->toContain('post-card-origin-voting')
+        ->toContain('Source')
+        ->not->toContain('What do you think?');
 });
 
 it('renders feed card vote results after the current user votes', function () {

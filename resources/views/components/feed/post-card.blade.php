@@ -69,7 +69,7 @@
         <div class="mt-3 space-y-2.5" wire:click.stop wire:keydown.stop>
             @if($post->exists)
                 <div data-testid="post-card-origin-voting">
-                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">What do you think?</p>
+                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Source</p>
                     <livewire:posts.origin-voting
                         :post-id="$post->id"
                         :key="'post-card-origin-voting-'.$post->id"
