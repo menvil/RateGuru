@@ -133,7 +133,7 @@ it('renders drawer vote summary', function () {
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Results')
+        ->assertSee('Source')
         ->assertSee('Source A')
         ->assertSee('Source B')
         ->assertDontSee('(unvoted)')
@@ -216,9 +216,11 @@ it('renders origin voting panel in drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('Source')
         ->assertSee('post-drawer-origin-voting', false)
         ->assertSee('Source A')
-        ->assertSee('Source B');
+        ->assertSee('Source B')
+        ->assertDontSee('Results');
 });
 
 it('renders drawer origin controls before result labels', function () {

@@ -175,7 +175,7 @@
         <section data-testid="post-detail-results" class="mt-4 min-w-0 space-y-5 rounded-rgCard border border-rg-border bg-rg-card p-4 sm:p-5">
             <div class="min-w-0">
                 <div class="mb-3 flex items-baseline gap-2">
-                    <h3 class="text-base font-bold text-rg-text">Results</h3>
+                    <h3 class="text-base font-bold text-rg-text">Source</h3>
                 </div>
 
                 <div class="mb-3" data-testid="post-drawer-origin-voting" wire:click.stop wire:keydown.stop>
