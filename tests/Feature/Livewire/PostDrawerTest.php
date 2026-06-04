@@ -212,7 +212,7 @@ it('renders image placeholder when drawer post has no image', function () {
         ->assertSee('Image preview');
 });
 
-it('renders origin voting panel in drawer', function () {
+it('renders source voting panel in drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
@@ -223,7 +223,7 @@ it('renders origin voting panel in drawer', function () {
         ->assertDontSee('Results');
 });
 
-it('renders drawer origin controls before result labels', function () {
+it('renders drawer source controls before result labels', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 1,
@@ -282,7 +282,7 @@ it('keeps drawer result visibility logic in the Livewire component', function ()
         ->not->toContain("cuisineDistribution['current']");
 });
 
-it('renders cuisine voting buttons in drawer', function () {
+it('renders category voting buttons in drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
@@ -296,7 +296,7 @@ it('renders cuisine voting buttons in drawer', function () {
         ->assertSee('Other');
 });
 
-it('renders drawer cuisine controls directly under the distribution heading', function () {
+it('renders drawer category controls directly under the distribution heading', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])

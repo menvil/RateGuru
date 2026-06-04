@@ -277,7 +277,7 @@ it('does not render delete action in the post card menu for another user', funct
     expect($html)->not->toContain('data-testid="post-card-delete"');
 });
 
-it('renders origin voting component in post card for persisted posts', function () {
+it('renders source voting component in post card for persisted posts', function () {
     $post = Post::factory()->published()->create();
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
@@ -341,7 +341,7 @@ it('does not render feed card vote results before the current user votes', funct
         ->not->toContain('data-testid="post-card-cuisine-results"');
 });
 
-it('renders origin badges without breaking on unsaved post', function () {
+it('renders source badges without breaking on unsaved post', function () {
     $post = Post::factory()->published()->make([
         'homemade_votes_count' => 2,
         'restaurant_votes_count' => 1,
