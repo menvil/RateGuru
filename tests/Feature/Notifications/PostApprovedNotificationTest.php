@@ -15,7 +15,7 @@ it('creates post approved notification payload', function () {
     ]);
 
     $post = Post::factory()->for($postOwner)->published()->create([
-        'title' => 'Approved dish',
+        'title' => 'Approved sample post',
     ]);
 
     $notification = new PostApprovedNotification($post, $moderator);
@@ -27,11 +27,13 @@ it('creates post approved notification payload', function () {
     expect($data)->toMatchArray([
         'type' => 'post_approved',
         'post_id' => $post->id,
-        'post_title' => 'Approved dish',
+        'post_title' => 'Approved sample post',
         'actor_id' => $moderator->id,
         'actor_username' => 'moderator',
+        'message' => 'Your post was approved',
     ]);
 
-    expect($data)->toHaveKey('message');
+    expect(strtolower($data['message']))->not->toContain('dish');
+    expect(strtolower($data['message']))->not->toContain('food');
     expect($data)->toHaveKey('url');
 });
