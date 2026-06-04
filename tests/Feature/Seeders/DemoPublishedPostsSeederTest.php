@@ -34,3 +34,13 @@ it('seeded published posts are visible through feed query', function () {
     expect($posts)->not->toBeEmpty();
     expect($posts->every(fn (Post $post) => $post->status === PostStatus::Published))->toBeTrue();
 });
+
+it('seeds generic demo posts without food-specific titles', function () {
+    $this->seed(DemoDatabaseSeeder::class);
+
+    $content = strtolower(Post::query()->pluck('title')->implode(' '));
+
+    expect($content)->not->toContain('pasta');
+    expect($content)->not->toContain('sushi');
+    expect($content)->not->toContain('tacos');
+});

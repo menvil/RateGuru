@@ -28,7 +28,7 @@ class DemoReportsSeeder extends Seeder
 
         $targets = [
             [
-                'target' => Post::query()->where('title', 'Demo: Restaurant Sushi Plate')->firstOrFail(),
+                'target' => Post::query()->where('title', 'Demo: Sample Post 02')->firstOrFail(),
                 'reporter' => $reporter,
                 'reason' => ReportReason::Spam,
                 'message' => 'Demo open report for post moderation testing.',
@@ -42,7 +42,7 @@ class DemoReportsSeeder extends Seeder
                 'status' => ReportStatus::Open,
             ],
             [
-                'target' => Post::query()->where('title', 'Demo: Mexican Street Tacos')->firstOrFail(),
+                'target' => Post::query()->where('title', 'Demo: Sample Post 03')->firstOrFail(),
                 'reporter' => User::query()->where('email', 'carla@rateguru.test')->firstOrFail(),
                 'reason' => ReportReason::Fake,
                 'message' => 'Demo resolved report for report resource checks.',
