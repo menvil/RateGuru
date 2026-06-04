@@ -1,7 +1,7 @@
 <?php
 
-use App\Enums\VoteType;
 use App\Enums\OriginType;
+use App\Enums\VoteType;
 use App\Models\Post;
 use App\Models\User;
 
@@ -30,18 +30,18 @@ it('allows authenticated user to upvote a post', function () {
     ]);
 });
 
-it('allows authenticated user to vote on post origin', function () {
+it('allows authenticated user to vote on post source option', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
-        'title' => 'Browser Origin Vote Test Post',
+        'title' => 'Browser Source Vote Test Post',
     ]);
 
     actingAs($user);
 
     visit(route('feed'))
-        ->assertSee('Browser Origin Vote Test Post')
-        ->click("[data-testid=\"origin-vote-homemade-{$post->id}\"]")
-        ->assertAttribute("[data-testid=\"origin-vote-homemade-{$post->id}\"]", 'aria-pressed', 'true');
+        ->assertSee('Browser Source Vote Test Post')
+        ->click("[data-testid=\"source-vote-a-{$post->id}\"]")
+        ->assertAttribute("[data-testid=\"source-vote-a-{$post->id}\"]", 'aria-pressed', 'true');
 
     $this->assertDatabaseHas('origin_votes', [
         'post_id' => $post->id,

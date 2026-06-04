@@ -118,6 +118,10 @@ Only update baselines with `--baseline` when the visual change is intentional
 and reviewed. Do not update baselines to hide broken images, layout overflow,
 debug text, validation errors, or accidental styling drift.
 
+Phase 43 replaces domain-specific public copy with generic Source, Category,
+and Post wording. Regenerate visual baselines after the Phase 43 generic copy
+merge only as an intentional visual review step.
+
 Phase 39 intentionally does not add automatic pixel comparison or CI failures.
 `tests/Visual/diff/` is reserved for a later visual-diff phase.
 
