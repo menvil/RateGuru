@@ -273,7 +273,10 @@ it('renders report reasons', function () {
         ->assertSee('Offensive')
         ->assertSee('Fake')
         ->assertSee('Copyright')
-        ->assertSee('Not food')
+        ->assertSee('Wrong category')
+        ->assertDontSee('Not food')
+        ->assertDontSee('Food')
+        ->assertDontSee('dish')
         ->assertSee('Other');
 });
 
