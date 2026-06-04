@@ -62,21 +62,21 @@ class DemoHiddenPostsSeeder extends Seeder
         return [
             [
                 'title' => 'Demo Hidden: Removed From Feed 01',
-                'description' => 'A hidden restaurant post kept for admin moderation filter checks.',
+                'description' => 'A hidden source B post kept for admin moderation filter checks.',
                 'image_path' => 'demo/posts/hidden-01.jpg',
                 'author' => 'bob@rateguru.test',
                 'origin_truth' => OriginType::Restaurant,
                 'cuisine_truth' => CuisineType::Other,
-                'tags' => ['restaurant', 'comfort-food'],
+                'tags' => ['source-b', 'sample-f'],
             ],
             [
                 'title' => 'Demo Hidden: Removed From Feed 02',
-                'description' => 'A hidden homemade post that should stay outside public feed results.',
+                'description' => 'A hidden source A post that should stay outside public feed results.',
                 'image_path' => 'demo/posts/hidden-02.jpg',
                 'author' => 'alice@rateguru.test',
                 'origin_truth' => OriginType::Homemade,
                 'cuisine_truth' => CuisineType::American,
-                'tags' => ['homemade', 'american'],
+                'tags' => ['source-a', 'category-c'],
             ],
         ];
     }

@@ -59,30 +59,30 @@ class DemoPendingPostsSeeder extends Seeder
         return [
             [
                 'title' => 'Demo Pending: Needs Moderation 01',
-                'description' => 'A newly submitted pasta plate waiting for moderator approval.',
+                'description' => 'A newly submitted sample post waiting for moderator approval.',
                 'image_path' => 'demo/posts/pending-01.jpg',
                 'author' => 'alice@rateguru.test',
                 'origin_truth' => OriginType::Homemade,
                 'cuisine_truth' => CuisineType::Italian,
-                'tags' => ['italian', 'homemade'],
+                'tags' => ['category-a', 'source-a'],
             ],
             [
                 'title' => 'Demo Pending: Needs Moderation 02',
-                'description' => 'A restaurant bowl waiting in the pending moderation queue.',
+                'description' => 'A source B sample post waiting in the pending moderation queue.',
                 'image_path' => 'demo/posts/pending-02.jpg',
                 'author' => 'bob@rateguru.test',
                 'origin_truth' => OriginType::Restaurant,
                 'cuisine_truth' => CuisineType::Asian,
-                'tags' => ['asian', 'restaurant'],
+                'tags' => ['category-b', 'source-b'],
             ],
             [
                 'title' => 'Demo Pending: Needs Moderation 03',
-                'description' => 'A spicy street-food submission that should not appear in public feed yet.',
+                'description' => 'A category D submission that should not appear in public feed yet.',
                 'image_path' => 'demo/posts/pending-03.jpg',
                 'author' => 'carla@rateguru.test',
                 'origin_truth' => OriginType::Restaurant,
                 'cuisine_truth' => CuisineType::Mexican,
-                'tags' => ['mexican', 'street-food', 'spicy'],
+                'tags' => ['category-d', 'sample-c'],
             ],
         ];
     }
