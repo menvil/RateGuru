@@ -16,7 +16,7 @@ it('creates post commented notification payload', function () {
     ]);
 
     $post = Post::factory()->for($postOwner)->published()->create([
-        'title' => 'Pasta dish',
+        'title' => 'Commented sample post',
     ]);
 
     $comment = Comment::factory()
@@ -35,12 +35,14 @@ it('creates post commented notification payload', function () {
     expect($data)->toMatchArray([
         'type' => 'post_commented',
         'post_id' => $post->id,
-        'post_title' => 'Pasta dish',
+        'post_title' => 'Commented sample post',
         'comment_id' => $comment->id,
         'actor_id' => $commenter->id,
         'actor_username' => 'commenter',
+        'message' => '@commenter commented on your post',
     ]);
 
-    expect($data)->toHaveKey('message');
+    expect(strtolower($data['message']))->not->toContain('dish');
+    expect(strtolower($data['message']))->not->toContain('food');
     expect($data)->toHaveKey('url');
 });
