@@ -9,7 +9,10 @@ use App\Models\Post;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
-final class OriginVoting extends Component
+/**
+ * @deprecated Use SourceVoting for new UI code until Phase 44 replaces legacy source storage.
+ */
+class OriginVoting extends Component
 {
     public int $postId;
 
