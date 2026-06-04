@@ -178,10 +178,10 @@
                     <h3 class="text-base font-bold text-rg-text">Source</h3>
                 </div>
 
-                <div class="mb-3" data-testid="post-drawer-origin-voting" wire:click.stop wire:keydown.stop>
-                    <livewire:posts.origin-voting
+                <div class="mb-3" data-testid="post-drawer-source-voting" wire:click.stop wire:keydown.stop>
+                    <livewire:posts.source-voting
                         :post-id="$post->id"
-                        :key="'post-drawer-origin-voting-'.$post->id"
+                        :key="'post-drawer-source-voting-'.$post->id"
                     />
                 </div>
 
@@ -203,11 +203,11 @@
 
             <div class="min-w-0 border-t border-rg-border pt-4">
                 <h3 class="mb-3.5 text-sm font-bold text-rg-text">Category</h3>
-                <div class="mb-3" data-testid="post-drawer-cuisine-voting" wire:click.stop wire:keydown.stop>
-                    <livewire:posts.cuisine-voting
+                <div class="mb-3" data-testid="post-drawer-category-voting" wire:click.stop wire:keydown.stop>
+                    <livewire:posts.category-voting
                         :post-id="$post->id"
                         variant="compact"
-                        :key="'post-drawer-cuisine-voting-'.$post->id"
+                        :key="'post-drawer-category-voting-'.$post->id"
                     />
                 </div>
 

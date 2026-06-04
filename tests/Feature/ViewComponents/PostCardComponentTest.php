@@ -283,7 +283,7 @@ it('renders source voting component in post card for persisted posts', function 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)
-        ->toContain('post-card-origin-voting')
+        ->toContain('post-card-source-voting')
         ->toContain('Source')
         ->not->toContain('What do you think?');
 });
@@ -351,8 +351,8 @@ it('renders source badges without breaking on unsaved post', function () {
 
     expect($html)->toContain('Source A 2');
     expect($html)->toContain('Source B 1');
-    // Unsaved posts must not render the interactive Livewire origin component.
-    expect($html)->not->toContain('post-card-origin-voting');
+    // Unsaved posts must not render the interactive Livewire source component.
+    expect($html)->not->toContain('post-card-source-voting');
 });
 
 it('keeps post card free of service locator vote and authorization queries', function () {
