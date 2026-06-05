@@ -2,14 +2,20 @@
 
 namespace App\Filament\Resources\RatingGroups\RelationManagers;
 
+use App\Actions\Rating\ArchiveRatingOptionAction;
+use App\Actions\Rating\DeleteRatingOptionAction;
+use App\Exceptions\Rating\CannotDeleteVotedRatingOptionException;
+use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use Closure;
+use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
@@ -95,6 +101,59 @@ class OptionsRelationManager extends RelationManager
             ])
             ->recordActions([
                 EditAction::make(),
+                Action::make('archive')
+                    ->label('Archive')
+                    ->icon('heroicon-o-archive-box')
+                    ->color('warning')
+                    ->visible(fn (RatingOption $record): bool => $record->is_active
+                        && (auth()->user()?->can('update', $record) ?? false))
+                    ->requiresConfirmation()
+                    ->modalDescription('Archive this option and keep its vote history.')
+                    ->action(function (RatingOption $record): void {
+                        try {
+                            app(ArchiveRatingOptionAction::class)->handle(auth()->user(), $record);
+                        } catch (InvalidRatingGroupConfigurationException $exception) {
+                            Notification::make()
+                                ->title('Cannot archive rating option')
+                                ->body($exception->getMessage())
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        Notification::make()
+                            ->title('Rating option archived')
+                            ->success()
+                            ->send();
+                    }),
+                Action::make('delete')
+                    ->label('Delete')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->visible(fn (RatingOption $record): bool => auth()->user()?->can('delete', $record) ?? false)
+                    ->requiresConfirmation()
+                    ->modalDescription(fn (RatingOption $record): string => ($record->votes_count ?? 0) > 0
+                        ? 'This option has votes and cannot be deleted. Archive it instead.'
+                        : 'Permanently delete this unused rating option?')
+                    ->action(function (RatingOption $record): void {
+                        try {
+                            app(DeleteRatingOptionAction::class)->handle(auth()->user(), $record);
+                        } catch (CannotDeleteVotedRatingOptionException|InvalidRatingGroupConfigurationException $exception) {
+                            Notification::make()
+                                ->title('Cannot delete rating option')
+                                ->body($exception->getMessage())
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        Notification::make()
+                            ->title('Rating option deleted')
+                            ->success()
+                            ->send();
+                    }),
             ]);
     }
 
