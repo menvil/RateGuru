@@ -54,6 +54,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $downActive ? 'true' : 'false' }}"
                 data-state="{{ $downActive ? 'active' : 'idle' }}"
+                data-testid="post-downvote-button-{{ $post->id }}"
                 class="{{ $downActive ? 'text-rg-accent2' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-down" class="size-4" />
@@ -94,6 +95,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $downActive ? 'true' : 'false' }}"
                 data-state="{{ $downActive ? 'active' : 'idle' }}"
+                data-testid="post-downvote-button-{{ $post->id }}"
                 class="{{ $downActive ? 'text-rg-accent2' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-0.5 transition hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-down" class="size-4" />
@@ -127,6 +129,7 @@
         @disabled($votingDisabled)
         aria-pressed="{{ $downActive ? 'true' : 'false' }}"
         data-state="{{ $downActive ? 'active' : 'idle' }}"
+        data-testid="post-downvote-button-{{ $post->id }}"
         class="{{ $baseClass }} {{ $downClass }}"
     >
         <span wire:loading.remove wire:target="vote">▼ Down {{ $post->downvotes_count }}</span>

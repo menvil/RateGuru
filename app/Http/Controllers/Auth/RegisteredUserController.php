@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use RuntimeException;
 
 class RegisteredUserController extends Controller
 {
@@ -47,9 +48,17 @@ class RegisteredUserController extends Controller
 
         for ($attempt = 1; $attempt <= self::MAX_CREATE_ATTEMPTS; $attempt++) {
             try {
+                $username = $generateUniqueUsername->handle($request->name);
+            } catch (RuntimeException $exception) {
+                throw ValidationException::withMessages([
+                    'name' => $exception->getMessage(),
+                ]);
+            }
+
+            try {
                 $user = User::create([
                     'name' => $request->name,
-                    'username' => $generateUniqueUsername->handle($request->name),
+                    'username' => $username,
                     'email' => $request->email,
                     'password' => $password,
                 ]);
