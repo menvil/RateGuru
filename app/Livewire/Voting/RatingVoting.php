@@ -7,6 +7,7 @@ use App\Exceptions\Rating\CannotVoteForRatingOptionException;
 use App\Models\Post;
 use App\Models\RatingVote;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Rating\RatingVoteDistribution;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
@@ -44,11 +45,16 @@ class RatingVoting extends Component
         $this->dispatch('rating-voted', postId: $this->post->id, groupKey: $this->groupKey);
     }
 
-    public function render(RatingConfigurationManager $configuration): View
-    {
+    public function render(
+        RatingConfigurationManager $configuration,
+        RatingVoteDistribution $voteDistribution,
+    ): View {
         $group = $configuration->activeGroupByKey($this->groupKey);
         $selectedOptionId = null;
         $isOwnPost = auth()->check() && (int) $this->post->user_id === (int) auth()->id();
+        $distribution = $group === null
+            ? []
+            : $voteDistribution->forPostAndGroup($this->post, $group);
 
         if ($group !== null && auth()->check()) {
             $selectedOptionId = RatingVote::query()
@@ -59,6 +65,7 @@ class RatingVoting extends Component
         }
 
         return view('livewire.voting.rating-voting', [
+            'distribution' => $distribution,
             'group' => $group,
             'isOwnPost' => $isOwnPost,
             'selectedOptionId' => $selectedOptionId,

@@ -77,3 +77,20 @@ it('renders nothing for a missing or inactive rating group', function (string $g
         'groupKey' => $groupKey,
     ])->assertDontSee('data-testid="rating-voting-', false);
 })->with(['missing', 'inactive']);
+
+it('renders rating vote distribution for active options', function () {
+    $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'source']);
+    $first = RatingOption::factory()->for($group, 'group')->create(['label' => 'Source A']);
+    $second = RatingOption::factory()->for($group, 'group')->create(['label' => 'Source B']);
+
+    RatingVote::factory()->count(3)->for($post)->for($group, 'group')->for($first, 'option')->create();
+    RatingVote::factory()->for($post)->for($group, 'group')->for($second, 'option')->create();
+
+    Livewire::test(RatingVoting::class, [
+        'post' => $post,
+        'groupKey' => 'source',
+    ])
+        ->assertSee('3 votes · 75%')
+        ->assertSee('1 vote · 25%');
+});

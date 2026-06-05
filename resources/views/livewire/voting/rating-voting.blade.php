@@ -9,6 +9,7 @@
                 :disabled="$votingDisabled"
                 :is-own-post="$isOwnPost"
                 :error="$error"
+                :distribution="$distribution"
             />
         </div>
     @endif
