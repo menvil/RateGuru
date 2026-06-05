@@ -1,12 +1,17 @@
 <?php
 
-use App\Enums\OriginType;
 use App\Livewire\Posts\SourceVoting;
 use App\Models\Post;
+use App\Models\RatingGroup;
 use App\Models\User;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Livewire\Livewire;
 
-it('renders source voting component using legacy source storage behavior', function () {
+beforeEach(function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+});
+
+it('renders source voting through generic rating configuration', function () {
     $post = Post::factory()->published()->create();
     $user = User::factory()->create();
 
@@ -18,19 +23,27 @@ it('renders source voting component using legacy source storage behavior', funct
         ->assertSee('Source B');
 });
 
-it('records source option votes through the legacy source storage', function () {
+it('stores source votes in the generic rating votes table', function () {
     $post = Post::factory()->published()->create();
     $user = User::factory()->create();
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    $option = $source->options()->active()->firstOrFail();
 
     Livewire::actingAs($user)
         ->test(SourceVoting::class, ['postId' => $post->id])
-        ->call('vote', OriginType::Homemade->value)
+        ->call('vote', $option->id)
         ->assertDispatched('source-voted');
 
-    $this->assertDatabaseHas('origin_votes', [
+    $this->assertDatabaseHas('rating_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'origin' => OriginType::Homemade->value,
+        'rating_group_id' => $source->id,
+        'rating_option_id' => $option->id,
+    ]);
+
+    $this->assertDatabaseMissing('origin_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
     ]);
 });
 
