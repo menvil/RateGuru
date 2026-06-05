@@ -49,6 +49,22 @@ it('replaces a previous vote in the same rating group', function () {
     ]);
 });
 
+it('handles repeated first-choice votes without duplicate rows', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $option = RatingOption::factory()->create();
+
+    app(VoteRatingOptionAction::class)->handle($user, $post, $option);
+    app(VoteRatingOptionAction::class)->handle($user, $post, $option);
+
+    expect(RatingVote::query()
+        ->where('user_id', $user->id)
+        ->where('post_id', $post->id)
+        ->where('rating_group_id', $option->rating_group_id)
+        ->count()
+    )->toBe(1);
+});
+
 it('allows votes in different rating groups for the same post', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

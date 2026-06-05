@@ -19,7 +19,7 @@ it('allows an authenticated user to vote through rating voting', function () {
         ->call('vote', $option->id)
         ->assertHasNoErrors()
         ->assertDispatched('rating-voted', postId: $post->id, groupKey: 'source')
-        ->assertSee('data-testid="rating-option-'.$option->id.'"', false)
+        ->assertSee('data-testid="rating-option-'.$post->id.'-'.$option->id.'"', false)
         ->assertSee('aria-pressed="true"', false);
 
     $this->assertDatabaseHas('rating_votes', [

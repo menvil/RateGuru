@@ -20,6 +20,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(['rating_group_id', 'key']);
+            $table->unique(['id', 'rating_group_id']);
         });
     }
 

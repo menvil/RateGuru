@@ -1,9 +1,10 @@
 <?php
 
-use App\Enums\OriginType;
 use App\Enums\VoteType;
 use App\Models\Post;
+use App\Models\RatingGroup;
 use App\Models\User;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 
 use function Pest\Laravel\actingAs;
 
@@ -31,21 +32,26 @@ it('allows authenticated user to upvote a post', function () {
 });
 
 it('allows authenticated user to vote on post source option', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'title' => 'Browser Source Vote Test Post',
     ]);
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    $option = $source->options()->active()->firstOrFail();
 
     actingAs($user);
 
     visit(route('feed'))
         ->assertSee('Browser Source Vote Test Post')
-        ->click("[data-testid=\"source-vote-a-{$post->id}\"]")
-        ->assertAttribute("[data-testid=\"source-vote-a-{$post->id}\"]", 'aria-pressed', 'true');
+        ->click("[data-testid=\"rating-option-{$post->id}-{$option->id}\"]")
+        ->assertAttribute("[data-testid=\"rating-option-{$post->id}-{$option->id}\"]", 'aria-pressed', 'true');
 
-    $this->assertDatabaseHas('origin_votes', [
+    $this->assertDatabaseHas('rating_votes', [
         'post_id' => $post->id,
         'user_id' => $user->id,
-        'origin' => OriginType::Homemade->value,
+        'rating_group_id' => $source->id,
+        'rating_option_id' => $option->id,
     ]);
 });

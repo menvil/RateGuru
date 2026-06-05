@@ -3,7 +3,9 @@
 namespace App\Filament\Resources\RatingGroups\RelationManagers;
 
 use App\Actions\Rating\ArchiveRatingOptionAction;
+use App\Actions\Rating\CreateRatingOptionAction;
 use App\Actions\Rating\DeleteRatingOptionAction;
+use App\Actions\Rating\UpdateRatingOptionAction;
 use App\Exceptions\Rating\CannotDeleteVotedRatingOptionException;
 use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Models\RatingGroup;
@@ -97,10 +99,17 @@ class OptionsRelationManager extends RelationManager
             ->defaultSort('sort_order')
             ->headerActions([
                 CreateAction::make()
+                    ->using(fn (array $data): RatingOption => app(CreateRatingOptionAction::class)->handle(
+                        auth()->user(),
+                        $this->getOwnerRecord(),
+                        $data,
+                    ))
                     ->createAnother(false),
             ])
             ->recordActions([
-                EditAction::make(),
+                EditAction::make()
+                    ->using(fn (RatingOption $record, array $data): RatingOption => app(UpdateRatingOptionAction::class)
+                        ->handle(auth()->user(), $record, $data)),
                 Action::make('archive')
                     ->label('Archive')
                     ->icon('heroicon-o-archive-box')

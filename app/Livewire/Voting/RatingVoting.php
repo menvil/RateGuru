@@ -17,7 +17,7 @@ class RatingVoting extends Component
 
     protected string $votedEventName = 'rating-voted';
 
-    public Post $post;
+    public ?Post $post = null;
 
     public string $groupKey;
 
@@ -29,6 +29,13 @@ class RatingVoting extends Component
         VoteRatingOptionAction $voteRatingOption,
     ): void {
         $this->error = '';
+
+        if ($this->post === null) {
+            $this->error = 'This post is no longer available.';
+
+            return;
+        }
+
         $group = $configuration->activeGroupByKey($this->groupKey);
         $option = $group?->options->firstWhere('id', $optionId);
 
@@ -55,12 +62,14 @@ class RatingVoting extends Component
     ): View {
         $group = $configuration->activeGroupByKey($this->groupKey);
         $selectedOptionId = null;
-        $isOwnPost = auth()->check() && (int) $this->post->user_id === (int) auth()->id();
-        $distribution = $group === null
+        $isOwnPost = $this->post !== null
+            && auth()->check()
+            && (int) $this->post->user_id === (int) auth()->id();
+        $distribution = $group === null || $this->post === null
             ? []
             : $voteDistribution->forPostAndGroup($this->post, $group);
 
-        if ($group !== null && auth()->check()) {
+        if ($group !== null && $this->post !== null && auth()->check()) {
             $selectedOptionId = RatingVote::query()
                 ->where('user_id', auth()->id())
                 ->where('post_id', $this->post->id)
@@ -73,7 +82,7 @@ class RatingVoting extends Component
             'group' => $group,
             'isOwnPost' => $isOwnPost,
             'selectedOptionId' => $selectedOptionId,
-            'votingDisabled' => ! auth()->check() || $isOwnPost,
+            'votingDisabled' => $this->post === null || ! auth()->check() || $isOwnPost,
         ]);
     }
 }

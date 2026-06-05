@@ -54,3 +54,29 @@ it('refreshes matching source voting instances', function () {
         ->dispatch('source-voted', postId: $post->id)
         ->assertOk();
 });
+
+it('renders source voting unavailable for a missing or unpublished post', function (int $postId) {
+    Livewire::test(SourceVoting::class, ['postId' => $postId])
+        ->assertSee('data-testid="source-voting-unavailable"', false)
+        ->assertSee('Source voting unavailable');
+})->with([
+    'missing post' => fn () => 999999,
+    'unpublished post' => fn () => Post::factory()->hidden()->create()->id,
+]);
+
+it('renders source voting unavailable when its rating configuration is missing', function () {
+    RatingGroup::query()->where('key', 'source')->delete();
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(SourceVoting::class, ['postId' => $post->id])
+        ->assertSee('data-testid="source-voting-unavailable"', false);
+});
+
+it('scopes source option test ids to the post', function () {
+    $post = Post::factory()->published()->create();
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    $option = $source->options()->active()->firstOrFail();
+
+    Livewire::test(SourceVoting::class, ['postId' => $post->id])
+        ->assertSee('data-testid="rating-option-'.$post->id.'-'.$option->id.'"', false);
+});

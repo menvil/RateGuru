@@ -89,7 +89,7 @@ it('allows admin to edit rating group fields', function () {
         ->and($fresh->sort_order)->toBe(40);
 });
 
-it('validates rating group keys and option range', function () {
+it('validates rating group key format and option range', function () {
     $admin = User::factory()->admin()->create();
 
     RatingGroup::factory()->create(['key' => 'existing_group']);
@@ -111,4 +111,23 @@ it('validates rating group keys and option range', function () {
             'min_options' => 'lte',
             'max_options' => 'gte',
         ]);
+});
+
+it('requires unique rating group keys', function () {
+    $admin = User::factory()->admin()->create();
+
+    RatingGroup::factory()->create(['key' => 'existing_group']);
+
+    $this->actingAs($admin);
+
+    Livewire::test(CreateRatingGroup::class)
+        ->fillForm([
+            'key' => 'existing_group',
+            'label' => 'Duplicate group',
+            'min_options' => 2,
+            'max_options' => 10,
+            'sort_order' => 0,
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['key' => 'unique']);
 });

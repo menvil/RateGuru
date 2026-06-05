@@ -22,6 +22,14 @@ it('creates a rating vote with matching relations', function () {
         ->and($vote->option->group->is($vote->group))->toBeTrue();
 });
 
+it('derives the rating vote group from an overridden option relationship', function () {
+    $option = RatingOption::factory()->create();
+
+    $vote = RatingVote::factory()->for($option, 'option')->create();
+
+    expect($vote->group->is($option->group))->toBeTrue();
+});
+
 it('exposes rating group vote relations', function () {
     $group = RatingGroup::factory()->create();
     $option = RatingOption::factory()->for($group, 'group')->create();

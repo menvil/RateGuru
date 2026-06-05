@@ -33,7 +33,7 @@ it('renders unselected options for authenticated users without a vote', function
             'post' => $post,
             'groupKey' => 'source',
         ])
-        ->assertSee('data-testid="rating-option-'.$option->id.'"', false)
+        ->assertSee('data-testid="rating-option-'.$post->id.'-'.$option->id.'"', false)
         ->assertSee('aria-pressed="false"', false)
         ->assertDontSee('Sign in to vote.');
 });
@@ -62,5 +62,5 @@ it('does not render an inactive rating group', function () {
     Livewire::test(RatingVoting::class, [
         'post' => $post,
         'groupKey' => 'source',
-    ])->assertDontSee('data-testid="rating-voting-source"', false);
+    ])->assertDontSee('data-testid="rating-voting-source-'.$post->id.'"', false);
 });

@@ -1,7 +1,9 @@
 <?php
 
 use App\Actions\Rating\ArchiveRatingOptionAction;
+use App\Actions\Rating\CreateRatingOptionAction;
 use App\Actions\Rating\DeleteRatingOptionAction;
+use App\Actions\Rating\UpdateRatingOptionAction;
 use App\Exceptions\Rating\CannotDeleteVotedRatingOptionException;
 use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Models\RatingGroup;
@@ -66,4 +68,28 @@ it('does not allow deleting an active option below the group minimum', function 
     RatingOption::factory()->for($group, 'group')->create(['is_active' => true]);
 
     app(DeleteRatingOptionAction::class)->handle($admin, $option);
+})->throws(InvalidRatingGroupConfigurationException::class);
+
+it('enforces the group maximum inside the create rating option action', function () {
+    $admin = User::factory()->admin()->create();
+    $group = RatingGroup::factory()->create(['max_options' => 2]);
+    RatingOption::factory()->count(2)->for($group, 'group')->create(['is_active' => true]);
+
+    app(CreateRatingOptionAction::class)->handle($admin, $group, [
+        'key' => 'too_many',
+        'label' => 'Too Many',
+        'is_active' => true,
+        'sort_order' => 30,
+    ]);
+})->throws(InvalidRatingGroupConfigurationException::class);
+
+it('enforces the group minimum inside the update rating option action', function () {
+    $admin = User::factory()->admin()->create();
+    $group = RatingGroup::factory()->create(['min_options' => 2]);
+    $option = RatingOption::factory()->for($group, 'group')->create(['is_active' => true]);
+    RatingOption::factory()->for($group, 'group')->create(['is_active' => true]);
+
+    app(UpdateRatingOptionAction::class)->handle($admin, $option, [
+        'is_active' => false,
+    ]);
 })->throws(InvalidRatingGroupConfigurationException::class);

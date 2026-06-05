@@ -34,7 +34,7 @@ it('renders active rating options for a group in sort order', function () {
         'post' => $post,
         'groupKey' => 'source',
     ])
-        ->assertSee('data-testid="rating-voting-source"', false)
+        ->assertSee('data-testid="rating-voting-source-'.$post->id.'"', false)
         ->assertSee('Source')
         ->assertDontSee('Hidden Source');
 
@@ -60,7 +60,7 @@ it('marks the authenticated users selected rating option', function () {
             'post' => $post,
             'groupKey' => 'source',
         ])
-        ->assertSee('data-testid="rating-option-'.$option->id.'"', false)
+        ->assertSee('data-testid="rating-option-'.$post->id.'-'.$option->id.'"', false)
         ->assertSee('aria-pressed="true"', false);
 });
 

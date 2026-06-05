@@ -19,7 +19,7 @@ final class CategoryVoting extends RatingVoting
     public function mount(int $postId): void
     {
         $this->postId = $postId;
-        $this->post = Post::query()->published()->findOrFail($postId);
+        $this->post = Post::query()->published()->find($postId);
         $this->groupKey = 'category';
     }
 
@@ -27,7 +27,7 @@ final class CategoryVoting extends RatingVoting
     public function refreshAfterCategoryVote(int $postId): void
     {
         if ($postId === $this->postId) {
-            $this->post = $this->post->refresh();
+            $this->post = Post::query()->published()->find($postId);
         }
     }
 }
