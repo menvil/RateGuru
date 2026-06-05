@@ -14,6 +14,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->call(DemoDatabaseSeeder::class);
+        $this->call([
+            DefaultRatingConfigurationSeeder::class,
+            DemoDatabaseSeeder::class,
+        ]);
     }
 }
