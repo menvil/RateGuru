@@ -5,6 +5,7 @@
                 :group="$group"
                 :options="$group->options"
                 :selected-option-id="$selectedOptionId"
+                :guest="! auth()->check()"
             />
         </div>
     @endif
