@@ -62,10 +62,14 @@ it('prevents source voting on an own post before attempting to vote', function (
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
-    Livewire::actingAs($owner)
+    $html = Livewire::actingAs($owner)
         ->test(OriginVoting::class, ['postId' => $post->id])
         ->assertSee('You cannot vote on your own post.')
-        ->assertSee('disabled', false);
+        ->html();
+
+    expect($html)
+        ->toMatch('/<button(?=[^>]*data-testid="origin-vote-homemade-'.$post->id.'")[^>]*\sdisabled(?:\s|=|>)/')
+        ->toMatch('/<button(?=[^>]*data-testid="origin-vote-restaurant-'.$post->id.'")[^>]*\sdisabled(?:\s|=|>)/');
 });
 
 it('shows own post source vote error after attempting to vote', function () {

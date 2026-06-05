@@ -92,3 +92,20 @@ test('registration does not retry non-username query exceptions', function () {
         'password_confirmation' => 'password',
     ]))->toThrow(UniqueConstraintViolationException::class);
 });
+
+test('registration converts username generation exhaustion into a validation error', function () {
+    $action = Mockery::mock(GenerateUniqueUsernameAction::class);
+    $action->shouldReceive('handle')
+        ->once()
+        ->andThrow(new RuntimeException('Unable to generate a unique username.'));
+    app()->instance(GenerateUniqueUsernameAction::class, $action);
+
+    $this->post('/register', [
+        'name' => 'Test User',
+        'email' => 'generator-exhausted@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+    ])->assertSessionHasErrors([
+        'name' => 'Unable to generate a unique username.',
+    ]);
+});

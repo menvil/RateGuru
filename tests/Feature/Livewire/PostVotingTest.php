@@ -269,10 +269,14 @@ it('prevents voting on an own post before the user attempts to vote', function (
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
-    Livewire::actingAs($owner)
+    $html = Livewire::actingAs($owner)
         ->test(PostVoting::class, ['postId' => $post->id])
         ->assertSee('You cannot vote on your own post.')
-        ->assertSee('disabled', false);
+        ->html();
+
+    expect($html)
+        ->toMatch('/<button(?=[^>]*data-testid="post-upvote-button-'.$post->id.'")[^>]*\sdisabled(?:\s|=|>)/')
+        ->toMatch('/<button(?=[^>]*data-testid="post-downvote-button-'.$post->id.'")[^>]*\sdisabled(?:\s|=|>)/');
 });
 
 it('shows own post vote error only after the user attempts to vote', function () {

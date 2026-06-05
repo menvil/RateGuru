@@ -54,7 +54,11 @@ it('has phase 43 domain refactor review checklist', function () {
 });
 
 it('requires generic public copy in the ui review checklist', function () {
-    $content = file_get_contents(base_path('docs/design/ui-review-checklist.md'));
+    $path = base_path('docs/design/ui-review-checklist.md');
+
+    expect($path)->toBeFile();
+
+    $content = file_get_contents($path);
 
     expect($content)->toContain('Mandatory: public-facing copy uses generic post, Source, and Category wording');
     expect($content)->not->toContain('Dish placeholder');
