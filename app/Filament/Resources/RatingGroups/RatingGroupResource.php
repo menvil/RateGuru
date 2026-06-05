@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RatingGroups;
 use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\ListRatingGroups;
+use App\Filament\Resources\RatingGroups\RelationManagers\OptionsRelationManager;
 use App\Filament\Resources\RatingGroups\Schemas\RatingGroupForm;
 use App\Filament\Resources\RatingGroups\Tables\RatingGroupsTable;
 use App\Models\RatingGroup;
@@ -44,7 +45,7 @@ class RatingGroupResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            OptionsRelationManager::class,
         ];
     }
 
