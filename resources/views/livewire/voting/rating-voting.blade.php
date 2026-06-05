@@ -6,6 +6,9 @@
                 :options="$group->options"
                 :selected-option-id="$selectedOptionId"
                 :guest="! auth()->check()"
+                :disabled="$votingDisabled"
+                :is-own-post="$isOwnPost"
+                :error="$error"
             />
         </div>
     @endif
