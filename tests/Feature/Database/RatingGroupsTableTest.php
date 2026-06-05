@@ -50,3 +50,14 @@ it('requires unique rating group keys', function () {
         'updated_at' => now(),
     ]))->toThrow(QueryException::class);
 });
+
+it('rejects rating groups whose minimum options exceed maximum options', function () {
+    expect(fn () => DB::table('rating_groups')->insert([
+        'key' => 'invalid-range',
+        'label' => 'Invalid range',
+        'min_options' => 9,
+        'max_options' => 2,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]))->toThrow(QueryException::class);
+});
