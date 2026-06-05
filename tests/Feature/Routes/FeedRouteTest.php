@@ -13,8 +13,20 @@ it('renders base feed layout with section title', function () {
     $this->get('/')
         ->assertOk()
         ->assertSee('data-testid="app-header"', false)
-        ->assertSee('Latest dishes')
+        ->assertSee('Latest posts')
         ->assertDontSee('data-testid="search-input"', false);
+});
+
+it('renders generic feed copy', function () {
+    $this->get(route('feed'))
+        ->assertOk()
+        ->assertSee('Latest posts')
+        ->assertSee('Source')
+        ->assertSee('Category')
+        ->assertDontSee('Latest dishes')
+        ->assertDontSee('Cuisine guess')
+        ->assertDontSee('>Origin<', false)
+        ->assertDontSee('>Dish<', false);
 });
 
 it('renders header search with responsive submit behavior', function () {
@@ -41,11 +53,23 @@ it('renders upload modal shell for authenticated user on feed page', function ()
         ->get('/')
         ->assertOk()
         ->assertSee('Upload')
-        ->assertSee('Create post')
+        ->assertSee('Upload post')
         ->assertSee('data-testid="open-upload-button"', false)
         ->assertSee('shadow-rgUpload', false)
         ->assertSee('aria-hidden="true"', false)
-        ->assertSee('data-testid="upload-modal"', false);
+        ->assertSee('data-testid="upload-modal"', false)
+        ->assertSee('overflow-visible', false);
+});
+
+it('renders generic upload copy for authenticated users', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('feed'))
+        ->assertOk()
+        ->assertSee('Upload post')
+        ->assertDontSee('Upload dish')
+        ->assertDontSee('Food photo');
 });
 
 it('renders authenticated header actions without changing guest header behavior', function () {

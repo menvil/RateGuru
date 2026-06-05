@@ -36,8 +36,24 @@ it('renders for authenticated user', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('Create post')
+        ->assertSee('Upload post')
         ->assertStatus(200);
+});
+
+it('opens upload modal with generic labels', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('Title')
+        ->assertSee('Image')
+        ->assertSee('Source')
+        ->assertSee('Category')
+        ->assertDontSee('Dish title')
+        ->assertDontSee('Origin')
+        ->assertDontSee('Cuisine')
+        ->assertDontSee('Homemade')
+        ->assertDontSee('Restaurant');
 });
 
 it('blocks guest users', function () {
@@ -275,8 +291,96 @@ it('renders selectable tags', function () {
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSee('Tags')
+        ->assertSee('data-testid="upload-tag-search"', false)
+        ->assertSee('data-testid="upload-tag-menu"', false)
         ->assertSee('UniqueTagForTest')
         ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
+});
+
+it('filters upload tags while typing and toggles selected tags', function () {
+    $user = User::factory()->create();
+    $matching = Tag::factory()->create(['name' => 'Carbonara']);
+    Tag::factory()->create(['name' => 'Sushi']);
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('tagSearch', 'carb')
+        ->assertSee('Carbonara')
+        ->call('toggleTag', $matching->id)
+        ->assertSet('tagIds', [$matching->id])
+        ->assertSee('data-testid="upload-selected-tags"', false);
+});
+
+it('toggles a selected tag off', function () {
+    $user = User::factory()->create();
+    $tag = Tag::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->call('toggleTag', $tag->id)
+        ->assertSet('tagIds', [$tag->id])
+        ->call('toggleTag', $tag->id)
+        ->assertSet('tagIds', []);
+});
+
+it('does not select more than ten tags', function () {
+    $user = User::factory()->create();
+    $tags = Tag::factory()->count(11)->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(UploadPostForm::class);
+
+    $tags->each(fn (Tag $tag) => $component->call('toggleTag', $tag->id));
+
+    expect($component->get('tagIds'))
+        ->toHaveCount(10)
+        ->not->toContain($tags->last()->id);
+});
+
+it('rejects more than ten submitted tag ids', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+    $tagIds = Tag::factory()->count(11)->create()->pluck('id')->all();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Post with too many tags')
+        ->set('image', UploadedFile::fake()->image('post.jpg'))
+        ->set('tagIds', $tagIds)
+        ->call('submit')
+        ->assertHasErrors(['tagIds' => 'max'])
+        ->assertNotDispatched('post-uploaded');
+});
+
+it('rejects submitted tag ids that do not exist', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Post with invalid tag')
+        ->set('image', UploadedFile::fake()->image('post.jpg'))
+        ->set('tagIds', [PHP_INT_MAX])
+        ->call('submit')
+        ->assertHasErrors(['tagIds.0' => 'exists'])
+        ->assertNotDispatched('post-uploaded');
+});
+
+it('renders tag search as an accessible combobox and menu as a listbox', function () {
+    $user = User::factory()->create();
+    $tag = Tag::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('role="combobox"', false)
+        ->assertSee('aria-controls="upload-tag-listbox"', false)
+        ->assertSee('role="listbox"', false)
+        ->assertSee('id="upload-tag-listbox"', false)
+        ->assertSee('role="option"', false)
+        ->assertSee('aria-selected="false"', false)
+        ->assertSee('id="upload-tag-option-'.$tag->id.'"', false);
 });
 
 it('does not query tags again during form interaction hydration', function () {
@@ -321,10 +425,10 @@ it('has cuisine truth selector', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('Italian')
-        ->assertSee('Asian')
-        ->assertSee('American')
-        ->assertSee('Mexican')
+        ->assertSee('Category A')
+        ->assertSee('Category B')
+        ->assertSee('Category C')
+        ->assertSee('Category D')
         ->assertSee('Other')
         ->assertSee('Keep unknown');
 });
@@ -343,8 +447,8 @@ it('has origin truth selector', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('Homemade')
-        ->assertSee('Restaurant')
+        ->assertSee('Source A')
+        ->assertSee('Source B')
         ->assertSee('Keep unknown');
 });
 

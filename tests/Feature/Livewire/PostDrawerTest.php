@@ -22,7 +22,9 @@ it('renders report button in post drawer', function () {
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('data-testid="report-button"', false)
-        ->assertSee('Report');
+        ->assertSee('Report')
+        ->assertSee('text-rg-dangerText', false)
+        ->assertSee('hover:bg-rg-dangerSoft', false);
 });
 
 it('does not render report button in post drawer for the owner', function () {
@@ -131,9 +133,9 @@ it('renders drawer vote summary', function () {
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Results')
-        ->assertSee('Homemade')
-        ->assertSee('Restaurant')
+        ->assertSee('Source')
+        ->assertSee('Source A')
+        ->assertSee('Source B')
         ->assertDontSee('(unvoted)')
         ->assertDontSee('0 votes');
 });
@@ -147,8 +149,10 @@ it('renders drawer author metadata', function () {
     $post = Post::factory()->published()->for($user)->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="post-drawer-meta"', false)
+        ->assertSee('Demo Chef')
         ->assertSee('@demo_chef')
-        ->assertDontSee('Demo Chef');
+        ->assertDontSee('Posted by');
 });
 
 it('renders large post image in drawer', function () {
@@ -173,6 +177,19 @@ it('renders drawer post title and description', function () {
         ->assertSee('Creamy pasta with pepper');
 });
 
+it('renders drawer description under title before image', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Drawer Tacos',
+        'description' => 'Description should sit below the title',
+        'image_url' => '/storage/posts/1/drawer-tacos.jpg',
+    ]);
+
+    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
+
+    expect(strpos($html, 'Drawer Tacos'))->toBeLessThan(strpos($html, 'Description should sit below the title'));
+    expect(strpos($html, 'Description should sit below the title'))->toBeLessThan(strpos($html, '/storage/posts/1/drawer-tacos.jpg'));
+});
+
 it('does not break when drawer post description is missing', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Dish',
@@ -195,16 +212,18 @@ it('renders image placeholder when drawer post has no image', function () {
         ->assertSee('Image preview');
 });
 
-it('renders origin voting panel in drawer', function () {
+it('renders source voting panel in drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('post-drawer-origin-voting', false)
-        ->assertSee('Homemade')
-        ->assertSee('Restaurant');
+        ->assertSee('Source')
+        ->assertSee('post-drawer-source-voting', false)
+        ->assertSee('Source A')
+        ->assertSee('Source B')
+        ->assertDontSee('Results');
 });
 
-it('renders drawer origin controls before result labels', function () {
+it('renders drawer source controls before result labels', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'homemade_votes_count' => 1,
@@ -220,9 +239,9 @@ it('renders drawer origin controls before result labels', function () {
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSeeInOrder([
-            'post-drawer-origin-voting',
-            'Homemade</span>',
-            'Restaurant</span>',
+            'post-drawer-source-voting',
+            'Source A</span>',
+            'Source B</span>',
         ], false)
         ->assertDontSee('You voted:');
 });
@@ -263,26 +282,35 @@ it('keeps drawer result visibility logic in the Livewire component', function ()
         ->not->toContain("cuisineDistribution['current']");
 });
 
-it('renders cuisine voting buttons in drawer', function () {
+it('renders category voting buttons in drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('data-testid="post-drawer-cuisine-voting"', false)
+        ->assertSee('data-testid="post-drawer-category-voting"', false)
         ->assertSee('flex-wrap', false)
         ->assertSee('h-7 min-w-9', false)
-        ->assertSee('Italian')
-        ->assertSee('Asian')
-        ->assertSee('American')
-        ->assertSee('Mexican')
+        ->assertSee('Category A')
+        ->assertSee('Category B')
+        ->assertSee('Category C')
+        ->assertSee('Category D')
         ->assertSee('Other');
 });
 
-it('renders drawer cuisine controls directly under the distribution heading', function () {
+it('renders drawer category controls directly under the distribution heading', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSeeInOrder([
-            'Cuisine guess distribution',
-            'data-testid="post-drawer-cuisine-voting"',
+            'Category',
+            'data-testid="post-drawer-category-voting"',
         ], false);
+});
+
+it('refreshes after semantic source and category vote events', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->dispatch('source-voted', postId: $post->id)
+        ->dispatch('category-voted', postId: $post->id)
+        ->assertOk();
 });

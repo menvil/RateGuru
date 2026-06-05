@@ -31,8 +31,9 @@
                             type="search"
                             name="search"
                             value="{{ request('search') }}"
-                            aria-label="Search tags, users, dishes"
-                            placeholder="Search tags, users, dishes..."
+                            aria-label="Search tags, users, posts"
+                            placeholder="Search tags, users, posts..."
+                            x-on:input.debounce.450ms="if ($el.value.length === 0 || $el.value.length >= 3) $el.form.requestSubmit()"
                             x-on:search="$el.form.requestSubmit()"
                             class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-3 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
                         >
@@ -51,7 +52,7 @@
                                 elevated
                             >
                                 <x-ui.icon name="upload" class="size-4" />
-                                <span class="hidden sm:inline">Upload</span>
+                                <span class="hidden sm:inline">Upload post</span>
                             </x-ui.button>
 
                             <livewire:notifications.notification-bell />
@@ -114,7 +115,7 @@
                             </div>
 
                             <div>
-                                <x-ui.modal title="Create post" size="lg" data-testid="upload-modal">
+                                <x-ui.modal title="Upload post" size="lg" data-testid="upload-modal" allow-overflow>
                                     <livewire:feed.upload-post-form />
                                 </x-ui.modal>
                             </div>

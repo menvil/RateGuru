@@ -1,0 +1,14 @@
+<x-voting.source-options
+    :post="$post"
+    :current-value="$currentValue"
+    :voting-disabled="$votingDisabled"
+    :is-own-post="$isOwnPost"
+    :error="$error"
+    root-test-id="source-voting"
+    unavailable-test-id="source-voting-unavailable"
+    error-test-id="source-voting-error"
+    option-a-test-id="source-vote-a"
+    option-b-test-id="source-vote-b"
+    option-a-value="homemade"
+    option-b-value="restaurant"
+/>

@@ -1,6 +1,6 @@
 @php use App\Enums\OriginType; use App\Enums\CuisineType; @endphp
 <div data-testid="upload-post-form">
-    <h2 class="sr-only">Create post</h2>
+    <h2 class="sr-only">Upload post</h2>
 
     <form wire:submit.prevent="submit" class="space-y-4">
         <div>
@@ -9,7 +9,7 @@
                 id="title"
                 name="title"
                 wire:model.defer="title"
-                placeholder="Dish title"
+                placeholder="Title"
                 class="mt-1"
             />
             <div data-testid="field-error-title" class="mt-1">
@@ -104,7 +104,7 @@
         </div>
 
         <div>
-            <x-input-label for="originTruth" value="Origin" />
+            <x-input-label for="originTruth" value="Source" />
             <select
                 id="originTruth"
                 name="originTruth"
@@ -112,8 +112,8 @@
                 class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
             >
                 <option value="{{ OriginType::Unknown->value }}">Keep unknown</option>
-                <option value="{{ OriginType::Homemade->value }}">Homemade</option>
-                <option value="{{ OriginType::Restaurant->value }}">Restaurant</option>
+                <option value="{{ OriginType::Homemade->value }}">Source A</option>
+                <option value="{{ OriginType::Restaurant->value }}">Source B</option>
             </select>
             <div data-testid="field-error-origin-truth" class="mt-1">
                 <x-input-error :messages="$errors->get('originTruth')" />
@@ -121,7 +121,7 @@
         </div>
 
         <div>
-            <x-input-label for="cuisineTruth" value="Cuisine" />
+            <x-input-label for="cuisineTruth" value="Category" />
             <select
                 id="cuisineTruth"
                 name="cuisineTruth"
@@ -129,10 +129,10 @@
                 class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
             >
                 <option value="{{ CuisineType::Unknown->value }}">Keep unknown</option>
-                <option value="{{ CuisineType::Italian->value }}">Italian</option>
-                <option value="{{ CuisineType::Asian->value }}">Asian</option>
-                <option value="{{ CuisineType::American->value }}">American</option>
-                <option value="{{ CuisineType::Mexican->value }}">Mexican</option>
+                <option value="{{ CuisineType::Italian->value }}">Category A</option>
+                <option value="{{ CuisineType::Asian->value }}">Category B</option>
+                <option value="{{ CuisineType::American->value }}">Category C</option>
+                <option value="{{ CuisineType::Mexican->value }}">Category D</option>
                 <option value="{{ CuisineType::Other->value }}">Other</option>
             </select>
             <div data-testid="field-error-cuisine-truth" class="mt-1">
@@ -142,25 +142,97 @@
 
         <div>
             <x-input-label value="Tags" />
-            <div class="mt-1 flex flex-wrap gap-2 rounded-rgControl border border-rg-border2 bg-rg-card2 p-2" data-testid="upload-tags">
-                @forelse($tags as $tag)
-                    <label class="inline-flex cursor-pointer items-center gap-2 rounded-rgPill border border-rg-border2 bg-rg-card px-3 py-1.5 text-[13px] font-semibold text-rg-text2 transition hover:border-rg-accentBorder hover:text-rg-text">
-                        <input
-                            type="checkbox"
-                            value="{{ $tag['id'] }}"
-                            wire:model="tagIds"
-                            class="size-3.5 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-rg-accent"
-                            data-testid="upload-tag-{{ $tag['id'] }}"
-                        >
-                        {{ $tag['name'] }}
-                    </label>
-                @empty
-                    <span class="px-1 text-sm text-rg-muted">No tags available.</span>
-                @endforelse
+            <div
+                class="mt-1"
+                data-testid="upload-tags"
+                x-data="{ open: false }"
+                x-on:click.outside="open = false"
+            >
+                <div class="relative">
+                    <x-ui.input
+                        name="tagSearch"
+                        type="search"
+                        wire:model.live.debounce.250ms="tagSearch"
+                        x-on:focus="open = true"
+                        x-on:input="open = true"
+                        placeholder="Search or select tags"
+                        data-testid="upload-tag-search"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-controls="upload-tag-listbox"
+                        x-bind:aria-expanded="open"
+                    />
+
+                    <div
+                        id="upload-tag-listbox"
+                        role="listbox"
+                        aria-label="Available tags"
+                        aria-multiselectable="true"
+                        x-cloak
+                        x-show="open"
+                        class="absolute left-0 right-0 z-30 mt-2 max-h-60 overflow-y-auto rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                        data-testid="upload-tag-menu"
+                    >
+                        @forelse($filteredTags as $tag)
+                            <button
+                                type="button"
+                                wire:click="toggleTag({{ $tag['id'] }})"
+                                class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-[13px] font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text"
+                                data-testid="upload-tag-{{ $tag['id'] }}"
+                                id="upload-tag-option-{{ $tag['id'] }}"
+                                role="option"
+                                aria-selected="{{ in_array($tag['id'], $tagIds, true) ? 'true' : 'false' }}"
+                            >
+                                <input
+                                    type="checkbox"
+                                    @checked(in_array($tag['id'], $tagIds, true))
+                                    class="size-3.5 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-rg-accent"
+                                    tabindex="-1"
+                                    readonly
+                                >
+                                {{ $tag['name'] }}
+                            </button>
+                        @empty
+                            <span class="block px-3 py-2 text-sm text-rg-muted">No matching tags.</span>
+                        @endforelse
+                    </div>
+                </div>
+
+                @if($selectedTags !== [])
+                    <div class="mt-2 flex flex-wrap gap-2" data-testid="upload-selected-tags">
+                        @foreach($selectedTags as $tag)
+                            <button
+                                type="button"
+                                wire:click="toggleTag({{ $tag['id'] }})"
+                                class="inline-flex cursor-pointer items-center gap-1.5 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft px-2.5 py-1 text-xs font-semibold text-rg-accent2"
+                            >
+                                {{ $tag['name'] }}
+                                <x-ui.icon name="x" class="size-3" />
+                            </button>
+                        @endforeach
+                    </div>
+                @endif
+
+                @if($popularTags !== [])
+                    <div class="mt-2">
+                        <p class="text-xs font-semibold text-rg-muted">Popular tags</p>
+                        <div class="mt-1.5 flex flex-wrap gap-2" data-testid="upload-popular-tags">
+                            @foreach($popularTags as $tag)
+                                <button
+                                    type="button"
+                                    wire:click="toggleTag({{ $tag['id'] }})"
+                                    class="inline-flex cursor-pointer items-center rounded-rgPill border border-rg-border2 bg-rg-card px-2.5 py-1 text-xs font-semibold text-rg-text2 transition hover:border-rg-accentBorder hover:text-rg-text"
+                                >
+                                    {{ $tag['name'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
             </div>
             <div data-testid="field-error-tags" class="mt-1">
                 <x-input-error :messages="$errors->get('tagIds')" />
-                <x-input-error :messages="$errors->get('tagIds.*')" />
+                <x-input-error :messages="collect($errors->get('tagIds.*'))->flatten()->all()" />
             </div>
         </div>
 

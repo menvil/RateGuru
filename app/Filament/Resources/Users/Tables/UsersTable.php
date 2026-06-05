@@ -53,6 +53,10 @@ class UsersTable
                         UserStatus::Banned => 'danger',
                         UserStatus::Shadowbanned => 'gray',
                     }),
+                TextColumn::make('trust_level')
+                    ->label('Trust')
+                    ->numeric()
+                    ->sortable(),
                 TextColumn::make('posts_count')
                     ->label('Posts')
                     ->numeric()

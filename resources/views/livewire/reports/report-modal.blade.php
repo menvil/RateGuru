@@ -7,7 +7,11 @@
         type="button"
         data-testid="report-button"
         @click="reportOpen = true"
-        class="inline-flex h-5 cursor-pointer items-center text-xs font-semibold leading-none text-rg-muted transition hover:text-rg-dangerText"
+        @class([
+            'cursor-pointer transition',
+            'inline-flex h-5 items-center text-xs font-semibold leading-none text-rg-muted hover:text-rg-dangerText' => $variant !== 'menu',
+            'flex w-full items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText' => $variant === 'menu',
+        ])
     >
         Report
     </button>

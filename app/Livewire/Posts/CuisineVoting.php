@@ -11,8 +11,15 @@ use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
-final class CuisineVoting extends Component
+/**
+ * @deprecated Use CategoryVoting for new UI code until Phase 44 replaces legacy category storage.
+ */
+class CuisineVoting extends Component
 {
+    protected string $viewName = 'livewire.posts.cuisine-voting';
+
+    protected string $votedEventName = 'cuisine-voted';
+
     public int $postId;
 
     public string $variant = 'default';
@@ -22,33 +29,19 @@ final class CuisineVoting extends Component
     /**
      * @return list<CuisineType>
      */
-    private function options(): array
+    protected function options(): array
     {
         return CuisineType::votable();
     }
 
     public function labelFor(CuisineType $cuisine): string
     {
-        return match ($cuisine) {
-            CuisineType::Italian => 'Italian',
-            CuisineType::Asian => 'Asian',
-            CuisineType::American => 'American',
-            CuisineType::Mexican => 'Mexican',
-            CuisineType::Other => 'Other',
-            CuisineType::Unknown => 'Unknown',
-        };
+        return $cuisine->label();
     }
 
     public function shortLabelFor(CuisineType $cuisine): string
     {
-        return match ($cuisine) {
-            CuisineType::Italian => 'IT',
-            CuisineType::Asian => 'AS',
-            CuisineType::American => 'US',
-            CuisineType::Mexican => 'MX',
-            CuisineType::Other => 'OT',
-            CuisineType::Unknown => 'UN',
-        };
+        return $cuisine->shortLabel();
     }
 
     public function getPostProperty(): ?Post
@@ -88,7 +81,7 @@ final class CuisineVoting extends Component
         // vote on the re-render that follows this request.
         unset($this->distribution);
 
-        $this->dispatch('cuisine-voted', postId: $this->postId);
+        $this->dispatch($this->votedEventName, postId: $this->postId);
     }
 
     /**
@@ -101,6 +94,12 @@ final class CuisineVoting extends Component
         if ($postId === $this->postId) {
             unset($this->distribution);
         }
+    }
+
+    #[On('category-voted')]
+    public function refreshAfterCategoryVote(int $postId): void
+    {
+        $this->refreshAfterCuisineVote($postId);
     }
 
     /**
@@ -138,27 +137,30 @@ final class CuisineVoting extends Component
     public function render(): View
     {
         $post = $this->post;
-        $currentCuisine = null;
+        $currentValue = $this->resolveCurrentCuisine($post);
+        $isOwnPost = $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id();
 
-        if ($post !== null && auth()->check()) {
-            $currentCuisine = $post->cuisineVotes()
-                ->where('user_id', auth()->id())
-                ->latest('id')
-                ->first()
-                ?->cuisine
-                ?->value;
-        }
-
-        return view('livewire.posts.cuisine-voting', [
+        return view($this->viewName, [
             'post' => $post,
             'options' => $this->options(),
-            'currentCuisine' => $currentCuisine,
-            'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
-            'hasVoted' => $currentCuisine !== null,
-            'votingDisabled' => $currentCuisine !== null || ($post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id()),
-            'voteErrorMessage' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id() && $currentCuisine === null
-                ? 'You cannot vote on your own post.'
-                : null,
+            'currentValue' => $currentValue,
+            'isOwnPost' => $isOwnPost,
+            'hasVoted' => $currentValue !== null,
+            'votingDisabled' => ! auth()->check() || $isOwnPost || $currentValue !== null,
         ]);
+    }
+
+    protected function resolveCurrentCuisine(?Post $post): ?string
+    {
+        if ($post === null || ! auth()->check()) {
+            return null;
+        }
+
+        return $post->cuisineVotes()
+            ->where('user_id', auth()->id())
+            ->latest('id')
+            ->first()
+            ?->cuisine
+            ?->value;
     }
 }

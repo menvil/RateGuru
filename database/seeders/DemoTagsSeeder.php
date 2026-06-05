@@ -27,18 +27,18 @@ class DemoTagsSeeder extends Seeder
     private function tags(): array
     {
         return [
-            ['name' => 'Italian', 'slug' => 'italian'],
-            ['name' => 'Asian', 'slug' => 'asian'],
-            ['name' => 'American', 'slug' => 'american'],
-            ['name' => 'Mexican', 'slug' => 'mexican'],
-            ['name' => 'Homemade', 'slug' => 'homemade'],
-            ['name' => 'Restaurant', 'slug' => 'restaurant'],
-            ['name' => 'Dessert', 'slug' => 'dessert'],
-            ['name' => 'Breakfast', 'slug' => 'breakfast'],
-            ['name' => 'Street Food', 'slug' => 'street-food'],
-            ['name' => 'Healthy', 'slug' => 'healthy'],
-            ['name' => 'Spicy', 'slug' => 'spicy'],
-            ['name' => 'Comfort Food', 'slug' => 'comfort-food'],
+            ['name' => 'Category A', 'slug' => 'category-a'],
+            ['name' => 'Category B', 'slug' => 'category-b'],
+            ['name' => 'Category C', 'slug' => 'category-c'],
+            ['name' => 'Category D', 'slug' => 'category-d'],
+            ['name' => 'Source A', 'slug' => 'source-a'],
+            ['name' => 'Source B', 'slug' => 'source-b'],
+            ['name' => 'Sample A', 'slug' => 'sample-a'],
+            ['name' => 'Sample B', 'slug' => 'sample-b'],
+            ['name' => 'Sample C', 'slug' => 'sample-c'],
+            ['name' => 'Sample D', 'slug' => 'sample-d'],
+            ['name' => 'Sample E', 'slug' => 'sample-e'],
+            ['name' => 'Sample F', 'slug' => 'sample-f'],
         ];
     }
 }

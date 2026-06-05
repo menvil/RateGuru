@@ -7,10 +7,18 @@ use App\Enums\OriginType;
 use App\Exceptions\Votes\CannotVoteOriginException;
 use App\Models\Post;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
-final class OriginVoting extends Component
+/**
+ * @deprecated Use SourceVoting for new UI code until Phase 44 replaces legacy source storage.
+ */
+class OriginVoting extends Component
 {
+    protected string $viewName = 'livewire.posts.origin-voting';
+
+    protected string $votedEventName = 'origin-voted';
+
     public int $postId;
 
     public string $error = '';
@@ -72,30 +80,54 @@ final class OriginVoting extends Component
 
         unset($this->post);
 
-        $this->dispatch('origin-voted', postId: $this->postId);
+        $this->dispatch($this->votedEventName, postId: $this->postId);
+    }
+
+    #[On('origin-voted')]
+    public function refreshAfterOriginVote(int $postId): void
+    {
+        $this->refreshMatchingPost($postId);
+    }
+
+    #[On('source-voted')]
+    public function refreshAfterSourceVote(int $postId): void
+    {
+        $this->refreshMatchingPost($postId);
     }
 
     public function render(): View
     {
         $post = $this->post;
-        $currentOrigin = null;
+        $currentValue = $this->resolveCurrentOrigin($post);
+        $isOwnPost = $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id();
 
-        if ($post !== null && auth()->check()) {
-            $currentOrigin = $post->originVotes()
-                ->where('user_id', auth()->id())
-                ->latest('id')
-                ->first()
-                ?->origin
-                ?->value;
+        return view($this->viewName, [
+            'post' => $post,
+            'currentValue' => $currentValue,
+            'isOwnPost' => $isOwnPost,
+            'hasVoted' => $currentValue !== null,
+            'votingDisabled' => ! auth()->check() || $isOwnPost || $currentValue !== null,
+        ]);
+    }
+
+    protected function resolveCurrentOrigin(?Post $post): ?string
+    {
+        if ($post === null || ! auth()->check()) {
+            return null;
         }
 
-        return view('livewire.posts.origin-voting', [
-            'post' => $post,
-            'currentOrigin' => $currentOrigin,
-            'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
-            'hasVoted' => $currentOrigin !== null,
-            'votingDisabled' => $currentOrigin !== null || ($post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id()),
-            'showOwnPostVoteError' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id() && $currentOrigin === null,
-        ]);
+        return $post->originVotes()
+            ->where('user_id', auth()->id())
+            ->latest('id')
+            ->first()
+            ?->origin
+            ?->value;
+    }
+
+    private function refreshMatchingPost(int $postId): void
+    {
+        if ($postId === $this->postId) {
+            unset($this->post);
+        }
     }
 }

@@ -21,3 +21,11 @@ it('renders supported button options', function () {
         ->toContain('bg-[rgba(239,68,68,0.12)]')
         ->toContain('w-full');
 });
+
+it('renders the danger button with pointer cursor', function () {
+    $html = Blade::render('<x-danger-button>Delete Account</x-danger-button>');
+
+    expect($html)
+        ->toContain('Delete Account')
+        ->toContain('cursor-pointer');
+});

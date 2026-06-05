@@ -14,7 +14,7 @@ it('seeds published demo posts', function () {
     $this->seed(DemoPublishedPostsSeeder::class);
 
     expect(Post::query()->where('status', PostStatus::Published)->count())
-        ->toBe(6);
+        ->toBe(14);
 });
 
 it('seeds published posts with authors and tags', function () {
@@ -33,4 +33,14 @@ it('seeded published posts are visible through feed query', function () {
 
     expect($posts)->not->toBeEmpty();
     expect($posts->every(fn (Post $post) => $post->status === PostStatus::Published))->toBeTrue();
+});
+
+it('seeds generic demo posts without food-specific titles', function () {
+    $this->seed(DemoDatabaseSeeder::class);
+
+    $content = strtolower(Post::query()->pluck('title')->implode(' '));
+
+    expect($content)->not->toContain('pasta');
+    expect($content)->not->toContain('sushi');
+    expect($content)->not->toContain('tacos');
 });

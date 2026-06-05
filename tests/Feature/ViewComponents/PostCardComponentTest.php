@@ -54,7 +54,7 @@ it('renders image placeholder when image url is missing', function () {
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('Food image');
+    expect($html)->toContain('Post image');
 });
 
 it('renders post title and description', function () {
@@ -131,8 +131,8 @@ it('renders post stats area', function () {
     expect($html)
         ->toContain('9')
         ->toContain('5 comments')
-        ->toContain('Homemade')
-        ->toContain('Restaurant');
+        ->toContain('Source A')
+        ->toContain('Source B');
 });
 
 it('renders post author area', function () {
@@ -177,7 +177,20 @@ it('renders report button in post card menu for persisted posts', function () {
 
     expect($html)
         ->toContain('data-testid="post-card-report"')
-        ->toContain('Report');
+        ->toContain('Report')
+        ->toContain('text-rg-dangerText')
+        ->toContain('hover:bg-rg-dangerSoft');
+});
+
+it('renders feed card vote error placeholder below footer actions', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('x-on:post-vote-error.window')
+        ->toContain('data-testid="post-card-vote-error"')
+        ->toContain('postVoteError');
 });
 
 it('does not render report button for unsaved post preview', function () {
@@ -264,12 +277,15 @@ it('does not render delete action in the post card menu for another user', funct
     expect($html)->not->toContain('data-testid="post-card-delete"');
 });
 
-it('renders origin voting component in post card for persisted posts', function () {
+it('renders source voting component in post card for persisted posts', function () {
     $post = Post::factory()->published()->create();
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('post-card-origin-voting');
+    expect($html)
+        ->toContain('post-card-source-voting')
+        ->toContain('Source')
+        ->not->toContain('What do you think?');
 });
 
 it('renders feed card vote results after the current user votes', function () {
@@ -287,8 +303,8 @@ it('renders feed card vote results after the current user votes', function () {
     ];
     $cuisineDistribution = [
         'rows' => [
-            ['label' => 'IT', 'count' => 1, 'percentage' => 50],
-            ['label' => 'MX', 'count' => 1, 'percentage' => 50],
+            ['label' => 'A', 'count' => 1, 'percentage' => 50],
+            ['label' => 'D', 'count' => 1, 'percentage' => 50],
         ],
         'total' => 2,
         'current' => CuisineType::Mexican->value,
@@ -303,8 +319,10 @@ it('renders feed card vote results after the current user votes', function () {
         ->toContain('data-testid="post-card-origin-results"')
         ->toContain('60% (3)')
         ->toContain('40% (2)')
+        ->toContain('whitespace-nowrap text-[18px]')
+        ->toContain('h-1.5 overflow-hidden rounded-rgPill')
         ->toContain('data-testid="post-card-cuisine-results"')
-        ->toContain('MX')
+        ->toContain('D')
         ->toContain('50% (1)');
 });
 
@@ -323,7 +341,7 @@ it('does not render feed card vote results before the current user votes', funct
         ->not->toContain('data-testid="post-card-cuisine-results"');
 });
 
-it('renders origin badges without breaking on unsaved post', function () {
+it('renders source badges without breaking on unsaved post', function () {
     $post = Post::factory()->published()->make([
         'homemade_votes_count' => 2,
         'restaurant_votes_count' => 1,
@@ -331,10 +349,10 @@ it('renders origin badges without breaking on unsaved post', function () {
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('Homemade 2');
-    expect($html)->toContain('Restaurant 1');
-    // Unsaved posts must not render the interactive Livewire origin component.
-    expect($html)->not->toContain('post-card-origin-voting');
+    expect($html)->toContain('Source A 2');
+    expect($html)->toContain('Source B 1');
+    // Unsaved posts must not render the interactive Livewire source component.
+    expect($html)->not->toContain('post-card-source-voting');
 });
 
 it('keeps post card free of service locator vote and authorization queries', function () {

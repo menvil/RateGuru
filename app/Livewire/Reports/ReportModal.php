@@ -19,6 +19,8 @@ final class ReportModal extends Component
 
     public int $reportableId;
 
+    public string $variant = 'link';
+
     public string $reason = '';
 
     public ?string $message = null;
@@ -97,7 +99,7 @@ final class ReportModal extends Component
             ReportReason::Offensive => 'Offensive',
             ReportReason::Fake => 'Fake',
             ReportReason::Copyright => 'Copyright',
-            ReportReason::NotFood => 'Not food',
+            ReportReason::NotFood => 'Wrong category',
             ReportReason::Other => 'Other',
         };
     }

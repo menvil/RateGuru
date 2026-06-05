@@ -24,8 +24,15 @@
         </div>
 
         <div>
+            <x-input-label for="username" :value="__('Username')" />
+            <x-ui.input id="username" name="username" type="text" class="mt-1" :value="old('username', $user->username)" required autocomplete="username" />
+            <p class="mt-1 text-xs text-rg-muted">Your public profile URL is /u/{{ old('username', $user->username) ?: 'username' }}.</p>
+            <x-input-error class="mt-2" :messages="$errors->get('username')" />
+        </div>
+
+        <div>
             <x-input-label for="email" :value="__('Email')" />
-            <x-ui.input id="email" name="email" type="email" class="mt-1" :value="old('email', $user->email)" required autocomplete="username" />
+            <x-ui.input id="email" name="email" type="email" class="mt-1" :value="old('email', $user->email)" required autocomplete="email" />
             <x-input-error class="mt-2" :messages="$errors->get('email')" />
 
             @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())

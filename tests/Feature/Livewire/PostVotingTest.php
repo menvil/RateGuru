@@ -265,6 +265,43 @@ it('shows an error instead of throwing when the post is no longer available', fu
     $this->assertDatabaseCount('post_votes', 0);
 });
 
+it('prevents voting on an own post before the user attempts to vote', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    $html = Livewire::actingAs($owner)
+        ->test(PostVoting::class, ['postId' => $post->id])
+        ->assertSee('You cannot vote on your own post.')
+        ->html();
+
+    expect($html)
+        ->toMatch('/<button(?=[^>]*data-testid="post-upvote-button-'.$post->id.'")[^>]*\sdisabled(?:\s|=|>)/')
+        ->toMatch('/<button(?=[^>]*data-testid="post-downvote-button-'.$post->id.'")[^>]*\sdisabled(?:\s|=|>)/');
+});
+
+it('shows own post vote error only after the user attempts to vote', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    Livewire::actingAs($owner)
+        ->test(PostVoting::class, ['postId' => $post->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', 'You cannot vote on your own post.')
+        ->assertSee('You cannot vote on your own post.');
+});
+
+it('dispatches own post vote errors from rail variant without rendering inline rail text', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    Livewire::actingAs($owner)
+        ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', 'You cannot vote on your own post.')
+        ->assertDispatched('post-vote-error', postId: $post->id, message: 'You cannot vote on your own post.')
+        ->assertDontSee('You cannot vote on your own post.');
+});
+
 it('calls vote action when down button is clicked', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

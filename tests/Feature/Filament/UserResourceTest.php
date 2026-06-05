@@ -75,6 +75,25 @@ it('validates username uniqueness when editing a user', function () {
         ->assertHasFormErrors(['username' => 'unique']);
 });
 
+it('requires an integer trust level when editing a user', function () {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
+        ->fillForm([
+            'name' => $user->name,
+            'username' => $user->username,
+            'email' => $user->email,
+            'role' => $user->role->value,
+            'status' => $user->status->value,
+            'trust_level' => 1.5,
+        ])
+        ->call('save')
+        ->assertHasFormErrors(['trust_level' => 'integer']);
+});
+
 it('does not allow moderators to edit users directly', function () {
     $moderator = User::factory()->moderator()->create();
     $user = User::factory()->create(['status' => UserStatus::Active]);

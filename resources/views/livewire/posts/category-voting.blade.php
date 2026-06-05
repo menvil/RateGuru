@@ -1,0 +1,12 @@
+<x-voting.category-options
+    :post="$post"
+    :options="$options"
+    :current-value="$currentValue"
+    :voting-disabled="$votingDisabled"
+    :is-own-post="$isOwnPost"
+    :error="$error"
+    :variant="$variant"
+    root-test-id="category-voting"
+    unavailable-test-id="category-voting-unavailable"
+    error-test-id="category-voting-error"
+/>
