@@ -6,6 +6,7 @@
     'disabled' => true,
     'isOwnPost' => false,
     'error' => '',
+    'distribution' => [],
 ])
 
 <div class="flex flex-col gap-3">
@@ -14,6 +15,8 @@
     <div class="flex flex-wrap gap-2">
         @foreach($options as $option)
             @php($active = (int) $selectedOptionId === (int) $option->id)
+            @php($result = $distribution[$option->id] ?? null)
+            @php($resultLabel = $result === null ? null : $result['count'].' '.($result['count'] === 1 ? 'vote' : 'votes').' · '.number_format($result['percent'], 0).'%')
 
             @if($disabled)
                 <x-ui.button
@@ -24,7 +27,10 @@
                     data-state="{{ $active ? 'active' : 'idle' }}"
                     data-testid="rating-option-{{ $option->id }}"
                 >
-                    {{ $option->label }}
+                    <span>{{ $option->label }}</span>
+                    @if($resultLabel !== null)
+                        <span class="text-[11px] font-medium opacity-75">{{ $resultLabel }}</span>
+                    @endif
                 </x-ui.button>
             @else
                 <x-ui.button
@@ -38,7 +44,10 @@
                     data-state="{{ $active ? 'active' : 'idle' }}"
                     data-testid="rating-option-{{ $option->id }}"
                 >
-                    {{ $option->label }}
+                    <span>{{ $option->label }}</span>
+                    @if($resultLabel !== null)
+                        <span class="text-[11px] font-medium opacity-75">{{ $resultLabel }}</span>
+                    @endif
                 </x-ui.button>
             @endif
         @endforeach
