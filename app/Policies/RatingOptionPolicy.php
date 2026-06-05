@@ -29,6 +29,6 @@ class RatingOptionPolicy
 
     public function delete(User $user, RatingOption $option): bool
     {
-        return false;
+        return $user->isAdmin();
     }
 }

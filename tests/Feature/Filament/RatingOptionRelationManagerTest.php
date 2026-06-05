@@ -163,3 +163,51 @@ it('shows vote counts for rating options', function () {
         ->assertCanSeeTableRecords([$option])
         ->assertTableColumnStateSet('votes_count', 2, record: $option);
 });
+
+it('keeps a voted option when admin attempts to delete it', function () {
+    $admin = User::factory()->admin()->create();
+    $group = RatingGroup::factory()->create(['min_options' => 2]);
+    $option = RatingOption::factory()->for($group, 'group')->create();
+    RatingOption::factory()->count(2)->for($group, 'group')->create();
+
+    RatingVote::factory()
+        ->for($group, 'group')
+        ->for($option, 'option')
+        ->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(OptionsRelationManager::class, [
+        'ownerRecord' => $group,
+        'pageClass' => EditRatingGroup::class,
+    ])
+        ->callTableAction('delete', $option)
+        ->assertNotified('Cannot delete rating option');
+
+    $this->assertDatabaseHas('rating_options', ['id' => $option->id]);
+});
+
+it('allows admin to archive a voted option safely', function () {
+    $admin = User::factory()->admin()->create();
+    $group = RatingGroup::factory()->create(['min_options' => 2]);
+    $option = RatingOption::factory()->for($group, 'group')->create();
+    RatingOption::factory()->count(2)->for($group, 'group')->create();
+
+    RatingVote::factory()
+        ->for($group, 'group')
+        ->for($option, 'option')
+        ->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(OptionsRelationManager::class, [
+        'ownerRecord' => $group,
+        'pageClass' => EditRatingGroup::class,
+    ])
+        ->callTableAction('archive', $option)
+        ->assertNotified('Rating option archived');
+
+    expect($option->fresh()->is_active)->toBeFalse()
+        ->and($option->fresh()->archived_at)->not->toBeNull()
+        ->and($option->fresh()->votes()->count())->toBe(1);
+});
