@@ -38,10 +38,22 @@ final class PostShow extends Component
         // Triggers a re-render so the origin summary reflects fresh counters.
     }
 
+    #[On('source-voted')]
+    public function refreshAfterSourceVote(): void
+    {
+        $this->refreshAfterOriginVote();
+    }
+
     #[On('cuisine-voted')]
     public function refreshAfterCuisineVote(): void
     {
         // Triggers a re-render after cuisine votes.
+    }
+
+    #[On('category-voted')]
+    public function refreshAfterCategoryVote(): void
+    {
+        $this->refreshAfterCuisineVote();
     }
 
     public function render(): View

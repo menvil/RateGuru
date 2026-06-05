@@ -25,6 +25,7 @@ Phase 43 is complete only when the public application language no longer exposes
 - [ ] Seed and factory content is neutralized.
 - [ ] Forbidden words guardrail test exists.
 - [ ] Browser and visual tests are updated for generic copy.
+- [ ] UI review checklist (`docs/design/ui-review-checklist.md`) verified before completing `phase-43-domain-refactor-review.md`.
 - [ ] No DB rename was done prematurely.
 - [ ] Phase 44 migration target is documented.
 

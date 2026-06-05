@@ -131,14 +131,7 @@ final class PostVoteResultService
                 $count = (int) ($counts[$cuisine->value] ?? 0);
 
                 return [
-                    'label' => match ($cuisine) {
-                        CuisineType::Italian => 'A',
-                        CuisineType::Asian => 'B',
-                        CuisineType::American => 'C',
-                        CuisineType::Mexican => 'D',
-                        CuisineType::Other => 'OT',
-                        CuisineType::Unknown => 'UN',
-                    },
+                    'label' => $cuisine->shortLabel(),
                     'count' => $count,
                     'percentage' => $total > 0 ? (int) round(($count / $total) * 100) : 0,
                 ];

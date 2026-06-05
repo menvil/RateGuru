@@ -35,3 +35,14 @@ it('seeds comments idempotently', function () {
 
     expect(Comment::query()->count())->toBe($count);
 });
+
+it('uses neutral presentation wording in seeded comments', function () {
+    $this->seed(DemoDatabaseSeeder::class);
+
+    $commentBodies = Comment::query()
+        ->pluck('body')
+        ->map(fn (string $body): string => strtolower($body));
+
+    expect($commentBodies->contains(fn (string $body): bool => str_contains($body, 'plating')))
+        ->toBeFalse();
+});

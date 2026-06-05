@@ -82,13 +82,15 @@ final class PostVoting extends Component
             $currentVote = $this->currentVoteFor($post)?->value;
         }
 
+        $isOwnPost = $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id();
+
         return view('livewire.posts.post-voting', [
             'post' => $post,
             'currentVote' => $currentVote,
-            'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
-            'votingDisabled' => false,
+            'votingDisabled' => ! auth()->check() || $isOwnPost,
+            'preventiveMessage' => $isOwnPost ? 'You cannot vote on your own post.' : null,
             'score' => (int) ($post?->score ?? 0),
         ]);
     }

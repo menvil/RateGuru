@@ -53,18 +53,19 @@ it('shows error when guest tries to vote source option', function () {
 
     Livewire::test(OriginVoting::class, ['postId' => $post->id])
         ->call('vote', OriginType::Homemade->value)
-        ->assertSee('Guests cannot vote on origin.');
+        ->assertSee('Guests cannot vote on source.');
 
     expect(OriginVote::query()->count())->toBe(0);
 });
 
-it('does not show own post source vote error before attempting to vote', function () {
+it('prevents source voting on an own post before attempting to vote', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
     Livewire::actingAs($owner)
         ->test(OriginVoting::class, ['postId' => $post->id])
-        ->assertDontSee('You cannot vote on your own post.');
+        ->assertSee('You cannot vote on your own post.')
+        ->assertSee('disabled', false);
 });
 
 it('shows own post source vote error after attempting to vote', function () {

@@ -28,7 +28,7 @@
         </x-ui.action-button>
     @endif
 
-    @if($message && ! in_array($message, ['Saved', 'Removed'], true))
-        <span class="text-xs text-rg-muted" role="status">{{ $message }}</span>
+    @if($this->displayMessage)
+        <span class="text-xs text-rg-muted" role="status" data-testid="save-post-message">{{ $this->displayMessage }}</span>
     @endif
 </div>

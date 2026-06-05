@@ -86,10 +86,7 @@
                                 class="absolute left-0 z-20 mt-2 w-48 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                                 data-testid="origin-filter-menu"
                             >
-                                @foreach([
-                                    ['value' => 'homemade', 'label' => 'Source A'],
-                                    ['value' => 'restaurant', 'label' => 'Source B'],
-                                ] as $filter)
+                                @foreach($originOptions as $filter)
                                     <button
                                         type="button"
                                         wire:click="toggleOrigin('{{ $filter['value'] }}')"
@@ -138,13 +135,7 @@
                                 class="absolute left-0 z-20 mt-2 w-52 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                                 data-testid="cuisine-filter-menu"
                             >
-                                @foreach([
-                                    ['value' => 'italian', 'label' => 'Category A'],
-                                    ['value' => 'asian', 'label' => 'Category B'],
-                                    ['value' => 'american', 'label' => 'Category C'],
-                                    ['value' => 'mexican', 'label' => 'Category D'],
-                                    ['value' => 'other', 'label' => 'Other'],
-                                ] as $filter)
+                                @foreach($cuisineOptions as $filter)
                                     <button
                                         type="button"
                                         wire:click="toggleCuisine('{{ $filter['value'] }}')"

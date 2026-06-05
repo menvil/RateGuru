@@ -311,6 +311,78 @@ it('filters upload tags while typing and toggles selected tags', function () {
         ->assertSee('data-testid="upload-selected-tags"', false);
 });
 
+it('toggles a selected tag off', function () {
+    $user = User::factory()->create();
+    $tag = Tag::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->call('toggleTag', $tag->id)
+        ->assertSet('tagIds', [$tag->id])
+        ->call('toggleTag', $tag->id)
+        ->assertSet('tagIds', []);
+});
+
+it('does not select more than ten tags', function () {
+    $user = User::factory()->create();
+    $tags = Tag::factory()->count(11)->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(UploadPostForm::class);
+
+    $tags->each(fn (Tag $tag) => $component->call('toggleTag', $tag->id));
+
+    expect($component->get('tagIds'))
+        ->toHaveCount(10)
+        ->not->toContain($tags->last()->id);
+});
+
+it('rejects more than ten submitted tag ids', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+    $tagIds = Tag::factory()->count(11)->create()->pluck('id')->all();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Post with too many tags')
+        ->set('image', UploadedFile::fake()->image('post.jpg'))
+        ->set('tagIds', $tagIds)
+        ->call('submit')
+        ->assertHasErrors(['tagIds' => 'max'])
+        ->assertNotDispatched('post-uploaded');
+});
+
+it('rejects submitted tag ids that do not exist', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Post with invalid tag')
+        ->set('image', UploadedFile::fake()->image('post.jpg'))
+        ->set('tagIds', [PHP_INT_MAX])
+        ->call('submit')
+        ->assertHasErrors(['tagIds.0' => 'exists'])
+        ->assertNotDispatched('post-uploaded');
+});
+
+it('renders tag search as an accessible combobox and menu as a listbox', function () {
+    $user = User::factory()->create();
+    $tag = Tag::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('role="combobox"', false)
+        ->assertSee('aria-controls="upload-tag-listbox"', false)
+        ->assertSee('role="listbox"', false)
+        ->assertSee('id="upload-tag-listbox"', false)
+        ->assertSee('role="option"', false)
+        ->assertSee('aria-selected="false"', false)
+        ->assertSee('id="upload-tag-option-'.$tag->id.'"', false);
+});
+
 it('does not query tags again during form interaction hydration', function () {
     $user = User::factory()->create();
     Tag::factory()->create(['name' => 'Italian']);

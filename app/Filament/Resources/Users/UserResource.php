@@ -71,7 +71,7 @@ class UserResource extends Resource
                 ->required(),
             TextInput::make('trust_level')
                 ->label('Trust level')
-                ->numeric()
+                ->integer()
                 ->minValue(0)
                 ->maxValue(255)
                 ->required()

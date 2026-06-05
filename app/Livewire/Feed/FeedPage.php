@@ -11,6 +11,19 @@ use Livewire\Component;
 
 class FeedPage extends Component
 {
+    private const ORIGIN_OPTIONS = [
+        ['value' => 'homemade', 'label' => 'Source A'],
+        ['value' => 'restaurant', 'label' => 'Source B'],
+    ];
+
+    private const CUISINE_OPTIONS = [
+        ['value' => 'italian', 'label' => 'Category A'],
+        ['value' => 'asian', 'label' => 'Category B'],
+        ['value' => 'american', 'label' => 'Category C'],
+        ['value' => 'mexican', 'label' => 'Category D'],
+        ['value' => 'other', 'label' => 'Other'],
+    ];
+
     #[Url(as: 'search', except: '')]
     public string $search = '';
 
@@ -53,7 +66,7 @@ class FeedPage extends Component
 
     public function toggleOrigin(string $origin): void
     {
-        $this->origin = $this->toggleFilterValue($this->origin, $origin, ['homemade', 'restaurant']);
+        $this->origin = $this->toggleFilterValue($this->origin, $origin, $this->originValues());
     }
 
     public function clearOriginFilters(): void
@@ -63,7 +76,7 @@ class FeedPage extends Component
 
     public function toggleCuisine(string $cuisine): void
     {
-        $this->cuisine = $this->toggleFilterValue($this->cuisine, $cuisine, ['italian', 'asian', 'american', 'mexican', 'other']);
+        $this->cuisine = $this->toggleFilterValue($this->cuisine, $cuisine, $this->cuisineValues());
     }
 
     public function clearCuisineFilters(): void
@@ -128,8 +141,24 @@ class FeedPage extends Component
 
     private function normalizeFilters(): void
     {
-        $this->origin = $this->normalizeFilterValues($this->origin, ['homemade', 'restaurant']);
-        $this->cuisine = $this->normalizeFilterValues($this->cuisine, ['italian', 'asian', 'american', 'mexican', 'other']);
+        $this->origin = $this->normalizeFilterValues($this->origin, $this->originValues());
+        $this->cuisine = $this->normalizeFilterValues($this->cuisine, $this->cuisineValues());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function originValues(): array
+    {
+        return array_column(self::ORIGIN_OPTIONS, 'value');
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function cuisineValues(): array
+    {
+        return array_column(self::CUISINE_OPTIONS, 'value');
     }
 
     /**
@@ -175,7 +204,10 @@ class FeedPage extends Component
 
     public function render(): View
     {
-        return view('livewire.feed.feed-page')
+        return view('livewire.feed.feed-page', [
+            'originOptions' => self::ORIGIN_OPTIONS,
+            'cuisineOptions' => self::CUISINE_OPTIONS,
+        ])
             ->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }
