@@ -2,10 +2,10 @@
 
 namespace App\Support\Rating;
 
+use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Models\RatingGroup;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use InvalidArgumentException;
 
 class RatingConfigurationManager
 {
@@ -36,7 +36,7 @@ class RatingConfigurationManager
         $activeOptionCount = $group->options()->active()->count();
 
         if ($activeOptionCount < $group->min_options || $activeOptionCount > $group->max_options) {
-            throw new InvalidArgumentException(
+            throw new InvalidRatingGroupConfigurationException(
                 "Rating group [{$group->key}] has {$activeOptionCount} active options; "
                 ."expected between {$group->min_options} and {$group->max_options}.",
             );
