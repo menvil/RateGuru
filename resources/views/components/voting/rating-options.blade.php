@@ -2,6 +2,7 @@
     'group',
     'options',
     'selectedOptionId' => null,
+    'guest' => false,
 ])
 
 <div class="flex flex-col gap-3">
@@ -23,4 +24,8 @@
             </x-ui.button>
         @endforeach
     </div>
+
+    @if($guest)
+        <p class="text-xs text-rg-muted">Sign in to vote.</p>
+    @endif
 </div>
