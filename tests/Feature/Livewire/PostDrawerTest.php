@@ -6,8 +6,11 @@ use App\Livewire\Feed\PostDrawer;
 use App\Models\CuisineVote;
 use App\Models\OriginVote;
 use App\Models\Post;
+use App\Models\RatingGroup;
+use App\Models\RatingVote;
 use App\Models\User;
 use App\Support\Urls\PostUrl;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Livewire\Livewire;
 
 it('can render post drawer component', function () {
@@ -125,17 +128,24 @@ it('renders the comments section in drawer', function () {
 });
 
 it('renders drawer vote summary', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $post = Post::factory()->published()->create([
         'upvotes_count' => 12,
         'downvotes_count' => 3,
-        'homemade_votes_count' => 7,
-        'restaurant_votes_count' => 5,
     ]);
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
+
+    RatingVote::factory()->count(7)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
+    RatingVote::factory()->count(5)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Source')
         ->assertSee('Source A')
         ->assertSee('Source B')
+        ->assertSee('7 votes')
+        ->assertSee('5 votes')
         ->assertDontSee('(unvoted)')
         ->assertDontSee('0 votes');
 });
@@ -213,6 +223,8 @@ it('renders image placeholder when drawer post has no image', function () {
 });
 
 it('renders source voting panel in drawer', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])

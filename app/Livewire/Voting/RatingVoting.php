@@ -13,6 +13,10 @@ use Livewire\Component;
 
 class RatingVoting extends Component
 {
+    protected string $viewName = 'livewire.voting.rating-voting';
+
+    protected string $votedEventName = 'rating-voted';
+
     public Post $post;
 
     public string $groupKey;
@@ -42,7 +46,7 @@ class RatingVoting extends Component
             return;
         }
 
-        $this->dispatch('rating-voted', postId: $this->post->id, groupKey: $this->groupKey);
+        $this->dispatch($this->votedEventName, postId: $this->post->id, groupKey: $this->groupKey);
     }
 
     public function render(
@@ -64,7 +68,7 @@ class RatingVoting extends Component
                 ->value('rating_option_id');
         }
 
-        return view('livewire.voting.rating-voting', [
+        return view($this->viewName, [
             'distribution' => $distribution,
             'group' => $group,
             'isOwnPost' => $isOwnPost,
