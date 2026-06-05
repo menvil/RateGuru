@@ -5,6 +5,10 @@ use App\Http\Middleware\EnsureDevEnvironment;
 use App\Livewire\Feed\FeedPage;
 use App\Livewire\Posts\PostShow;
 use App\Livewire\Profile\ProfilePage;
+use App\Models\Post;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
+use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', FeedPage::class)->name('feed');
@@ -18,7 +22,7 @@ Route::get('/dashboard', function () {
 })->name('dashboard');
 
 Route::get('/dev/ui-kit', function () {
-    $demoPost = new \App\Models\Post([
+    $demoPost = new Post([
         'title' => 'Homemade Carbonara',
         'description' => 'Creamy pasta with pepper and guanciale.',
         'upvotes_count' => 128,
@@ -28,12 +32,22 @@ Route::get('/dev/ui-kit', function () {
         'restaurant_votes_count' => 30,
         'image_url' => null,
     ]);
-    $demoPost->setRelation('user', new \App\Models\User([
+    $demoPost->setRelation('user', new User([
         'name' => 'Demo Chef',
         'username' => 'demo_chef',
     ]));
 
-    return view('dev.ui-kit', compact('demoPost'));
+    $demoRatingGroup = new RatingGroup([
+        'key' => 'example',
+        'label' => 'Configurable rating',
+    ]);
+    $demoRatingGroup->setRelation('options', collect([
+        new RatingOption(['id' => 1, 'label' => 'Option A']),
+        new RatingOption(['id' => 2, 'label' => 'Option B']),
+        new RatingOption(['id' => 3, 'label' => 'Option C']),
+    ]));
+
+    return view('dev.ui-kit', compact('demoPost', 'demoRatingGroup'));
 })->middleware(EnsureDevEnvironment::class)->name('dev.ui-kit');
 
 Route::middleware('auth')->group(function () {

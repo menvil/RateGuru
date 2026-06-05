@@ -104,7 +104,9 @@ it('renders post card example in the feed components section of ui kit', functio
         ->assertSee('Feed Components')
         ->assertSee('Homemade Carbonara')
         ->assertSee('data-testid="ui-kit-source-voting"', false)
-        ->assertSee('data-testid="ui-kit-category-voting"', false);
+        ->assertSee('data-testid="ui-kit-category-voting"', false)
+        ->assertSee('Configurable rating')
+        ->assertSee('data-testid="rating-option-1"', false);
 });
 
 it('does not render the old abstract placeholder label in the reference composition', function () {

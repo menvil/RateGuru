@@ -104,6 +104,12 @@
                     unavailable-test-id="ui-kit-category-voting-unavailable"
                     error-test-id="ui-kit-category-voting-error"
                 />
+
+                <x-voting.rating-options
+                    :group="$demoRatingGroup"
+                    :options="$demoRatingGroup->options"
+                    :selected-option-id="1"
+                />
             </div>
         </section>
 
