@@ -1,12 +1,17 @@
-<x-voting.category-options
-    :post="$post"
-    :options="$options"
-    :current-value="$currentValue"
-    :voting-disabled="$votingDisabled"
-    :is-own-post="$isOwnPost"
-    :error="$error"
-    :variant="$variant"
-    root-test-id="category-voting"
-    unavailable-test-id="category-voting-unavailable"
-    error-test-id="category-voting-error"
-/>
+<div>
+    @if($group !== null)
+        <div data-testid="category-voting">
+            <x-voting.rating-options
+                :group="$group"
+                :options="$group->options"
+                :selected-option-id="$selectedOptionId"
+                :guest="! auth()->check()"
+                :disabled="$votingDisabled"
+                :is-own-post="$isOwnPost"
+                :error="$error"
+                :distribution="$distribution"
+                :variant="$variant"
+            />
+        </div>
+    @endif
+</div>
