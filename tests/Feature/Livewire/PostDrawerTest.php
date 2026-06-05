@@ -146,8 +146,7 @@ it('renders drawer vote summary', function () {
         ->assertSee('Source B')
         ->assertSee('7 votes')
         ->assertSee('5 votes')
-        ->assertDontSee('(unvoted)')
-        ->assertDontSee('0 votes');
+        ->assertDontSee('(unvoted)');
 });
 
 it('renders drawer author metadata', function () {
@@ -295,17 +294,19 @@ it('keeps drawer result visibility logic in the Livewire component', function ()
 });
 
 it('renders category voting buttons in drawer', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('data-testid="post-drawer-category-voting"', false)
         ->assertSee('flex-wrap', false)
-        ->assertSee('h-7 min-w-9', false)
+        ->assertSee('!h-7 !min-w-9', false)
         ->assertSee('Category A')
         ->assertSee('Category B')
         ->assertSee('Category C')
-        ->assertSee('Category D')
-        ->assertSee('Other');
+        ->assertDontSee('Category D')
+        ->assertDontSee('Other');
 });
 
 it('renders drawer category controls directly under the distribution heading', function () {

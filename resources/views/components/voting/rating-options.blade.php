@@ -7,21 +7,24 @@
     'isOwnPost' => false,
     'error' => '',
     'distribution' => [],
+    'variant' => 'default',
 ])
 
 <div class="flex flex-col gap-3">
     <h3 class="text-sm font-semibold text-rg-text">{{ $group->label }}</h3>
 
-    <div class="flex flex-wrap gap-2">
+    <div class="{{ $variant === 'compact' ? 'flex flex-wrap gap-1.5' : 'flex flex-wrap gap-2' }}">
         @foreach($options as $option)
             @php($active = (int) $selectedOptionId === (int) $option->id)
             @php($result = $distribution[$option->id] ?? null)
             @php($resultLabel = $result === null ? null : $result['count'].' '.($result['count'] === 1 ? 'vote' : 'votes').' · '.number_format($result['percent'], 0).'%')
+            @php($sizeClass = $variant === 'compact' ? '!h-7 !min-w-9 !px-2 !text-[11px]' : '')
 
             @if($disabled)
                 <x-ui.button
                     :variant="$active ? 'primary' : 'secondary'"
                     size="sm"
+                    :class="$sizeClass"
                     :disabled="true"
                     aria-pressed="{{ $active ? 'true' : 'false' }}"
                     data-state="{{ $active ? 'active' : 'idle' }}"
@@ -36,6 +39,7 @@
                 <x-ui.button
                     :variant="$active ? 'primary' : 'secondary'"
                     size="sm"
+                    :class="$sizeClass"
                     wire:click="vote({{ $option->id }})"
                     wire:target="vote"
                     wire:loading.attr="disabled"
