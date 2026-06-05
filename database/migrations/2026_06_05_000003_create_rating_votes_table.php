@@ -13,9 +13,13 @@ return new class extends Migration
             $table->foreignId('post_id')->constrained()->cascadeOnDelete();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('rating_group_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('rating_option_id')->constrained()->cascadeOnDelete();
+            $table->unsignedBigInteger('rating_option_id');
             $table->timestamps();
 
+            $table->foreign(['rating_option_id', 'rating_group_id'])
+                ->references(['id', 'rating_group_id'])
+                ->on('rating_options')
+                ->cascadeOnDelete();
             $table->unique(['user_id', 'post_id', 'rating_group_id']);
             $table->index(['post_id', 'rating_group_id']);
             $table->index('rating_option_id');

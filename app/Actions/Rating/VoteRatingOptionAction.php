@@ -62,31 +62,18 @@ final class VoteRatingOptionAction
         }
 
         $changed = DB::transaction(function () use ($user, $post, $option): bool {
-            $vote = RatingVote::query()
-                ->where('user_id', $user->id)
-                ->where('post_id', $post->id)
-                ->where('rating_group_id', $option->rating_group_id)
-                ->lockForUpdate()
-                ->first();
-
-            if ($vote === null) {
-                RatingVote::query()->create([
+            $vote = RatingVote::query()->updateOrCreate(
+                [
                     'user_id' => $user->id,
                     'post_id' => $post->id,
                     'rating_group_id' => $option->rating_group_id,
+                ],
+                [
                     'rating_option_id' => $option->id,
-                ]);
+                ],
+            );
 
-                return true;
-            }
-
-            if ((int) $vote->rating_option_id === (int) $option->id) {
-                return false;
-            }
-
-            $vote->update(['rating_option_id' => $option->id]);
-
-            return true;
+            return $vote->wasRecentlyCreated || $vote->wasChanged('rating_option_id');
         });
 
         if ($changed) {

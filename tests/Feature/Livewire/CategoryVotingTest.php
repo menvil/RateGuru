@@ -43,3 +43,21 @@ it('stores category votes in the generic rating votes table', function () {
 
     $this->assertDatabaseCount('cuisine_votes', 0);
 });
+
+it('renders category voting unavailable for a missing or unpublished post', function (int $postId) {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
+    Livewire::test(CategoryVoting::class, ['postId' => $postId])
+        ->assertSee('data-testid="category-voting-unavailable"', false)
+        ->assertSee('Category voting unavailable');
+})->with([
+    'missing post' => fn () => 999999,
+    'unpublished post' => fn () => Post::factory()->hidden()->create()->id,
+]);
+
+it('renders category voting unavailable when its rating configuration is missing', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(CategoryVoting::class, ['postId' => $post->id])
+        ->assertSee('data-testid="category-voting-unavailable"', false);
+});

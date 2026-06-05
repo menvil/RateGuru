@@ -2,6 +2,6 @@
 
 namespace App\Exceptions\Rating;
 
-use RuntimeException;
+use DomainException;
 
-class InvalidRatingGroupConfigurationException extends RuntimeException {}
+final class InvalidRatingGroupConfigurationException extends DomainException {}

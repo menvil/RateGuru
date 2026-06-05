@@ -17,7 +17,7 @@ final class SourceVoting extends RatingVoting
     public function mount(int $postId): void
     {
         $this->postId = $postId;
-        $this->post = Post::query()->published()->findOrFail($postId);
+        $this->post = Post::query()->published()->find($postId);
         $this->groupKey = 'source';
     }
 
@@ -25,7 +25,7 @@ final class SourceVoting extends RatingVoting
     public function refreshAfterSourceVote(int $postId): void
     {
         if ($postId === $this->postId) {
-            $this->post = $this->post->refresh();
+            $this->post = Post::query()->published()->find($postId);
         }
     }
 }

@@ -43,6 +43,16 @@ it('allows a user to vote on the same post in different rating groups', function
     expect(DB::table('rating_votes')->count())->toBe(2);
 });
 
+it('rejects rating votes whose option belongs to another group', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    [$sourceGroupId] = createRatingGroupAndOptionForVotes('source', 'source_a');
+    [, $categoryOptionId] = createRatingGroupAndOptionForVotes('category', 'category_a');
+
+    expect(fn () => insertRatingVote($user->id, $post->id, $sourceGroupId, $categoryOptionId))
+        ->toThrow(QueryException::class);
+});
+
 it('creates rating vote lookup indexes', function () {
     $indexes = collect(DB::select("PRAGMA index_list('rating_votes')"))
         ->pluck('name');
