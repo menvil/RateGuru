@@ -29,10 +29,22 @@ final class PostDrawer extends Component
         // Triggers a re-render so the drawer origin summary reflects fresh counters.
     }
 
+    #[On('source-voted')]
+    public function refreshAfterSourceVote(): void
+    {
+        $this->refreshAfterOriginVote();
+    }
+
     #[On('cuisine-voted')]
     public function refreshAfterCuisineVote(): void
     {
         // Triggers a re-render so the drawer cuisine summary reflects fresh counters.
+    }
+
+    #[On('category-voted')]
+    public function refreshAfterCategoryVote(): void
+    {
+        $this->refreshAfterCuisineVote();
     }
 
     public function deleteSelectedPost(DeletePostAction $deletePostAction): void

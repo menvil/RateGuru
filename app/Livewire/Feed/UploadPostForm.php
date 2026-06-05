@@ -146,7 +146,6 @@ final class UploadPostForm extends Component
 
         $this->tagIds = $tagIds
             ->push($tagId)
-            ->unique()
             ->values()
             ->all();
     }

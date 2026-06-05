@@ -305,3 +305,12 @@ it('renders drawer category controls directly under the distribution heading', f
             'data-testid="post-drawer-category-voting"',
         ], false);
 });
+
+it('refreshes after semantic source and category vote events', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->dispatch('source-voted', postId: $post->id)
+        ->dispatch('category-voted', postId: $post->id)
+        ->assertOk();
+});

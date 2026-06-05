@@ -16,6 +16,10 @@ use Livewire\Component;
  */
 class CuisineVoting extends Component
 {
+    protected string $viewName = 'livewire.posts.cuisine-voting';
+
+    protected string $votedEventName = 'cuisine-voted';
+
     public int $postId;
 
     public string $variant = 'default';
@@ -32,26 +36,12 @@ class CuisineVoting extends Component
 
     public function labelFor(CuisineType $cuisine): string
     {
-        return match ($cuisine) {
-            CuisineType::Italian => 'Category A',
-            CuisineType::Asian => 'Category B',
-            CuisineType::American => 'Category C',
-            CuisineType::Mexican => 'Category D',
-            CuisineType::Other => 'Other',
-            CuisineType::Unknown => 'Unknown',
-        };
+        return $cuisine->label();
     }
 
     public function shortLabelFor(CuisineType $cuisine): string
     {
-        return match ($cuisine) {
-            CuisineType::Italian => 'A',
-            CuisineType::Asian => 'B',
-            CuisineType::American => 'C',
-            CuisineType::Mexican => 'D',
-            CuisineType::Other => 'OT',
-            CuisineType::Unknown => 'UN',
-        };
+        return $cuisine->shortLabel();
     }
 
     public function getPostProperty(): ?Post
@@ -91,7 +81,7 @@ class CuisineVoting extends Component
         // vote on the re-render that follows this request.
         unset($this->distribution);
 
-        $this->dispatch('cuisine-voted', postId: $this->postId);
+        $this->dispatch($this->votedEventName, postId: $this->postId);
     }
 
     /**
@@ -104,6 +94,12 @@ class CuisineVoting extends Component
         if ($postId === $this->postId) {
             unset($this->distribution);
         }
+    }
+
+    #[On('category-voted')]
+    public function refreshAfterCategoryVote(int $postId): void
+    {
+        $this->refreshAfterCuisineVote($postId);
     }
 
     /**
@@ -141,24 +137,30 @@ class CuisineVoting extends Component
     public function render(): View
     {
         $post = $this->post;
-        $currentCuisine = null;
+        $currentValue = $this->resolveCurrentCuisine($post);
+        $isOwnPost = $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id();
 
-        if ($post !== null && auth()->check()) {
-            $currentCuisine = $post->cuisineVotes()
-                ->where('user_id', auth()->id())
-                ->latest('id')
-                ->first()
-                ?->cuisine
-                ?->value;
-        }
-
-        return view('livewire.posts.cuisine-voting', [
+        return view($this->viewName, [
             'post' => $post,
             'options' => $this->options(),
-            'currentCuisine' => $currentCuisine,
-            'isOwnPost' => $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id(),
-            'hasVoted' => $currentCuisine !== null,
-            'votingDisabled' => $currentCuisine !== null,
+            'currentValue' => $currentValue,
+            'isOwnPost' => $isOwnPost,
+            'hasVoted' => $currentValue !== null,
+            'votingDisabled' => ! auth()->check() || $isOwnPost || $currentValue !== null,
         ]);
+    }
+
+    protected function resolveCurrentCuisine(?Post $post): ?string
+    {
+        if ($post === null || ! auth()->check()) {
+            return null;
+        }
+
+        return $post->cuisineVotes()
+            ->where('user_id', auth()->id())
+            ->latest('id')
+            ->first()
+            ?->cuisine
+            ?->value;
     }
 }

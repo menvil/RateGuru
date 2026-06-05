@@ -73,6 +73,12 @@ Phase 44 is responsible for replacing legacy voting storage with generic rating 
 - `rating_options`
 - `rating_votes`
 
+Phase 43 maps the legacy cuisine enum values to neutral public labels:
+`italian/asian/american/mexican/other/unknown` become `A/B/C/D/OT/UN`
+in compact UI and `Category A/B/C/D/Other/Unknown` in accessible labels.
+`CuisineType` owns this temporary mapping so services and voting components
+cannot drift. Phase 44 replaces it with configured rating option labels.
+
 After that migration, legacy Origin/Cuisine models, actions, enums, factories, and relationship tests can be removed or rewritten around Rating Group, Rating Option, and Rating Vote.
 
 ## Compatibility Rules

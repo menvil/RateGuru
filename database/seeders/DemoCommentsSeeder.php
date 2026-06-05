@@ -58,8 +58,8 @@ class DemoCommentsSeeder extends Seeder
     private function bodyFor(Post $post, int $index): string
     {
         return match ($index) {
-            0 => 'Demo comment: this plate is useful for feed and post show checks.',
-            1 => 'The texture and plating make this one easy to compare.',
+            0 => 'Demo comment: this post is useful for feed and detail checks.',
+            1 => 'The texture and presentation make this one easy to compare.',
             2 => 'Useful demo comment for lazy loading and sort checks.',
             3 => 'I would vote differently after seeing the full image.',
             default => 'Demo comment for '.$post->title,

@@ -24,18 +24,19 @@ it('does not record a category vote when an unauthenticated guest votes', functi
 
     Livewire::test(CuisineVoting::class, ['postId' => $post->id])
         ->call('vote', CuisineType::Italian->value)
-        ->assertSee('Guests cannot vote on cuisine.');
+        ->assertSee('Guests cannot vote on category.');
 
     $this->assertDatabaseCount('cuisine_votes', 0);
 });
 
-it('does not show own post category vote error before attempting to vote', function () {
+it('prevents category voting on an own post before attempting to vote', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
     Livewire::actingAs($owner)
         ->test(CuisineVoting::class, ['postId' => $post->id])
-        ->assertDontSee('You cannot vote on your own post.');
+        ->assertSee('You cannot vote on your own post.')
+        ->assertSee('disabled', false);
 });
 
 it('shows own post category vote error after attempting to vote', function () {

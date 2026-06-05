@@ -28,6 +28,13 @@ final class SavePostButton extends Component
         $this->message = $result->message;
     }
 
+    public function getDisplayMessageProperty(): ?string
+    {
+        return in_array($this->message, [null, 'Saved', 'Removed'], true)
+            ? null
+            : $this->message;
+    }
+
     public function render(): View
     {
         return view('livewire.posts.save-post-button');

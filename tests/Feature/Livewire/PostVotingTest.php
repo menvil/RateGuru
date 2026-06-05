@@ -265,13 +265,14 @@ it('shows an error instead of throwing when the post is no longer available', fu
     $this->assertDatabaseCount('post_votes', 0);
 });
 
-it('does not show own post vote error before the user attempts to vote', function () {
+it('prevents voting on an own post before the user attempts to vote', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
     Livewire::actingAs($owner)
         ->test(PostVoting::class, ['postId' => $post->id])
-        ->assertDontSee('You cannot vote on your own post.');
+        ->assertSee('You cannot vote on your own post.')
+        ->assertSee('disabled', false);
 });
 
 it('shows own post vote error only after the user attempts to vote', function () {

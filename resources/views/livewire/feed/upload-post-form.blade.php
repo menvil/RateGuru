@@ -157,9 +157,17 @@
                         x-on:input="open = true"
                         placeholder="Search or select tags"
                         data-testid="upload-tag-search"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-controls="upload-tag-listbox"
+                        x-bind:aria-expanded="open"
                     />
 
                     <div
+                        id="upload-tag-listbox"
+                        role="listbox"
+                        aria-label="Available tags"
+                        aria-multiselectable="true"
                         x-cloak
                         x-show="open"
                         class="absolute left-0 right-0 z-30 mt-2 max-h-60 overflow-y-auto rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
@@ -171,6 +179,9 @@
                                 wire:click="toggleTag({{ $tag['id'] }})"
                                 class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-[13px] font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text"
                                 data-testid="upload-tag-{{ $tag['id'] }}"
+                                id="upload-tag-option-{{ $tag['id'] }}"
+                                role="option"
+                                aria-selected="{{ in_array($tag['id'], $tagIds, true) ? 'true' : 'false' }}"
                             >
                                 <input
                                     type="checkbox"
@@ -221,7 +232,7 @@
             </div>
             <div data-testid="field-error-tags" class="mt-1">
                 <x-input-error :messages="$errors->get('tagIds')" />
-                <x-input-error :messages="$errors->get('tagIds.*')" />
+                <x-input-error :messages="collect($errors->get('tagIds.*'))->flatten()->all()" />
             </div>
         </div>
 

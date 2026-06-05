@@ -26,7 +26,7 @@ it('records category option votes through the legacy category storage', function
     Livewire::actingAs($user)
         ->test(CategoryVoting::class, ['postId' => $post->id])
         ->call('vote', CuisineType::Italian->value)
-        ->assertDispatched('cuisine-voted');
+        ->assertDispatched('category-voted');
 
     $this->assertDatabaseHas('cuisine_votes', [
         'user_id' => $user->id,

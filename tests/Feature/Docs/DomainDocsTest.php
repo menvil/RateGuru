@@ -48,5 +48,16 @@ it('has phase 43 domain refactor review checklist', function () {
 
     expect($content)->toContain('generic rating platform');
     expect($content)->toContain('forbidden words');
+    expect($content)->toContain('docs/design/ui-review-checklist.md');
+    expect($content)->toContain('phase-43-domain-refactor-review.md');
     expect($content)->toContain('Phase 44');
+});
+
+it('requires generic public copy in the ui review checklist', function () {
+    $content = file_get_contents(base_path('docs/design/ui-review-checklist.md'));
+
+    expect($content)->toContain('Mandatory: public-facing copy uses generic post, Source, and Category wording');
+    expect($content)->not->toContain('Dish placeholder');
+    expect($content)->not->toContain('Cuisine chips');
+    expect($content)->not->toContain('Cuisine distribution');
 });

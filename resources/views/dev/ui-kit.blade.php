@@ -76,6 +76,34 @@
 
             <div class="max-w-xl space-y-4">
                 <x-feed.post-card :post="$demoPost" />
+
+                <x-voting.source-options
+                    :post="$demoPost"
+                    :current-value="null"
+                    :voting-disabled="false"
+                    :is-own-post="false"
+                    error=""
+                    root-test-id="ui-kit-source-voting"
+                    unavailable-test-id="ui-kit-source-voting-unavailable"
+                    error-test-id="ui-kit-source-voting-error"
+                    option-a-test-id="ui-kit-source-vote-a"
+                    option-b-test-id="ui-kit-source-vote-b"
+                    option-a-value="homemade"
+                    option-b-value="restaurant"
+                />
+
+                <x-voting.category-options
+                    :post="$demoPost"
+                    :options="\App\Enums\CuisineType::votable()"
+                    :current-value="null"
+                    :voting-disabled="false"
+                    :is-own-post="false"
+                    error=""
+                    variant="default"
+                    root-test-id="ui-kit-category-voting"
+                    unavailable-test-id="ui-kit-category-voting-unavailable"
+                    error-test-id="ui-kit-category-voting-error"
+                />
             </div>
         </section>
 

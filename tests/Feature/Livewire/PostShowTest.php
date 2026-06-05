@@ -80,3 +80,12 @@ it('has post show comment scroll action', function () {
         ->assertSee('data-testid="post-show-comments-scroll"', false)
         ->assertSee('scrollToComments');
 });
+
+it('refreshes after semantic source and category vote events', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostShow::class, ['post' => $post])
+        ->dispatch('source-voted', postId: $post->id)
+        ->dispatch('category-voted', postId: $post->id)
+        ->assertOk();
+});

@@ -21,7 +21,7 @@ class ProfileUpdateRequest extends FormRequest
             'username' => [
                 'required',
                 'string',
-                'alpha_dash:ascii',
+                'regex:/\A[a-z0-9_]+\z/',
                 'max:32',
                 Rule::unique(User::class)->ignore($this->user()->id),
             ],

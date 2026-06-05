@@ -25,11 +25,19 @@ it('records source option votes through the legacy source storage', function () 
     Livewire::actingAs($user)
         ->test(SourceVoting::class, ['postId' => $post->id])
         ->call('vote', OriginType::Homemade->value)
-        ->assertDispatched('origin-voted');
+        ->assertDispatched('source-voted');
 
     $this->assertDatabaseHas('origin_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
         'origin' => OriginType::Homemade->value,
     ]);
+});
+
+it('refreshes matching source voting instances', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(SourceVoting::class, ['postId' => $post->id])
+        ->dispatch('source-voted', postId: $post->id)
+        ->assertOk();
 });

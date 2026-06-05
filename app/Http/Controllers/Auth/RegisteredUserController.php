@@ -2,20 +2,24 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Actions\Users\GenerateUniqueUsernameAction;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Auth\Events\Registered;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class RegisteredUserController extends Controller
 {
+    public const int MAX_CREATE_ATTEMPTS = 3;
+
     /**
      * Display the registration view.
      */
@@ -29,20 +33,40 @@ class RegisteredUserController extends Controller
      *
      * @throws ValidationException
      */
-    public function store(Request $request): RedirectResponse
-    {
+    public function store(
+        Request $request,
+        GenerateUniqueUsernameAction $generateUniqueUsername,
+    ): RedirectResponse {
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
-        $user = User::create([
-            'name' => $request->name,
-            'username' => $this->uniqueUsername($request->name),
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-        ]);
+        $password = Hash::make($request->password);
+
+        for ($attempt = 1; $attempt <= self::MAX_CREATE_ATTEMPTS; $attempt++) {
+            try {
+                $user = User::create([
+                    'name' => $request->name,
+                    'username' => $generateUniqueUsername->handle($request->name),
+                    'email' => $request->email,
+                    'password' => $password,
+                ]);
+
+                break;
+            } catch (QueryException $exception) {
+                if (! $this->isUsernameUniqueConstraintViolation($exception)) {
+                    throw $exception;
+                }
+
+                if ($attempt === self::MAX_CREATE_ATTEMPTS) {
+                    throw ValidationException::withMessages([
+                        'name' => 'Unable to create a unique username. Please try a different name.',
+                    ]);
+                }
+            }
+        }
 
         event(new Registered($user));
 
@@ -51,27 +75,24 @@ class RegisteredUserController extends Controller
         return redirect(route('dashboard', absolute: false));
     }
 
-    private function uniqueUsername(string $name): string
+    private function isUsernameUniqueConstraintViolation(QueryException $exception): bool
     {
-        $base = Str::of($name)
-            ->lower()
-            ->replaceMatches('/[^a-z0-9]+/', '_')
-            ->trim('_')
-            ->limit(32, '')
-            ->value();
-
-        if ($base === '') {
-            $base = 'user';
+        if (! $exception instanceof UniqueConstraintViolationException) {
+            return false;
         }
 
-        $username = $base;
-        $suffix = 2;
-
-        while (User::query()->where('username', $username)->exists()) {
-            $username = Str::limit($base, 28, '').'_'.$suffix;
-            $suffix++;
+        if ($exception->columns !== []) {
+            return in_array('username', $exception->columns, true);
         }
 
-        return $username;
+        if ($exception->index !== null) {
+            return str_contains(strtolower($exception->index), 'username');
+        }
+
+        $message = strtolower($exception->getPrevious()?->getMessage() ?? '');
+
+        return str_contains($message, 'users.username')
+            || str_contains($message, 'users_username_unique')
+            || str_contains($message, '(username)');
     }
 }

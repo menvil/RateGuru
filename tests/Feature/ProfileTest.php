@@ -55,6 +55,21 @@ test('email verification status is unchanged when the email address is unchanged
     $this->assertNotNull($user->refresh()->email_verified_at);
 });
 
+it('requires a canonical lowercase username', function (string $username) {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->patch('/profile', [
+            'name' => 'Test User',
+            'username' => $username,
+            'email' => $user->email,
+        ])
+        ->assertSessionHasErrors('username');
+})->with([
+    'uppercase characters' => 'Test_User',
+    'hyphens' => 'test-user',
+]);
+
 test('user can delete their account', function () {
     $user = User::factory()->create();
 

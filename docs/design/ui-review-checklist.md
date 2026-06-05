@@ -19,6 +19,7 @@
 
 ## General
 
+- [ ] Mandatory: public-facing copy uses generic post, Source, and Category wording
 - [ ] Dark background is preserved
 - [ ] Text contrast is acceptable
 - [ ] Accent purple is used consistently
@@ -40,16 +41,16 @@
 - [ ] Vote rail exists.
 - [ ] Avatar/user/time row exists.
 - [ ] Title exists.
-- [ ] Dish placeholder exists.
+- [ ] Image placeholder exists.
 - [ ] Binary voting controls exist.
-- [ ] Cuisine chips exist.
+- [ ] Category chips exist.
 - [ ] Footer actions exist.
 
 ## Detail anatomy
 
 - [ ] Detail post exists.
 - [ ] Results panel exists.
-- [ ] Cuisine distribution exists.
+- [ ] Category distribution exists.
 - [ ] Comments panel exists.
 - [ ] Comment composer exists.
 - [ ] Nested reply style exists.
