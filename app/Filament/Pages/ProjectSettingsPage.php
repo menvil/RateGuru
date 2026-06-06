@@ -95,7 +95,8 @@ class ProjectSettingsPage extends Page
                                 'light' => 'Light',
                                 'dark' => 'Dark',
                             ])
-                            ->required(),
+                            ->required()
+                            ->rules(['in:system,light,dark']),
                         Select::make('default_sort')
                             ->label('Default sort')
                             ->options([
@@ -103,7 +104,8 @@ class ProjectSettingsPage extends Page
                                 'new' => 'New',
                                 'top' => 'Top',
                             ])
-                            ->required(),
+                            ->required()
+                            ->rules(['in:hot,new,top']),
                     ]),
 
                 Section::make('Feature Flags')
