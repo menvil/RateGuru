@@ -43,7 +43,14 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
 
         View::composer('layouts.app', function ($view): void {
-            $view->with(app(AppLayoutData::class)->toArray());
+            $settings = app(ProjectSettingsManager::class)->current();
+            $view->with(array_merge(app(AppLayoutData::class)->toArray(), [
+                'projectSettings' => $settings,
+            ]));
+        });
+
+        View::composer('layouts.guest', function ($view): void {
+            $view->with('projectSettings', app(ProjectSettingsManager::class)->current());
         });
 
         View::composer('layouts.partials.app-sidebar', function ($view): void {
