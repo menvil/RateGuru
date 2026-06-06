@@ -1,6 +1,8 @@
 @php use App\Enums\OriginType; use App\Enums\CuisineType; @endphp
+@inject('settingsManager', \App\Support\Settings\ProjectSettingsManager::class)
+@php $uploadSettings = $settingsManager->current(); @endphp
 <div data-testid="upload-post-form">
-    <h2 class="sr-only">Upload post</h2>
+    <h2 class="sr-only">{{ $uploadSettings->uploadCtaLabel() }}</h2>
 
     <form wire:submit.prevent="submit" class="space-y-4">
         <div>
