@@ -20,8 +20,10 @@ it('calculates rating vote distribution for a post and group', function () {
     expect($distribution[$first->id]['option']->is($first))->toBeTrue()
         ->and($distribution[$first->id]['count'])->toBe(3)
         ->and($distribution[$first->id]['percent'])->toBe(75.0)
+        ->and($distribution[$first->id]['label'])->toBe('3 votes · 75%')
         ->and($distribution[$second->id]['count'])->toBe(1)
-        ->and($distribution[$second->id]['percent'])->toBe(25.0);
+        ->and($distribution[$second->id]['percent'])->toBe(25.0)
+        ->and($distribution[$second->id]['label'])->toBe('1 vote · 25%');
 });
 
 it('returns zero counts and percentages when a group has no votes', function () {
@@ -32,7 +34,8 @@ it('returns zero counts and percentages when a group has no votes', function () 
     $distribution = app(RatingVoteDistribution::class)->forPostAndGroup($post, $group);
 
     expect($distribution[$option->id]['count'])->toBe(0)
-        ->and($distribution[$option->id]['percent'])->toBe(0.0);
+        ->and($distribution[$option->id]['percent'])->toBe(0.0)
+        ->and($distribution[$option->id]['label'])->toBe('0 votes · 0%');
 });
 
 it('preserves archived rating options in historical distribution', function () {

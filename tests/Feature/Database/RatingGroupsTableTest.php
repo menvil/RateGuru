@@ -61,3 +61,17 @@ it('rejects rating groups whose minimum options exceed maximum options', functio
         'updated_at' => now(),
     ]))->toThrow(QueryException::class);
 });
+
+it('rejects rating group option limits outside unsigned tiny integer range', function (int $min, int $max) {
+    expect(fn () => DB::table('rating_groups')->insert([
+        'key' => "invalid-range-{$min}-{$max}",
+        'label' => 'Invalid range',
+        'min_options' => $min,
+        'max_options' => $max,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]))->toThrow(QueryException::class);
+})->with([
+    'negative minimum' => [-1, 10],
+    'oversized maximum' => [2, 256],
+]);

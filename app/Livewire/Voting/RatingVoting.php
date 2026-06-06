@@ -23,6 +23,12 @@ class RatingVoting extends Component
 
     public string $error = '';
 
+    public bool $hasPreloadedState = false;
+
+    public array $preloadedDistribution = [];
+
+    public ?int $preloadedSelectedOptionId = null;
+
     public function vote(
         int $optionId,
         RatingConfigurationManager $configuration,
@@ -53,6 +59,7 @@ class RatingVoting extends Component
             return;
         }
 
+        $this->hasPreloadedState = false;
         $this->dispatch($this->votedEventName, postId: $this->post->id, groupKey: $this->groupKey);
     }
 
@@ -61,15 +68,17 @@ class RatingVoting extends Component
         RatingVoteDistribution $voteDistribution,
     ): View {
         $group = $configuration->activeGroupByKey($this->groupKey);
-        $selectedOptionId = null;
+        $selectedOptionId = $this->hasPreloadedState ? $this->preloadedSelectedOptionId : null;
         $isOwnPost = $this->post !== null
             && auth()->check()
             && (int) $this->post->user_id === (int) auth()->id();
-        $distribution = $group === null || $this->post === null
+        $distribution = $this->hasPreloadedState
+            ? $this->preloadedDistribution
+            : ($group === null || $this->post === null
             ? []
-            : $voteDistribution->forPostAndGroup($this->post, $group);
+            : $voteDistribution->forPostAndGroup($this->post, $group));
 
-        if ($group !== null && $this->post !== null && auth()->check()) {
+        if (! $this->hasPreloadedState && $group !== null && $this->post !== null && auth()->check()) {
             $selectedOptionId = RatingVote::query()
                 ->where('user_id', auth()->id())
                 ->where('post_id', $this->post->id)

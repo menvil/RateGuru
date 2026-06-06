@@ -6,6 +6,7 @@ use App\Actions\Rating\ArchiveRatingOptionAction;
 use App\Actions\Rating\CreateRatingOptionAction;
 use App\Actions\Rating\DeleteRatingOptionAction;
 use App\Actions\Rating\UpdateRatingOptionAction;
+use App\Actions\Rating\ValidateRatingOptionTransitionAction;
 use App\Exceptions\Rating\CannotDeleteVotedRatingOptionException;
 use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Models\RatingGroup;
@@ -171,18 +172,14 @@ class OptionsRelationManager extends RelationManager
         return function (string $attribute, mixed $value, Closure $fail) use ($record): void {
             /** @var RatingGroup $group */
             $group = $this->getOwnerRecord();
-            $activeCount = $group->options()->active()->count();
             $willBeActive = filter_var($value, FILTER_VALIDATE_BOOL);
             $isCurrentlyActive = $record?->is_active ?? false;
 
-            if ($willBeActive && ! $isCurrentlyActive && $activeCount >= $group->max_options) {
-                $fail("This group cannot have more than {$group->max_options} active options.");
-
-                return;
-            }
-
-            if (! $willBeActive && $isCurrentlyActive && $activeCount <= $group->min_options) {
-                $fail("This group must keep at least {$group->min_options} active options.");
+            try {
+                app(ValidateRatingOptionTransitionAction::class)
+                    ->handle($group, $isCurrentlyActive, $willBeActive);
+            } catch (InvalidRatingGroupConfigurationException $exception) {
+                $fail($exception->getMessage());
             }
         };
     }

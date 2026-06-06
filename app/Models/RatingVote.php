@@ -10,7 +10,9 @@ class RatingVote extends Model
 {
     use HasFactory;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'rating_option_id',
+    ];
 
     public function post(): BelongsTo
     {
