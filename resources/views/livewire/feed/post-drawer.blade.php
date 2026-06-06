@@ -1,3 +1,4 @@
+@inject('drawerSettings', \App\Support\Settings\ProjectSettingsManager::class)
 <div data-testid="post-drawer">
     <div wire:loading data-testid="post-drawer-loading" class="space-y-4 transition-opacity duration-200">
         <x-ui.skeleton shape="block" height="16rem" />
@@ -133,9 +134,11 @@
                 @endif
             </footer>
 
+            @if($drawerSettings->featureEnabled('show_share_buttons'))
             <x-ui.modal title="Share this post" state="shareOpen" size="lg">
                 <x-share.post-share-panel :post="$post" />
             </x-ui.modal>
+            @endif
 
             @if($post->public_image_url)
                 <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
@@ -227,9 +230,11 @@
             </div>
         </section>
 
+        @if($drawerSettings->featureEnabled('show_comments'))
         <section class="mt-6" data-testid="drawer-comments-slot">
             <livewire:comments.comments-section :post-id="$post->id" :show-header="true" :key="'drawer-comments-'.$post->id" />
         </section>
+        @endif
     @elseif($postId)
         <x-ui.error-message
             title="Post not found"

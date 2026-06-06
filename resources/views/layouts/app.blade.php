@@ -46,6 +46,7 @@
                             @post-uploaded.window="open = false"
                             class="ml-auto flex shrink-0 items-center justify-end gap-3 md:ml-0 md:justify-self-end"
                         >
+                            @if($projectSettings->featureFlag('allow_user_uploads'))
                             <x-ui.button
                                 data-testid="open-upload-button"
                                 x-on:click="open = true; $dispatch('upload-modal-opened')"
@@ -54,6 +55,7 @@
                                 <x-ui.icon name="upload" class="size-4" />
                                 <span class="hidden sm:inline">{{ $projectSettings->uploadCtaLabel() }}</span>
                             </x-ui.button>
+                            @endif
 
                             <livewire:notifications.notification-bell />
 
