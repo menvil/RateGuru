@@ -2,6 +2,8 @@
 
 namespace App\Filament\Pages;
 
+use App\Actions\Settings\ApplyProjectPresetAction;
+use App\Exceptions\Settings\UnknownProjectPresetException;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\ProjectSettings;
 use Filament\Forms\Components\Select;
@@ -137,5 +139,39 @@ class ProjectSettingsPage extends Page
             ->title('Settings saved')
             ->success()
             ->send();
+    }
+
+    public function applyPreset(string $presetKey): void
+    {
+        $presets = config('project_presets', []);
+
+        if (! array_key_exists($presetKey, $presets)) {
+            $this->addError('preset', "Unknown preset: [{$presetKey}].");
+
+            return;
+        }
+
+        try {
+            app(ApplyProjectPresetAction::class)->handle($presetKey);
+        } catch (UnknownProjectPresetException $e) {
+            $this->addError('preset', $e->getMessage());
+
+            return;
+        }
+
+        $settings = ProjectSettings::first();
+        $this->form->fill($settings ? $settings->toArray() : []);
+
+        Notification::make()
+            ->title("Preset '{$presetKey}' applied")
+            ->success()
+            ->send();
+    }
+
+    public static function presetOptions(): array
+    {
+        return collect(config('project_presets', []))
+            ->mapWithKeys(fn (array $preset, string $key): array => [$key => $preset['label']])
+            ->all();
     }
 }
