@@ -7,6 +7,7 @@ use App\Policies\ModerationPolicy;
 use App\Services\Images\CloudinaryImageStorage;
 use App\Services\Images\ImageStorage;
 use App\Services\Images\LocalImageStorage;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use App\Support\VisualRegression\PestVisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotRunner;
@@ -18,6 +19,8 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->singleton(ProjectSettingsManager::class);
+
         $this->app->bind(VisualScreenshotRunner::class, PestVisualScreenshotRunner::class);
 
         $this->app->bind(ImageStorage::class, function () {
