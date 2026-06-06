@@ -1,0 +1,103 @@
+<?php
+
+return [
+    'generic' => [
+        'label' => 'Generic rating',
+        'settings' => [
+            'site_name' => 'RateGuru',
+            'site_tagline' => 'Rate anything',
+            'site_description' => null,
+            'object_singular_name' => 'post',
+            'object_plural_name' => 'posts',
+            'upload_cta_label' => 'Upload post',
+            'feed_title' => 'Latest posts',
+            'default_locale' => 'en',
+            'default_theme' => 'system',
+            'default_sort' => 'hot',
+        ],
+        'feature_flags' => [
+            'show_comments' => true,
+            'show_share_buttons' => true,
+            'show_vote_breakdown' => true,
+            'show_follow_buttons' => false,
+            'show_saved_posts' => false,
+            'allow_user_uploads' => true,
+            'allow_guest_viewing' => true,
+        ],
+    ],
+
+    'food' => [
+        'label' => 'Food rating',
+        'settings' => [
+            'site_name' => 'FoodGuru',
+            'site_tagline' => 'Rate every dish',
+            'site_description' => 'Community-powered food and dish ratings.',
+            'object_singular_name' => 'dish',
+            'object_plural_name' => 'dishes',
+            'upload_cta_label' => 'Upload dish',
+            'feed_title' => 'Latest dishes',
+            'default_locale' => 'en',
+            'default_theme' => 'system',
+            'default_sort' => 'hot',
+        ],
+        'feature_flags' => [
+            'show_comments' => true,
+            'show_share_buttons' => true,
+            'show_vote_breakdown' => true,
+            'show_follow_buttons' => false,
+            'show_saved_posts' => true,
+            'allow_user_uploads' => true,
+            'allow_guest_viewing' => true,
+        ],
+    ],
+
+    'cats' => [
+        'label' => 'Cat photos rating',
+        'settings' => [
+            'site_name' => 'CatGuru',
+            'site_tagline' => 'Rate every cat',
+            'site_description' => 'Community-powered cat photo ratings.',
+            'object_singular_name' => 'cat',
+            'object_plural_name' => 'cats',
+            'upload_cta_label' => 'Upload cat',
+            'feed_title' => 'Latest cats',
+            'default_locale' => 'en',
+            'default_theme' => 'system',
+            'default_sort' => 'hot',
+        ],
+        'feature_flags' => [
+            'show_comments' => true,
+            'show_share_buttons' => true,
+            'show_vote_breakdown' => true,
+            'show_follow_buttons' => false,
+            'show_saved_posts' => false,
+            'allow_user_uploads' => true,
+            'allow_guest_viewing' => true,
+        ],
+    ],
+
+    'ai_images' => [
+        'label' => 'AI image rating',
+        'settings' => [
+            'site_name' => 'AIGuru',
+            'site_tagline' => 'Rate AI-generated images',
+            'site_description' => 'Community ratings for AI-generated artwork.',
+            'object_singular_name' => 'image',
+            'object_plural_name' => 'images',
+            'upload_cta_label' => 'Upload image',
+            'feed_title' => 'Latest images',
+            'default_locale' => 'en',
+            'default_theme' => 'system',
+            'default_sort' => 'hot',
+        ],
+        'feature_flags' => [
+            'show_comments' => true,
+            'show_share_buttons' => true,
+            'show_vote_breakdown' => true,
+            'show_follow_buttons' => false,
+            'show_saved_posts' => false,
+            'allow_user_uploads' => true,
+            'allow_guest_viewing' => true,
+        ],
+    ],
+];
