@@ -16,11 +16,18 @@ final class CategoryVoting extends RatingVoting
 
     public string $variant = 'default';
 
-    public function mount(int $postId): void
-    {
+    public function mount(
+        int $postId,
+        bool $hasPreloadedState = false,
+        array $preloadedDistribution = [],
+        ?int $preloadedSelectedOptionId = null,
+    ): void {
         $this->postId = $postId;
         $this->post = Post::query()->published()->find($postId);
         $this->groupKey = 'category';
+        $this->hasPreloadedState = $hasPreloadedState;
+        $this->preloadedDistribution = $preloadedDistribution;
+        $this->preloadedSelectedOptionId = $preloadedSelectedOptionId;
     }
 
     #[On('category-voted')]
@@ -28,6 +35,7 @@ final class CategoryVoting extends RatingVoting
     {
         if ($postId === $this->postId) {
             $this->post = Post::query()->published()->find($postId);
+            $this->hasPreloadedState = false;
         }
     }
 }

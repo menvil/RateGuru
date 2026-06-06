@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Services\Rating\LegacyRatingVoteMigrator;
 use Illuminate\Console\Command;
 
@@ -14,7 +15,13 @@ final class MigrateLegacyRatingVotesCommand extends Command
     public function handle(LegacyRatingVoteMigrator $migrator): int
     {
         $dryRun = (bool) $this->option('dry-run');
-        $result = $migrator->migrate($dryRun);
+        try {
+            $result = $migrator->migrate($dryRun);
+        } catch (InvalidRatingGroupConfigurationException $exception) {
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
 
         $this->line($dryRun ? 'Dry run: no changes were committed.' : 'Legacy rating votes migrated.');
         $this->table(

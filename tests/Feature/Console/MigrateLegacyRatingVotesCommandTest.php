@@ -81,6 +81,19 @@ it('migrates legacy votes idempotently', function () {
     expect(RatingVote::query()->count())->toBe(1);
 });
 
+it('does not create legacy mapping options above a group maximum', function () {
+    RatingGroup::factory()->create([
+        'key' => 'category',
+        'max_options' => 2,
+    ]);
+
+    $this->artisan('rateguru:rating:migrate-legacy-votes')
+        ->assertFailed()
+        ->expectsOutputToContain('cannot add');
+
+    expect(RatingGroup::query()->where('key', 'category')->firstOrFail()->options()->count())->toBe(0);
+});
+
 it('does not write configuration or votes in dry run mode', function () {
     OriginVote::factory()->create([
         'origin' => OriginType::Homemade,

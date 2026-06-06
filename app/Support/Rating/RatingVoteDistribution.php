@@ -13,7 +13,8 @@ class RatingVoteDistribution
      * @return array<int, array{
      *     option: RatingOption,
      *     count: int,
-     *     percent: float
+     *     percent: float,
+     *     label: string
      * }>
      */
     public function forPostAndGroup(Post $post, RatingGroup $group): array
@@ -37,12 +38,18 @@ class RatingVoteDistribution
                     $option->id => [
                         'option' => $option,
                         'count' => $count,
-                        'percent' => $total > 0
+                        'percent' => $percent = $total > 0
                             ? round(($count / $total) * 100, 1)
                             : 0.0,
+                        'label' => $this->label($count, $percent),
                     ],
                 ];
             })
             ->all();
+    }
+
+    public function label(int $count, float $percent): string
+    {
+        return $count.' '.($count === 1 ? 'vote' : 'votes').' · '.number_format($percent, 0).'%';
     }
 }

@@ -31,6 +31,14 @@ return new class extends Migration
             'ALTER TABLE rating_groups ADD CONSTRAINT rating_groups_option_range_check '
             .'CHECK (min_options <= max_options)'
         );
+        DB::statement(
+            'ALTER TABLE rating_groups ADD CONSTRAINT rating_groups_min_options_bounds_check '
+            .'CHECK (min_options >= 0 AND min_options <= 255)'
+        );
+        DB::statement(
+            'ALTER TABLE rating_groups ADD CONSTRAINT rating_groups_max_options_bounds_check '
+            .'CHECK (max_options >= 0 AND max_options <= 255)'
+        );
     }
 
     public function down(): void
@@ -53,6 +61,8 @@ return new class extends Migration
                 created_at DATETIME,
                 updated_at DATETIME,
                 CONSTRAINT rating_groups_key_unique UNIQUE ("key"),
+                CONSTRAINT rating_groups_min_options_bounds_check CHECK (min_options >= 0 AND min_options <= 255),
+                CONSTRAINT rating_groups_max_options_bounds_check CHECK (max_options >= 0 AND max_options <= 255),
                 CONSTRAINT rating_groups_option_range_check CHECK (min_options <= max_options)
             )
         SQL);

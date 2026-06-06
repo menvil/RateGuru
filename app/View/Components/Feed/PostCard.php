@@ -12,6 +12,8 @@ final class PostCard extends Component
 
     public ?array $cuisineDistribution = null;
 
+    public array $ratingVotingState = [];
+
     public bool $canDeletePost = false;
 
     public bool $canReportPost = false;
@@ -29,12 +31,14 @@ final class PostCard extends Component
         public bool $selected = false,
         ?array $originDistribution = null,
         ?array $cuisineDistribution = null,
+        array $ratingVotingState = [],
         bool $canDeletePost = false,
         bool $canReportPost = false,
         bool $canModeratePost = false,
     ) {
         $this->originDistribution = $originDistribution;
         $this->cuisineDistribution = $cuisineDistribution;
+        $this->ratingVotingState = $ratingVotingState;
         $this->canDeletePost = $canDeletePost;
         $this->canReportPost = $canReportPost;
         $this->canModeratePost = $canModeratePost;

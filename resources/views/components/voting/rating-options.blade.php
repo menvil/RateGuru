@@ -18,8 +18,7 @@
         @foreach($options as $option)
             @php($active = (int) $selectedOptionId === (int) $option->id)
             @php($result = $distribution[$option->id] ?? null)
-            @php($resultLabel = $result === null ? null : $result['count'].' '.($result['count'] === 1 ? 'vote' : 'votes').' · '.number_format($result['percent'], 0).'%')
-            @php($sizeClass = $variant === 'compact' ? '!h-7 !min-w-9 !px-2 !text-[11px]' : '')
+            @php($sizeClass = $variant === 'compact' ? '!h-7 !min-w-9 !px-2 !text-xs' : '')
 
             <x-ui.button
                 :variant="$active ? 'primary' : 'secondary'"
@@ -35,8 +34,8 @@
                 :wire:loading.class="$disabled ? false : 'opacity-60 cursor-not-allowed'"
             >
                 <span>{{ $option->label }}</span>
-                @if($resultLabel !== null)
-                    <span class="text-[11px] font-medium opacity-75">{{ $resultLabel }}</span>
+                @if($result !== null)
+                    <span class="text-xs font-medium opacity-75">{{ $result['label'] }}</span>
                 @endif
             </x-ui.button>
         @endforeach

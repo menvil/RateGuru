@@ -11,7 +11,15 @@ class RatingGroup extends Model
 {
     use HasFactory;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'key',
+        'label',
+        'description',
+        'min_options',
+        'max_options',
+        'is_active',
+        'sort_order',
+    ];
 
     protected function casts(): array
     {

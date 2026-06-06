@@ -14,11 +14,18 @@ final class SourceVoting extends RatingVoting
 
     public int $postId;
 
-    public function mount(int $postId): void
-    {
+    public function mount(
+        int $postId,
+        bool $hasPreloadedState = false,
+        array $preloadedDistribution = [],
+        ?int $preloadedSelectedOptionId = null,
+    ): void {
         $this->postId = $postId;
         $this->post = Post::query()->published()->find($postId);
         $this->groupKey = 'source';
+        $this->hasPreloadedState = $hasPreloadedState;
+        $this->preloadedDistribution = $preloadedDistribution;
+        $this->preloadedSelectedOptionId = $preloadedSelectedOptionId;
     }
 
     #[On('source-voted')]
@@ -26,6 +33,7 @@ final class SourceVoting extends RatingVoting
     {
         if ($postId === $this->postId) {
             $this->post = Post::query()->published()->find($postId);
+            $this->hasPreloadedState = false;
         }
     }
 }

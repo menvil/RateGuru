@@ -72,6 +72,9 @@
                     <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Source</p>
                     <livewire:posts.source-voting
                         :post-id="$post->id"
+                        :has-preloaded-state="isset($ratingVotingState['source'])"
+                        :preloaded-distribution="$ratingVotingState['source']['distribution'] ?? []"
+                        :preloaded-selected-option-id="$ratingVotingState['source']['selected_option_id'] ?? null"
                         :key="'post-card-source-voting-'.$post->id"
                     />
 
@@ -97,6 +100,9 @@
                     <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Category:</p>
                     <livewire:posts.category-voting
                         :post-id="$post->id"
+                        :has-preloaded-state="isset($ratingVotingState['category'])"
+                        :preloaded-distribution="$ratingVotingState['category']['distribution'] ?? []"
+                        :preloaded-selected-option-id="$ratingVotingState['category']['selected_option_id'] ?? null"
                         :key="'post-card-category-voting-'.$post->id"
                     />
 

@@ -7,6 +7,8 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\RatingVote;
 use App\Models\User;
+use App\Support\AbuseGuards\RateLimitKey;
+use Illuminate\Support\Facades\RateLimiter;
 
 it('creates a rating vote for the selected option', function () {
     $user = User::factory()->create();
@@ -125,4 +127,25 @@ it('does not allow rating option voting on own post', function () {
 
     expect(fn () => app(VoteRatingOptionAction::class)->handle($user, $post, $option))
         ->toThrow(CannotVoteForRatingOptionException::class, 'You cannot vote on your own post.');
+});
+
+it('does not create a rating vote when the vote rate limit is exceeded', function () {
+    config()->set('rate_limits.vote.max_attempts', 1);
+    config()->set('rate_limits.vote.decay_seconds', 60);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $option = RatingOption::factory()->create();
+
+    RateLimiter::hit(RateLimitKey::userAction('vote', $user), 60);
+
+    expect(fn () => app(VoteRatingOptionAction::class)->handle($user, $post, $option))
+        ->toThrow(CannotVoteForRatingOptionException::class);
+
+    $this->assertDatabaseMissing('rating_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'rating_group_id' => $option->rating_group_id,
+        'rating_option_id' => $option->id,
+    ]);
 });

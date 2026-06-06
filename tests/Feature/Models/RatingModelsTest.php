@@ -76,3 +76,34 @@ it('casts rating configuration state', function () {
         ->and($option->is_active)->toBeFalse()
         ->and($option->archived_at)->toBeInstanceOf(DateTimeInterface::class);
 });
+
+it('only mass assigns public rating group configuration fields', function () {
+    $group = new RatingGroup;
+    $group->fill([
+        'id' => 999,
+        'key' => 'source',
+        'label' => 'Source',
+        'description' => 'Description',
+        'min_options' => 2,
+        'max_options' => 10,
+        'is_active' => true,
+        'sort_order' => 20,
+    ]);
+
+    expect($group->getAttributes())->not->toHaveKey('id')
+        ->and($group->key)->toBe('source');
+});
+
+it('does not mass assign rating vote ownership fields', function () {
+    $vote = new RatingVote;
+    $vote->fill([
+        'user_id' => 10,
+        'post_id' => 20,
+        'rating_group_id' => 30,
+        'rating_option_id' => 40,
+    ]);
+
+    expect($vote->getAttributes())
+        ->not->toHaveKeys(['user_id', 'post_id', 'rating_group_id'])
+        ->and($vote->rating_option_id)->toBe(40);
+});

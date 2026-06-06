@@ -2,9 +2,9 @@
 
 namespace App\Services\Rating;
 
+use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
-use App\Models\RatingVote;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -89,6 +89,14 @@ final class LegacyRatingVoteMigrator
     {
         $source = $this->group('source', 'Source', 10);
         $category = $this->group('category', 'Category', 20);
+        $this->ensureOptionCapacity($source, ['source_a', 'source_b']);
+        $this->ensureOptionCapacity($category, [
+            'category_a',
+            'category_b',
+            'category_c',
+            'category_d',
+            'category_other',
+        ]);
 
         return [
             'source_group' => $source,
@@ -137,6 +145,25 @@ final class LegacyRatingVoteMigrator
     }
 
     /**
+     * @param  list<string>  $requiredKeys
+     */
+    private function ensureOptionCapacity(RatingGroup $group, array $requiredKeys): void
+    {
+        $existingKeys = $group->options()
+            ->whereIn('key', $requiredKeys)
+            ->pluck('key');
+        $missingCount = count($requiredKeys) - $existingKeys->count();
+        $activeCount = $group->options()->active()->count();
+
+        if ($activeCount + $missingCount > $group->max_options) {
+            throw new InvalidRatingGroupConfigurationException(
+                "Rating group [{$group->key}] cannot add {$missingCount} legacy mapping options; "
+                ."its maximum is {$group->max_options}.",
+            );
+        }
+    }
+
+    /**
      * @param  array<string, RatingOption>  $optionMap
      * @param  array{origin_migrated: int, category_migrated: int, existing: int, unmapped: int}  $result
      */
@@ -166,20 +193,16 @@ final class LegacyRatingVoteMigrator
                         continue;
                     }
 
-                    $vote = RatingVote::query()->firstOrCreate(
-                        [
-                            'user_id' => $legacyVote->user_id,
-                            'post_id' => $legacyVote->post_id,
-                            'rating_group_id' => $group->id,
-                        ],
-                        [
-                            'rating_option_id' => $option->id,
-                            'created_at' => $legacyVote->created_at,
-                            'updated_at' => $legacyVote->updated_at,
-                        ],
-                    );
+                    $created = DB::table('rating_votes')->insertOrIgnore([
+                        'user_id' => $legacyVote->user_id,
+                        'post_id' => $legacyVote->post_id,
+                        'rating_group_id' => $group->id,
+                        'rating_option_id' => $option->id,
+                        'created_at' => $legacyVote->created_at,
+                        'updated_at' => $legacyVote->updated_at,
+                    ]);
 
-                    if ($vote->wasRecentlyCreated) {
+                    if ($created === 1) {
                         $result[$migratedKey]++;
                     } else {
                         $result['existing']++;
