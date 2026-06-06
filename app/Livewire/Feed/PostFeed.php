@@ -4,6 +4,7 @@ namespace App\Livewire\Feed;
 
 use App\Queries\Feed\FeedQuery;
 use App\Services\PostVoteResultService;
+use App\Support\Rating\RatingVotingStateLoader;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -28,8 +29,11 @@ class PostFeed extends Component
     #[On('post-moderated')]
     public function refreshAfterPostModerated(): void {}
 
-    public function render(FeedQuery $feedQuery, PostVoteResultService $postVoteResultService): View
-    {
+    public function render(
+        FeedQuery $feedQuery,
+        PostVoteResultService $postVoteResultService,
+        RatingVotingStateLoader $ratingVotingStateLoader,
+    ): View {
         $posts = $feedQuery->get(
             search: $this->search !== '' ? $this->search : null,
             tag: $this->tag !== '' ? $this->tag : null,
@@ -44,6 +48,7 @@ class PostFeed extends Component
             'selectedPostId' => $this->selectedPostId,
             'originDistributions' => $postVoteResultService->originDistributions($posts, $user),
             'cuisineDistributions' => $postVoteResultService->cuisineDistributions($posts, $user),
+            'ratingVotingStates' => $ratingVotingStateLoader->forPosts($posts, $user),
             'deletePermissions' => $posts
                 ->mapWithKeys(fn ($post): array => [(int) $post->id => $user?->can('deleteFromFeed', $post) ?? false])
                 ->all(),

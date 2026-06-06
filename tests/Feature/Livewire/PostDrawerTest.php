@@ -6,8 +6,11 @@ use App\Livewire\Feed\PostDrawer;
 use App\Models\CuisineVote;
 use App\Models\OriginVote;
 use App\Models\Post;
+use App\Models\RatingGroup;
+use App\Models\RatingVote;
 use App\Models\User;
 use App\Support\Urls\PostUrl;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Livewire\Livewire;
 
 it('can render post drawer component', function () {
@@ -125,19 +128,25 @@ it('renders the comments section in drawer', function () {
 });
 
 it('renders drawer vote summary', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $post = Post::factory()->published()->create([
         'upvotes_count' => 12,
         'downvotes_count' => 3,
-        'homemade_votes_count' => 7,
-        'restaurant_votes_count' => 5,
     ]);
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
+
+    RatingVote::factory()->count(7)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
+    RatingVote::factory()->count(5)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Source')
         ->assertSee('Source A')
         ->assertSee('Source B')
-        ->assertDontSee('(unvoted)')
-        ->assertDontSee('0 votes');
+        ->assertSee('7 votes')
+        ->assertSee('5 votes')
+        ->assertDontSee('(unvoted)');
 });
 
 it('renders drawer author metadata', function () {
@@ -213,6 +222,8 @@ it('renders image placeholder when drawer post has no image', function () {
 });
 
 it('renders source voting panel in drawer', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
@@ -283,17 +294,19 @@ it('keeps drawer result visibility logic in the Livewire component', function ()
 });
 
 it('renders category voting buttons in drawer', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('data-testid="post-drawer-category-voting"', false)
         ->assertSee('flex-wrap', false)
-        ->assertSee('h-7 min-w-9', false)
+        ->assertSee('!h-7 !min-w-9', false)
         ->assertSee('Category A')
         ->assertSee('Category B')
         ->assertSee('Category C')
-        ->assertSee('Category D')
-        ->assertSee('Other');
+        ->assertDontSee('Category D')
+        ->assertDontSee('Other');
 });
 
 it('renders drawer category controls directly under the distribution heading', function () {

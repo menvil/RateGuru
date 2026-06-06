@@ -1,12 +1,17 @@
 <?php
 
-use App\Enums\OriginType;
 use App\Livewire\Posts\SourceVoting;
 use App\Models\Post;
+use App\Models\RatingGroup;
 use App\Models\User;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Livewire\Livewire;
 
-it('renders source voting component using legacy source storage behavior', function () {
+beforeEach(function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+});
+
+it('renders source voting through generic rating configuration', function () {
     $post = Post::factory()->published()->create();
     $user = User::factory()->create();
 
@@ -18,19 +23,27 @@ it('renders source voting component using legacy source storage behavior', funct
         ->assertSee('Source B');
 });
 
-it('records source option votes through the legacy source storage', function () {
+it('stores source votes in the generic rating votes table', function () {
     $post = Post::factory()->published()->create();
     $user = User::factory()->create();
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    $option = $source->options()->active()->firstOrFail();
 
     Livewire::actingAs($user)
         ->test(SourceVoting::class, ['postId' => $post->id])
-        ->call('vote', OriginType::Homemade->value)
+        ->call('vote', $option->id)
         ->assertDispatched('source-voted');
 
-    $this->assertDatabaseHas('origin_votes', [
+    $this->assertDatabaseHas('rating_votes', [
         'user_id' => $user->id,
         'post_id' => $post->id,
-        'origin' => OriginType::Homemade->value,
+        'rating_group_id' => $source->id,
+        'rating_option_id' => $option->id,
+    ]);
+
+    $this->assertDatabaseMissing('origin_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
     ]);
 });
 
@@ -40,4 +53,30 @@ it('refreshes matching source voting instances', function () {
     Livewire::test(SourceVoting::class, ['postId' => $post->id])
         ->dispatch('source-voted', postId: $post->id)
         ->assertOk();
+});
+
+it('renders source voting unavailable for a missing or unpublished post', function (int $postId) {
+    Livewire::test(SourceVoting::class, ['postId' => $postId])
+        ->assertSee('data-testid="source-voting-unavailable"', false)
+        ->assertSee('Source voting unavailable');
+})->with([
+    'missing post' => fn () => 999999,
+    'unpublished post' => fn () => Post::factory()->hidden()->create()->id,
+]);
+
+it('renders source voting unavailable when its rating configuration is missing', function () {
+    RatingGroup::query()->where('key', 'source')->delete();
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(SourceVoting::class, ['postId' => $post->id])
+        ->assertSee('data-testid="source-voting-unavailable"', false);
+});
+
+it('scopes source option test ids to the post', function () {
+    $post = Post::factory()->published()->create();
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    $option = $source->options()->active()->firstOrFail();
+
+    Livewire::test(SourceVoting::class, ['postId' => $post->id])
+        ->assertSee('data-testid="rating-option-'.$post->id.'-'.$option->id.'"', false);
 });
