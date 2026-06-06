@@ -1,6 +1,8 @@
 @php
     $hasSelectedPost = $selectedPostId !== null;
 @endphp
+@inject('settingsManager', \App\Support\Settings\ProjectSettingsManager::class)
+@php $feedSettings = $settingsManager->current(); @endphp
 
 <div
     class="min-h-screen"
@@ -166,7 +168,7 @@
                 <livewire:feed.sort-dropdown wire:model.live="sort" />
             </div>
 
-            <h2 class="mb-4 text-base font-semibold text-rg-text2">Latest posts</h2>
+            <h2 class="mb-4 text-base font-semibold text-rg-text2" data-testid="feed-title">{{ $feedSettings->feedTitle() }}</h2>
             <livewire:feed.post-feed
                 :search="$this->effectiveSearch()"
                 :tag="$category"
