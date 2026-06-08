@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
 
-        <title>{{ strip_tags($__env->yieldContent('title', config('app.name', 'RateGuru'))) }}</title>
+        <title>{{ strip_tags($__env->yieldContent('title', $projectSettings->siteName())) }}</title>
 
         @stack('meta')
 
@@ -15,8 +15,8 @@
         <div class="min-h-screen">
             <header class="sticky top-0 z-40 border-b border-rg-border bg-rg-topbar" data-testid="app-header">
                 <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-5 px-5 md:grid md:grid-cols-[minmax(0,1fr)_minmax(280px,520px)_minmax(0,1fr)]">
-                    <a href="{{ url('/') }}" class="shrink-0 rounded-rgControl text-[22px] font-extrabold tracking-normal text-rg-text transition-colors hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg">
-                        Rate<span class="text-rg-accent2">Guru</span>
+                    <a href="{{ url('/') }}" class="shrink-0 rounded-rgControl text-[22px] font-extrabold tracking-normal text-rg-text transition-colors hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg" data-testid="site-brand">
+                        {{ $projectSettings->siteName() }}
                     </a>
 
                     <form
@@ -46,14 +46,16 @@
                             @post-uploaded.window="open = false"
                             class="ml-auto flex shrink-0 items-center justify-end gap-3 md:ml-0 md:justify-self-end"
                         >
+                            @if($projectSettings->featureFlag('allow_user_uploads'))
                             <x-ui.button
                                 data-testid="open-upload-button"
                                 x-on:click="open = true; $dispatch('upload-modal-opened')"
                                 elevated
                             >
                                 <x-ui.icon name="upload" class="size-4" />
-                                <span class="hidden sm:inline">Upload post</span>
+                                <span class="hidden sm:inline">{{ $projectSettings->uploadCtaLabel() }}</span>
                             </x-ui.button>
+                            @endif
 
                             <livewire:notifications.notification-bell />
 
@@ -114,11 +116,13 @@
                                 </div>
                             </div>
 
+                            @if($projectSettings->featureFlag('allow_user_uploads'))
                             <div>
-                                <x-ui.modal title="Upload post" size="lg" data-testid="upload-modal" allow-overflow>
+                                <x-ui.modal :title="$projectSettings->uploadCtaLabel()" size="lg" data-testid="upload-modal" allow-overflow>
                                     <livewire:feed.upload-post-form />
                                 </x-ui.modal>
                             </div>
+                            @endif
                         </div>
                     @else
                         <div class="ml-auto flex shrink-0 items-center justify-end gap-2 md:ml-0 md:justify-self-end">

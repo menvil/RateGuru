@@ -1,3 +1,4 @@
+@inject('postCardSettings', \App\Support\Settings\ProjectSettingsManager::class)
 <x-ui.card
     variant="{{ $selected ? 'selected-post' : 'post' }}"
     data-testid="post-card"
@@ -130,6 +131,7 @@
 
         <footer class="mt-3.5 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-2.5">
             <div class="flex flex-wrap items-center gap-4">
+                @if($postCardSettings->featureEnabled('show_comments'))
                 <x-ui.action-button
                     icon="comment"
                     wire:click.stop="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }}, focus: 'comments' })"
@@ -137,10 +139,13 @@
                     {{ $post->comments_count ?? 0 }}
                 </x-ui.action-button>
                 <span class="sr-only">{{ $post->comments_count ?? 0 }} comments</span>
+                @endif
+                @if($postCardSettings->featureEnabled('show_share_buttons'))
                 @if($post->exists)
-                    <x-ui.action-button icon="share" x-on:click.stop="shareOpen = true">Share</x-ui.action-button>
+                    <x-ui.action-button icon="share" x-on:click.stop="shareOpen = true" data-testid="share-buttons">Share</x-ui.action-button>
                 @else
-                    <x-ui.action-button icon="share">Share</x-ui.action-button>
+                    <x-ui.action-button icon="share" data-testid="share-buttons">Share</x-ui.action-button>
+                @endif
                 @endif
                 @auth
                     @if($post->exists)
@@ -222,7 +227,7 @@
                 </x-ui.modal>
             @endif
 
-            @if($post->exists)
+            @if($post->exists && $postCardSettings->featureEnabled('show_share_buttons'))
                 <x-ui.modal title="Share this post" state="shareOpen" size="lg">
                     <x-share.post-share-panel :post="$post" />
                 </x-ui.modal>

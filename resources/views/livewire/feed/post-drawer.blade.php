@@ -1,3 +1,4 @@
+@inject('projectSettings', \App\Support\Settings\ProjectSettingsManager::class)
 <div data-testid="post-drawer">
     <div wire:loading data-testid="post-drawer-loading" class="space-y-4 transition-opacity duration-200">
         <x-ui.skeleton shape="block" height="16rem" />
@@ -70,13 +71,17 @@
                             :key="'post-detail-vote-pill-'.$post->id"
                         />
                     </div>
+                    @if($projectSettings->featureEnabled('show_comments'))
                     <x-ui.action-button
                         icon="comment"
                         x-on:click="$dispatch('post-selected', { postId: {{ $post->id }}, focus: 'comments' })"
                     >
                         {{ $post->comments_count ?? 0 }}
                     </x-ui.action-button>
+                    @endif
+                    @if($projectSettings->featureEnabled('show_share_buttons'))
                     <x-ui.action-button icon="share" x-on:click="shareOpen = true">Share</x-ui.action-button>
+                    @endif
                     @auth
                         <livewire:posts.save-post-button
                             :post-id="$post->id"
@@ -133,9 +138,11 @@
                 @endif
             </footer>
 
+            @if($projectSettings->featureEnabled('show_share_buttons'))
             <x-ui.modal title="Share this post" state="shareOpen" size="lg">
                 <x-share.post-share-panel :post="$post" />
             </x-ui.modal>
+            @endif
 
             @if($post->public_image_url)
                 <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
@@ -227,9 +234,11 @@
             </div>
         </section>
 
+        @if($projectSettings->featureEnabled('show_comments'))
         <section class="mt-6" data-testid="drawer-comments-slot">
             <livewire:comments.comments-section :post-id="$post->id" :show-header="true" :key="'drawer-comments-'.$post->id" />
         </section>
+        @endif
     @elseif($postId)
         <x-ui.error-message
             title="Post not found"

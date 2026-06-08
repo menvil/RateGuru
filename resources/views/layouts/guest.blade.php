@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
 
-        <title>{{ config('app.name', 'RateGuru') }}</title>
+        <title>{{ $projectSettings->siteName() }}</title>
 
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
@@ -17,7 +17,7 @@
                         <span class="flex size-10 items-center justify-center rounded bg-rg-accent font-semibold text-rg-onAccent">
                             RG
                         </span>
-                        <span class="text-xl font-semibold tracking-normal text-rg-text">RateGuru</span>
+                        <span class="text-xl font-semibold tracking-normal text-rg-text">{{ $projectSettings->siteName() }}</span>
                     </a>
                 </div>
 
