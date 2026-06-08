@@ -4,6 +4,7 @@ return [
     'brand' => 'RateGuru',
     'feed' => [
         'latest' => 'Latest',
+        'clear_filter' => 'Clear',
     ],
     'post' => [
         'upload' => 'Upload post',

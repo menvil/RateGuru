@@ -4,6 +4,7 @@ return [
     'brand' => 'РейтГуру',
     'feed' => [
         'latest' => 'Последни',
+        'clear_filter' => 'Изчисти',
     ],
     'post' => [
         'upload' => 'Качи пост',

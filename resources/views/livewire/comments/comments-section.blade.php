@@ -1,7 +1,7 @@
 <section data-testid="comments-section" class="rounded-rgCard border border-rg-border bg-rg-card p-5">
     @if ($showHeader)
         <div class="flex items-center justify-between gap-3">
-            <h3 class="text-base font-bold text-rg-text">Comments ({{ $this->totalComments }})</h3>
+            <h3 class="text-base font-bold text-rg-text">{{ __('ui.comments.title') }} ({{ $this->totalComments }})</h3>
             <div class="relative" x-data="{ open: false }" x-on:click.outside="open = false">
                 <button
                     type="button"
