@@ -104,18 +104,18 @@ class ProjectSettingsPage extends Page
                         Select::make('default_theme')
                             ->label(__('admin.fields.default_theme'))
                             ->options([
-                                'system' => 'System',
-                                'light' => 'Light',
-                                'dark' => 'Dark',
+                                'system' => __('admin.options.theme.system'),
+                                'light' => __('admin.options.theme.light'),
+                                'dark' => __('admin.options.theme.dark'),
                             ])
                             ->required()
                             ->rules(['in:system,light,dark']),
                         Select::make('default_sort')
                             ->label(__('admin.fields.default_sort'))
                             ->options([
-                                'hot' => 'Hot',
-                                'new' => 'New',
-                                'top' => 'Top',
+                                'hot' => __('admin.options.sort.hot'),
+                                'new' => __('admin.options.sort.new'),
+                                'top' => __('admin.options.sort.top'),
                             ])
                             ->required()
                             ->rules(['in:hot,new,top']),
@@ -129,7 +129,7 @@ class ProjectSettingsPage extends Page
                         Toggle::make('feature_flags.show_follow_buttons')->label(__('admin.fields.show_follow_buttons')),
                         Toggle::make('feature_flags.show_saved_posts')->label(__('admin.fields.show_saved_posts')),
                         Toggle::make('feature_flags.allow_user_uploads')->label(__('admin.fields.allow_user_uploads')),
-                        Toggle::make('feature_flags.allow_guest_viewing')->label('Allow guest viewing'),
+                        Toggle::make('feature_flags.allow_guest_viewing')->label(__('admin.fields.allow_guest_viewing')),
                     ]),
 
                 Section::make('Translations')

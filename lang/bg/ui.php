@@ -13,6 +13,7 @@ return [
     ],
     'comments' => [
         'title' => 'Коментари',
+        'title_with_count' => 'Коментари (:count)',
         'submit' => 'Изпрати',
     ],
     'share' => [

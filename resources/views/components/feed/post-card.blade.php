@@ -98,7 +98,7 @@
                 </div>
 
                 <div data-testid="post-card-category-voting">
-                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.category') }}:</p>
+                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.category') }}</p>
                     <livewire:posts.category-voting
                         :post-id="$post->id"
                         :has-preloaded-state="isset($ratingVotingState['category'])"

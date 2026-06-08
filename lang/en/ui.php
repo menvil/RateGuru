@@ -13,6 +13,7 @@ return [
     ],
     'comments' => [
         'title' => 'Comments',
+        'title_with_count' => 'Comments (:count)',
         'submit' => 'Submit',
     ],
     'share' => [

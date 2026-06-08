@@ -45,13 +45,6 @@ class ProjectSettingsManager
                     self::DEFAULTS['feature_flags'],
                     $row->feature_flags ?? []
                 ),
-                'site_name_translations' => $row->site_name_translations,
-                'site_tagline_translations' => $row->site_tagline_translations,
-                'site_description_translations' => $row->site_description_translations,
-                'object_singular_name_translations' => $row->object_singular_name_translations,
-                'object_plural_name_translations' => $row->object_plural_name_translations,
-                'upload_cta_label_translations' => $row->upload_cta_label_translations,
-                'feed_title_translations' => $row->feed_title_translations,
             ])
             : self::DEFAULTS;
 

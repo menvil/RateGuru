@@ -31,5 +31,18 @@ return [
         'show_follow_buttons' => 'Show follow buttons',
         'show_saved_posts' => 'Show saved posts',
         'allow_user_uploads' => 'Allow user uploads',
+        'allow_guest_viewing' => 'Allow guest viewing',
+    ],
+    'options' => [
+        'theme' => [
+            'system' => 'System',
+            'light' => 'Light',
+            'dark' => 'Dark',
+        ],
+        'sort' => [
+            'hot' => 'Hot',
+            'new' => 'New',
+            'top' => 'Top',
+        ],
     ],
 ];
