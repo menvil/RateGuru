@@ -32,6 +32,7 @@ return [
         'show_saved_posts' => 'Показывать сохранённые посты',
         'allow_user_uploads' => 'Разрешить загрузки пользователям',
         'allow_guest_viewing' => 'Разрешить просмотр гостям',
+        'label' => 'Метка',
     ],
     'options' => [
         'theme' => [

@@ -32,9 +32,11 @@ it('returns supported locales array', function () {
 it('returns locale label', function () {
     expect(app(LocaleManager::class)->label('en'))->toBe('English');
     expect(app(LocaleManager::class)->label('ru'))->toBe('Russian');
+    expect(app(LocaleManager::class)->label('bg'))->toBe('Bulgarian');
 });
 
 it('returns locale native label', function () {
+    expect(app(LocaleManager::class)->nativeLabel('en'))->toBe('English');
     expect(app(LocaleManager::class)->nativeLabel('ru'))->toBe('Русский');
     expect(app(LocaleManager::class)->nativeLabel('bg'))->toBe('Български');
 });

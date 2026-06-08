@@ -32,6 +32,7 @@ return [
         'show_saved_posts' => 'Show saved posts',
         'allow_user_uploads' => 'Allow user uploads',
         'allow_guest_viewing' => 'Allow guest viewing',
+        'label' => 'Label',
     ],
     'options' => [
         'theme' => [

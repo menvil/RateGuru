@@ -12,7 +12,7 @@ use App\Models\RatingOption;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/locale', ChangeLocaleController::class)->name('locale.change');
+Route::post('/locale', ChangeLocaleController::class)->name('locale.change')->middleware('throttle:10,1');
 
 Route::get('/', FeedPage::class)->name('feed');
 

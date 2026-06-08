@@ -15,7 +15,7 @@ return [
         'options_relation' => 'Опции',
     ],
     'fields' => [
-        'site_name' => 'Имe на сайта',
+        'site_name' => 'Име на сайта',
         'tagline' => 'Мото',
         'description' => 'Описание',
         'singular_name' => 'Единствено число',
@@ -32,6 +32,7 @@ return [
         'show_saved_posts' => 'Показвай запазени публикации',
         'allow_user_uploads' => 'Разреши качване от потребители',
         'allow_guest_viewing' => 'Разреши преглед от гости',
+        'label' => 'Етикет',
     ],
     'options' => [
         'theme' => [

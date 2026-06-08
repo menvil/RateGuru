@@ -1,3 +1,10 @@
+@php
+    $sortLabels = [
+        'top' => __('ui.comments.sort.top'),
+        'newest' => __('ui.comments.sort.newest'),
+        'hot' => __('ui.comments.sort.hot'),
+    ];
+@endphp
 <section data-testid="comments-section" class="rounded-rgCard border border-rg-border bg-rg-card p-5">
     @if ($showHeader)
         <div class="flex items-center justify-between gap-3">
@@ -12,7 +19,7 @@
                     aria-controls="comments-sort-menu"
                     x-bind:aria-expanded="open"
                 >
-                    {{ ['top' => 'Top', 'newest' => 'Newest', 'hot' => 'Hot'][$commentSort] ?? 'Top' }}
+                    {{ $sortLabels[$commentSort] ?? $sortLabels['top'] }}
                     <x-ui.icon name="chevron-down" class="size-3.5" />
                 </button>
 
@@ -23,7 +30,7 @@
                     class="absolute right-0 z-20 mt-2 w-32 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     data-testid="comments-sort-menu"
                 >
-                    @foreach(['top' => 'Top', 'newest' => 'Newest', 'hot' => 'Hot'] as $value => $label)
+                    @foreach($sortLabels as $value => $label)
                         <button
                             type="button"
                             wire:click="setCommentSort('{{ $value }}')"
@@ -55,8 +62,8 @@
 
     @if ($this->comments->isEmpty())
         <x-ui.empty-state
-            title="No comments yet"
-            description="Be the first to comment."
+            title="{{ __('ui.comments.empty_title') }}"
+            description="{{ __('ui.comments.empty_description') }}"
             data-testid="comments-empty"
         />
     @else
@@ -80,9 +87,9 @@
                             name="replyBody"
                             type="text"
                             wire:model="replyBody"
-                            aria-label="Write Reply"
+                            aria-label="{{ __('ui.comments.write_reply') }}"
                             maxlength="1000"
-                            placeholder="Write Reply"
+                            placeholder="{{ __('ui.comments.write_reply') }}"
                             @class([
                                 'rg-comment-input h-8 flex-1 appearance-none border-0 bg-transparent p-0 text-[13.5px] text-rg-text shadow-none outline-none ring-0 placeholder:text-rg-muted focus:border-0 focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0',
                                 'text-rg-dangerText' => $errors->has('replyBody'),
@@ -100,7 +107,7 @@
                             class="h-8 rounded-rgSm border border-rg-border2 bg-rg-card px-3 text-[12.5px]"
                             wire:click="cancelReply"
                         >
-                            Cancel
+                            {{ __('ui.comments.cancel') }}
                         </x-ui.button>
                         <x-ui.button
                             type="submit"
@@ -109,7 +116,7 @@
                             wire:loading.attr="disabled"
                             wire:target="submitReply"
                         >
-                            Reply
+                            {{ __('ui.comments.reply') }}
                         </x-ui.button>
                     </form>
                 @endif
@@ -136,7 +143,7 @@
                 data-testid="view-more-comments"
                 class="w-full cursor-pointer rounded-rgControl border border-rg-border2 bg-rg-card2 px-4 py-2 text-sm font-semibold text-rg-text2 transition hover:border-rg-accent hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
-                View more comments
+                {{ __('ui.comments.view_more') }}
             </button>
         @endif
     @endif
