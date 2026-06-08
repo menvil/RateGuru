@@ -75,7 +75,7 @@
                                 aria-haspopup="true"
                                 x-bind:aria-expanded="open"
                             >
-                                Source
+                                {{ __('ui.voting.source') }}
                                 @if(count((array) $origin) > 0)
                                     <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $origin) }}</span>
                                 @endif
@@ -110,7 +110,7 @@
                                     wire:click="clearOriginFilters"
                                     class="mt-1 block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-[12px] font-semibold text-rg-muted transition hover:bg-rg-card hover:text-rg-text"
                                 >
-                                    Clear
+                                    {{ __('ui.feed.clear_filter') }}
                                 </button>
                             </div>
                         </div>
@@ -124,7 +124,7 @@
                                 aria-haspopup="true"
                                 x-bind:aria-expanded="open"
                             >
-                                Category
+                                {{ __('ui.voting.category') }}
                                 @if(count((array) $cuisine) > 0)
                                     <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $cuisine) }}</span>
                                 @endif
@@ -159,7 +159,7 @@
                                     wire:click="clearCuisineFilters"
                                     class="mt-1 block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-[12px] font-semibold text-rg-muted transition hover:bg-rg-card hover:text-rg-text"
                                 >
-                                    Clear
+                                    {{ __('ui.feed.clear_filter') }}
                                 </button>
                             </div>
                         </div>

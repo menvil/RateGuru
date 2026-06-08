@@ -70,7 +70,7 @@
         <div class="mt-3 space-y-2.5" wire:click.stop wire:keydown.stop>
             @if($post->exists)
                 <div data-testid="post-card-source-voting">
-                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Source</p>
+                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.source') }}</p>
                     <livewire:posts.source-voting
                         :post-id="$post->id"
                         :has-preloaded-state="isset($ratingVotingState['source'])"
@@ -98,7 +98,7 @@
                 </div>
 
                 <div data-testid="post-card-category-voting">
-                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">Category:</p>
+                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.category') }}:</p>
                     <livewire:posts.category-voting
                         :post-id="$post->id"
                         :has-preloaded-state="isset($ratingVotingState['category'])"
@@ -142,9 +142,9 @@
                 @endif
                 @if($postCardSettings->featureEnabled('show_share_buttons'))
                 @if($post->exists)
-                    <x-ui.action-button icon="share" x-on:click.stop="shareOpen = true" data-testid="share-buttons">Share</x-ui.action-button>
+                    <x-ui.action-button icon="share" x-on:click.stop="shareOpen = true" data-testid="share-buttons">{{ __('ui.share.title') }}</x-ui.action-button>
                 @else
-                    <x-ui.action-button icon="share" data-testid="share-buttons">Share</x-ui.action-button>
+                    <x-ui.action-button icon="share" data-testid="share-buttons">{{ __('ui.share.title') }}</x-ui.action-button>
                 @endif
                 @endif
                 @auth
