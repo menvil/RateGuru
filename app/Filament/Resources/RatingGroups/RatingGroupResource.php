@@ -21,7 +21,12 @@ class RatingGroupResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedAdjustmentsHorizontal;
 
-    protected static ?string $navigationLabel = 'Rating groups';
+    protected static ?string $navigationLabel = null;
+
+    public static function getNavigationLabel(): string
+    {
+        return __('admin.rating_groups.nav_label');
+    }
 
     protected static ?string $recordTitleAttribute = 'label';
 
