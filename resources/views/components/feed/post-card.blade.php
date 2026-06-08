@@ -210,7 +210,7 @@
 
                 <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
                     <div class="space-y-4">
-                        <p class="text-sm leading-6 text-rg-muted">This will remove the post from public feeds.</p>
+                        <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description') }}</p>
 
                         <div class="flex justify-end gap-2">
                             <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">{{ __('ui.actions.cancel') }}</x-ui.button>

@@ -13,6 +13,7 @@ return [
         'save' => 'Save',
         'delete' => 'Delete post',
         'delete_confirm_title' => 'Delete post?',
+        'delete_confirm_description' => 'This will remove the post from public feeds.',
         'share_title' => 'Share this post',
     ],
     'comments' => [

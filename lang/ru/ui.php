@@ -13,6 +13,7 @@ return [
         'save' => 'Сохранить',
         'delete' => 'Удалить пост',
         'delete_confirm_title' => 'Удалить пост?',
+        'delete_confirm_description' => 'Пост будет удалён из публичных лент.',
         'share_title' => 'Поделиться постом',
     ],
     'comments' => [
