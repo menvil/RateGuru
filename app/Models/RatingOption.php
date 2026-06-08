@@ -19,6 +19,8 @@ class RatingOption extends Model
         return [
             'is_active' => 'boolean',
             'archived_at' => 'datetime',
+            'label_translations' => 'array',
+            'description_translations' => 'array',
         ];
     }
 
