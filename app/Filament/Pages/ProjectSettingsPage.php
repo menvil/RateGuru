@@ -14,6 +14,7 @@ use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Schema;
 use UnitEnum;
 
@@ -130,6 +131,41 @@ class ProjectSettingsPage extends Page
                         Toggle::make('feature_flags.allow_user_uploads')->label(__('admin.fields.allow_user_uploads')),
                         Toggle::make('feature_flags.allow_guest_viewing')->label('Allow guest viewing'),
                     ]),
+
+                Section::make('Translations')
+                    ->schema([
+                        Tabs::make('Translations')
+                            ->tabs(array_map(
+                                fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
+                                    ->schema([
+                                        TextInput::make("site_name_translations.{$locale}")
+                                            ->label(__('admin.fields.site_name'))
+                                            ->maxLength(120),
+                                        TextInput::make("site_tagline_translations.{$locale}")
+                                            ->label(__('admin.fields.tagline'))
+                                            ->maxLength(180),
+                                        Textarea::make("site_description_translations.{$locale}")
+                                            ->label(__('admin.fields.description'))
+                                            ->rows(3)
+                                            ->maxLength(2000),
+                                        TextInput::make("object_singular_name_translations.{$locale}")
+                                            ->label(__('admin.fields.singular_name'))
+                                            ->maxLength(80),
+                                        TextInput::make("object_plural_name_translations.{$locale}")
+                                            ->label(__('admin.fields.plural_name'))
+                                            ->maxLength(80),
+                                        TextInput::make("upload_cta_label_translations.{$locale}")
+                                            ->label(__('admin.fields.upload_cta_label'))
+                                            ->maxLength(80),
+                                        TextInput::make("feed_title_translations.{$locale}")
+                                            ->label(__('admin.fields.feed_title'))
+                                            ->maxLength(120),
+                                    ]),
+                                array_keys(config('locales.supported', [])),
+                                config('locales.supported', [])
+                            )),
+                    ])
+                    ->collapsible(),
             ])
             ->statePath('data');
     }
