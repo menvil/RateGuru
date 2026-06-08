@@ -71,13 +71,17 @@
                             :key="'post-detail-vote-pill-'.$post->id"
                         />
                     </div>
+                    @if($drawerSettings->featureEnabled('show_comments'))
                     <x-ui.action-button
                         icon="comment"
                         x-on:click="$dispatch('post-selected', { postId: {{ $post->id }}, focus: 'comments' })"
                     >
                         {{ $post->comments_count ?? 0 }}
                     </x-ui.action-button>
+                    @endif
+                    @if($drawerSettings->featureEnabled('show_share_buttons'))
                     <x-ui.action-button icon="share" x-on:click="shareOpen = true">Share</x-ui.action-button>
+                    @endif
                     @auth
                         <livewire:posts.save-post-button
                             :post-id="$post->id"

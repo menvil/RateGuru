@@ -39,5 +39,6 @@ it('does not apply unknown preset from settings page', function () {
     Livewire::actingAs($admin)
         ->test(ProjectSettingsPage::class)
         ->call('applyPreset', 'unknown')
-        ->assertHasErrors(['preset']);
+        ->assertHasNoErrors()
+        ->assertNotified('Unknown project preset: [unknown].');
 });

@@ -116,11 +116,13 @@
                                 </div>
                             </div>
 
+                            @if($projectSettings->featureFlag('allow_user_uploads'))
                             <div>
                                 <x-ui.modal :title="$projectSettings->uploadCtaLabel()" size="lg" data-testid="upload-modal" allow-overflow>
                                     <livewire:feed.upload-post-form />
                                 </x-ui.modal>
                             </div>
+                            @endif
                         </div>
                     @else
                         <div class="ml-auto flex shrink-0 items-center justify-end gap-2 md:ml-0 md:justify-self-end">

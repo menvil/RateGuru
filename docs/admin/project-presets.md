@@ -17,7 +17,7 @@ Presets live in `config/project_presets.php`.
 
 ## How applying a preset works
 
-```
+```text
 config/project_presets.php
     ↓
 ApplyProjectPresetAction::handle('cats')
@@ -98,12 +98,12 @@ If a preset needs truly different UI behavior, create a separate Phase for that 
 
 The shape of all presets is validated in:
 
-```
+```text
 tests/Feature/Support/Settings/ProjectPresetsConfigTest.php
 ```
 
 The action is tested in:
 
-```
+```text
 tests/Feature/Actions/ApplyProjectPresetActionTest.php
 ```
