@@ -11,22 +11,31 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Schemas\Components\Section;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use UnitEnum;
 
 class ProjectSettingsPage extends Page
 {
-
     protected string $view = 'filament.pages.project-settings';
 
     protected static string|UnitEnum|null $navigationGroup = AdminNavigationGroup::SYSTEM;
 
-    protected static ?string $navigationLabel = 'Project Settings';
+    protected static ?string $navigationLabel = null;
 
-    protected static ?string $title = 'Project Settings';
+    protected static ?string $title = null;
+
+    public static function getNavigationLabel(): string
+    {
+        return __('admin.project_settings.nav_label');
+    }
+
+    public function getTitle(): string
+    {
+        return __('admin.project_settings.title');
+    }
 
     protected static ?string $slug = 'project-settings';
 
@@ -50,49 +59,49 @@ class ProjectSettingsPage extends Page
     {
         return $form
             ->schema([
-                Section::make('Site Identity')
+                Section::make(__('admin.project_settings.site_identity'))
                     ->schema([
                         TextInput::make('site_name')
-                            ->label('Site name')
+                            ->label(__('admin.fields.site_name'))
                             ->required()
                             ->maxLength(120),
                         TextInput::make('site_tagline')
-                            ->label('Tagline')
+                            ->label(__('admin.fields.tagline'))
                             ->maxLength(180),
                         Textarea::make('site_description')
-                            ->label('Description')
+                            ->label(__('admin.fields.description'))
                             ->rows(3)
                             ->maxLength(2000),
                     ]),
 
-                Section::make('Object Labels')
+                Section::make(__('admin.project_settings.object_labels'))
                     ->schema([
                         TextInput::make('object_singular_name')
-                            ->label('Singular name')
+                            ->label(__('admin.fields.singular_name'))
                             ->required()
                             ->maxLength(80),
                         TextInput::make('object_plural_name')
-                            ->label('Plural name')
+                            ->label(__('admin.fields.plural_name'))
                             ->required()
                             ->maxLength(80),
                         TextInput::make('upload_cta_label')
-                            ->label('Upload CTA label')
+                            ->label(__('admin.fields.upload_cta_label'))
                             ->required()
                             ->maxLength(80),
                         TextInput::make('feed_title')
-                            ->label('Feed title')
+                            ->label(__('admin.fields.feed_title'))
                             ->required()
                             ->maxLength(120),
                     ]),
 
-                Section::make('Defaults')
+                Section::make(__('admin.project_settings.defaults'))
                     ->schema([
                         TextInput::make('default_locale')
-                            ->label('Default locale')
+                            ->label(__('admin.fields.default_locale'))
                             ->required()
                             ->maxLength(12),
                         Select::make('default_theme')
-                            ->label('Default theme')
+                            ->label(__('admin.fields.default_theme'))
                             ->options([
                                 'system' => 'System',
                                 'light' => 'Light',
@@ -101,7 +110,7 @@ class ProjectSettingsPage extends Page
                             ->required()
                             ->rules(['in:system,light,dark']),
                         Select::make('default_sort')
-                            ->label('Default sort')
+                            ->label(__('admin.fields.default_sort'))
                             ->options([
                                 'hot' => 'Hot',
                                 'new' => 'New',
@@ -111,14 +120,14 @@ class ProjectSettingsPage extends Page
                             ->rules(['in:hot,new,top']),
                     ]),
 
-                Section::make('Feature Flags')
+                Section::make(__('admin.project_settings.feature_flags'))
                     ->schema([
-                        Toggle::make('feature_flags.show_comments')->label('Show comments'),
-                        Toggle::make('feature_flags.show_share_buttons')->label('Show share buttons'),
-                        Toggle::make('feature_flags.show_vote_breakdown')->label('Show vote breakdown'),
-                        Toggle::make('feature_flags.show_follow_buttons')->label('Show follow buttons'),
-                        Toggle::make('feature_flags.show_saved_posts')->label('Show saved posts'),
-                        Toggle::make('feature_flags.allow_user_uploads')->label('Allow user uploads'),
+                        Toggle::make('feature_flags.show_comments')->label(__('admin.fields.show_comments')),
+                        Toggle::make('feature_flags.show_share_buttons')->label(__('admin.fields.show_share_buttons')),
+                        Toggle::make('feature_flags.show_vote_breakdown')->label(__('admin.fields.show_vote_breakdown')),
+                        Toggle::make('feature_flags.show_follow_buttons')->label(__('admin.fields.show_follow_buttons')),
+                        Toggle::make('feature_flags.show_saved_posts')->label(__('admin.fields.show_saved_posts')),
+                        Toggle::make('feature_flags.allow_user_uploads')->label(__('admin.fields.allow_user_uploads')),
                         Toggle::make('feature_flags.allow_guest_viewing')->label('Allow guest viewing'),
                     ]),
             ])
