@@ -6,6 +6,7 @@ use App\Actions\Settings\ApplyProjectPresetAction;
 use App\Exceptions\Settings\UnknownProjectPresetException;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\ProjectSettings;
+use App\Support\Settings\ProjectSettingsManager;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -133,7 +134,7 @@ class ProjectSettingsPage extends Page
             $validated
         );
 
-        app(\App\Support\Settings\ProjectSettingsManager::class)->flush();
+        app(ProjectSettingsManager::class)->flush();
 
         Notification::make()
             ->title('Settings saved')
