@@ -12,7 +12,7 @@
 ])
 
 <div class="flex flex-col gap-3">
-    <h3 class="text-sm font-semibold text-rg-text">{{ $group->label }}</h3>
+    <h3 class="text-sm font-semibold text-rg-text">{{ $group->translatedLabel() }}</h3>
 
     <div class="{{ $variant === 'compact' ? 'flex flex-wrap gap-1.5' : 'flex flex-wrap gap-2' }}">
         @foreach($options as $option)
@@ -33,7 +33,7 @@
                 :wire:loading.attr="$disabled ? false : 'disabled'"
                 :wire:loading.class="$disabled ? false : 'opacity-60 cursor-not-allowed'"
             >
-                <span>{{ $option->label }}</span>
+                <span>{{ $option->translatedLabel() }}</span>
                 @if($result !== null)
                     <span class="text-xs font-medium opacity-75">{{ $result['label'] }}</span>
                 @endif
@@ -42,9 +42,9 @@
     </div>
 
     @if($guest)
-        <p class="text-xs text-rg-muted">Sign in to vote.</p>
+        <p class="text-xs text-rg-muted">{{ __('ui.voting.sign_in_to_vote') }}</p>
     @elseif($isOwnPost)
-        <p class="text-xs text-rg-danger">You cannot vote on your own post.</p>
+        <p class="text-xs text-rg-danger">{{ __('ui.voting.cannot_vote_own_post') }}</p>
     @elseif($error !== '')
         <p class="text-xs text-rg-danger">{{ $error }}</p>
     @endif

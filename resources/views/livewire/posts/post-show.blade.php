@@ -75,7 +75,7 @@
 
             <section class="mt-5 space-y-5" data-testid="post-show-rating-controls">
                 <div data-testid="post-show-source-voting" wire:click.stop wire:keydown.stop>
-                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">Source</p>
+                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.source') }}</p>
                     <livewire:posts.source-voting
                         :post-id="$post->id"
                         :key="'post-show-source-voting-'.$post->id"
@@ -83,7 +83,7 @@
                 </div>
 
                 <div data-testid="post-show-category-voting" wire:click.stop wire:keydown.stop>
-                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">Category</p>
+                    <p class="mb-2 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.category') }}</p>
                     <livewire:posts.category-voting
                         :post-id="$post->id"
                         :key="'post-show-category-voting-'.$post->id"
@@ -134,7 +134,7 @@
                             target="_blank"
                             class="text-xs font-semibold text-rg-accent2 hover:underline"
                         >
-                            Source
+                            {{ __('ui.voting.source') }}
                         </a>
                     @endif
                 </section>

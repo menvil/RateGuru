@@ -80,7 +80,7 @@
                     </x-ui.action-button>
                     @endif
                     @if($projectSettings->featureEnabled('show_share_buttons'))
-                    <x-ui.action-button icon="share" x-on:click="shareOpen = true">Share</x-ui.action-button>
+                    <x-ui.action-button icon="share" x-on:click="shareOpen = true">{{ __('ui.share.title') }}</x-ui.action-button>
                     @endif
                     @auth
                         <livewire:posts.save-post-button
@@ -182,7 +182,7 @@
         <section data-testid="post-detail-results" class="mt-4 min-w-0 space-y-5 rounded-rgCard border border-rg-border bg-rg-card p-4 sm:p-5">
             <div class="min-w-0">
                 <div class="mb-3 flex items-baseline gap-2">
-                    <h3 class="text-base font-bold text-rg-text">Source</h3>
+                    <h3 class="text-base font-bold text-rg-text">{{ __('ui.voting.source') }}</h3>
                 </div>
 
                 <div class="mb-3" data-testid="post-drawer-source-voting" wire:click.stop wire:keydown.stop>
@@ -209,7 +209,7 @@
             </div>
 
             <div class="min-w-0 border-t border-rg-border pt-4">
-                <h3 class="mb-3.5 text-sm font-bold text-rg-text">Category</h3>
+                <h3 class="mb-3.5 text-sm font-bold text-rg-text">{{ __('ui.voting.category') }}</h3>
                 <div class="mb-3" data-testid="post-drawer-category-voting" wire:click.stop wire:keydown.stop>
                     <livewire:posts.category-voting
                         :post-id="$post->id"

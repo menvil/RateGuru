@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Translations\TranslatableField;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -19,7 +20,14 @@ class RatingOption extends Model
         return [
             'is_active' => 'boolean',
             'archived_at' => 'datetime',
+            'label_translations' => 'array',
+            'description_translations' => 'array',
         ];
+    }
+
+    public function translatedLabel(?string $locale = null): string
+    {
+        return TranslatableField::resolve($this->label_translations, $this->label, $locale);
     }
 
     public function group(): BelongsTo
