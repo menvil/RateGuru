@@ -8,12 +8,19 @@ class ProjectSettingsManager
 {
     private const DEFAULTS = [
         'site_name' => 'RateGuru',
+        'site_name_translations' => null,
         'site_tagline' => 'Rate anything',
+        'site_tagline_translations' => null,
         'site_description' => null,
+        'site_description_translations' => null,
         'object_singular_name' => 'post',
+        'object_singular_name_translations' => null,
         'object_plural_name' => 'posts',
+        'object_plural_name_translations' => null,
         'upload_cta_label' => 'Upload post',
+        'upload_cta_label_translations' => null,
         'feed_title' => 'Latest posts',
+        'feed_title_translations' => null,
         'default_locale' => 'en',
         'default_theme' => 'system',
         'default_sort' => 'hot',
@@ -45,13 +52,6 @@ class ProjectSettingsManager
                     self::DEFAULTS['feature_flags'],
                     $row->feature_flags ?? []
                 ),
-                'site_name_translations' => $row->site_name_translations,
-                'site_tagline_translations' => $row->site_tagline_translations,
-                'site_description_translations' => $row->site_description_translations,
-                'object_singular_name_translations' => $row->object_singular_name_translations,
-                'object_plural_name_translations' => $row->object_plural_name_translations,
-                'upload_cta_label_translations' => $row->upload_cta_label_translations,
-                'feed_title_translations' => $row->feed_title_translations,
             ])
             : self::DEFAULTS;
 

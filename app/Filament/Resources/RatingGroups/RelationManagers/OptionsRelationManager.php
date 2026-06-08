@@ -73,10 +73,10 @@ class OptionsRelationManager extends RelationManager
                                 fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
                                     ->schema([
                                         TextInput::make("label_translations.{$locale}")
-                                            ->label('Label')
+                                            ->label(__('admin.fields.label'))
                                             ->maxLength(120),
                                         Textarea::make("description_translations.{$locale}")
-                                            ->label('Description')
+                                            ->label(__('admin.fields.description'))
                                             ->rows(3)
                                             ->maxLength(1000),
                                     ]),

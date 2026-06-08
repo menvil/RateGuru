@@ -1,7 +1,7 @@
 <section data-testid="user-locale-settings">
     <header>
         <h2 class="text-base font-semibold text-rg-text">{{ __('ui.settings.language') }}</h2>
-        <p class="mt-1 text-sm text-rg-muted">{{ __('Choose your preferred interface language.') }}</p>
+        <p class="mt-1 text-sm text-rg-muted">{{ __('ui.settings.language_description') }}</p>
     </header>
 
     <form wire:submit="save" class="mt-4 space-y-4">
@@ -23,7 +23,7 @@
         </div>
 
         <x-ui.button type="submit">
-            {{ __('Save') }}
+            {{ __('ui.actions.save') }}
         </x-ui.button>
     </form>
 </section>

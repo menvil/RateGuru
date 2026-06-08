@@ -32,5 +32,5 @@ it('renders user locale settings on profile page', function () {
     $this->actingAs($user)
         ->get(route('profile.edit'))
         ->assertOk()
-        ->assertSee('Language');
+        ->assertSee(__('ui.settings.language'));
 });

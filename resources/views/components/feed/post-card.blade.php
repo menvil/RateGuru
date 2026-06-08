@@ -98,7 +98,7 @@
                 </div>
 
                 <div data-testid="post-card-category-voting">
-                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.category') }}:</p>
+                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.category') }}</p>
                     <livewire:posts.category-voting
                         :post-id="$post->id"
                         :has-preloaded-state="isset($ratingVotingState['category'])"
@@ -154,7 +154,7 @@
                             :key="'post-card-save-'.$post->id"
                         />
                     @else
-                        <x-ui.action-button icon="bookmark">Save</x-ui.action-button>
+                        <x-ui.action-button icon="bookmark">{{ __('ui.post.save') }}</x-ui.action-button>
                     @endif
                 @endauth
             </div>
@@ -195,7 +195,7 @@
                                 x-on:click="postMenuOpen = false; deleteOpen = true"
                                 class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                             >
-                                Delete post
+                                {{ __('ui.post.delete') }}
                             </button>
                         @endif
 
@@ -208,19 +208,19 @@
                     </div>
                 </div>
 
-                <x-ui.modal title="Delete post?" state="deleteOpen" size="sm">
+                <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
                     <div class="space-y-4">
-                        <p class="text-sm leading-6 text-rg-muted">This will remove the post from public feeds.</p>
+                        <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description') }}</p>
 
                         <div class="flex justify-end gap-2">
-                            <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">Cancel</x-ui.button>
+                            <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">{{ __('ui.actions.cancel') }}</x-ui.button>
                             <x-ui.button
                                 type="button"
                                 variant="danger"
                                 wire:click="$dispatch('delete-post', { postId: {{ $post->id }} })"
                                 x-on:click="deleteOpen = false"
                             >
-                                Delete
+                                {{ __('ui.actions.delete') }}
                             </x-ui.button>
                         </div>
                     </div>
@@ -228,7 +228,7 @@
             @endif
 
             @if($post->exists && $postCardSettings->featureEnabled('show_share_buttons'))
-                <x-ui.modal title="Share this post" state="shareOpen" size="lg">
+                <x-ui.modal title="{{ __('ui.post.share_title') }}" state="shareOpen" size="lg">
                     <x-share.post-share-panel :post="$post" />
                 </x-ui.modal>
             @endif
