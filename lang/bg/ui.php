@@ -1,0 +1,34 @@
+<?php
+
+return [
+    'brand' => 'РейтГуру',
+    'feed' => [
+        'latest' => 'Последни',
+    ],
+    'post' => [
+        'upload' => 'Качи пост',
+        'title' => 'Заглавие',
+        'description' => 'Описание',
+    ],
+    'comments' => [
+        'title' => 'Коментари',
+        'submit' => 'Изпрати',
+    ],
+    'share' => [
+        'title' => 'Сподели',
+    ],
+    'report' => [
+        'title' => 'Докладвай',
+    ],
+    'profile' => [
+        'posts' => 'Публикации',
+    ],
+    'settings' => [
+        'language' => 'Език',
+    ],
+    'voting' => [
+        'source' => 'Източник',
+        'category' => 'Категория',
+        'vote' => 'Гласувай',
+    ],
+];
