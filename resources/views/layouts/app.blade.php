@@ -59,6 +59,8 @@
 
                             <livewire:notifications.notification-bell />
 
+                            <x-locale-switcher />
+
                             <div
                                 x-data="{ userMenuOpen: false }"
                                 class="relative"
@@ -143,6 +145,8 @@
                             >
                                 Log in
                             </a>
+
+                            <x-locale-switcher />
                         </div>
                     @endauth
                 </div>
