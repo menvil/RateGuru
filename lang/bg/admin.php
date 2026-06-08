@@ -32,6 +32,7 @@ return [
         'show_saved_posts' => 'Показвай запазени публикации',
         'allow_user_uploads' => 'Разреши качване от потребители',
         'allow_guest_viewing' => 'Разреши преглед от гости',
+        'label' => 'Eтикет',
     ],
     'options' => [
         'theme' => [

@@ -9,15 +9,17 @@ it('has admin translation files for supported locales', function () {
 });
 
 it('keeps admin translation keys consistent across locales', function () {
-    $en = Arr::dot(require lang_path('en/admin.php'));
+    $enKeys = array_keys(Arr::dot(require lang_path('en/admin.php')));
+    sort($enKeys);
 
     foreach (array_keys(config('locales.supported', [])) as $locale) {
         if ($locale === 'en') {
             continue;
         }
 
-        $translated = Arr::dot(require lang_path("{$locale}/admin.php"));
+        $localeKeys = array_keys(Arr::dot(require lang_path("{$locale}/admin.php")));
+        sort($localeKeys);
 
-        expect(array_keys($translated))->toEqual(array_keys($en));
+        expect($localeKeys)->toEqual($enKeys);
     }
 });

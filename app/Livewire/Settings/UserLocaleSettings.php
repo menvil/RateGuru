@@ -17,10 +17,10 @@ class UserLocaleSettings extends Component
         $this->locale = auth()->user()?->locale ?? app()->getLocale();
     }
 
-    public function save(LocaleManager $manager): void
+    public function save(): void
     {
         $this->validate([
-            'locale' => ['required', 'string', Rule::in(array_keys($manager->supported()))],
+            'locale' => ['required', 'string', Rule::in(array_keys(app(LocaleManager::class)->supported()))],
         ]);
 
         /** @var User $user */
