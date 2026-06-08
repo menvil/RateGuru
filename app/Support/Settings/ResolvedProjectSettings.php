@@ -18,20 +18,22 @@ class ResolvedProjectSettings
 
     public function siteTagline(): ?string
     {
-        return TranslatableField::resolve(
+        $value = TranslatableField::resolve(
             $this->data['site_tagline_translations'] ?? null,
             $this->data['site_tagline'] ?? ''
-        ) ?: null;
+        );
+
+        return $value !== '' ? $value : null;
     }
 
     public function siteDescription(): ?string
     {
-        $base = $this->data['site_description'] ?? '';
-
-        return TranslatableField::resolve(
+        $value = TranslatableField::resolve(
             $this->data['site_description_translations'] ?? null,
-            $base
-        ) ?: null;
+            $this->data['site_description'] ?? ''
+        );
+
+        return $value !== '' ? $value : null;
     }
 
     public function objectSingularName(): string

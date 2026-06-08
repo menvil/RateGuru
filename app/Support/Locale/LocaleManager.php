@@ -16,7 +16,9 @@ class LocaleManager
 
     public function fallback(): string
     {
-        return config('locales.fallback', 'en');
+        $fallback = config('locales.fallback', 'en');
+
+        return $this->isSupported($fallback) ? $fallback : (array_key_first($this->supported()) ?? 'en');
     }
 
     public function normalize(?string $locale): string

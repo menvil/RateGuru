@@ -15,7 +15,7 @@ return [
         'options_relation' => 'Опции',
     ],
     'fields' => [
-        'site_name' => 'Ime na sajta',
+        'site_name' => 'Имe на сайта',
         'tagline' => 'Мото',
         'description' => 'Описание',
         'singular_name' => 'Единствено число',
@@ -31,5 +31,18 @@ return [
         'show_follow_buttons' => 'Показвай бутони за следване',
         'show_saved_posts' => 'Показвай запазени публикации',
         'allow_user_uploads' => 'Разреши качване от потребители',
+        'allow_guest_viewing' => 'Разреши преглед от гости',
+    ],
+    'options' => [
+        'theme' => [
+            'system' => 'Системна',
+            'light' => 'Светла',
+            'dark' => 'Тъмна',
+        ],
+        'sort' => [
+            'hot' => 'Популярни',
+            'new' => 'Нови',
+            'top' => 'Най-добри',
+        ],
     ],
 ];

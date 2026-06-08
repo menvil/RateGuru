@@ -11,7 +11,7 @@ class TranslatableField
     ): string {
         $locale ??= app()->getLocale();
 
-        if (is_array($translations) && ! empty($translations[$locale])) {
+        if (is_array($translations) && isset($translations[$locale]) && $translations[$locale] !== '') {
             return $translations[$locale];
         }
 

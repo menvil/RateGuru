@@ -1,16 +1,23 @@
 <?php
 
+use Illuminate\Support\Arr;
+
 it('has admin translation files for supported locales', function () {
-    foreach (['en', 'ru', 'bg'] as $locale) {
+    foreach (array_keys(config('locales.supported', [])) as $locale) {
         expect(file_exists(lang_path("{$locale}/admin.php")))->toBeTrue();
     }
 });
 
 it('keeps admin translation keys consistent across locales', function () {
-    $en = array_keys(require lang_path('en/admin.php'));
-    $ru = array_keys(require lang_path('ru/admin.php'));
-    $bg = array_keys(require lang_path('bg/admin.php'));
+    $en = Arr::dot(require lang_path('en/admin.php'));
 
-    expect($ru)->toEqual($en);
-    expect($bg)->toEqual($en);
+    foreach (array_keys(config('locales.supported', [])) as $locale) {
+        if ($locale === 'en') {
+            continue;
+        }
+
+        $translated = Arr::dot(require lang_path("{$locale}/admin.php"));
+
+        expect(array_keys($translated))->toEqual(array_keys($en));
+    }
 });
