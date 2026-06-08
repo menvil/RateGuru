@@ -37,7 +37,7 @@ class ProjectSettingsManager
             return $this->resolved;
         }
 
-        $row = ProjectSettings::first();
+        $row = ProjectSettings::find(1);
 
         $data = $row
             ? array_merge(self::DEFAULTS, $row->toArray(), [

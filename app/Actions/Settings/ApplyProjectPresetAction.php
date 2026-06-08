@@ -14,11 +14,15 @@ class ApplyProjectPresetAction
     {
         $presets = config('project_presets');
 
-        if (! array_key_exists($presetKey, $presets)) {
+        if (! is_array($presets) || ! array_key_exists($presetKey, $presets)) {
             throw UnknownProjectPresetException::for($presetKey);
         }
 
         $preset = $presets[$presetKey];
+
+        if (! is_array($preset['settings'] ?? null) || ! is_array($preset['feature_flags'] ?? null)) {
+            throw UnknownProjectPresetException::for($presetKey);
+        }
 
         ProjectSettings::updateOrCreate(
             ['id' => 1],

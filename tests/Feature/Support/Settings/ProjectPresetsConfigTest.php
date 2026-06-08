@@ -12,10 +12,23 @@ it('project presets have required shape', function () {
         expect($preset)->toHaveKeys(['label', 'settings', 'feature_flags']);
         expect($preset['settings'])->toHaveKeys([
             'site_name',
+            'site_tagline',
             'object_singular_name',
             'object_plural_name',
             'upload_cta_label',
             'feed_title',
+            'default_locale',
+            'default_theme',
+            'default_sort',
+        ]);
+        expect($preset['feature_flags'])->toHaveKeys([
+            'show_comments',
+            'show_share_buttons',
+            'show_vote_breakdown',
+            'show_follow_buttons',
+            'show_saved_posts',
+            'allow_user_uploads',
+            'allow_guest_viewing',
         ]);
     }
 });

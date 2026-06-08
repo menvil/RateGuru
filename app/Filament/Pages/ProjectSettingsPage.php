@@ -40,7 +40,7 @@ class ProjectSettingsPage extends Page
 
     public function mount(): void
     {
-        $settings = ProjectSettings::first();
+        $settings = ProjectSettings::find(1);
 
         $this->form->fill($settings ? $settings->toArray() : []);
     }
@@ -143,23 +143,18 @@ class ProjectSettingsPage extends Page
 
     public function applyPreset(string $presetKey): void
     {
-        $presets = config('project_presets', []);
-
-        if (! array_key_exists($presetKey, $presets)) {
-            $this->addError('preset', "Unknown preset: [{$presetKey}].");
-
-            return;
-        }
-
         try {
             app(ApplyProjectPresetAction::class)->handle($presetKey);
         } catch (UnknownProjectPresetException $e) {
-            $this->addError('preset', $e->getMessage());
+            Notification::make()
+                ->title($e->getMessage())
+                ->danger()
+                ->send();
 
             return;
         }
 
-        $settings = ProjectSettings::first();
+        $settings = ProjectSettings::find(1);
         $this->form->fill($settings ? $settings->toArray() : []);
 
         Notification::make()

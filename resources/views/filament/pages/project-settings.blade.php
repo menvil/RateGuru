@@ -8,7 +8,7 @@
             @foreach(\App\Filament\Pages\ProjectSettingsPage::presetOptions() as $key => $label)
                 <button
                     type="button"
-                    wire:click="applyPreset('{{ $key }}')"
+                    wire:click="applyPreset(@json($key))"
                     wire:confirm="Apply preset '{{ $label }}'? This will overwrite current settings."
                     class="rounded bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800"
                 >
