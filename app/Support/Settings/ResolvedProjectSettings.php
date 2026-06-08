@@ -2,43 +2,68 @@
 
 namespace App\Support\Settings;
 
+use App\Support\Translations\TranslatableField;
+
 class ResolvedProjectSettings
 {
     public function __construct(private readonly array $data) {}
 
     public function siteName(): string
     {
-        return $this->data['site_name'];
+        return TranslatableField::resolve(
+            $this->data['site_name_translations'] ?? null,
+            $this->data['site_name']
+        );
     }
 
     public function siteTagline(): ?string
     {
-        return $this->data['site_tagline'];
+        return TranslatableField::resolve(
+            $this->data['site_tagline_translations'] ?? null,
+            $this->data['site_tagline'] ?? ''
+        ) ?: null;
     }
 
     public function siteDescription(): ?string
     {
-        return $this->data['site_description'];
+        $base = $this->data['site_description'] ?? '';
+
+        return TranslatableField::resolve(
+            $this->data['site_description_translations'] ?? null,
+            $base
+        ) ?: null;
     }
 
     public function objectSingularName(): string
     {
-        return $this->data['object_singular_name'];
+        return TranslatableField::resolve(
+            $this->data['object_singular_name_translations'] ?? null,
+            $this->data['object_singular_name']
+        );
     }
 
     public function objectPluralName(): string
     {
-        return $this->data['object_plural_name'];
+        return TranslatableField::resolve(
+            $this->data['object_plural_name_translations'] ?? null,
+            $this->data['object_plural_name']
+        );
     }
 
     public function uploadCtaLabel(): string
     {
-        return $this->data['upload_cta_label'];
+        return TranslatableField::resolve(
+            $this->data['upload_cta_label_translations'] ?? null,
+            $this->data['upload_cta_label']
+        );
     }
 
     public function feedTitle(): string
     {
-        return $this->data['feed_title'];
+        return TranslatableField::resolve(
+            $this->data['feed_title_translations'] ?? null,
+            $this->data['feed_title']
+        );
     }
 
     public function defaultLocale(): string
