@@ -20,6 +20,8 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -63,6 +65,26 @@ class OptionsRelationManager extends RelationManager
                     ->disabled()
                     ->dehydrated(false)
                     ->visible(fn (?RatingOption $record): bool => $record?->archived_at !== null),
+
+                Section::make('Translations')
+                    ->schema([
+                        Tabs::make('Translations')
+                            ->tabs(array_map(
+                                fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
+                                    ->schema([
+                                        TextInput::make("label_translations.{$locale}")
+                                            ->label('Label')
+                                            ->maxLength(120),
+                                        Textarea::make("description_translations.{$locale}")
+                                            ->label('Description')
+                                            ->rows(3)
+                                            ->maxLength(1000),
+                                    ]),
+                                array_keys(config('locales.supported', [])),
+                                config('locales.supported', [])
+                            )),
+                    ])
+                    ->collapsible(),
             ]);
     }
 
