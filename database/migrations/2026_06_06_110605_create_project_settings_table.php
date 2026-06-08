@@ -24,7 +24,7 @@ return new class extends Migration
             $table->string('default_theme', 20)->default('system');
             $table->string('default_sort', 30)->default('hot');
             $table->string('active_preset_key', 80)->nullable();
-            $table->json('feature_flags')->nullable()->default('[]');
+            $table->json('feature_flags')->default('[]');
             $table->timestamps();
         });
     }
