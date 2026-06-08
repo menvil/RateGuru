@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use App\Livewire\Feed\FeedPage;
@@ -10,6 +11,8 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
+
+Route::post('/locale', ChangeLocaleController::class)->name('locale.change');
 
 Route::get('/', FeedPage::class)->name('feed');
 
