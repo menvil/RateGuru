@@ -148,7 +148,8 @@
                 class="mt-1"
                 data-testid="upload-tags"
                 x-data="{ open: false }"
-                x-on:click.outside="open = false"
+                x-on:mousedown.window="!$el.contains($event.target) && (open = false)"
+                x-on:keydown.escape.window="open = false"
             >
                 <div class="relative">
                     <x-ui.input
