@@ -5,6 +5,8 @@ namespace App\Filament\Resources\RatingGroups\Schemas;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Schema;
 
 class RatingGroupForm
@@ -49,6 +51,26 @@ class RatingGroupForm
                     ->required()
                     ->minValue(0)
                     ->default(0),
+
+                Section::make('Translations')
+                    ->schema([
+                        Tabs::make('Translations')
+                            ->tabs(array_map(
+                                fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
+                                    ->schema([
+                                        TextInput::make("label_translations.{$locale}")
+                                            ->label('Label')
+                                            ->maxLength(120),
+                                        Textarea::make("description_translations.{$locale}")
+                                            ->label('Description')
+                                            ->rows(3)
+                                            ->maxLength(1000),
+                                    ]),
+                                array_keys(config('locales.supported', [])),
+                                config('locales.supported', [])
+                            )),
+                    ])
+                    ->collapsible(),
             ]);
     }
 }
