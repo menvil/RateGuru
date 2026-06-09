@@ -70,7 +70,6 @@
         <div class="mt-3 space-y-2.5" wire:click.stop wire:keydown.stop>
             @if($post->exists)
                 <div data-testid="post-card-source-voting">
-                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.source') }}</p>
                     <livewire:posts.source-voting
                         :post-id="$post->id"
                         :has-preloaded-state="isset($ratingVotingState['source'])"
@@ -78,53 +77,17 @@
                         :preloaded-selected-option-id="$ratingVotingState['source']['selected_option_id'] ?? null"
                         :key="'post-card-source-voting-'.$post->id"
                     />
-
-                    @if($showOriginResults)
-                        <div data-testid="post-card-origin-results" class="mt-2">
-                            <div class="mb-1 flex justify-between">
-                                <span class="text-[11.5px] font-semibold text-rg-good">Source A</span>
-                                <span class="text-[11.5px] text-rg-text2">Source B</span>
-                            </div>
-                            <div class="mb-1.5 flex justify-between">
-                                <span class="whitespace-nowrap text-[18px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
-                                <span class="whitespace-nowrap text-[18px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
-                            </div>
-                            <div class="relative h-1.5 overflow-hidden rounded-rgPill bg-rg-card2">
-                                <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
-                            </div>
-                            <div class="mt-1.5 text-[11px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
-                        </div>
-                    @endif
                 </div>
 
                 <div data-testid="post-card-category-voting">
-                    <p class="mb-1.5 text-[13px] font-semibold text-rg-text2">{{ __('ui.voting.category') }}</p>
                     <livewire:posts.category-voting
                         :post-id="$post->id"
+                        variant="compact"
                         :has-preloaded-state="isset($ratingVotingState['category'])"
                         :preloaded-distribution="$ratingVotingState['category']['distribution'] ?? []"
                         :preloaded-selected-option-id="$ratingVotingState['category']['selected_option_id'] ?? null"
                         :key="'post-card-category-voting-'.$post->id"
                     />
-
-                    @if($showCuisineResults)
-                        <div data-testid="post-card-cuisine-results" class="mt-2 flex flex-col gap-1.5">
-                            @foreach($cuisineDistribution['rows'] as $row)
-                                <div class="grid grid-cols-[24px_minmax(0,1fr)_52px] items-center gap-1.5">
-                                    <span class="text-[11px] font-semibold text-rg-text2">{{ $row['label'] }}</span>
-                                    <div class="h-1.5 overflow-hidden rounded-rgPill bg-rg-card2">
-                                        <div class="h-full rounded-rgPill bg-rg-accent" style="width: {{ $row['percentage'] }}%"></div>
-                                    </div>
-                                    <span class="whitespace-nowrap text-right text-[11px] text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
-                </div>
-            @else
-                <div class="flex flex-wrap gap-2">
-                    <x-ui.badge>Source A {{ $post->homemade_votes_count ?? 0 }}</x-ui.badge>
-                    <x-ui.badge>Source B {{ $post->restaurant_votes_count ?? 0 }}</x-ui.badge>
                 </div>
             @endif
         </div>

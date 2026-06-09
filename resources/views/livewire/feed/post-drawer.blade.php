@@ -179,60 +179,19 @@
             </x-ui.modal>
         </article>
 
+        @if($activeRatingGroups->isNotEmpty())
         <section data-testid="post-detail-results" class="mt-4 min-w-0 space-y-5 rounded-rgCard border border-rg-border bg-rg-card p-4 sm:p-5">
-            <div class="min-w-0">
-                <div class="mb-3 flex items-baseline gap-2">
-                    <h3 class="text-base font-bold text-rg-text">{{ __('ui.voting.source') }}</h3>
-                </div>
-
-                <div class="mb-3" data-testid="post-drawer-source-voting" wire:click.stop wire:keydown.stop>
-                    <livewire:posts.source-voting
-                        :post-id="$post->id"
-                        :key="'post-drawer-source-voting-'.$post->id"
+            @foreach($activeRatingGroups as $ratingGroup)
+                <div class="{{ $loop->first ? '' : 'border-t border-rg-border pt-4' }}" wire:click.stop wire:keydown.stop>
+                    <livewire:voting.rating-voting
+                        :post="$post"
+                        :group-key="$ratingGroup->key"
+                        :key="'drawer-rating-'.$ratingGroup->key.'-'.$post->id"
                     />
                 </div>
-
-                @if($showOriginDistribution)
-                    <div class="mb-1.5 flex justify-between gap-3">
-                        <span class="text-[13px] font-semibold text-rg-good">Source A</span>
-                        <span class="text-[13px] text-rg-text2">Source B</span>
-                    </div>
-                    <div class="mb-2 flex justify-between gap-3">
-                        <span class="text-[20px] font-bold text-rg-good">{{ $originDistribution['homemadePct'] }}% ({{ $originDistribution['homemade'] }})</span>
-                        <span class="text-[20px] font-bold text-rg-text2">{{ $originDistribution['restaurantPct'] }}% ({{ $originDistribution['restaurant'] }})</span>
-                    </div>
-                    <div class="relative h-2 overflow-hidden rounded-rgPill bg-rg-card2">
-                        <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $originDistribution['homemadePct'] }}%"></div>
-                    </div>
-                    <div class="mt-2.5 text-[11.5px] text-rg-muted">{{ $originDistribution['total'] }} votes</div>
-                @endif
-            </div>
-
-            <div class="min-w-0 border-t border-rg-border pt-4">
-                <h3 class="mb-3.5 text-sm font-bold text-rg-text">{{ __('ui.voting.category') }}</h3>
-                <div class="mb-3" data-testid="post-drawer-category-voting" wire:click.stop wire:keydown.stop>
-                    <livewire:posts.category-voting
-                        :post-id="$post->id"
-                        variant="compact"
-                        :key="'post-drawer-category-voting-'.$post->id"
-                    />
-                </div>
-
-                @if($showCuisineDistribution)
-                    <div class="flex flex-col gap-2">
-                        @foreach($cuisineDistribution['rows'] as $row)
-                            <div class="grid min-w-0 grid-cols-[24px_minmax(0,1fr)_46px] items-center gap-2">
-                                <span class="text-xs font-semibold text-rg-text2">{{ $row['label'] }}</span>
-                                <div class="h-2 min-w-0 overflow-hidden rounded-rgPill bg-rg-card2">
-                                    <div class="h-full rounded-rgPill bg-rg-accent" style="width: {{ $row['percentage'] }}%"></div>
-                                </div>
-                                <span class="text-right text-[11px] text-rg-text2">{{ $row['percentage'] }}% ({{ $row['count'] }})</span>
-                            </div>
-                        @endforeach
-                    </div>
-                @endif
-            </div>
+            @endforeach
         </section>
+        @endif
 
         @if($projectSettings->featureEnabled('show_comments'))
         <section class="mt-6" data-testid="drawer-comments-slot">

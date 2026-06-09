@@ -1,10 +1,11 @@
 <?php
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
-use App\Models\CuisineVote;
+use App\Livewire\Feed\PostFeed;
 use App\Models\Post;
+use App\Models\RatingGroup;
+use App\Models\RatingVote;
 use App\Models\User;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Illuminate\Support\Facades\Blade;
 
 it('renders post voting component in post card', function () {
@@ -122,17 +123,13 @@ it('renders post stats area', function () {
         'upvotes_count' => 12,
         'downvotes_count' => 3,
         'comments_count' => 5,
-        'homemade_votes_count' => 7,
-        'restaurant_votes_count' => 4,
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)
         ->toContain('9')
-        ->toContain('5 comments')
-        ->toContain('Source A')
-        ->toContain('Source B');
+        ->toContain('5 comments');
 });
 
 it('renders post author area', function () {
@@ -288,69 +285,47 @@ it('renders source voting component in post card for persisted posts', function 
         ->not->toContain('What do you think?');
 });
 
-it('renders feed card vote results after the current user votes', function () {
-    $post = Post::factory()->published()->create([
-        'homemade_votes_count' => 3,
-        'restaurant_votes_count' => 2,
-    ]);
-    $originDistribution = [
-        'homemade' => 3,
-        'restaurant' => 2,
-        'homemadePct' => 60,
-        'restaurantPct' => 40,
-        'total' => 5,
-        'current' => OriginType::Homemade->value,
-    ];
-    $cuisineDistribution = [
-        'rows' => [
-            ['label' => 'A', 'count' => 1, 'percentage' => 50],
-            ['label' => 'D', 'count' => 1, 'percentage' => 50],
-        ],
-        'total' => 2,
-        'current' => CuisineType::Mexican->value,
-    ];
+it('renders feed card rating histogram via preloaded state after the current user votes', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
 
-    $html = Blade::render(
-        '<x-feed.post-card :post="$post" :origin-distribution="$originDistribution" :cuisine-distribution="$cuisineDistribution" />',
-        compact('post', 'originDistribution', 'cuisineDistribution'),
-    );
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
 
+    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
+    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
+    RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
+
+    $this->actingAs($user);
+
+    $html = Livewire\Livewire::actingAs($user)
+        ->test(PostFeed::class)
+        ->html();
+
+    // binary source group → 60% (3) / 40% (2)
     expect($html)
-        ->toContain('data-testid="post-card-origin-results"')
         ->toContain('60% (3)')
-        ->toContain('40% (2)')
-        ->toContain('whitespace-nowrap text-[18px]')
-        ->toContain('h-1.5 overflow-hidden rounded-rgPill')
-        ->toContain('data-testid="post-card-cuisine-results"')
-        ->toContain('D')
-        ->toContain('50% (1)');
+        ->toContain('40% (2)');
 });
 
-it('does not render feed card vote results before the current user votes', function () {
-    $post = Post::factory()->published()->create([
-        'homemade_votes_count' => 3,
-        'restaurant_votes_count' => 2,
-    ]);
+it('does not render rating histogram before the current user votes', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
 
-    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
+    $post = Post::factory()->published()->create();
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)
-        ->not->toContain('data-testid="post-card-origin-results"')
-        ->not->toContain('data-testid="post-card-cuisine-results"');
+    // No selected option → buttons shown, not the results block
+    expect($html)->not->toContain('post-card-origin-results');
 });
 
-it('renders source badges without breaking on unsaved post', function () {
-    $post = Post::factory()->published()->make([
-        'homemade_votes_count' => 2,
-        'restaurant_votes_count' => 1,
-    ]);
+it('does not break rendering on an unsaved post', function () {
+    $post = Post::factory()->published()->make();
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('Source A 2');
-    expect($html)->toContain('Source B 1');
+    expect($html)->toContain('post-card');
     // Unsaved posts must not render the interactive Livewire source component.
     expect($html)->not->toContain('post-card-source-voting');
 });
@@ -369,12 +344,14 @@ it('keeps post card free of service locator vote and authorization queries', fun
         ->not->toContain('app(');
 });
 
-it('keeps post card result visibility logic in the component class', function () {
+it('delegates result rendering to the rating voting components', function () {
     $view = file_get_contents(resource_path('views/components/feed/post-card.blade.php'));
 
+    // Post card no longer renders its own distribution blocks; the rating
+    // voting Livewire components (and their rating-options view) own that.
     expect($view)
-        ->toContain('$showOriginResults')
-        ->toContain('$showCuisineResults')
-        ->not->toContain('data_get($originDistribution')
-        ->not->toContain('data_get($cuisineDistribution');
+        ->not->toContain('post-card-origin-results')
+        ->not->toContain('post-card-cuisine-results')
+        ->toContain('posts.source-voting')
+        ->toContain('posts.category-voting');
 });
