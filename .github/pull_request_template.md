@@ -18,3 +18,11 @@
 - [ ] I checked post drawer.
 - [ ] I checked post show.
 - [ ] I confirmed no accidental debug text, broken images, or layout overflow is visible.
+
+## Mobile QA (when this PR touches layout or UI)
+
+- [ ] No horizontal overflow at 375px (scrollWidth ≤ innerWidth).
+- [ ] All interactive elements have ≥ 40px tap target height.
+- [ ] Text does not overflow containers (break-words applied where needed).
+- [ ] Drawer opens as bottom sheet on mobile (not side panel).
+- [ ] Locale and theme switchers fit within header at 375px.
