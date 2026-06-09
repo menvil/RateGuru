@@ -1,4 +1,5 @@
 // Alpine is provided by Livewire 3 — do not import it separately.
+import './share.js';
 
 window.rgSetTheme = function (pref) {
     var applied = pref === 'system'
