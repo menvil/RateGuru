@@ -41,7 +41,7 @@
         x-transition:leave="motion-safe:transition-opacity motion-reduce:transition-none ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        class="pointer-events-auto fixed inset-0 bg-black/70"
+        class="pointer-events-auto fixed inset-0 bg-rg-overlay"
         aria-hidden="true"
     ></div>
 
