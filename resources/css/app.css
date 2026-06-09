@@ -31,4 +31,44 @@
         --tw-ring-shadow: 0 0 #0000;
         --tw-ring-offset-shadow: 0 0 #0000;
     }
+
+    .rg-page-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 26px;
+        min-width: 26px;
+        padding: 0 5px;
+        border-radius: var(--rg-radius-sm);
+        border: 1px solid;
+        font-size: 11px;
+        font-weight: 600;
+        transition: background-color 150ms, color 150ms;
+        cursor: pointer;
+        border-color: var(--rg-border-2);
+        background-color: var(--rg-card);
+        color: var(--rg-text-2);
+    }
+    .rg-page-btn:hover {
+        background-color: var(--rg-card-2);
+        color: var(--rg-text);
+    }
+    .rg-page-btn-active {
+        border-color: var(--rg-accent-border);
+        background-color: var(--rg-accent-soft);
+        color: var(--rg-accent-2);
+        cursor: default;
+    }
+    .rg-page-btn-active:hover {
+        background-color: var(--rg-accent-soft);
+        color: var(--rg-accent-2);
+    }
+    .rg-page-btn-off {
+        border-color: var(--rg-border);
+        background-color: var(--rg-card);
+        color: var(--rg-muted);
+        opacity: 0.35;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
 }
