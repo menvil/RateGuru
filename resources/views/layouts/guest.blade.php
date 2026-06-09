@@ -1,11 +1,13 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
 
         <title>{{ $projectSettings->siteName() }}</title>
+
+        <script>{!! file_get_contents(resource_path('js/theme-bootstrap.js')) !!}</script>
 
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>

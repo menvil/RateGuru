@@ -43,9 +43,7 @@
             @endforeach
         </div>
 
-        @if($isOwnPost)
-            <span data-testid="{{ $errorTestId }}" class="text-xs text-rg-danger">You cannot vote on your own post.</span>
-        @elseif($error !== '')
+        @if($error !== '')
             <span data-testid="{{ $errorTestId }}" class="text-xs text-rg-danger">{{ $error }}</span>
         @endif
     @endif

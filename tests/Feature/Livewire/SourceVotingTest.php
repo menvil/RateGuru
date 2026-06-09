@@ -32,7 +32,7 @@ it('stores source votes in the generic rating votes table', function () {
     Livewire::actingAs($user)
         ->test(SourceVoting::class, ['postId' => $post->id])
         ->call('vote', $option->id)
-        ->assertDispatched('source-voted');
+        ->assertDispatched('rating-voted', postId: $post->id, groupKey: 'source');
 
     $this->assertDatabaseHas('rating_votes', [
         'user_id' => $user->id,
@@ -51,7 +51,7 @@ it('refreshes matching source voting instances', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(SourceVoting::class, ['postId' => $post->id])
-        ->dispatch('source-voted', postId: $post->id)
+        ->dispatch('rating-voted', postId: $post->id, groupKey: 'source')
         ->assertOk();
 });
 

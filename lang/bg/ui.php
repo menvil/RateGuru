@@ -41,8 +41,9 @@ return [
     'profile' => [
         'posts' => 'Публикации',
     ],
+    'theme' => 'Тема',
     'settings' => [
-        'language' => 'Език',
+        'language' =>'Език',
         'language_description' => 'Изберете предпочитания език на интерфейса.',
     ],
     'actions' => [

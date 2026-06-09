@@ -3,6 +3,7 @@
 namespace App\Livewire\Posts;
 
 use App\Models\Post;
+use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Seo\PostOpenGraph;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
@@ -29,34 +30,12 @@ final class PostShow extends Component
     #[On('post-voted')]
     public function refreshAfterVote(): void
     {
-        // Triggers a re-render so the vote summary panel reflects fresh counters.
+        // Triggers a re-render so the score summary panel reflects fresh counters.
+        // Rating vote results update in place via the nested rating-voting
+        // components, so no page re-render is needed for them.
     }
 
-    #[On('origin-voted')]
-    public function refreshAfterOriginVote(): void
-    {
-        // Triggers a re-render so the origin summary reflects fresh counters.
-    }
-
-    #[On('source-voted')]
-    public function refreshAfterSourceVote(): void
-    {
-        $this->refreshAfterOriginVote();
-    }
-
-    #[On('cuisine-voted')]
-    public function refreshAfterCuisineVote(): void
-    {
-        // Triggers a re-render after cuisine votes.
-    }
-
-    #[On('category-voted')]
-    public function refreshAfterCategoryVote(): void
-    {
-        $this->refreshAfterCuisineVote();
-    }
-
-    public function render(): View
+    public function render(RatingConfigurationManager $configuration): View
     {
         $post = $this->post;
         $openGraph = app(PostOpenGraph::class);
@@ -66,6 +45,7 @@ final class PostShow extends Component
             'ogImage' => $openGraph->image($post),
             'ogTitle' => $openGraph->title($post),
             'post' => $post,
+            'activeRatingGroups' => $configuration->activeGroups(),
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

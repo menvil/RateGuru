@@ -52,27 +52,15 @@ final class PostVoteResultService
     private function buildOriginDistribution(int $homemade, int $restaurant, ?string $current): array
     {
         $total = $homemade + $restaurant;
-
-        if ($current === null) {
-            return [
-                'homemade' => 0,
-                'restaurant' => 0,
-                'homemadePct' => 0,
-                'restaurantPct' => 0,
-                'total' => 0,
-                'current' => null,
-            ];
-        }
-
         $homemadePct = $total > 0 ? (int) round(($homemade / $total) * 100) : 0;
 
         return [
-            'homemade' => $homemade,
-            'restaurant' => $restaurant,
-            'homemadePct' => $homemadePct,
+            'homemade'      => $homemade,
+            'restaurant'    => $restaurant,
+            'homemadePct'   => $homemadePct,
             'restaurantPct' => $total > 0 ? 100 - $homemadePct : 0,
-            'total' => $total,
-            'current' => $current,
+            'total'         => $total,
+            'current'       => $current,
         ];
     }
 
@@ -85,13 +73,11 @@ final class PostVoteResultService
             ? $post->cuisineVotes()->where('user_id', $user->id)->latest('id')->first()?->cuisine?->value
             : null;
 
-        $counts = $current === null
-            ? collect()
-            : CuisineVote::query()
-                ->where('post_id', $post->id)
-                ->selectRaw('cuisine, COUNT(*) as total')
-                ->groupBy('cuisine')
-                ->pluck('total', 'cuisine');
+        $counts = CuisineVote::query()
+            ->where('post_id', $post->id)
+            ->selectRaw('cuisine, COUNT(*) as total')
+            ->groupBy('cuisine')
+            ->pluck('total', 'cuisine');
 
         return $this->buildCuisineDistribution($counts, $current);
     }
@@ -105,8 +91,7 @@ final class PostVoteResultService
         $posts = collect($posts);
         $postIds = $posts->pluck('id')->filter()->values()->all();
         $currentByPost = $this->currentCuisinesByPost($postIds, $user);
-        $votedPostIds = array_keys(array_filter($currentByPost));
-        $countsByPost = $this->cuisineCountsByPost($votedPostIds);
+        $countsByPost = $this->cuisineCountsByPost($postIds);
 
         return $posts
             ->mapWithKeys(fn (Post $post): array => [

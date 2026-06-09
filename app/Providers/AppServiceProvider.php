@@ -20,6 +20,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(ProjectSettingsManager::class);
+        $this->app->singleton(\App\Support\Theme\ThemeManager::class);
 
         $this->app->bind(VisualScreenshotRunner::class, PestVisualScreenshotRunner::class);
 
@@ -41,6 +42,18 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
+
+        View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
+            $themeManager = app(\App\Support\Theme\ThemeManager::class);
+            $user = auth()->user();
+            $themePreference = $themeManager->preferenceForUser($user);
+            $appliedTheme = $themeManager->appliedThemeFromPreference($themePreference);
+
+            $view->with([
+                'themePreference' => $themePreference,
+                'appliedTheme' => $appliedTheme,
+            ]);
+        });
 
         View::composer('layouts.app', function ($view): void {
             $settings = app(ProjectSettingsManager::class)->current();

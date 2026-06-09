@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,13 +9,15 @@
 
         @stack('meta')
 
+        <script>{!! file_get_contents(resource_path('js/theme-bootstrap.js')) !!}</script>
+
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         <div class="min-h-screen">
             <header class="sticky top-0 z-40 border-b border-rg-border bg-rg-topbar" data-testid="app-header">
-                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-5 px-5 md:grid md:grid-cols-[minmax(0,1fr)_minmax(280px,520px)_minmax(0,1fr)]">
-                    <a href="{{ url('/') }}" class="shrink-0 rounded-rgControl text-[22px] font-extrabold tracking-normal text-rg-text transition-colors hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg" data-testid="site-brand">
+                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-4 px-5 md:grid md:grid-cols-[1fr_minmax(0,480px)_auto]">
+                    <a href="{{ url('/') }}" class="shrink-0 self-center rounded-rgControl px-2 py-1 text-[22px] font-extrabold tracking-normal text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg" data-testid="site-brand">
                         {{ $projectSettings->siteName() }}
                     </a>
 
@@ -68,22 +70,22 @@
                                 @keydown.escape.window="userMenuOpen = false"
                                 @close-header-user-menu.window="userMenuOpen = false"
                             >
-                                    <button
-                                        type="button"
-                                        data-testid="header-user-menu-trigger"
-                                        aria-label="Open user menu"
-                                        aria-haspopup="true"
-                                        :aria-expanded="userMenuOpen"
-                                        @click="$dispatch('close-notification-menu'); userMenuOpen = ! userMenuOpen"
-                                        class="cursor-pointer rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
-                                    >
-                                        <x-ui.avatar
-                                            :src="auth()->user()->avatar_url"
-                                            :name="auth()->user()->name ?: auth()->user()->username"
-                                            color="purple"
-                                            size="lg"
-                                        />
-                                    </button>
+                                <button
+                                    type="button"
+                                    data-testid="header-user-menu-trigger"
+                                    aria-label="Open user menu"
+                                    aria-haspopup="true"
+                                    :aria-expanded="userMenuOpen"
+                                    @click="$dispatch('close-notification-menu'); userMenuOpen = ! userMenuOpen"
+                                    class="cursor-pointer rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+                                >
+                                    <x-ui.avatar
+                                        :src="auth()->user()->avatar_url"
+                                        :name="auth()->user()->name ?: auth()->user()->username"
+                                        color="purple"
+                                        size="lg"
+                                    />
+                                </button>
 
                                 <div
                                     x-cloak
@@ -95,22 +97,31 @@
                                     x-transition:leave-start="opacity-100 scale-100"
                                     x-transition:leave-end="opacity-0 scale-95"
                                     data-testid="header-user-menu"
-                                    class="absolute right-0 z-50 mt-2 min-w-48 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
+                                    class="absolute right-0 z-50 mt-2 w-52 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
                                     style="display: none;"
                                 >
+                                    <div class="px-3 py-2">
+                                        <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('ui.theme') }}</p>
+                                        <livewire:theme.theme-switcher layout="dropdown" />
+                                    </div>
+
+                                    <div class="my-1 border-t border-rg-border"></div>
+
                                     <a
                                         href="{{ $profileHref }}"
                                         data-testid="header-profile-link"
-                                        class="block rounded-rgSm px-3 py-2 text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                        class="flex items-center gap-2 rounded-rgSm px-3 py-2 text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
                                     >
                                         Profile
                                     </a>
+
+                                    <div class="my-1 border-t border-rg-border"></div>
 
                                     <form method="POST" action="{{ route('logout') }}">
                                         @csrf
                                         <button
                                             type="submit"
-                                            class="block w-full cursor-pointer rounded-rgSm px-3 py-2 text-left text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                            class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
                                         >
                                             Log out
                                         </button>
@@ -147,6 +158,8 @@
                             </a>
 
                             <x-locale-switcher />
+
+                            <livewire:theme.theme-switcher />
                         </div>
                     @endauth
                 </div>

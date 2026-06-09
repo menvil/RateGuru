@@ -138,7 +138,7 @@
     @endif
     @endif
 
-    @if($variant !== 'rail' && ($preventiveMessage !== null || $error !== ''))
-        <span data-testid="post-voting-error" class="text-xs text-rg-danger">{{ $preventiveMessage ?? $error }}</span>
+    @if($variant !== 'rail' && $error !== '')
+        <span data-testid="post-voting-error" class="text-xs text-rg-danger">{{ $error }}</span>
     @endif
 </div>

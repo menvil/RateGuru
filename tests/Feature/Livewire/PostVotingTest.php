@@ -271,7 +271,7 @@ it('prevents voting on an own post before the user attempts to vote', function (
 
     $html = Livewire::actingAs($owner)
         ->test(PostVoting::class, ['postId' => $post->id])
-        ->assertSee('You cannot vote on your own post.')
+        ->assertDontSee('You cannot vote on your own post.')
         ->html();
 
     expect($html)
@@ -279,26 +279,27 @@ it('prevents voting on an own post before the user attempts to vote', function (
         ->toMatch('/<button(?=[^>]*data-testid="post-downvote-button-'.$post->id.'")[^>]*\sdisabled(?:\s|=|>)/');
 });
 
-it('shows own post vote error only after the user attempts to vote', function () {
+it('silently blocks own post vote attempt without setting or displaying an error', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
     Livewire::actingAs($owner)
         ->test(PostVoting::class, ['postId' => $post->id])
         ->call('vote', VoteType::Up->value)
-        ->assertSet('error', 'You cannot vote on your own post.')
-        ->assertSee('You cannot vote on your own post.');
+        ->assertSet('error', '')
+        ->assertNotDispatched('post-voted')
+        ->assertDontSee('You cannot vote on your own post.');
 });
 
-it('dispatches own post vote errors from rail variant without rendering inline rail text', function () {
+it('silently blocks own post vote attempt in rail variant without error or dispatch', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
     Livewire::actingAs($owner)
         ->test(PostVoting::class, ['postId' => $post->id, 'variant' => 'rail'])
         ->call('vote', VoteType::Up->value)
-        ->assertSet('error', 'You cannot vote on your own post.')
-        ->assertDispatched('post-vote-error', postId: $post->id, message: 'You cannot vote on your own post.')
+        ->assertSet('error', '')
+        ->assertNotDispatched('post-vote-error')
         ->assertDontSee('You cannot vote on your own post.');
 });
 

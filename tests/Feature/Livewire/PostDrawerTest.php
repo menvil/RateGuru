@@ -1,10 +1,6 @@
 <?php
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Livewire\Feed\PostDrawer;
-use App\Models\CuisineVote;
-use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingVote;
@@ -127,9 +123,10 @@ it('renders the comments section in drawer', function () {
         ->assertDontSee('Comments will appear here');
 });
 
-it('renders drawer vote summary', function () {
+it('renders drawer vote summary with histogram after voting', function () {
     $this->seed(DefaultRatingConfigurationSeeder::class);
 
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'upvotes_count' => 12,
         'downvotes_count' => 3,
@@ -139,14 +136,17 @@ it('renders drawer vote summary', function () {
 
     RatingVote::factory()->count(7)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
     RatingVote::factory()->count(5)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
+    // User's own vote triggers histogram display
+    RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
 
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+    // sourceA = 8, sourceB = 5, total = 13 → 62% (8) / 38% (5)
+    Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Source')
         ->assertSee('Source A')
         ->assertSee('Source B')
-        ->assertSee('7 votes')
-        ->assertSee('5 votes')
-        ->assertDontSee('(unvoted)');
+        ->assertSee('62% (8)')
+        ->assertSee('38% (5)');
 });
 
 it('renders drawer author metadata', function () {
@@ -221,76 +221,67 @@ it('renders image placeholder when drawer post has no image', function () {
         ->assertSee('Image preview');
 });
 
-it('renders source voting panel in drawer', function () {
+it('renders source voting buttons in drawer before user votes', function () {
     $this->seed(DefaultRatingConfigurationSeeder::class);
 
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Source')
-        ->assertSee('post-drawer-source-voting', false)
         ->assertSee('Source A')
-        ->assertSee('Source B')
-        ->assertDontSee('Results');
+        ->assertSee('Source B');
 });
 
-it('renders drawer source controls before result labels', function () {
+it('renders drawer rating histogram after user votes on source group', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $user = User::factory()->create();
-    $post = Post::factory()->published()->create([
-        'homemade_votes_count' => 1,
-        'restaurant_votes_count' => 1,
-    ]);
+    $post = Post::factory()->published()->create();
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
 
-    OriginVote::factory()->create([
-        'user_id' => $user->id,
-        'post_id' => $post->id,
-        'origin' => OriginType::Homemade,
-    ]);
+    RatingVote::factory()->count(3)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
+    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
+    RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
 
+    // sourceA = 4, sourceB = 2, total = 6 → 67% (4) / 33% (2)
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSeeInOrder([
-            'post-drawer-source-voting',
-            'Source A</span>',
-            'Source B</span>',
-        ], false)
-        ->assertDontSee('You voted:');
+        ->assertSee('Source A')
+        ->assertSee('67% (4)')
+        ->assertSee('33% (2)');
 });
 
-it('renders drawer result percentages with vote counts after voting', function () {
+it('renders drawer rating histogram with percentage and vote count on same line', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $user = User::factory()->create();
-    $post = Post::factory()->published()->create([
-        'homemade_votes_count' => 3,
-        'restaurant_votes_count' => 2,
-    ]);
+    $post = Post::factory()->published()->create();
+    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
 
-    OriginVote::factory()->create([
-        'user_id' => $user->id,
-        'post_id' => $post->id,
-        'origin' => OriginType::Homemade,
-    ]);
+    RatingVote::factory()->count(3)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
+    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
+    RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
 
-    CuisineVote::factory()->for($post)->create([
-        'user_id' => $user->id,
-        'cuisine' => CuisineType::Mexican,
-    ]);
-    CuisineVote::factory()->for($post)->create(['cuisine' => CuisineType::Italian]);
-
-    Livewire::actingAs($user)
+    $html = Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('60% (3)')
-        ->assertSee('40% (2)')
-        ->assertSee('50% (1)');
+        ->html();
+
+    // source is a binary group → side-by-side percentages with vote counts in parens
+    // user's vote is included: sourceA=4, sourceB=2, total=6 → 67% (4) / 33% (2)
+    expect($html)->toContain('67% (4)');
+    expect($html)->toContain('33% (2)');
 });
 
-it('keeps drawer result visibility logic in the Livewire component', function () {
-    $view = file_get_contents(resource_path('views/livewire/feed/post-drawer.blade.php'));
+it('uses rating group question as drawer section header', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
 
-    expect($view)
-        ->toContain('$showOriginDistribution')
-        ->toContain('$showCuisineDistribution')
-        ->not->toContain("originDistribution['current']")
-        ->not->toContain("cuisineDistribution['current']");
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('Source')
+        ->assertSee('Category');
 });
 
 it('renders category voting buttons in drawer', function () {
@@ -299,31 +290,27 @@ it('renders category voting buttons in drawer', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('data-testid="post-drawer-category-voting"', false)
-        ->assertSee('flex-wrap', false)
-        ->assertSee('!h-7 !min-w-9', false)
         ->assertSee('Category A')
         ->assertSee('Category B')
-        ->assertSee('Category C')
-        ->assertDontSee('Category D')
-        ->assertDontSee('Other');
+        ->assertSee('Category C');
 });
 
-it('renders drawer category controls directly under the distribution heading', function () {
+it('renders drawer rating groups in order', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $post = Post::factory()->published()->create();
 
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSeeInOrder([
-            'Category',
-            'data-testid="post-drawer-category-voting"',
-        ], false);
+    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
+
+    expect(strpos($html, 'Source'))->toBeLessThan(strpos($html, 'Category'));
 });
 
-it('refreshes after semantic source and category vote events', function () {
-    $post = Post::factory()->published()->create();
+it('does not listen for vote events so the card does not reload on votes', function () {
+    // The drawer delegates vote refreshes to the nested post-voting /
+    // rating-voting components, so it must not register its own vote listeners.
+    $component = file_get_contents(app_path('Livewire/Feed/PostDrawer.php'));
 
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->dispatch('source-voted', postId: $post->id)
-        ->dispatch('category-voted', postId: $post->id)
-        ->assertOk();
+    expect($component)
+        ->not->toContain("#[On('rating-voted')]")
+        ->not->toContain("#[On('post-voted')]");
 });

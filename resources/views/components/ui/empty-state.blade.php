@@ -10,7 +10,7 @@
 
 <section
     {{ $attributes->merge([
-        'class' => 'flex w-full flex-col items-center justify-center rounded-rgCard border border-rg-border bg-rg-card px-6 py-10 text-center shadow-rgPopover',
+        'class' => 'flex w-full flex-col items-center justify-center rounded-rgCard border border-rg-border bg-rg-card px-6 py-10 text-center',
     ]) }}
 >
     <div class="flex size-12 items-center justify-center rounded-full border border-rg-accentBorder bg-rg-accentSoft shadow-[0_0_28px_rgba(168,85,247,0.16)]">

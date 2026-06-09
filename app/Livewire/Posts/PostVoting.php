@@ -43,6 +43,10 @@ final class PostVoting extends Component
             return;
         }
 
+        if (auth()->check() && (int) $post->user_id === (int) auth()->id()) {
+            return;
+        }
+
         $currentVote = $this->currentVoteFor($post);
 
         if ($currentVote === $voteType) {
@@ -90,7 +94,6 @@ final class PostVoting extends Component
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
             'votingDisabled' => ! auth()->check() || $isOwnPost,
-            'preventiveMessage' => $isOwnPost ? 'You cannot vote on your own post.' : null,
             'score' => (int) ($post?->score ?? 0),
         ]);
     }
