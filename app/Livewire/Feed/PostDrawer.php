@@ -106,7 +106,6 @@ final class PostDrawer extends Component
 
     private function shouldShowDistribution(?array $distribution): bool
     {
-        return filled($distribution['current'] ?? null)
-            && (int) ($distribution['total'] ?? 0) > 0;
+        return (int) ($distribution['total'] ?? 0) > 0;
     }
 }
