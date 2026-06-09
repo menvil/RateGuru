@@ -32,7 +32,7 @@ it('stores category votes in the generic rating votes table', function () {
     Livewire::actingAs($user)
         ->test(CategoryVoting::class, ['postId' => $post->id])
         ->call('vote', $option->id)
-        ->assertDispatched('category-voted');
+        ->assertDispatched('rating-voted', postId: $post->id, groupKey: 'category');
 
     $this->assertDatabaseHas('rating_votes', [
         'user_id' => $user->id,

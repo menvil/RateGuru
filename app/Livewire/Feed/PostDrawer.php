@@ -8,7 +8,6 @@ use App\Exceptions\Posts\CannotDeletePostException;
 use App\Models\Post;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Contracts\View\View;
-use Livewire\Attributes\On;
 use Livewire\Component;
 
 final class PostDrawer extends Component
@@ -17,11 +16,9 @@ final class PostDrawer extends Component
 
     public ?string $deleteError = null;
 
-    #[On('post-voted')]
-    public function refreshAfterVote(): void {}
-
-    #[On('rating-voted')]
-    public function refreshAfterRatingVote(): void {}
+    // Vote events are handled by the nested post-voting / rating-voting
+    // components, which self-update in place. The drawer intentionally does
+    // not re-render on votes so the card does not reload.
 
     public function deleteSelectedPost(DeletePostAction $deletePostAction): void
     {

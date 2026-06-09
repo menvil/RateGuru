@@ -194,7 +194,7 @@
         @endif
 
         @if($projectSettings->featureEnabled('show_comments'))
-        <section class="mt-6" data-testid="drawer-comments-slot">
+        <section class="mt-4" data-testid="drawer-comments-slot">
             <livewire:comments.comments-section :post-id="$post->id" :show-header="true" :key="'drawer-comments-'.$post->id" />
         </section>
         @endif

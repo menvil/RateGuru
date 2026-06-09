@@ -30,31 +30,9 @@ final class PostShow extends Component
     #[On('post-voted')]
     public function refreshAfterVote(): void
     {
-        // Triggers a re-render so the vote summary panel reflects fresh counters.
-    }
-
-    #[On('origin-voted')]
-    public function refreshAfterOriginVote(): void
-    {
-        // Triggers a re-render so the origin summary reflects fresh counters.
-    }
-
-    #[On('source-voted')]
-    public function refreshAfterSourceVote(): void
-    {
-        $this->refreshAfterOriginVote();
-    }
-
-    #[On('cuisine-voted')]
-    public function refreshAfterCuisineVote(): void
-    {
-        // Triggers a re-render after cuisine votes.
-    }
-
-    #[On('category-voted')]
-    public function refreshAfterCategoryVote(): void
-    {
-        $this->refreshAfterCuisineVote();
+        // Triggers a re-render so the score summary panel reflects fresh counters.
+        // Rating vote results update in place via the nested rating-voting
+        // components, so no page re-render is needed for them.
     }
 
     public function render(RatingConfigurationManager $configuration): View

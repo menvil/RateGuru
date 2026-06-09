@@ -100,6 +100,13 @@
                                     class="absolute right-0 z-50 mt-2 w-52 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
                                     style="display: none;"
                                 >
+                                    <div class="px-3 py-2">
+                                        <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('ui.theme') }}</p>
+                                        <livewire:theme.theme-switcher layout="dropdown" />
+                                    </div>
+
+                                    <div class="my-1 border-t border-rg-border"></div>
+
                                     <a
                                         href="{{ $profileHref }}"
                                         data-testid="header-profile-link"
@@ -107,13 +114,6 @@
                                     >
                                         Profile
                                     </a>
-
-                                    <div class="my-1 border-t border-rg-border"></div>
-
-                                    <div class="px-3 py-2">
-                                        <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('ui.theme') }}</p>
-                                        <livewire:theme.theme-switcher layout="dropdown" />
-                                    </div>
 
                                     <div class="my-1 border-t border-rg-border"></div>
 
