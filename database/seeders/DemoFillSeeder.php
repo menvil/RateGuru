@@ -429,8 +429,18 @@ class DemoFillSeeder extends Seeder
         \Illuminate\Support\Collection $users,
         \Illuminate\Support\Collection $posts,
     ): void {
-        $ratingGroup   = RatingGroup::query()->first();
-        $ratingOptions = $ratingGroup?->options->pluck('id')->all() ?? [];
+        // Load all active rating groups with their active options only
+        $ratingGroups = RatingGroup::query()
+            ->where('is_active', true)
+            ->with(['options' => fn ($q) => $q->where('is_active', true)->whereNull('archived_at')])
+            ->get()
+            ->filter(fn ($g) => $g->options->isNotEmpty());
+
+        // Build a lookup: groupId → [optionId, ...]  (active options only)
+        $groupOptionMap = $ratingGroups->mapWithKeys(fn ($g) => [
+            $g->id => $g->options->pluck('id')->all(),
+        ])->all();
+
         $originValues  = [OriginType::Homemade->value, OriginType::Restaurant->value];
         $cuisineValues = array_map(fn ($c) => $c->value, CuisineType::cases());
         $now           = now()->toDateTimeString();
@@ -471,12 +481,16 @@ class DemoFillSeeder extends Seeder
                     'updated_at' => $now,
                 ];
 
-                if ($ratingOptions !== []) {
+                // Vote on every active rating group
+                foreach ($groupOptionMap as $groupId => $optionIds) {
+                    if ($optionIds === []) {
+                        continue;
+                    }
                     $ratingVotes[] = [
                         'post_id'          => $post->id,
                         'user_id'          => $user->id,
-                        'rating_group_id'  => $ratingGroup->id,
-                        'rating_option_id' => $ratingOptions[array_rand($ratingOptions)],
+                        'rating_group_id'  => $groupId,
+                        'rating_option_id' => $optionIds[array_rand($optionIds)],
                         'created_at'       => $now,
                         'updated_at'       => $now,
                     ];
