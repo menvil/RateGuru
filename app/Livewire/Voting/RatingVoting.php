@@ -42,6 +42,10 @@ class RatingVoting extends Component
             return;
         }
 
+        if (auth()->check() && (int) $this->post->user_id === (int) auth()->id()) {
+            return;
+        }
+
         $group = $configuration->activeGroupByKey($this->groupKey);
         $option = $group?->options->firstWhere('id', $optionId);
 

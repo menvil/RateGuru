@@ -69,6 +69,10 @@ class CuisineVoting extends Component
             return;
         }
 
+        if (auth()->check() && (int) $post->user_id === (int) auth()->id()) {
+            return;
+        }
+
         try {
             $voteCuisineAction->handle(auth()->user(), $post, $cuisineType);
         } catch (CannotVoteCuisineException $e) {

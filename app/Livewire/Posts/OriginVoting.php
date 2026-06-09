@@ -70,6 +70,10 @@ class OriginVoting extends Component
             return;
         }
 
+        if (auth()->check() && (int) $post->user_id === (int) auth()->id()) {
+            return;
+        }
+
         try {
             $voteOriginAction->handle(auth()->user(), $post, $originType);
         } catch (CannotVoteOriginException $e) {
