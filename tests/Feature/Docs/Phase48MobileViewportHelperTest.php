@@ -1,13 +1,11 @@
 <?php
 
+use Tests\Browser\Support\MobileViewports;
+
 it('has mobile browser viewport helper', function () {
-    $path = base_path('tests/Browser/Support/MobileViewports.php');
+    expect(file_exists(base_path('tests/Browser/Support/MobileViewports.php')))->toBeTrue();
 
-    expect(file_exists($path))->toBeTrue();
-
-    $content = file_get_contents($path);
-
-    expect($content)->toContain('375');
-    expect($content)->toContain('390');
-    expect($content)->toContain('768');
+    expect(MobileViewports::SMALL_MOBILE[0])->toBe(375);
+    expect(MobileViewports::MOBILE[0])->toBe(390);
+    expect(MobileViewports::TABLET[0])->toBe(768);
 });

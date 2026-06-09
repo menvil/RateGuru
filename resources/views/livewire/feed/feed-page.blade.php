@@ -12,6 +12,7 @@
         scrollToSelectedPost(postId) {
             this.$nextTick(() => {
                 setTimeout(() => {
+                    // Two nested rAFs: first lets Livewire update the DOM, second waits for layout recalc
                     requestAnimationFrame(() => {
                         requestAnimationFrame(() => {
                             const detail = this.$refs.detailScroll;

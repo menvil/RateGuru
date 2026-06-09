@@ -21,7 +21,7 @@
         {{-- Vote buttons (no stats) while the user has not voted yet --}}
         <div class="{{ $variant === 'compact' ? 'flex flex-wrap gap-1.5' : 'flex flex-wrap gap-2' }}">
             @foreach($options as $option)
-                @php($sizeClass = $variant === 'compact' ? '!h-7 !min-w-9 !px-2 !text-xs' : '!min-h-[40px]')
+                @php($sizeClass = $variant === 'compact' ? 'h-7! min-w-9! px-2! text-xs!' : 'min-h-[40px]!')
                 <x-ui.button
                     variant="secondary"
                     size="sm"

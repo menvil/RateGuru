@@ -67,7 +67,7 @@ For header controls with text labels, show abbreviated text on mobile and full t
 
 The `<x-ui.drawer>` component renders as a bottom sheet on mobile and a side panel on desktop. This is controlled by Tailwind classes in `resources/views/components/ui/drawer.blade.php`:
 
-```
+```text
 mobile:  inset-x-0 bottom-0 max-h-[90vh] w-full rounded-t-rgCard border-t
 desktop: md:inset-y-0 md:bottom-auto md:h-dvh md:max-h-none
 ```

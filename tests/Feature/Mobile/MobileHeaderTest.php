@@ -5,7 +5,7 @@ use App\Models\User;
 it('renders mobile-safe header controls', function () {
     $this->get(route('feed'))
         ->assertOk()
-        ->assertSee('data-testid="mobile-header"', false);
+        ->assertSee('data-testid="app-header"', false);
 });
 
 it('renders language switcher with mobile testid', function () {

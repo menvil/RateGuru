@@ -26,8 +26,7 @@
     }"
     class="mx-auto w-full max-w-[820px] min-w-0 overflow-hidden"
 >
-    <span data-testid="post-show-page" class="sr-only"></span>
-    <main class="min-w-0">
+    <main class="min-w-0" data-testid="post-show-page">
         <article class="rounded-rgCard border border-rg-border bg-rg-card p-5">
             <section class="flex min-w-0 items-start gap-3" data-testid="post-show-meta">
                 <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />

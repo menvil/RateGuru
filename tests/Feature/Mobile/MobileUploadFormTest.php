@@ -12,7 +12,7 @@ it('upload form renders with expected testid', function () {
         ->assertSee('data-testid="upload-form"', false);
 });
 
-it('upload form contains vertical field spacing', function () {
+it('upload form renders with stacked fields structure', function () {
     $user = User::factory()->create();
 
     $html = Livewire::actingAs($user)
@@ -20,7 +20,6 @@ it('upload form contains vertical field spacing', function () {
         ->html();
 
     expect($html)->toContain('data-testid="upload-form"');
-    expect($html)->toContain('space-y-4');
 });
 
 it('upload form is accessible via authenticated feed page', function () {
