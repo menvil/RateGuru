@@ -287,6 +287,7 @@ it('silently blocks own post vote attempt without setting or displaying an error
         ->test(PostVoting::class, ['postId' => $post->id])
         ->call('vote', VoteType::Up->value)
         ->assertSet('error', '')
+        ->assertNotDispatched('post-voted')
         ->assertDontSee('You cannot vote on your own post.');
 });
 
