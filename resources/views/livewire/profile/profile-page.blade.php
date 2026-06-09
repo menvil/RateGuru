@@ -1,6 +1,7 @@
 <div data-testid="profile-page" class="mx-auto w-full max-w-4xl">
     <section
         data-testid="profile-header"
+        data-screenshot="profile-header"
         class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6"
     >
         <div class="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
@@ -14,7 +15,7 @@
                 </div>
 
                 <div data-testid="profile-identity" class="min-w-0">
-                    <h1 class="text-2xl font-semibold text-rg-text">{{ $this->displayName }}</h1>
+                    <h1 class="truncate text-2xl font-semibold text-rg-text">{{ $this->displayName }}</h1>
                     <p class="mt-1 text-sm text-rg-muted">{{ '@' . $profileUser->username }}</p>
                 </div>
             </div>

@@ -14,14 +14,14 @@
 @php($voted = $selectedOptionId !== null)
 @php($isBinary = count($options) === 2)
 
-<div class="flex flex-col gap-3">
+<div class="flex flex-col gap-3" data-testid="{{ $testIdPrefix }}-list">
     <h3 class="text-sm font-semibold text-rg-text">{{ $group->translatedLabel() }}</h3>
 
     @if(! $voted)
         {{-- Vote buttons (no stats) while the user has not voted yet --}}
         <div class="{{ $variant === 'compact' ? 'flex flex-wrap gap-1.5' : 'flex flex-wrap gap-2' }}">
             @foreach($options as $option)
-                @php($sizeClass = $variant === 'compact' ? '!h-7 !min-w-9 !px-2 !text-xs' : '')
+                @php($sizeClass = $variant === 'compact' ? 'h-7! min-w-9! px-2! text-xs!' : 'min-h-[40px]!')
                 <x-ui.button
                     variant="secondary"
                     size="sm"

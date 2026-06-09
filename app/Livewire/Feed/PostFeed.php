@@ -7,9 +7,12 @@ use App\Support\Rating\RatingVotingStateLoader;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Livewire\WithPagination;
 
 class PostFeed extends Component
 {
+    use WithPagination;
+
     public ?string $search = null;
 
     public ?string $tag = null;
@@ -32,17 +35,19 @@ class PostFeed extends Component
         FeedQuery $feedQuery,
         RatingVotingStateLoader $ratingVotingStateLoader,
     ): View {
-        $posts = $feedQuery->get(
+        $paginator = $feedQuery->paginate(
             search: $this->search !== '' ? $this->search : null,
             tag: $this->tag !== '' ? $this->tag : null,
             sort: $this->sort,
             origin: $this->origin,
             cuisine: $this->cuisine,
-        );
+        )->onEachSide(1);
+        $posts = $paginator->getCollection();
         $user = auth()->user();
 
         return view('livewire.feed.post-feed', [
             'posts' => $posts,
+            'paginator' => $paginator,
             'selectedPostId' => $this->selectedPostId,
             'ratingVotingStates' => $ratingVotingStateLoader->forPosts($posts, $user),
             'deletePermissions' => $posts

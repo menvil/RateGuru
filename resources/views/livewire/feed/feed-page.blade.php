@@ -5,25 +5,37 @@
 @php $feedSettings = $settingsManager->current(); @endphp
 
 <div
-    class="min-h-screen"
+    class="min-h-screen min-w-0"
     data-testid="feed-page"
+    data-screenshot="feed-page"
     x-data="{
         scrollToSelectedPost(postId) {
             this.$nextTick(() => {
                 setTimeout(() => {
+                    // Two nested rAFs: first lets Livewire update the DOM, second waits for layout recalc
                     requestAnimationFrame(() => {
-                        const feed = this.$refs.feedScroll;
-                        if (feed) {
-                            const card = feed.querySelector('[data-post-id=\'' + postId + '\']');
-                            if (card) {
-                                const top = card.getBoundingClientRect().top + window.scrollY - 80;
-                                window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
-                            }
-                        }
+                        requestAnimationFrame(() => {
+                            const detail = this.$refs.detailScroll;
 
-                        if (this.$refs.detailScroll) {
-                            this.$refs.detailScroll.scrollTo({ top: 0, behavior: 'auto' });
-                        }
+                            if (detail) {
+                                detail.scrollTo({ top: 0, behavior: 'auto' });
+                            }
+
+                            if (window.innerWidth < 1024) {
+                                if (detail) {
+                                    const top = detail.getBoundingClientRect().top + window.scrollY - 80;
+                                    window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
+                                }
+                                return;
+                            }
+
+                            const feed = this.$refs.feedScroll;
+                            if (!feed) return;
+                            const card = feed.querySelector('[data-post-id=\'' + postId + '\']');
+                            if (!card) return;
+                            const top = card.getBoundingClientRect().top + window.scrollY - 80;
+                            window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
+                        });
                     });
                 }, 40);
             });
