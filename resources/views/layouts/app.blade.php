@@ -63,6 +63,8 @@
 
                             <x-locale-switcher />
 
+                            <livewire:theme.theme-switcher />
+
                             <div
                                 x-data="{ userMenuOpen: false }"
                                 class="relative"
@@ -149,6 +151,8 @@
                             </a>
 
                             <x-locale-switcher />
+
+                            <livewire:theme.theme-switcher />
                         </div>
                     @endauth
                 </div>
