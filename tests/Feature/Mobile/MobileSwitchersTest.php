@@ -11,9 +11,14 @@ it('renders language switcher with mobile testid', function () {
 });
 
 it('locale switcher trigger meets 40px tap target height', function () {
-    $response = $this->get(route('feed'));
+    $html = $this->get(route('feed'))->content();
 
-    $response->assertSee('h-10', false);
+    $triggerPos = strpos($html, 'locale-switcher-trigger');
+    expect($triggerPos)->not->toBeFalse('locale-switcher-trigger not found');
+
+    // Check that h-10 (40px) appears within the trigger element's markup
+    $snippet = substr($html, max(0, $triggerPos - 300), 500);
+    expect($snippet)->toContain('h-10');
 });
 
 it('renders theme switcher with testid', function () {

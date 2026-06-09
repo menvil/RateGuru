@@ -4,7 +4,7 @@ it('phase 48 review checklist document exists', function () {
     expect(file_exists(base_path('docs/mobile/phase-48-review-checklist.md')))->toBeTrue();
 });
 
-it('review checklist covers all 20 tasks', function () {
+it('review checklist references first and last task IDs', function () {
     $content = file_get_contents(base_path('docs/mobile/phase-48-review-checklist.md'));
 
     expect($content)->toContain('RG-755');

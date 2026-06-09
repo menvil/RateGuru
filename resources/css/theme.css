@@ -54,7 +54,8 @@
     --rg-radius-media: 12px;
     --rg-radius-pill: 999px;
 
-    --rg-shadow-popover: 0 18px 60px rgba(0, 0, 0, 0.55);
+    --rg-shadow-popover: 0 8px 32px rgba(0, 0, 0, 0.40);
+    --rg-shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.30);
     --rg-shadow-upload: 0 4px 16px rgba(168, 85, 247, 0.35);
     --rg-selected-ring: 0 0 0 3px rgba(168, 85, 247, 0.12);
 
@@ -112,6 +113,9 @@ html[data-theme="dark"] {
 }
 
 html[data-theme="light"] {
+    --rg-shadow-popover: 0 4px 20px rgba(0, 0, 0, 0.10);
+    --rg-shadow-dropdown: 0 2px 10px rgba(0, 0, 0, 0.08);
+
     --rg-bg: #f7f7fb;
 
     --rg-shell-bg: #f7f7fb;
@@ -237,6 +241,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 
     --shadow-rgCard: var(--rg-shadow-card);
     --shadow-rgPopover: var(--rg-shadow-popover);
+    --shadow-rgDropdown: var(--rg-shadow-dropdown);
     --shadow-rgUpload: var(--rg-shadow-upload);
     --shadow-rgSelected: var(--rg-selected-ring);
 }

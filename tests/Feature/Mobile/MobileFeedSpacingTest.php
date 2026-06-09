@@ -2,21 +2,21 @@
 
 use App\Models\Post;
 
-it('renders mobile feed container with responsive spacing', function () {
-    Post::factory()->published()->create(['title' => 'Mobile Feed Spacing Test']);
+it('feed page includes expected structural testid markers', function () {
+    Post::factory()->published()->create(['title' => 'Feed Spacing Test']);
 
     $this->get(route('feed'))
         ->assertOk()
         ->assertSee('data-testid="feed-page"', false);
 });
 
-it('renders feed filters row that wraps on mobile', function () {
+it('feed page includes rating filters container', function () {
     $this->get(route('feed'))
         ->assertOk()
         ->assertSee('data-testid="feed-rating-filters"', false);
 });
 
-it('renders feed layout with mobile-safe container', function () {
+it('feed page includes feed layout container', function () {
     $this->get(route('feed'))
         ->assertOk()
         ->assertSee('data-testid="feed-layout"', false);

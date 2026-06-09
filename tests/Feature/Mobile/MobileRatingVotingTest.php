@@ -12,11 +12,12 @@ it('renders rating options container with mobile testid', function () {
     $group = RatingGroup::factory()->create(['key' => 'category', 'is_active' => true]);
     RatingOption::factory()->count(4)->for($group, 'group')->create(['is_active' => true]);
 
+    // testIdPrefix is "rating-option-{post->id}", so container is "rating-option-{id}-list"
     Livewire::test(RatingVoting::class, [
         'post' => $post,
         'groupKey' => 'category',
     ])
-        ->assertSee('data-testid="rating-options"', false);
+        ->assertSee('data-testid="rating-option-' . $post->id . '-list"', false);
 });
 
 it('renders ten rating options without losing options', function () {
@@ -30,9 +31,11 @@ it('renders ten rating options without losing options', function () {
         'groupKey' => 'category',
     ]);
 
-    $component->assertSee('data-testid="rating-options"', false);
+    $component->assertSee('data-testid="rating-option-' . $post->id . '-list"', false);
 
-    expect(substr_count($component->html(), 'data-testid="rating-option'))->toBeGreaterThanOrEqual(10);
+    // Match only individual option buttons (rating-option-{postId}-{optionId}),
+    // not the list container (rating-option-{postId}-list)
+    expect(preg_match_all('/data-testid="rating-option-\d+-\d+"/', $component->html()))->toBeGreaterThanOrEqual(10);
 });
 
 it('rating option buttons have mobile-safe tap target height', function () {
