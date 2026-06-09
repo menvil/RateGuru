@@ -215,7 +215,9 @@ class DemoFillSeeder extends Seeder
                     'status'          => PostStatus::Published->value,
                     'origin_truth'    => $originTypes[array_rand($originTypes)]->value,
                     'cuisine_truth'   => $cuisineTypes[array_rand($cuisineTypes)]->value,
-                    'published_at'    => $baseTime->addHours($index * 15)->toDateTimeString(),
+                    // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
+                    'published_at'    => $baseTime->addHours($index * 14)->toDateTimeString(),
+                    'deleted_at'      => null, // clear any previous soft-delete so Eloquent finds the row
                     'upvotes_count'   => 0,
                     'downvotes_count' => 0,
                     'comments_count'  => 0,
