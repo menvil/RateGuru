@@ -20,6 +20,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(ProjectSettingsManager::class);
+        $this->app->singleton(\App\Support\Theme\ThemeManager::class);
 
         $this->app->bind(VisualScreenshotRunner::class, PestVisualScreenshotRunner::class);
 
