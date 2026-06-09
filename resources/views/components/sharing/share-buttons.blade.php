@@ -6,7 +6,7 @@
 @endphp
 
 <div
-    {{ $attributes->merge(['class' => 'flex flex-wrap gap-2']) }}
+    {{ $attributes->merge(['class' => 'flex min-w-0 flex-wrap gap-2']) }}
     data-testid="share-buttons"
 >
     {{-- Copy Link --}}
