@@ -7,6 +7,7 @@
 <div
     class="min-h-screen min-w-0 overflow-hidden"
     data-testid="feed-page"
+    data-screenshot="feed-page"
     x-data="{
         scrollToSelectedPost(postId) {
             this.$nextTick(() => {
