@@ -29,7 +29,7 @@ it('supports right side desktop behavior and mobile safe layout', function () {
         ->toContain('motion-safe:transition-opacity')
         ->toContain('motion-safe:transform-gpu')
         ->toContain('fixed inset-0')
-        ->toContain('bg-black/70')
+        ->toContain('bg-rg-overlay')
         ->toContain('bg-rg-card')
         ->toContain('text-rg-text')
         ->toContain('bottom-0')
