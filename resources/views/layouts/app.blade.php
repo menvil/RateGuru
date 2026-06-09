@@ -16,9 +16,10 @@
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         <div class="min-h-screen">
             <header class="sticky top-0 z-40 border-b border-rg-border bg-rg-topbar" data-testid="app-header">
-                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-4 px-5 md:grid md:grid-cols-[1fr_minmax(0,480px)_auto]">
-                    <a href="{{ url('/') }}" class="shrink-0 self-center rounded-rgControl px-2 py-1 text-[22px] font-extrabold tracking-normal text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg" data-testid="site-brand">
-                        {{ $projectSettings->siteName() }}
+                <span data-testid="mobile-header" class="sr-only"></span>
+                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-2 overflow-hidden px-4 md:gap-4 md:px-5 md:grid md:grid-cols-[1fr_minmax(0,480px)_auto]">
+                    <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-2 py-1 text-[18px] font-extrabold tracking-normal text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:text-[22px]" data-testid="site-brand">
+                        <span class="block truncate">{{ $projectSettings->siteName() }}</span>
                     </a>
 
                     <form
@@ -46,7 +47,7 @@
                             x-data="{ open: false }"
                             @keydown.escape.window="open = false"
                             @post-uploaded.window="open = false"
-                            class="ml-auto flex shrink-0 items-center justify-end gap-3 md:ml-0 md:justify-self-end"
+                            class="ml-auto flex shrink-0 items-center justify-end gap-2 md:ml-0 md:gap-3 md:justify-self-end"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
                             <x-ui.button
