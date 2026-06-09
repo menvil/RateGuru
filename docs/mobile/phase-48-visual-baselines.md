@@ -19,7 +19,7 @@ Each `data-screenshot` attribute marks a capturable region.
 | Target              | Route             | Notes                         |
 |---------------------|-------------------|-------------------------------|
 | `feed-page`         | `/`               | Feed with post cards visible  |
-| `profile-header`    | `/profile/:user`  | Avatar, name, stats row       |
+| `profile-header`    | `/u/{username}`   | Avatar, name, stats row       |
 | `auth-page`         | `/login`          | Login card centered on screen |
 
 ## Acceptance Criteria (375px)

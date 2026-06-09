@@ -36,8 +36,8 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        height: 26px;
-        min-width: 26px;
+        height: 40px;
+        min-width: 40px;
         padding: 0 5px;
         border-radius: var(--rg-radius-sm);
         border: 1px solid;

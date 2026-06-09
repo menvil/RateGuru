@@ -14,7 +14,7 @@
 @php($voted = $selectedOptionId !== null)
 @php($isBinary = count($options) === 2)
 
-<div class="flex flex-col gap-3" data-testid="rating-options">
+<div class="flex flex-col gap-3" data-testid="{{ $testIdPrefix }}-list">
     <h3 class="text-sm font-semibold text-rg-text">{{ $group->translatedLabel() }}</h3>
 
     @if(! $voted)

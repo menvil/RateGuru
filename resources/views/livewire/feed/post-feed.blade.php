@@ -25,6 +25,12 @@
                     wire:key="{{ $post->id }}"
                 />
             @endforeach
+
+            @if($paginator->hasPages())
+                <div class="mt-2">
+                    {{ $paginator->links() }}
+                </div>
+            @endif
         @endif
     </div>
 </div>

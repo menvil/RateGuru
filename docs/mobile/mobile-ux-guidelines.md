@@ -6,11 +6,13 @@ Patterns and conventions established during Phase 48 Mobile UX Pass.
 
 ### Root containers
 
-Every page-level Livewire component should have `min-w-0 overflow-hidden` on its outermost div:
+Every page-level Livewire component should have `min-w-0` on its outermost div to prevent flex/grid overflow:
 
 ```blade
-<div class="min-w-0 overflow-hidden" data-testid="...">
+<div class="min-w-0" data-testid="...">
 ```
+
+> **Warning:** Do not add `overflow-hidden` to a component's root element if it contains `position: sticky` children or absolutely-positioned dropdowns — `overflow: hidden` disables sticky positioning and clips dropdowns that extend beyond the container bounds. Use `min-w-0` alone for overflow containment.
 
 ### Flex children
 
@@ -74,12 +76,13 @@ Do not override these classes; use the component as-is.
 
 ## Breakpoints
 
-| Name    | Width  |
-|---------|--------|
-| mobile  | 375px  |
-| sm      | 640px  |
-| md      | 768px  |
-| lg      | 1024px |
+| Name | Width  | CSS prefix |
+|------|--------|------------|
+| sm   | 640px  | `sm:`      |
+| md   | 768px  | `md:`      |
+| lg   | 1024px | `lg:`      |
+
+There is no `mobile:` Tailwind prefix. **375px is a testing viewport**, not a CSS breakpoint — use it for browser/screenshot tests but not in templates. Mobile-first means styles without a prefix apply at 375px (and wider).
 
 Primary mobile target is **375px** (iPhone SE / older iPhones).
 

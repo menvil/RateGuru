@@ -5,7 +5,7 @@
         'hot' => __('ui.comments.sort.hot'),
     ];
 @endphp
-<section data-testid="comments-section" class="min-w-0 overflow-hidden rounded-rgCard border border-rg-border bg-rg-card p-5">
+<section data-testid="comments-section" class="min-w-0 rounded-rgCard border border-rg-border bg-rg-card p-5">
     @if ($showHeader)
         <div class="flex items-center justify-between gap-3">
             <h3 class="text-base font-bold text-rg-text">{{ __('ui.comments.title_with_count', ['count' => $this->totalComments]) }}</h3>

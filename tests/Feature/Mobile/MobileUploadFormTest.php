@@ -4,7 +4,7 @@ use App\Livewire\Feed\UploadPostForm;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('renders upload form with mobile-safe structure', function () {
+it('upload form renders with expected testid', function () {
     $user = User::factory()->create();
 
     Livewire::actingAs($user)
@@ -12,7 +12,7 @@ it('renders upload form with mobile-safe structure', function () {
         ->assertSee('data-testid="upload-form"', false);
 });
 
-it('upload form uses full-width inputs', function () {
+it('upload form contains vertical field spacing', function () {
     $user = User::factory()->create();
 
     $html = Livewire::actingAs($user)
