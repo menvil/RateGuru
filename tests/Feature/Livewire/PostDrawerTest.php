@@ -139,12 +139,14 @@ it('renders drawer vote summary with histogram after voting', function () {
     // User's own vote triggers histogram display
     RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
 
+    // sourceA = 8, sourceB = 5, total = 13 → 62% (8) / 38% (5)
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Source')
         ->assertSee('Source A')
         ->assertSee('Source B')
-        ->assertSee('votes');
+        ->assertSee('62% (8)')
+        ->assertSee('38% (5)');
 });
 
 it('renders drawer author metadata', function () {
@@ -242,10 +244,12 @@ it('renders drawer rating histogram after user votes on source group', function 
     RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
     RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
 
+    // sourceA = 4, sourceB = 2, total = 6 → 67% (4) / 33% (2)
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Source A')
-        ->assertSee('votes');
+        ->assertSee('67% (4)')
+        ->assertSee('33% (2)');
 });
 
 it('renders drawer rating histogram with percentage and vote count on same line', function () {
