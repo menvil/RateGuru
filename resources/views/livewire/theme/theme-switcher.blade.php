@@ -14,15 +14,7 @@
                 type="button"
                 wire:key="theme-option-{{ $option['value'] }}"
                 wire:click="setThemePreference('{{ $option['value'] }}')"
-                x-on:click.prevent="
-                    var pref = '{{ $option['value'] }}';
-                    var applied = pref === 'system'
-                        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-                        : pref;
-                    document.documentElement.dataset.theme = applied;
-                    document.documentElement.dataset.themePreference = pref;
-                    try { localStorage.setItem('rateguru.theme.preference', pref); } catch(e) {}
-                "
+                onclick="rgSetTheme('{{ $option['value'] }}')"
                 data-testid="theme-option-{{ $option['value'] }}"
                 title="{{ $option['label'] }}"
                 aria-label="{{ $option['label'] }}"
@@ -49,15 +41,7 @@
                 type="button"
                 wire:key="theme-option-{{ $option['value'] }}"
                 wire:click="setThemePreference('{{ $option['value'] }}')"
-                x-on:click.prevent="
-                    var pref = '{{ $option['value'] }}';
-                    var applied = pref === 'system'
-                        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-                        : pref;
-                    document.documentElement.dataset.theme = applied;
-                    document.documentElement.dataset.themePreference = pref;
-                    try { localStorage.setItem('rateguru.theme.preference', pref); } catch(e) {}
-                "
+                onclick="rgSetTheme('{{ $option['value'] }}')"
                 data-testid="theme-option-{{ $option['value'] }}"
                 title="{{ $option['label'] }}"
                 aria-label="{{ $option['label'] }}"

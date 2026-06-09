@@ -136,7 +136,7 @@ it('renders comments empty state when no visible comments exist', function () {
 
     Livewire::test(CommentsSection::class, ['postId' => $post->id])
         ->assertSee('No comments yet')
-        ->assertSee('shadow-rgPopover', false)
+        ->assertSee('border-rg-border', false)
         ->assertDontSee('Hidden comment');
 });
 
