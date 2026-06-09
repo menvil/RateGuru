@@ -140,8 +140,8 @@
             </footer>
 
             @if($projectSettings->featureEnabled('show_share_buttons'))
-            <x-ui.modal title="Share this post" state="shareOpen" size="lg">
-                <x-share.post-share-panel :post="$post" />
+            <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
+                <x-sharing.share-buttons :post="$post" />
             </x-ui.modal>
             @endif
 
