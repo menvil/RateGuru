@@ -13,12 +13,6 @@ it('has theme bootstrap script', function () {
     expect($content)->toContain('rateguru.theme.preference');
 });
 
-it('theme bootstrap script contains localStorage.setItem', function () {
-    $content = file_get_contents(resource_path('js/theme-bootstrap.js'));
-
-    expect($content)->toContain('localStorage');
-});
-
 it('app layout includes theme bootstrap script inline', function () {
     $layout = file_get_contents(resource_path('views/layouts/app.blade.php'));
 

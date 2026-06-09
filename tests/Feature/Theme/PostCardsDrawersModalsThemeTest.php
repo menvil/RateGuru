@@ -30,12 +30,16 @@ it('upload form view uses theme tokens', function () {
     $content = file_get_contents(resource_path('views/livewire/feed/upload-post-form.blade.php'));
 
     expect($content)->toContain('rg-');
+    expect($content)->not->toContain('bg-white');
+    expect($content)->not->toContain('bg-zinc-');
 });
 
 it('report modal view uses theme tokens', function () {
     $content = file_get_contents(resource_path('views/livewire/reports/report-modal.blade.php'));
 
     expect($content)->toContain('rg-');
+    expect($content)->not->toContain('bg-white');
+    expect($content)->not->toContain('bg-zinc-');
 });
 
 it('renders post show with theme surfaces', function () {

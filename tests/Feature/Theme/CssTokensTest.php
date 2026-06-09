@@ -22,6 +22,8 @@ it('light theme has distinct values from dark', function () {
     $css = file_get_contents(resource_path('css/theme.css'));
 
     expect($css)->toContain('--rg-bg: #f7f7fb');
+    expect($css)->toContain('--rg-surface: #ffffff');
+    expect($css)->toContain('--rg-border: #e2e2ec');
     expect($css)->toContain('--rg-text: #14141c');
     expect($css)->toContain('--rg-accent: #7c3aed');
 });

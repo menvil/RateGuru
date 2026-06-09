@@ -19,6 +19,7 @@
     ] as $option)
         <button
             type="button"
+            wire:key="theme-option-{{ $option['value'] }}"
             wire:click="setThemePreference('{{ $option['value'] }}')"
             data-testid="theme-option-{{ $option['value'] }}"
             title="{{ $option['label'] }}"

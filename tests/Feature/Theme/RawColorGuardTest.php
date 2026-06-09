@@ -4,14 +4,10 @@ use Symfony\Component\Finder\Finder;
 
 it('does not use common raw color classes in active public ui views', function () {
     $forbidden = [
-        'bg-black"',
-        'bg-black ',
-        'bg-white"',
-        'bg-white ',
-        'text-white"',
-        'text-white ',
-        'text-black"',
-        'text-black ',
+        'bg-black',
+        'bg-white',
+        'text-white',
+        'text-black',
         'bg-gray-950',
         'bg-zinc-950',
         'bg-gray-900',
@@ -39,7 +35,7 @@ it('does not use common raw color classes in active public ui views', function (
     $violations = [];
 
     foreach ($finder as $file) {
-        $relativePath = str_replace(resource_path('views') . '/', '', $file->getRealPath());
+        $relativePath = $file->getRelativePathname();
 
         if (in_array($relativePath, $allowlistedFiles)) {
             continue;
