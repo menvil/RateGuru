@@ -44,11 +44,12 @@
         @php($optionsList = collect($options)->values())
         @php($optionA = $optionsList[0])
         @php($optionB = $optionsList[1])
-        @php($resultA = $distribution[$optionA->id] ?? ['percent' => 0, 'count' => 0])
-        @php($resultB = $distribution[$optionB->id] ?? ['percent' => 0, 'count' => 0])
-        @php($pctA = (int) round($resultA['percent'] ?? 0))
-        @php($pctB = (int) round($resultB['percent'] ?? 0))
-        @php($total = ($resultA['count'] ?? 0) + ($resultB['count'] ?? 0))
+        @php($cntA = (int) ($distribution[$optionA->id]['count'] ?? 0))
+        @php($cntB = (int) ($distribution[$optionB->id]['count'] ?? 0))
+        @php($total = $cntA + $cntB)
+        {{-- Compute percentages directly from the displayed counts so they always agree --}}
+        @php($pctA = $total > 0 ? (int) round($cntA / $total * 100) : 0)
+        @php($pctB = $total > 0 ? 100 - $pctA : 0)
 
         <div data-testid="{{ $testIdPrefix }}-results">
             <div class="mb-1 flex justify-between">
@@ -56,22 +57,21 @@
                 <span class="text-[11.5px] text-rg-text2">{{ $optionB->translatedLabel() }}</span>
             </div>
             <div class="mb-1.5 flex justify-between">
-                <span class="whitespace-nowrap text-[18px] font-bold text-rg-good">{{ $pctA }}% ({{ $resultA['count'] ?? 0 }})</span>
-                <span class="whitespace-nowrap text-[18px] font-bold text-rg-text2">{{ $pctB }}% ({{ $resultB['count'] ?? 0 }})</span>
+                <span class="whitespace-nowrap text-[18px] font-bold text-rg-good">{{ $pctA }}% ({{ $cntA }})</span>
+                <span class="whitespace-nowrap text-[18px] font-bold text-rg-text2">{{ $pctB }}% ({{ $cntB }})</span>
             </div>
             <div class="relative h-1.5 overflow-hidden rounded-rgPill bg-rg-card2">
                 <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $pctA }}%"></div>
             </div>
-            <div class="mt-1.5 text-[11px] text-rg-muted">{{ $total }} {{ $total === 1 ? 'vote' : 'votes' }}</div>
         </div>
     @else
         {{-- Multi-option group: per-option horizontal bars --}}
+        @php($multiTotal = collect($options)->sum(fn ($o) => (int) ($distribution[$o->id]['count'] ?? 0)))
         <div class="flex flex-col gap-2">
             @foreach($options as $option)
                 @php($active = (int) $selectedOptionId === (int) $option->id)
-                @php($result = $distribution[$option->id] ?? null)
-                @php($pct    = (int) round($result['percent'] ?? 0))
-                @php($cnt    = $result['count'] ?? 0)
+                @php($cnt    = (int) ($distribution[$option->id]['count'] ?? 0))
+                @php($pct    = $multiTotal > 0 ? (int) round($cnt / $multiTotal * 100) : 0)
                 <div
                     data-testid="{{ $testIdPrefix }}-{{ $option->id }}"
                     class="flex flex-col gap-1"
