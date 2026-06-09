@@ -53,17 +53,16 @@ it('renders selected published post', function () {
         ->assertSee('Creamy pasta with pepper');
 });
 
-it('renders share panel in post drawer for published post', function () {
+it('renders share buttons in post drawer for published post', function () {
     config(['app.url' => 'https://rateguru.test']);
 
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Share this post')
-        ->assertSee('data-testid="post-share-panel"', false)
-        ->assertSee('data-testid="post-share-copy"', false)
+        ->assertSee('data-testid="share-buttons"', false)
+        ->assertSee('data-testid="share-copy-link"', false)
         ->assertDontSee('Open post')
-        ->assertDontSee('data-testid="post-drawer-share-panel"', false)
         ->assertSee(app(PostUrl::class)->canonical($post));
 });
 
@@ -75,11 +74,11 @@ it('hides save action from guests in the post drawer', function () {
         ->assertDontSee('>Save<', false);
 });
 
-it('does not render public share panel in drawer for hidden post', function () {
+it('does not render share buttons in drawer for hidden post', function () {
     $post = Post::factory()->hidden()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertDontSee('data-testid="post-share-panel"', false);
+        ->assertDontSee('data-testid="share-buttons"', false);
 });
 
 it('does not render hidden post', function () {
