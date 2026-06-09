@@ -112,11 +112,17 @@
                 </x-ui.card>
             </section>
 
-            <div class="mt-3">
+            <div class="mt-3 flex flex-wrap items-center gap-3">
                 <x-ui.action-button icon="comment" x-on:click="scrollToComments()" data-testid="post-show-comments-scroll">
                     {{ $post->comments_count ?? 0 }}
                 </x-ui.action-button>
             </div>
+
+            @if($projectSettings->featureEnabled('show_share_buttons'))
+            <section class="mt-4" data-testid="post-show-share">
+                <x-sharing.share-buttons :post="$post" />
+            </section>
+            @endif
 
             @if($post->tags->isNotEmpty() || $post->source_url)
                 <section class="mt-4 flex flex-wrap items-center gap-2">
