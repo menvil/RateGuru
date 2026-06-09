@@ -3,12 +3,9 @@
 use App\Livewire\Theme\ThemeSwitcher;
 use App\Models\User;
 
-it('renders theme switcher options', function () {
+it('renders theme switcher on feed page', function () {
     $this->get(route('feed'))
-        ->assertSee('data-testid="theme-switcher"', false)
-        ->assertSee('System')
-        ->assertSee('Light')
-        ->assertSee('Dark');
+        ->assertSee('data-testid="theme-switcher"', false);
 });
 
 it('theme switcher has test ids for all options', function () {
@@ -18,11 +15,12 @@ it('theme switcher has test ids for all options', function () {
         ->assertSee('data-testid="theme-option-dark"', false);
 });
 
-it('renders theme switcher as livewire component', function () {
-    $html = Livewire\Livewire::test(ThemeSwitcher::class)
-        ->assertSee('System')
-        ->assertSee('Light')
-        ->assertSee('Dark');
+it('theme switcher has aria labels for all options', function () {
+    $component = Livewire\Livewire::test(ThemeSwitcher::class);
+
+    $component->assertSee('aria-label="System"', false)
+        ->assertSee('aria-label="Light"', false)
+        ->assertSee('aria-label="Dark"', false);
 });
 
 it('mounts with system preference by default for guest', function () {
