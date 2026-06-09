@@ -3,11 +3,15 @@
 namespace App\Livewire\Theme;
 
 use App\Enums\ThemePreference;
+use Livewire\Attributes\Prop;
 use Livewire\Component;
 
 class ThemeSwitcher extends Component
 {
     public string $preference = 'system';
+
+    #[Prop]
+    public string $layout = 'header';
 
     public function mount(): void
     {

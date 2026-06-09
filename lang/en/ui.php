@@ -41,6 +41,7 @@ return [
     'profile' => [
         'posts' => 'Posts',
     ],
+    'theme' => 'Theme',
     'settings' => [
         'language' => 'Language',
         'language_description' => 'Choose your preferred interface language.',
