@@ -3,6 +3,7 @@
 namespace App\Livewire\Posts;
 
 use App\Models\Post;
+use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Seo\PostOpenGraph;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
@@ -56,7 +57,7 @@ final class PostShow extends Component
         $this->refreshAfterCuisineVote();
     }
 
-    public function render(): View
+    public function render(RatingConfigurationManager $configuration): View
     {
         $post = $this->post;
         $openGraph = app(PostOpenGraph::class);
@@ -66,6 +67,7 @@ final class PostShow extends Component
             'ogImage' => $openGraph->image($post),
             'ogTitle' => $openGraph->title($post),
             'post' => $post,
+            'activeRatingGroups' => $configuration->activeGroups(),
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

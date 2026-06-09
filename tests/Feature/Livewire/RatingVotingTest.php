@@ -61,7 +61,7 @@ it('marks the authenticated users selected rating option', function () {
             'groupKey' => 'source',
         ])
         ->assertSee('data-testid="rating-option-'.$post->id.'-'.$option->id.'"', false)
-        ->assertSee('aria-pressed="true"', false);
+        ->assertSee('text-rg-accent', false);
 });
 
 it('renders nothing for a missing or inactive rating group', function (string $groupKey) {
@@ -78,19 +78,44 @@ it('renders nothing for a missing or inactive rating group', function (string $g
     ])->assertDontSee('data-testid="rating-voting-', false);
 })->with(['missing', 'inactive']);
 
-it('renders rating vote distribution for active options', function () {
+it('renders binary rating distribution after the current user votes', function () {
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
     $group = RatingGroup::factory()->create(['key' => 'source']);
     $first = RatingOption::factory()->for($group, 'group')->create(['label' => 'Source A']);
     $second = RatingOption::factory()->for($group, 'group')->create(['label' => 'Source B']);
 
-    RatingVote::factory()->count(3)->for($post)->for($group, 'group')->for($first, 'option')->create();
+    // 3 votes for first (incl. the current user), 1 vote for second → 75% (3) / 25% (1)
+    RatingVote::factory()->count(2)->for($post)->for($group, 'group')->for($first, 'option')->create();
+    RatingVote::factory()->for($post)->for($group, 'group')->for($first, 'option')->create(['user_id' => $user->id]);
     RatingVote::factory()->for($post)->for($group, 'group')->for($second, 'option')->create();
 
-    Livewire::test(RatingVoting::class, [
-        'post' => $post,
-        'groupKey' => 'source',
-    ])
-        ->assertSee('3 votes · 75%')
-        ->assertSee('1 vote · 25%');
+    Livewire::actingAs($user)
+        ->test(RatingVoting::class, [
+            'post' => $post,
+            'groupKey' => 'source',
+        ])
+        ->assertSee('75% (3)')
+        ->assertSee('25% (1)');
+});
+
+it('renders multi-option rating distribution after the current user votes', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'category']);
+    $a = RatingOption::factory()->for($group, 'group')->create(['label' => 'Alpha']);
+    $b = RatingOption::factory()->for($group, 'group')->create(['label' => 'Beta']);
+    $c = RatingOption::factory()->for($group, 'group')->create(['label' => 'Gamma']);
+
+    RatingVote::factory()->for($post)->for($group, 'group')->for($a, 'option')->create(['user_id' => $user->id]);
+    RatingVote::factory()->for($post)->for($group, 'group')->for($b, 'option')->create();
+
+    // multi-option histogram → "percent · count votes" on the same line
+    Livewire::actingAs($user)
+        ->test(RatingVoting::class, [
+            'post' => $post,
+            'groupKey' => 'category',
+        ])
+        ->assertSee('50%')
+        ->assertSee('1 vote');
 });

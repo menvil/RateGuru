@@ -18,8 +18,6 @@
                 <x-feed.post-card
                     :post="$post"
                     :selected="$selectedPostId === $post->id"
-                    :origin-distribution="$originDistributions[$post->id] ?? null"
-                    :cuisine-distribution="$cuisineDistributions[$post->id] ?? null"
                     :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
                     :can-delete-post="$deletePermissions[$post->id] ?? false"
                     :can-report-post="$reportPermissions[$post->id] ?? false"

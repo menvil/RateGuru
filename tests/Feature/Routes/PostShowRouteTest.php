@@ -3,6 +3,7 @@
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 
 it('has posts show route', function () {
     $post = Post::factory()->published()->create();
@@ -12,6 +13,8 @@ it('has posts show route', function () {
 });
 
 it('renders post voting component on post show page', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
     $post = Post::factory()->published()->create();
 
     $this->get(route('posts.show', $post))
