@@ -63,8 +63,6 @@
 
                             <x-locale-switcher />
 
-                            <livewire:theme.theme-switcher />
-
                             <div
                                 x-data="{ userMenuOpen: false }"
                                 class="relative"
@@ -72,22 +70,22 @@
                                 @keydown.escape.window="userMenuOpen = false"
                                 @close-header-user-menu.window="userMenuOpen = false"
                             >
-                                    <button
-                                        type="button"
-                                        data-testid="header-user-menu-trigger"
-                                        aria-label="Open user menu"
-                                        aria-haspopup="true"
-                                        :aria-expanded="userMenuOpen"
-                                        @click="$dispatch('close-notification-menu'); userMenuOpen = ! userMenuOpen"
-                                        class="cursor-pointer rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
-                                    >
-                                        <x-ui.avatar
-                                            :src="auth()->user()->avatar_url"
-                                            :name="auth()->user()->name ?: auth()->user()->username"
-                                            color="purple"
-                                            size="lg"
-                                        />
-                                    </button>
+                                <button
+                                    type="button"
+                                    data-testid="header-user-menu-trigger"
+                                    aria-label="Open user menu"
+                                    aria-haspopup="true"
+                                    :aria-expanded="userMenuOpen"
+                                    @click="$dispatch('close-notification-menu'); userMenuOpen = ! userMenuOpen"
+                                    class="cursor-pointer rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+                                >
+                                    <x-ui.avatar
+                                        :src="auth()->user()->avatar_url"
+                                        :name="auth()->user()->name ?: auth()->user()->username"
+                                        color="purple"
+                                        size="lg"
+                                    />
+                                </button>
 
                                 <div
                                     x-cloak
@@ -99,22 +97,31 @@
                                     x-transition:leave-start="opacity-100 scale-100"
                                     x-transition:leave-end="opacity-0 scale-95"
                                     data-testid="header-user-menu"
-                                    class="absolute right-0 z-50 mt-2 min-w-48 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
+                                    class="absolute right-0 z-50 mt-2 w-52 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
                                     style="display: none;"
                                 >
                                     <a
                                         href="{{ $profileHref }}"
                                         data-testid="header-profile-link"
-                                        class="block rounded-rgSm px-3 py-2 text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                        class="flex items-center gap-2 rounded-rgSm px-3 py-2 text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
                                     >
                                         Profile
                                     </a>
+
+                                    <div class="my-1 border-t border-rg-border"></div>
+
+                                    <div class="px-3 py-2">
+                                        <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('ui.theme') }}</p>
+                                        <livewire:theme.theme-switcher layout="dropdown" />
+                                    </div>
+
+                                    <div class="my-1 border-t border-rg-border"></div>
 
                                     <form method="POST" action="{{ route('logout') }}">
                                         @csrf
                                         <button
                                             type="submit"
-                                            class="block w-full cursor-pointer rounded-rgSm px-3 py-2 text-left text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                            class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
                                         >
                                             Log out
                                         </button>
