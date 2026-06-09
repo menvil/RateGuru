@@ -43,8 +43,6 @@
 
     @if($guest)
         <p class="text-xs text-rg-muted">{{ __('ui.voting.sign_in_to_vote') }}</p>
-    @elseif($isOwnPost)
-        <p class="text-xs text-rg-danger">{{ __('ui.voting.cannot_vote_own_post') }}</p>
     @elseif($error !== '')
         <p class="text-xs text-rg-danger">{{ $error }}</p>
     @endif

@@ -64,7 +64,7 @@ it('prevents source voting on an own post before attempting to vote', function (
 
     $html = Livewire::actingAs($owner)
         ->test(OriginVoting::class, ['postId' => $post->id])
-        ->assertSee('You cannot vote on your own post.')
+        ->assertDontSee('You cannot vote on your own post.')
         ->html();
 
     expect($html)
@@ -72,15 +72,15 @@ it('prevents source voting on an own post before attempting to vote', function (
         ->toMatch('/<button(?=[^>]*data-testid="origin-vote-restaurant-'.$post->id.'")[^>]*\sdisabled(?:\s|=|>)/');
 });
 
-it('shows own post source vote error after attempting to vote', function () {
+it('silently blocks own post source vote attempt without displaying the error message', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
     Livewire::actingAs($owner)
         ->test(OriginVoting::class, ['postId' => $post->id])
         ->call('vote', OriginType::Homemade->value)
-        ->assertSet('error', 'You cannot vote on your own post.')
-        ->assertSee('You cannot vote on your own post.');
+        ->assertSet('error', '')
+        ->assertDontSee('You cannot vote on your own post.');
 });
 
 it('does not render inline source distribution after the current user votes', function () {

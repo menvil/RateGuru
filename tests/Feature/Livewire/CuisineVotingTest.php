@@ -35,19 +35,19 @@ it('prevents category voting on an own post before attempting to vote', function
 
     Livewire::actingAs($owner)
         ->test(CuisineVoting::class, ['postId' => $post->id])
-        ->assertSee('You cannot vote on your own post.')
+        ->assertDontSee('You cannot vote on your own post.')
         ->assertSee('disabled', false);
 });
 
-it('shows own post category vote error after attempting to vote', function () {
+it('silently blocks own post category vote attempt without displaying the error message', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
     Livewire::actingAs($owner)
         ->test(CuisineVoting::class, ['postId' => $post->id])
         ->call('vote', CuisineType::Italian->value)
-        ->assertSet('error', 'You cannot vote on your own post.')
-        ->assertSee('You cannot vote on your own post.');
+        ->assertSet('error', '')
+        ->assertDontSee('You cannot vote on your own post.');
 });
 
 it('records category option A vote when clicked', function () {
