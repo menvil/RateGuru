@@ -50,6 +50,7 @@
                                     reportable-type="comment"
                                     :reportable-id="$comment->id"
                                     :key="'comment-report-'.$comment->id"
+                                    wire:lazy
                                 />
                             </div>
                         @endif
