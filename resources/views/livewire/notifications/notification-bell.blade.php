@@ -29,20 +29,20 @@
                 x-show="open"
                 x-cloak
                 data-testid="notifications-dropdown"
-                class="absolute right-0 top-11 z-40 w-72 overflow-hidden rounded-rgCard border border-rg-border bg-rg-card shadow-rgPopover"
+                class="absolute right-0 top-11 z-40 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-rgCard border border-rg-border bg-rg-card shadow-rgPopover"
             >
                 <div class="border-b border-rg-border px-4 py-3 text-sm font-semibold text-rg-text">
                     Notifications
                 </div>
 
-                <div class="max-h-80 overflow-y-auto">
+                <div class="max-h-80 overflow-y-auto break-words">
                     @forelse($this->notifications as $notification)
                         <div
                             data-testid="notification-item"
                             class="block border-b border-rg-border px-4 py-3 text-sm transition last:border-b-0 hover:bg-rg-card2 {{ $notification->read_at ? 'opacity-60' : '' }}"
                         >
                             <a href="{{ $notification->data['url'] ?? '#' }}" class="block">
-                                <span class="block font-medium text-rg-text">
+                                <span class="block break-words font-medium text-rg-text">
                                     {{ $notification->data['message'] ?? 'Notification' }}
                                 </span>
                             </a>
