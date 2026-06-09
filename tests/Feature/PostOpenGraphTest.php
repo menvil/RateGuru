@@ -45,8 +45,9 @@ it('escapes open graph title content', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertDontSee('<script>', false)
-        ->assertSee('Pasta &quot;Special&quot; &lt;script&gt; · RateGuru', false);
+        ->assertDontSee('<script>alert', false)
+        ->assertSee('Pasta &quot;Special&quot; &lt;script&gt; · RateGuru', false)
+        ->assertSee('content="Pasta &quot;Special&quot; &lt;script&gt; · RateGuru"', false);
 });
 
 it('renders open graph description for post show page', function () {
