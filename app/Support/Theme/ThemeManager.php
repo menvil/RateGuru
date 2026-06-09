@@ -28,13 +28,13 @@ class ThemeManager
 
     public function normalizePreference(?string $preference): string
     {
-        if ($preference === null) {
-            return config('themes.default', 'system');
+        if ($preference !== null && ThemePreference::isValid($preference)) {
+            return $preference;
         }
 
-        return ThemePreference::isValid($preference)
-            ? $preference
-            : config('themes.default', 'system');
+        $configDefault = config('themes.default', 'system');
+
+        return ThemePreference::isValid($configDefault) ? $configDefault : 'system';
     }
 
     public function appliedThemeFromPreference(string $preference, ?string $systemPreference = null): string
@@ -50,12 +50,5 @@ class ThemeManager
         }
 
         return $normalized;
-    }
-
-    public function appliedThemeForCurrentRequest(?User $user = null): string
-    {
-        $preference = $this->preferenceForUser($user);
-
-        return $this->appliedThemeFromPreference($preference);
     }
 }
