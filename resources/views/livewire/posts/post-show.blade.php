@@ -1,13 +1,14 @@
 @section('title', $ogTitle)
 
 @push('meta')
+    <link rel="canonical" href="{{ canonical_post_url($post) }}">
     <meta property="og:type" content="article">
     <meta property="og:title" content="{{ $ogTitle }}">
     <meta property="og:description" content="{{ $ogDescription }}">
     <meta property="og:url" content="{{ canonical_post_url($post) }}">
     <meta property="og:image" content="{{ $ogImage }}">
     <meta name="description" content="{{ $ogDescription }}">
-    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:card" content="{{ $ogHasImage ? 'summary_large_image' : 'summary' }}">
     <meta name="twitter:title" content="{{ $ogTitle }}">
     <meta name="twitter:description" content="{{ $ogDescription }}">
     <meta name="twitter:image" content="{{ $ogImage }}">
