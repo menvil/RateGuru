@@ -44,6 +44,7 @@ final class PostShow extends Component
             'ogDescription' => $openGraph->description($post),
             'ogImage' => $openGraph->image($post),
             'ogTitle' => $openGraph->title($post),
+            'ogHasImage' => trim((string) $post->public_image_url) !== '',
             'post' => $post,
             'activeRatingGroups' => $configuration->activeGroups(),
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
