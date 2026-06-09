@@ -57,6 +57,7 @@
         role="dialog"
         aria-modal="true"
         aria-labelledby="{{ $titleId }}"
+        data-testid="drawer-shell"
         {{ $attributes->class([
             'pointer-events-auto fixed flex flex-col border-rg-border bg-rg-card text-rg-text shadow-rgPopover outline-none overflow-y-auto',
             'inset-x-0 bottom-0 max-h-[90vh] w-full rounded-t-rgCard border-t',
