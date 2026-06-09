@@ -81,11 +81,14 @@ it('has post show comment scroll action', function () {
         ->assertSee('scrollToComments');
 });
 
-it('refreshes after semantic source and category vote events', function () {
-    $post = Post::factory()->published()->create();
+it('refreshes the score panel on post votes but not on rating votes', function () {
+    // post-voted updates the score summary; rating results update in place via
+    // the nested rating-voting components, so the page must not listen for them.
+    $component = file_get_contents(app_path('Livewire/Posts/PostShow.php'));
 
-    Livewire::test(PostShow::class, ['post' => $post])
-        ->dispatch('source-voted', postId: $post->id)
-        ->dispatch('category-voted', postId: $post->id)
-        ->assertOk();
+    expect($component)
+        ->toContain("#[On('post-voted')]")
+        ->not->toContain("#[On('rating-voted')]")
+        ->not->toContain("#[On('source-voted')]")
+        ->not->toContain("#[On('category-voted')]");
 });

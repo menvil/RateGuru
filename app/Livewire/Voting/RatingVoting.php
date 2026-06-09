@@ -9,6 +9,7 @@ use App\Models\RatingVote;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVoteDistribution;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class RatingVoting extends Component
@@ -28,6 +29,20 @@ class RatingVoting extends Component
     public array $preloadedDistribution = [];
 
     public ?int $preloadedSelectedOptionId = null;
+
+    /**
+     * Re-sync this component whenever any rating vote happens for the same
+     * post + group, so results stay in sync across the feed card and the
+     * open post drawer / page without reloading the whole card.
+     */
+    #[On('rating-voted')]
+    public function onRatingVoted(int $postId, string $groupKey): void
+    {
+        if ((int) ($this->post?->id ?? 0) === $postId && $this->groupKey === $groupKey) {
+            $this->hasPreloadedState = false;
+            $this->post = Post::query()->published()->find($postId);
+        }
+    }
 
     public function vote(
         int $optionId,

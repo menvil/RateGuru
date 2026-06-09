@@ -305,10 +305,12 @@ it('renders drawer rating groups in order', function () {
     expect(strpos($html, 'Source'))->toBeLessThan(strpos($html, 'Category'));
 });
 
-it('refreshes after rating-voted event', function () {
-    $post = Post::factory()->published()->create();
+it('does not listen for vote events so the card does not reload on votes', function () {
+    // The drawer delegates vote refreshes to the nested post-voting /
+    // rating-voting components, so it must not register its own vote listeners.
+    $component = file_get_contents(app_path('Livewire/Feed/PostDrawer.php'));
 
-    Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->dispatch('rating-voted', postId: $post->id, groupKey: 'source')
-        ->assertOk();
+    expect($component)
+        ->not->toContain("#[On('rating-voted')]")
+        ->not->toContain("#[On('post-voted')]");
 });

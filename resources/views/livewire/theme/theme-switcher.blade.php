@@ -7,7 +7,7 @@
 @endphp
 
 @if($layout === 'dropdown')
-    {{-- Full-width labeled buttons for inside the user dropdown --}}
+    {{-- Icon-only buttons for inside the user dropdown --}}
     <div data-testid="theme-switcher" class="flex gap-1">
         @foreach($options as $option)
             <button
@@ -20,13 +20,12 @@
                 aria-label="{{ $option['label'] }}"
                 aria-pressed="{{ $preference === $option['value'] ? 'true' : 'false' }}"
                 @class([
-                    'flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-rgSm py-1.5 text-xs font-medium transition-all',
+                    'flex flex-1 cursor-pointer items-center justify-center rounded-rgSm py-2 transition-all',
                     'bg-rg-card2 text-rg-text shadow-sm ring-1 ring-rg-border' => $preference === $option['value'],
                     'text-rg-muted hover:bg-rg-card2 hover:text-rg-text' => $preference !== $option['value'],
                 ])
             >
-                <x-ui.icon name="{{ $option['icon'] }}" class="size-3.5" />
-                <span>{{ $option['label'] }}</span>
+                <x-ui.icon name="{{ $option['icon'] }}" class="size-5" />
             </button>
         @endforeach
     </div>
