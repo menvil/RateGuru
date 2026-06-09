@@ -10,7 +10,7 @@
         @click="open = !open"
         aria-label="Switch language"
         data-testid="locale-switcher-trigger"
-        class="inline-flex h-9 cursor-pointer items-center gap-1 rounded-rgControl border border-rg-border2 bg-rg-card px-2 text-[13px] font-medium text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-3"
+        class="inline-flex h-10 cursor-pointer items-center gap-1 rounded-rgControl border border-rg-border2 bg-rg-card px-2 text-[13px] font-medium text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-3"
     >
         <span class="sm:hidden">{{ strtoupper($current) }}</span>
         <span class="hidden sm:inline">{{ $supported[$current]['native'] ?? strtoupper($current) }}</span>
