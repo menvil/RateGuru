@@ -5,6 +5,7 @@ namespace App\Livewire\Posts;
 use App\Models\Post;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Seo\PostOpenGraph;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
@@ -35,7 +36,7 @@ final class PostShow extends Component
         // components, so no page re-render is needed for them.
     }
 
-    public function render(RatingConfigurationManager $configuration): View
+    public function render(RatingConfigurationManager $configuration, ProjectSettingsManager $projectSettings): View
     {
         $post = $this->post;
         $openGraph = app(PostOpenGraph::class);
@@ -47,6 +48,7 @@ final class PostShow extends Component
             'ogHasImage' => trim((string) $post->public_image_url) !== '',
             'post' => $post,
             'activeRatingGroups' => $configuration->activeGroups(),
+            'projectSettings' => $projectSettings,
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }
