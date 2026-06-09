@@ -5,7 +5,7 @@
 @php $feedSettings = $settingsManager->current(); @endphp
 
 <div
-    class="min-h-screen"
+    class="min-h-screen min-w-0 overflow-hidden"
     data-testid="feed-page"
     x-data="{
         scrollToSelectedPost(postId) {
