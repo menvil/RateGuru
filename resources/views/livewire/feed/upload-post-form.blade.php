@@ -4,7 +4,7 @@
 <div data-testid="upload-post-form">
     <h2 class="sr-only">{{ $uploadSettings->uploadCtaLabel() }}</h2>
 
-    <form wire:submit.prevent="submit" class="space-y-4">
+    <form wire:submit.prevent="submit" class="space-y-4" data-testid="upload-form">
         <div>
             <x-input-label for="title" value="Title" />
             <x-ui.input
