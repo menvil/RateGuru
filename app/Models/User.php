@@ -99,6 +99,26 @@ class User extends Authenticatable implements FilamentUser
         return $this->belongsToMany(Post::class, 'post_saves')->withTimestamps();
     }
 
+    public function followingRelations(): HasMany
+    {
+        return $this->hasMany(Follow::class, 'follower_id');
+    }
+
+    public function followerRelations(): HasMany
+    {
+        return $this->hasMany(Follow::class, 'author_id');
+    }
+
+    public function followingAuthors(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'follows', 'follower_id', 'author_id')->withTimestamps();
+    }
+
+    public function followers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'follows', 'author_id', 'follower_id')->withTimestamps();
+    }
+
     public function canAccessPanel(Panel $panel): bool
     {
         if ($panel->getId() !== 'admin') {
