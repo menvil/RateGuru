@@ -13,14 +13,6 @@
     @endif
 
     {{-- Social platform buttons --}}
-    @php
-        $visibleProviders = collect($socialProviderKeys)->filter(
-            fn ($provider) => isset($providerUrls[$provider]) && $providerUrls[$provider] !== null
-        );
-
-        $hasNative = isset($enabledProviders['native']);
-    @endphp
-
     @if($hasNative || $visibleProviders->isNotEmpty())
         <div>
             <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('sharing.share_via') }}</p>

@@ -15,9 +15,8 @@ it('has native web share javascript support', function () {
 it('native share js exposes rgNativeShare window function with supported property', function () {
     $content = file_get_contents(resource_path('js/share.js'));
 
-    expect($content)->toContain('rgNativeShare');
-    // Check the exact property declaration, not just any occurrence of the word
-    expect($content)->toMatch('/supported\s*:/');
+    // Verify supported property is declared inside the rgNativeShare object, not just anywhere
+    expect($content)->toMatch('/rgNativeShare.*?supported\s*:/s');
 });
 
 it('renders native share button marker in component', function () {

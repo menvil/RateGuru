@@ -52,7 +52,7 @@
             class="absolute right-1 top-1 grid size-8 place-items-center rounded-rgSm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
         >
             <span x-show="!copied"><x-ui.icon name="copy" class="size-4" /></span>
-            <span x-show="copied" x-cloak role="status" :aria-label="'{{ $copiedLabel }}'"><x-ui.icon name="check" class="size-4" /></span>
+            <span x-show="copied" x-cloak role="status" data-testid="copy-check" :aria-label="'{{ $copiedLabel }}'"><x-ui.icon name="check" class="size-4" /></span>
         </button>
     </div>
 

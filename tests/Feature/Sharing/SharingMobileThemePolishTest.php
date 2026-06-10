@@ -37,9 +37,10 @@ it('share buttons url input is always visible', function () {
         'post' => $post,
     ]);
 
-    // The input should NOT be sr-only by default
-    expect($view)->not->toContain("'sr-only': ! manualCopy");
-    expect($view)->toContain('data-testid="copy-link-fallback-input"');
+    // The input should NOT have a static sr-only class applied
+    expect($view)
+        ->toContain('data-testid="copy-link-fallback-input"')
+        ->not->toMatch('/data-testid="copy-link-fallback-input"[^>]*sr-only/');
 });
 
 it('provider link uses border-rg-border and bg-rg-card2 theme tokens', function () {

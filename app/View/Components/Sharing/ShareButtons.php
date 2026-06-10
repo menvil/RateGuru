@@ -8,6 +8,7 @@ use App\Support\Sharing\PostShareMetadata;
 use App\Support\Sharing\ShareMetadata;
 use App\Support\Sharing\ShareUrlBuilder;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Collection;
 use Illuminate\View\Component;
 
 final class ShareButtons extends Component
@@ -22,6 +23,11 @@ final class ShareButtons extends Component
 
     /** @var array<string, string|null> */
     public array $providerUrls;
+
+    /** @var Collection<int, string> */
+    public Collection $visibleProviders;
+
+    public bool $hasNative;
 
     public function __construct(
         public Post $post,
@@ -38,6 +44,10 @@ final class ShareButtons extends Component
             fn ($key) => ! in_array($key, ['copy_link', 'native'], true)
         ));
         $this->providerUrls = $this->buildProviderUrls($urlBuilder);
+        $this->visibleProviders = collect($this->socialProviderKeys)->filter(
+            fn ($provider) => isset($this->providerUrls[$provider]) && $this->providerUrls[$provider] !== null
+        )->values();
+        $this->hasNative = isset($this->enabledProviders['native']);
     }
 
     public function render(): View

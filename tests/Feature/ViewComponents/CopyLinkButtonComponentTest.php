@@ -30,7 +30,7 @@ it('shows check icon inside button when copied, not a paragraph below', function
 
     expect($html)
         ->toContain('x-show="copied"')
-        ->toContain('M20 6 9 17l-5-5')   // check icon SVG path
+        ->toContain('data-testid="copy-check"')
         ->not->toContain('<p x-show="copied"');
 });
 
@@ -39,7 +39,7 @@ it('url input is always visible by default', function () {
 
     expect($html)
         ->toContain('data-testid="copy-link-fallback-input"')
-        ->not->toContain("'sr-only': ! manualCopy");
+        ->not->toMatch('/data-testid="copy-link-fallback-input"[^>]*sr-only/');
 });
 
 it('renders copy icon button inside the input field', function () {
