@@ -4,6 +4,7 @@ namespace App\Livewire\Profile;
 
 use App\Models\Post;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -60,6 +61,13 @@ final class ProfilePage extends Component
     public function getIsOwnerProperty(): bool
     {
         return auth()->id() === $this->profileUser->id;
+    }
+
+    public function getCanSeeFollowButtonProperty(): bool
+    {
+        return auth()->check()
+            && auth()->id() !== $this->profileUser->id
+            && app(ProjectSettingsManager::class)->featureEnabled('show_follow_buttons');
     }
 
     public function getCanSeeReportUserPlaceholderProperty(): bool

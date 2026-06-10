@@ -31,6 +31,10 @@
                     </a>
                 @endif
 
+                @if($this->canSeeFollowButton)
+                    <livewire:follows.follow-button :author="$profileUser" />
+                @endif
+
                 @if($this->canSeeReportUserPlaceholder)
                     <x-ui.button
                         variant="danger"
