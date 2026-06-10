@@ -22,8 +22,16 @@ it('renders alpine copy to clipboard behavior', function () {
     expect($html)
         ->toContain('x-data')
         ->toContain('copyToClipboard')
-        ->toContain('navigator.clipboard')
-        ->toContain('Copied');
+        ->toContain('navigator.clipboard');
+});
+
+it('shows check icon inside button when copied, not a paragraph below', function () {
+    $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" />');
+
+    expect($html)
+        ->toContain('x-show="copied"')
+        ->toContain('M20 6 9 17l-5-5')   // check icon SVG path
+        ->not->toContain('<p x-show="copied"');
 });
 
 it('url input is always visible by default', function () {

@@ -1,4 +1,5 @@
 <div
+    wire:ignore
     {{ $attributes->merge(['class' => 'space-y-4']) }}
     data-testid="share-buttons"
 >

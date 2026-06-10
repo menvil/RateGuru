@@ -48,13 +48,13 @@
             @click="copyToClipboard"
             data-testid="share-copy-link"
             :aria-label="copied ? '{{ $copiedLabel }}' : '{{ $label }}'"
-            class="absolute right-1 top-1 grid size-8 cursor-pointer place-items-center rounded-rgSm text-rg-muted transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+            :class="copied ? 'text-rg-accent2 cursor-default pointer-events-none' : 'text-rg-muted hover:bg-rg-cardHover hover:text-rg-text'"
+            class="absolute right-1 top-1 grid size-8 place-items-center rounded-rgSm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
         >
-            <x-ui.icon name="copy" class="size-4" />
+            <span x-show="!copied"><x-ui.icon name="copy" class="size-4" /></span>
+            <span x-show="copied" x-cloak role="status" :aria-label="'{{ $copiedLabel }}'"><x-ui.icon name="check" class="size-4" /></span>
         </button>
     </div>
-
-    <p x-show="copied" x-cloak class="text-xs text-rg-accent2" role="status">{{ $copiedLabel }}</p>
 
     <p
         x-show="failed"
