@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'username', 'email', 'locale', 'theme_preference', 'avatar_url', 'role', 'status', 'trust_level', 'password'])]
+#[Fillable(['name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_url', 'role', 'status', 'trust_level', 'password'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser
 {
@@ -46,6 +46,7 @@ class User extends Authenticatable implements FilamentUser
             'role' => UserRole::class,
             'status' => UserStatus::class,
             'trust_level' => 'integer',
+            'notify_followed_author_posts' => 'boolean',
         ];
     }
 
