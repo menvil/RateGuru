@@ -7,6 +7,7 @@ use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotDeletePostException;
 use App\Models\Post;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
@@ -50,7 +51,7 @@ final class PostDrawer extends Component
         $this->dispatch('clear-selected-post');
     }
 
-    public function render(RatingConfigurationManager $configuration): View
+    public function render(RatingConfigurationManager $configuration, ProjectSettingsManager $projectSettings): View
     {
         $post = null;
 
@@ -68,6 +69,7 @@ final class PostDrawer extends Component
             'canReportPost' => $post ? (auth()->user()?->can('report', $post) ?? false) : false,
             'canModeratePost' => $post ? (auth()->user()?->can('hide', $post) ?? false) : false,
             'showSharePanel' => $post?->status === PostStatus::Published,
+            'projectSettings' => $projectSettings,
         ]);
     }
 }

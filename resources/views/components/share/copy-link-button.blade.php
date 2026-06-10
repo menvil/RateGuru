@@ -48,7 +48,7 @@
             @click="copyToClipboard"
             data-testid="share-copy-link"
             :aria-label="copied ? '{{ $copiedLabel }}' : '{{ $label }}'"
-            :class="copied ? 'text-rg-accent2 cursor-default pointer-events-none' : 'text-rg-muted hover:bg-rg-cardHover hover:text-rg-text'"
+            :class="copied ? 'text-rg-accent2 cursor-default pointer-events-none' : 'cursor-pointer text-rg-muted hover:bg-rg-cardHover hover:text-rg-text'"
             class="absolute right-1 top-1 grid size-8 place-items-center rounded-rgSm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
         >
             <span x-show="!copied"><x-ui.icon name="copy" class="size-4" /></span>
