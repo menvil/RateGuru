@@ -25,7 +25,7 @@
         <div>
             <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('sharing.share_via') }}</p>
 
-            <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div class="flex flex-wrap gap-2">
                 {{-- Native Web Share --}}
                 @if($hasNative)
                     <x-share.native-share-button

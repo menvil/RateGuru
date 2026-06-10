@@ -15,7 +15,7 @@ it('renders share buttons with theme token classes', function () {
     expect($view)->toContain('rg-');
 });
 
-it('share buttons social grid uses responsive grid classes', function () {
+it('share buttons social row uses flex wrap layout', function () {
     config(['app.url' => 'https://rateguru.test']);
 
     $post = Post::factory()->published()->create();
@@ -24,8 +24,8 @@ it('share buttons social grid uses responsive grid classes', function () {
         'post' => $post,
     ]);
 
-    expect($view)->toContain('grid-cols-2');
-    expect($view)->toContain('sm:grid-cols-3');
+    expect($view)->toContain('flex');
+    expect($view)->toContain('flex-wrap');
 });
 
 it('share buttons url input is always visible', function () {

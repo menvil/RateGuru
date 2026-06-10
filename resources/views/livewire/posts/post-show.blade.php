@@ -7,11 +7,13 @@
     <meta property="og:description" content="{{ $ogDescription }}">
     <meta property="og:url" content="{{ canonical_post_url($post) }}">
     <meta property="og:image" content="{{ $ogImage }}">
+    <meta property="og:image:secure_url" content="{{ $ogImage }}">
     <meta name="description" content="{{ $ogDescription }}">
     <meta name="twitter:card" content="{{ $ogHasImage ? 'summary_large_image' : 'summary' }}">
     <meta name="twitter:title" content="{{ $ogTitle }}">
     <meta name="twitter:description" content="{{ $ogDescription }}">
     <meta name="twitter:image" content="{{ $ogImage }}">
+    <meta name="twitter:image:src" content="{{ $ogImage }}">
 @endpush
 
 <div
