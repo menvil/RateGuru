@@ -25,7 +25,7 @@ final class ProfilePage extends Component
     }
 
     /**
-     * @return array{published_posts: int, total_upvotes: int, comments_received: int}
+     * @return array{published_posts: int, total_upvotes: int, comments_received: int, followers_count: int, following_count: int}
      */
     public function getStatsProperty(): array
     {
@@ -37,6 +37,8 @@ final class ProfilePage extends Component
             'published_posts' => (clone $posts)->count(),
             'total_upvotes' => (clone $posts)->sum('upvotes_count'),
             'comments_received' => (clone $posts)->sum('comments_count'),
+            'followers_count' => $this->profileUser->followerRelations()->count(),
+            'following_count' => $this->profileUser->followingRelations()->count(),
         ];
     }
 
