@@ -45,6 +45,8 @@ return [
     'settings' => [
         'language' => 'Language',
         'language_description' => 'Choose your preferred interface language.',
+        'notifications' => 'Notifications',
+        'notifications_description' => 'Manage your in-app notification preferences.',
     ],
     'actions' => [
         'save' => 'Save',

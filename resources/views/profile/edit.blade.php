@@ -27,6 +27,12 @@
 
             <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
                 <div class="max-w-xl">
+                    <livewire:settings.notification-preferences-form />
+                </div>
+            </div>
+
+            <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
+                <div class="max-w-xl">
                     @include('profile.partials.delete-user-form')
                 </div>
             </div>
