@@ -3,11 +3,13 @@
 namespace App\Actions\Import;
 
 use App\Exceptions\Import\ImportFetchException;
+use App\Exceptions\Import\UrlImportDisabledException;
 use App\Support\Import\Adapters\DirectImageImportAdapter;
 use App\Support\Import\Adapters\OpenGraphImportAdapter;
 use App\Support\Import\ImportPreview;
 use App\Support\Import\ImportProviderDetector;
 use App\Support\Import\UrlImportValidator;
+use App\Support\Settings\ProjectSettingsManager;
 
 class ImportFromUrlAction
 {
@@ -16,10 +18,15 @@ class ImportFromUrlAction
         private readonly ImportProviderDetector $detector,
         private readonly DirectImageImportAdapter $directImageAdapter,
         private readonly OpenGraphImportAdapter $openGraphAdapter,
+        private readonly ProjectSettingsManager $settings,
     ) {}
 
     public function handle(string $url): ImportPreview
     {
+        if (! $this->settings->featureEnabled('allow_url_imports')) {
+            throw new UrlImportDisabledException;
+        }
+
         $this->validator->validate($url);
 
         $provider = $this->detector->detect($url);
