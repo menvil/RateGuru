@@ -35,6 +35,7 @@ class UserFactory extends Factory
             'role' => UserRole::User,
             'status' => UserStatus::Active,
             'trust_level' => MarkUserTrustedAction::TRUSTED_LEVEL,
+            'notify_followed_author_posts' => true,
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
