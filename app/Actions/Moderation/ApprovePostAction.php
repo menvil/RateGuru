@@ -2,6 +2,7 @@
 
 namespace App\Actions\Moderation;
 
+use App\Actions\Follows\NotifyFollowersAboutNewPostAction;
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
@@ -16,6 +17,7 @@ final class ApprovePostAction
 {
     public function __construct(
         private readonly CreateModerationLogAction $createModerationLog,
+        private readonly NotifyFollowersAboutNewPostAction $notifyFollowers,
     ) {}
 
     public function handle(User $moderator, Post $post, ?string $reason = null): void
@@ -60,9 +62,9 @@ final class ApprovePostAction
             $post->setRawAttributes($locked->getAttributes(), true);
         });
 
-        if ($post->user_id !== $moderator->id) {
-            $post->loadMissing('user');
+        $post->loadMissing('user');
 
+        if ($post->user_id !== $moderator->id) {
             try {
                 $post->user?->notify(new PostApprovedNotification(
                     post: $post,
@@ -78,5 +80,7 @@ final class ApprovePostAction
                 ]);
             }
         }
+
+        $this->notifyFollowers->handle($post);
     }
 }
