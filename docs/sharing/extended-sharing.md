@@ -43,6 +43,7 @@ Phase 49 adds full outbound sharing for posts via share URLs, Web Share API, and
 Assembles all share pieces into one reusable component. Reads `config/share.php` for provider enable/disable toggles.
 
 Usage:
+
 ```blade
 <x-sharing.share-buttons :post="$post" />
 ```

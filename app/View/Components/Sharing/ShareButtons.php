@@ -14,6 +14,12 @@ final class ShareButtons extends Component
 {
     public ShareMetadata $metadata;
 
+    /** @var array<string, array<string, mixed>> */
+    public array $enabledProviders;
+
+    /** @var list<string> */
+    public array $socialProviderKeys;
+
     /** @var array<string, string|null> */
     public array $providerUrls;
 
@@ -23,6 +29,14 @@ final class ShareButtons extends Component
         ShareUrlBuilder $urlBuilder,
     ) {
         $this->metadata = $postShareMetadata->forPost($post);
+        $this->enabledProviders = array_filter(
+            config('share.providers', []),
+            fn ($p) => $p['enabled'] ?? true
+        );
+        $this->socialProviderKeys = array_values(array_filter(
+            array_keys($this->enabledProviders),
+            fn ($key) => ! in_array($key, ['copy_link', 'native'], true)
+        ));
         $this->providerUrls = $this->buildProviderUrls($urlBuilder);
     }
 

@@ -38,6 +38,12 @@ final class PostShareMetadata
             return $url;
         }
 
+        if (str_starts_with($url, '//')) {
+            $scheme = parse_url((string) config('app.url'), PHP_URL_SCHEME) ?? 'https';
+
+            return $scheme.':'.$url;
+        }
+
         return rtrim((string) config('app.url'), '/').'/'.ltrim($url, '/');
     }
 }

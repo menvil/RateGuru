@@ -1,12 +1,3 @@
-@php
-    $enabledProviders = array_filter(
-        config('share.providers', []),
-        fn ($p) => $p['enabled'] ?? true
-    );
-
-    $socialProviders = ['facebook', 'x', 'telegram', 'whatsapp', 'reddit', 'pinterest', 'email'];
-@endphp
-
 <div
     {{ $attributes->merge(['class' => 'space-y-4']) }}
     data-testid="share-buttons"
@@ -22,11 +13,9 @@
 
     {{-- Social platform buttons --}}
     @php
-        $visibleProviders = collect($socialProviders)->filter(function ($provider) use ($enabledProviders, $providerUrls) {
-            return isset($enabledProviders[$provider])
-                && isset($providerUrls[$provider])
-                && $providerUrls[$provider] !== null;
-        });
+        $visibleProviders = collect($socialProviderKeys)->filter(
+            fn ($provider) => isset($providerUrls[$provider]) && $providerUrls[$provider] !== null
+        );
 
         $hasNative = isset($enabledProviders['native']);
     @endphp
