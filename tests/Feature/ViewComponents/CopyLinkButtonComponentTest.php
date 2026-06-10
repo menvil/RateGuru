@@ -6,7 +6,6 @@ it('renders copy link button with url', function () {
     $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" />');
 
     expect($html)
-        ->toContain('Copy link')
         ->toContain('https://rateguru.test/posts/1')
         ->toContain('data-testid="copy-link-button"');
 });
@@ -23,25 +22,38 @@ it('renders alpine copy to clipboard behavior', function () {
     expect($html)
         ->toContain('x-data')
         ->toContain('copyToClipboard')
-        ->toContain('navigator.clipboard')
-        ->toContain('Copied');
+        ->toContain('navigator.clipboard');
 });
 
-it('renders manual copy fallback input', function () {
+it('shows check icon inside button when copied, not a paragraph below', function () {
+    $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" />');
+
+    expect($html)
+        ->toContain('x-show="copied"')
+        ->toContain('data-testid="copy-check"')
+        ->not->toContain('<p x-show="copied"');
+});
+
+it('url input is always visible by default', function () {
     $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" />');
 
     expect($html)
         ->toContain('data-testid="copy-link-fallback-input"')
-        ->toContain('const success = document.execCommand(\'copy\')')
-        ->toContain('manualCopy')
-        ->toContain('Could not copy automatically. Copy the selected link manually.');
+        ->not->toMatch('/data-testid="copy-link-fallback-input"[^>]*sr-only/');
+});
+
+it('renders copy icon button inside the input field', function () {
+    $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" />');
+
+    expect($html)
+        ->toContain('absolute right-1 top-1')
+        ->toContain('data-testid="share-copy-link"');
 });
 
 it('renders copy button hover affordance', function () {
     $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" />');
 
     expect($html)
-        ->toContain('hover:border-rg-border2')
         ->toContain('hover:bg-rg-cardHover')
         ->toContain('hover:text-rg-text')
         ->toContain('focus-visible:ring-rg-accent');

@@ -25,6 +25,7 @@ it('uses post image as open graph image when available', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('<meta property="og:image"', false)
+        ->assertSee('<meta property="og:image:secure_url"', false)
         ->assertSee('https://rateguru.test/storage/posts/demo.jpg', false);
 });
 

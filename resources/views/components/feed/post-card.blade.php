@@ -105,9 +105,9 @@
                 @endif
                 @if($postCardSettings->featureEnabled('show_share_buttons'))
                 @if($post->exists)
-                    <x-ui.action-button icon="share" x-on:click.stop="shareOpen = true" data-testid="share-buttons">{{ __('ui.share.title') }}</x-ui.action-button>
+                    <x-ui.action-button icon="share" x-on:click.stop="shareOpen = true" data-testid="post-card-share">{{ __('sharing.share') }}</x-ui.action-button>
                 @else
-                    <x-ui.action-button icon="share" data-testid="share-buttons">{{ __('ui.share.title') }}</x-ui.action-button>
+                    <x-ui.action-button icon="share" data-testid="post-card-share">{{ __('sharing.share') }}</x-ui.action-button>
                 @endif
                 @endif
                 @auth
@@ -193,8 +193,8 @@
             @endif
 
             @if($post->exists && $postCardSettings->featureEnabled('show_share_buttons'))
-                <x-ui.modal title="{{ __('ui.post.share_title') }}" state="shareOpen" size="lg">
-                    <x-share.post-share-panel :post="$post" />
+                <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
+                    <x-sharing.share-buttons :post="$post" />
                 </x-ui.modal>
             @endif
         </footer>

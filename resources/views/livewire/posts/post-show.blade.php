@@ -1,16 +1,19 @@
 @section('title', $ogTitle)
 
 @push('meta')
+    <link rel="canonical" href="{{ canonical_post_url($post) }}">
     <meta property="og:type" content="article">
     <meta property="og:title" content="{{ $ogTitle }}">
     <meta property="og:description" content="{{ $ogDescription }}">
     <meta property="og:url" content="{{ canonical_post_url($post) }}">
     <meta property="og:image" content="{{ $ogImage }}">
+    <meta property="og:image:secure_url" content="{{ $ogImage }}">
     <meta name="description" content="{{ $ogDescription }}">
-    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:card" content="{{ $ogHasImage ? 'summary_large_image' : 'summary' }}">
     <meta name="twitter:title" content="{{ $ogTitle }}">
     <meta name="twitter:description" content="{{ $ogDescription }}">
     <meta name="twitter:image" content="{{ $ogImage }}">
+    <meta name="twitter:image:src" content="{{ $ogImage }}">
 @endpush
 
 <div
@@ -111,11 +114,17 @@
                 </x-ui.card>
             </section>
 
-            <div class="mt-3">
+            <div class="mt-3 flex flex-wrap items-center gap-3">
                 <x-ui.action-button icon="comment" x-on:click="scrollToComments()" data-testid="post-show-comments-scroll">
                     {{ $post->comments_count ?? 0 }}
                 </x-ui.action-button>
             </div>
+
+            @if($projectSettings->featureEnabled('show_share_buttons'))
+            <section class="mt-4" data-testid="post-show-share">
+                <x-sharing.share-buttons :post="$post" />
+            </section>
+            @endif
 
             @if($post->tags->isNotEmpty() || $post->source_url)
                 <section class="mt-4 flex flex-wrap items-center gap-2">

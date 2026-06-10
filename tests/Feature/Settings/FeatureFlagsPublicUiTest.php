@@ -45,7 +45,7 @@ it('hides share buttons when share feature flag is disabled', function () {
     $this->actingAs($user)
         ->get(route('feed'))
         ->assertOk()
-        ->assertDontSee('data-testid="share-buttons"', false);
+        ->assertDontSee('data-testid="post-card-share"', false);
 });
 
 it('hides upload button when allow_user_uploads is disabled', function () {
