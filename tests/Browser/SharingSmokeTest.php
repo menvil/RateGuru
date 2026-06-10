@@ -25,12 +25,17 @@ it('renders platform share links on post show page', function () {
         ->assertPresent('[data-testid="share-email"]');
 });
 
-it('platform share links have target blank and rel noopener', function () {
+it('all platform share links have target blank and rel noopener', function () {
     $post = Post::factory()->published()->create();
 
-    visit(route('posts.show', $post))
-        ->assertAttribute('[data-testid="share-facebook"]', 'target', '_blank')
-        ->assertAttribute('[data-testid="share-facebook"]', 'rel', 'noopener noreferrer');
+    $providers = ['share-facebook', 'share-x', 'share-telegram', 'share-whatsapp', 'share-reddit', 'share-email'];
+
+    $page = visit(route('posts.show', $post));
+
+    foreach ($providers as $testid) {
+        $page->assertAttribute("[data-testid=\"{$testid}\"]", 'target', '_blank')
+             ->assertAttribute("[data-testid=\"{$testid}\"]", 'rel', 'noopener noreferrer');
+    }
 });
 
 it('renders share buttons container on post show page', function () {

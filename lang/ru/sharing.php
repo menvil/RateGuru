@@ -13,5 +13,7 @@ return [
     'pinterest' => 'Pinterest',
     'email' => 'Email',
     'share_this_post' => 'Поделиться постом',
+    'share_via' => 'Поделиться через',
     'share_unavailable' => 'Поделиться недоступно',
+    'copy_failed' => 'Не удалось скопировать. Выделите и скопируйте вручную.',
 ];

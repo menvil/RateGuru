@@ -43,6 +43,7 @@ Phase 49 adds full outbound sharing for posts via share URLs, Web Share API, and
 Assembles all share pieces into one reusable component. Reads `config/share.php` for provider enable/disable toggles.
 
 Usage:
+
 ```blade
 <x-sharing.share-buttons :post="$post" />
 ```
@@ -103,7 +104,7 @@ Pinterest requires a media (image) URL. `ShareUrlBuilder::build(pinterest, ...)`
 
 All labels come from `lang/{en,ru,bg}/sharing.php`. No hardcoded English strings in share components.
 
-## external import is not part of Phase 49
+## External Import Is Not Part of Phase 49
 
 Phase 49 is outbound sharing only. The following are explicitly out of scope:
 - External URL import (paste Instagram/Facebook/X link → create post)

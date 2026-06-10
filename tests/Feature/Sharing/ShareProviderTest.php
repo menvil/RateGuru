@@ -24,9 +24,10 @@ it('rejects invalid provider values', function () {
 it('lists url providers not including copy_link and native', function () {
     $urlProviders = array_map(fn ($p) => $p->value, ShareProvider::urlProviders());
 
-    expect($urlProviders)->toContain('facebook');
-    expect($urlProviders)->toContain('x');
-    expect($urlProviders)->toContain('telegram');
+    foreach (['facebook', 'x', 'telegram', 'whatsapp', 'reddit', 'pinterest', 'email'] as $expected) {
+        expect($urlProviders)->toContain($expected);
+    }
+
     expect($urlProviders)->not->toContain('copy_link');
     expect($urlProviders)->not->toContain('native');
 });

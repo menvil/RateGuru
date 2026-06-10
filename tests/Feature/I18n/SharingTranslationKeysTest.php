@@ -14,7 +14,9 @@ it('has sharing translation keys for supported locales', function () {
         expect(__('sharing.pinterest'))->not->toBe('sharing.pinterest');
         expect(__('sharing.email'))->not->toBe('sharing.email');
         expect(__('sharing.copied'))->not->toBe('sharing.copied');
+        expect(__('sharing.native'))->not->toBe('sharing.native');
         expect(__('sharing.share_this_post'))->not->toBe('sharing.share_this_post');
+        expect(__('sharing.share_unavailable'))->not->toBe('sharing.share_unavailable');
     }
 });
 
@@ -32,6 +34,7 @@ it('has russian sharing labels', function () {
 
     expect(__('sharing.share'))->toBe('Поделиться');
     expect(__('sharing.copy_link'))->toBe('Скопировать ссылку');
+    expect(__('sharing.copied'))->toBe('Скопировано');
     expect(__('sharing.share_this_post'))->toBe('Поделиться постом');
 });
 
@@ -40,5 +43,6 @@ it('has bulgarian sharing labels', function () {
 
     expect(__('sharing.share'))->toBe('Сподели');
     expect(__('sharing.copy_link'))->toBe('Копирай линк');
+    expect(__('sharing.copied'))->toBe('Копирано');
     expect(__('sharing.share_this_post'))->toBe('Сподели поста');
 });

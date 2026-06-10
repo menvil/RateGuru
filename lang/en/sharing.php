@@ -13,5 +13,7 @@ return [
     'pinterest' => 'Pinterest',
     'email' => 'Email',
     'share_this_post' => 'Share this post',
+    'share_via' => 'Share via',
     'share_unavailable' => 'Sharing unavailable',
+    'copy_failed' => 'Could not copy automatically. Select and copy manually.',
 ];

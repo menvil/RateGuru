@@ -7,7 +7,7 @@ it('has current sharing flow audit document', function () {
 
     $content = file_get_contents($path);
 
-    expect($content)->toContain('canonical URL');
-    expect($content)->toContain('OpenGraph');
-    expect($content)->toContain('share buttons');
+    expect($content)->toContain('### canonical URL');
+    expect($content)->toContain('### OpenGraph meta tags');
+    expect($content)->toContain('### Share buttons');
 });
