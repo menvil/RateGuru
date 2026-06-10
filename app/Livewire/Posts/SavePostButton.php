@@ -2,7 +2,12 @@
 
 namespace App\Livewire\Posts;
 
-use App\Actions\Posts\TogglePostSaveAction;
+use App\Actions\Posts\ToggleSavedPostAction;
+use App\Exceptions\SavedPosts\CannotSavePostException;
+use App\Exceptions\SavedPosts\SavedPostsDisabledException;
+use App\Models\Post;
+use App\Support\SavedPosts\SavedPostState;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
@@ -17,22 +22,52 @@ final class SavePostButton extends Component
     public function mount(int $postId): void
     {
         $this->postId = $postId;
-        $this->saved = app(TogglePostSaveAction::class)->isSavedByUser(auth()->user(), $postId);
+
+        if (! app(ProjectSettingsManager::class)->featureEnabled('show_saved_posts')) {
+            return;
+        }
+
+        $post = Post::find($postId);
+
+        if ($post === null) {
+            return;
+        }
+
+        $this->saved = app(SavedPostState::class)->forUserAndPost(auth()->user(), $post);
     }
 
-    public function toggle(TogglePostSaveAction $togglePostSaveAction): void
+    public function toggle(ToggleSavedPostAction $action): void
     {
-        $result = $togglePostSaveAction->handleForPostId(auth()->user(), $this->postId);
+        $post = Post::find($this->postId);
 
-        $this->saved = $result->saved;
-        $this->message = $result->message;
+        if ($post === null) {
+            $this->message = __('saved_posts.post_unavailable');
+
+            return;
+        }
+
+        $user = auth()->user();
+
+        if ($user === null) {
+            $this->message = __('saved_posts.login_required');
+
+            return;
+        }
+
+        try {
+            $result = $action->handle($user, $post);
+            $this->saved = $result->isSaved;
+            $this->message = null;
+        } catch (SavedPostsDisabledException) {
+            $this->message = __('saved_posts.feature_disabled');
+        } catch (CannotSavePostException) {
+            $this->message = __('saved_posts.post_unavailable');
+        }
     }
 
     public function getDisplayMessageProperty(): ?string
     {
-        return in_array($this->message, [null, 'Saved', 'Removed'], true)
-            ? null
-            : $this->message;
+        return $this->message;
     }
 
     public function render(): View

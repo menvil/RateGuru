@@ -8,8 +8,8 @@
             class="inline-flex cursor-pointer items-center bg-transparent p-0 text-rg-accent transition hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60 [&_svg]:fill-current"
             data-testid="save-post-button"
             aria-pressed="true"
-            aria-label="Saved"
-            title="Saved"
+            aria-label="{{ __('saved_posts.saved') }}"
+            title="{{ __('saved_posts.saved') }}"
         >
             <x-ui.icon name="bookmark" class="size-4" />
         </button>
@@ -21,10 +21,10 @@
             wire:target="toggle"
             data-testid="save-post-button"
             aria-pressed="false"
-            aria-label="Save"
-            title="Save"
+            aria-label="{{ __('saved_posts.save') }}"
+            title="{{ __('saved_posts.save') }}"
         >
-            Save
+            {{ __('saved_posts.save') }}
         </x-ui.action-button>
     @endif
 
