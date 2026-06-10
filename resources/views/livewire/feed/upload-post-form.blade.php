@@ -4,7 +4,45 @@
 <div data-testid="upload-post-form">
     <h2 class="sr-only">{{ $uploadSettings->uploadCtaLabel() }}</h2>
 
-    <form wire:submit.prevent="submit" class="space-y-4" data-testid="upload-form">
+    @if($uploadSettings->featureFlag('allow_url_imports'))
+        <div class="mb-4 flex gap-2 border-b border-rg-border pb-3">
+            <button
+                type="button"
+                wire:click="$set('activeTab', 'upload')"
+                data-testid="upload-tab"
+                @class([
+                    'rounded-rgSm px-3 py-1.5 text-sm font-medium transition',
+                    'bg-rg-accent text-rg-onAccent' => $activeTab === 'upload',
+                    'text-rg-muted hover:text-rg-text' => $activeTab !== 'upload',
+                ])
+            >
+                {{ __('Upload file') }}
+            </button>
+            <button
+                type="button"
+                wire:click="$set('activeTab', 'import')"
+                data-testid="import-tab"
+                @class([
+                    'rounded-rgSm px-3 py-1.5 text-sm font-medium transition',
+                    'bg-rg-accent text-rg-onAccent' => $activeTab === 'import',
+                    'text-rg-muted hover:text-rg-text' => $activeTab !== 'import',
+                ])
+            >
+                {{ __('import.from_url') }}
+            </button>
+        </div>
+
+        @if($activeTab === 'import')
+            <livewire:import.import-url-form />
+        @endif
+    @endif
+
+    <form wire:submit.prevent="submit" data-testid="upload-form"
+        @class([
+            'space-y-4',
+            'hidden' => $uploadSettings->featureFlag('allow_url_imports') && $activeTab === 'import',
+        ])
+    >
         <div>
             <x-input-label for="title" value="Title" />
             <x-ui.input
