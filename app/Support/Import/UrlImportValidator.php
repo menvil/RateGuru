@@ -6,8 +6,6 @@ use App\Exceptions\Import\UnsafeImportUrlException;
 
 class UrlImportValidator
 {
-    private const ALLOWED_SCHEMES = ['http', 'https'];
-
     private const PRIVATE_RANGES = [
         ['10.0.0.0', '10.255.255.255'],
         ['172.16.0.0', '172.31.255.255'],
@@ -26,7 +24,7 @@ class UrlImportValidator
 
         $scheme = strtolower($parsed['scheme'] ?? '');
 
-        if (! in_array($scheme, self::ALLOWED_SCHEMES, true)) {
+        if (! in_array($scheme, $this->allowedSchemes(), true)) {
             throw UnsafeImportUrlException::invalidScheme($scheme ?: '(none)');
         }
 
@@ -56,9 +54,30 @@ class UrlImportValidator
         return $url;
     }
 
+    private function allowedSchemes(): array
+    {
+        return (array) config('import.allowed_schemes', ['https']);
+    }
+
     protected function resolveHostname(string $host): array|false
     {
-        return @gethostbynamel($host);
+        $records = dns_get_record($host, DNS_A | DNS_AAAA);
+
+        if ($records === false || count($records) === 0) {
+            return false;
+        }
+
+        $ips = [];
+
+        foreach ($records as $record) {
+            if (isset($record['ip'])) {
+                $ips[] = $record['ip'];
+            } elseif (isset($record['ipv6'])) {
+                $ips[] = $record['ipv6'];
+            }
+        }
+
+        return empty($ips) ? false : $ips;
     }
 
     private function assertPublicIp(string $ip, string $url): void

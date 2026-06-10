@@ -18,9 +18,10 @@ class StoreImportedImageAction
         $response = $this->client->get($imageUrl, $maxBytes);
 
         $rawContentType = $response->header('Content-Type') ?? '';
+        $host = parse_url($imageUrl, PHP_URL_HOST) ?? 'unknown';
 
         if (empty(trim($rawContentType))) {
-            throw new ImportFetchException("No Content-Type header for URL: {$imageUrl}");
+            throw new ImportFetchException("No Content-Type header from {$host}");
         }
 
         $contentType = strtolower(trim(explode(';', $rawContentType)[0]));
@@ -43,7 +44,12 @@ class StoreImportedImageAction
 
         $baseTmpPath = tempnam(sys_get_temp_dir(), 'rg_import_');
         $tmpPath = $baseTmpPath.'.'.$extension;
-        rename($baseTmpPath, $tmpPath);
+
+        if (! rename($baseTmpPath, $tmpPath)) {
+            @unlink($baseTmpPath);
+            throw new ImportFetchException('Failed to create temporary file for imported image.');
+        }
+
         file_put_contents($tmpPath, $body);
 
         return new UploadedFile(

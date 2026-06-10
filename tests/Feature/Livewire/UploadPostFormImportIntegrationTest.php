@@ -1,7 +1,9 @@
 <?php
 
+use App\Actions\Import\StoreImportedImageAction;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Livewire\Livewire;
 
 it('fills upload form from import preview', function () {
@@ -49,4 +51,23 @@ it('upload form has upload tab option', function () {
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSee('data-testid="upload-tab"', false);
+});
+
+it('submit downloads importedImageUrl before validation and creates post', function () {
+    $user = User::factory()->create();
+    $fakeImage = UploadedFile::fake()->image('imported.jpg', 100, 100);
+
+    $this->mock(StoreImportedImageAction::class)
+        ->shouldReceive('download')
+        ->with('https://example.com/image.jpg')
+        ->once()
+        ->andReturn($fakeImage);
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Imported Dish')
+        ->set('importedImageUrl', 'https://example.com/image.jpg')
+        ->call('submit')
+        ->assertDispatched('post-uploaded')
+        ->assertHasNoErrors();
 });
