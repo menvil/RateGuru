@@ -39,7 +39,12 @@ it('save post button renders with rg- theme tokens', function () {
         ->get(route('posts.show', $post));
 
     $response->assertOk();
-    expect($response->getContent())->toContain('rg-');
+
+    $html = $response->getContent();
+    $pos = strpos($html, 'data-testid="save-post-button"');
+    expect($pos)->not->toBeFalse();
+    $buttonContext = substr($html, max(0, $pos - 600), 1200);
+    expect($buttonContext)->toContain('rg-');
 });
 
 it('empty state renders with proper mobile layout on saved posts page', function () {

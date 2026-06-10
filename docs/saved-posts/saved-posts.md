@@ -7,12 +7,15 @@ Users can save posts they want to return to later. Saved posts are **private** â
 ## Key Rules
 
 ### Saved posts are private by default
+
 Only the authenticated owner can view their saved posts. There is no public saved list, no public saved count, and no way to see another user's saved posts.
 
 ### Saved posts are not votes
+
 Saving a post does not affect vote counts, hot score, or rating distributions. It is a personal bookmark.
 
 ### Feature flag: show_saved_posts
+
 All saved posts UI is gated behind the `show_saved_posts` feature flag. When disabled:
 - Save buttons are hidden from post card, post show, post drawer
 - Navigation entry is hidden
@@ -38,24 +41,29 @@ Constraints:
 ## Actions
 
 ### SavePostAction
+
 - Checks feature flag
 - Checks post is published
 - Uses `firstOrCreate` (idempotent)
 
 ### UnsavePostAction
+
 - Checks feature flag
 - Deletes where user_id + post_id (idempotent)
 
 ### ToggleSavedPostAction
+
 - Composes Save + Unsave actions
 - Returns `ToggleSavedPostResult { isSaved: bool }`
 
 ## Services
 
 ### SavedPostState
+
 Batch-loads saved state for a collection of posts in a single query. Use `forUserAndPosts($user, $posts)` to avoid N+1 on feed pages.
 
 ### SavedPostsQuery
+
 Paginates the authenticated user's saved posts, ordered by saved date descending. Only returns published posts.
 
 ## UI Locations
@@ -69,7 +77,7 @@ Paginates the authenticated user's saved posts, ordered by saved date descending
 
 ## Route
 
-```
+```http
 GET /saved â†’ saved-posts.index (middleware: auth)
 ```
 

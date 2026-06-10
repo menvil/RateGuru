@@ -13,13 +13,13 @@ it('can open saved posts page in browser', function () {
         'password' => bcrypt('password'),
     ]);
 
-    Post::factory()->published()->create([
+    $post = Post::factory()->published()->create([
         'title' => 'Browser Saved Post Title',
     ]);
 
     PostSave::factory()->create([
         'user_id' => $user->id,
-        'post_id' => Post::query()->first()->id,
+        'post_id' => $post->id,
     ]);
 
     loginAs($user);

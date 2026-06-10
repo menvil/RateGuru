@@ -28,25 +28,6 @@ it('does not allow guests to view saved posts page', function () {
         ->assertRedirect(route('login'));
 });
 
-it('does not expose saved post list of owner to other user via direct url', function () {
-    $owner = User::factory()->create();
-    $other = User::factory()->create();
-
-    $post = Post::factory()->published()->create([
-        'title' => 'Owners Saved Post',
-    ]);
-
-    PostSave::factory()->create([
-        'user_id' => $owner->id,
-        'post_id' => $post->id,
-    ]);
-
-    $this->actingAs($other)
-        ->get(route('saved-posts.index'))
-        ->assertOk()
-        ->assertDontSee('Owners Saved Post');
-});
-
 it('shows only the authenticated users own saved posts', function () {
     $user = User::factory()->create();
     $other = User::factory()->create();
@@ -64,7 +45,7 @@ it('shows only the authenticated users own saved posts', function () {
         ->assertDontSee('Their Saved Post');
 });
 
-it('saved state shows false for another users saved post', function () {
+it('database confirms save record belongs only to owner not viewer', function () {
     $owner = User::factory()->create();
     $viewer = User::factory()->create();
 
