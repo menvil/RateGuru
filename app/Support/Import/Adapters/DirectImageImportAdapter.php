@@ -2,6 +2,7 @@
 
 namespace App\Support\Import\Adapters;
 
+use App\Enums\ImportProvider;
 use App\Exceptions\Import\ImportFetchException;
 use App\Support\Import\ImportPreview;
 use App\Support\Import\SafeImportHttpClient;
@@ -34,7 +35,7 @@ class DirectImageImportAdapter
         }
 
         return new ImportPreview(
-            provider: 'direct_image',
+            provider: ImportProvider::DirectImage,
             sourceUrl: $url,
             imageUrl: $url,
             title: $url,

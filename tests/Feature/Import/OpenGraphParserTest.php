@@ -82,3 +82,19 @@ it('returns null fields when no meta found', function () {
     expect($metadata->title)->toBeNull();
     expect($metadata->imageUrl)->toBeNull();
 });
+
+it('resolves protocol-relative image urls using page scheme', function () {
+    $html = '<html><head><meta property="og:image" content="//cdn.example.com/image.jpg"></head></html>';
+
+    $metadata = app(OpenGraphParser::class)->parse($html, 'https://example.com/page');
+
+    expect($metadata->imageUrl)->toBe('https://cdn.example.com/image.jpg');
+});
+
+it('preserves non-default port when resolving relative image urls', function () {
+    $html = '<html><head><meta property="og:image" content="/image.jpg"></head></html>';
+
+    $metadata = app(OpenGraphParser::class)->parse($html, 'https://example.com:8080/page');
+
+    expect($metadata->imageUrl)->toBe('https://example.com:8080/image.jpg');
+});

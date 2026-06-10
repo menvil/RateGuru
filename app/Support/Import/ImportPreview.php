@@ -2,10 +2,12 @@
 
 namespace App\Support\Import;
 
+use App\Enums\ImportProvider;
+
 class ImportPreview
 {
     public function __construct(
-        public readonly string $provider,
+        public readonly ImportProvider $provider,
         public readonly string $sourceUrl,
         public readonly ?string $title = null,
         public readonly ?string $description = null,

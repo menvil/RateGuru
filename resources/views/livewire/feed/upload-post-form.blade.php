@@ -37,8 +37,11 @@
         @endif
     @endif
 
-    <form wire:submit.prevent="submit" class="space-y-4" data-testid="upload-form"
-          @if($uploadSettings->featureFlag('allow_url_imports') && $activeTab === 'import') style="display:none" @endif
+    <form wire:submit.prevent="submit" data-testid="upload-form"
+        @class([
+            'space-y-4',
+            'hidden' => $uploadSettings->featureFlag('allow_url_imports') && $activeTab === 'import',
+        ])
     >
         <div>
             <x-input-label for="title" value="Title" />

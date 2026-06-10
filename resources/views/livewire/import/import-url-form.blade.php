@@ -34,7 +34,7 @@
                 </div>
             @endif
 
-            @if($previewTitle || $previewImageUrl)
+            @if($previewTitle || $previewImageUrl || $previewDescription)
                 <div class="rounded-rgSm border border-rg-border bg-rg-card2 p-3" data-testid="import-preview">
                     <p class="text-xs text-rg-muted">{{ __('import.preview') }}</p>
 
@@ -42,6 +42,7 @@
                         <img
                             src="{{ $previewImageUrl }}"
                             alt="{{ $previewTitle ?? '' }}"
+                            referrerpolicy="no-referrer"
                             class="mt-2 h-32 w-full rounded-rgSm object-cover"
                             data-testid="import-preview-image"
                         />

@@ -48,15 +48,16 @@ class ImportUrlForm extends Component
                 $this->previewDescription = $preview->description;
                 $this->previewImageUrl = $preview->imageUrl;
                 $this->previewSourceUrl = $preview->sourceUrl;
-                $this->previewProvider = $preview->provider;
+                $this->previewProvider = $preview->provider->value;
             }
         } catch (UnsafeImportUrlException) {
             $this->error = __('import.errors.unsafe_url');
         } catch (UrlImportDisabledException) {
             $this->error = __('import.errors.feature_disabled');
         } catch (ImportFetchException) {
-            $this->error = __('import.errors.timeout');
-        } catch (\Throwable) {
+            $this->error = __('import.errors.fetch_failed');
+        } catch (\Throwable $e) {
+            report($e);
             $this->error = __('import.errors.unsupported');
         } finally {
             $this->loading = false;

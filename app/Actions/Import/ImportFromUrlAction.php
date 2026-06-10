@@ -2,6 +2,7 @@
 
 namespace App\Actions\Import;
 
+use App\Enums\ImportProvider;
 use App\Exceptions\Import\ImportFetchException;
 use App\Exceptions\Import\UrlImportDisabledException;
 use App\Support\Import\Adapters\DirectImageImportAdapter;
@@ -42,21 +43,22 @@ class ImportFromUrlAction
             // Tag with the detected social provider instead of generic open_graph
             if ($provider !== 'open_graph') {
                 return new ImportPreview(
-                    provider: $provider,
+                    provider: ImportProvider::from($provider),
                     sourceUrl: $preview->sourceUrl,
                     title: $preview->title,
                     description: $preview->description,
                     imageUrl: $preview->imageUrl,
                     warnings: $preview->warnings,
+                    unsupportedReason: $preview->unsupportedReason,
                 );
             }
 
             return $preview;
         } catch (ImportFetchException $e) {
             return new ImportPreview(
-                provider: $provider,
+                provider: ImportProvider::from($provider),
                 sourceUrl: $url,
-                unsupportedReason: 'This URL cannot be imported automatically. Download the image and upload it manually.',
+                unsupportedReason: __('import.unsupported_reason_download_and_upload'),
             );
         }
     }

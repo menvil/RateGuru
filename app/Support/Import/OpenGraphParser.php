@@ -71,7 +71,12 @@ class OpenGraphParser
         }
 
         $parsed = parse_url($pageUrl);
-        $base = ($parsed['scheme'] ?? 'https').'://'.($parsed['host'] ?? '');
+        $port = isset($parsed['port']) ? ':'.$parsed['port'] : '';
+        $base = ($parsed['scheme'] ?? 'https').'://'.($parsed['host'] ?? '').$port;
+
+        if (str_starts_with($url, '//')) {
+            return ($parsed['scheme'] ?? 'https').':'.$url;
+        }
 
         if (str_starts_with($url, '/')) {
             return $base.$url;

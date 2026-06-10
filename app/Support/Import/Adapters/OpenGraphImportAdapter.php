@@ -2,6 +2,7 @@
 
 namespace App\Support\Import\Adapters;
 
+use App\Enums\ImportProvider;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Support\Import\ImportPreview;
 use App\Support\Import\OpenGraphParser;
@@ -30,14 +31,14 @@ class OpenGraphImportAdapter
                 $this->validator->validate($metadata->imageUrl);
                 $imageUrl = $metadata->imageUrl;
             } catch (UnsafeImportUrlException) {
-                $warnings[] = 'The image URL from this page is not safe to fetch.';
+                $warnings[] = 'warning.image_not_safe';
             }
         } else {
-            $warnings[] = 'No image was found on this page.';
+            $warnings[] = 'warning.no_image_found';
         }
 
         return new ImportPreview(
-            provider: 'open_graph',
+            provider: ImportProvider::OpenGraph,
             sourceUrl: $url,
             title: $metadata->title,
             description: $metadata->description,

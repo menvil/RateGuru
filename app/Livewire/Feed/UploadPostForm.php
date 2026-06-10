@@ -84,6 +84,8 @@ final class UploadPostForm extends Component
             $this->dispatch('post-uploaded', postId: $post->id);
 
             $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds']);
+            $this->importedImageUrl = null;
+            $this->activeTab = 'upload';
             $this->tagSearch = '';
             $this->originTruth = OriginType::Unknown->value;
             $this->cuisineTruth = CuisineType::Unknown->value;
@@ -119,6 +121,7 @@ final class UploadPostForm extends Component
         ];
     }
 
+    #[On('import-preview-selected')]
     public function applyImportPreview(array $preview): void
     {
         $this->title = $preview['title'] ?? $this->title;

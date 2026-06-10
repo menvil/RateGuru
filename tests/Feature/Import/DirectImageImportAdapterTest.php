@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ImportProvider;
 use App\Exceptions\Import\ImportFetchException;
 use App\Support\Import\Adapters\DirectImageImportAdapter;
 use Illuminate\Support\Facades\Http;
@@ -15,7 +16,7 @@ it('detects direct image urls from content type', function () {
 
     expect($preview->imageUrl)->toBe('https://example.com/image.jpg');
     expect($preview->hasImage())->toBeTrue();
-    expect($preview->provider)->toBe('direct_image');
+    expect($preview->provider)->toBe(ImportProvider::DirectImage);
 });
 
 it('rejects unsupported mime type', function () {
