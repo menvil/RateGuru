@@ -3,9 +3,11 @@
 use App\Models\Post;
 use Illuminate\Support\Facades\Blade;
 
-it('renders reusable share buttons component', function () {
+beforeEach(function () {
     config(['app.url' => 'https://rateguru.test']);
+});
 
+it('renders reusable share buttons component', function () {
     $post = Post::factory()->published()->create();
 
     $view = Blade::render('<x-sharing.share-buttons :post="$post" />', [
@@ -17,8 +19,6 @@ it('renders reusable share buttons component', function () {
 });
 
 it('renders social provider links', function () {
-    config(['app.url' => 'https://rateguru.test']);
-
     $post = Post::factory()->published()->create(['title' => 'Provider Test Post']);
 
     $view = Blade::render('<x-sharing.share-buttons :post="$post" />', [
@@ -34,8 +34,6 @@ it('renders social provider links', function () {
 });
 
 it('hides pinterest when post has no image', function () {
-    config(['app.url' => 'https://rateguru.test']);
-
     $post = Post::factory()->published()->create([
         'image_path' => null,
         'image_url' => null,
@@ -49,8 +47,6 @@ it('hides pinterest when post has no image', function () {
 });
 
 it('shows pinterest when post has image', function () {
-    config(['app.url' => 'https://rateguru.test']);
-
     $post = Post::factory()->published()->create([
         'image_url' => 'https://rateguru.test/storage/posts/img.jpg',
     ]);
@@ -63,8 +59,6 @@ it('shows pinterest when post has image', function () {
 });
 
 it('renders native share button in share buttons component', function () {
-    config(['app.url' => 'https://rateguru.test']);
-
     $post = Post::factory()->published()->create();
 
     $view = Blade::render('<x-sharing.share-buttons :post="$post" />', [
@@ -76,7 +70,6 @@ it('renders native share button in share buttons component', function () {
 });
 
 it('respects disabled providers in config', function () {
-    config(['app.url' => 'https://rateguru.test']);
     config(['share.providers.facebook.enabled' => false]);
 
     $post = Post::factory()->published()->create();

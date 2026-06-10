@@ -15,7 +15,7 @@ it('renders share buttons with theme token classes', function () {
     expect($view)->toContain('rg-');
 });
 
-it('share buttons container has flex-wrap for responsive layout', function () {
+it('share buttons social grid uses responsive grid classes', function () {
     config(['app.url' => 'https://rateguru.test']);
 
     $post = Post::factory()->published()->create();
@@ -24,10 +24,11 @@ it('share buttons container has flex-wrap for responsive layout', function () {
         'post' => $post,
     ]);
 
-    expect($view)->toContain('flex-wrap');
+    expect($view)->toContain('grid-cols-2');
+    expect($view)->toContain('sm:grid-cols-3');
 });
 
-it('share buttons container has min-w-0 to prevent overflow', function () {
+it('share buttons url input is always visible', function () {
     config(['app.url' => 'https://rateguru.test']);
 
     $post = Post::factory()->published()->create();
@@ -36,7 +37,9 @@ it('share buttons container has min-w-0 to prevent overflow', function () {
         'post' => $post,
     ]);
 
-    expect($view)->toContain('min-w-0');
+    // The input should NOT be sr-only by default
+    expect($view)->not->toContain("'sr-only': ! manualCopy");
+    expect($view)->toContain('data-testid="copy-link-fallback-input"');
 });
 
 it('provider link uses border-rg-border and bg-rg-card2 theme tokens', function () {

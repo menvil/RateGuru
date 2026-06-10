@@ -23,5 +23,5 @@ it('has extended sharing documentation', function () {
     expect($content)->toContain('ShareUrlBuilder');
     expect($content)->toContain('ShareProvider');
     expect($content)->toContain('Web Share API');
-    expect($content)->toContain('external import is not part of Phase 49');
+    expect($content)->toContain('External Import Is Not Part of Phase 49');
 });

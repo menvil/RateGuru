@@ -3,44 +3,58 @@
         config('share.providers', []),
         fn ($p) => $p['enabled'] ?? true
     );
+
+    $socialProviders = ['facebook', 'x', 'telegram', 'whatsapp', 'reddit', 'pinterest', 'email'];
 @endphp
 
 <div
-    {{ $attributes->merge(['class' => 'flex min-w-0 flex-wrap gap-2']) }}
+    {{ $attributes->merge(['class' => 'space-y-4']) }}
     data-testid="share-buttons"
 >
-    {{-- Copy Link --}}
+    {{-- URL input with copy button inside --}}
     @if(isset($enabledProviders['copy_link']))
-        <x-share.copy-link-button :url="$metadata->url" :label="__('sharing.copy_link')" :copiedLabel="__('sharing.copied')" />
-    @endif
-
-    {{-- Native Web Share (shown only on supported devices via Alpine) --}}
-    @if(isset($enabledProviders['native']))
-        <x-share.native-share-button
-            :title="$metadata->title"
-            :text="$metadata->description"
+        <x-share.copy-link-button
             :url="$metadata->url"
-            :label="__('sharing.native')"
+            :label="__('sharing.copy_link')"
+            :copiedLabel="__('sharing.copied')"
         />
     @endif
 
-    {{-- Social platform links --}}
-    @foreach (['facebook', 'x', 'telegram', 'whatsapp', 'reddit', 'email'] as $provider)
-        @if(isset($enabledProviders[$provider]) && isset($providerUrls[$provider]))
-            <x-share.provider-link
-                :provider="$provider"
-                :url="$providerUrls[$provider]"
-                :label="__('sharing.' . $provider)"
-            />
-        @endif
-    @endforeach
+    {{-- Social platform buttons --}}
+    @php
+        $visibleProviders = collect($socialProviders)->filter(function ($provider) use ($enabledProviders, $providerUrls) {
+            return isset($enabledProviders[$provider])
+                && isset($providerUrls[$provider])
+                && $providerUrls[$provider] !== null;
+        });
 
-    {{-- Pinterest — only when image exists --}}
-    @if(isset($enabledProviders['pinterest']) && isset($providerUrls['pinterest']) && $providerUrls['pinterest'] !== null)
-        <x-share.provider-link
-            provider="pinterest"
-            :url="$providerUrls['pinterest']"
-            :label="__('sharing.pinterest')"
-        />
+        $hasNative = isset($enabledProviders['native']);
+    @endphp
+
+    @if($hasNative || $visibleProviders->isNotEmpty())
+        <div>
+            <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('sharing.share_via') }}</p>
+
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {{-- Native Web Share --}}
+                @if($hasNative)
+                    <x-share.native-share-button
+                        :title="$metadata->title"
+                        :text="$metadata->description"
+                        :url="$metadata->url"
+                        :label="__('sharing.native')"
+                    />
+                @endif
+
+                {{-- Social links --}}
+                @foreach ($visibleProviders as $provider)
+                    <x-share.provider-link
+                        :provider="$provider"
+                        :url="$providerUrls[$provider]"
+                        :label="__('sharing.' . $provider)"
+                    />
+                @endforeach
+            </div>
+        </div>
     @endif
 </div>
