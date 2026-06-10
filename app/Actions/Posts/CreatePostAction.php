@@ -2,6 +2,7 @@
 
 namespace App\Actions\Posts;
 
+use App\Actions\Follows\NotifyFollowersAboutNewPostAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\PostStatus;
@@ -20,6 +21,7 @@ final class CreatePostAction
     public function __construct(
         private readonly ImageStorage $imageStorage,
         private readonly ActionRateLimiter $rateLimiter,
+        private readonly NotifyFollowersAboutNewPostAction $notifyFollowers,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
@@ -69,6 +71,10 @@ final class CreatePostAction
 
         if ($post->image_path !== null) {
             ProcessUploadedImageJob::dispatch($post->id);
+        }
+
+        if ($post->status === PostStatus::Published) {
+            $this->notifyFollowers->handle($post);
         }
 
         return $post;
