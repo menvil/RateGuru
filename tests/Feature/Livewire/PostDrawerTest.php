@@ -2,6 +2,7 @@
 
 use App\Livewire\Feed\PostDrawer;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Models\User;
@@ -312,4 +313,30 @@ it('does not listen for vote events so the card does not reload on votes', funct
     expect($component)
         ->not->toContain("#[On('rating-voted')]")
         ->not->toContain("#[On('post-voted')]");
+});
+
+it('renders save button in post drawer when feature is enabled', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $html = Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['postId' => $post->id])
+        ->html();
+
+    expect($html)->toContain('data-testid="save-post-button"');
+});
+
+it('hides save button in post drawer when feature is disabled', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => false]]);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $html = Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['postId' => $post->id])
+        ->html();
+
+    expect($html)->not->toContain('data-testid="save-post-button"');
 });
