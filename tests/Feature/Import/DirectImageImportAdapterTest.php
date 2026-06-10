@@ -28,7 +28,7 @@ it('rejects unsupported mime type', function () {
     app(DirectImageImportAdapter::class)->preview('https://example.com/file.pdf');
 })->throws(ImportFetchException::class);
 
-it('returns preview with source url as title fallback', function () {
+it('returns source url as title fallback', function () {
     Http::fake([
         'example.com/photo.png' => Http::response('fake-image-content', 200, [
             'Content-Type' => 'image/png',
@@ -37,6 +37,7 @@ it('returns preview with source url as title fallback', function () {
 
     $preview = app(DirectImageImportAdapter::class)->preview('https://example.com/photo.png');
 
+    expect($preview->title)->toBe('https://example.com/photo.png');
     expect($preview->sourceUrl)->toBe('https://example.com/photo.png');
 });
 
@@ -51,4 +52,14 @@ it('rejects image exceeding max image bytes', function () {
     ]);
 
     app(DirectImageImportAdapter::class)->preview('https://example.com/big.jpg');
+})->throws(ImportFetchException::class);
+
+it('rejects response with empty content-type header', function () {
+    Http::fake([
+        'example.com/image.jpg' => Http::response('fake-content', 200, [
+            'Content-Type' => '',
+        ]),
+    ]);
+
+    app(DirectImageImportAdapter::class)->preview('https://example.com/image.jpg');
 })->throws(ImportFetchException::class);
