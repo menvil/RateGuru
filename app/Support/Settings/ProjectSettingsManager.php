@@ -33,6 +33,7 @@ class ProjectSettingsManager
             'show_saved_posts' => false,
             'allow_user_uploads' => true,
             'allow_guest_viewing' => true,
+            'allow_url_imports' => true,
         ],
     ];
 
