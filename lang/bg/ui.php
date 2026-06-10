@@ -45,6 +45,8 @@ return [
     'settings' => [
         'language' =>'Език',
         'language_description' => 'Изберете предпочитания език на интерфейса.',
+        'notifications' => 'Известия',
+        'notifications_description' => 'Управление на предпочитанията за известия в приложението.',
     ],
     'actions' => [
         'save' => 'Запази',
