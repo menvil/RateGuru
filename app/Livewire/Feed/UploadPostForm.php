@@ -32,6 +32,10 @@ final class UploadPostForm extends Component
 
     public $image = null;
 
+    public ?string $importedImageUrl = null;
+
+    public string $activeTab = 'upload';
+
     public ?string $submitError = null;
 
     public array $tags = [];
@@ -48,8 +52,9 @@ final class UploadPostForm extends Component
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
-        $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'tagSearch', 'submitError']);
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError']);
         $this->loadTags();
+        $this->activeTab = 'upload';
         $this->originTruth = OriginType::Unknown->value;
         $this->cuisineTruth = CuisineType::Unknown->value;
         $this->resetValidation();
@@ -112,6 +117,15 @@ final class UploadPostForm extends Component
             'tagIds' => ['array', 'max:10'],
             'tagIds.*' => ['integer', 'exists:tags,id'],
         ];
+    }
+
+    public function applyImportPreview(array $preview): void
+    {
+        $this->title = $preview['title'] ?? $this->title;
+        $this->description = $preview['description'] ?? $this->description;
+        $this->sourceUrl = $preview['sourceUrl'] ?? $this->sourceUrl;
+        $this->importedImageUrl = $preview['imageUrl'] ?? null;
+        $this->activeTab = 'upload';
     }
 
     public function render(): View
