@@ -42,6 +42,7 @@
                         :provider="$provider"
                         :url="$providerUrls[$provider]"
                         :label="__('sharing.' . $provider)"
+                        :post-url="$metadata->url"
                     />
                 @endforeach
             </div>
