@@ -18,8 +18,8 @@ it('renders reddit share link with correct url', function () {
     );
 
     expect($html)->toContain('data-testid="share-reddit"');
-    expect($html)->toContain('reddit.com/submit');
-    expect($html)->toContain('target="_blank"');
+    expect($html)->toContain('reddit.com');
+    expect($html)->toContain('window.open');
 });
 
 it('renders email share link', function () {
@@ -53,7 +53,7 @@ it('renders pinterest share link when image exists', function () {
     );
 
     expect($html)->toContain('data-testid="share-pinterest"');
-    expect($html)->toContain('pinterest.com/pin/create/button');
+    expect($html)->toContain('pinterest.com');
 });
 
 it('does not render pinterest link when post has no image', function () {

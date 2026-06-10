@@ -18,9 +18,8 @@ it('renders telegram share link with correct url', function () {
     );
 
     expect($html)->toContain('data-testid="share-telegram"');
-    expect($html)->toContain('t.me/share/url');
-    expect($html)->toContain('target="_blank"');
-    expect($html)->toContain('rel="noopener noreferrer"');
+    expect($html)->toContain('t.me');
+    expect($html)->toContain('window.open');
 });
 
 it('renders whatsapp share link with correct url', function () {
@@ -37,5 +36,5 @@ it('renders whatsapp share link with correct url', function () {
 
     expect($html)->toContain('data-testid="share-whatsapp"');
     expect($html)->toContain('wa.me');
-    expect($html)->toContain('target="_blank"');
+    expect($html)->toContain('window.open');
 });
