@@ -49,7 +49,7 @@
             </div>
         </div>
 
-        <div data-testid="profile-stats" class="mt-6 grid gap-3 sm:grid-cols-3">
+        <div data-testid="profile-stats" class="mt-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <x-ui.card padding="sm" class="text-center">
                 <div class="text-xs font-medium text-rg-muted">Published posts</div>
                 <div class="mt-1 text-lg font-bold text-rg-text">{{ $this->stats['published_posts'] }}</div>
@@ -63,6 +63,16 @@
             <x-ui.card padding="sm" class="text-center">
                 <div class="text-xs font-medium text-rg-muted">Comments received</div>
                 <div class="mt-1 text-lg font-bold text-rg-text">{{ $this->stats['comments_received'] }}</div>
+            </x-ui.card>
+
+            <x-ui.card padding="sm" class="text-center" data-testid="followers-count">
+                <div class="text-xs font-medium text-rg-muted">{{ __('follows.followers') }}</div>
+                <div class="mt-1 text-lg font-bold text-rg-text">{{ $this->stats['followers_count'] }}</div>
+            </x-ui.card>
+
+            <x-ui.card padding="sm" class="text-center" data-testid="following-count">
+                <div class="text-xs font-medium text-rg-muted">{{ __('follows.following_count') }}</div>
+                <div class="mt-1 text-lg font-bold text-rg-text">{{ $this->stats['following_count'] }}</div>
             </x-ui.card>
         </div>
     </section>
