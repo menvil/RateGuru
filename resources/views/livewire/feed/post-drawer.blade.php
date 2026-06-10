@@ -82,12 +82,14 @@
                     @if($projectSettings->featureEnabled('show_share_buttons'))
                     <x-ui.action-button icon="share" x-on:click="shareOpen = true">{{ __('ui.share.title') }}</x-ui.action-button>
                     @endif
+                    @if($projectSettings->featureEnabled('show_saved_posts'))
                     @auth
                         <livewire:posts.save-post-button
                             :post-id="$post->id"
                             :key="'post-drawer-save-'.$post->id"
                         />
                     @endauth
+                    @endif
                 </div>
                 @if($canReportPost || $canDeletePost || $canModeratePost)
                 <div class="relative" wire:click.stop wire:keydown.stop>
