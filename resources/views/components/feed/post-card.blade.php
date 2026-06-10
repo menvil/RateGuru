@@ -110,16 +110,16 @@
                     <x-ui.action-button icon="share" data-testid="post-card-share">{{ __('sharing.share') }}</x-ui.action-button>
                 @endif
                 @endif
+                @if($postCardSettings->featureEnabled('show_saved_posts'))
                 @auth
                     @if($post->exists)
                         <livewire:posts.save-post-button
                             :post-id="$post->id"
                             :key="'post-card-save-'.$post->id"
                         />
-                    @else
-                        <x-ui.action-button icon="bookmark">{{ __('ui.post.save') }}</x-ui.action-button>
                     @endif
                 @endauth
+                @endif
             </div>
 
             @if($post->exists && ($canReportPost || $canDeletePost || $canModeratePost))

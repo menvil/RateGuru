@@ -2,6 +2,7 @@
 
 use App\Livewire\Feed\PostFeed;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Models\User;
@@ -354,4 +355,30 @@ it('delegates result rendering to the rating voting components', function () {
         ->not->toContain('post-card-cuisine-results')
         ->toContain('posts.source-voting')
         ->toContain('posts.category-voting');
+});
+
+it('renders save button on post card when feature is enabled', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $this->actingAs($user);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('data-testid="save-post-button"');
+});
+
+it('hides save button on post card when feature is disabled', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => false]]);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $this->actingAs($user);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->not->toContain('data-testid="save-post-button"');
 });

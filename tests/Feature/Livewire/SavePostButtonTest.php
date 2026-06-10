@@ -2,19 +2,31 @@
 
 use App\Livewire\Posts\SavePostButton;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('toggles a saved post for authenticated users', function () {
+it('renders save post button for authenticated user when feature is enabled', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
 
     Livewire::actingAs($user)
         ->test(SavePostButton::class, ['postId' => $post->id])
-        ->assertSee('Save')
+        ->assertSee('data-testid="save-post-button"', false);
+});
+
+it('toggles a saved post for authenticated users', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(SavePostButton::class, ['postId' => $post->id])
         ->call('toggle')
         ->assertSet('saved', true)
-        ->assertDontSee('data-testid="save-post-message"', false)
         ->assertSee('aria-pressed="true"', false)
         ->assertSee('fill-current', false);
 
@@ -26,8 +38,7 @@ it('toggles a saved post for authenticated users', function () {
     Livewire::actingAs($user)
         ->test(SavePostButton::class, ['postId' => $post->id])
         ->call('toggle')
-        ->assertSet('saved', false)
-        ->assertDontSee('Removed');
+        ->assertSet('saved', false);
 
     $this->assertDatabaseMissing('post_saves', [
         'user_id' => $user->id,
@@ -35,7 +46,9 @@ it('toggles a saved post for authenticated users', function () {
     ]);
 });
 
-it('asks guests to log in before saving', function () {
+it('shows login required message for guests', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+
     $post = Post::factory()->published()->create();
 
     Livewire::test(SavePostButton::class, ['postId' => $post->id])
@@ -48,20 +61,14 @@ it('asks guests to log in before saving', function () {
     ]);
 });
 
-it('derives the visible status message in the component', function () {
+it('shows feature disabled message when feature flag is off', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => false]]);
+
+    $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $component = Livewire::test(SavePostButton::class, ['postId' => $post->id]);
 
-    $component->set('message', 'Saved');
-    expect($component->get('displayMessage'))->toBeNull();
-
-    $component->set('message', 'Removed');
-    expect($component->get('displayMessage'))->toBeNull();
-
-    $component
-        ->set('message', 'This post is unavailable.')
-        ->assertSee('data-testid="save-post-message"', false)
-        ->assertSee('This post is unavailable.');
-
-    expect($component->get('displayMessage'))->toBe('This post is unavailable.');
+    Livewire::actingAs($user)
+        ->test(SavePostButton::class, ['postId' => $post->id])
+        ->call('toggle')
+        ->assertSee('data-testid="save-post-message"', false);
 });

@@ -2,6 +2,8 @@
 
 use App\Livewire\Posts\PostShow;
 use App\Models\Post;
+use App\Models\ProjectSettings;
+use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Livewire\Livewire;
 
@@ -91,4 +93,28 @@ it('refreshes the score panel on post votes but not on rating votes', function (
         ->not->toContain("#[On('rating-voted')]")
         ->not->toContain("#[On('source-voted')]")
         ->not->toContain("#[On('category-voted')]");
+});
+
+it('renders save button on post show page when feature is enabled', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $this->actingAs($user)
+        ->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('data-testid="save-post-button"', false);
+});
+
+it('hides save button on post show page when feature is disabled', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => false]]);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $this->actingAs($user)
+        ->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertDontSee('data-testid="save-post-button"', false);
 });

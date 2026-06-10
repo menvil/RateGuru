@@ -104,6 +104,11 @@ class Post extends Model
         return $this->hasMany(PostSave::class);
     }
 
+    public function savedByUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'post_saves')->withTimestamps();
+    }
+
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class);

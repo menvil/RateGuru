@@ -8,6 +8,7 @@ use App\Services\Images\CloudinaryImageStorage;
 use App\Services\Images\ImageStorage;
 use App\Services\Images\LocalImageStorage;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Theme\ThemeManager;
 use App\Support\View\AppLayoutData;
 use App\Support\VisualRegression\PestVisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotRunner;
@@ -20,7 +21,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(ProjectSettingsManager::class);
-        $this->app->singleton(\App\Support\Theme\ThemeManager::class);
+        $this->app->singleton(ThemeManager::class);
 
         $this->app->bind(VisualScreenshotRunner::class, PestVisualScreenshotRunner::class);
 
@@ -44,7 +45,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
-            $themeManager = app(\App\Support\Theme\ThemeManager::class);
+            $themeManager = app(ThemeManager::class);
             $user = auth()->user();
             $themePreference = $themeManager->preferenceForUser($user);
             $appliedTheme = $themeManager->appliedThemeFromPreference($themePreference);
@@ -96,13 +97,22 @@ class AppServiceProvider extends ServiceProvider
                 ])
                 ->all();
 
+            $settings = app(ProjectSettingsManager::class);
+            $user = auth()->user();
+
+            $navItems = [
+                ['label' => 'Home', 'icon' => 'home', 'href' => route('feed'), 'active' => request()->routeIs('feed') && blank(request('sort')) && blank(request('category')) && blank(request('search')), 'testid' => null],
+                ['label' => 'Top', 'icon' => 'flame', 'href' => route('feed', ['sort' => 'top']), 'active' => request('sort') === 'top', 'testid' => null],
+                ['label' => 'New', 'icon' => 'plus', 'href' => route('feed', ['sort' => 'newest']), 'active' => request('sort') === 'newest', 'testid' => null],
+                ['label' => 'Following', 'icon' => 'users', 'href' => '#', 'active' => false, 'testid' => null],
+            ];
+
+            if ($user !== null && $settings->featureEnabled('show_saved_posts')) {
+                $navItems[] = ['label' => __('saved_posts.saved_posts'), 'icon' => 'bookmark', 'href' => route('saved-posts.index'), 'active' => request()->routeIs('saved-posts.index'), 'testid' => 'nav-saved-posts'];
+            }
+
             $view->with([
-                'navItems' => [
-                    ['label' => 'Home', 'icon' => 'home', 'href' => route('feed'), 'active' => request()->routeIs('feed') && blank(request('sort')) && blank(request('category')) && blank(request('search'))],
-                    ['label' => 'Top', 'icon' => 'flame', 'href' => route('feed', ['sort' => 'top']), 'active' => request('sort') === 'top'],
-                    ['label' => 'New', 'icon' => 'plus', 'href' => route('feed', ['sort' => 'newest']), 'active' => request('sort') === 'newest'],
-                    ['label' => 'Following', 'icon' => 'users', 'href' => '#', 'active' => false],
-                ],
+                'navItems' => $navItems,
                 'categories' => $categories,
                 'topTags' => $topTags,
                 'fallbackTags' => $fallbackTags,

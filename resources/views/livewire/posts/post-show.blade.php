@@ -118,6 +118,15 @@
                 <x-ui.action-button icon="comment" x-on:click="scrollToComments()" data-testid="post-show-comments-scroll">
                     {{ $post->comments_count ?? 0 }}
                 </x-ui.action-button>
+
+                @if($projectSettings->featureEnabled('show_saved_posts'))
+                @auth
+                    <livewire:posts.save-post-button
+                        :post-id="$post->id"
+                        :key="'post-show-save-'.$post->id"
+                    />
+                @endauth
+                @endif
             </div>
 
             @if($projectSettings->featureEnabled('show_share_buttons'))
