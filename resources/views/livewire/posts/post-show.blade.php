@@ -31,21 +31,29 @@
 >
     <main class="min-w-0" data-testid="post-show-page">
         <article class="rounded-rgCard border border-rg-border bg-rg-card p-5">
-            <section class="flex min-w-0 items-start gap-3" data-testid="post-show-meta">
-                <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
+            <section class="flex min-w-0 items-start justify-between gap-3" data-testid="post-show-meta">
+                <div class="flex min-w-0 items-start gap-3">
+                    <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
 
-                <div class="min-w-0">
-                    <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+                    <div class="min-w-0">
+                        <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
 
-                    <div class="truncate text-xs text-rg-muted">
-                        @if($post->user?->username)
-                            {{ '@' . $post->user->username }}
-                        @endif
-                        @if($post->published_at)
-                            {{ $post->user?->username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
-                        @endif
+                        <div class="truncate text-xs text-rg-muted">
+                            @if($post->user?->username)
+                                {{ '@' . $post->user->username }}
+                            @endif
+                            @if($post->published_at)
+                                {{ $post->user?->username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
+                            @endif
+                        </div>
                     </div>
                 </div>
+
+                @if($post->user && $this->canSeeFollowButton)
+                    <div class="shrink-0" data-testid="post-author-follow">
+                        <livewire:follows.follow-button :author="$post->user" variant="compact" />
+                    </div>
+                @endif
             </section>
 
             <section class="mt-4">

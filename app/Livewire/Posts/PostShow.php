@@ -36,6 +36,16 @@ final class PostShow extends Component
         // components, so no page re-render is needed for them.
     }
 
+    public function getCanSeeFollowButtonProperty(): bool
+    {
+        $post = $this->post;
+
+        return auth()->check()
+            && $post->user !== null
+            && auth()->id() !== $post->user_id
+            && app(ProjectSettingsManager::class)->featureEnabled('show_follow_buttons');
+    }
+
     public function render(RatingConfigurationManager $configuration, ProjectSettingsManager $projectSettings): View
     {
         $post = $this->post;
