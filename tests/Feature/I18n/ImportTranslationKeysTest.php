@@ -29,6 +29,8 @@ it('has all required import keys in english', function () {
         'import.errors.unsupported',
         'import.errors.provider_blocked',
         'import.errors.feature_disabled',
+        'import.errors.fetch_failed',
+        'import.unsupported_reason_download_and_upload',
         'import.manual_upload_hint',
     ];
 

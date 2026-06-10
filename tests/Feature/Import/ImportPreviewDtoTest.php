@@ -1,10 +1,11 @@
 <?php
 
+use App\Enums\ImportProvider;
 use App\Support\Import\ImportPreview;
 
 it('creates import preview dto', function () {
     $preview = new ImportPreview(
-        provider: 'open_graph',
+        provider: ImportProvider::OpenGraph,
         sourceUrl: 'https://example.com/page',
         title: 'Title',
         description: 'Description',
@@ -18,7 +19,7 @@ it('creates import preview dto', function () {
 
 it('reports unsupported when unsupported reason is set', function () {
     $preview = new ImportPreview(
-        provider: 'instagram',
+        provider: ImportProvider::Instagram,
         sourceUrl: 'https://www.instagram.com/p/abc',
         unsupportedReason: 'Provider is not accessible without authentication.',
     );
@@ -29,7 +30,7 @@ it('reports unsupported when unsupported reason is set', function () {
 
 it('is supported when no unsupported reason set', function () {
     $preview = new ImportPreview(
-        provider: 'open_graph',
+        provider: ImportProvider::OpenGraph,
         sourceUrl: 'https://example.com/page',
         title: 'Some Title',
     );
@@ -39,7 +40,7 @@ it('is supported when no unsupported reason set', function () {
 
 it('has image returns false when image url is null', function () {
     $preview = new ImportPreview(
-        provider: 'open_graph',
+        provider: ImportProvider::OpenGraph,
         sourceUrl: 'https://example.com/page',
     );
 
@@ -48,11 +49,11 @@ it('has image returns false when image url is null', function () {
 
 it('stores warnings array', function () {
     $preview = new ImportPreview(
-        provider: 'open_graph',
+        provider: ImportProvider::OpenGraph,
         sourceUrl: 'https://example.com/page',
-        warnings: ['No image found.'],
+        warnings: ['warning.no_image_found'],
     );
 
     expect($preview->warnings)->toHaveCount(1);
-    expect($preview->warnings[0])->toBe('No image found.');
+    expect($preview->warnings[0])->toBe('warning.no_image_found');
 });

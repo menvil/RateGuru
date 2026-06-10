@@ -9,6 +9,8 @@ return [
     'cancel' => 'Cancel',
     'loading' => 'Loading…',
 
+    'unsupported_reason_download_and_upload' => 'This URL cannot be imported automatically. Download the image and upload it manually.',
+
     'errors' => [
         'invalid_url' => 'Please enter a valid URL.',
         'unsafe_url' => 'This URL is not safe to fetch.',
@@ -17,6 +19,7 @@ return [
         'unsupported' => 'This URL cannot be imported automatically.',
         'provider_blocked' => 'This provider blocked the request.',
         'feature_disabled' => 'URL import is currently disabled.',
+        'fetch_failed' => 'Could not fetch this URL. Please try again.',
     ],
 
     'manual_upload_hint' => 'Download the image and upload it manually.',

@@ -1,9 +1,9 @@
 <?php
 
 return [
-    'enabled' => env('IMPORT_FROM_URL_ENABLED', true),
+    'enabled' => env('IMPORT_FROM_URL_ENABLED', false),
 
-    'allowed_schemes' => ['http', 'https'],
+    'allowed_schemes' => ['https'],
 
     'timeout_seconds' => 5,
     'connect_timeout_seconds' => 2,

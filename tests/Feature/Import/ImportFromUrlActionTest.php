@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Import\ImportFromUrlAction;
+use App\Enums\ImportProvider;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use Illuminate\Support\Facades\Http;
 
@@ -16,7 +17,7 @@ it('imports preview from generic open graph url', function () {
     $preview = app(ImportFromUrlAction::class)->handle('https://example.com/page');
 
     expect($preview->title)->toBe('Imported Title');
-    expect($preview->provider)->toBe('open_graph');
+    expect($preview->provider)->toBe(ImportProvider::OpenGraph);
 });
 
 it('imports preview from direct image url', function () {
@@ -29,7 +30,7 @@ it('imports preview from direct image url', function () {
     $preview = app(ImportFromUrlAction::class)->handle('https://example.com/photo.jpg');
 
     expect($preview->imageUrl)->toBe('https://example.com/photo.jpg');
-    expect($preview->provider)->toBe('direct_image');
+    expect($preview->provider)->toBe(ImportProvider::DirectImage);
 });
 
 it('returns unsupported preview when social provider cannot be imported', function () {
@@ -40,7 +41,7 @@ it('returns unsupported preview when social provider cannot be imported', functi
     $preview = app(ImportFromUrlAction::class)->handle('https://www.instagram.com/p/abc');
 
     expect($preview->isSupported())->toBeFalse();
-    expect($preview->provider)->toBe('instagram');
+    expect($preview->provider)->toBe(ImportProvider::Instagram);
 });
 
 it('rejects unsafe urls', function () {

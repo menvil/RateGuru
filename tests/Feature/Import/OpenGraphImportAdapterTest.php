@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ImportProvider;
 use App\Support\Import\Adapters\OpenGraphImportAdapter;
 use Illuminate\Support\Facades\Http;
 
@@ -16,7 +17,7 @@ it('creates import preview from open graph page', function () {
 
     expect($preview->title)->toBe('Imported Title');
     expect($preview->imageUrl)->toBe('https://example.com/image.jpg');
-    expect($preview->provider)->toBe('open_graph');
+    expect($preview->provider)->toBe(ImportProvider::OpenGraph);
 });
 
 it('returns preview without image when og image is missing', function () {

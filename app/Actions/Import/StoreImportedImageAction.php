@@ -15,11 +15,15 @@ class StoreImportedImageAction
         $allowedMimes = (array) config('import.allowed_image_mimes', ['image/jpeg', 'image/png', 'image/webp']);
         $maxBytes = (int) config('import.max_image_bytes', 8 * 1024 * 1024);
 
-        // SafeImportHttpClient defaults use max_html_bytes; for images we use a higher limit
-        // We fetch with the safe client (SSRF + redirect protection) and validate size ourselves
-        $response = $this->client->get($imageUrl);
+        $response = $this->client->get($imageUrl, $maxBytes);
 
-        $contentType = strtolower(trim(explode(';', $response->header('Content-Type'))[0]));
+        $rawContentType = $response->header('Content-Type') ?? '';
+
+        if (empty(trim($rawContentType))) {
+            throw new ImportFetchException("No Content-Type header for URL: {$imageUrl}");
+        }
+
+        $contentType = strtolower(trim(explode(';', $rawContentType)[0]));
 
         if (! in_array($contentType, $allowedMimes, true)) {
             throw new ImportFetchException("Unsupported MIME type '{$contentType}' for imported image.");
@@ -37,7 +41,9 @@ class StoreImportedImageAction
             default => 'jpg',
         };
 
-        $tmpPath = tempnam(sys_get_temp_dir(), 'rg_import_').'.'.$extension;
+        $baseTmpPath = tempnam(sys_get_temp_dir(), 'rg_import_');
+        $tmpPath = $baseTmpPath.'.'.$extension;
+        rename($baseTmpPath, $tmpPath);
         file_put_contents($tmpPath, $body);
 
         return new UploadedFile(

@@ -2,6 +2,7 @@
 
 namespace App\Support\Import\Adapters;
 
+use App\Enums\ImportProvider;
 use App\Exceptions\Import\ImportFetchException;
 use App\Support\Import\ImportPreview;
 use App\Support\Import\SafeImportHttpClient;
@@ -15,9 +16,15 @@ class DirectImageImportAdapter
         $maxImageBytes = (int) config('import.max_image_bytes', 8 * 1024 * 1024);
         $allowedMimes = (array) config('import.allowed_image_mimes', ['image/jpeg', 'image/png', 'image/webp']);
 
-        $response = $this->client->get($url);
+        $response = $this->client->get($url, $maxImageBytes);
 
-        $contentType = strtolower(trim(explode(';', $response->header('Content-Type'))[0]));
+        $rawContentType = $response->header('Content-Type') ?? '';
+
+        if (empty(trim($rawContentType))) {
+            throw new ImportFetchException("No Content-Type header for URL: {$url}");
+        }
+
+        $contentType = strtolower(trim(explode(';', $rawContentType)[0]));
 
         if (! in_array($contentType, $allowedMimes, true)) {
             throw new ImportFetchException("Unsupported image MIME type '{$contentType}' for URL: {$url}");
@@ -28,9 +35,10 @@ class DirectImageImportAdapter
         }
 
         return new ImportPreview(
-            provider: 'direct_image',
+            provider: ImportProvider::DirectImage,
             sourceUrl: $url,
             imageUrl: $url,
+            title: $url,
         );
     }
 }

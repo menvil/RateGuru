@@ -4,7 +4,7 @@ namespace App\Support\Import;
 
 class ImportProviderDetector
 {
-    private const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'];
+    private const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
 
     private const SOCIAL_HOST_PATTERNS = [
         'instagram' => ['instagram.com'],
