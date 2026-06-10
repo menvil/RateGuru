@@ -12,6 +12,7 @@
             @else
                 <a
                     href="{{ $item['href'] }}"
+                    @if($item['testid']) data-testid="{{ $item['testid'] }}" @endif
                     class="{{ $item['active'] ? 'border-rg-border2 bg-rg-card2 text-rg-text' : 'border-transparent text-rg-text2 hover:bg-rg-card hover:text-rg-text' }} flex h-10 items-center gap-3 rounded-rgControl border px-3.5 text-[13.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                 >
                     <x-ui.icon :name="$item['icon']" class="size-4" />

@@ -115,6 +115,16 @@
                                         Profile
                                     </a>
 
+                                    @if($projectSettings->featureFlag('show_saved_posts'))
+                                    <a
+                                        href="{{ route('saved-posts.index') }}"
+                                        data-testid="nav-saved-posts"
+                                        class="flex items-center gap-2 rounded-rgSm px-3 py-2 text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                    >
+                                        {{ __('saved_posts.saved_posts') }}
+                                    </a>
+                                    @endif
+
                                     <div class="my-1 border-t border-rg-border"></div>
 
                                     <form method="POST" action="{{ route('logout') }}">
