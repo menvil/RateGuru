@@ -76,11 +76,9 @@ it('allows normal https urls', function () {
     expect($url)->toBe('https://example.com/page');
 });
 
-it('allows normal http urls', function () {
-    $url = app(UrlImportValidator::class)->validate('http://example.com/image.jpg');
-
-    expect($url)->toBe('http://example.com/image.jpg');
-});
+it('rejects http scheme', function () {
+    app(UrlImportValidator::class)->validate('http://example.com/image.jpg');
+})->throws(UnsafeImportUrlException::class);
 
 it('rejects hostname that resolves to private ip', function () {
     $validator = new class extends UrlImportValidator {

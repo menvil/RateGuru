@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Feed;
 
+use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\CuisineType;
@@ -67,6 +68,17 @@ final class UploadPostForm extends Component
         $createPostAction = app(CreatePostAction::class);
 
         $this->submitError = null;
+
+        if ($this->importedImageUrl !== null && $this->image === null) {
+            try {
+                $this->image = app(StoreImportedImageAction::class)->download($this->importedImageUrl);
+            } catch (\Throwable $e) {
+                report($e);
+                $this->submitError = __('import.errors.fetch_failed');
+
+                return;
+            }
+        }
 
         $this->validate();
 

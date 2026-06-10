@@ -23,7 +23,6 @@ class OpenGraphImportAdapter
 
         $metadata = $this->parser->parse($response->body(), $url);
 
-        $warnings = [];
         $imageUrl = null;
 
         if ($metadata->imageUrl !== null) {
@@ -31,10 +30,8 @@ class OpenGraphImportAdapter
                 $this->validator->validate($metadata->imageUrl);
                 $imageUrl = $metadata->imageUrl;
             } catch (UnsafeImportUrlException) {
-                $warnings[] = 'warning.image_not_safe';
+                // unsafe image URL — omit silently, preview shows without image
             }
-        } else {
-            $warnings[] = 'warning.no_image_found';
         }
 
         return new ImportPreview(
@@ -43,7 +40,6 @@ class OpenGraphImportAdapter
             title: $metadata->title,
             description: $metadata->description,
             imageUrl: $imageUrl,
-            warnings: $warnings,
         );
     }
 }

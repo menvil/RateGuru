@@ -33,7 +33,6 @@ it('returns preview without image when og image is missing', function () {
 
     expect($preview->title)->toBe('Title Only');
     expect($preview->hasImage())->toBeFalse();
-    expect($preview->warnings)->not->toBeEmpty();
 });
 
 it('falls back to html title when og tags are absent', function () {
@@ -62,5 +61,4 @@ it('rejects og image url that is unsafe', function () {
     $preview = app(OpenGraphImportAdapter::class)->preview('https://example.com/page');
 
     expect($preview->hasImage())->toBeFalse();
-    expect($preview->warnings)->not->toBeEmpty();
 });
