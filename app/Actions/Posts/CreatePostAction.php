@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\Images\ImageStorage;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Observability\DomainLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -23,6 +24,7 @@ final class CreatePostAction
     public function __construct(
         private readonly ImageStorage $imageStorage,
         private readonly ActionRateLimiter $rateLimiter,
+        private readonly DomainLogger $logger,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
@@ -69,6 +71,13 @@ final class CreatePostAction
 
             return $post;
         });
+
+        $this->logger->info('posts.created', [
+            'post_id' => $post->id,
+            'user_id' => $user->id,
+            'status' => $post->status->value,
+            'has_image' => $post->image_path !== null,
+        ]);
 
         if ($post->image_path !== null) {
             ProcessUploadedImageJob::dispatch($post->id);
