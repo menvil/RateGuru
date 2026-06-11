@@ -4,7 +4,6 @@ namespace App\Notifications;
 
 use App\Models\Post;
 use Illuminate\Notifications\Notification;
-use Illuminate\Support\Facades\Route;
 
 final class FollowedAuthorPostedNotification extends Notification
 {
@@ -39,8 +38,6 @@ final class FollowedAuthorPostedNotification extends Notification
 
     private function postUrl(): string
     {
-        return Route::has('posts.show')
-            ? route('posts.show', $this->post)
-            : '#';
+        return route('posts.show', $this->post);
     }
 }

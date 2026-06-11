@@ -59,6 +59,10 @@ it('logs follow action', function () {
 it('logs unfollow action', function () {
     Log::spy();
 
+    \App\Models\ProjectSettings::factory()->create([
+        'feature_flags' => ['show_follow_buttons' => true],
+    ]);
+
     $follower = User::factory()->create();
     $author = User::factory()->create();
 

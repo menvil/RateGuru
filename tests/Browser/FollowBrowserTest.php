@@ -65,6 +65,7 @@ it('follow button does not overflow at mobile viewport', function () {
         ->pause(500)
         ->script('document.documentElement.scrollWidth - window.innerWidth');
 
+    // 1px tolerance for subpixel rendering differences across browsers
     expect($overflow)->toBeLessThanOrEqual(1);
 });
 

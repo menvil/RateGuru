@@ -17,8 +17,8 @@ final class ProfileStats
             ->where('user_id', $profileUser->id)
             ->count();
 
-        $followersCount = $profileUser->followerRelations()->count();
-        $followingCount = $profileUser->followingRelations()->count();
+        $followersCount = $profileUser->follower_relations_count ?? $profileUser->followerRelations()->count();
+        $followingCount = $profileUser->following_relations_count ?? $profileUser->followingRelations()->count();
 
         $savedPostsCount = $isOwner
             ? PostSave::query()->where('user_id', $profileUser->id)->count()

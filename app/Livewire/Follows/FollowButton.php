@@ -9,10 +9,12 @@ use App\Models\User;
 use App\Support\Follows\FollowState;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 final class FollowButton extends Component
 {
+    #[Locked]
     public User $author;
 
     public bool $isFollowing = false;

@@ -7,13 +7,10 @@ use Illuminate\Support\Facades\DB;
 
 function countQueriesForFollowState(callable $callback): int
 {
-    $count = 0;
-
-    DB::listen(function () use (&$count): void {
-        $count++;
-    });
-
+    DB::enableQueryLog();
     $callback();
+    $count = count(DB::getQueryLog());
+    DB::disableQueryLog();
 
     return $count;
 }

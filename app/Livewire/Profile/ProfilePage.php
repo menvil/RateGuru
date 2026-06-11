@@ -30,6 +30,7 @@ final class ProfilePage extends Component
     {
         $this->profileUser = User::query()
             ->where('username', $username)
+            ->withCount(['followerRelations', 'followingRelations'])
             ->firstOrFail();
 
         $allowed = ['posts', 'activity'];
