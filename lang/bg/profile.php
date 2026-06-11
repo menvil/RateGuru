@@ -1,0 +1,26 @@
+<?php
+
+return [
+    'profile' => 'Профил',
+    'profile_description' => 'Актуализирайте информацията в публичния профил.',
+    'edit_profile' => 'Редактиране на профил',
+    'display_name' => 'Показвано име',
+    'bio' => 'За мен',
+    'website' => 'Уебсайт',
+    'avatar' => 'Аватар',
+    'posts' => 'Публикации',
+    'saved' => 'Запазени',
+    'activity' => 'Активност',
+    'followers' => 'Последователи',
+    'following' => 'Следвани',
+    'no_posts' => 'Няма публикувани постове',
+    'no_posts_description' => 'Потребителят все още няма публикувани постове.',
+    'no_activity' => 'Няма активност',
+    'activity_private' => 'Активността на този потребител е скрита.',
+    'rating_activity_visibility' => 'Видимост на активността',
+    'visibility_private' => 'Лично (само вие)',
+    'visibility_public' => 'Публично',
+    'joined' => 'Присъединил се',
+    'public_posts' => 'Публикации',
+    'stats' => 'Статистика',
+];

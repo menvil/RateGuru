@@ -1,0 +1,26 @@
+<?php
+
+return [
+    'profile' => 'Профиль',
+    'profile_description' => 'Обновите информацию публичного профиля.',
+    'edit_profile' => 'Редактировать профиль',
+    'display_name' => 'Отображаемое имя',
+    'bio' => 'О себе',
+    'website' => 'Сайт',
+    'avatar' => 'Аватар',
+    'posts' => 'Посты',
+    'saved' => 'Сохранённые',
+    'activity' => 'Активность',
+    'followers' => 'Подписчики',
+    'following' => 'Подписки',
+    'no_posts' => 'Нет опубликованных постов',
+    'no_posts_description' => 'Пользователь ещё не опубликовал ни одного поста.',
+    'no_activity' => 'Нет активности',
+    'activity_private' => 'Активность этого пользователя скрыта.',
+    'rating_activity_visibility' => 'Видимость активности',
+    'visibility_private' => 'Приватно (только вы)',
+    'visibility_public' => 'Публично',
+    'joined' => 'Зарегистрирован',
+    'public_posts' => 'Посты',
+    'stats' => 'Статистика',
+];
