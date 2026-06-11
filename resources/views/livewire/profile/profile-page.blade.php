@@ -167,11 +167,35 @@
 
             @elseif($tab === 'activity')
                 <div data-testid="profile-activity-tab">
-                    {{-- Activity content is rendered in RG-871 --}}
-                    <x-ui.empty-state
-                        :title="__('profile.no_activity')"
-                        description=""
-                    />
+                    @if(! $this->canSeeActivity)
+                        <div data-testid="profile-activity-private" class="py-8 text-center text-sm text-rg-muted">
+                            {{ __('profile.activity_private') }}
+                        </div>
+                    @elseif($this->ratingActivity->isEmpty())
+                        <x-ui.empty-state
+                            :title="__('profile.no_activity')"
+                            description=""
+                        />
+                    @else
+                        <div class="space-y-3">
+                            @foreach($this->ratingActivity as $vote)
+                                <div class="rounded-rgCard border border-rg-border bg-rg-card p-4" data-testid="profile-activity-item">
+                                    <div class="flex items-start justify-between gap-4">
+                                        <div class="min-w-0">
+                                            <p class="truncate text-sm font-medium text-rg-text">{{ $vote->post->title ?? '—' }}</p>
+                                            @if($vote->group && $vote->option)
+                                                <p class="mt-1 text-xs text-rg-muted">
+                                                    {{ $vote->group->label ?? $vote->group->name ?? '' }}:
+                                                    <span class="font-medium text-rg-text2">{{ $vote->option->label ?? $vote->option->name ?? '' }}</span>
+                                                </p>
+                                            @endif
+                                        </div>
+                                        <time class="shrink-0 text-xs text-rg-muted">{{ $vote->created_at->diffForHumans() }}</time>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
 
             @elseif($tab === 'saved' && $this->isOwner)

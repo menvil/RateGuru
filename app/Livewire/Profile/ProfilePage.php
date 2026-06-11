@@ -5,6 +5,7 @@ namespace App\Livewire\Profile;
 use App\Models\User;
 use App\Queries\SavedPosts\SavedPostsQuery;
 use App\Queries\UserPublicPostsQuery;
+use App\Queries\UserRatingActivityQuery;
 use App\Support\Profile\ProfileStats;
 use App\Support\Profile\ProfileStatsData;
 use App\Support\Settings\ProjectSettingsManager;
@@ -40,6 +41,18 @@ final class ProfilePage extends Component
     public function getPostsProperty(): LengthAwarePaginator
     {
         return app(UserPublicPostsQuery::class)->forProfile($this->profileUser);
+    }
+
+    public function getCanSeeActivityProperty(): bool
+    {
+        return $this->isOwner
+            || $this->profileUser->rating_activity_visibility === 'public';
+    }
+
+    /** @return \Illuminate\Database\Eloquent\Collection<int, \App\Models\RatingVote> */
+    public function getRatingActivityProperty(): \Illuminate\Database\Eloquent\Collection
+    {
+        return app(UserRatingActivityQuery::class)->forProfile($this->profileUser, auth()->user());
     }
 
     /** @return LengthAwarePaginator<int, \App\Models\Post>|null */
