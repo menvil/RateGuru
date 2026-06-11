@@ -18,6 +18,15 @@ it('factory does not create self-follow by default', function () {
     expect($follow->follower_id)->not->toBe($follow->author_id);
 });
 
+it('throws when factory would create a self-follow', function () {
+    $user = User::factory()->create();
+
+    expect(fn () => Follow::factory()->create([
+        'follower_id' => $user->id,
+        'author_id' => $user->id,
+    ]))->toThrow(\InvalidArgumentException::class);
+});
+
 it('creates follow for specific users', function () {
     $follower = User::factory()->create();
     $author = User::factory()->create();

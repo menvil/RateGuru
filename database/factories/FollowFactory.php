@@ -23,8 +23,9 @@ class FollowFactory extends Factory
 
     public function configure(): static
     {
-        return $this->afterCreating(function (Follow $follow) {
-            if ((int) $follow->follower_id === (int) $follow->author_id) {
+        return $this->afterMaking(function (Follow $follow) {
+            if ($follow->follower_id !== null
+                && (int) $follow->follower_id === (int) $follow->author_id) {
                 throw new \InvalidArgumentException(
                     'FollowFactory produced a self-follow record (follower_id === author_id). Pass distinct user IDs.'
                 );

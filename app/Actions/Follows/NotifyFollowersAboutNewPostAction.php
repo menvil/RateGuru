@@ -43,7 +43,10 @@ final class NotifyFollowersAboutNewPostAction
             return;
         }
 
-        $followers = User::query()
+        $sentCount = 0;
+        $skippedCount = 0;
+
+        User::query()
             ->whereIn('id', function ($query) use ($author) {
                 $query->select('follower_id')
                     ->from('follows')
@@ -51,44 +54,41 @@ final class NotifyFollowersAboutNewPostAction
             })
             ->where('id', '!=', $author->id)
             ->where('notify_followed_author_posts', true)
-            ->get();
+            ->chunk(500, function ($followers) use ($post, $author, &$sentCount, &$skippedCount): void {
+                $alreadyNotifiedIds = $this->getAlreadyNotifiedFollowerIds($followers, $post);
 
-        $alreadyNotifiedIds = $this->getAlreadyNotifiedFollowerIds($followers, $post);
+                foreach ($followers as $follower) {
+                    if ($alreadyNotifiedIds->contains($follower->id)) {
+                        $skippedCount++;
+                        $this->logger->info('notifications.followed_author_posted.duplicate_skipped', [
+                            'post_id' => $post->id,
+                            'author_id' => $author->id,
+                            'follower_id' => $follower->id,
+                        ]);
+                        continue;
+                    }
 
-        $sentCount = 0;
-        $skippedCount = 0;
+                    try {
+                        $follower->notify(new FollowedAuthorPostedNotification($post));
+                        $sentCount++;
+                    } catch (Throwable $exception) {
+                        report($exception);
 
-        foreach ($followers as $follower) {
-            if ($alreadyNotifiedIds->contains($follower->id)) {
-                $skippedCount++;
-                $this->logger->info('notifications.followed_author_posted.duplicate_skipped', [
-                    'post_id' => $post->id,
-                    'author_id' => $author->id,
-                    'follower_id' => $follower->id,
-                ]);
-                continue;
-            }
+                        $this->logger->error('notifications.followed_author_posted.failed', [
+                            'post_id' => $post->id,
+                            'author_id' => $author->id,
+                            'follower_id' => $follower->id,
+                            'error_class' => get_class($exception),
+                        ]);
 
-            try {
-                $follower->notify(new FollowedAuthorPostedNotification($post));
-                $sentCount++;
-            } catch (Throwable $exception) {
-                report($exception);
-
-                $this->logger->error('notifications.followed_author_posted.failed', [
-                    'post_id' => $post->id,
-                    'author_id' => $author->id,
-                    'follower_id' => $follower->id,
-                    'error_class' => get_class($exception),
-                ]);
-
-                Log::error('Failed to send followed author posted notification.', [
-                    'post_id' => $post->id,
-                    'follower_id' => $follower->id,
-                    'exception' => $exception->getMessage(),
-                ]);
-            }
-        }
+                        Log::error('Failed to send followed author posted notification.', [
+                            'post_id' => $post->id,
+                            'follower_id' => $follower->id,
+                            'exception' => $exception->getMessage(),
+                        ]);
+                    }
+                }
+            });
 
         if ($sentCount > 0) {
             $this->logger->info('notifications.followed_author_posted.sent', [

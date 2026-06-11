@@ -15,7 +15,9 @@ it('renders follow button with theme token classes', function () {
         ->test(FollowButton::class, ['author' => $author])
         ->html();
 
-    expect($html)->toContain('rg-');
+    expect($html)->toContain('bg-rg-card');
+    expect($html)->toContain('border-rg-border2');
+    expect($html)->toContain('text-rg-text2');
 });
 
 it('renders following state with accent background token', function () {

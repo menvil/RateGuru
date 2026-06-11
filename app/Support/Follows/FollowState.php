@@ -16,7 +16,7 @@ final class FollowState
             return new FollowStateMap([]);
         }
 
-        $authorIds = collect($authors)->pluck('id')->all();
+        $authorIds = collect($authors)->filter(fn ($a) => $a instanceof User)->pluck('id')->all();
 
         if (empty($authorIds)) {
             return new FollowStateMap([]);

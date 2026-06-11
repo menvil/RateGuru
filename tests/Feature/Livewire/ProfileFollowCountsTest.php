@@ -25,5 +25,5 @@ it('follower count reflects actual follower count', function () {
 
     $this->get(route('profile.show', $author->username))
         ->assertOk()
-        ->assertSeeText('3');
+        ->assertSeeInOrder(['data-testid="followers-count"', '3'], false);
 });

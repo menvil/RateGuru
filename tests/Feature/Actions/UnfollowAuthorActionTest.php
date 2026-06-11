@@ -2,7 +2,12 @@
 
 use App\Actions\Follows\UnfollowAuthorAction;
 use App\Models\Follow;
+use App\Models\ProjectSettings;
 use App\Models\User;
+
+beforeEach(function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+});
 
 it('allows user to unfollow author', function () {
     $follower = User::factory()->create();

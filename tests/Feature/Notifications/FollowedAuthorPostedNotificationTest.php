@@ -19,7 +19,7 @@ it('creates followed author posted notification payload', function () {
 
     expect($data['post_id'])->toBe($post->id);
     expect($data['author_id'])->toBe($author->id);
-    expect($data['post_title'])->toContain('New Post');
+    expect($data['post_title'])->toBe('New Post');
     expect($data['type'])->toBe('followed_author_posted');
 });
 
