@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="text-xl font-semibold leading-tight text-rg-text">
-            {{ __('Profile') }}
+            {{ __('profile.edit_profile') }}
         </h2>
     </x-slot>
 
@@ -10,6 +10,12 @@
             <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
                 <div class="max-w-xl">
                     @include('profile.partials.update-profile-information-form')
+                </div>
+            </div>
+
+            <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
+                <div class="max-w-xl">
+                    <livewire:profile.edit-profile-form />
                 </div>
             </div>
 
