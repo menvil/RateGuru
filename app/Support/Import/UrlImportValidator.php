@@ -112,10 +112,12 @@ class UrlImportValidator
     private function logUnsafeBlocked(string $url, string $reason): void
     {
         $parsed = parse_url($url);
-        app(DomainLogger::class)->security('url_import.unsafe_url_blocked', [
+        $context = [
             'source_host' => $parsed['host'] ?? 'unknown',
             'reason' => $reason,
-        ]);
+        ];
+        app(DomainLogger::class)->warning('url_import.unsafe_url_blocked', $context);
+        app(DomainLogger::class)->security('security.unsafe_url_blocked', $context);
     }
 
     private function isPrivateIpv6(string $ip): bool
