@@ -176,11 +176,34 @@
 
             @elseif($tab === 'saved' && $this->isOwner)
                 <div data-testid="profile-saved-tab">
-                    {{-- Saved content is rendered in RG-869 --}}
-                    <x-ui.empty-state
-                        :title="__('profile.saved')"
-                        description=""
-                    />
+                    @if($this->savedPosts?->isEmpty())
+                        <x-ui.empty-state
+                            :title="__('profile.saved')"
+                            description=""
+                        />
+                    @elseif($this->savedPosts)
+                        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            @foreach($this->savedPosts as $post)
+                                <x-ui.card variant="post" data-testid="profile-saved-post-card">
+                                    @if($post->public_image_url)
+                                        <img
+                                            src="{{ $post->public_image_url }}"
+                                            alt="{{ $post->title }}"
+                                            class="aspect-video w-full rounded-rgMedia object-cover"
+                                        >
+                                    @else
+                                        <x-ui.image-placeholder label="Post image" ratio="feed" />
+                                    @endif
+                                    <div class="mt-3">
+                                        <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>
+                                    </div>
+                                </x-ui.card>
+                            @endforeach
+                        </div>
+                        <div class="mt-6">
+                            {{ $this->savedPosts->links() }}
+                        </div>
+                    @endif
                 </div>
             @endif
         </div>

@@ -3,6 +3,7 @@
 namespace App\Livewire\Profile;
 
 use App\Models\User;
+use App\Queries\SavedPosts\SavedPostsQuery;
 use App\Queries\UserPublicPostsQuery;
 use App\Support\Profile\ProfileStats;
 use App\Support\Profile\ProfileStatsData;
@@ -39,6 +40,16 @@ final class ProfilePage extends Component
     public function getPostsProperty(): LengthAwarePaginator
     {
         return app(UserPublicPostsQuery::class)->forProfile($this->profileUser);
+    }
+
+    /** @return LengthAwarePaginator<int, \App\Models\Post>|null */
+    public function getSavedPostsProperty(): ?LengthAwarePaginator
+    {
+        if (! $this->isOwner) {
+            return null;
+        }
+
+        return app(SavedPostsQuery::class)->forUser($this->profileUser);
     }
 
     public function getDisplayNameProperty(): string
