@@ -6,12 +6,14 @@ use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\FollowedAuthorPostedNotification;
+use App\Support\Observability\DomainLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
 final class NotifyFollowersAboutNewPostAction
 {
+    public function __construct(private readonly DomainLogger $logger) {}
     /**
      * @param  \Illuminate\Database\Eloquent\Collection<int, User>  $followers
      * @return \Illuminate\Support\Collection<int, int>
@@ -53,15 +55,32 @@ final class NotifyFollowersAboutNewPostAction
 
         $alreadyNotifiedIds = $this->getAlreadyNotifiedFollowerIds($followers, $post);
 
+        $sentCount = 0;
+        $skippedCount = 0;
+
         foreach ($followers as $follower) {
             if ($alreadyNotifiedIds->contains($follower->id)) {
+                $skippedCount++;
+                $this->logger->info('notifications.followed_author_posted.duplicate_skipped', [
+                    'post_id' => $post->id,
+                    'author_id' => $author->id,
+                    'follower_id' => $follower->id,
+                ]);
                 continue;
             }
 
             try {
                 $follower->notify(new FollowedAuthorPostedNotification($post));
+                $sentCount++;
             } catch (Throwable $exception) {
                 report($exception);
+
+                $this->logger->error('notifications.followed_author_posted.failed', [
+                    'post_id' => $post->id,
+                    'author_id' => $author->id,
+                    'follower_id' => $follower->id,
+                    'error_class' => get_class($exception),
+                ]);
 
                 Log::error('Failed to send followed author posted notification.', [
                     'post_id' => $post->id,
@@ -69,6 +88,15 @@ final class NotifyFollowersAboutNewPostAction
                     'exception' => $exception->getMessage(),
                 ]);
             }
+        }
+
+        if ($sentCount > 0) {
+            $this->logger->info('notifications.followed_author_posted.sent', [
+                'post_id' => $post->id,
+                'author_id' => $author->id,
+                'recipient_count' => $sentCount,
+                'skipped_count' => $skippedCount,
+            ]);
         }
     }
 }
