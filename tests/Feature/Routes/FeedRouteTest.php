@@ -9,18 +9,16 @@ it('serves feed page on home route', function () {
         ->assertDontSee('Discover dishes');
 });
 
-it('renders base feed layout with section title', function () {
+it('renders base feed layout', function () {
     $this->get('/')
         ->assertOk()
         ->assertSee('data-testid="app-header"', false)
-        ->assertSee('Latest posts')
         ->assertDontSee('data-testid="search-input"', false);
 });
 
 it('renders generic feed copy', function () {
     $this->get(route('feed'))
         ->assertOk()
-        ->assertSee('Latest posts')
         ->assertSee('Source')
         ->assertSee('Category')
         ->assertDontSee('Latest dishes')
@@ -133,7 +131,7 @@ it('does not reserve detail column before a post is selected', function () {
         ->not->toContain('Post details will appear here.');
 });
 
-it('post cards select posts for the detail column', function () {
+it('post cards dispatch select-post for the detail column', function () {
     $html = $this->get('/')->assertOk()->getContent();
 
     expect($html)

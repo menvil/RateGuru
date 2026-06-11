@@ -23,7 +23,7 @@
     </nav>
 
     <div class="mt-7">
-        <p class="px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-rg-muted">CATEGORIES</p>
+        <p class="px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-rg-muted">{{ __('ui.feed.categories_heading') }}</p>
         <div class="mt-3 space-y-1">
             @foreach ($categories as $category)
                 <a
@@ -37,7 +37,7 @@
     </div>
 
     <div class="mt-7">
-        <p class="px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-rg-muted">TOP TAGS</p>
+        <p class="px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-rg-muted">{{ __('ui.nav.top_tags_heading') }}</p>
         <div class="mt-3 flex flex-wrap gap-2 px-3">
             @forelse ($topTags as $tag)
                 <a href="{{ $tag['href'] }}" class="rounded-rgPill border border-rg-border bg-rg-card px-2.5 py-1 text-xs font-semibold text-rg-text2 transition hover:border-rg-accent hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
@@ -54,9 +54,9 @@
     </div>
 
     <div class="mt-auto flex flex-wrap gap-x-3 gap-y-2 px-3 pt-8 text-xs text-rg-muted">
-        <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">About</a>
-        <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">Terms</a>
-        <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">Privacy</a>
-        <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">Contact</a>
+        <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">{{ __('ui.nav.about') }}</a>
+        <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">{{ __('ui.nav.terms') }}</a>
+        <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">{{ __('ui.nav.privacy') }}</a>
+        <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">{{ __('ui.nav.contact') }}</a>
     </div>
 </aside>

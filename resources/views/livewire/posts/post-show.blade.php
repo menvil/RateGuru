@@ -33,10 +33,20 @@
         <article class="rounded-rgCard border border-rg-border bg-rg-card p-5">
             <section class="flex min-w-0 items-start justify-between gap-3" data-testid="post-show-meta">
                 <div class="flex min-w-0 items-start gap-3">
-                    <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
+                    @if($post->user?->username)
+                        <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+                            <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user->name" size="lg" />
+                        </a>
+                    @else
+                        <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
+                    @endif
 
                     <div class="min-w-0">
-                        <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+                        @if($post->user?->username)
+                            <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none block">{{ $post->user->name }}</a>
+                        @else
+                            <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
+                        @endif
 
                         <div class="truncate text-xs text-rg-muted">
                             @if($post->user?->username)
@@ -91,6 +101,7 @@
                         <livewire:voting.rating-voting
                             :post="$post"
                             :group-key="$ratingGroup->key"
+                            :variant="$ratingGroup->options->count() <= 2 ? 'default' : 'compact'"
                             :key="'post-show-rating-'.$ratingGroup->key.'-'.$post->id"
                         />
                     </div>
@@ -98,50 +109,39 @@
             </section>
             @endif
 
-            <section class="mt-5 border-t border-rg-border pt-4" data-testid="post-show-voting">
-                <livewire:posts.post-voting
-                    :post-id="$post->id"
-                    :key="'post-show-voting-'.$post->id"
-                />
-            </section>
-
-            <section class="mt-4 grid grid-cols-3 gap-2" aria-label="Voting summary" data-testid="post-show-vote-summary">
-                <x-ui.card class="text-center">
-                    <div class="text-xs text-rg-muted">Score</div>
-                    <div class="mt-1 text-base font-bold text-rg-text">{{ $post->score }}</div>
-                </x-ui.card>
-
-                <x-ui.card class="text-center">
-                    <div class="text-xs text-rg-muted">Source A</div>
-                    <div class="mt-1 text-base font-bold text-rg-text">{{ $post->homemade_votes_count ?? 0 }}</div>
-                </x-ui.card>
-
-                <x-ui.card class="text-center">
-                    <div class="text-xs text-rg-muted">Source B</div>
-                    <div class="mt-1 text-base font-bold text-rg-text">{{ $post->restaurant_votes_count ?? 0 }}</div>
-                </x-ui.card>
-            </section>
-
-            <div class="mt-3 flex flex-wrap items-center gap-3">
-                <x-ui.action-button icon="comment" x-on:click="scrollToComments()" data-testid="post-show-comments-scroll">
-                    {{ $post->comments_count ?? 0 }}
-                </x-ui.action-button>
-
-                @if($projectSettings->featureEnabled('show_saved_posts'))
-                @auth
-                    <livewire:posts.save-post-button
+            <footer class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-4" data-testid="post-show-footer">
+                <div class="flex flex-wrap items-center gap-2">
+                    <livewire:posts.post-voting
                         :post-id="$post->id"
-                        :key="'post-show-save-'.$post->id"
+                        variant="pill"
+                        :key="'post-show-voting-'.$post->id"
                     />
-                @endauth
-                @endif
-            </div>
+                </div>
 
-            @if($projectSettings->featureEnabled('show_share_buttons'))
-            <section class="mt-4" data-testid="post-show-share">
-                <x-sharing.share-buttons :post="$post" />
-            </section>
-            @endif
+                <div class="flex flex-wrap items-center gap-4" x-data="{ shareOpen: false }">
+                    @if($projectSettings->featureEnabled('show_comments'))
+                        <x-ui.action-button icon="comment" x-on:click="scrollToComments()" data-testid="post-show-comments-scroll">
+                            {{ $post->comments_count ?? 0 }}
+                        </x-ui.action-button>
+                    @endif
+
+                    @if($projectSettings->featureEnabled('show_share_buttons'))
+                        <x-ui.action-button icon="share" x-on:click="shareOpen = true" data-testid="post-show-share-btn">{{ __('sharing.share') }}</x-ui.action-button>
+                        <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
+                            <x-sharing.share-buttons :post="$post" />
+                        </x-ui.modal>
+                    @endif
+
+                    @if($projectSettings->featureEnabled('show_saved_posts'))
+                        @auth
+                            <livewire:posts.save-post-button
+                                :post-id="$post->id"
+                                :key="'post-show-save-'.$post->id"
+                            />
+                        @endauth
+                    @endif
+                </div>
+            </footer>
 
             @if($post->tags->isNotEmpty() || $post->source_url)
                 <section class="mt-4 flex flex-wrap items-center gap-2">

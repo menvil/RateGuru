@@ -19,7 +19,7 @@ it('renders post voting component on post show page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('data-testid="post-show-voting"', false)
+        ->assertSee('data-testid="post-show-footer"', false)
         ->assertSee('data-testid="post-show-rating-controls"', false)
         ->assertDontSee('data-testid="post-show-side-panel"', false)
         ->assertDontSee('lg:grid-cols-[minmax(0,1fr)_360px]', false);
@@ -111,24 +111,6 @@ it('renders post metadata', function () {
         ->assertSee('Source');
 });
 
-it('renders vote summary panels on post page', function () {
-    $post = Post::factory()->published()->create([
-        'upvotes_count' => 12,
-        'downvotes_count' => 3,
-        'homemade_votes_count' => 7,
-        'restaurant_votes_count' => 5,
-    ]);
-
-    $this->get(route('posts.show', $post))
-        ->assertOk()
-        ->assertSee('Score')
-        ->assertSee('9')
-        ->assertSee('Source A')
-        ->assertSee('7')
-        ->assertSee('Source B')
-        ->assertSee('5')
-        ->assertSee('data-testid="post-show-vote-summary"', false);
-});
 
 it('renders the comments section on post page', function () {
     $post = Post::factory()->published()->create([
@@ -143,14 +125,13 @@ it('renders the comments section on post page', function () {
         ->assertDontSee('Comments will appear here');
 });
 
-it('does not render share side panel on post page', function () {
+it('renders share button in footer on post page', function () {
     $post = Post::factory()->published()->create();
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertDontSee('Share this post')
-        ->assertDontSee('data-testid="post-show-share-trigger"', false)
-        ->assertDontSee('data-testid="post-share-copy"', false);
+        ->assertSee('data-testid="post-show-share-btn"', false)
+        ->assertDontSee('data-testid="post-show-share"', false);
 });
 
 it('hides save action from guests on post page', function () {

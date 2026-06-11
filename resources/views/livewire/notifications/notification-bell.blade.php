@@ -9,7 +9,7 @@
         >
             <button
                 type="button"
-                aria-label="Notifications"
+                aria-label="{{ __('ui.notifications.title') }}"
                 @click="$dispatch('close-header-user-menu'); open = ! open"
                 class="relative grid size-9 cursor-pointer place-items-center rounded-rgControl border border-rg-border bg-rg-card text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
@@ -32,7 +32,7 @@
                 class="absolute right-0 top-11 z-40 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-rgCard border border-rg-border bg-rg-card shadow-rgPopover"
             >
                 <div class="border-b border-rg-border px-4 py-3 text-sm font-semibold text-rg-text">
-                    Notifications
+                    {{ __('ui.notifications.title') }}
                 </div>
 
                 <div class="max-h-80 overflow-y-auto break-words">
@@ -43,7 +43,7 @@
                         >
                             <a href="{{ $notification->data['url'] ?? '#' }}" class="block">
                                 <span class="block break-words font-medium text-rg-text">
-                                    {{ $notification->data['message'] ?? 'Notification' }}
+                                    {{ $notification->data['message'] ?? __('ui.notifications.fallback_message') }}
                                 </span>
                             </a>
 
@@ -58,13 +58,13 @@
                                     data-testid="mark-notification-read"
                                     class="mt-2 cursor-pointer text-xs font-semibold text-rg-accent2 transition hover:text-rg-accent"
                                 >
-                                    Mark as read
+                                    {{ __('ui.notifications.mark_as_read') }}
                                 </button>
                             @endif
                         </div>
                     @empty
                         <div class="px-4 py-6 text-center text-sm text-rg-muted">
-                            No notifications yet
+                            {{ __('ui.notifications.empty') }}
                         </div>
                     @endforelse
                 </div>

@@ -5,13 +5,14 @@
             wire:click="toggle"
             wire:loading.attr="disabled"
             wire:target="toggle"
-            class="inline-flex cursor-pointer items-center bg-transparent p-0 text-rg-accent transition hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60 [&_svg]:fill-current"
+            class="inline-flex cursor-pointer items-center gap-1.5 bg-transparent p-0 text-[12.5px] font-medium text-rg-accent transition hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60 [&_svg]:fill-current"
             data-testid="save-post-button"
             aria-pressed="true"
             aria-label="{{ __('saved_posts.saved') }}"
             title="{{ __('saved_posts.saved') }}"
         >
             <x-ui.icon name="bookmark" class="size-4" />
+            {{ __('saved_posts.saved') }}
         </button>
     @else
         <x-ui.action-button

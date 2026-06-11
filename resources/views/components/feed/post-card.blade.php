@@ -5,7 +5,7 @@
     data-post-id="{{ $post->id }}"
     role="button"
     tabindex="0"
-    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false, postVoteError: '' }"
+    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, postVoteError: '' }"
     x-on:post-vote-error.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = $event.detail.message"
     wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
@@ -26,9 +26,19 @@
 
     <div class="min-w-0">
         <div class="flex min-w-0 items-start gap-2">
-            <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
+            @if($post->user?->username)
+                <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate x-on:click.stop class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent" tabindex="-1">
+                    <x-ui.avatar :name="$post->user->name" size="md" />
+                </a>
+            @else
+                <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
+            @endif
             <div class="min-w-0 flex-1">
-                <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</span>
+                @if($post->user?->username)
+                    <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none" tabindex="-1">{{ $post->user->name }}</a>
+                @else
+                    <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</span>
+                @endif
                 <span class="block truncate text-xs text-rg-muted">
                     @if($post->user?->username)
                         {{ '@' . $post->user->username }}
@@ -38,7 +48,6 @@
                     @endif
                 </span>
             </div>
-
         </div>
 
         <h3 data-testid="post-card-title" class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
@@ -48,19 +57,16 @@
         @endif
 
         @if($post->public_image_url)
-            <button
-                type="button"
-                class="mt-3 block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                x-on:click.stop="imageOpen = true"
+            <div
+                class="mt-3 block w-full rounded-rgMedia"
                 data-testid="post-card-image-open"
-                aria-label="Open image fullscreen"
             >
                 <img
                     src="{{ $post->public_image_url }}"
                     alt="{{ $post->title }}"
                     class="aspect-[16/10] w-full rounded-rgMedia object-cover"
                 >
-            </button>
+            </div>
         @else
             <div class="mt-3">
                 <x-ui.image-placeholder label="Post image" ratio="feed" />
@@ -92,12 +98,12 @@
             @endif
         </div>
 
-        <footer class="mt-3.5 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-2.5">
+        <footer class="mt-3.5 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-2.5" wire:click.stop wire:keydown.stop>
             <div class="flex flex-wrap items-center gap-4">
                 @if($postCardSettings->featureEnabled('show_comments'))
                 <x-ui.action-button
                     icon="comment"
-                    wire:click.stop="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }}, focus: 'comments' })"
+                    wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }}, focus: 'comments' })"
                 >
                     {{ $post->comments_count ?? 0 }}
                 </x-ui.action-button>
@@ -105,7 +111,7 @@
                 @endif
                 @if($postCardSettings->featureEnabled('show_share_buttons'))
                 @if($post->exists)
-                    <x-ui.action-button icon="share" x-on:click.stop="shareOpen = true" data-testid="post-card-share">{{ __('sharing.share') }}</x-ui.action-button>
+                    <x-ui.action-button icon="share" x-on:click="shareOpen = true" data-testid="post-card-share">{{ __('sharing.share') }}</x-ui.action-button>
                 @else
                     <x-ui.action-button icon="share" data-testid="post-card-share">{{ __('sharing.share') }}</x-ui.action-button>
                 @endif
@@ -123,7 +129,7 @@
             </div>
 
             @if($post->exists && ($canReportPost || $canDeletePost || $canModeratePost))
-                <div class="relative ml-auto" wire:click.stop wire:keydown.stop>
+                <div class="relative ml-auto">
                     <button
                         type="button"
                         x-on:click="postMenuOpen = ! postMenuOpen"
@@ -207,15 +213,5 @@
             class="mt-2 text-xs font-medium text-rg-danger"
         ></p>
 
-        @if($post->public_image_url)
-            <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
-                <img
-                    src="{{ $post->public_image_url }}"
-                    alt="{{ $post->title }}"
-                    class="max-h-[80vh] w-full rounded-rgMedia object-contain"
-                    data-testid="post-fullscreen-image"
-                >
-            </x-ui.modal>
-        @endif
     </div>
 </x-ui.card>

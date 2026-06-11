@@ -95,12 +95,12 @@ final class ReportModal extends Component
     private function labelForReason(ReportReason $reason): string
     {
         return match ($reason) {
-            ReportReason::Spam => 'Spam',
-            ReportReason::Offensive => 'Offensive',
-            ReportReason::Fake => 'Fake',
-            ReportReason::Copyright => 'Copyright',
-            ReportReason::NotFood => 'Wrong category',
-            ReportReason::Other => 'Other',
+            ReportReason::Spam => __('ui.report.reasons.spam'),
+            ReportReason::Offensive => __('ui.report.reasons.offensive'),
+            ReportReason::Fake => __('ui.report.reasons.fake'),
+            ReportReason::Copyright => __('ui.report.reasons.copyright'),
+            ReportReason::NotFood => __('ui.report.reasons.not_food'),
+            ReportReason::Other => __('ui.report.reasons.other'),
         };
     }
 

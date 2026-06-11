@@ -13,15 +13,15 @@
             'flex w-full items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText' => $variant === 'menu',
         ])
     >
-        Report
+        {{ __('ui.report.title') }}
     </button>
 
-    <x-ui.modal title="Report content" state="reportOpen" data-testid="report-modal">
+    <x-ui.modal title="{{ __('ui.report.modal_title') }}" state="reportOpen" data-testid="report-modal">
         @if($submitted)
             <div data-testid="report-success">
                 <x-ui.empty-state
-                    title="Report submitted"
-                    description="Thanks for helping keep RateGuru useful."
+                    title="{{ __('ui.report.submitted_title') }}"
+                    description="{{ __('ui.report.submitted_description') }}"
                 />
             </div>
         @else
@@ -29,7 +29,7 @@
                 @error('report')
                     <div data-testid="report-submit-error">
                         <x-ui.error-message
-                            title="Could not submit report"
+                            title="{{ __('ui.report.error_title') }}"
                             :message="$message"
                         />
                     </div>
@@ -37,7 +37,7 @@
 
                 <fieldset data-testid="report-reason-selector" class="space-y-2">
                     <legend class="text-xs font-semibold uppercase tracking-wide text-rg-muted">
-                        Reason
+                        {{ __('ui.report.reason_label') }}
                     </legend>
 
                     <div class="grid gap-2">
@@ -66,7 +66,7 @@
 
                 <div class="space-y-2">
                     <label for="report-message" class="block text-xs font-semibold uppercase tracking-wide text-rg-muted">
-                        Optional details
+                        {{ __('ui.report.optional_details_label') }}
                     </label>
 
                     <x-ui.textarea
@@ -75,11 +75,11 @@
                         wire:model.defer="message"
                         rows="4"
                         maxlength="1000"
-                        placeholder="Add context for moderators..."
+                        placeholder="{{ __('ui.report.optional_placeholder') }}"
                     />
 
                     <p class="text-xs text-rg-muted">
-                        Optional. Max 1000 characters.
+                        {{ __('ui.report.optional_hint') }}
                     </p>
 
                     @error('message')
@@ -97,8 +97,8 @@
                         wire:loading.attr="disabled"
                         wire:target="submit"
                     >
-                        <span wire:loading.remove wire:target="submit">Submit report</span>
-                        <span wire:loading wire:target="submit">Submitting...</span>
+                        <span wire:loading.remove wire:target="submit">{{ __('ui.report.submit') }}</span>
+                        <span wire:loading wire:target="submit">{{ __('ui.report.submitting') }}</span>
                     </x-ui.button>
                 </div>
             </form>

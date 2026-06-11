@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Policies\ModerationPolicy;
 use App\Services\Images\CloudinaryImageStorage;
@@ -68,17 +69,37 @@ class AppServiceProvider extends ServiceProvider
         });
 
         View::composer('layouts.partials.app-sidebar', function ($view): void {
-            $categories = collect(['All', 'Source A', 'Source B', 'Category A', 'Category B', 'Category C', 'Category D'])
-                ->map(function (string $category): array {
-                    $slug = str($category)->lower()->slug()->toString();
+            $locale   = app()->getLocale();
+            $activeOrigin  = (array) request('origin');
+            $activeCuisine = (array) request('cuisine');
+            $noFilters = $activeOrigin === [] && $activeCuisine === [];
 
-                    return [
-                        'label' => $category,
-                        'href' => $category === 'All' ? route('feed') : route('feed', ['category' => $slug]),
-                        'active' => $category === 'All' ? blank(request('category')) : request('category') === $slug,
+            $groups = RatingGroup::query()
+                ->active()
+                ->orderBy('sort_order')
+                ->with(['options' => fn ($q) => $q->active()->ordered()])
+                ->get()
+                ->values();
+
+            // Only first group shown in sidebar (second group is a feed-page dropdown only)
+            $categories = [
+                [
+                    'label'  => __('ui.feed.all'),
+                    'href'   => route('feed'),
+                    'active' => $noFilters && blank(request('search')) && blank(request('sort')),
+                ],
+            ];
+
+            $firstGroup = $groups->first();
+            if ($firstGroup !== null) {
+                foreach ($firstGroup->options as $option) {
+                    $categories[] = [
+                        'label'  => $option->translatedLabel($locale),
+                        'href'   => route('feed', ['origin' => [$option->key]]),
+                        'active' => in_array($option->key, $activeOrigin, true),
                     ];
-                })
-                ->all();
+                }
+            }
 
             $topTags = Tag::query()
                 ->orderBy('name')
@@ -101,10 +122,10 @@ class AppServiceProvider extends ServiceProvider
             $user = auth()->user();
 
             $navItems = [
-                ['label' => 'Home', 'icon' => 'home', 'href' => route('feed'), 'active' => request()->routeIs('feed') && blank(request('sort')) && blank(request('category')) && blank(request('search')), 'testid' => null],
-                ['label' => 'Top', 'icon' => 'flame', 'href' => route('feed', ['sort' => 'top']), 'active' => request('sort') === 'top', 'testid' => null],
-                ['label' => 'New', 'icon' => 'plus', 'href' => route('feed', ['sort' => 'newest']), 'active' => request('sort') === 'newest', 'testid' => null],
-                ['label' => 'Following', 'icon' => 'users', 'href' => '#', 'active' => false, 'testid' => null],
+                ['label' => __('ui.nav.home'), 'icon' => 'home', 'href' => route('feed'), 'active' => request()->routeIs('feed') && blank(request('sort')) && blank(request('search')) && $noFilters, 'testid' => null],
+                ['label' => __('ui.nav.top'), 'icon' => 'flame', 'href' => route('feed', ['sort' => 'top']), 'active' => request('sort') === 'top', 'testid' => null],
+                ['label' => __('ui.nav.new'), 'icon' => 'plus', 'href' => route('feed', ['sort' => 'newest']), 'active' => request('sort') === 'newest', 'testid' => null],
+                ['label' => __('ui.nav.following'), 'icon' => 'users', 'href' => '#', 'active' => false, 'testid' => null],
             ];
 
             if ($user !== null && $settings->featureEnabled('show_saved_posts')) {

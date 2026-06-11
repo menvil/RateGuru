@@ -92,7 +92,8 @@
 
     {{-- Profile Tabs --}}
     <div data-testid="profile-tabs" class="mt-6">
-        <div class="flex overflow-x-auto border-b border-rg-border">
+        <div class="flex items-center justify-between border-b border-rg-border">
+            <div class="flex overflow-x-auto">
             <button
                 wire:click="setTab('posts')"
                 data-testid="profile-tab-posts"
@@ -120,6 +121,13 @@
                     {{ __('profile.saved') }}
                 </button>
             @endif
+            </div>
+
+            @if($this->canSeeFollowButton)
+                <div class="shrink-0 pb-1">
+                    <livewire:follows.follow-button :author="$profileUser" />
+                </div>
+            @endif
         </div>
 
         {{-- Tab Content --}}
@@ -134,7 +142,8 @@
                     @else
                         <div data-testid="profile-posts-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                             @foreach($this->posts as $post)
-                                <x-ui.card variant="post" data-testid="profile-post-card">
+                                <a href="{{ route('posts.show', $post) }}" wire:navigate data-testid="profile-post-card-link">
+                                <x-ui.card variant="post" data-testid="profile-post-card" class="h-full transition-colors hover:border-rg-border2 hover:bg-rg-cardHover">
                                     @if($post->public_image_url)
                                         <img
                                             src="{{ $post->public_image_url }}"
@@ -158,6 +167,7 @@
                                         <span>{{ __('profile.comments', ['count' => $post->comments_count ?? 0]) }}</span>
                                     </footer>
                                 </x-ui.card>
+                                </a>
                             @endforeach
                         </div>
 

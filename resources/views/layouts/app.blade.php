@@ -33,8 +33,8 @@
                             type="search"
                             name="search"
                             value="{{ request('search') }}"
-                            aria-label="Search tags, users, posts"
-                            placeholder="Search tags, users, posts..."
+                            aria-label="{{ __('ui.feed.search_label') }}"
+                            placeholder="{{ __('ui.feed.search_placeholder') }}"
                             x-on:input.debounce.450ms="if ($el.value.length === 0 || $el.value.length >= 3) $el.form.requestSubmit()"
                             x-on:search="$el.form.requestSubmit()"
                             class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-3 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
@@ -112,7 +112,7 @@
                                         data-testid="header-profile-link"
                                         class="flex items-center gap-2 rounded-rgSm px-3 py-2 text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
                                     >
-                                        Profile
+                                        {{ __('ui.nav.profile') }}
                                     </a>
 
                                     @if($projectSettings->featureFlag('show_saved_posts'))
@@ -133,7 +133,7 @@
                                             type="submit"
                                             class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
                                         >
-                                            Log out
+                                            {{ __('ui.nav.log_out') }}
                                         </button>
                                     </form>
                                 </div>
@@ -155,7 +155,7 @@
                                     data-testid="header-register-link"
                                     class="inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                                 >
-                                    {{ __('Sign up') }}
+                                    {{ __('ui.nav.sign_up') }}
                                 </a>
                             @endif
 
@@ -164,7 +164,7 @@
                                 data-testid="header-login-link"
                                 class="inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl border border-rg-border2 bg-rg-card px-4 text-[13px] font-semibold text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                             >
-                                Log in
+                                {{ __('ui.nav.log_in') }}
                             </a>
 
                             <x-locale-switcher />

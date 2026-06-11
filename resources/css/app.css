@@ -20,6 +20,17 @@
     cursor: pointer;
 }
 
+/* Feed split layout: feed 40% / post-detail 60% on large screens */
+.rg-feed-split-grid {
+    display: grid;
+}
+@media (min-width: 1024px) {
+    .rg-feed-split-grid {
+        grid-template-columns: 2fr 3fr;
+        gap: 0;
+    }
+}
+
 @layer components {
     .rg-comment-input,
     .rg-comment-input:focus,

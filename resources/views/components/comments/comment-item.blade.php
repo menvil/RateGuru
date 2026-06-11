@@ -4,18 +4,24 @@
     class="grid grid-cols-[32px_minmax(0,1fr)] gap-2.5 text-[13px]"
     x-data="{ actionsOpen: false }"
 >
-    <x-ui.avatar
-        :src="$comment->user?->avatar_url"
-        :name="$comment->user?->name ?? 'User'"
-        size="md"
-    />
+    @if($comment->user?->username)
+        <a href="{{ route('profile.show', $comment->user->username) }}" wire:navigate class="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+            <x-ui.avatar :src="$comment->user?->avatar_url" :name="$comment->user->name" size="md" />
+        </a>
+    @else
+        <x-ui.avatar :src="$comment->user?->avatar_url" :name="$comment->user?->name ?? 'User'" size="md" />
+    @endif
 
     <div class="min-w-0">
         <div class="flex min-w-0 items-start justify-between gap-2">
             <p class="min-w-0">
-                <span class="font-semibold text-rg-text">
-                    {{ $comment->user?->username ? '@'.$comment->user->username : ($comment->user?->name ?? 'Unknown user') }}
-                </span>
+                @if($comment->user?->username)
+                    <a href="{{ route('profile.show', $comment->user->username) }}" wire:navigate class="font-semibold text-rg-text hover:underline focus-visible:outline-none">
+                        {{ '@'.$comment->user->username }}
+                    </a>
+                @else
+                    <span class="font-semibold text-rg-text">{{ $comment->user?->name ?? 'Unknown user' }}</span>
+                @endif
 
                 @if ($comment->created_at)
                     <time datetime="{{ $comment->created_at->toIso8601String() }}" class="text-xs text-rg-muted">
@@ -45,10 +51,11 @@
                         class="absolute right-0 top-full z-20 mt-2 w-40 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReport)
-                            <div data-testid="comment-report" class="rounded-rgSm px-3 py-1.5 transition hover:bg-rg-card">
+                            <div data-testid="comment-report">
                                 <livewire:reports.report-modal
                                     reportable-type="comment"
                                     :reportable-id="$comment->id"
+                                    variant="menu"
                                     :key="'comment-report-'.$comment->id"
                                     wire:lazy
                                 />
@@ -59,11 +66,11 @@
                             <button
                                 type="button"
                                 wire:click="hideComment({{ $comment->id }})"
-                                wire:confirm="Hide this comment?"
+                                wire:confirm="{{ __('ui.comments.hide') }}?"
                                 x-on:click="actionsOpen = false"
                                 class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                             >
-                                Hide
+                                {{ __('ui.comments.hide') }}
                             </button>
                         @endif
 
@@ -71,11 +78,11 @@
                             <button
                                 type="button"
                                 wire:click="deleteComment({{ $comment->id }})"
-                                wire:confirm="Delete this comment?"
+                                wire:confirm="{{ __('ui.comments.delete') }}?"
                                 x-on:click="actionsOpen = false"
                                 class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                             >
-                                Delete
+                                {{ __('ui.comments.delete') }}
                             </button>
                         @endif
                     </div>
@@ -119,7 +126,7 @@
                         class="flex cursor-pointer items-center gap-1 bg-transparent p-0 text-[12.5px] text-rg-muted transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
                         <x-ui.icon name="reply" class="size-[13px]" />
-                        Reply
+                        {{ __('ui.comments.reply') }}
                     </button>
                 @endif
             @endauth

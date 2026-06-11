@@ -64,7 +64,7 @@
 >
     <div
         class="{{ $hasSelectedPost
-            ? 'grid min-w-0 gap-5 lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)] lg:gap-0'
+            ? 'rg-feed-split-grid min-w-0 gap-5'
             : 'grid min-w-0 lg:block' }}"
         data-testid="feed-content-shell"
     >
@@ -87,7 +87,7 @@
                                 aria-haspopup="true"
                                 x-bind:aria-expanded="open"
                             >
-                                {{ __('ui.voting.source') }}
+                                {{ $originGroupLabel }}
                                 @if(count((array) $origin) > 0)
                                     <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $origin) }}</span>
                                 @endif
@@ -136,7 +136,7 @@
                                 aria-haspopup="true"
                                 x-bind:aria-expanded="open"
                             >
-                                {{ __('ui.voting.category') }}
+                                {{ $cuisineGroupLabel }}
                                 @if(count((array) $cuisine) > 0)
                                     <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $cuisine) }}</span>
                                 @endif
@@ -180,7 +180,6 @@
                 <livewire:feed.sort-dropdown wire:model.live="sort" />
             </div>
 
-            <h2 class="mb-4 text-base font-semibold text-rg-text2" data-testid="feed-title">{{ $feedSettings->feedTitle() }}</h2>
             <livewire:feed.post-feed
                 :search="$this->effectiveSearch()"
                 :tag="$category"
