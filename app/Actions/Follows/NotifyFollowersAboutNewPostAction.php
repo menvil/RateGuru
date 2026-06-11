@@ -25,7 +25,7 @@ final class NotifyFollowersAboutNewPostAction
         return DB::table('notifications')
             ->where('type', FollowedAuthorPostedNotification::class)
             ->whereIn('notifiable_id', $followers->pluck('id')->all())
-            ->whereRaw("json_extract(data, '$.post_id') = ?", [$post->id])
+            ->where('data->post_id', $post->id)
             ->pluck('notifiable_id');
     }
 

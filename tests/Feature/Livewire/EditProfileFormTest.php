@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ProfileActivityVisibility;
 use App\Livewire\Profile\EditProfileForm;
 use App\Models\User;
 use Livewire\Livewire;
@@ -42,7 +43,7 @@ it('allows user to update rating activity visibility', function () {
         ->call('save')
         ->assertHasNoErrors();
 
-    expect($user->fresh()->rating_activity_visibility)->toBe('public');
+    expect($user->fresh()->rating_activity_visibility)->toBe(ProfileActivityVisibility::Public);
 });
 
 it('mounts with current profile values', function () {

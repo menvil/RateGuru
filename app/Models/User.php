@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Actions\Moderation\MarkUserTrustedAction;
+use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use Database\Factories\UserFactory;
@@ -47,6 +48,7 @@ class User extends Authenticatable implements FilamentUser
             'status' => UserStatus::class,
             'trust_level' => 'integer',
             'notify_followed_author_posts' => 'boolean',
+            'rating_activity_visibility' => ProfileActivityVisibility::class,
         ];
     }
 

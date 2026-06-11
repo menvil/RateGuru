@@ -30,7 +30,9 @@ final class FollowedAuthorPostedNotification extends Notification
             'post_id' => $this->post->id,
             'post_title' => $this->post->title,
             'author_id' => $author?->id,
-            'author_name' => $author?->name ?? $author?->username,
+            'author_name' => $author?->name,
+            'author_username' => $author?->username,
+            'message' => '@'.($author?->username ?? '').' posted '.$this->post->title,
             'url' => $this->postUrl(),
         ];
     }

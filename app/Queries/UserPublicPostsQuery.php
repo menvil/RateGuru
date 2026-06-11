@@ -14,7 +14,7 @@ final class UserPublicPostsQuery
             ->published()
             ->where('user_id', $user->id)
             ->with(['user', 'tags'])
-            ->latest()
+            ->latest('published_at')
             ->paginate($perPage);
     }
 }

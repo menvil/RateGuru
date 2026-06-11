@@ -32,7 +32,7 @@ class EditProfileForm extends Component
         $this->display_name = $user->display_name;
         $this->bio = $user->bio;
         $this->profile_website_url = $user->profile_website_url;
-        $this->rating_activity_visibility = $user->rating_activity_visibility ?? 'private';
+        $this->rating_activity_visibility = $user->rating_activity_visibility?->value ?? 'private';
     }
 
     public function save(): void
@@ -55,13 +55,16 @@ class EditProfileForm extends Component
         ], fn ($v) => $v !== null || in_array($v, [null], true));
 
         if ($this->avatar !== null) {
-            if ($user->avatar_path) {
-                Storage::disk('public')->delete($user->avatar_path);
-            }
-            $update['avatar_path'] = $this->avatar->store('avatars', 'public');
+            $newAvatarPath = $this->avatar->store('avatars', 'public');
+            $oldAvatarPath = $user->avatar_path;
+            $update['avatar_path'] = $newAvatarPath;
         }
 
         $user->update($update);
+
+        if (isset($oldAvatarPath) && $oldAvatarPath) {
+            Storage::disk('public')->delete($oldAvatarPath);
+        }
     }
 
     /** @return list<mixed> */
