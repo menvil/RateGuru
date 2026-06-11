@@ -3,6 +3,7 @@
 namespace App\Support\Import;
 
 use App\Exceptions\Import\UnsafeImportUrlException;
+use App\Support\Observability\DomainLogger;
 
 class UrlImportValidator
 {
@@ -19,18 +20,21 @@ class UrlImportValidator
         $parsed = parse_url($url);
 
         if ($parsed === false || empty($parsed['host'])) {
+            $this->logUnsafeBlocked($url, 'invalid_url');
             throw UnsafeImportUrlException::invalidUrl($url);
         }
 
         $scheme = strtolower($parsed['scheme'] ?? '');
 
         if (! in_array($scheme, $this->allowedSchemes(), true)) {
+            $this->logUnsafeBlocked($url, 'invalid_scheme');
             throw UnsafeImportUrlException::invalidScheme($scheme ?: '(none)');
         }
 
         $host = strtolower($parsed['host']);
 
         if ($host === 'localhost') {
+            $this->logUnsafeBlocked($url, 'private_address');
             throw UnsafeImportUrlException::privateAddress($url);
         }
 
@@ -84,6 +88,7 @@ class UrlImportValidator
     {
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
             if ($this->isPrivateIpv6($ip)) {
+                $this->logUnsafeBlocked($url, 'private_address');
                 throw UnsafeImportUrlException::privateAddress($url);
             }
 
@@ -98,9 +103,19 @@ class UrlImportValidator
 
         foreach (self::PRIVATE_RANGES as [$start, $end]) {
             if ($long >= ip2long($start) && $long <= ip2long($end)) {
+                $this->logUnsafeBlocked($url, 'private_address');
                 throw UnsafeImportUrlException::privateAddress($url);
             }
         }
+    }
+
+    private function logUnsafeBlocked(string $url, string $reason): void
+    {
+        $parsed = parse_url($url);
+        app(DomainLogger::class)->security('url_import.unsafe_url_blocked', [
+            'source_host' => $parsed['host'] ?? 'unknown',
+            'reason' => $reason,
+        ]);
     }
 
     private function isPrivateIpv6(string $ip): bool
