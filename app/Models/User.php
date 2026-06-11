@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Actions\Moderation\MarkUserTrustedAction;
+use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use Database\Factories\UserFactory;
@@ -16,8 +17,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 
-#[Fillable(['name', 'username', 'email', 'locale', 'theme_preference', 'avatar_url', 'role', 'status', 'trust_level', 'password'])]
+#[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_url', 'avatar_path', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser
 {
@@ -46,6 +48,8 @@ class User extends Authenticatable implements FilamentUser
             'role' => UserRole::class,
             'status' => UserStatus::class,
             'trust_level' => 'integer',
+            'notify_followed_author_posts' => 'boolean',
+            'rating_activity_visibility' => ProfileActivityVisibility::class,
         ];
     }
 
@@ -97,6 +101,40 @@ class User extends Authenticatable implements FilamentUser
     public function savedPostItems(): BelongsToMany
     {
         return $this->belongsToMany(Post::class, 'post_saves')->withTimestamps();
+    }
+
+    public function followingRelations(): HasMany
+    {
+        return $this->hasMany(Follow::class, 'follower_id');
+    }
+
+    public function followerRelations(): HasMany
+    {
+        return $this->hasMany(Follow::class, 'author_id');
+    }
+
+    public function followingAuthors(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'follows', 'follower_id', 'author_id')->withTimestamps();
+    }
+
+    public function followers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'follows', 'author_id', 'follower_id')->withTimestamps();
+    }
+
+    public function getResolvedDisplayNameAttribute(): string
+    {
+        return $this->display_name ?: ($this->name ?: $this->username);
+    }
+
+    public function getResolvedAvatarUrlAttribute(): ?string
+    {
+        if ($this->avatar_path) {
+            return Storage::disk('public')->url($this->avatar_path);
+        }
+
+        return $this->avatar_url;
     }
 
     public function canAccessPanel(Panel $panel): bool

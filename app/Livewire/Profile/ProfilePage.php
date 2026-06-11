@@ -2,11 +2,18 @@
 
 namespace App\Livewire\Profile;
 
-use App\Models\Post;
+use App\Enums\ProfileActivityVisibility;
 use App\Models\User;
+use App\Queries\SavedPosts\SavedPostsQuery;
+use App\Queries\UserPublicPostsQuery;
+use App\Queries\UserRatingActivityQuery;
+use App\Support\Profile\ProfileStats;
+use App\Support\Profile\ProfileStatsData;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
 
@@ -16,45 +23,70 @@ final class ProfilePage extends Component
 
     public User $profileUser;
 
+    #[Url]
+    public string $tab = 'posts';
+
     public function mount(string $username): void
     {
         $this->profileUser = User::query()
             ->where('username', $username)
+            ->withCount(['followerRelations', 'followingRelations'])
             ->firstOrFail();
+
+        if (! in_array($this->tab, $this->getAllowedTabs(), true)) {
+            $this->tab = 'posts';
+        }
     }
 
-    /**
-     * @return array{published_posts: int, total_upvotes: int, comments_received: int}
-     */
-    public function getStatsProperty(): array
+    /** @return list<string> */
+    private function getAllowedTabs(): array
     {
-        $posts = Post::query()
-            ->published()
-            ->where('user_id', $this->profileUser->id);
+        $tabs = ['posts', 'activity'];
 
-        return [
-            'published_posts' => (clone $posts)->count(),
-            'total_upvotes' => (clone $posts)->sum('upvotes_count'),
-            'comments_received' => (clone $posts)->sum('comments_count'),
-        ];
+        if (auth()->id() === $this->profileUser->id) {
+            $tabs[] = 'saved';
+        }
+
+        return $tabs;
     }
 
-    /**
-     * @return LengthAwarePaginator<int, Post>
-     */
+    public function getStatsProperty(): ProfileStatsData
+    {
+        return app(ProfileStats::class)->forUser($this->profileUser, auth()->user());
+    }
+
+    /** @return LengthAwarePaginator<int, \App\Models\Post> */
     public function getPostsProperty(): LengthAwarePaginator
     {
-        return Post::query()
-            ->published()
-            ->where('user_id', $this->profileUser->id)
-            ->with(['user', 'tags'])
-            ->latest()
-            ->paginate(12);
+        return app(UserPublicPostsQuery::class)->forProfile($this->profileUser);
+    }
+
+    public function getCanSeeActivityProperty(): bool
+    {
+        return $this->isOwner
+            || $this->profileUser->rating_activity_visibility === ProfileActivityVisibility::Public;
+    }
+
+    /** @return \Illuminate\Database\Eloquent\Collection<int, \App\Models\RatingVote> */
+    public function getRatingActivityProperty(): \Illuminate\Database\Eloquent\Collection
+    {
+        return app(UserRatingActivityQuery::class)->forProfile($this->profileUser, auth()->user());
+    }
+
+    /** @return LengthAwarePaginator<int, \App\Models\Post>|null */
+    public function getSavedPostsProperty(): ?LengthAwarePaginator
+    {
+        if (! $this->isOwner) {
+            return null;
+        }
+
+        return app(SavedPostsQuery::class)->forUser($this->profileUser);
     }
 
     public function getDisplayNameProperty(): string
     {
-        return $this->profileUser->name ?: $this->profileUser->username;
+        return $this->profileUser->display_name
+            ?: ($this->profileUser->name ?: $this->profileUser->username);
     }
 
     public function getIsOwnerProperty(): bool
@@ -62,10 +94,25 @@ final class ProfilePage extends Component
         return auth()->id() === $this->profileUser->id;
     }
 
+    public function getCanSeeFollowButtonProperty(): bool
+    {
+        return auth()->check()
+            && auth()->id() !== $this->profileUser->id
+            && app(ProjectSettingsManager::class)->featureEnabled('show_follow_buttons');
+    }
+
     public function getCanSeeReportUserPlaceholderProperty(): bool
     {
         return auth()->check()
             && auth()->id() !== $this->profileUser->id;
+    }
+
+    public function setTab(string $tab): void
+    {
+        if (in_array($tab, $this->getAllowedTabs(), true)) {
+            $this->tab = $tab;
+            $this->resetPage();
+        }
     }
 
     public function render(): View

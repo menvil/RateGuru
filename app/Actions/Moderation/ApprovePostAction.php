@@ -3,6 +3,7 @@
 namespace App\Actions\Moderation;
 
 use App\Enums\ModerationActionType;
+use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
@@ -60,9 +61,9 @@ final class ApprovePostAction
             $post->setRawAttributes($locked->getAttributes(), true);
         });
 
-        if ($post->user_id !== $moderator->id) {
-            $post->loadMissing('user');
+        $post->loadMissing('user');
 
+        if ($post->user_id !== $moderator->id) {
             try {
                 $post->user?->notify(new PostApprovedNotification(
                     post: $post,
@@ -77,6 +78,17 @@ final class ApprovePostAction
                     'exception' => $exception->getMessage(),
                 ]);
             }
+        }
+
+        try {
+            NotifyFollowersAboutNewPostJob::dispatch($post->id);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            Log::error('Failed to dispatch follower notification job.', [
+                'post_id' => $post->id,
+                'exception' => $exception->getMessage(),
+            ]);
         }
     }
 }
