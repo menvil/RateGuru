@@ -2,12 +2,15 @@
 
 namespace App\Livewire\Profile;
 
-use App\Models\Post;
 use App\Models\User;
+use App\Queries\UserPublicPostsQuery;
+use App\Support\Profile\ProfileStats;
+use App\Support\Profile\ProfileStatsData;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
 
@@ -17,6 +20,9 @@ final class ProfilePage extends Component
 
     public User $profileUser;
 
+    #[Url]
+    public string $tab = 'posts';
+
     public function mount(string $username): void
     {
         $this->profileUser = User::query()
@@ -24,40 +30,21 @@ final class ProfilePage extends Component
             ->firstOrFail();
     }
 
-    /**
-     * @return array{published_posts: int, total_upvotes: int, comments_received: int, followers_count: int, following_count: int}
-     */
-    public function getStatsProperty(): array
+    public function getStatsProperty(): ProfileStatsData
     {
-        $posts = Post::query()
-            ->published()
-            ->where('user_id', $this->profileUser->id);
-
-        return [
-            'published_posts' => (clone $posts)->count(),
-            'total_upvotes' => (clone $posts)->sum('upvotes_count'),
-            'comments_received' => (clone $posts)->sum('comments_count'),
-            'followers_count' => $this->profileUser->followerRelations()->count(),
-            'following_count' => $this->profileUser->followingRelations()->count(),
-        ];
+        return app(ProfileStats::class)->forUser($this->profileUser, auth()->user());
     }
 
-    /**
-     * @return LengthAwarePaginator<int, Post>
-     */
+    /** @return LengthAwarePaginator<int, \App\Models\Post> */
     public function getPostsProperty(): LengthAwarePaginator
     {
-        return Post::query()
-            ->published()
-            ->where('user_id', $this->profileUser->id)
-            ->with(['user', 'tags'])
-            ->latest()
-            ->paginate(12);
+        return app(UserPublicPostsQuery::class)->forProfile($this->profileUser);
     }
 
     public function getDisplayNameProperty(): string
     {
-        return $this->profileUser->name ?: $this->profileUser->username;
+        return $this->profileUser->display_name
+            ?: ($this->profileUser->name ?: $this->profileUser->username);
     }
 
     public function getIsOwnerProperty(): bool
@@ -76,6 +63,18 @@ final class ProfilePage extends Component
     {
         return auth()->check()
             && auth()->id() !== $this->profileUser->id;
+    }
+
+    public function setTab(string $tab): void
+    {
+        $allowed = ['posts', 'activity'];
+        if ($this->isOwner) {
+            $allowed[] = 'saved';
+        }
+        if (in_array($tab, $allowed, true)) {
+            $this->tab = $tab;
+            $this->resetPage();
+        }
     }
 
     public function render(): View

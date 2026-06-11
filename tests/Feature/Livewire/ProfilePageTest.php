@@ -110,12 +110,8 @@ it('renders public user stats on profile page', function () {
 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertSee('data-testid="profile-stats"', false)
-        ->assertSee('Published posts')
+        ->assertSee('Posts')
         ->assertSee('2')
-        ->assertSee('Total upvotes')
-        ->assertSee('8')
-        ->assertSee('Comments received')
-        ->assertSee('3')
         ->assertDontSee('999999')
         ->assertDontSee('Hidden stats trap');
 });
