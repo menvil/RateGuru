@@ -28,6 +28,16 @@ it('mounts with current preference value', function () {
         ->assertSet('notify_followed_author_posts', false);
 });
 
+it('rejects save when notify_followed_author_posts is not a boolean', function () {
+    $user = User::factory()->create(['notify_followed_author_posts' => true]);
+
+    Livewire::actingAs($user)
+        ->test(NotificationPreferencesForm::class)
+        ->set('notify_followed_author_posts', 'not-a-boolean')
+        ->call('save')
+        ->assertHasErrors(['notify_followed_author_posts']);
+});
+
 it('shows notification preference form on profile edit page', function () {
     $user = User::factory()->create();
 

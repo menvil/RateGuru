@@ -6,7 +6,6 @@ use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\FollowedAuthorPostedNotification;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -14,24 +13,19 @@ use Throwable;
 final class NotifyFollowersAboutNewPostAction
 {
     /**
-     * @param  Collection<int, User>  $followers
-     * @return Collection<int, int>
+     * @param  \Illuminate\Database\Eloquent\Collection<int, User>  $followers
+     * @return \Illuminate\Support\Collection<int, int>
      */
-    private function getAlreadyNotifiedFollowerIds(Collection $followers, Post $post): Collection
+    private function getAlreadyNotifiedFollowerIds(\Illuminate\Database\Eloquent\Collection $followers, Post $post): \Illuminate\Support\Collection
     {
         if ($followers->isEmpty()) {
             return collect();
         }
 
-        $followerIds = $followers->pluck('id')->all();
-        $notificationType = FollowedAuthorPostedNotification::class;
-        $postId = $post->id;
-
         return DB::table('notifications')
-            ->where('type', $notificationType)
-            ->whereIn('notifiable_id', $followerIds)
-            ->get()
-            ->filter(fn (object $row) => (json_decode($row->data, true)['post_id'] ?? null) === $postId)
+            ->where('type', FollowedAuthorPostedNotification::class)
+            ->whereIn('notifiable_id', $followers->pluck('id')->all())
+            ->whereRaw("json_extract(data, '$.post_id') = ?", [$post->id])
             ->pluck('notifiable_id');
     }
 

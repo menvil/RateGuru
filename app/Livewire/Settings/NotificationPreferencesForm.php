@@ -8,7 +8,7 @@ use Livewire\Component;
 
 class NotificationPreferencesForm extends Component
 {
-    public bool $notify_followed_author_posts = true;
+    public mixed $notify_followed_author_posts = true;
 
     public function mount(): void
     {
@@ -19,6 +19,10 @@ class NotificationPreferencesForm extends Component
 
     public function save(): void
     {
+        $this->validate([
+            'notify_followed_author_posts' => ['required', 'boolean'],
+        ]);
+
         /** @var User $user */
         $user = auth()->user();
         $user->update([
