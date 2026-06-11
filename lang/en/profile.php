@@ -1,0 +1,26 @@
+<?php
+
+return [
+    'profile' => 'Profile',
+    'profile_description' => 'Update your public profile information.',
+    'edit_profile' => 'Edit profile',
+    'display_name' => 'Display name',
+    'bio' => 'Bio',
+    'website' => 'Website',
+    'avatar' => 'Avatar',
+    'posts' => 'Posts',
+    'saved' => 'Saved',
+    'activity' => 'Activity',
+    'followers' => 'Followers',
+    'following' => 'Following',
+    'no_posts' => 'No published posts yet',
+    'no_posts_description' => 'This user has not published any posts yet.',
+    'no_activity' => 'No activity yet',
+    'activity_private' => 'This user\'s activity is private.',
+    'rating_activity_visibility' => 'Rating activity visibility',
+    'visibility_private' => 'Private (only you)',
+    'visibility_public' => 'Public',
+    'joined' => 'Joined',
+    'public_posts' => 'Posts',
+    'stats' => 'Stats',
+];
