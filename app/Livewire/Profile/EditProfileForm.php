@@ -3,6 +3,7 @@
 namespace App\Livewire\Profile;
 
 use App\Models\User;
+use App\Support\Observability\DomainLogger;
 use App\Support\Profile\ProfileValidationRules;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\File;
@@ -64,6 +65,12 @@ class EditProfileForm extends Component
 
         if (isset($oldAvatarPath) && $oldAvatarPath) {
             Storage::disk('public')->delete($oldAvatarPath);
+        }
+
+        if ($this->avatar !== null) {
+            app(DomainLogger::class)->info('profile.avatar.updated', ['user_id' => $user->id]);
+        } else {
+            app(DomainLogger::class)->info('profile.updated', ['user_id' => $user->id]);
         }
     }
 
