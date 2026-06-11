@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AttachRequestId;
+use App\Http\Middleware\AttachStructuredLogContext;
 use App\Http\Middleware\SetLocale;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -16,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(prepend: [
             AttachRequestId::class,
+            AttachStructuredLogContext::class,
         ]);
         $middleware->web(append: [
             SetLocale::class,
