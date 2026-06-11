@@ -62,13 +62,13 @@ final class ObservabilityHealthCommand extends Command
         $this->line('');
         $this->line('External vendors (optional):');
 
-        $sentry = env('SENTRY_LARAVEL_DSN') ? 'configured' : 'not configured (optional)';
+        $sentry = config('observability.external_vendors.sentry_dsn') ? 'configured' : 'not configured (optional)';
         $this->line("  Sentry: {$sentry}");
 
-        $datadog = env('DD_AGENT_HOST') ? 'configured' : 'not configured (optional)';
+        $datadog = config('observability.external_vendors.datadog_agent_host') ? 'configured' : 'not configured (optional)';
         $this->line("  Datadog: {$datadog}");
 
-        $nightwatch = env('NIGHTWATCH_TOKEN') ? 'configured' : 'not configured (optional)';
+        $nightwatch = config('observability.external_vendors.nightwatch_token') ? 'configured' : 'not configured (optional)';
         $this->line("  Nightwatch: {$nightwatch}");
     }
 }

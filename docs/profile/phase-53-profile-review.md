@@ -116,7 +116,7 @@ The following were explicitly excluded:
 | public posts | Public |
 | followers_count, following_count | Public |
 | saved posts | **Owner only** — never public |
-| rating activity | **Private by default** — owner sees always, others see only if `visibility = public` |
+| rating activity | **Private by default** — owner always sees, others see only if `visibility = public` |
 | notification preferences | Never public |
 | email, password | Never public |
 | hidden/rejected posts | Never public |

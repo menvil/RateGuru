@@ -65,13 +65,14 @@ Regardless of any setting, the following are never exposed on a public profile:
 
 Rating/voting activity is **private by default**.
 
-```
+```text
 rating_activity_visibility = 'private'   (default)
 rating_activity_visibility = 'public'    (user opt-in)
 ```
 
 Future extension (not in Phase 53):
-```
+
+```text
 rating_activity_visibility = 'followers_only'
 ```
 

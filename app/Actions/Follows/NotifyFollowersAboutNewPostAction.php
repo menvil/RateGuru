@@ -26,6 +26,7 @@ final class NotifyFollowersAboutNewPostAction
 
         return DB::table('notifications')
             ->where('type', FollowedAuthorPostedNotification::class)
+            ->where('notifiable_type', (new User())->getMorphClass())
             ->whereIn('notifiable_id', $followers->pluck('id')->all())
             ->where('data->post_id', $post->id)
             ->pluck('notifiable_id');

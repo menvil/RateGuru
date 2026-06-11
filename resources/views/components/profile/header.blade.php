@@ -1,24 +1,17 @@
 @props(['user'])
 
-@php
-    $displayName = $user->display_name ?: ($user->name ?: $user->username);
-    $avatarSrc = $user->avatar_path
-        ? \Illuminate\Support\Facades\Storage::disk('public')->url($user->avatar_path)
-        : $user->avatar_url;
-@endphp
-
 <div data-testid="profile-header" class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
     <div class="flex min-w-0 items-center gap-4">
         <div data-testid="profile-avatar">
             <x-ui.avatar
-                :src="$avatarSrc"
-                :name="$displayName"
+                :src="$user->resolved_avatar_url"
+                :name="$user->resolved_display_name"
                 size="xl"
             />
         </div>
 
         <div data-testid="profile-identity" class="min-w-0">
-            <h1 class="truncate text-2xl font-semibold text-rg-text">{{ $displayName }}</h1>
+            <h1 class="truncate text-2xl font-semibold text-rg-text">{{ $user->resolved_display_name }}</h1>
             <p class="mt-0.5 text-sm text-rg-muted">{{ '@' . $user->username }}</p>
 
             @if($user->bio)

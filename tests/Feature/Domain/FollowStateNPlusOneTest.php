@@ -8,9 +8,12 @@ use Illuminate\Support\Facades\DB;
 function countQueriesForFollowState(callable $callback): int
 {
     DB::enableQueryLog();
-    $callback();
-    $count = count(DB::getQueryLog());
-    DB::disableQueryLog();
+    try {
+        $callback();
+        $count = count(DB::getQueryLog());
+    } finally {
+        DB::disableQueryLog();
+    }
 
     return $count;
 }

@@ -45,7 +45,7 @@ final class DomainLogger
 
     private function build(array $context): array
     {
-        $merged = array_merge($this->logContext->base(), $context);
+        $merged = array_merge($context, $this->logContext->base());
 
         return $this->redactor->redact($merged);
     }

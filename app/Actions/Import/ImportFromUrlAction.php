@@ -32,12 +32,12 @@ class ImportFromUrlAction
             throw new UrlImportDisabledException;
         }
 
+        $this->validator->validate($url);
+
         $parsed = parse_url($url);
-        $host = $parsed['host'] ?? 'unknown';
+        $host = is_array($parsed) ? ($parsed['host'] ?? 'unknown') : 'unknown';
 
         $this->logger->info('url_import.preview.started', ['source_host' => $host]);
-
-        $this->validator->validate($url);
 
         $provider = $this->detector->detect($url);
 

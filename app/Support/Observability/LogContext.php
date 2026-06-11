@@ -66,6 +66,10 @@ final class LogContext
 
     public function merge(array ...$contexts): array
     {
+        if (empty($contexts)) {
+            return [];
+        }
+
         return array_merge(...$contexts);
     }
 }
