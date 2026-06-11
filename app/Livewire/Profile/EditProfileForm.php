@@ -2,10 +2,9 @@
 
 namespace App\Livewire\Profile;
 
+use App\Actions\Profile\UpdateUserProfileAction;
 use App\Models\User;
-use App\Support\Observability\DomainLogger;
 use App\Support\Profile\ProfileValidationRules;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\File;
 use Livewire\Component;
 use Livewire\Contracts\View;
@@ -36,7 +35,7 @@ class EditProfileForm extends Component
         $this->rating_activity_visibility = $user->rating_activity_visibility?->value ?? 'private';
     }
 
-    public function save(): void
+    public function save(UpdateUserProfileAction $action): void
     {
         $rules = array_merge(
             app(ProfileValidationRules::class)->rules(),
@@ -44,34 +43,12 @@ class EditProfileForm extends Component
         );
 
         $validated = $this->validate($rules);
+        $validated['rating_activity_visibility'] ??= $this->rating_activity_visibility;
 
         /** @var User $user */
         $user = auth()->user();
 
-        $update = array_filter([
-            'display_name' => $validated['display_name'],
-            'bio' => $validated['bio'],
-            'profile_website_url' => $validated['profile_website_url'],
-            'rating_activity_visibility' => $validated['rating_activity_visibility'] ?? $this->rating_activity_visibility,
-        ], fn ($v) => $v !== null || in_array($v, [null], true));
-
-        if ($this->avatar !== null) {
-            $newAvatarPath = $this->avatar->store('avatars', 'public');
-            $oldAvatarPath = $user->avatar_path;
-            $update['avatar_path'] = $newAvatarPath;
-        }
-
-        $user->update($update);
-
-        if (isset($oldAvatarPath) && $oldAvatarPath) {
-            Storage::disk('public')->delete($oldAvatarPath);
-        }
-
-        if ($this->avatar !== null) {
-            app(DomainLogger::class)->info('profile.avatar.updated', ['user_id' => $user->id]);
-        } else {
-            app(DomainLogger::class)->info('profile.updated', ['user_id' => $user->id]);
-        }
+        $action->execute($user, $validated, $this->avatar);
     }
 
     /** @return list<mixed> */

@@ -42,6 +42,6 @@ final class AttachRequestId
     {
         return strlen($id) >= 1
             && strlen($id) <= 128
-            && preg_match('/^[\w\-\.]+$/', $id) === 1;
+            && preg_match('/^[A-Za-z0-9\-]+$/', $id) === 1;
     }
 }

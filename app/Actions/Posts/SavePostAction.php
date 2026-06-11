@@ -28,11 +28,13 @@ final class SavePostAction
             throw CannotSavePostException::postNotViewable();
         }
 
-        PostSave::query()->firstOrCreate([
+        $postSave = PostSave::query()->firstOrCreate([
             'user_id' => $user->id,
             'post_id' => $post->id,
         ]);
 
-        $this->logger->info('saved_posts.saved', ['user_id' => $user->id, 'post_id' => $post->id]);
+        if ($postSave->wasRecentlyCreated) {
+            $this->logger->info('saved_posts.saved', ['user_id' => $user->id, 'post_id' => $post->id]);
+        }
     }
 }

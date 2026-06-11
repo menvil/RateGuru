@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ProfileActivityVisibility;
 use App\Models\User;
 
 it('renders public profile tabs', function () {
@@ -10,12 +11,26 @@ it('renders public profile tabs', function () {
         ->assertSee('data-testid="profile-tab-posts"', false);
 });
 
-it('shows activity tab publicly', function () {
-    $user = User::factory()->create(['username' => 'ivan']);
+it('shows activity tab when visibility is public', function () {
+    $user = User::factory()->create([
+        'username' => 'ivan',
+        'rating_activity_visibility' => ProfileActivityVisibility::Public,
+    ]);
 
     $this->get(route('profile.show', $user->username))
         ->assertOk()
         ->assertSee('data-testid="profile-tab-activity"', false);
+});
+
+it('hides activity tab for private profiles from guests', function () {
+    $user = User::factory()->create([
+        'username' => 'ivan',
+        'rating_activity_visibility' => ProfileActivityVisibility::Private,
+    ]);
+
+    $this->get(route('profile.show', $user->username))
+        ->assertOk()
+        ->assertDontSee('data-testid="profile-tab-activity"', false);
 });
 
 it('shows saved tab only to profile owner', function () {

@@ -101,6 +101,7 @@
                 {{ __('profile.posts') }}
             </button>
 
+            @if($this->canSeeActivity)
             <button
                 wire:click="setTab('activity')"
                 data-testid="profile-tab-activity"
@@ -108,6 +109,7 @@
             >
                 {{ __('profile.activity') }}
             </button>
+            @endif
 
             @if($this->isOwner)
                 <button
@@ -140,7 +142,7 @@
                                             class="aspect-video w-full rounded-rgMedia object-cover"
                                         >
                                     @else
-                                        <x-ui.image-placeholder label="Post image" ratio="feed" />
+                                        <x-ui.image-placeholder :label="__('profile.post_image')" ratio="feed" />
                                     @endif
 
                                     <div class="mt-3">
@@ -152,8 +154,8 @@
                                     </div>
 
                                     <footer class="mt-3 flex items-center gap-4 border-t border-rg-border pt-2.5 text-xs text-rg-muted">
-                                        <span>Score <span class="font-semibold text-rg-text2">{{ $post->score }}</span></span>
-                                        <span>{{ $post->comments_count ?? 0 }} comments</span>
+                                        <span>{{ __('profile.score') }} <span class="font-semibold text-rg-text2">{{ $post->score }}</span></span>
+                                        <span>{{ __('profile.comments', ['count' => $post->comments_count ?? 0]) }}</span>
                                     </footer>
                                 </x-ui.card>
                             @endforeach
@@ -216,7 +218,7 @@
                                             class="aspect-video w-full rounded-rgMedia object-cover"
                                         >
                                     @else
-                                        <x-ui.image-placeholder label="Post image" ratio="feed" />
+                                        <x-ui.image-placeholder :label="__('profile.post_image')" ratio="feed" />
                                     @endif
                                     <div class="mt-3">
                                         <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>

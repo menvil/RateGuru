@@ -34,4 +34,10 @@ return [
         'enabled' => true,
     ],
 
+    'external_vendors' => [
+        'sentry_dsn' => env('SENTRY_LARAVEL_DSN'),
+        'datadog_agent_host' => env('DD_AGENT_HOST'),
+        'nightwatch_token' => env('NIGHTWATCH_TOKEN'),
+    ],
+
 ];

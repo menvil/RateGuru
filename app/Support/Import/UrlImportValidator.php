@@ -113,7 +113,7 @@ class UrlImportValidator
     {
         $parsed = parse_url($url);
         $context = [
-            'source_host' => $parsed['host'] ?? 'unknown',
+            'source_host' => is_array($parsed) ? ($parsed['host'] ?? 'unknown') : 'unknown',
             'reason' => $reason,
         ];
         app(DomainLogger::class)->warning('url_import.unsafe_url_blocked', $context);

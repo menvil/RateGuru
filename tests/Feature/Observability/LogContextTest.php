@@ -71,3 +71,9 @@ it('merges multiple contexts', function () {
     expect($merged)->toHaveKey('key_a');
     expect($merged)->toHaveKey('key_b');
 });
+
+it('merge with no arguments returns empty array', function () {
+    $merged = app(LogContext::class)->merge();
+
+    expect($merged)->toBeArray()->toBeEmpty();
+});

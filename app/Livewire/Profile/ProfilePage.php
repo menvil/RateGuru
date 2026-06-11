@@ -33,13 +33,21 @@ final class ProfilePage extends Component
             ->withCount(['followerRelations', 'followingRelations'])
             ->firstOrFail();
 
-        $allowed = ['posts', 'activity'];
-        if (auth()->id() === $this->profileUser->id) {
-            $allowed[] = 'saved';
-        }
-        if (! in_array($this->tab, $allowed, true)) {
+        if (! in_array($this->tab, $this->getAllowedTabs(), true)) {
             $this->tab = 'posts';
         }
+    }
+
+    /** @return list<string> */
+    private function getAllowedTabs(): array
+    {
+        $tabs = ['posts', 'activity'];
+
+        if (auth()->id() === $this->profileUser->id) {
+            $tabs[] = 'saved';
+        }
+
+        return $tabs;
     }
 
     public function getStatsProperty(): ProfileStatsData
@@ -101,11 +109,7 @@ final class ProfilePage extends Component
 
     public function setTab(string $tab): void
     {
-        $allowed = ['posts', 'activity'];
-        if ($this->isOwner) {
-            $allowed[] = 'saved';
-        }
-        if (in_array($tab, $allowed, true)) {
+        if (in_array($tab, $this->getAllowedTabs(), true)) {
             $this->tab = $tab;
             $this->resetPage();
         }

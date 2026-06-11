@@ -23,4 +23,7 @@ return [
     'joined' => 'Joined',
     'public_posts' => 'Posts',
     'stats' => 'Stats',
+    'score' => 'Score',
+    'comments' => ':count comments',
+    'post_image' => 'Post image',
 ];
