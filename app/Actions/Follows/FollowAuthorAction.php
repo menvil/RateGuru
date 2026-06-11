@@ -8,11 +8,15 @@ use App\Exceptions\Follows\CannotFollowSelfException;
 use App\Exceptions\Follows\FollowFeatureDisabledException;
 use App\Models\Follow;
 use App\Models\User;
+use App\Support\Observability\DomainLogger;
 use App\Support\Settings\ProjectSettingsManager;
 
 final class FollowAuthorAction
 {
-    public function __construct(private readonly ProjectSettingsManager $settings) {}
+    public function __construct(
+        private readonly ProjectSettingsManager $settings,
+        private readonly DomainLogger $logger,
+    ) {}
 
     public function handle(User $follower, User $author): void
     {
@@ -32,5 +36,7 @@ final class FollowAuthorAction
             'follower_id' => $follower->id,
             'author_id' => $author->id,
         ]);
+
+        $this->logger->info('follows.followed', ['user_id' => $follower->id, 'author_id' => $author->id]);
     }
 }
