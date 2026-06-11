@@ -3,6 +3,7 @@
 namespace App\Queries;
 
 use App\Enums\PostStatus;
+use App\Enums\ProfileActivityVisibility;
 use App\Models\RatingVote;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -13,7 +14,7 @@ final class UserRatingActivityQuery
     public function forProfile(User $profileUser, ?User $viewer, int $limit = 30): Collection
     {
         $isOwner = $viewer !== null && $viewer->id === $profileUser->id;
-        $isPublic = $profileUser->rating_activity_visibility === 'public';
+        $isPublic = $profileUser->rating_activity_visibility === ProfileActivityVisibility::Public;
 
         if (! $isOwner && ! $isPublic) {
             return new Collection();

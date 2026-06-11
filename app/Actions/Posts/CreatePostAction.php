@@ -15,6 +15,8 @@ use App\Services\Images\ImageStorage;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 final class CreatePostAction
 {
@@ -73,7 +75,16 @@ final class CreatePostAction
         }
 
         if ($post->status === PostStatus::Published) {
-            NotifyFollowersAboutNewPostJob::dispatch($post->id);
+            try {
+                NotifyFollowersAboutNewPostJob::dispatch($post->id);
+            } catch (Throwable $exception) {
+                report($exception);
+
+                Log::error('Failed to dispatch follower notification job.', [
+                    'post_id' => $post->id,
+                    'exception' => $exception->getMessage(),
+                ]);
+            }
         }
 
         return $post;

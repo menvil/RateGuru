@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Profile;
 
+use App\Enums\ProfileActivityVisibility;
 use App\Models\User;
 use App\Queries\SavedPosts\SavedPostsQuery;
 use App\Queries\UserPublicPostsQuery;
@@ -30,6 +31,14 @@ final class ProfilePage extends Component
         $this->profileUser = User::query()
             ->where('username', $username)
             ->firstOrFail();
+
+        $allowed = ['posts', 'activity'];
+        if (auth()->id() === $this->profileUser->id) {
+            $allowed[] = 'saved';
+        }
+        if (! in_array($this->tab, $allowed, true)) {
+            $this->tab = 'posts';
+        }
     }
 
     public function getStatsProperty(): ProfileStatsData
@@ -46,7 +55,7 @@ final class ProfilePage extends Component
     public function getCanSeeActivityProperty(): bool
     {
         return $this->isOwner
-            || $this->profileUser->rating_activity_visibility === 'public';
+            || $this->profileUser->rating_activity_visibility === ProfileActivityVisibility::Public;
     }
 
     /** @return \Illuminate\Database\Eloquent\Collection<int, \App\Models\RatingVote> */

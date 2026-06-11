@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ProfileActivityVisibility;
 use Illuminate\Support\Facades\Schema;
 
 it('has profile fields on users table', function () {
@@ -15,5 +16,5 @@ it('has profile fields on users table', function () {
 it('defaults rating_activity_visibility to private', function () {
     $user = \App\Models\User::factory()->create();
 
-    expect($user->rating_activity_visibility)->toBe('private');
+    expect($user->rating_activity_visibility)->toBe(ProfileActivityVisibility::Private);
 });

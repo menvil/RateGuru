@@ -4,7 +4,6 @@ namespace App\Livewire\Follows;
 
 use App\Actions\Follows\ToggleFollowAuthorAction;
 use App\Exceptions\Follows\CannotFollowAuthorException;
-use App\Exceptions\Follows\CannotFollowSelfException;
 use App\Exceptions\Follows\FollowFeatureDisabledException;
 use App\Models\User;
 use App\Support\Follows\FollowState;
@@ -20,12 +19,9 @@ final class FollowButton extends Component
 
     public ?string $message = null;
 
-    public string $variant = 'full';
-
-    public function mount(User $author, string $variant = 'full'): void
+    public function mount(User $author): void
     {
         $this->author = $author;
-        $this->variant = $variant;
 
         if (! app(ProjectSettingsManager::class)->featureEnabled('show_follow_buttons')) {
             return;
@@ -60,8 +56,6 @@ final class FollowButton extends Component
             $this->message = null;
         } catch (FollowFeatureDisabledException) {
             $this->message = __('follows.feature_disabled');
-        } catch (CannotFollowSelfException) {
-            return;
         } catch (CannotFollowAuthorException) {
             $this->message = __('follows.cannot_follow_author');
         }
