@@ -2,8 +2,8 @@
 
 namespace App\Actions\Moderation;
 
-use App\Actions\Follows\NotifyFollowersAboutNewPostAction;
 use App\Enums\ModerationActionType;
+use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
@@ -17,7 +17,6 @@ final class ApprovePostAction
 {
     public function __construct(
         private readonly CreateModerationLogAction $createModerationLog,
-        private readonly NotifyFollowersAboutNewPostAction $notifyFollowers,
     ) {}
 
     public function handle(User $moderator, Post $post, ?string $reason = null): void
@@ -81,6 +80,15 @@ final class ApprovePostAction
             }
         }
 
-        $this->notifyFollowers->handle($post);
+        try {
+            NotifyFollowersAboutNewPostJob::dispatch($post->id);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            Log::error('Failed to dispatch follower notification job.', [
+                'post_id' => $post->id,
+                'exception' => $exception->getMessage(),
+            ]);
+        }
     }
 }

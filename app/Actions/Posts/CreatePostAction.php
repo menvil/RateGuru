@@ -2,8 +2,8 @@
 
 namespace App\Actions\Posts;
 
-use App\Actions\Follows\NotifyFollowersAboutNewPostAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
+use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Data\Posts\CreatePostData;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
@@ -21,7 +21,6 @@ final class CreatePostAction
     public function __construct(
         private readonly ImageStorage $imageStorage,
         private readonly ActionRateLimiter $rateLimiter,
-        private readonly NotifyFollowersAboutNewPostAction $notifyFollowers,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
@@ -74,7 +73,7 @@ final class CreatePostAction
         }
 
         if ($post->status === PostStatus::Published) {
-            $this->notifyFollowers->handle($post);
+            NotifyFollowersAboutNewPostJob::dispatch($post->id);
         }
 
         return $post;

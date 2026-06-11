@@ -20,4 +20,15 @@ class FollowFactory extends Factory
             'author_id' => User::factory(),
         ];
     }
+
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Follow $follow) {
+            if ((int) $follow->follower_id === (int) $follow->author_id) {
+                throw new \InvalidArgumentException(
+                    'FollowFactory produced a self-follow record (follower_id === author_id). Pass distinct user IDs.'
+                );
+            }
+        });
+    }
 }
