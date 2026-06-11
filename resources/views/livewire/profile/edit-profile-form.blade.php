@@ -10,6 +10,18 @@
 
     <form wire:submit="save" class="mt-6 space-y-5">
         <div>
+            <x-input-label for="edit-avatar" :value="__('profile.avatar')" />
+            <input
+                id="edit-avatar"
+                wire:model="avatar"
+                type="file"
+                accept="image/*"
+                class="mt-1 block w-full text-sm text-rg-muted file:mr-3 file:rounded-rgControl file:border-0 file:bg-rg-card2 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-rg-text2 hover:file:bg-rg-card"
+            >
+            <x-input-error class="mt-2" :messages="$errors->get('avatar')" />
+        </div>
+
+        <div>
             <x-input-label for="edit-display-name" :value="__('profile.display_name')" />
             <x-ui.input
                 id="edit-display-name"
