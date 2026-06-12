@@ -29,7 +29,7 @@ class ProjectSettingsManager
             'show_comments' => true,
             'show_share_buttons' => true,
             'show_vote_breakdown' => true,
-            'show_follow_buttons' => false,
+            'show_follow_buttons' => true,
             'show_saved_posts' => false,
             'allow_user_uploads' => true,
             'allow_guest_viewing' => true,
