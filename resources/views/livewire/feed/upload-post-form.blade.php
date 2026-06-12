@@ -3,7 +3,27 @@
 <div data-testid="upload-post-form">
     <h2 class="sr-only">{{ $uploadSettings->uploadCtaLabel() }}</h2>
 
-    <form wire:submit.prevent="submit" data-testid="upload-form" class="space-y-4">
+    <form
+        wire:submit.prevent="submit"
+        data-testid="upload-form"
+        class="space-y-4"
+        x-data="{
+            imageTab: @if($importedImageUrl) 'url' @else 'file' @endif,
+            previewUrl: @js($importedImageUrl ?? null),
+            fileName: null,
+            tagOpen: false,
+            initTagOpen() {
+                this.$watch('tagOpen', v => {
+                    if (v) this.$nextTick(() => this.$refs.tagInput?.focus());
+                });
+            }
+        }"
+        x-init="initTagOpen()"
+        x-on:mousedown.window="
+            !$refs.tagBox?.contains($event.target) && (tagOpen = false)
+        "
+        x-on:keydown.escape.window="tagOpen = false"
+    >
 
         {{-- Title --}}
         <div>
@@ -37,13 +57,7 @@
         </div>
 
         {{-- Image with tabs --}}
-        <div
-            x-data="{
-                imageTab: @if($importedImageUrl) 'url' @else 'file' @endif,
-                previewUrl: @if($importedImageUrl) '{{ $importedImageUrl }}' @else null @endif,
-                fileName: null
-            }"
-        >
+        <div>
             <x-input-label :value="__('ui.upload.image')" />
 
             @if($uploadSettings->featureFlag('allow_url_imports'))
@@ -144,8 +158,10 @@
             </div>
         </div>
 
-        {{-- Source URL --}}
-        <div>
+        {{-- Source URL — hidden when image loaded from URL (already captured above) --}}
+        @if($uploadSettings->featureFlag('allow_url_imports'))
+        <div x-show="imageTab !== 'url'">
+        @endif
             <x-input-label for="source_url" :value="__('ui.upload.source_url')" />
             <x-ui.input
                 id="source_url"
@@ -158,47 +174,81 @@
             <div data-testid="field-error-source-url" class="mt-1">
                 <x-input-error :messages="$errors->get('sourceUrl')" />
             </div>
+        @if($uploadSettings->featureFlag('allow_url_imports'))
         </div>
+        @endif
 
-        {{-- Tags --}}
+        {{-- Tags — combobox with removable pills --}}
         <div>
             <x-input-label :value="__('ui.upload.tags')" />
-            <div class="mt-1" data-testid="upload-tags" x-data="{ tagSearch: '' }">
 
-                {{-- Search --}}
-                <input
-                    type="search"
-                    x-model="tagSearch"
-                    :placeholder="'{{ __('ui.upload.tags_search') }}'"
-                    class="rg-search-input mb-2 h-9 w-full rounded-rgControl border border-rg-border2 bg-rg-card px-3 text-[13px] text-rg-text placeholder-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
-                    data-testid="upload-tag-search"
-                />
+            <div
+                class="relative mt-1"
+                data-testid="upload-tags"
+                x-ref="tagBox"
+            >
+                {{-- Trigger / selected pills + search input --}}
+                <div
+                    class="flex min-h-[40px] cursor-text flex-wrap items-center gap-1.5 rounded-rgControl border border-rg-border2 bg-rg-card px-2.5 py-1.5 transition focus-within:border-rg-accent focus-within:ring-2 focus-within:ring-rg-accent/25"
+                    x-on:click="tagOpen = true"
+                    data-testid="upload-tag-field"
+                >
+                    {{-- Selected pills --}}
+                    @foreach($selectedTags as $tag)
+                        <span
+                            class="inline-flex items-center gap-1 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft px-2 py-0.5 text-xs font-semibold text-rg-accent2"
+                            data-testid="upload-selected-tag-{{ $tag['id'] }}"
+                        >
+                            {{ $tag['name'] }}
+                            <button
+                                type="button"
+                                wire:click.stop="toggleTag({{ $tag['id'] }})"
+                                class="cursor-pointer text-rg-accent2 hover:text-rg-accent focus-visible:outline-none"
+                                aria-label="Remove {{ $tag['name'] }}"
+                            >
+                                <x-ui.icon name="x" class="size-3" />
+                            </button>
+                        </span>
+                    @endforeach
 
-                {{-- Tag pills --}}
-                <div class="flex flex-wrap gap-1.5" data-testid="upload-tag-pills">
-                    @forelse($filteredTags as $tag)
+                    {{-- Search input --}}
+                    <input
+                        type="text"
+                        x-ref="tagInput"
+                        wire:model.live.debounce.200ms="tagSearch"
+                        x-on:focus="tagOpen = true"
+                        :placeholder="@js(count($tagIds) === 0 ? __('ui.upload.tags_search') : '')"
+                        class="h-7 min-w-[80px] flex-1 appearance-none border-0 bg-transparent p-0 text-[13px] text-rg-text placeholder-rg-muted outline-none focus:border-0 focus:outline-none focus:ring-0"
+                        data-testid="upload-tag-search"
+                        autocomplete="off"
+                    />
+                </div>
+
+                {{-- Dropdown --}}
+                <div
+                    x-cloak
+                    x-show="tagOpen"
+                    class="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                    data-testid="upload-tag-menu"
+                >
+                    @php $unselected = collect($filteredTags)->filter(fn($t) => !in_array($t['id'], $tagIds, true))->values(); @endphp
+                    @forelse($unselected as $tag)
                         <button
                             type="button"
                             wire:click="toggleTag({{ $tag['id'] }})"
-                            x-show="tagSearch === '' || '{{ mb_strtolower($tag['name']) }}'.includes(tagSearch.toLowerCase())"
+                            class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-[13px] text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                             data-testid="upload-tag-{{ $tag['id'] }}"
-                            @class([
-                                'inline-flex cursor-pointer items-center rounded-rgPill border px-2.5 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent',
-                                'border-rg-accentBorder bg-rg-accentSoft text-rg-accent2' => in_array($tag['id'], $tagIds, true),
-                                'border-rg-border2 bg-rg-card text-rg-text2 hover:border-rg-accentBorder hover:text-rg-text' => !in_array($tag['id'], $tagIds, true),
-                            ])
                         >
-                            @if(in_array($tag['id'], $tagIds, true))
-                                <x-ui.icon name="check" class="mr-1 size-3" />
-                            @endif
                             {{ $tag['name'] }}
                         </button>
                     @empty
-                        <span class="text-sm text-rg-muted">{{ __('ui.upload.tags_no_match') }}</span>
+                        <span class="block px-3 py-2 text-sm text-rg-muted">
+                            {{ count($tagIds) > 0 ? __('ui.upload.tags_no_match') : __('ui.upload.tags_no_match') }}
+                        </span>
                     @endforelse
                 </div>
-
             </div>
+
             <div data-testid="field-error-tags" class="mt-1">
                 <x-input-error :messages="$errors->get('tagIds')" />
                 <x-input-error :messages="collect($errors->get('tagIds.*'))->flatten()->all()" />

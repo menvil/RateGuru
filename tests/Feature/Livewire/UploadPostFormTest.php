@@ -290,7 +290,7 @@ it('renders selectable tags', function () {
         ->test(UploadPostForm::class)
         ->assertSee('Tags')
         ->assertSee('data-testid="upload-tag-search"', false)
-        ->assertSee('data-testid="upload-tag-pills"', false)
+        ->assertSee('data-testid="upload-tag-field"', false)
         ->assertSee('UniqueTagForTest')
         ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
 });
@@ -372,7 +372,7 @@ it('renders tag search input and tag pills', function () {
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSee('data-testid="upload-tag-search"', false)
-        ->assertSee('data-testid="upload-tag-pills"', false)
+        ->assertSee('data-testid="upload-tag-field"', false)
         ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
 });
 
