@@ -12,5 +12,22 @@
     "Already registered?": "Вече имате акаунт?",
     "Forgot your password? No problem. Just let us know your email address and we will email you a password reset link that will allow you to choose a new one.": "Забравихте паролата? Без проблем. Въведете своя имейл и ще ви изпратим линк за нулиране на паролата.",
     "Email Password Reset Link": "Изпрати линк за нулиране на паролата",
-    "Reset Password": "Нулирай паролата"
+    "Reset Password": "Нулирай паролата",
+    "Username": "Потребителско име",
+    "Profile Information": "Информация за профила",
+    "Update your account's profile information and email address.": "Актуализирайте информацията на профила и имейл адреса.",
+    "Save": "Запази",
+    "Saved.": "Запазено.",
+    "Your email address is unverified.": "Вашият имейл адрес не е потвърден.",
+    "Click here to re-send the verification email.": "Кликнете тук, за да изпратите отново имейл за потвърждение.",
+    "A new verification link has been sent to your email address.": "Нов линк за потвърждение е изпратен на вашия имейл адрес.",
+    "Update Password": "Промяна на паролата",
+    "Ensure your account is using a long, random password to stay secure.": "Уверете се, че акаунтът ви използва дълга, произволна парола за сигурност.",
+    "Current Password": "Текуща парола",
+    "New Password": "Нова парола",
+    "Delete Account": "Изтриване на акаунта",
+    "Once your account is deleted, all of its resources and data will be permanently deleted. Before deleting your account, please download any data or information that you wish to retain.": "След изтриването на акаунта всички данни ще бъдат изтрити безвъзвратно. Преди изтриването запазете необходимата информация.",
+    "Are you sure you want to delete your account?": "Сигурни ли сте, че искате да изтриете акаунта си?",
+    "Once your account is deleted, all of its resources and data will be permanently deleted. Please enter your password to confirm you would like to permanently delete your account.": "След изтриването на акаунта всички данни ще бъдат изтрити безвъзвратно. Въведете паролата си за потвърждение.",
+    "Cancel": "Откажи"
 }

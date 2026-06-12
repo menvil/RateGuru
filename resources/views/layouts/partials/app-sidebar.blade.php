@@ -53,7 +53,7 @@
         </div>
     </div>
 
-    <div class="mt-auto flex flex-wrap gap-x-3 gap-y-2 px-3 pt-8 text-xs text-rg-muted">
+    <div class="mt-auto border-t border-rg-border pt-4 flex flex-wrap gap-x-3 gap-y-2 px-3 text-xs text-rg-muted">
         <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">{{ __('ui.nav.about') }}</a>
         <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">{{ __('ui.nav.terms') }}</a>
         <a href="#" aria-disabled="true" class="cursor-not-allowed hover:text-rg-text">{{ __('ui.nav.privacy') }}</a>

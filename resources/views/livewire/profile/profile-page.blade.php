@@ -54,15 +54,24 @@
                 @endif
 
                 @if($this->canSeeReportUserPlaceholder)
-                    <x-ui.button
-                        variant="danger"
-                        size="sm"
-                        disabled
-                        data-testid="report-user-placeholder"
-                        title="User reporting is coming soon"
-                    >
-                        Report user
-                    </x-ui.button>
+                    <div data-testid="report-user-button" x-data="{ reportOpen: false }">
+                        <x-ui.button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            x-on:click="reportOpen = true"
+                        >
+                            {{ __('ui.user.report') }}
+                        </x-ui.button>
+                        <x-ui.modal :title="__('ui.user.report_title')" state="reportOpen" size="md">
+                            <livewire:reports.report-modal
+                                reportable-type="user"
+                                :reportable-id="$profileUser->id"
+                                variant="inline"
+                                :key="'profile-report-user-'.$profileUser->id"
+                            />
+                        </x-ui.modal>
+                    </div>
                 @endif
             </div>
         </div>

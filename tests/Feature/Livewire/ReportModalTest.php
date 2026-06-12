@@ -136,7 +136,7 @@ it('rejects unsupported reportable type', function () {
 
     Livewire::actingAs($user)
         ->test(ReportModal::class, [
-            'reportableType' => 'user',
+            'reportableType' => 'organization',
             'reportableId' => $user->id,
         ])
         ->set('reason', ReportReason::Spam->value)

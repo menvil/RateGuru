@@ -20,6 +20,9 @@
     data-testid="post-show"
     x-data="{
         imageOpen: false,
+        shareOpen: false,
+        menuOpen: false,
+        deleteOpen: false,
         scrollToComments() {
             const comments = this.$refs.postComments;
             if (comments) {
@@ -59,11 +62,13 @@
                     </div>
                 </div>
 
-                @if($post->user && $this->canSeeFollowButton)
-                    <div class="shrink-0" data-testid="post-author-follow">
-                        <livewire:follows.follow-button :author="$post->user" variant="compact" />
-                    </div>
-                @endif
+                <div class="flex shrink-0 items-center gap-2">
+                    @if($post->user && $this->canSeeFollowButton)
+                        <div data-testid="post-author-follow">
+                            <livewire:follows.follow-button :author="$post->user" variant="compact" />
+                        </div>
+                    @endif
+                </div>
             </section>
 
             <section class="mt-4">
@@ -110,15 +115,15 @@
             @endif
 
             <footer class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-4" data-testid="post-show-footer">
-                <div class="flex flex-wrap items-center gap-2">
-                    <livewire:posts.post-voting
-                        :post-id="$post->id"
-                        variant="pill"
-                        :key="'post-show-voting-'.$post->id"
-                    />
-                </div>
+                <div class="flex flex-wrap items-center gap-4">
+                    <div data-testid="post-show-voting">
+                        <livewire:posts.post-voting
+                            :post-id="$post->id"
+                            variant="pill"
+                            :key="'post-show-voting-'.$post->id"
+                        />
+                    </div>
 
-                <div class="flex flex-wrap items-center gap-4" x-data="{ shareOpen: false }">
                     @if($projectSettings->featureEnabled('show_comments'))
                         <x-ui.action-button icon="comment" x-on:click="scrollToComments()" data-testid="post-show-comments-scroll">
                             {{ $post->comments_count ?? 0 }}
@@ -127,9 +132,6 @@
 
                     @if($projectSettings->featureEnabled('show_share_buttons'))
                         <x-ui.action-button icon="share" x-on:click="shareOpen = true" data-testid="post-show-share-btn">{{ __('sharing.share') }}</x-ui.action-button>
-                        <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
-                            <x-sharing.share-buttons :post="$post" />
-                        </x-ui.modal>
                     @endif
 
                     @if($projectSettings->featureEnabled('show_saved_posts'))
@@ -141,6 +143,56 @@
                         @endauth
                     @endif
                 </div>
+
+                @if($canReportPost || $canDeletePost || $canModeratePost)
+                    <div class="relative" wire:click.stop wire:keydown.stop>
+                        <button
+                            type="button"
+                            x-on:click="menuOpen = ! menuOpen"
+                            class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                            aria-label="Post actions"
+                            data-testid="post-show-actions-menu"
+                        >
+                            <x-ui.icon name="more" class="size-4" />
+                        </button>
+
+                        <div
+                            x-cloak
+                            x-show="menuOpen"
+                            x-on:click.outside="menuOpen = false"
+                            class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                        >
+                            @if($canReportPost)
+                                <div>
+                                    <livewire:reports.report-modal
+                                        reportable-type="post"
+                                        :reportable-id="$post->id"
+                                        variant="menu"
+                                        :key="'post-show-report-'.$post->id"
+                                        wire:lazy
+                                    />
+                                </div>
+                            @endif
+
+                            @if($canDeletePost)
+                                <button
+                                    type="button"
+                                    x-on:click="menuOpen = false; deleteOpen = true"
+                                    class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                                >
+                                    {{ __('ui.post.delete') }}
+                                </button>
+                            @endif
+
+                            <livewire:moderation.inline-post-moderation
+                                :post-id="$post->id"
+                                variant="menu"
+                                :key="'post-show-moderation-'.$post->id"
+                                wire:lazy
+                            />
+                        </div>
+                    </div>
+                @endif
             </footer>
 
             @if($post->tags->isNotEmpty() || $post->source_url)
@@ -162,6 +214,12 @@
                 </section>
             @endif
 
+            @if($projectSettings->featureEnabled('show_share_buttons'))
+                <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
+                    <x-sharing.share-buttons :post="$post" />
+                </x-ui.modal>
+            @endif
+
             @if($post->public_image_url)
                 <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
                     <img
@@ -170,6 +228,25 @@
                         class="max-h-[80vh] w-full rounded-rgMedia object-contain"
                         data-testid="post-fullscreen-image"
                     >
+                </x-ui.modal>
+            @endif
+
+            @if($canDeletePost)
+                <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
+                    <div class="space-y-4">
+                        <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description') }}</p>
+                        <div class="flex justify-end gap-2">
+                            <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">{{ __('ui.actions.cancel') }}</x-ui.button>
+                            <x-ui.button
+                                type="button"
+                                variant="danger"
+                                wire:click="$dispatch('delete-post', { postId: {{ $post->id }} })"
+                                x-on:click="deleteOpen = false"
+                            >
+                                {{ __('ui.actions.delete') }}
+                            </x-ui.button>
+                        </div>
+                    </div>
                 </x-ui.modal>
             @endif
         </article>

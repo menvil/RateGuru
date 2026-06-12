@@ -1,55 +1,18 @@
-@php use App\Enums\OriginType; use App\Enums\CuisineType; @endphp
 @inject('settingsManager', \App\Support\Settings\ProjectSettingsManager::class)
 @php $uploadSettings = $settingsManager->current(); @endphp
 <div data-testid="upload-post-form">
     <h2 class="sr-only">{{ $uploadSettings->uploadCtaLabel() }}</h2>
 
-    @if($uploadSettings->featureFlag('allow_url_imports'))
-        <div class="mb-4 flex gap-2 border-b border-rg-border pb-3">
-            <button
-                type="button"
-                wire:click="$set('activeTab', 'upload')"
-                data-testid="upload-tab"
-                @class([
-                    'rounded-rgSm px-3 py-1.5 text-sm font-medium transition',
-                    'bg-rg-accent text-rg-onAccent' => $activeTab === 'upload',
-                    'text-rg-muted hover:text-rg-text' => $activeTab !== 'upload',
-                ])
-            >
-                {{ __('Upload file') }}
-            </button>
-            <button
-                type="button"
-                wire:click="$set('activeTab', 'import')"
-                data-testid="import-tab"
-                @class([
-                    'rounded-rgSm px-3 py-1.5 text-sm font-medium transition',
-                    'bg-rg-accent text-rg-onAccent' => $activeTab === 'import',
-                    'text-rg-muted hover:text-rg-text' => $activeTab !== 'import',
-                ])
-            >
-                {{ __('import.from_url') }}
-            </button>
-        </div>
+    <form wire:submit.prevent="submit" data-testid="upload-form" class="space-y-4">
 
-        @if($activeTab === 'import')
-            <livewire:import.import-url-form />
-        @endif
-    @endif
-
-    <form wire:submit.prevent="submit" data-testid="upload-form"
-        @class([
-            'space-y-4',
-            'hidden' => $uploadSettings->featureFlag('allow_url_imports') && $activeTab === 'import',
-        ])
-    >
+        {{-- Title --}}
         <div>
-            <x-input-label for="title" value="Title" />
+            <x-input-label for="title" :value="__('ui.upload.title')" />
             <x-ui.input
                 id="title"
                 name="title"
                 wire:model.defer="title"
-                placeholder="Title"
+                :placeholder="__('ui.upload.title_placeholder')"
                 class="mt-1"
             />
             <div data-testid="field-error-title" class="mt-1">
@@ -57,14 +20,15 @@
             </div>
         </div>
 
+        {{-- Description --}}
         <div>
-            <x-input-label for="description" value="Description" />
+            <x-input-label for="description" :value="__('ui.upload.description')" />
             <x-ui.textarea
                 id="description"
                 name="description"
                 wire:model.defer="description"
-                rows="4"
-                placeholder="Optional details"
+                rows="3"
+                :placeholder="__('ui.upload.description_placeholder')"
                 class="mt-1"
             />
             <div data-testid="field-error-description" class="mt-1">
@@ -72,70 +36,123 @@
             </div>
         </div>
 
-        <div x-data="{ previewUrl: null, fileName: null }">
-            <x-input-label for="image" value="Image" />
-            <label
-                for="image"
-                class="mt-1 flex cursor-pointer flex-col items-center justify-center rounded-rgCard border border-dashed border-rg-border2 bg-rg-card2 px-4 py-6 text-center transition hover:border-rg-accentBorder hover:bg-rg-card"
-                data-testid="upload-image-dropzone"
-                x-on:dragover.prevent
-                x-on:drop.prevent="
-                    const file = $event.dataTransfer.files[0];
-                    if (!file) { previewUrl = null; fileName = null; return; }
-                    $refs.image.files = $event.dataTransfer.files;
-                    $refs.image.dispatchEvent(new Event('change', { bubbles: true }));
-                "
-            >
-                <input
-                    id="image"
-                    name="image"
-                    type="file"
-                    accept="image/*"
-                    wire:model="image"
-                    x-ref="image"
-                    class="sr-only"
-                    x-on:change="
-                        const file = $event.target.files[0];
-                        if (!file) { previewUrl = null; fileName = null; return; }
-                        fileName = file.name;
-                        const reader = new FileReader();
-                        reader.onload = e => previewUrl = e.target.result;
-                        reader.readAsDataURL(file);
+        {{-- Image with tabs --}}
+        <div
+            x-data="{
+                imageTab: @if($importedImageUrl) 'url' @else 'file' @endif,
+                previewUrl: @if($importedImageUrl) '{{ $importedImageUrl }}' @else null @endif,
+                fileName: null
+            }"
+        >
+            <x-input-label :value="__('ui.upload.image')" />
+
+            @if($uploadSettings->featureFlag('allow_url_imports'))
+            <div class="mt-1 flex gap-1 border-b border-rg-border pb-2">
+                <button
+                    type="button"
+                    x-on:click="imageTab = 'file'"
+                    data-testid="image-tab-file"
+                    :class="imageTab === 'file'
+                        ? 'bg-rg-accent text-rg-onAccent'
+                        : 'text-rg-muted hover:text-rg-text'"
+                    class="rounded-rgSm px-3 py-1 text-xs font-medium transition"
+                >{{ __('ui.upload.image_tab_file') }}</button>
+                <button
+                    type="button"
+                    x-on:click="imageTab = 'url'"
+                    data-testid="image-tab-url"
+                    :class="imageTab === 'url'
+                        ? 'bg-rg-accent text-rg-onAccent'
+                        : 'text-rg-muted hover:text-rg-text'"
+                    class="rounded-rgSm px-3 py-1 text-xs font-medium transition"
+                >{{ __('ui.upload.image_tab_url') }}</button>
+            </div>
+            @endif
+
+            {{-- File upload tab --}}
+            <div x-show="imageTab === 'file'" class="mt-2">
+                <label
+                    for="image"
+                    class="flex cursor-pointer flex-col items-center justify-center rounded-rgCard border border-dashed border-rg-border2 bg-rg-card2 px-4 py-6 text-center transition hover:border-rg-accentBorder hover:bg-rg-card"
+                    data-testid="upload-image-dropzone"
+                    x-on:dragover.prevent
+                    x-on:drop.prevent="
+                        const file = $event.dataTransfer.files[0];
+                        if (!file) return;
+                        $refs.image.files = $event.dataTransfer.files;
+                        $refs.image.dispatchEvent(new Event('change', { bubbles: true }));
                     "
-                />
+                >
+                    <input
+                        id="image"
+                        name="image"
+                        type="file"
+                        accept="image/*"
+                        wire:model="image"
+                        x-ref="image"
+                        class="sr-only"
+                        x-on:change="
+                            const file = $event.target.files[0];
+                            if (!file) { previewUrl = null; fileName = null; return; }
+                            fileName = file.name;
+                            const reader = new FileReader();
+                            reader.onload = e => previewUrl = e.target.result;
+                            reader.readAsDataURL(file);
+                        "
+                    />
 
-                <template x-if="previewUrl">
-                    <img :src="previewUrl" alt="Selected image preview" class="max-h-56 w-full rounded-rgMedia object-contain" />
-                </template>
+                    <template x-if="previewUrl && imageTab === 'file'">
+                        <img :src="previewUrl" alt="Selected image preview" class="max-h-56 w-full rounded-rgMedia object-contain" />
+                    </template>
 
-                <div x-show="!previewUrl" class="flex flex-col items-center gap-2">
-                    <span class="grid size-10 place-items-center rounded-rgPill border border-rg-border2 bg-rg-card text-rg-muted">
-                        <x-ui.icon name="upload" class="size-5" />
-                    </span>
-                    <div>
-                        <p class="text-sm font-semibold text-rg-text">Choose a file or drag & drop it here</p>
-                        <p class="mt-1 text-xs text-rg-muted">JPEG, PNG, GIF up to 5MB</p>
+                    <div x-show="!previewUrl || imageTab !== 'file'" class="flex flex-col items-center gap-2">
+                        <span class="grid size-10 place-items-center rounded-rgPill border border-rg-border2 bg-rg-card text-rg-muted">
+                            <x-ui.icon name="upload" class="size-5" />
+                        </span>
+                        <div>
+                            <p class="text-sm font-semibold text-rg-text">{{ __('ui.upload.image_drop_text') }}</p>
+                            <p class="mt-1 text-xs text-rg-muted">{{ __('ui.upload.image_drop_hint') }}</p>
+                        </div>
+                        <span class="mt-1 inline-flex h-9 items-center rounded-rgControl border border-rg-border2 bg-rg-card px-4 text-[13px] font-semibold text-rg-text">
+                            {{ __('ui.upload.image_browse') }}
+                        </span>
                     </div>
-                    <span class="mt-1 inline-flex h-9 items-center rounded-rgControl border border-rg-border2 bg-rg-card px-4 text-[13px] font-semibold text-rg-text">
-                        Browse File
-                    </span>
-                </div>
 
-                <p x-show="fileName" x-text="fileName" class="mt-2 text-xs text-rg-muted"></p>
-            </label>
+                    <p x-show="fileName && imageTab === 'file'" x-text="fileName" class="mt-2 text-xs text-rg-muted"></p>
+                </label>
+            </div>
+
+            {{-- URL tab --}}
+            @if($uploadSettings->featureFlag('allow_url_imports'))
+            <div x-show="imageTab === 'url'" class="mt-2 space-y-2">
+                <x-ui.input
+                    name="importedImageUrl"
+                    type="url"
+                    wire:model.defer="importedImageUrl"
+                    :placeholder="__('ui.upload.image_url_placeholder')"
+                    data-testid="upload-image-url-input"
+                    x-on:input="previewUrl = $event.target.value || null"
+                />
+                <template x-if="previewUrl && imageTab === 'url'">
+                    <img :src="previewUrl" alt="Image preview" class="max-h-48 w-full rounded-rgMedia object-contain" />
+                </template>
+            </div>
+            @endif
+
             <div data-testid="field-error-image" class="mt-1">
                 <x-input-error :messages="$errors->get('image')" />
             </div>
         </div>
 
+        {{-- Source URL --}}
         <div>
-            <x-input-label for="source_url" value="Source URL" />
+            <x-input-label for="source_url" :value="__('ui.upload.source_url')" />
             <x-ui.input
                 id="source_url"
                 name="source_url"
                 type="url"
                 wire:model.defer="sourceUrl"
-                placeholder="https://example.com/original"
+                :placeholder="__('ui.upload.source_url_placeholder')"
                 class="mt-1"
             />
             <div data-testid="field-error-source-url" class="mt-1">
@@ -143,133 +160,44 @@
             </div>
         </div>
 
+        {{-- Tags --}}
         <div>
-            <x-input-label for="originTruth" value="Source" />
-            <select
-                id="originTruth"
-                name="originTruth"
-                wire:model.defer="originTruth"
-                class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
-            >
-                <option value="{{ OriginType::Unknown->value }}">Keep unknown</option>
-                <option value="{{ OriginType::Homemade->value }}">Source A</option>
-                <option value="{{ OriginType::Restaurant->value }}">Source B</option>
-            </select>
-            <div data-testid="field-error-origin-truth" class="mt-1">
-                <x-input-error :messages="$errors->get('originTruth')" />
-            </div>
-        </div>
+            <x-input-label :value="__('ui.upload.tags')" />
+            <div class="mt-1" data-testid="upload-tags" x-data="{ tagSearch: '' }">
 
-        <div>
-            <x-input-label for="cuisineTruth" value="Category" />
-            <select
-                id="cuisineTruth"
-                name="cuisineTruth"
-                wire:model.defer="cuisineTruth"
-                class="mt-1 block h-10 w-full rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 text-[13.5px] text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
-            >
-                <option value="{{ CuisineType::Unknown->value }}">Keep unknown</option>
-                <option value="{{ CuisineType::Italian->value }}">Category A</option>
-                <option value="{{ CuisineType::Asian->value }}">Category B</option>
-                <option value="{{ CuisineType::American->value }}">Category C</option>
-                <option value="{{ CuisineType::Mexican->value }}">Category D</option>
-                <option value="{{ CuisineType::Other->value }}">Other</option>
-            </select>
-            <div data-testid="field-error-cuisine-truth" class="mt-1">
-                <x-input-error :messages="$errors->get('cuisineTruth')" />
-            </div>
-        </div>
+                {{-- Search --}}
+                <input
+                    type="search"
+                    x-model="tagSearch"
+                    :placeholder="'{{ __('ui.upload.tags_search') }}'"
+                    class="rg-search-input mb-2 h-9 w-full rounded-rgControl border border-rg-border2 bg-rg-card px-3 text-[13px] text-rg-text placeholder-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
+                    data-testid="upload-tag-search"
+                />
 
-        <div>
-            <x-input-label value="Tags" />
-            <div
-                class="mt-1"
-                data-testid="upload-tags"
-                x-data="{ open: false }"
-                x-on:mousedown.window="!$el.contains($event.target) && (open = false)"
-                x-on:keydown.escape.window="open = false"
-            >
-                <div class="relative">
-                    <x-ui.input
-                        name="tagSearch"
-                        type="search"
-                        wire:model.live.debounce.250ms="tagSearch"
-                        x-on:focus="open = true"
-                        x-on:input="open = true"
-                        placeholder="Search or select tags"
-                        data-testid="upload-tag-search"
-                        role="combobox"
-                        aria-autocomplete="list"
-                        aria-controls="upload-tag-listbox"
-                        x-bind:aria-expanded="open"
-                    />
-
-                    <div
-                        id="upload-tag-listbox"
-                        role="listbox"
-                        aria-label="Available tags"
-                        aria-multiselectable="true"
-                        x-cloak
-                        x-show="open"
-                        class="absolute left-0 right-0 z-30 mt-2 max-h-60 overflow-y-auto rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
-                        data-testid="upload-tag-menu"
-                    >
-                        @forelse($filteredTags as $tag)
-                            <button
-                                type="button"
-                                wire:click="toggleTag({{ $tag['id'] }})"
-                                class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-[13px] font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text"
-                                data-testid="upload-tag-{{ $tag['id'] }}"
-                                id="upload-tag-option-{{ $tag['id'] }}"
-                                role="option"
-                                aria-selected="{{ in_array($tag['id'], $tagIds, true) ? 'true' : 'false' }}"
-                            >
-                                <input
-                                    type="checkbox"
-                                    @checked(in_array($tag['id'], $tagIds, true))
-                                    class="size-3.5 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-rg-accent"
-                                    tabindex="-1"
-                                    readonly
-                                >
-                                {{ $tag['name'] }}
-                            </button>
-                        @empty
-                            <span class="block px-3 py-2 text-sm text-rg-muted">No matching tags.</span>
-                        @endforelse
-                    </div>
+                {{-- Tag pills --}}
+                <div class="flex flex-wrap gap-1.5" data-testid="upload-tag-pills">
+                    @forelse($filteredTags as $tag)
+                        <button
+                            type="button"
+                            wire:click="toggleTag({{ $tag['id'] }})"
+                            x-show="tagSearch === '' || '{{ mb_strtolower($tag['name']) }}'.includes(tagSearch.toLowerCase())"
+                            data-testid="upload-tag-{{ $tag['id'] }}"
+                            @class([
+                                'inline-flex cursor-pointer items-center rounded-rgPill border px-2.5 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent',
+                                'border-rg-accentBorder bg-rg-accentSoft text-rg-accent2' => in_array($tag['id'], $tagIds, true),
+                                'border-rg-border2 bg-rg-card text-rg-text2 hover:border-rg-accentBorder hover:text-rg-text' => !in_array($tag['id'], $tagIds, true),
+                            ])
+                        >
+                            @if(in_array($tag['id'], $tagIds, true))
+                                <x-ui.icon name="check" class="mr-1 size-3" />
+                            @endif
+                            {{ $tag['name'] }}
+                        </button>
+                    @empty
+                        <span class="text-sm text-rg-muted">{{ __('ui.upload.tags_no_match') }}</span>
+                    @endforelse
                 </div>
 
-                @if($selectedTags !== [])
-                    <div class="mt-2 flex flex-wrap gap-2" data-testid="upload-selected-tags">
-                        @foreach($selectedTags as $tag)
-                            <button
-                                type="button"
-                                wire:click="toggleTag({{ $tag['id'] }})"
-                                class="inline-flex cursor-pointer items-center gap-1.5 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft px-2.5 py-1 text-xs font-semibold text-rg-accent2"
-                            >
-                                {{ $tag['name'] }}
-                                <x-ui.icon name="x" class="size-3" />
-                            </button>
-                        @endforeach
-                    </div>
-                @endif
-
-                @if($popularTags !== [])
-                    <div class="mt-2">
-                        <p class="text-xs font-semibold text-rg-muted">Popular tags</p>
-                        <div class="mt-1.5 flex flex-wrap gap-2" data-testid="upload-popular-tags">
-                            @foreach($popularTags as $tag)
-                                <button
-                                    type="button"
-                                    wire:click="toggleTag({{ $tag['id'] }})"
-                                    class="inline-flex cursor-pointer items-center rounded-rgPill border border-rg-border2 bg-rg-card px-2.5 py-1 text-xs font-semibold text-rg-text2 transition hover:border-rg-accentBorder hover:text-rg-text"
-                                >
-                                    {{ $tag['name'] }}
-                                </button>
-                            @endforeach
-                        </div>
-                    </div>
-                @endif
             </div>
             <div data-testid="field-error-tags" class="mt-1">
                 <x-input-error :messages="$errors->get('tagIds')" />
@@ -279,15 +207,15 @@
 
         @if($submitError)
             <x-ui.error-message
-                title="Something went wrong"
+                :title="__('ui.upload.error_generic')"
                 :message="$submitError"
             />
         @endif
 
         <div class="flex justify-end">
             <x-ui.button type="submit" wire:loading.attr="disabled">
-                <span wire:loading.remove wire:target="submit">Create post</span>
-                <span wire:loading wire:target="submit">Uploading...</span>
+                <span wire:loading.remove wire:target="submit">{{ __('ui.upload.submit') }}</span>
+                <span wire:loading wire:target="submit">{{ __('ui.upload.submitting') }}</span>
             </x-ui.button>
         </div>
     </form>

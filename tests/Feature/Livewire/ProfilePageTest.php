@@ -240,8 +240,7 @@ it('shows report user placeholder to authenticated non owner', function () {
 
     Livewire::actingAs($viewer)
         ->test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertSee('Report user')
-        ->assertSee('data-testid="report-user-placeholder"', false);
+        ->assertSee('data-testid="report-user-button"', false);
 });
 
 it('does not show report user placeholder to profile owner', function () {
@@ -249,16 +248,14 @@ it('does not show report user placeholder to profile owner', function () {
 
     Livewire::actingAs($owner)
         ->test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertDontSee('Report user')
-        ->assertDontSee('data-testid="report-user-placeholder"', false);
+        ->assertDontSee('data-testid="report-user-button"', false);
 });
 
 it('does not show report user placeholder to guest', function () {
     User::factory()->create(['username' => 'chef_ivan']);
 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertDontSee('Report user')
-        ->assertDontSee('data-testid="report-user-placeholder"', false);
+        ->assertDontSee('data-testid="report-user-button"', false);
 });
 
 it('does not create reports from report user placeholder', function () {

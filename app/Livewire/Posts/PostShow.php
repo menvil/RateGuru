@@ -50,6 +50,7 @@ final class PostShow extends Component
     {
         $post = $this->post;
         $openGraph = app(PostOpenGraph::class);
+        $user = auth()->user();
 
         return view('livewire.posts.post-show', [
             'ogDescription' => $openGraph->description($post),
@@ -59,6 +60,9 @@ final class PostShow extends Component
             'post' => $post,
             'activeRatingGroups' => $configuration->activeGroups(),
             'projectSettings' => $projectSettings,
+            'canReportPost' => $user?->can('report', $post) ?? false,
+            'canDeletePost' => $user?->can('deleteFromFeed', $post) ?? false,
+            'canModeratePost' => $user?->can('hide', $post) ?? false,
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

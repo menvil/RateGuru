@@ -5,7 +5,7 @@
     data-post-id="{{ $post->id }}"
     role="button"
     tabindex="0"
-    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, postVoteError: '' }"
+    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false, postVoteError: '' }"
     x-on:post-vote-error.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = $event.detail.message"
     wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
@@ -57,16 +57,19 @@
         @endif
 
         @if($post->public_image_url)
-            <div
-                class="mt-3 block w-full rounded-rgMedia"
+            <button
+                type="button"
+                class="mt-3 block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                x-on:click.stop="imageOpen = true"
                 data-testid="post-card-image-open"
+                aria-label="Open image fullscreen"
             >
                 <img
                     src="{{ $post->public_image_url }}"
                     alt="{{ $post->title }}"
                     class="aspect-[16/10] w-full rounded-rgMedia object-cover"
                 >
-            </div>
+            </button>
         @else
             <div class="mt-3">
                 <x-ui.image-placeholder label="Post image" ratio="feed" />
@@ -201,6 +204,17 @@
             @if($post->exists && $postCardSettings->featureEnabled('show_share_buttons'))
                 <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
                     <x-sharing.share-buttons :post="$post" />
+                </x-ui.modal>
+            @endif
+
+            @if($post->public_image_url)
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
+                    <img
+                        src="{{ $post->public_image_url }}"
+                        alt="{{ $post->title }}"
+                        class="max-h-[80vh] w-full rounded-rgMedia object-contain"
+                        data-testid="post-card-fullscreen-image"
+                    >
                 </x-ui.modal>
             @endif
         </footer>

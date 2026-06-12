@@ -8,6 +8,7 @@ use App\Enums\ReportReason;
 use App\Exceptions\Reports\CannotReportContentException;
 use App\Models\Comment;
 use App\Models\Post;
+use App\Models\User;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\Rule;
@@ -69,6 +70,9 @@ final class ReportModal extends Component
 
             'comment' => Comment::query()
                 ->where('status', CommentStatus::Visible)
+                ->find($this->reportableId),
+
+            'user' => User::query()
                 ->find($this->reportableId),
 
             default => abort(404),

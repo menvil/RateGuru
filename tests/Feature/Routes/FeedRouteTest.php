@@ -19,8 +19,6 @@ it('renders base feed layout', function () {
 it('renders generic feed copy', function () {
     $this->get(route('feed'))
         ->assertOk()
-        ->assertSee('Source')
-        ->assertSee('Category')
         ->assertDontSee('Latest dishes')
         ->assertDontSee('Cuisine guess')
         ->assertDontSee('>Origin<', false)
