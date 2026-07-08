@@ -31,7 +31,7 @@ abstract class SetupPresetSeeder extends Seeder
 
     public function run(): void
     {
-        $key    = $this->presetKey();
+        $key = $this->presetKey();
         $preset = config("project_presets.{$key}");
 
         if ($preset === null) {
@@ -54,7 +54,7 @@ abstract class SetupPresetSeeder extends Seeder
     private function applySettings(array $preset): void
     {
         $settings = PresetSettingsBuilder::build($preset['settings']);
-        $flags    = $preset['feature_flags'] ?? [];
+        $flags = $preset['feature_flags'] ?? [];
 
         ProjectSettings::updateOrCreate(
             ['id' => 1],
@@ -77,37 +77,37 @@ abstract class SetupPresetSeeder extends Seeder
         RatingOption::query()->update(['is_active' => false, 'archived_at' => now()]);
 
         foreach ($groups as $groupData) {
-            [$label, $labelTranslations]       = $this->splitTranslatable($groupData['label'] ?? null);
-            [$description, $descTranslations]  = $this->splitTranslatable($groupData['description'] ?? null);
+            [$label, $labelTranslations] = $this->splitTranslatable($groupData['label'] ?? null);
+            [$description, $descTranslations] = $this->splitTranslatable($groupData['description'] ?? null);
 
             $group = RatingGroup::query()->updateOrCreate(
                 ['key' => $groupData['key']],
                 [
-                    'label'                  => $label,
-                    'label_translations'     => $labelTranslations,
-                    'description'            => $description,
+                    'label' => $label,
+                    'label_translations' => $labelTranslations,
+                    'description' => $description,
                     'description_translations' => $descTranslations,
-                    'sort_order'             => $groupData['sort_order'] ?? 10,
-                    'is_active'              => true,
-                    'min_options'            => 2,
-                    'max_options'            => 10,
+                    'sort_order' => $groupData['sort_order'] ?? 10,
+                    'is_active' => true,
+                    'min_options' => 2,
+                    'max_options' => 10,
                 ],
             );
 
             foreach ($groupData['options'] as $optionData) {
-                [$optLabel, $optLabelTranslations]      = $this->splitTranslatable($optionData['label'] ?? null);
-                [$optDesc, $optDescTranslations]        = $this->splitTranslatable($optionData['description'] ?? null);
+                [$optLabel, $optLabelTranslations] = $this->splitTranslatable($optionData['label'] ?? null);
+                [$optDesc, $optDescTranslations] = $this->splitTranslatable($optionData['description'] ?? null);
 
                 $group->options()->updateOrCreate(
                     ['key' => $optionData['key']],
                     [
-                        'label'                    => $optLabel,
-                        'label_translations'       => $optLabelTranslations,
-                        'description'              => $optDesc,
+                        'label' => $optLabel,
+                        'label_translations' => $optLabelTranslations,
+                        'description' => $optDesc,
                         'description_translations' => $optDescTranslations,
-                        'sort_order'               => $optionData['sort_order'] ?? 10,
-                        'is_active'                => true,
-                        'archived_at'              => null,
+                        'sort_order' => $optionData['sort_order'] ?? 10,
+                        'is_active' => true,
+                        'archived_at' => null,
                     ],
                 );
             }
@@ -127,22 +127,27 @@ abstract class SetupPresetSeeder extends Seeder
             return;
         }
 
-        Tag::query()->delete();
-
+        $keptSlugs = [];
         $count = 0;
+
         foreach ($tags as $tagData) {
             [$name, $nameTranslations] = $this->splitTranslatable($tagData);
             $slug = Str::slug($name);
+            $keptSlugs[] = $slug;
 
-            Tag::query()->create([
-                'name'               => $name,
-                'name_translations'  => $nameTranslations,
-                'slug'               => $slug,
-            ]);
+            Tag::query()->updateOrCreate(
+                ['slug' => $slug],
+                [
+                    'name' => $name,
+                    'name_translations' => $nameTranslations,
+                ],
+            );
             $count++;
         }
 
-        $this->command->line("  Tags: {$count} created (previous tags cleared.");
+        $removed = Tag::query()->whereNotIn('slug', $keptSlugs)->delete();
+
+        $this->command->line("  Tags: {$count} synced ({$removed} unused tags removed).");
     }
 
     /**

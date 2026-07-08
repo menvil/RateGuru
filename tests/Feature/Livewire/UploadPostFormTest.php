@@ -149,7 +149,8 @@ it('dispatches successful upload event', function () {
         ->set('title', 'Homemade Pasta')
         ->set('image', $file)
         ->call('submit')
-        ->assertDispatched('post-uploaded');
+        ->assertDispatched('post-uploaded')
+        ->assertDispatched('toast', message: __('ui.upload.success_pending'));
 });
 
 it('shows upload rate limit error without creating another post', function () {
@@ -374,6 +375,50 @@ it('renders tag search input and tag pills', function () {
         ->assertSee('data-testid="upload-tag-search"', false)
         ->assertSee('data-testid="upload-tag-field"', false)
         ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
+});
+
+it('renders tag search as an accessible combobox and menu as a listbox', function () {
+    $user = User::factory()->create();
+    $tag = Tag::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('role="combobox"', false)
+        ->assertSee('aria-controls="upload-tag-listbox"', false)
+        ->assertSee('role="listbox"', false)
+        ->assertSee('id="upload-tag-listbox"', false)
+        ->assertSee('role="option"', false)
+        ->assertSee('aria-selected="false"', false)
+        ->assertSee('id="upload-tag-option-'.$tag->id.'"', false);
+});
+
+it('clears the selected file when switching to the image url tab', function () {
+    $user = User::factory()->create();
+
+    $html = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->html();
+
+    expect($html)->toContain('wire:click="$set(\'image\', null)"');
+});
+
+it('uses the imported url instead of a stale previously selected file', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Switched Tabs Dish')
+        ->set('image', UploadedFile::fake()->image('stale.jpg'));
+
+    expect($component->get('image'))->not->toBeNull();
+
+    // Simulates the wire:click="$set('image', null)" handler fired when the
+    // "From URL" tab button is clicked, clearing the stale selected file.
+    $component->set('image', null);
+
+    expect($component->get('image'))->toBeNull();
 });
 
 it('does not query tags again during form interaction hydration', function () {

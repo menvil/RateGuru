@@ -29,7 +29,7 @@
     <div class="min-w-0">
         <div class="flex min-w-0 items-start gap-2">
             @if($post->user?->username)
-                <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate x-on:click.stop class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent" tabindex="-1">
+                <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate x-on:click.stop class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
                     <x-ui.avatar :name="$post->user->name" size="md" />
                 </a>
             @else
@@ -37,7 +37,7 @@
             @endif
             <div class="min-w-0 flex-1">
                 @if($post->user?->username)
-                    <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none" tabindex="-1">{{ $post->user->name }}</a>
+                    <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
                 @else
                     <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</span>
                 @endif

@@ -7,7 +7,6 @@ use App\Models\Post;
 use App\Models\Tag;
 use Livewire\Livewire;
 
-
 it('hydrates search from query string', function () {
     Post::factory()->published()->create(['title' => 'Homemade Pasta']);
     Post::factory()->published()->create(['title' => 'Chocolate Cake']);
@@ -75,6 +74,8 @@ it('sets origin property from query string', function () {
 });
 
 it('hydrates multiple origin filters from query string', function () {
+    seedFeedFilterGroups();
+
     Post::factory()->published()->create([
         'title' => 'Home Dish',
         'origin_truth' => OriginType::Homemade,
@@ -85,9 +86,15 @@ it('hydrates multiple origin filters from query string', function () {
         'origin_truth' => OriginType::Restaurant,
     ]);
 
+    Post::factory()->published()->create([
+        'title' => 'Unrelated Dish',
+        'origin_truth' => OriginType::Unknown,
+    ]);
+
     $this->get('/?origin[0]=homemade&origin[1]=restaurant')
         ->assertSee('Home Dish')
-        ->assertSee('Restaurant Dish');
+        ->assertSee('Restaurant Dish')
+        ->assertDontSee('Unrelated Dish');
 });
 
 it('hydrates cuisine from query string', function () {

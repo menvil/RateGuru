@@ -20,6 +20,7 @@ it('renders post voting component on post show page', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('data-testid="post-show-footer"', false)
+        ->assertSee('data-testid="post-show-voting"', false)
         ->assertSee('data-testid="post-show-rating-controls"', false)
         ->assertDontSee('data-testid="post-show-side-panel"', false)
         ->assertDontSee('lg:grid-cols-[minmax(0,1fr)_360px]', false);
@@ -110,7 +111,6 @@ it('renders post metadata', function () {
         ->assertSee('Pasta')
         ->assertSee('Source');
 });
-
 
 it('renders the comments section on post page', function () {
     $post = Post::factory()->published()->create([

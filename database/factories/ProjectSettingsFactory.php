@@ -27,7 +27,7 @@ class ProjectSettingsFactory extends Factory
                 'show_comments' => true,
                 'show_share_buttons' => true,
                 'show_vote_breakdown' => true,
-                'show_follow_buttons' => false,
+                'show_follow_buttons' => true,
                 'post_detail_overlay_mode' => false,
                 'show_saved_posts' => false,
                 'allow_user_uploads' => true,

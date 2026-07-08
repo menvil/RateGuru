@@ -60,7 +60,7 @@
                 @endif
             </section>
 
-            <h2 data-testid="post-drawer-title" class="mt-4 pr-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
+            <h2 id="post-drawer-title" data-testid="post-drawer-title" class="mt-4 pr-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
 
             @if($post->description)
                 <p class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>

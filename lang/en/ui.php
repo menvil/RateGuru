@@ -160,6 +160,7 @@ return [
         'copy_link' => 'Copy post link',
         'remove_tag' => 'Remove :name',
         'primary_nav' => 'Primary',
+        'post_detail_dialog' => 'Post details',
     ],
     'errors' => [
         'not_found_title' => 'Page not found',
@@ -169,5 +170,6 @@ return [
     'user' => [
         'report' => 'Report user',
         'report_title' => 'Report user',
+        'unknown' => 'Unknown user',
     ],
 ];

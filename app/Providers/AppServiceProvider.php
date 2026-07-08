@@ -13,6 +13,7 @@ use App\Support\Theme\ThemeManager;
 use App\Support\View\AppLayoutData;
 use App\Support\VisualRegression\PestVisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotRunner;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -69,23 +70,25 @@ class AppServiceProvider extends ServiceProvider
         });
 
         View::composer('layouts.partials.app-sidebar-content', function ($view): void {
-            $locale   = app()->getLocale();
-            $activeOrigin  = (array) request('origin');
+            $locale = app()->getLocale();
+            $activeOrigin = (array) request('origin');
             $activeCuisine = (array) request('cuisine');
             $noFilters = $activeOrigin === [] && $activeCuisine === [];
 
-            $groups = RatingGroup::query()
-                ->active()
-                ->orderBy('sort_order')
-                ->with(['options' => fn ($q) => $q->active()->ordered()])
-                ->get()
-                ->values();
+            $groups = Cache::remember('sidebar-nav-rating-groups', 300, function () {
+                return RatingGroup::query()
+                    ->active()
+                    ->orderBy('sort_order')
+                    ->with(['options' => fn ($q) => $q->active()->ordered()])
+                    ->get()
+                    ->values();
+            });
 
             // Only first group shown in sidebar (second group is a feed-page dropdown only)
             $categories = [
                 [
-                    'label'  => __('ui.feed.all'),
-                    'href'   => route('feed'),
+                    'label' => __('ui.feed.all'),
+                    'href' => route('feed'),
                     'active' => $noFilters && blank(request('search')) && blank(request('sort')),
                 ],
             ];
@@ -94,25 +97,28 @@ class AppServiceProvider extends ServiceProvider
             if ($firstGroup !== null) {
                 foreach ($firstGroup->options as $option) {
                     $categories[] = [
-                        'label'  => $option->translatedLabel($locale),
-                        'href'   => route('feed', ['origin' => [$option->key]]),
+                        'label' => $option->translatedLabel($locale),
+                        'href' => route('feed', ['origin' => [$option->key]]),
                         'active' => in_array($option->key, $activeOrigin, true),
                     ];
                 }
             }
 
-            $topTags = Tag::query()
-                ->whereHas('posts', fn ($q) => $q->published())
-                ->withCount(['posts as published_posts_count' => fn ($q) => $q->published()])
-                ->orderByDesc('published_posts_count')
-                ->orderBy('name')
-                ->limit(5)
-                ->get()
-                ->map(fn ($tag): array => [
-                    'label' => '#'.$tag->slug,
-                    'href' => route('feed', ['search' => $tag->slug]),
-                ])
-                ->all();
+            // Not locale-sensitive: labels/hrefs are built from slugs, not translations.
+            $topTags = Cache::remember('sidebar-nav-top-tags', 300, function () {
+                return Tag::query()
+                    ->whereHas('posts', fn ($q) => $q->published())
+                    ->withCount(['posts as published_posts_count' => fn ($q) => $q->published()])
+                    ->orderByDesc('published_posts_count')
+                    ->orderBy('name')
+                    ->limit(5)
+                    ->get()
+                    ->map(fn ($tag): array => [
+                        'label' => '#'.$tag->slug,
+                        'href' => route('feed', ['search' => $tag->slug]),
+                    ])
+                    ->all();
+            });
 
             $fallbackTags = collect(['sample-a', 'sample-b', 'sample-c', 'sample-d', 'sample-e'])
                 ->map(fn (string $tag): array => [

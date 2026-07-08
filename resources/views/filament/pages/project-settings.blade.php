@@ -15,6 +15,15 @@
         the form's two-way data binding: server-rendered values were correct (visible
         in the Livewire snapshot), but the actual <input> DOM nodes stayed empty
         because Livewire hydrated against the wrong root.
+
+        Colors below are literal hex values rather than this app's `--rg-*` design
+        tokens (resources/css/theme.css) on purpose: those custom properties are
+        declared on the main site's `:root`/`[data-theme]` and only ever loaded by
+        the main Vite/Tailwind bundle. Filament's admin panel ships its own separate
+        CSS bundle and its own class-based dark-mode toggle (`.dark`), so the
+        `--rg-*` variables are never defined in this context — referencing them here
+        would silently resolve to nothing. This is a deliberate, scoped exception,
+        not an oversight.
     --}}
     <style>
         .rg-preset-box {
@@ -73,16 +82,16 @@
     </style>
 
     <div class="rg-preset-box">
-        <p class="rg-preset-title">Apply a preset</p>
+        <p class="rg-preset-title">{{ __('admin.project_settings.apply_preset_title') }}</p>
         <p class="rg-preset-desc">
-            Applying a preset will overwrite current project settings fields.
+            {{ __('admin.project_settings.apply_preset_description') }}
         </p>
         <div class="rg-preset-actions">
             @foreach(\App\Filament\Pages\ProjectSettingsPage::presetOptions() as $key => $label)
                 <button
                     type="button"
                     wire:click="applyPreset(@json($key))"
-                    wire:confirm="Apply preset '{{ $label }}'? This will overwrite current settings."
+                    wire:confirm="{{ __('admin.project_settings.apply_preset_confirm', ['preset' => $label]) }}"
                     class="rg-preset-btn"
                 >
                     {{ $label }}
@@ -96,7 +105,7 @@
 
         <div style="margin-top: 2.5rem; display: flex; justify-content: flex-end;">
             <x-filament::button type="submit">
-                Save settings
+                {{ __('admin.project_settings.save') }}
             </x-filament::button>
         </div>
     </form>

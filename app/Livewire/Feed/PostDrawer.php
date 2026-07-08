@@ -45,6 +45,13 @@ final class PostDrawer extends Component
         $this->postId = $postId;
         $this->justOpened = ! $this->isOpen;
         $this->isOpen = true;
+
+        // Mirrors FeedPage::selectPost's forwarding of the same event/payload for the
+        // split-grid path, so the drawer's own scroll-to-target listener (see
+        // post-drawer.blade.php) can bring the requested section (e.g. comments) into
+        // view once the panel has rendered — same event name/shape, reused rather than
+        // inventing a second one.
+        $this->dispatch('post-selected', postId: $postId, focus: $focus);
     }
 
     #[On('clear-selected-post')]

@@ -290,6 +290,40 @@ it('can render report modal component', function () {
         ->assertSee('data-testid="report-modal"', false);
 });
 
+it('submits user report from report modal', function () {
+    $user = User::factory()->create();
+    $target = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(ReportModal::class, [
+            'reportableType' => 'user',
+            'reportableId' => $target->id,
+        ])
+        ->set('reason', ReportReason::Offensive->value)
+        ->call('submit')
+        ->assertSet('submitted', true);
+
+    $this->assertDatabaseHas('reports', [
+        'reporter_id' => $user->id,
+        'target_type' => User::class,
+        'target_id' => $target->id,
+        'reason' => ReportReason::Offensive->value,
+    ]);
+});
+
+it('renders inline variant without its own trigger button or modal wrapper', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(ReportModal::class, [
+        'reportableType' => 'post',
+        'reportableId' => $post->id,
+        'variant' => 'inline',
+    ])
+        ->assertDontSee('data-testid="report-button"', false)
+        ->assertDontSee('data-testid="report-modal"', false)
+        ->assertSee('data-testid="report-form"', false);
+});
+
 it('renders compact report trigger with symmetric menu padding support', function () {
     $post = Post::factory()->published()->create();
 

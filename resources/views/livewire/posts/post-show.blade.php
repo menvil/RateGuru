@@ -235,13 +235,19 @@
                 <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
                     <div class="space-y-4">
                         <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description') }}</p>
+
+                        @if($deleteError)
+                            <p class="text-sm text-rg-dangerText">{{ $deleteError }}</p>
+                        @endif
+
                         <div class="flex justify-end gap-2">
                             <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">{{ __('ui.actions.cancel') }}</x-ui.button>
                             <x-ui.button
                                 type="button"
                                 variant="danger"
                                 wire:click="$dispatch('delete-post', { postId: {{ $post->id }} })"
-                                x-on:click="deleteOpen = false"
+                                wire:loading.attr="disabled"
+                                wire:target="deletePost"
                             >
                                 {{ __('ui.actions.delete') }}
                             </x-ui.button>

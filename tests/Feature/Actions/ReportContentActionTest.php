@@ -50,6 +50,23 @@ it('allows user to report comment', function () {
     expect($report->reason)->toBe(ReportReason::Offensive);
 });
 
+it('allows user to report another user', function () {
+    $user = User::factory()->create();
+    $target = User::factory()->create();
+
+    $report = app(ReportContentAction::class)->handle(
+        user: $user,
+        content: $target,
+        reason: ReportReason::Offensive,
+        message: 'This user is abusive.'
+    );
+
+    expect($report)->toBeInstanceOf(Report::class);
+    expect($report->target_type)->toBe(User::class);
+    expect($report->target_id)->toBe($target->id);
+    expect($report->reason)->toBe(ReportReason::Offensive);
+});
+
 it('does not allow guest to report content', function () {
     $post = Post::factory()->published()->create();
 

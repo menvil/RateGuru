@@ -106,7 +106,7 @@ final class UploadPostForm extends Component
             $this->submitError = $e->getMessage();
         } catch (\Throwable $e) {
             report($e);
-            $this->submitError = 'Something went wrong while creating your post.';
+            $this->submitError = __('ui.upload.error_generic');
         }
     }
 
@@ -151,6 +151,7 @@ final class UploadPostForm extends Component
             'selectedTags' => $this->selectedTags(),
             'popularTags' => $this->popularTags(),
             'filteredTags' => $this->filteredTags(),
+            'unselectedTags' => $this->unselectedTags(),
         ]);
     }
 
@@ -229,6 +230,16 @@ final class UploadPostForm extends Component
 
         return $tags
             ->take(12)
+            ->values()
+            ->all();
+    }
+
+    private function unselectedTags(): array
+    {
+        $selectedIds = collect($this->tagIds)->map(fn ($id): int => (int) $id)->all();
+
+        return collect($this->filteredTags())
+            ->filter(fn (array $tag): bool => ! in_array((int) $tag['id'], $selectedIds, true))
             ->values()
             ->all();
     }

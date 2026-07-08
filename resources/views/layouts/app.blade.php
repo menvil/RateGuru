@@ -17,7 +17,7 @@
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         <div class="min-h-screen" x-data="{ mobileNavOpen: false, mobileSearchOpen: false }">
             <header class="sticky top-0 z-40 border-b border-rg-border bg-rg-topbar" data-testid="app-header">
-                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4 md:gap-4 md:px-5 md:grid md:grid-cols-[1fr_minmax(0,480px)_auto]">
+                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4 md:gap-4 md:px-5 md:grid md:grid-cols-[auto_1fr_minmax(0,480px)_auto] lg:grid-cols-[1fr_minmax(0,480px)_auto]">
                     <button
                         type="button"
                         class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
@@ -305,6 +305,10 @@
                     x-cloak
                     x-on:select-post.window="open = true"
                     x-on:request-close-overlay.window="open = false"
+                    {{-- Deletion (see PostDrawer::deleteSelectedPost) closes via clear-selected-post
+                         directly, bypassing request-close-overlay, so the backdrop needs its own
+                         listener here too or it stays visible/dimmed after the panel is gone. --}}
+                    x-on:clear-selected-post.window="open = false"
                     data-testid="post-detail-overlay-backdrop-root"
                     class="pointer-events-none fixed inset-x-0 top-[60px] bottom-0 z-40"
                 >

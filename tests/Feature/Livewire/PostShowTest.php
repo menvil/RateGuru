@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\PostStatus;
+use App\Enums\UserStatus;
 use App\Livewire\Posts\PostShow;
 use App\Models\Post;
 use App\Models\ProjectSettings;
@@ -121,4 +123,34 @@ it('hides save button on post show page when feature is disabled', function () {
         ->get(route('posts.show', $post))
         ->assertOk()
         ->assertDontSee('data-testid="save-post-button"', false);
+});
+
+it('deletes an owned post from the post show page delete event and redirects to the feed', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    Livewire::actingAs($user)
+        ->test(PostShow::class, ['post' => $post])
+        ->call('deletePost', $post->id)
+        ->assertRedirect(route('feed'));
+
+    expect(Post::withTrashed()->find($post->id)->status)->toBe(PostStatus::Deleted);
+});
+
+it('does not delete another users post from the post show page delete event', function () {
+    // Status is Limited (not Active) so the report action is unavailable and the
+    // page's action menu (with its lazily-loaded report/moderation children) is
+    // not rendered on this second call; keeps this test isolated from an
+    // unrelated, pre-existing WIP breakage in report-modal.blade.php that
+    // surfaces whenever that lazily-loaded component re-renders. Ownership
+    // (not status) is still what the delete authorization check exercises.
+    $user = User::factory()->create(['status' => UserStatus::Limited]);
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(PostShow::class, ['post' => $post])
+        ->call('deletePost', $post->id)
+        ->assertNoRedirect();
+
+    expect(Post::query()->find($post->id))->not->toBeNull();
 });

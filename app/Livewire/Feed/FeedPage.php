@@ -161,20 +161,20 @@ class FeedPage extends Component
 
     private function normalizeFilters(): void
     {
-        $this->origin  = $this->normalizeFilterValues($this->origin, $this->originValues());
+        $this->origin = $this->normalizeFilterValues($this->origin, $this->originValues());
         $this->cuisine = $this->normalizeFilterValues($this->cuisine, $this->cuisineValues());
     }
 
     /** @return list<string> */
     private function originValues(): array
     {
-        return $this->activeGroups()->get(0)?->options->pluck('key')->all() ?? [];
+        return $this->activeGroups()->firstWhere('key', 'source')?->options->pluck('key')->all() ?? [];
     }
 
     /** @return list<string> */
     private function cuisineValues(): array
     {
-        return $this->activeGroups()->get(1)?->options->pluck('key')->all() ?? [];
+        return $this->activeGroups()->firstWhere('key', 'category')?->options->pluck('key')->all() ?? [];
     }
 
     /**
@@ -240,11 +240,11 @@ class FeedPage extends Component
             ->get();
     }
 
-    private function buildGroupOptions(int $index): array
+    private function buildGroupOptions(string $key): array
     {
         $locale = app()->getLocale();
 
-        return $this->activeGroups()->get($index)?->options
+        return $this->activeGroups()->firstWhere('key', $key)?->options
             ->map(fn ($opt) => [
                 'value' => $opt->key,
                 'label' => $opt->translatedLabel($locale),
@@ -257,10 +257,10 @@ class FeedPage extends Component
         $locale = app()->getLocale();
 
         return view('livewire.feed.feed-page', [
-            'originOptions'     => $this->buildGroupOptions(0),
-            'cuisineOptions'    => $this->buildGroupOptions(1),
-            'originGroupLabel'  => $this->activeGroups()->get(0)?->translatedLabel($locale) ?? __('ui.voting.source'),
-            'cuisineGroupLabel' => $this->activeGroups()->get(1)?->translatedLabel($locale) ?? __('ui.voting.category'),
+            'originOptions' => $this->buildGroupOptions('source'),
+            'cuisineOptions' => $this->buildGroupOptions('category'),
+            'originGroupLabel' => $this->activeGroups()->firstWhere('key', 'source')?->translatedLabel($locale) ?? __('ui.voting.source'),
+            'cuisineGroupLabel' => $this->activeGroups()->firstWhere('key', 'category')?->translatedLabel($locale) ?? __('ui.voting.category'),
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

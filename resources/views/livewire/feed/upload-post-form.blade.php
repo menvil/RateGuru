@@ -83,6 +83,7 @@
                 <button
                     type="button"
                     x-on:click="imageTab = 'url'"
+                    wire:click="$set('image', null)"
                     data-testid="image-tab-url"
                     :class="imageTab === 'url'
                         ? 'bg-rg-accent text-rg-onAccent'
@@ -230,6 +231,10 @@
                         class="h-7 min-w-[80px] flex-1 appearance-none border-0 bg-transparent p-0 text-[13px] text-rg-text placeholder-rg-muted outline-none focus:border-0 focus:outline-none focus:ring-0"
                         data-testid="upload-tag-search"
                         autocomplete="off"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-controls="upload-tag-listbox"
+                        :aria-expanded="tagOpen ? 'true' : 'false'"
                     />
                 </div>
 
@@ -239,14 +244,18 @@
                     x-show="tagOpen"
                     class="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     data-testid="upload-tag-menu"
+                    role="listbox"
+                    id="upload-tag-listbox"
                 >
-                    @php $unselected = collect($filteredTags)->filter(fn($t) => !in_array($t['id'], $tagIds, true))->values(); @endphp
-                    @forelse($unselected as $tag)
+                    @forelse($unselectedTags as $tag)
                         <button
                             type="button"
                             wire:click="toggleTag({{ $tag['id'] }})"
                             class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-[13px] text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                             data-testid="upload-tag-{{ $tag['id'] }}"
+                            role="option"
+                            id="upload-tag-option-{{ $tag['id'] }}"
+                            aria-selected="false"
                         >
                             {{ $tag['name'] }}
                         </button>

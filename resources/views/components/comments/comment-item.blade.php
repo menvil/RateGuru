@@ -11,7 +11,7 @@
             <x-ui.avatar :src="$comment->user?->avatar_url" :name="$comment->user->name" size="md" />
         </a>
     @else
-        <x-ui.avatar :src="$comment->user?->avatar_url" :name="$comment->user?->name ?? 'User'" size="md" />
+        <x-ui.avatar :src="$comment->user?->avatar_url" :name="$comment->user?->name ?? __('ui.user.unknown')" size="md" />
     @endif
 
     <div class="min-w-0">
@@ -22,7 +22,7 @@
                         {{ '@'.$comment->user->username }}
                     </a>
                 @else
-                    <span class="font-semibold text-rg-text">{{ $comment->user?->name ?? 'Unknown user' }}</span>
+                    <span class="font-semibold text-rg-text">{{ $comment->user?->name ?? __('ui.user.unknown') }}</span>
                 @endif
 
                 @if ($comment->created_at)

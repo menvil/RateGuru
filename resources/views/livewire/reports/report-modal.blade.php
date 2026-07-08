@@ -1,107 +1,40 @@
+{{--
+    The root element must have the exact same shape on every render regardless of
+    $variant. An earlier version branched the ROOT element itself
+    (@if($variant === 'inline') @include(...) @else <div>...</div> @endif), and
+    that alone broke Livewire's wire:lazy nested-child tracking for the 'menu'
+    variant used in comment-item.blade.php ("Invalid Livewire child tag name"),
+    even though that variant's own rendered output never changed — merely the
+    possibility of a differently-shaped root was enough to confuse it. Keeping
+    one unconditional root and branching only the content inside it avoids that.
+--}}
 <div
     class="leading-none"
-    x-data="{ reportOpen: false }"
+    x-data="{ reportOpen: {{ $variant === 'inline' ? 'true' : 'false' }} }"
     @keydown.escape.window="reportOpen = false"
 >
-    <button
-        type="button"
-        data-testid="report-button"
-        @click="reportOpen = true"
-        @class([
-            'cursor-pointer transition',
-            'inline-flex h-5 items-center text-xs font-semibold leading-none text-rg-muted hover:text-rg-dangerText' => $variant !== 'menu',
-            'flex w-full items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText' => $variant === 'menu',
-        ])
-    >
-        {{ __('ui.report.title') }}
-    </button>
+    @unless($variant === 'inline')
+        <button
+            type="button"
+            data-testid="report-button"
+            @click="reportOpen = true"
+            @class([
+                'cursor-pointer transition',
+                'inline-flex h-5 items-center text-xs font-semibold leading-none text-rg-muted hover:text-rg-dangerText' => $variant !== 'menu',
+                'flex w-full items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText' => $variant === 'menu',
+            ])
+        >
+            {{ __('ui.report.title') }}
+        </button>
+    @endunless
 
-    <x-ui.modal title="{{ __('ui.report.modal_title') }}" state="reportOpen" data-testid="report-modal">
-        @if($submitted)
-            <div data-testid="report-success">
-                <x-ui.empty-state
-                    title="{{ __('ui.report.submitted_title') }}"
-                    description="{{ __('ui.report.submitted_description') }}"
-                />
-            </div>
-        @else
-            <form data-testid="report-form" wire:submit.prevent="submit" class="space-y-4">
-                @error('report')
-                    <div data-testid="report-submit-error">
-                        <x-ui.error-message
-                            title="{{ __('ui.report.error_title') }}"
-                            :message="$message"
-                        />
-                    </div>
-                @enderror
-
-                <fieldset data-testid="report-reason-selector" class="space-y-2">
-                    <legend class="text-xs font-semibold uppercase tracking-wide text-rg-muted">
-                        {{ __('ui.report.reason_label') }}
-                    </legend>
-
-                    <div class="grid gap-2">
-                        @foreach($this->reasons as $reason)
-                            <label
-                                class="flex cursor-pointer items-center gap-3 rounded-rgControl border border-rg-border2 bg-rg-card2 px-3 py-2 text-sm text-rg-text transition has-[:checked]:border-rg-accent has-[:checked]:bg-rg-accentSoft hover:border-rg-accent"
-                            >
-                                <input
-                                    type="radio"
-                                    name="reason"
-                                    value="{{ $reason['value'] }}"
-                                    wire:model.live="reason"
-                                    class="size-4 accent-rg-accent"
-                                >
-                                <span>{{ $reason['label'] }}</span>
-                            </label>
-                        @endforeach
-                    </div>
-
-                    @error('reason')
-                        <p data-testid="report-reason-error" class="text-xs text-rg-dangerText">
-                            {{ $message }}
-                        </p>
-                    @enderror
-                </fieldset>
-
-                <div class="space-y-2">
-                    <label for="report-message" class="block text-xs font-semibold uppercase tracking-wide text-rg-muted">
-                        {{ __('ui.report.optional_details_label') }}
-                    </label>
-
-                    <x-ui.textarea
-                        id="report-message"
-                        name="message"
-                        wire:model.defer="message"
-                        rows="4"
-                        maxlength="1000"
-                        placeholder="{{ __('ui.report.optional_placeholder') }}"
-                    />
-
-                    <p class="text-xs text-rg-muted">
-                        {{ __('ui.report.optional_hint') }}
-                    </p>
-
-                    @error('message')
-                        <p data-testid="report-message-error" class="text-xs text-rg-dangerText">
-                            {{ $message }}
-                        </p>
-                    @enderror
-                </div>
-
-                <div class="flex justify-end">
-                    <x-ui.button
-                        type="submit"
-                        size="sm"
-                        data-testid="submit-report"
-                        wire:loading.attr="disabled"
-                        wire:target="submit"
-                    >
-                        <span wire:loading.remove wire:target="submit">{{ __('ui.report.submit') }}</span>
-                        <span wire:loading wire:target="submit">{{ __('ui.report.submitting') }}</span>
-                    </x-ui.button>
-                </div>
-            </form>
-        @endif
-    </x-ui.modal>
+    @if($variant === 'inline')
+        {{-- Inline variant renders just the form content; the caller owns the
+             trigger button and the modal wrapper (see profile-page.blade.php). --}}
+        @include('livewire.reports._report-modal-content')
+    @else
+        <x-ui.modal title="{{ __('ui.report.modal_title') }}" state="reportOpen" data-testid="report-modal">
+            @include('livewire.reports._report-modal-content')
+        </x-ui.modal>
+    @endif
 </div>

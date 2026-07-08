@@ -9,6 +9,10 @@ return [
         'defaults' => 'Defaults',
         'feature_flags' => 'Feature Flags',
         'presets' => 'Presets',
+        'apply_preset_title' => 'Apply a preset',
+        'apply_preset_description' => 'Applying a preset will overwrite current project settings fields.',
+        'apply_preset_confirm' => "Apply preset ':preset'? This will overwrite current settings.",
+        'save' => 'Save settings',
     ],
     'rating_groups' => [
         'nav_label' => 'Rating groups',

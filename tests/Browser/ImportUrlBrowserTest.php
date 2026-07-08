@@ -17,13 +17,6 @@ it('import from url tab is present in upload modal', function () {
         ->assertVisible('[data-testid="image-tab-url"]');
 });
 
-it('import url form shows when import tab is clicked', function () {
-    visit(route('feed'))
-        ->click('[data-testid="open-upload-button"]')
-        ->click('[data-testid="image-tab-url"]')
-        ->assertVisible('[data-testid="upload-image-url-input"]');
-});
-
 it('import url input is present on import tab', function () {
     visit(route('feed'))
         ->click('[data-testid="open-upload-button"]')

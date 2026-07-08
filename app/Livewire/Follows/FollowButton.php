@@ -70,6 +70,7 @@ final class FollowButton extends Component
     {
         if ($authorId === $this->author->id) {
             $this->isFollowing = $isFollowing;
+            $this->message = null;
         }
     }
 
