@@ -131,12 +131,6 @@
                 </button>
             @endif
             </div>
-
-            @if($this->canSeeFollowButton)
-                <div class="shrink-0 pb-1">
-                    <livewire:follows.follow-button :author="$profileUser" />
-                </div>
-            @endif
         </div>
 
         {{-- Tab Content --}}
@@ -149,34 +143,9 @@
                             :description="__('profile.no_posts_description')"
                         />
                     @else
-                        <div data-testid="profile-posts-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <div data-testid="profile-posts-grid" class="space-y-4">
                             @foreach($this->posts as $post)
-                                <a href="{{ route('posts.show', $post) }}" wire:navigate data-testid="profile-post-card-link">
-                                <x-ui.card variant="post" data-testid="profile-post-card" class="h-full transition-colors hover:border-rg-border2 hover:bg-rg-cardHover">
-                                    @if($post->public_image_url)
-                                        <img
-                                            src="{{ $post->public_image_url }}"
-                                            alt="{{ $post->title }}"
-                                            class="aspect-video w-full rounded-rgMedia object-cover"
-                                        >
-                                    @else
-                                        <x-ui.image-placeholder :label="__('profile.post_image')" ratio="feed" />
-                                    @endif
-
-                                    <div class="mt-3">
-                                        <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>
-
-                                        @if($post->truncated_description)
-                                            <p class="mt-1 text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
-                                        @endif
-                                    </div>
-
-                                    <footer class="mt-3 flex items-center gap-4 border-t border-rg-border pt-2.5 text-xs text-rg-muted">
-                                        <span>{{ __('profile.score') }} <span class="font-semibold text-rg-text2">{{ $post->score }}</span></span>
-                                        <span>{{ __('profile.comments', ['count' => $post->comments_count ?? 0]) }}</span>
-                                    </footer>
-                                </x-ui.card>
-                                </a>
+                                <x-feed.post-card :post="$post" wire:key="profile-post-{{ $post->id }}" />
                             @endforeach
                         </div>
 
@@ -227,22 +196,9 @@
                             description=""
                         />
                     @elseif($this->savedPosts)
-                        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <div class="space-y-4" data-testid="profile-saved-posts-grid">
                             @foreach($this->savedPosts as $post)
-                                <x-ui.card variant="post" data-testid="profile-saved-post-card">
-                                    @if($post->public_image_url)
-                                        <img
-                                            src="{{ $post->public_image_url }}"
-                                            alt="{{ $post->title }}"
-                                            class="aspect-video w-full rounded-rgMedia object-cover"
-                                        >
-                                    @else
-                                        <x-ui.image-placeholder :label="__('profile.post_image')" ratio="feed" />
-                                    @endif
-                                    <div class="mt-3">
-                                        <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>
-                                    </div>
-                                </x-ui.card>
+                                <x-feed.post-card :post="$post" wire:key="profile-saved-post-{{ $post->id }}" />
                             @endforeach
                         </div>
                         <div class="mt-6">

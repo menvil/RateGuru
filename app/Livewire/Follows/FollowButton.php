@@ -10,6 +10,7 @@ use App\Support\Follows\FollowState;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 final class FollowButton extends Component
@@ -56,10 +57,19 @@ final class FollowButton extends Component
             $result = $action->handle($viewer, $this->author);
             $this->isFollowing = $result->isFollowing;
             $this->message = null;
+            $this->dispatch('follow-state-changed', authorId: $this->author->id, isFollowing: $result->isFollowing);
         } catch (FollowFeatureDisabledException) {
             $this->message = __('follows.feature_disabled');
         } catch (CannotFollowAuthorException) {
             $this->message = __('follows.cannot_follow_author');
+        }
+    }
+
+    #[On('follow-state-changed')]
+    public function syncFollowState(int $authorId, bool $isFollowing): void
+    {
+        if ($authorId === $this->author->id) {
+            $this->isFollowing = $isFollowing;
         }
     }
 

@@ -28,6 +28,7 @@ class DefaultProjectSettingsSeeder extends Seeder
                     'show_share_buttons' => true,
                     'show_vote_breakdown' => true,
                     'show_follow_buttons' => false,
+                    'post_detail_overlay_mode' => false,
                     'show_saved_posts' => false,
                     'allow_user_uploads' => true,
                     'allow_guest_viewing' => true,

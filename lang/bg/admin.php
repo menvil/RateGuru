@@ -29,6 +29,7 @@ return [
         'show_share_buttons' => 'Показвай бутони за споделяне',
         'show_vote_breakdown' => 'Показвай разпределение на гласовете',
         'show_follow_buttons' => 'Показвай бутони за следване',
+        'post_detail_overlay_mode' => 'Отваряй публикациите в плъзгащ се панел',
         'show_saved_posts' => 'Показвай запазени публикации',
         'allow_user_uploads' => 'Разреши качване от потребители',
         'allow_guest_viewing' => 'Разреши преглед от гости',

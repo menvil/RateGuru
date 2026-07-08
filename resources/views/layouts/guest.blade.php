@@ -9,6 +9,7 @@
 
         <script>{!! file_get_contents(resource_path('js/theme-bootstrap.js')) !!}</script>
 
+        @fonts
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">

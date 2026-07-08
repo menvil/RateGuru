@@ -22,7 +22,16 @@
         x-on:mousedown.window="
             !$refs.tagBox?.contains($event.target) && (tagOpen = false)
         "
-        x-on:keydown.escape.window="tagOpen = false"
+        x-on:keydown.escape.window.capture="
+            if (tagOpen) { $event.stopImmediatePropagation(); tagOpen = false; }
+        "
+        x-on:upload-modal-opened.window="
+            previewUrl = null;
+            fileName = null;
+            imageTab = 'file';
+            tagOpen = false;
+            if ($refs.image) $refs.image.value = '';
+        "
     >
 
         {{-- Title --}}
@@ -204,7 +213,7 @@
                                 type="button"
                                 wire:click.stop="toggleTag({{ $tag['id'] }})"
                                 class="cursor-pointer text-rg-accent2 hover:text-rg-accent focus-visible:outline-none"
-                                aria-label="Remove {{ $tag['name'] }}"
+                                aria-label="{{ __('ui.a11y.remove_tag', ['name' => $tag['name']]) }}"
                             >
                                 <x-ui.icon name="x" class="size-3" />
                             </button>

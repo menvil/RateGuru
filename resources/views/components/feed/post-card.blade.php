@@ -5,8 +5,10 @@
     data-post-id="{{ $post->id }}"
     role="button"
     tabindex="0"
-    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false, postVoteError: '' }"
+    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false, postVoteError: '', menuId: $id('post-actions-menu') }"
     x-on:post-vote-error.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = $event.detail.message"
+    x-on:keydown.escape.window="postMenuOpen = false"
+    x-on:dropdown-opened.window="if ($event.detail !== menuId) postMenuOpen = false"
     wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     wire:keydown.space.prevent="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
@@ -62,7 +64,7 @@
                 class="mt-3 block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                 x-on:click.stop="imageOpen = true"
                 data-testid="post-card-image-open"
-                aria-label="Open image fullscreen"
+                aria-label="{{ __('ui.a11y.open_image') }}"
             >
                 <img
                     src="{{ $post->public_image_url }}"
@@ -135,8 +137,8 @@
                 <div class="relative ml-auto">
                     <button
                         type="button"
-                        x-on:click="postMenuOpen = ! postMenuOpen"
-                        aria-label="Post actions"
+                        x-on:click="postMenuOpen = ! postMenuOpen; if (postMenuOpen) $dispatch('dropdown-opened', menuId)"
+                        aria-label="{{ __('ui.a11y.post_actions') }}"
                         data-testid="post-actions-menu-{{ $post->id }}"
                         class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >

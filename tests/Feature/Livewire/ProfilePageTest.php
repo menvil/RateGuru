@@ -130,6 +130,20 @@ it('renders user published posts grid on profile page', function () {
         ->assertSee('Published sample post');
 });
 
+it('renders profile posts as full feed post cards with the same controls as the feed', function () {
+    $user = User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    Post::factory()->for($user)->published()->create([
+        'title' => 'Published sample post',
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('data-testid="post-card"', false)
+        ->assertSee('data-testid="post-card-voting"', false);
+});
+
 it('renders generic profile copy', function () {
     $user = User::factory()->create([
         'username' => 'alice',

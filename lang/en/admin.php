@@ -29,6 +29,7 @@ return [
         'show_share_buttons' => 'Show share buttons',
         'show_vote_breakdown' => 'Show vote breakdown',
         'show_follow_buttons' => 'Show follow buttons',
+        'post_detail_overlay_mode' => 'Open posts in a sliding overlay panel',
         'show_saved_posts' => 'Show saved posts',
         'allow_user_uploads' => 'Allow user uploads',
         'allow_guest_viewing' => 'Allow guest viewing',

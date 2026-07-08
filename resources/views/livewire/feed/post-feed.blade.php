@@ -9,10 +9,22 @@
 
     <div wire:loading.remove class="grid gap-4 transition-opacity duration-200 sm:gap-5">
         @if($posts->isEmpty())
-            <x-ui.empty-state
-                title="No posts yet"
-                description="Published posts will appear here."
-            />
+            @if($followingOnly)
+                <x-ui.empty-state
+                    :title="__('ui.feed.following_empty_title')"
+                    :description="__('ui.feed.following_empty_description')"
+                />
+            @elseif(filled($search))
+                <x-ui.empty-state
+                    :title="__('ui.feed.no_results_title')"
+                    :description="__('ui.feed.no_results_description', ['search' => $search])"
+                />
+            @else
+                <x-ui.empty-state
+                    :title="__('ui.feed.no_posts_title')"
+                    :description="__('ui.feed.no_posts_description')"
+                />
+            @endif
         @else
             @foreach($posts as $post)
                 <x-feed.post-card

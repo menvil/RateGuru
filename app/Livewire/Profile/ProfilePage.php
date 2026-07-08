@@ -13,6 +13,7 @@ use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -105,6 +106,14 @@ final class ProfilePage extends Component
     {
         return auth()->check()
             && auth()->id() !== $this->profileUser->id;
+    }
+
+    #[On('follow-state-changed')]
+    public function onFollowStateChanged(int $authorId): void
+    {
+        if ($authorId === $this->profileUser->id) {
+            $this->profileUser->loadCount(['followerRelations', 'followingRelations']);
+        }
     }
 
     public function setTab(string $tab): void

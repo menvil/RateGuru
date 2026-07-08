@@ -68,7 +68,7 @@ class AppServiceProvider extends ServiceProvider
             $view->with('projectSettings', app(ProjectSettingsManager::class)->current());
         });
 
-        View::composer('layouts.partials.app-sidebar', function ($view): void {
+        View::composer('layouts.partials.app-sidebar-content', function ($view): void {
             $locale   = app()->getLocale();
             $activeOrigin  = (array) request('origin');
             $activeCuisine = (array) request('cuisine');
@@ -102,6 +102,9 @@ class AppServiceProvider extends ServiceProvider
             }
 
             $topTags = Tag::query()
+                ->whereHas('posts', fn ($q) => $q->published())
+                ->withCount(['posts as published_posts_count' => fn ($q) => $q->published()])
+                ->orderByDesc('published_posts_count')
                 ->orderBy('name')
                 ->limit(5)
                 ->get()
@@ -122,11 +125,14 @@ class AppServiceProvider extends ServiceProvider
             $user = auth()->user();
 
             $navItems = [
-                ['label' => __('ui.nav.home'), 'icon' => 'home', 'href' => route('feed'), 'active' => request()->routeIs('feed') && blank(request('sort')) && blank(request('search')) && $noFilters, 'testid' => null],
+                ['label' => __('ui.nav.home'), 'icon' => 'home', 'href' => route('feed'), 'active' => request()->routeIs('feed') && blank(request('sort')) && blank(request('search')) && blank(request('feed')) && $noFilters, 'testid' => null],
                 ['label' => __('ui.nav.top'), 'icon' => 'flame', 'href' => route('feed', ['sort' => 'top']), 'active' => request('sort') === 'top', 'testid' => null],
                 ['label' => __('ui.nav.new'), 'icon' => 'plus', 'href' => route('feed', ['sort' => 'newest']), 'active' => request('sort') === 'newest', 'testid' => null],
-                ['label' => __('ui.nav.following'), 'icon' => 'users', 'href' => '#', 'active' => false, 'testid' => null],
             ];
+
+            if ($user !== null) {
+                $navItems[] = ['label' => __('ui.nav.following'), 'icon' => 'users', 'href' => route('feed', ['feed' => 'following']), 'active' => request('feed') === 'following', 'testid' => 'nav-following'];
+            }
 
             if ($user !== null && $settings->featureEnabled('show_saved_posts')) {
                 $navItems[] = ['label' => __('saved_posts.saved_posts'), 'icon' => 'bookmark', 'href' => route('saved-posts.index'), 'active' => request()->routeIs('saved-posts.index'), 'testid' => 'nav-saved-posts'];

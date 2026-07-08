@@ -94,6 +94,7 @@ final class UploadPostForm extends Component
             ));
 
             $this->dispatch('post-uploaded', postId: $post->id);
+            $this->dispatch('toast', message: __('ui.upload.success_pending'));
 
             $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds']);
             $this->importedImageUrl = null;
@@ -177,6 +178,8 @@ final class UploadPostForm extends Component
             ->push($tagId)
             ->values()
             ->all();
+
+        $this->tagSearch = '';
     }
 
     private function loadTags(): void

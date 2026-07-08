@@ -86,7 +86,7 @@
                     class="block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     x-on:click.stop="imageOpen = true"
                     data-testid="post-show-image-open"
-                    aria-label="Open image fullscreen"
+                    aria-label="{{ __('ui.a11y.open_image') }}"
                 >
                     <img
                         src="{{ $post->public_image_url }}"
@@ -150,7 +150,7 @@
                             type="button"
                             x-on:click="menuOpen = ! menuOpen"
                             class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                            aria-label="Post actions"
+                            aria-label="{{ __('ui.a11y.post_actions') }}"
                             data-testid="post-show-actions-menu"
                         >
                             <x-ui.icon name="more" class="size-4" />

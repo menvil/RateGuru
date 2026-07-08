@@ -29,7 +29,7 @@
                 x-show="open"
                 x-cloak
                 data-testid="notifications-dropdown"
-                class="absolute right-0 top-11 z-40 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-rgCard border border-rg-border bg-rg-card shadow-rgPopover"
+                class="fixed inset-x-4 top-[68px] z-40 overflow-hidden rounded-rgCard border border-rg-border bg-rg-card shadow-rgPopover sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-72 sm:max-w-[calc(100vw-2rem)]"
             >
                 <div class="border-b border-rg-border px-4 py-3 text-sm font-semibold text-rg-text">
                     {{ __('ui.notifications.title') }}

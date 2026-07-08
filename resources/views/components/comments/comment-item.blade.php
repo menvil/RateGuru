@@ -2,7 +2,9 @@
     id="comment-{{ $comment->id }}"
     data-testid="comment-item"
     class="grid grid-cols-[32px_minmax(0,1fr)] gap-2.5 text-[13px]"
-    x-data="{ actionsOpen: false }"
+    x-data="{ actionsOpen: false, menuId: $id('comment-actions-menu') }"
+    x-on:keydown.escape.window="actionsOpen = false"
+    x-on:dropdown-opened.window="if ($event.detail !== menuId) actionsOpen = false"
 >
     @if($comment->user?->username)
         <a href="{{ route('profile.show', $comment->user->username) }}" wire:navigate class="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
@@ -34,10 +36,10 @@
                 <div class="relative -mt-1 inline-flex shrink-0" wire:click.stop wire:keydown.stop>
                     <button
                         type="button"
-                        aria-label="Comment actions"
+                        aria-label="{{ __('ui.a11y.comment_actions') }}"
                         aria-controls="comment-actions-{{ $comment->id }}"
                         x-bind:aria-expanded="actionsOpen"
-                        x-on:click="actionsOpen = ! actionsOpen"
+                        x-on:click="actionsOpen = ! actionsOpen; if (actionsOpen) $dispatch('dropdown-opened', menuId)"
                         class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
                         <x-ui.icon name="more" class="size-4" />
@@ -102,7 +104,7 @@
                 <div class="flex items-center gap-1.5">
                     <button
                         type="button"
-                        aria-label="Vote up"
+                        aria-label="{{ __('ui.a11y.vote_up') }}"
                         class="cursor-pointer bg-transparent p-0.5 text-rg-muted transition hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
                         <x-ui.icon name="arrow-up" class="size-3.5" />
@@ -110,7 +112,7 @@
                     <span class="text-[12.5px] font-semibold text-rg-text2">0</span>
                     <button
                         type="button"
-                        aria-label="Vote down"
+                        aria-label="{{ __('ui.a11y.vote_down') }}"
                         class="cursor-pointer bg-transparent p-0.5 text-rg-muted transition hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
                         <x-ui.icon name="arrow-down" class="size-3.5" />

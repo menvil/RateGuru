@@ -18,7 +18,7 @@
 >
     <button
         type="button"
-        aria-label="Vote up"
+        aria-label="{{ __('ui.a11y.vote_up') }}"
         aria-pressed="{{ $active === 'up' ? 'true' : 'false' }}"
         class="{{ $active === 'up' ? 'text-rg-good' : 'text-rg-muted' }} rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-good"
     >
@@ -27,7 +27,7 @@
     <span class="{{ $scoreClass }} text-[13px] font-bold">{{ $score }}</span>
     <button
         type="button"
-        aria-label="Vote down"
+        aria-label="{{ __('ui.a11y.vote_down') }}"
         aria-pressed="{{ $active === 'down' ? 'true' : 'false' }}"
         class="{{ $active === 'down' ? 'text-rg-accent2' : 'text-rg-muted' }} rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-accent2"
     >

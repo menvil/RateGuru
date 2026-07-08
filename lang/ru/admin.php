@@ -29,6 +29,7 @@ return [
         'show_share_buttons' => 'Показывать кнопки шаринга',
         'show_vote_breakdown' => 'Показывать распределение голосов',
         'show_follow_buttons' => 'Показывать кнопки подписки',
+        'post_detail_overlay_mode' => 'Открывать посты в выезжающей панели',
         'show_saved_posts' => 'Показывать сохранённые посты',
         'allow_user_uploads' => 'Разрешить загрузки пользователям',
         'allow_guest_viewing' => 'Разрешить просмотр гостям',

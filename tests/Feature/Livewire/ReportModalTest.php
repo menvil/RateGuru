@@ -258,7 +258,7 @@ it('has alpine report modal open close behavior', function () {
         ->assertSee('x-cloak', false)
         ->assertSee('@keydown.escape.window', false)
         ->assertSee('data-testid="report-button"', false)
-        ->assertSee('Close modal')
+        ->assertSee(__('ui.a11y.close'))
         ->assertDontSee('data-testid="close-report-modal"', false);
 });
 

@@ -7,6 +7,7 @@ use App\Models\Post;
 use App\Models\Tag;
 use Livewire\Livewire;
 
+
 it('hydrates search from query string', function () {
     Post::factory()->published()->create(['title' => 'Homemade Pasta']);
     Post::factory()->published()->create(['title' => 'Chocolate Cake']);
@@ -48,6 +49,8 @@ it('sets category property from query string', function () {
 });
 
 it('hydrates origin from query string', function () {
+    seedFeedFilterGroups();
+
     Post::factory()->published()->create([
         'title' => 'Home Dish',
         'origin_truth' => OriginType::Homemade,
@@ -64,6 +67,8 @@ it('hydrates origin from query string', function () {
 });
 
 it('sets origin property from query string', function () {
+    seedFeedFilterGroups();
+
     Livewire::withQueryParams(['origin' => 'restaurant'])
         ->test(FeedPage::class)
         ->assertSet('origin', ['restaurant']);
@@ -86,6 +91,8 @@ it('hydrates multiple origin filters from query string', function () {
 });
 
 it('hydrates cuisine from query string', function () {
+    seedFeedFilterGroups();
+
     Post::factory()->published()->create([
         'title' => 'Italian Dish',
         'cuisine_truth' => CuisineType::Italian,
@@ -102,6 +109,8 @@ it('hydrates cuisine from query string', function () {
 });
 
 it('sets cuisine property from query string', function () {
+    seedFeedFilterGroups();
+
     Livewire::withQueryParams(['cuisine' => 'mexican'])
         ->test(FeedPage::class)
         ->assertSet('cuisine', ['mexican']);

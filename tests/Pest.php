@@ -48,3 +48,22 @@ function something()
 {
     // ..
 }
+
+/**
+ * Create the two RatingGroups used by FeedPage filter logic:
+ *   group 0 (source)   → origin param  (homemade, restaurant)
+ *   group 1 (category) → cuisine param (italian, asian, american, mexican, other)
+ */
+function seedFeedFilterGroups(): void
+{
+    $source = \App\Models\RatingGroup::factory()->create(['key' => 'source', 'sort_order' => 10]);
+    \App\Models\RatingOption::factory()->create(['rating_group_id' => $source->id, 'key' => 'homemade',   'sort_order' => 10]);
+    \App\Models\RatingOption::factory()->create(['rating_group_id' => $source->id, 'key' => 'restaurant', 'sort_order' => 20]);
+
+    $category = \App\Models\RatingGroup::factory()->create(['key' => 'category', 'sort_order' => 20]);
+    \App\Models\RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'italian',  'sort_order' => 10]);
+    \App\Models\RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'asian',    'sort_order' => 20]);
+    \App\Models\RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'american', 'sort_order' => 30]);
+    \App\Models\RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'mexican',  'sort_order' => 40]);
+    \App\Models\RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'other',    'sort_order' => 50]);
+}

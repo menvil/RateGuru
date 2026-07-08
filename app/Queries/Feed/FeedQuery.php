@@ -4,6 +4,7 @@ namespace App\Queries\Feed;
 
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
+use App\Models\Follow;
 use App\Models\Post;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -22,10 +23,20 @@ final class FeedQuery
         string $sort = 'newest',
         array|string|null $origin = null,
         array|string|null $cuisine = null,
+        ?int $followedByUserId = null,
     ): Builder {
         $query = $this->base()
             ->published()
             ->with(['user', 'tags']);
+
+        if ($followedByUserId !== null) {
+            $query->whereIn(
+                'user_id',
+                Follow::query()
+                    ->where('follower_id', $followedByUserId)
+                    ->select('author_id'),
+            );
+        }
 
         if ($tag !== null && $tag !== '') {
             $query->whereHas('tags', function (Builder $tagQuery) use ($tag) {
@@ -80,8 +91,9 @@ final class FeedQuery
         ?int $perPage = null,
         array|string|null $origin = null,
         array|string|null $cuisine = null,
+        ?int $followedByUserId = null,
     ): LengthAwarePaginator {
-        return $this->query(search: $search, tag: $tag, sort: $sort, origin: $origin, cuisine: $cuisine)
+        return $this->query(search: $search, tag: $tag, sort: $sort, origin: $origin, cuisine: $cuisine, followedByUserId: $followedByUserId)
             ->paginate($this->normalizePerPage($perPage));
     }
 

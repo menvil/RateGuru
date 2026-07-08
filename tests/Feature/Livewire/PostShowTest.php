@@ -3,6 +3,7 @@
 use App\Livewire\Posts\PostShow;
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\RatingGroup;
 use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Livewire\Livewire;
@@ -18,6 +19,9 @@ it('can render post show component for published post', function () {
 });
 
 it('renders generic post show copy', function () {
+    RatingGroup::factory()->create(['key' => 'source',   'label' => 'Source',   'sort_order' => 10]);
+    RatingGroup::factory()->create(['key' => 'category', 'label' => 'Category', 'sort_order' => 20]);
+
     $post = Post::factory()->published()->create([
         'title' => 'Generic Test Post',
     ]);

@@ -26,5 +26,5 @@ it('close button exists and is accessible on mobile drawer', function () {
 
     expect($html)
         ->toContain('data-testid="post-drawer-close"')
-        ->toContain('aria-label="Close drawer"');
+        ->toContain('aria-label="'.__('ui.a11y.close').'"');
 });

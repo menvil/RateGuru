@@ -14,14 +14,14 @@ class SortDropdown extends Component
     public function render(): View
     {
         $options = [
-            'newest' => 'Newest',
-            'top' => 'Top',
-            'hot' => 'Hot',
+            'newest' => __('ui.feed.sort.newest'),
+            'top'    => __('ui.feed.sort.top'),
+            'hot'    => __('ui.feed.sort.hot'),
         ];
 
         return view('livewire.feed.sort-dropdown', [
             'options' => $options,
-            'currentLabel' => $options[$this->sort] ?? 'Newest',
+            'currentLabel' => $options[$this->sort] ?? __('ui.feed.sort.newest'),
         ]);
     }
 }

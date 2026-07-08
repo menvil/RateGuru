@@ -33,7 +33,7 @@ it('renders modal shell accessibility and presentation attributes', function () 
         ->toContain('sm:max-w-xl')
         ->toContain('rounded-rgCard')
         ->toContain('border-rg-border2')
-        ->toContain('aria-label="Close modal"')
+        ->toContain('aria-label="'.__('ui.a11y.close').'"')
         ->toContain('x-on:click="open = false"');
 });
 
