@@ -329,7 +329,7 @@
                             x-transition:enter="motion-safe:transition-opacity motion-reduce:transition-none ease-out duration-200"
                             x-transition:enter-start="opacity-0"
                             x-transition:enter-end="opacity-100"
-                            x-transition:leave="motion-safe:transition-opacity motion-reduce:transition-none ease-in duration-150"
+                            x-transition:leave="motion-safe:transition-opacity motion-reduce:transition-none ease-in duration-200"
                             x-transition:leave-start="opacity-100"
                             x-transition:leave-end="opacity-0"
                             class="pointer-events-auto absolute inset-0 border-r border-rg-border2 bg-rg-overlay"

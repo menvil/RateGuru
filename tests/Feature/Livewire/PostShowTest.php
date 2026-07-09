@@ -131,7 +131,7 @@ it('deletes an owned post from the post show page delete event and redirects to 
 
     Livewire::actingAs($user)
         ->test(PostShow::class, ['post' => $post])
-        ->call('deletePost', $post->id)
+        ->call('deletePost')
         ->assertRedirect(route('feed'));
 
     expect(Post::withTrashed()->find($post->id)->status)->toBe(PostStatus::Deleted);
@@ -149,7 +149,7 @@ it('does not delete another users post from the post show page delete event', fu
 
     Livewire::actingAs($user)
         ->test(PostShow::class, ['post' => $post])
-        ->call('deletePost', $post->id)
+        ->call('deletePost')
         ->assertNoRedirect();
 
     expect(Post::query()->find($post->id))->not->toBeNull();

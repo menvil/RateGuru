@@ -1,86 +1,100 @@
 @inject('projectSettings', \App\Support\Settings\ProjectSettingsManager::class)
 @if($asOverlay)
-{{-- Visibility is Blade-driven (@if($isOpen)), not Alpine's x-show/x-if, because the
-     panel's CONTENT must keep updating via Livewire's normal morph while it stays open
-     (e.g. switching to a different post). <template x-if> was tried first and looked
-     right, but Alpine's morph integration deliberately shields x-if/x-show-controlled
-     subtrees from Livewire's own re-renders once cloned, so the content silently froze
-     after the very first post. Blade's own @if keeps the content live; the slide
-     animation is instead done by hand (see $justOpened on the component) since neither
-     x-show nor a bare x-transition reliably animates an element that Livewire itself
-     inserts via morph.
-
-     The <aside> is `absolute` inside an `overflow-hidden` wrapper bounded to the site's
-     own max-w-[1440px] area — not `fixed` directly against the viewport. With `fixed`,
-     the panel rendered as a fully opaque block sliding freely across the *entire* screen
-     (including the undimmed margin outside the site), so during the animation it was
-     plainly visible floating past the site's edge instead of being masked by it. Clipping
-     it to this bounded, positioned ancestor means anything sliding past the site's edge
-     is actually invisible, not just positioned off in the margin. --}}
+{{-- The <aside> is always mounted (not gated by @if($isOpen)) and its open/closed
+     state is expressed purely as a class driven by $isOpen. This is deliberate: when
+     an element is conditionally added/removed from the DOM via Livewire's morph, there
+     is no prior painted state for the browser to transition FROM, so getting a slide-in
+     to actually animate requires fighting the morph/paint timing by hand (a
+     requestAnimationFrame-based version and an Alpine x-transition-based version were
+     both tried here and both failed to reliably animate — the browser kept collapsing
+     the "off-screen" and "in place" states into a single paint and skipping the
+     transition, invisible at 200ms but obvious once the duration was turned up to
+     debug it). Keeping the node permanently in the DOM sidesteps the problem entirely:
+     Livewire's morph just updates the class ATTRIBUTE VALUE on an already-painted
+     element, which is a completely ordinary style change and a CSS transition fires
+     for it the same as it would for any other class swap — no JS timing tricks needed.
+     `inert` plus pointer-events-none keep it non-interactive and untabbable while
+     closed. --}}
 <div
     data-testid="post-detail-overlay-host"
     x-data="{ returnFocusEl: null }"
     class="pointer-events-none fixed inset-x-0 top-[60px] bottom-0 z-50"
 >
     <div class="relative mx-auto h-full w-full max-w-[1440px] overflow-hidden">
-        @if($isOpen)
-            <aside
-                x-data
-                x-init="
-                    document.documentElement.classList.add('overflow-hidden');
-                    @if($justOpened)
-                        returnFocusEl = document.activeElement;
-                        requestAnimationFrame(() => requestAnimationFrame(() => { $el.classList.remove('translate-x-full'); $el.focus(); }));
-                    @endif
-                "
-                x-on:request-close-overlay.window="
-                    $el.classList.add('translate-x-full');
-                    document.documentElement.classList.remove('overflow-hidden');
-                    setTimeout(() => { $wire.closeOverlay(); $dispatch('clear-selected-post'); returnFocusEl?.focus(); }, 200)
-                "
-                {{-- Deletion closes via clear-selected-post directly (no request-close-overlay),
-                     since the post is already gone server-side and there is nothing left to
-                     slide out over — so this cleans up immediately instead of duplicating the
-                     200ms slide-out delay above. Without this, deleting a post left the scroll
-                     lock and backdrop stuck after the <aside> itself was removed from the DOM
-                     by @if($isOpen), because request-close-overlay (the only other place that
-                     removed 'overflow-hidden') never fired. --}}
-                x-on:clear-selected-post.window="
-                    document.documentElement.classList.remove('overflow-hidden');
-                    returnFocusEl?.focus();
-                "
-                x-on:post-selected.window="
-                    if (! $event.detail.focus) return;
-                    $nextTick(() => {
-                        setTimeout(() => {
-                            requestAnimationFrame(() => {
-                                const selector = $event.detail.focus === 'comments' ? '[data-testid=\'drawer-comments-slot\']' : null;
-                                const targetEl = selector ? $el.querySelector(selector) : null;
-                                if (targetEl) {
-                                    $el.scrollTo({ top: targetEl.offsetTop - 12, behavior: 'smooth' });
-                                }
-                            });
-                        }, 80);
-                    });
-                "
-                x-on:keydown.escape.window="$dispatch('request-close-overlay')"
-                role="dialog"
-                aria-modal="true"
-                tabindex="-1"
-                @if($post)
-                    aria-labelledby="post-drawer-title"
-                @else
-                    aria-label="{{ __('ui.a11y.post_detail_dialog') }}"
-                @endif
-                data-testid="post-detail-overlay"
-                @class([
-                    'pointer-events-auto absolute right-0 top-0 bottom-0 w-full overflow-y-auto border-l border-rg-border bg-rg-card px-4 py-5 shadow-rgPopover transition-transform duration-200 ease-out motion-reduce:transition-none sm:px-6 md:w-[min(70vw,1008px)] focus:outline-none',
-                    'translate-x-full' => $justOpened,
-                ])
-            >
-                @include('livewire.feed.post-drawer-content')
-            </aside>
-        @endif
+        <aside
+            x-data
+            {{-- Open is flipped client-side the moment the (browser-level) select-post
+                 event fires, without waiting for the server round trip. When the open
+                 class only arrived with the Livewire morph, the same rendering update
+                 that revealed the panel also inserted the whole post content, and the
+                 browser collapsed before/after into a single paint — the slide-IN never
+                 animated (slide-OUT always worked, because closing is a class-only
+                 morph). Flipping the class here, frames before the morph lands, gives
+                 the transition its own clean start; the morph then re-renders the same
+                 open-state classes as a no-op. --}}
+            x-on:select-post.window="
+                $el.classList.remove('translate-x-full', 'pointer-events-none', 'shadow-none');
+                $el.classList.add('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover');
+                $el.removeAttribute('inert');
+            "
+            x-on:post-selected.window="
+                document.documentElement.classList.add('overflow-hidden');
+                returnFocusEl = document.activeElement;
+                $nextTick(() => $el.focus());
+                if (! $event.detail.focus) return;
+                $nextTick(() => {
+                    setTimeout(() => {
+                        requestAnimationFrame(() => {
+                            const selector = $event.detail.focus === 'comments' ? '[data-testid=\'drawer-comments-slot\']' : null;
+                            const targetEl = selector ? $el.querySelector(selector) : null;
+                            if (targetEl) {
+                                $el.scrollTo({ top: targetEl.offsetTop - 12, behavior: 'smooth' });
+                            }
+                        });
+                    }, 80);
+                });
+            "
+            x-on:request-close-overlay.window="
+                document.documentElement.classList.remove('overflow-hidden');
+                $wire.closeOverlay();
+                $dispatch('clear-selected-post');
+                returnFocusEl?.focus();
+            "
+            {{-- Deletion closes via clear-selected-post directly (no request-close-overlay),
+                 since the post is already gone server-side — this still shares the same
+                 close styling/transition. Without this listener, deleting a post left the
+                 scroll lock stuck, because request-close-overlay (the only other place that
+                 removed 'overflow-hidden') never fired. --}}
+            x-on:clear-selected-post.window="
+                document.documentElement.classList.remove('overflow-hidden');
+                returnFocusEl?.focus();
+            "
+            x-on:keydown.escape.window="$dispatch('request-close-overlay')"
+            role="dialog"
+            aria-modal="true"
+            tabindex="-1"
+            @if($post)
+                aria-labelledby="post-drawer-title"
+            @else
+                aria-label="{{ __('ui.a11y.post_detail_dialog') }}"
+            @endif
+            @unless($isOpen) inert @endunless
+            data-testid="post-detail-overlay"
+            @class([
+                {{-- transition-[translate,...]: Tailwind v4's translate-x-* utilities set the
+                     native CSS `translate` property (not `transform`), so `translate` is what
+                     must be listed in transition-property for the slide to animate. --}}
+                'absolute right-0 top-0 bottom-0 w-full overflow-y-auto border-l border-rg-border bg-rg-card px-4 py-5 transition-[translate,box-shadow] duration-200 ease-out motion-reduce:transition-none sm:px-6 md:w-[min(70vw,1008px)] focus:outline-none',
+                'pointer-events-auto translate-x-0 shadow-rgPopover' => $isOpen,
+                {{-- shadow-none while closed: the panel parks with its left edge flush against
+                     the site's right border, so a persistent shadow's blur would bleed left into
+                     the visible page as a permanent smudge along the site edge. The shadow is
+                     part of the transition so it fades in/out with the slide. --}}
+                'pointer-events-none translate-x-full shadow-none' => ! $isOpen,
+            ])
+        >
+            @include('livewire.feed.post-drawer-content')
+        </aside>
     </div>
 </div>
 @else

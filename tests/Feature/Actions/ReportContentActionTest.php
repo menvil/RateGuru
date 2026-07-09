@@ -65,6 +65,8 @@ it('allows user to report another user', function () {
     expect($report->target_type)->toBe(User::class);
     expect($report->target_id)->toBe($target->id);
     expect($report->reason)->toBe(ReportReason::Offensive);
+    expect($report->message)->toBe('This user is abusive.');
+    expect($report->reporter_id)->toBe($user->id);
 });
 
 it('does not allow guest to report content', function () {

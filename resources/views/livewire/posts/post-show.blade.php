@@ -245,7 +245,7 @@
                             <x-ui.button
                                 type="button"
                                 variant="danger"
-                                wire:click="$dispatch('delete-post', { postId: {{ $post->id }} })"
+                                wire:click="deletePost"
                                 wire:loading.attr="disabled"
                                 wire:target="deletePost"
                             >

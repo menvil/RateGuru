@@ -39,12 +39,11 @@ final class PostShow extends Component
         // components, so no page re-render is needed for them.
     }
 
-    #[On('delete-post')]
-    public function deletePost(int $postId, FeedPostDeletionService $feedPostDeletionService): void
+    public function deletePost(FeedPostDeletionService $feedPostDeletionService): void
     {
         $this->deleteError = null;
 
-        $result = $feedPostDeletionService->deleteForUser(auth()->user(), $postId);
+        $result = $feedPostDeletionService->deleteForUser(auth()->user(), $this->postId);
 
         if ($result->error !== null) {
             $this->deleteError = $result->error;

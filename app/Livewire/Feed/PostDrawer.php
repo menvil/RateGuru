@@ -25,13 +25,6 @@ final class PostDrawer extends Component
     // Only meaningful when $asOverlay is true.
     public bool $isOpen = false;
 
-    // True only for the single render where isOpen just flipped false -> true.
-    // The view uses this to decide whether to start the panel off-screen (so it
-    // has something to slide in from) without that class reappearing on later
-    // re-renders that happen while already open (e.g. switching to a different
-    // post), which would otherwise snap the panel back off-screen every time.
-    public bool $justOpened = false;
-
     // Vote events are handled by the nested post-voting / rating-voting
     // components, which self-update in place. The drawer intentionally does
     // not re-render on votes so the card does not reload.
@@ -43,7 +36,6 @@ final class PostDrawer extends Component
     public function setSelectedPost(int $postId, ?string $focus = null): void
     {
         $this->postId = $postId;
-        $this->justOpened = ! $this->isOpen;
         $this->isOpen = true;
 
         // Mirrors FeedPage::selectPost's forwarding of the same event/payload for the
@@ -114,16 +106,5 @@ final class PostDrawer extends Component
                 && auth()->id() !== $post->user_id
                 && app(ProjectSettingsManager::class)->featureEnabled('show_follow_buttons'),
         ]);
-    }
-
-    // dehydrate() runs exactly once per real request, after render() has already used
-    // $justOpened to build this response's HTML — unlike render() itself, which Livewire's
-    // testing helpers (and potentially other internals) can invoke more than once per
-    // interaction, which made resetting the flag there unreliable (confirmed: the property
-    // read back as false immediately after the very request that set it true, while the
-    // HTML from that same render() call still correctly contained the off-screen class).
-    public function dehydrate(): void
-    {
-        $this->justOpened = false;
     }
 }
