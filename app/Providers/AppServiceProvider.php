@@ -146,6 +146,7 @@ class AppServiceProvider extends ServiceProvider
                 ['label' => __('ui.nav.home'), 'icon' => 'home', 'href' => route('feed'), 'active' => request()->routeIs('feed') && blank(request('sort')) && blank(request('search')) && blank(request('feed')) && $noFilters, 'testid' => null],
                 ['label' => __('ui.nav.top'), 'icon' => 'flame', 'href' => route('feed', ['sort' => 'top']), 'active' => request('sort') === 'top', 'testid' => null],
                 ['label' => __('ui.nav.new'), 'icon' => 'plus', 'href' => route('feed', ['sort' => 'newest']), 'active' => request('sort') === 'newest', 'testid' => null],
+                ['label' => __('ui.nav.hot'), 'icon' => 'trending', 'href' => route('feed', ['sort' => 'hot']), 'active' => request('sort') === 'hot', 'testid' => 'nav-hot'],
             ];
 
             if ($user !== null) {

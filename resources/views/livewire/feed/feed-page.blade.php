@@ -81,10 +81,6 @@
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >
-            <div class="mb-5 flex justify-end" data-testid="feed-rating-filters">
-                <livewire:feed.sort-dropdown wire:model.live="sort" />
-            </div>
-
             @php $matchedUsers = $this->matchedUsers(); @endphp
             @if($matchedUsers->isNotEmpty())
                 <div class="mb-5 rounded-rgCard border border-rg-border bg-rg-card p-4" data-testid="feed-user-results">

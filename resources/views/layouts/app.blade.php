@@ -7,6 +7,8 @@
 
         <title>{{ strip_tags($__env->yieldContent('title', $projectSettings->siteName())) }}</title>
 
+        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+
         @stack('meta')
 
         <script>{!! file_get_contents(resource_path('js/theme-bootstrap.js')) !!}</script>
@@ -16,7 +18,10 @@
     </head>
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         <div class="min-h-screen" x-data="{ mobileNavOpen: false, mobileSearchOpen: false }">
-            <header class="sticky top-0 z-40 border-b border-rg-border bg-rg-topbar" data-testid="app-header">
+            {{-- z-[60]: must sit above the post-detail overlay (z-50), or the header's own
+                 dropdowns (user menu, notifications, search suggestions) open invisibly
+                 behind the open panel — they cannot escape the header's stacking context. --}}
+            <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-testid="app-header">
                 <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4 md:gap-4 md:px-5 md:grid md:grid-cols-[auto_1fr_minmax(0,480px)_auto] lg:grid-cols-[1fr_minmax(0,480px)_auto]">
                     <button
                         type="button"
@@ -28,8 +33,8 @@
                         <x-ui.icon name="menu" class="size-5" />
                     </button>
 
-                    <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-1 py-1 text-[17px] font-extrabold tracking-normal text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-2 sm:text-[22px]" data-testid="site-brand">
-                        <span class="block truncate">{{ $projectSettings->siteName() }}</span>
+                    <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-1 py-1 text-[17px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-2 sm:text-[22px]" data-testid="site-brand">
+                        <x-brand-wordmark class="block truncate" />
                     </a>
 
                     <form
@@ -258,10 +263,10 @@
                     <div class="mb-4 flex items-center justify-between gap-2">
                         <a
                             href="{{ url('/') }}"
-                            class="min-w-0 truncate text-[20px] font-extrabold tracking-normal text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                            class="min-w-0 truncate text-[20px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                             data-testid="mobile-nav-brand"
                         >
-                            {{ $projectSettings->siteName() }}
+                            <x-brand-wordmark />
                         </a>
                         <div class="flex shrink-0 items-center gap-2">
                             <x-locale-switcher />

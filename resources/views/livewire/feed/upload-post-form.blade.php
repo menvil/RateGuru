@@ -168,6 +168,64 @@
             </div>
         </div>
 
+        {{-- Author's optional ground-truth answers to the voting questions. The toggle
+             is Alpine-driven (entangled, no server round trip): with a wire:model.live
+             checkbox the morph re-rendered the section and repainted the box unchecked,
+             so the click never appeared to register. --}}
+        @if($ratingGroups->isNotEmpty())
+            {{-- No space-y here: it would put a margin under the checkbox row even while
+                 the answers block is display:none (v4 space-y margins skip only the last
+                 child, and the hidden block still counts as one), making the section's
+                 bottom padding look bigger than the top. The answers block carries its
+                 own mt-3 instead. --}}
+            <div
+                class="rounded-rgCard border border-rg-border bg-rg-card2 p-3"
+                data-testid="upload-author-section"
+                x-data="{ knowsAnswer: $wire.entangle('knowsCorrectAnswer') }"
+            >
+                <div class="flex items-start gap-3">
+                    <input
+                        type="checkbox"
+                        id="knows_correct_answer"
+                        x-model="knowsAnswer"
+                        data-testid="upload-knows-answer-toggle"
+                        {{-- checked:bg-* is required: bg-rg-card (utilities layer) overrides the
+                             forms plugin's base-layer checked background, leaving the plugin's
+                             white checkmark invisible on the card background. --}}
+                        class="mt-0.5 size-4 rounded border-rg-border2 bg-rg-card text-rg-accent checked:border-rg-accent checked:bg-rg-accent focus:ring-2 focus:ring-rg-accent/25"
+                    >
+                    <div>
+                        <label for="knows_correct_answer" class="text-sm font-medium text-rg-text">
+                            {{ __('ui.upload.knows_answer') }}
+                        </label>
+                        <p class="mt-0.5 text-xs text-rg-muted">{{ __('ui.upload.knows_answer_hint') }}</p>
+                    </div>
+                </div>
+
+                <div class="mt-3 space-y-3" data-testid="upload-author-answers" x-show="knowsAnswer" x-cloak>
+                    @foreach($ratingGroups as $group)
+                        <div>
+                            <x-input-label for="author_answer_{{ $group->id }}" :value="$group->translatedLabel()" />
+                            <select
+                                id="author_answer_{{ $group->id }}"
+                                wire:model.defer="authorAnswers.{{ $group->id }}"
+                                data-testid="upload-author-answer-{{ $group->key }}"
+                                class="mt-1 block w-full rounded-rgControl border border-rg-border2 bg-rg-card px-3 py-2 text-sm text-rg-text shadow-sm focus:border-rg-accent focus:outline-none focus:ring-1 focus:ring-rg-accent"
+                            >
+                                <option value="">{{ __('ui.upload.answer_not_selected') }}</option>
+                                @foreach($group->options as $option)
+                                    <option value="{{ $option->id }}">{{ $option->translatedLabel() }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @endforeach
+                    <div data-testid="field-error-author-answers" class="mt-1">
+                        <x-input-error :messages="collect($errors->get('authorAnswers.*'))->flatten()->all()" />
+                    </div>
+                </div>
+            </div>
+        @endif
+
         {{-- Source URL — hidden when image loaded from URL (already captured above) --}}
         @if($uploadSettings->featureFlag('allow_url_imports'))
         <div x-show="imageTab !== 'url'">
@@ -272,6 +330,27 @@
                 <x-input-error :messages="collect($errors->get('tagIds.*'))->flatten()->all()" />
             </div>
         </div>
+
+        {{-- Category — public, feeds the sidebar "Categories" filter --}}
+        @if($categoryGroup !== null && $categoryGroup->options->isNotEmpty())
+            <div>
+                <x-input-label for="category_option_id" :value="__('ui.upload.category')" />
+                <select
+                    id="category_option_id"
+                    wire:model.defer="categoryOptionId"
+                    data-testid="upload-category-select"
+                    class="mt-1 block w-full rounded-rgControl border border-rg-border2 bg-rg-card px-3 py-2 text-sm text-rg-text shadow-sm focus:border-rg-accent focus:outline-none focus:ring-1 focus:ring-rg-accent"
+                >
+                    <option value="">{{ __('ui.upload.category_placeholder') }}</option>
+                    @foreach($categoryGroup->options as $option)
+                        <option value="{{ $option->id }}">{{ $option->translatedLabel() }}</option>
+                    @endforeach
+                </select>
+                <div data-testid="field-error-category" class="mt-1">
+                    <x-input-error :messages="$errors->get('categoryOptionId')" />
+                </div>
+            </div>
+        @endif
 
         @if($submitError)
             <x-ui.error-message

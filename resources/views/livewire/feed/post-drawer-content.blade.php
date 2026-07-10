@@ -150,7 +150,7 @@
                                 x-on:click="menuOpen = false; deleteOpen = true"
                                 class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                             >
-                                Delete post
+                                {{ __('ui.post.delete') }}
                             </button>
                         @endif
 
@@ -182,16 +182,16 @@
                 </x-ui.modal>
             @endif
 
-            <x-ui.modal title="Delete post?" state="deleteOpen" size="sm">
+            <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
                 <div class="space-y-4">
-                    <p class="text-sm leading-6 text-rg-muted">This will remove the post from public feeds.</p>
+                    <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description') }}</p>
 
                     @if($deleteError)
                         <p class="text-sm text-rg-dangerText">{{ $deleteError }}</p>
                     @endif
 
                     <div class="flex justify-end gap-2">
-                        <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">Cancel</x-ui.button>
+                        <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">{{ __('ui.actions.cancel') }}</x-ui.button>
                         <x-ui.button
                             type="button"
                             variant="danger"
@@ -199,7 +199,7 @@
                             wire:loading.attr="disabled"
                             wire:target="deleteSelectedPost"
                         >
-                            Delete
+                            {{ __('ui.actions.delete') }}
                         </x-ui.button>
                     </div>
                 </div>

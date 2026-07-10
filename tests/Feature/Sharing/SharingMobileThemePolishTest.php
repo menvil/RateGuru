@@ -15,7 +15,7 @@ it('renders share buttons with theme token classes', function () {
     expect($view)->toContain('rg-');
 });
 
-it('share buttons social row uses flex wrap layout', function () {
+it('share buttons social row uses a share-sheet grid layout', function () {
     config(['app.url' => 'https://rateguru.test']);
 
     $post = Post::factory()->published()->create();
@@ -24,8 +24,8 @@ it('share buttons social row uses flex wrap layout', function () {
         'post' => $post,
     ]);
 
-    expect($view)->toContain('flex');
-    expect($view)->toContain('flex-wrap');
+    expect($view)->toContain('grid-cols-4');
+    expect($view)->toContain('sm:grid-cols-5');
 });
 
 it('share buttons url input is always visible', function () {
@@ -43,7 +43,7 @@ it('share buttons url input is always visible', function () {
         ->not->toMatch('/data-testid="copy-link-fallback-input"[^>]*sr-only/');
 });
 
-it('provider link uses border-rg-border and bg-rg-card2 theme tokens', function () {
+it('provider links render brand-colored chips with visible captions', function () {
     config(['app.url' => 'https://rateguru.test']);
 
     $post = Post::factory()->published()->create();
@@ -52,8 +52,8 @@ it('provider link uses border-rg-border and bg-rg-card2 theme tokens', function 
         'post' => $post,
     ]);
 
-    expect($view)->toContain('border-rg-border');
-    expect($view)->toContain('bg-rg-card2');
+    expect($view)->toContain('background-color: #1877F2');
+    expect($view)->toContain('rounded-full');
     expect($view)->toContain('text-rg-text2');
 });
 

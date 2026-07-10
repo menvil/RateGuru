@@ -115,9 +115,9 @@ it('does not delete another users post from the feed page action menu event', fu
     expect(Post::query()->find($post->id))->not->toBeNull();
 });
 
-it('renders sort dropdown in the feed header', function () {
+it('does not render a sort dropdown in the feed header (sorting lives in the sidebar nav)', function () {
     Livewire::test(FeedPage::class)
-        ->assertSee('data-testid="feed-rating-filters"', false)
+        ->assertDontSee('data-testid="feed-rating-filters"', false)
         ->assertDontSee('data-testid="category-tabs"', false);
 });
 

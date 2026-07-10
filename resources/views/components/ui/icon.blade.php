@@ -15,6 +15,7 @@
         'save' => '<path d="M19 21 12 17 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/>',
         'more' => '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
         'arrow-up' => '<path d="M12 19V5"/><path d="m6 11 6-6 6 6"/>',
+        'trending' => '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
         'arrow-down' => '<path d="M12 5v14"/><path d="m6 13 6 6 6-6"/>',
         'chevron-down' => '<path d="m6 9 6 6 6-6"/>',
         'image' => '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="m21 15-5-5L5 19"/>',

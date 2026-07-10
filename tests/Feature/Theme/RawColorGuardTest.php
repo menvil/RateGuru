@@ -19,6 +19,9 @@ it('does not use common raw color classes in active public ui views', function (
     $allowlistedFiles = [
         'components/ui/avatar.blade.php',
         'components/ui/dish-placeholder.blade.php',
+        // Brand-colored share chips: the glyphs stay white on the providers'
+        // official brand colors in both themes by design.
+        'components/share/provider-link.blade.php',
     ];
 
     $finder = Finder::create()
