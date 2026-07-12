@@ -234,7 +234,9 @@
                 x-cloak
                 x-show="mobileNavOpen"
                 x-on:keydown.escape.window="mobileNavOpen = false"
-                class="fixed inset-0 z-50 lg:hidden"
+                {{-- z-[65]: above the z-[60] header (its top row — brand, locale switcher,
+                     close button — sits in the header's band), below z-[70] toasts. --}}
+                class="fixed inset-0 z-[65] lg:hidden"
                 role="dialog"
                 aria-modal="true"
                 aria-label="{{ __('ui.nav.open_menu') }}"
