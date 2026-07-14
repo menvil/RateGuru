@@ -2,6 +2,7 @@
 
 use App\Actions\Import\ImportFromUrlAction;
 use App\Exceptions\Import\UnsafeImportUrlException;
+use App\Models\ProjectSettings;
 use App\Support\Import\UrlImportValidator;
 use Illuminate\Support\Facades\Log;
 
@@ -21,13 +22,13 @@ it('logs unsafe url as security event', function () {
 it('logs url import preview started', function () {
     Log::spy();
 
-    $settings = \App\Models\ProjectSettings::factory()->create([
+    $settings = ProjectSettings::factory()->create([
         'feature_flags' => ['allow_url_imports' => true],
     ]);
 
     try {
         app(ImportFromUrlAction::class)->handle('https://example.com/page');
-    } catch (\Throwable) {
+    } catch (Throwable) {
         // network error expected in tests
     }
 

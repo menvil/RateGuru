@@ -24,7 +24,7 @@ it('registers the admin panel with id and path "admin"', function () {
 });
 
 it('user implements FilamentUser contract', function () {
-    expect(new User())->toBeInstanceOf(FilamentUser::class);
+    expect(new User)->toBeInstanceOf(FilamentUser::class);
 });
 
 it('denies access to non-admin panels even for an active admin', function () {

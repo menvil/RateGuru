@@ -126,6 +126,19 @@ jobs:
           name: public-build
           path: public/build
 
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # The Browser test suite (Pest v4 browser tests) drives a real Chromium
+      # through Playwright; without it `php artisan test` aborts at startup.
+      - name: Install Playwright
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install chromium --with-deps
+
       - name: Prepare application
         run: |
           cp .env.example .env
@@ -293,7 +306,8 @@ jobs:
           cache: npm
 
       - name: Audit Composer dependencies
-        run: composer audit
+        # --locked: audits composer.lock directly, no vendor install needed
+        run: composer audit --locked
 
       - name: Audit npm dependencies
         run: |

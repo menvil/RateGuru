@@ -29,7 +29,7 @@ it('seeds demo admin with hashed password', function () {
 it('does not seed demo admin in production environment', function () {
     app()->detectEnvironment(fn () => 'production');
 
-    (new DemoAdminSeeder())->run();
+    (new DemoAdminSeeder)->run();
 
     expect(User::query()->where('email', 'admin@rateguru.test')->exists())->toBeFalse();
 });

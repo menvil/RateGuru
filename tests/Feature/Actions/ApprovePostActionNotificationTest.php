@@ -73,12 +73,12 @@ it('does not fail approval when notification delivery fails', function () {
     {
         public function send($notifiables, $notification): void
         {
-            throw new \RuntimeException('Notification storage failed.');
+            throw new RuntimeException('Notification storage failed.');
         }
 
         public function sendNow($notifiables, $notification, ?array $channels = null): void
         {
-            throw new \RuntimeException('Notification storage failed.');
+            throw new RuntimeException('Notification storage failed.');
         }
     });
 

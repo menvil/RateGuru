@@ -1,6 +1,10 @@
 <?php
 
+use App\Actions\Follows\FollowAuthorAction;
+use App\Exceptions\Follows\FollowFeatureDisabledException;
 use App\Exceptions\Import\UnsafeImportUrlException;
+use App\Models\ProjectSettings;
+use App\Models\User;
 use App\Support\Import\UrlImportValidator;
 use Illuminate\Support\Facades\Log;
 
@@ -22,16 +26,16 @@ it('logs unsafe url as security event', function () {
 it('logs feature disabled action attempt', function () {
     Log::spy();
 
-    \App\Models\ProjectSettings::factory()->create([
+    ProjectSettings::factory()->create([
         'feature_flags' => ['show_follow_buttons' => false],
     ]);
 
-    $follower = \App\Models\User::factory()->create();
-    $author = \App\Models\User::factory()->create();
+    $follower = User::factory()->create();
+    $author = User::factory()->create();
 
     try {
-        app(\App\Actions\Follows\FollowAuthorAction::class)->handle($follower, $author);
-    } catch (\App\Exceptions\Follows\FollowFeatureDisabledException) {
+        app(FollowAuthorAction::class)->handle($follower, $author);
+    } catch (FollowFeatureDisabledException) {
         // expected
     }
 

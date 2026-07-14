@@ -7,7 +7,7 @@ use App\Models\User;
 use App\Support\Profile\ProfileValidationRules;
 use Illuminate\Validation\Rules\File;
 use Livewire\Component;
-use Livewire\Contracts\View;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 
 class EditProfileForm extends Component
@@ -22,7 +22,7 @@ class EditProfileForm extends Component
 
     public string $rating_activity_visibility = 'private';
 
-    /** @var \Livewire\Features\SupportFileUploads\TemporaryUploadedFile|null */
+    /** @var TemporaryUploadedFile|null */
     public $avatar = null;
 
     public function mount(): void

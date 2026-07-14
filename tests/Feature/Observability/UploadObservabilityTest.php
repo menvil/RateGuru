@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Livewire\Profile\EditProfileForm;
 use App\Models\User;
@@ -17,7 +18,7 @@ it('logs post created event', function () {
         title: 'Test Post',
     );
 
-    app(\App\Actions\Posts\CreatePostAction::class)->handle($user, $data);
+    app(CreatePostAction::class)->handle($user, $data);
 
     Log::shouldHaveReceived('info')
         ->with('posts.created', Mockery::on(fn ($ctx) => isset($ctx['post_id'])));

@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Follows\FollowButton;
+use App\Models\Follow;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use Livewire\Livewire;
@@ -26,7 +27,7 @@ it('renders following state with accent background token', function () {
     $viewer = User::factory()->create();
     $author = User::factory()->create();
 
-    \App\Models\Follow::factory()->create([
+    Follow::factory()->create([
         'follower_id' => $viewer->id,
         'author_id' => $author->id,
     ]);

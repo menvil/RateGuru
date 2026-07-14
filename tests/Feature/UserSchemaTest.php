@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
@@ -114,7 +115,7 @@ it('defaults user trust level to trusted', function () {
         'password' => 'password',
     ]);
 
-    expect($user->fresh()->trust_level)->toBe(\App\Actions\Moderation\MarkUserTrustedAction::TRUSTED_LEVEL);
+    expect($user->fresh()->trust_level)->toBe(MarkUserTrustedAction::TRUSTED_LEVEL);
 });
 
 it('stores user trust level', function () {
@@ -126,5 +127,5 @@ it('stores user trust level', function () {
 it('creates trusted level from factory', function () {
     $user = User::factory()->create();
 
-    expect($user->trust_level)->toBe(\App\Actions\Moderation\MarkUserTrustedAction::TRUSTED_LEVEL);
+    expect($user->trust_level)->toBe(MarkUserTrustedAction::TRUSTED_LEVEL);
 });

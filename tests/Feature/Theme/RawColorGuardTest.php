@@ -54,6 +54,6 @@ it('does not use common raw color classes in active public ui views', function (
     }
 
     expect($violations)->toBeEmpty(
-        "Raw color violations found:\n" . implode("\n", $violations)
+        "Raw color violations found:\n".implode("\n", $violations)
     );
 });

@@ -1,5 +1,7 @@
 <?php
 
+use App\Exceptions\Observability\InvalidLogEventNameException;
+use App\Support\Observability\DomainLogger;
 use App\Support\Observability\LogEventName;
 
 it('validates domain log event names', function () {
@@ -35,6 +37,6 @@ it('rejects empty names', function () {
 });
 
 it('domain logger throws on invalid event name', function () {
-    expect(fn () => app(\App\Support\Observability\DomainLogger::class)->info('Invalid Event Name', []))
-        ->toThrow(\App\Exceptions\Observability\InvalidLogEventNameException::class);
+    expect(fn () => app(DomainLogger::class)->info('Invalid Event Name', []))
+        ->toThrow(InvalidLogEventNameException::class);
 });

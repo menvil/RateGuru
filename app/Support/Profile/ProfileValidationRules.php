@@ -15,7 +15,7 @@ final class ProfileValidationRules
             'display_name' => ['nullable', 'string', 'max:80'],
             'bio' => ['nullable', 'string', 'max:500'],
             'profile_website_url' => ['nullable', 'url', 'max:255'],
-            'rating_activity_visibility' => ['sometimes', 'required', 'string', 'in:' . $visibilityValues],
+            'rating_activity_visibility' => ['sometimes', 'required', 'string', 'in:'.$visibilityValues],
         ];
     }
 }

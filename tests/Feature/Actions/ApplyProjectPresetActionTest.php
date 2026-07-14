@@ -2,7 +2,9 @@
 
 use App\Actions\Settings\ApplyProjectPresetAction;
 use App\Exceptions\Settings\UnknownProjectPresetException;
+use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\User;
 
 it('applies project preset to settings', function () {
     ProjectSettings::factory()->create([
@@ -35,11 +37,11 @@ it('fails for unknown project preset', function () {
 })->throws(UnknownProjectPresetException::class);
 
 it('does not touch posts or users when applying preset', function () {
-    $user = App\Models\User::factory()->create();
-    $post = App\Models\Post::factory()->create(['user_id' => $user->id]);
+    $user = User::factory()->create();
+    $post = Post::factory()->create(['user_id' => $user->id]);
 
     app(ApplyProjectPresetAction::class)->handle('nature');
 
-    expect(App\Models\User::count())->toBe(1);
-    expect(App\Models\Post::count())->toBe(1);
+    expect(User::count())->toBe(1);
+    expect(Post::count())->toBe(1);
 });
