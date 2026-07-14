@@ -1,11 +1,17 @@
 name: Test coverage
 
-# Coverage is measured when a release lands: pushes to main only happen by
-# merging release/* or hotfix/* pull requests. It can also be run manually.
+# Coverage mirrors the two deploy targets (develop = staging, main =
+# production): it runs on release/hotfix PRs into main (visible before the
+# merge), and on every push to either deploy branch. Regular feature PRs
+# into develop skip it — use "Run workflow" manually when needed.
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
+      - develop
   workflow_dispatch:
 
 jobs:
