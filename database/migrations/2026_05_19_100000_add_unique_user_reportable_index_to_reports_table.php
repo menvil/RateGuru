@@ -32,8 +32,20 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() === 'mysql') {
+            Schema::table('reports', function (Blueprint $table) {
+                $table->dropForeign(['reporter_id']);
+            });
+        }
+
         Schema::table('reports', function (Blueprint $table) {
             $table->dropUnique('reports_reporter_target_unique');
         });
+
+        if (DB::getDriverName() === 'mysql') {
+            Schema::table('reports', function (Blueprint $table) {
+                $table->foreign('reporter_id')->references('id')->on('users')->cascadeOnDelete();
+            });
+        }
     }
 };
