@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Actions\Counters\RecalculateCommentCountersAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
@@ -653,13 +654,12 @@ class DemoFillSeeder extends Seeder
 
         $this->command->getOutput()->writeln('');
 
-        // Batch update upvotes_count / downvotes_count per comment
-        DB::statement('
-            UPDATE comments
-            SET
-                upvotes_count   = (SELECT COUNT(*) FROM comment_votes WHERE comment_votes.comment_id = comments.id AND type = ?),
-                downvotes_count = (SELECT COUNT(*) FROM comment_votes WHERE comment_votes.comment_id = comments.id AND type = ?)
-        ', [VoteType::Up->value, VoteType::Down->value]);
+        $counters = app(RecalculateCommentCountersAction::class);
+
+        Comment::query()
+            ->select('id')
+            ->lazyById()
+            ->each(fn (Comment $comment) => $counters->handle($comment));
     }
 
     // -------------------------------------------------------------------------

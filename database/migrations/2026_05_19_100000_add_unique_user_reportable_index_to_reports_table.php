@@ -14,8 +14,9 @@ return new class extends Migration
         // earliest report per (reporter_id, target_type, target_id) so the
         // unique index can be created without erroring.
         $keepIds = DB::table('reports')
-            ->selectRaw('MIN(id) as id')
-            ->groupBy('reporter_id', 'target_type', 'target_id')
+            ->orderBy('id')
+            ->get(['id', 'reporter_id', 'target_type', 'target_id'])
+            ->unique(fn (object $report): string => $report->reporter_id.'|'.$report->target_type.'|'.$report->target_id)
             ->pluck('id');
 
         if ($keepIds->isNotEmpty()) {

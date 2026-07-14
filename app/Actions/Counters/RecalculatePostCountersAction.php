@@ -57,17 +57,13 @@ class RecalculatePostCountersAction
                 'restaurant_votes_count' => $restaurantVotes,
             ])->save();
 
-            $cuisineCounts = CuisineVote::query()
-                ->where('post_id', $post->id)
-                ->selectRaw('cuisine, COUNT(*) as total')
-                ->groupBy('cuisine')
-                ->pluck('total', 'cuisine')
-                ->all();
-
             $cuisineVotes = [];
 
             foreach (CuisineType::votable() as $cuisine) {
-                $cuisineVotes[$cuisine->value] = (int) ($cuisineCounts[$cuisine->value] ?? 0);
+                $cuisineVotes[$cuisine->value] = CuisineVote::query()
+                    ->where('post_id', $post->id)
+                    ->where('cuisine', $cuisine->value)
+                    ->count();
             }
 
             return new PostCounterSnapshot(
