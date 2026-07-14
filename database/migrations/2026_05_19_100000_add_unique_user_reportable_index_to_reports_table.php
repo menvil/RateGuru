@@ -14,8 +14,9 @@ return new class extends Migration
         // earliest report per (reporter_id, target_type, target_id) so the
         // unique index can be created without erroring.
         $keepIds = DB::table('reports')
-            ->selectRaw('MIN(id) as id')
-            ->groupBy('reporter_id', 'target_type', 'target_id')
+            ->orderBy('id')
+            ->get(['id', 'reporter_id', 'target_type', 'target_id'])
+            ->unique(fn (object $report): string => $report->reporter_id.'|'.$report->target_type.'|'.$report->target_id)
             ->pluck('id');
 
         if ($keepIds->isNotEmpty()) {
@@ -32,7 +33,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (DB::getDriverName() === 'mysql') {
+        if (in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
             Schema::table('reports', function (Blueprint $table) {
                 $table->dropForeign(['reporter_id']);
             });
@@ -42,7 +43,7 @@ return new class extends Migration
             $table->dropUnique('reports_reporter_target_unique');
         });
 
-        if (DB::getDriverName() === 'mysql') {
+        if (in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
             Schema::table('reports', function (Blueprint $table) {
                 $table->foreign('reporter_id')->references('id')->on('users')->cascadeOnDelete();
             });
