@@ -61,18 +61,6 @@ parameters:
 			path: app/Actions/Comments/RestoreCommentAction.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\CommentVote\:\:\$total\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Actions/Counters/RecalculateCommentCountersAction.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\CommentVote\:\:\$type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Actions/Counters/RecalculateCommentCountersAction.php
-
-		-
 			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\UserStatus\:\:Active will always evaluate to true\.$#'
 			identifier: notIdentical.alwaysTrue
 			count: 1

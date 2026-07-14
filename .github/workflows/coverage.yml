@@ -14,10 +14,19 @@ on:
       - develop
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   coverage:
     name: Coverage (Pest + PCOV)
     runs-on: ubuntu-latest
+    outputs:
+      assertions: ${{ steps.coverage-results.outputs.assertions }}
+      errors: ${{ steps.coverage-results.outputs.errors }}
+      failures: ${{ steps.coverage-results.outputs.failures }}
+      percentage: ${{ steps.coverage-results.outputs.percentage }}
+      tests: ${{ steps.coverage-results.outputs.tests }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -54,23 +63,165 @@ jobs:
           npm run build
 
       - name: Run tests with coverage
-        # Explicit bash shell enables pipefail, so a test failure is not
-        # masked by tee's exit code.
+        id: coverage
         shell: bash
         run: |
-          php artisan test --coverage --coverage-clover=coverage.xml | tee coverage-output.txt
+          php -d memory_limit=1G artisan test \
+            --coverage \
+            --coverage-clover=coverage.xml \
+            --log-junit junit.xml
 
-      - name: Publish coverage summary
+      - name: Collect coverage results
+        id: coverage-results
         if: always()
         run: |
-          echo '## Test coverage' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -n 25 coverage-output.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          php -r '
+          $percentage = "n/a";
+          $tests = "n/a";
+          $assertions = "n/a";
+          $failures = "n/a";
+          $errors = "n/a";
+
+          if (is_file("coverage.xml") && ($clover = simplexml_load_file("coverage.xml")) !== false) {
+              $metrics = $clover->project->metrics;
+              $statements = (int) $metrics["statements"];
+              $covered = (int) $metrics["coveredstatements"];
+              $percentage = $statements > 0 ? number_format(($covered / $statements) * 100, 2, ".", "") : "0.00";
+          }
+
+          if (is_file("junit.xml") && ($junit = simplexml_load_file("junit.xml")) !== false) {
+              if (isset($junit["tests"])) {
+                  $tests = (string) $junit["tests"];
+                  $assertions = (string) ($junit["assertions"] ?? "n/a");
+                  $failures = (string) ($junit["failures"] ?? "n/a");
+                  $errors = (string) ($junit["errors"] ?? "n/a");
+              } elseif (isset($junit->testsuite[0])) {
+                  $totalTests = 0;
+                  $totalAssertions = 0;
+                  $totalFailures = 0;
+                  $totalErrors = 0;
+
+                  foreach ($junit->testsuite as $suite) {
+                      $totalTests += (int) ($suite["tests"] ?? 0);
+                      $totalAssertions += (int) ($suite["assertions"] ?? 0);
+                      $totalFailures += (int) ($suite["failures"] ?? 0);
+                      $totalErrors += (int) ($suite["errors"] ?? 0);
+                  }
+
+                  $tests = (string) $totalTests;
+                  $assertions = (string) $totalAssertions;
+                  $failures = (string) $totalFailures;
+                  $errors = (string) $totalErrors;
+              }
+          }
+
+          file_put_contents(getenv("GITHUB_OUTPUT"), sprintf(
+              "percentage=%s\ntests=%s\nassertions=%s\nfailures=%s\nerrors=%s\n",
+              $percentage,
+              $tests,
+              $assertions,
+              $failures,
+              $errors,
+          ), FILE_APPEND);
+          '
 
       - name: Upload coverage report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-clover
-          path: coverage.xml
+          name: coverage-results
+          path: |
+            coverage.xml
+            junit.xml
+          if-no-files-found: ignore
           retention-days: 30
+
+  coverage-summary:
+    name: Summary
+    if: always()
+    runs-on: ubuntu-latest
+    needs: coverage
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Publish coverage results
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+          COVERAGE_PERCENTAGE: ${{ needs.coverage.outputs.percentage }}
+          TEST_COUNT: ${{ needs.coverage.outputs.tests }}
+          ASSERTION_COUNT: ${{ needs.coverage.outputs.assertions }}
+          FAILURE_COUNT: ${{ needs.coverage.outputs.failures }}
+          ERROR_COUNT: ${{ needs.coverage.outputs.errors }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- rateguru-coverage-summary -->';
+            const result = process.env.COVERAGE_RESULT || 'unknown';
+            const status = result === 'success' ? '✅ passed' : `❌ ${result}`;
+            const percentage = process.env.COVERAGE_PERCENTAGE || 'n/a';
+            const tests = process.env.TEST_COUNT || 'n/a';
+            const assertions = process.env.ASSERTION_COUNT || 'n/a';
+            const failures = process.env.FAILURE_COUNT || 'n/a';
+            const errors = process.env.ERROR_COUNT || 'n/a';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const lines = [
+              marker,
+              '## Test coverage',
+              '',
+              `**${status}**`,
+              '',
+              '| Line coverage | Tests | Assertions | Failures / errors |',
+              '|---:|---:|---:|---:|',
+              `| **${percentage}%** | ${tests} | ${assertions} | ${failures} / ${errors} |`,
+              '',
+              'Coverage engine: PCOV · Report: Clover XML artifact',
+              '',
+              `[Open workflow run](${runUrl})`,
+            ];
+            const body = lines.join('\n');
+
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${body.replace(`${marker}\n`, '')}\n`);
+
+            if (context.eventName !== 'pull_request') {
+              return;
+            }
+
+            const pullRequest = context.payload.pull_request;
+
+            if (pullRequest.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.info('Skipping PR comment for an external fork.');
+              return;
+            }
+
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pullRequest.number,
+                per_page: 100,
+              });
+              const existing = comments.find((comment) =>
+                comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker),
+              );
+
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullRequest.number,
+                  body,
+                });
+              }
+            } catch (error) {
+              core.warning(`Could not publish the PR coverage summary: ${error.message}`);
+            }
