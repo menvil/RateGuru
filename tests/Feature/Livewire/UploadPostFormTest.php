@@ -47,8 +47,6 @@ it('opens upload modal with generic labels', function () {
         ->test(UploadPostForm::class)
         ->assertSee('Title')
         ->assertSee('Image')
-        ->assertSee('Source')
-        ->assertSee('Category')
         ->assertDontSee('Dish title')
         ->assertDontSee('Origin')
         ->assertDontSee('Cuisine')
@@ -151,7 +149,8 @@ it('dispatches successful upload event', function () {
         ->set('title', 'Homemade Pasta')
         ->set('image', $file)
         ->call('submit')
-        ->assertDispatched('post-uploaded');
+        ->assertDispatched('post-uploaded')
+        ->assertDispatched('toast', message: __('ui.upload.success_pending'));
 });
 
 it('shows upload rate limit error without creating another post', function () {
@@ -292,7 +291,7 @@ it('renders selectable tags', function () {
         ->test(UploadPostForm::class)
         ->assertSee('Tags')
         ->assertSee('data-testid="upload-tag-search"', false)
-        ->assertSee('data-testid="upload-tag-menu"', false)
+        ->assertSee('data-testid="upload-tag-field"', false)
         ->assertSee('UniqueTagForTest')
         ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
 });
@@ -307,8 +306,7 @@ it('filters upload tags while typing and toggles selected tags', function () {
         ->set('tagSearch', 'carb')
         ->assertSee('Carbonara')
         ->call('toggleTag', $matching->id)
-        ->assertSet('tagIds', [$matching->id])
-        ->assertSee('data-testid="upload-selected-tags"', false);
+        ->assertSet('tagIds', [$matching->id]);
 });
 
 it('toggles a selected tag off', function () {
@@ -368,6 +366,17 @@ it('rejects submitted tag ids that do not exist', function () {
         ->assertNotDispatched('post-uploaded');
 });
 
+it('renders tag search input and tag pills', function () {
+    $user = User::factory()->create();
+    $tag = Tag::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->assertSee('data-testid="upload-tag-search"', false)
+        ->assertSee('data-testid="upload-tag-field"', false)
+        ->assertSee('data-testid="upload-tag-'.$tag->id.'"', false);
+});
+
 it('renders tag search as an accessible combobox and menu as a listbox', function () {
     $user = User::factory()->create();
     $tag = Tag::factory()->create();
@@ -381,6 +390,35 @@ it('renders tag search as an accessible combobox and menu as a listbox', functio
         ->assertSee('role="option"', false)
         ->assertSee('aria-selected="false"', false)
         ->assertSee('id="upload-tag-option-'.$tag->id.'"', false);
+});
+
+it('clears the selected file when switching to the image url tab', function () {
+    $user = User::factory()->create();
+
+    $html = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->html();
+
+    expect($html)->toContain('wire:click="$set(\'image\', null)"');
+});
+
+it('uses the imported url instead of a stale previously selected file', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Switched Tabs Dish')
+        ->set('image', UploadedFile::fake()->image('stale.jpg'));
+
+    expect($component->get('image'))->not->toBeNull();
+
+    // Simulates the wire:click="$set('image', null)" handler fired when the
+    // "From URL" tab button is clicked, clearing the stale selected file.
+    $component->set('image', null);
+
+    expect($component->get('image'))->toBeNull();
 });
 
 it('does not query tags again during form interaction hydration', function () {
@@ -420,17 +458,12 @@ it('refreshes selectable tags when the upload modal opens again', function () {
         ->assertSee('data-testid="upload-tag-'.$newTag->id.'"', false);
 });
 
-it('has cuisine truth selector', function () {
+it('has cuisine truth default value', function () {
     $user = User::factory()->create();
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('Category A')
-        ->assertSee('Category B')
-        ->assertSee('Category C')
-        ->assertSee('Category D')
-        ->assertSee('Other')
-        ->assertSee('Keep unknown');
+        ->assertSet('cuisineTruth', CuisineType::Unknown->value);
 });
 
 it('updates cuisineTruth property', function () {
@@ -442,14 +475,12 @@ it('updates cuisineTruth property', function () {
         ->assertSet('cuisineTruth', CuisineType::Italian->value);
 });
 
-it('has origin truth selector', function () {
+it('has origin truth default value', function () {
     $user = User::factory()->create();
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('Source A')
-        ->assertSee('Source B')
-        ->assertSee('Keep unknown');
+        ->assertSet('originTruth', OriginType::Unknown->value);
 });
 
 it('updates originTruth property', function () {

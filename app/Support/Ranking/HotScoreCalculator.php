@@ -7,8 +7,11 @@ use Carbon\CarbonInterface;
 final class HotScoreCalculator
 {
     private const BASE_SCORE = 1.0;
+
     private const COMMENT_WEIGHT = 0.5;
+
     private const AGE_OFFSET_HOURS = 2.0;
+
     private const GRAVITY = 1.5;
 
     public function calculate(

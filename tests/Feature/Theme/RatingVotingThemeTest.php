@@ -1,8 +1,6 @@
 <?php
 
 use App\Models\Post;
-use App\Models\RatingGroup;
-use App\Models\RatingOption;
 
 it('voting component views use theme token classes', function (string $path) {
     $content = file_get_contents(resource_path($path));

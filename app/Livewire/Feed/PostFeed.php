@@ -23,6 +23,8 @@ class PostFeed extends Component
 
     public string $sort = 'newest';
 
+    public bool $followingOnly = false;
+
     public ?int $selectedPostId = null;
 
     #[On('post-uploaded')]
@@ -30,6 +32,10 @@ class PostFeed extends Component
 
     #[On('post-moderated')]
     public function refreshAfterPostModerated(): void {}
+
+    #[On('comment-created')]
+    #[On('comment-deleted')]
+    public function refreshAfterCommentChange(): void {}
 
     public function render(
         FeedQuery $feedQuery,
@@ -41,6 +47,7 @@ class PostFeed extends Component
             sort: $this->sort,
             origin: $this->origin,
             cuisine: $this->cuisine,
+            followedByUserId: $this->followingOnly ? auth()->id() : null,
         )->onEachSide(1);
         $posts = $paginator->getCollection();
         $user = auth()->user();

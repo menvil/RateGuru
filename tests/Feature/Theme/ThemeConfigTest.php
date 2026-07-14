@@ -1,7 +1,5 @@
 <?php
 
-use function Pest\Laravel\artisan;
-
 it('has theme config with supported preferences', function () {
     expect(config('themes.preferences'))->toContain('system');
     expect(config('themes.preferences'))->toContain('light');

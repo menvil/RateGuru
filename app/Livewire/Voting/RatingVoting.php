@@ -24,6 +24,8 @@ class RatingVoting extends Component
 
     public string $error = '';
 
+    public string $variant = 'default';
+
     public bool $hasPreloadedState = false;
 
     public array $preloadedDistribution = [];

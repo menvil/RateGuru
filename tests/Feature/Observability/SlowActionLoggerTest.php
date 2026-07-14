@@ -56,8 +56,7 @@ it('uses default threshold from config when not specified', function () {
 
     $defaultMs = config('observability.slow_actions.default_threshold_ms', 500);
 
-    app(SlowActionLogger::class)->measure('test.default', function () {
-    });
+    app(SlowActionLogger::class)->measure('test.default', function () {});
 
     Log::shouldNotHaveReceived('warning');
 });

@@ -30,7 +30,7 @@ class Report extends Model
     }
 
     /**
-     * Polymorphic relation to the reported content (Post or Comment).
+     * Polymorphic relation to the reported content (Post, Comment, or User).
      * Returns null when the target row has been deleted; callers must
      * tolerate that.
      */

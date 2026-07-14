@@ -25,7 +25,7 @@
                     'text-rg-muted hover:bg-rg-card2 hover:text-rg-text' => $preference !== $option['value'],
                 ])
             >
-                <x-ui.icon name="{{ $option['icon'] }}" class="size-5" />
+                <x-ui.icon name="{{ $option['icon'] }}" class="size-4" />
             </button>
         @endforeach
     </div>

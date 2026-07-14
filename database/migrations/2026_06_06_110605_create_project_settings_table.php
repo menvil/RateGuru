@@ -24,7 +24,10 @@ return new class extends Migration
             $table->string('default_theme', 20)->default('system');
             $table->string('default_sort', 30)->default('hot');
             $table->string('active_preset_key', 80)->nullable();
-            $table->json('feature_flags')->default('[]');
+            // Nullable without a column default: MySQL forbids defaults on JSON
+            // columns, and every writer (seeders, ProjectSettingsManager) sets the
+            // value explicitly anyway — readers already handle null via `?? []`.
+            $table->json('feature_flags')->nullable();
             $table->timestamps();
         });
     }

@@ -11,7 +11,7 @@
                 wire:model="notify_followed_author_posts"
                 id="notify_followed_author_posts"
                 data-testid="notification-preference-followed-author-posts"
-                class="mt-0.5 size-4 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-2 focus:ring-rg-accent/25"
+                class="mt-0.5 size-4 rounded border-rg-border2 bg-rg-card text-rg-accent checked:border-rg-accent checked:bg-rg-accent focus:ring-2 focus:ring-rg-accent/25"
             >
             <div>
                 <label for="notify_followed_author_posts" class="text-sm font-medium text-rg-text">

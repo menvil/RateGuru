@@ -4,6 +4,7 @@ namespace App\Actions\Settings;
 
 use App\Exceptions\Settings\UnknownProjectPresetException;
 use App\Models\ProjectSettings;
+use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
 
 class ApplyProjectPresetAction
@@ -24,9 +25,11 @@ class ApplyProjectPresetAction
             throw UnknownProjectPresetException::for($presetKey);
         }
 
+        $settings = PresetSettingsBuilder::build($preset['settings']);
+
         ProjectSettings::updateOrCreate(
             ['id' => 1],
-            array_merge($preset['settings'], [
+            array_merge($settings, [
                 'feature_flags' => $preset['feature_flags'],
                 'active_preset_key' => $presetKey,
             ])

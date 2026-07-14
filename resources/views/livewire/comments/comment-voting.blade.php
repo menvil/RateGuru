@@ -9,7 +9,7 @@
     @else
         <button
             type="button"
-            aria-label="Vote up"
+            aria-label="{{ __('ui.a11y.vote_up') }}"
             wire:click.stop="vote('up')"
             wire:target="vote"
             wire:loading.attr="disabled"
@@ -27,7 +27,7 @@
 
         <button
             type="button"
-            aria-label="Vote down"
+            aria-label="{{ __('ui.a11y.vote_down') }}"
             wire:click.stop="vote('down')"
             wire:target="vote"
             wire:loading.attr="disabled"

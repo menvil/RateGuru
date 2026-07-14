@@ -17,7 +17,7 @@ it('renders rating options container with mobile testid', function () {
         'post' => $post,
         'groupKey' => 'category',
     ])
-        ->assertSee('data-testid="rating-option-' . $post->id . '-list"', false);
+        ->assertSee('data-testid="rating-option-'.$post->id.'-list"', false);
 });
 
 it('renders ten rating options without losing options', function () {
@@ -31,7 +31,7 @@ it('renders ten rating options without losing options', function () {
         'groupKey' => 'category',
     ]);
 
-    $component->assertSee('data-testid="rating-option-' . $post->id . '-list"', false);
+    $component->assertSee('data-testid="rating-option-'.$post->id.'-list"', false);
 
     // Match only individual option buttons (rating-option-{postId}-{optionId}),
     // not the list container (rating-option-{postId}-list)

@@ -68,12 +68,12 @@ it('does not fail comment creation when notification delivery fails', function (
     {
         public function send($notifiables, $notification): void
         {
-            throw new \RuntimeException('Notification storage failed.');
+            throw new RuntimeException('Notification storage failed.');
         }
 
         public function sendNow($notifiables, $notification, ?array $channels = null): void
         {
-            throw new \RuntimeException('Notification storage failed.');
+            throw new RuntimeException('Notification storage failed.');
         }
     });
 

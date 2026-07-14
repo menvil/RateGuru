@@ -47,7 +47,7 @@ it('seeds users with hashed passwords', function () {
 it('does not seed demo users in production environment', function () {
     app()->detectEnvironment(fn () => 'production');
 
-    (new DemoUsersSeeder())->run();
+    (new DemoUsersSeeder)->run();
 
     expect(User::query()->where('email', 'alice@rateguru.test')->exists())->toBeFalse();
 });

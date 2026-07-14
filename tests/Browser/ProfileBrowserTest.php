@@ -13,7 +13,10 @@ it('can open profile tabs in browser', function () {
 })->group('browser');
 
 it('can navigate to activity tab in browser', function () {
-    $user = User::factory()->create(['username' => 'profile-browser-activity']);
+    $user = User::factory()->create([
+        'username' => 'profile-browser-activity',
+        'rating_activity_visibility' => 'public',
+    ]);
 
     visit(route('profile.show', $user->username))
         ->assertPresent('[data-testid="profile-tab-activity"]')

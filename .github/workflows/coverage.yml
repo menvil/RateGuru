@@ -1,0 +1,76 @@
+name: Test coverage
+
+# Coverage mirrors the two deploy targets (develop = staging, main =
+# production): it runs on release/hotfix PRs into main (visible before the
+# merge), and on every push to either deploy branch. Regular feature PRs
+# into develop skip it — use "Run workflow" manually when needed.
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    name: Coverage (Pest + PCOV)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, pcov
+          coverage: pcov
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install dependencies
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          npm ci
+
+      - name: Prepare application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          touch database/database.sqlite
+          npm run build
+
+      - name: Run tests with coverage
+        # Explicit bash shell enables pipefail, so a test failure is not
+        # masked by tee's exit code.
+        shell: bash
+        run: |
+          php artisan test --coverage --coverage-clover=coverage.xml | tee coverage-output.txt
+
+      - name: Publish coverage summary
+        if: always()
+        run: |
+          echo '## Test coverage' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 25 coverage-output.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-clover
+          path: coverage.xml
+          retention-days: 30

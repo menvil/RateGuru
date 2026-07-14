@@ -48,6 +48,8 @@ it('sets category property from query string', function () {
 });
 
 it('hydrates origin from query string', function () {
+    seedFeedFilterGroups();
+
     Post::factory()->published()->create([
         'title' => 'Home Dish',
         'origin_truth' => OriginType::Homemade,
@@ -64,12 +66,16 @@ it('hydrates origin from query string', function () {
 });
 
 it('sets origin property from query string', function () {
+    seedFeedFilterGroups();
+
     Livewire::withQueryParams(['origin' => 'restaurant'])
         ->test(FeedPage::class)
         ->assertSet('origin', ['restaurant']);
 });
 
 it('hydrates multiple origin filters from query string', function () {
+    seedFeedFilterGroups();
+
     Post::factory()->published()->create([
         'title' => 'Home Dish',
         'origin_truth' => OriginType::Homemade,
@@ -80,12 +86,20 @@ it('hydrates multiple origin filters from query string', function () {
         'origin_truth' => OriginType::Restaurant,
     ]);
 
+    Post::factory()->published()->create([
+        'title' => 'Unrelated Dish',
+        'origin_truth' => OriginType::Unknown,
+    ]);
+
     $this->get('/?origin[0]=homemade&origin[1]=restaurant')
         ->assertSee('Home Dish')
-        ->assertSee('Restaurant Dish');
+        ->assertSee('Restaurant Dish')
+        ->assertDontSee('Unrelated Dish');
 });
 
 it('hydrates cuisine from query string', function () {
+    seedFeedFilterGroups();
+
     Post::factory()->published()->create([
         'title' => 'Italian Dish',
         'cuisine_truth' => CuisineType::Italian,
@@ -102,6 +116,8 @@ it('hydrates cuisine from query string', function () {
 });
 
 it('sets cuisine property from query string', function () {
+    seedFeedFilterGroups();
+
     Livewire::withQueryParams(['cuisine' => 'mexican'])
         ->test(FeedPage::class)
         ->assertSet('cuisine', ['mexican']);

@@ -9,10 +9,16 @@
     @if ($showHeader)
         <div class="flex items-center justify-between gap-3">
             <h3 class="text-base font-bold text-rg-text">{{ __('ui.comments.title_with_count', ['count' => $this->totalComments]) }}</h3>
-            <div class="relative" x-data="{ open: false }" x-on:click.outside="open = false">
+            <div
+                class="relative"
+                x-data="{ open: false, menuId: $id('comments-sort-menu') }"
+                x-on:click.outside="open = false"
+                x-on:keydown.escape.window="open = false"
+                x-on:dropdown-opened.window="if ($event.detail !== menuId) open = false"
+            >
                 <button
                     type="button"
-                    x-on:click="open = ! open"
+                    x-on:click="open = ! open; if (open) $dispatch('dropdown-opened', menuId)"
                     class="flex h-8 cursor-pointer items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-2.5 text-[12.5px] text-rg-text2 transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     data-testid="comments-sort-trigger"
                     aria-haspopup="true"

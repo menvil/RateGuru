@@ -15,13 +15,13 @@
 @php($isBinary = count($options) === 2)
 
 <div class="flex flex-col gap-3" data-testid="{{ $testIdPrefix }}-list">
-    <h3 class="text-sm font-semibold text-rg-text">{{ $group->translatedLabel() }}</h3>
+    <h3 class="text-base font-semibold text-rg-text">{{ $group->translatedLabel() }}</h3>
 
     @if(! $voted)
         {{-- Vote buttons (no stats) while the user has not voted yet --}}
         <div class="{{ $variant === 'compact' ? 'flex flex-wrap gap-1.5' : 'flex flex-wrap gap-2' }}">
             @foreach($options as $option)
-                @php($sizeClass = $variant === 'compact' ? 'h-7! min-w-9! px-2! text-xs!' : 'min-h-[40px]!')
+                @php($sizeClass = $variant === 'compact' ? 'h-8! min-w-9! px-2.5! text-sm!' : 'min-h-[40px]! text-sm!')
                 <x-ui.button
                     variant="secondary"
                     size="sm"
@@ -53,8 +53,8 @@
 
         <div data-testid="{{ $testIdPrefix }}-results">
             <div class="mb-1 flex justify-between">
-                <span class="text-[11.5px] font-semibold text-rg-good">{{ $optionA->translatedLabel() }}</span>
-                <span class="text-[11.5px] text-rg-text2">{{ $optionB->translatedLabel() }}</span>
+                <span class="text-sm font-semibold text-rg-good">{{ $optionA->translatedLabel() }}</span>
+                <span class="text-sm font-semibold text-rg-text2">{{ $optionB->translatedLabel() }}</span>
             </div>
             <div class="mb-1.5 flex justify-between">
                 <span class="whitespace-nowrap text-[18px] font-bold text-rg-good">{{ $pctA }}% ({{ $cntA }})</span>
@@ -78,11 +78,11 @@
                 >
                     <div class="flex items-center justify-between gap-2">
                         <span @class([
-                            'truncate text-xs font-medium',
+                            'truncate text-sm font-medium',
                             'text-rg-accent' => $active,
                             'text-rg-text2'  => ! $active,
                         ])>{{ $option->translatedLabel() }}</span>
-                        <span class="shrink-0 text-[11px] text-rg-muted">{{ $pct }}% &middot; {{ $cnt }} {{ $cnt === 1 ? 'vote' : 'votes' }}</span>
+                        <span class="shrink-0 text-xs text-rg-muted">{{ $pct }}% &middot; {{ trans_choice('ui.voting.votes_count', $cnt) }}</span>
                     </div>
                     <div class="h-1.5 w-full overflow-hidden rounded-rgPill bg-rg-card2">
                         <div

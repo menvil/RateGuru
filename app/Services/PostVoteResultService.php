@@ -55,12 +55,12 @@ final class PostVoteResultService
         $homemadePct = $total > 0 ? (int) round(($homemade / $total) * 100) : 0;
 
         return [
-            'homemade'      => $homemade,
-            'restaurant'    => $restaurant,
-            'homemadePct'   => $homemadePct,
+            'homemade' => $homemade,
+            'restaurant' => $restaurant,
+            'homemadePct' => $homemadePct,
             'restaurantPct' => $total > 0 ? 100 - $homemadePct : 0,
-            'total'         => $total,
-            'current'       => $current,
+            'total' => $total,
+            'current' => $current,
         ];
     }
 

@@ -22,7 +22,7 @@ it('has notifications table', function () {
 it('allows user to receive database notification', function () {
     $user = User::factory()->create();
 
-    $user->notify(new NotificationsTableDatabaseNotification());
+    $user->notify(new NotificationsTableDatabaseNotification);
 
     $this->assertDatabaseHas('notifications', [
         'notifiable_id' => $user->getKey(),

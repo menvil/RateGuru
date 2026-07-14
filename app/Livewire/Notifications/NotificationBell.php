@@ -2,8 +2,9 @@
 
 namespace App\Livewire\Notifications;
 
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Notifications\DatabaseNotification;
 use Livewire\Component;
 
 final class NotificationBell extends Component
@@ -20,12 +21,12 @@ final class NotificationBell extends Component
     }
 
     /**
-     * @return Collection<int, \Illuminate\Notifications\DatabaseNotification>
+     * @return Collection<int, DatabaseNotification>
      */
     public function getNotificationsProperty(): Collection
     {
         if (! auth()->check()) {
-            return new Collection();
+            return new Collection;
         }
 
         return auth()->user()
