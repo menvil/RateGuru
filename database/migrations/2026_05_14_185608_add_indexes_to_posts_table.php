@@ -22,7 +22,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (DB::getDriverName() === 'mysql') {
+        if (in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
             Schema::table('posts', function (Blueprint $table) {
                 $table->dropForeign(['user_id']);
             });
@@ -35,7 +35,7 @@ return new class extends Migration
             $table->dropIndex(['reports_count']);
         });
 
-        if (DB::getDriverName() === 'mysql') {
+        if (in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
             Schema::table('posts', function (Blueprint $table) {
                 $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
             });
