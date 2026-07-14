@@ -80,7 +80,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
 
       - name: Install Node dependencies
@@ -129,7 +129,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
 
       # The Browser test suite (Pest v4 browser tests) drives a real Chromium
@@ -302,7 +302,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
 
       - name: Audit Composer dependencies
