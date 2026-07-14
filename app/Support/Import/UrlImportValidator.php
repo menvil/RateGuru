@@ -33,6 +33,14 @@ class UrlImportValidator
 
         $host = strtolower($parsed['host']);
 
+        // parse_url() keeps the RFC 3986 brackets on IPv6 literals ("[::1]");
+        // strip them or filter_var() never recognises the host as an IP and the
+        // private-IPv6 checks are bypassed in favour of a DNS lookup of the
+        // bracketed literal (which also throws on resolver hiccups).
+        if (str_starts_with($host, '[') && str_ends_with($host, ']')) {
+            $host = substr($host, 1, -1);
+        }
+
         if ($host === 'localhost') {
             $this->logUnsafeBlocked($url, 'private_address');
             throw UnsafeImportUrlException::privateAddress($url);
@@ -65,7 +73,9 @@ class UrlImportValidator
 
     protected function resolveHostname(string $host): array|false
     {
-        $records = dns_get_record($host, DNS_A | DNS_AAAA);
+        // Suppressed: resolver failures raise a PHP warning (ErrorException
+        // under Laravel); an unresolvable host must fail as invalid_url instead.
+        $records = @dns_get_record($host, DNS_A | DNS_AAAA);
 
         if ($records === false || count($records) === 0) {
             return false;

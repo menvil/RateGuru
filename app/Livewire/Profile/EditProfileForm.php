@@ -5,6 +5,7 @@ namespace App\Livewire\Profile;
 use App\Actions\Profile\UpdateUserProfileAction;
 use App\Models\User;
 use App\Support\Profile\ProfileValidationRules;
+use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rules\File;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -62,7 +63,7 @@ class EditProfileForm extends Component
         ];
     }
 
-    public function render(): \Illuminate\Contracts\View\View
+    public function render(): View
     {
         return view('livewire.profile.edit-profile-form');
     }
