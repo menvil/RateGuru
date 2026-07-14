@@ -51,11 +51,6 @@ jobs:
           composer install --no-interaction --prefer-dist --no-progress
           npm ci
 
-      # The Browser suite drives a real Chromium through Playwright; without it
-      # `php artisan test` hangs waiting for a browser that never launches.
-      - name: Install Playwright
-        run: npx playwright install chromium --with-deps
-
       - name: Prepare application
         run: |
           cp .env.example .env
@@ -63,12 +58,16 @@ jobs:
           touch database/database.sqlite
           npm run build
 
+      # Coverage measures the Unit and Feature suites only. The Browser suite
+      # is exercised (and gated) by the CI "Tests" job; adding it here hangs on
+      # PCOV coverage collection from a real Chromium and contributes just
+      # +0.16% (9 of 5625 statements), nearly all already hit by Feature tests.
       - name: Run tests with coverage
         # Explicit bash shell enables pipefail, so a test failure is not
         # masked by tee's exit code.
         shell: bash
         run: |
-          php artisan test --coverage --coverage-clover=coverage.xml | tee coverage-output.txt
+          php artisan test --testsuite=Unit,Feature --coverage --coverage-clover=coverage.xml | tee coverage-output.txt
 
       - name: Publish coverage summary
         if: always()
