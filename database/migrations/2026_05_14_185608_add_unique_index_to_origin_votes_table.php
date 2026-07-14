@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -18,8 +19,22 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() === 'mysql') {
+            Schema::table('origin_votes', function (Blueprint $table) {
+                $table->dropForeign(['post_id']);
+                $table->dropForeign(['user_id']);
+            });
+        }
+
         Schema::table('origin_votes', function (Blueprint $table) {
             $table->dropUnique(['post_id', 'user_id']);
         });
+
+        if (DB::getDriverName() === 'mysql') {
+            Schema::table('origin_votes', function (Blueprint $table) {
+                $table->foreign('post_id')->references('id')->on('posts')->cascadeOnDelete();
+                $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+            });
+        }
     }
 };
