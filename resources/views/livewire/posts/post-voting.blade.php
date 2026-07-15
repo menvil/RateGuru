@@ -23,7 +23,7 @@
         <div class="flex w-8 flex-col items-center gap-1 pt-1" data-testid="post-voting-rail">
             <button
                 type="button"
-                aria-label="Vote up"
+                aria-label="{{ __('ui.a11y.vote_up') }}"
                 wire:click.stop="vote('up')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
@@ -39,7 +39,7 @@
             <span
                 class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text2') }} text-[13px] font-bold"
                 title="Score"
-                aria-label="Score {{ $score }}"
+                aria-label="{{ __('ui.a11y.score', ['score' => $score]) }}"
                 data-testid="post-upvote-count-{{ $post->id }}"
             >
                 {{ $score }}
@@ -47,7 +47,7 @@
 
             <button
                 type="button"
-                aria-label="Vote down"
+                aria-label="{{ __('ui.a11y.vote_down') }}"
                 wire:click.stop="vote('down')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
@@ -64,7 +64,7 @@
         <div class="inline-flex items-center gap-1.5 rounded-rgPill border border-rg-border2 bg-rg-card2 px-2.5 py-1" data-testid="post-voting-pill">
             <button
                 type="button"
-                aria-label="Vote up"
+                aria-label="{{ __('ui.a11y.vote_up') }}"
                 wire:click.stop="vote('up')"
                 wire:target="vote"
                 wire:loading.attr="disabled"
@@ -80,7 +80,7 @@
             <span
                 class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text') }} min-w-4 text-center text-[13px] font-bold"
                 title="Score"
-                aria-label="Score {{ $score }}"
+                aria-label="{{ __('ui.a11y.score', ['score' => $score]) }}"
                 data-testid="post-upvote-count-{{ $post->id }}"
             >
                 {{ $score }}
@@ -88,7 +88,7 @@
 
             <button
                 type="button"
-                aria-label="Vote down"
+                aria-label="{{ __('ui.a11y.vote_down') }}"
                 wire:click.stop="vote('down')"
                 wire:target="vote"
                 wire:loading.attr="disabled"

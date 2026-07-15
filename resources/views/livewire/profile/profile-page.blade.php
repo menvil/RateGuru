@@ -54,15 +54,24 @@
                 @endif
 
                 @if($this->canSeeReportUserPlaceholder)
-                    <x-ui.button
-                        variant="danger"
-                        size="sm"
-                        disabled
-                        data-testid="report-user-placeholder"
-                        title="User reporting is coming soon"
-                    >
-                        Report user
-                    </x-ui.button>
+                    <div data-testid="report-user-button" x-data="{ reportOpen: false }">
+                        <x-ui.button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            x-on:click="reportOpen = true"
+                        >
+                            {{ __('ui.user.report') }}
+                        </x-ui.button>
+                        <x-ui.modal :title="__('ui.user.report_title')" state="reportOpen" size="md">
+                            <livewire:reports.report-modal
+                                reportable-type="user"
+                                :reportable-id="$profileUser->id"
+                                variant="inline"
+                                :key="'profile-report-user-'.$profileUser->id"
+                            />
+                        </x-ui.modal>
+                    </div>
                 @endif
             </div>
         </div>
@@ -92,7 +101,8 @@
 
     {{-- Profile Tabs --}}
     <div data-testid="profile-tabs" class="mt-6">
-        <div class="flex overflow-x-auto border-b border-rg-border">
+        <div class="flex items-center justify-between border-b border-rg-border">
+            <div class="flex overflow-x-auto">
             <button
                 wire:click="setTab('posts')"
                 data-testid="profile-tab-posts"
@@ -120,6 +130,7 @@
                     {{ __('profile.saved') }}
                 </button>
             @endif
+            </div>
         </div>
 
         {{-- Tab Content --}}
@@ -132,32 +143,9 @@
                             :description="__('profile.no_posts_description')"
                         />
                     @else
-                        <div data-testid="profile-posts-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <div data-testid="profile-posts-grid" class="space-y-4">
                             @foreach($this->posts as $post)
-                                <x-ui.card variant="post" data-testid="profile-post-card">
-                                    @if($post->public_image_url)
-                                        <img
-                                            src="{{ $post->public_image_url }}"
-                                            alt="{{ $post->title }}"
-                                            class="aspect-video w-full rounded-rgMedia object-cover"
-                                        >
-                                    @else
-                                        <x-ui.image-placeholder :label="__('profile.post_image')" ratio="feed" />
-                                    @endif
-
-                                    <div class="mt-3">
-                                        <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>
-
-                                        @if($post->truncated_description)
-                                            <p class="mt-1 text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
-                                        @endif
-                                    </div>
-
-                                    <footer class="mt-3 flex items-center gap-4 border-t border-rg-border pt-2.5 text-xs text-rg-muted">
-                                        <span>{{ __('profile.score') }} <span class="font-semibold text-rg-text2">{{ $post->score }}</span></span>
-                                        <span>{{ __('profile.comments', ['count' => $post->comments_count ?? 0]) }}</span>
-                                    </footer>
-                                </x-ui.card>
+                                <x-feed.post-card :post="$post" wire:key="profile-post-{{ $post->id }}" />
                             @endforeach
                         </div>
 
@@ -208,22 +196,9 @@
                             description=""
                         />
                     @elseif($this->savedPosts)
-                        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <div class="space-y-4" data-testid="profile-saved-posts-grid">
                             @foreach($this->savedPosts as $post)
-                                <x-ui.card variant="post" data-testid="profile-saved-post-card">
-                                    @if($post->public_image_url)
-                                        <img
-                                            src="{{ $post->public_image_url }}"
-                                            alt="{{ $post->title }}"
-                                            class="aspect-video w-full rounded-rgMedia object-cover"
-                                        >
-                                    @else
-                                        <x-ui.image-placeholder :label="__('profile.post_image')" ratio="feed" />
-                                    @endif
-                                    <div class="mt-3">
-                                        <h3 class="text-base font-bold text-rg-text">{{ $post->title }}</h3>
-                                    </div>
-                                </x-ui.card>
+                                <x-feed.post-card :post="$post" wire:key="profile-saved-post-{{ $post->id }}" />
                             @endforeach
                         </div>
                         <div class="mt-6">

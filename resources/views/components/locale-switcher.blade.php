@@ -8,7 +8,7 @@
     <button
         type="button"
         @click="open = !open"
-        aria-label="Switch language"
+        aria-label="{{ __('ui.a11y.switch_language') }}"
         data-testid="locale-switcher-trigger"
         class="inline-flex h-10 cursor-pointer items-center gap-1 rounded-rgControl border border-rg-border2 bg-rg-card px-2 text-[13px] font-medium text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-3"
     >
@@ -37,7 +37,7 @@
                 <button
                     type="submit"
                     data-testid="locale-option-{{ $code }}"
-                    class="flex w-full items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm transition hover:bg-rg-card2 {{ $code === $current ? 'font-semibold text-rg-text' : 'text-rg-text2' }}"
+                    class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm transition hover:bg-rg-card2 {{ $code === $current ? 'font-semibold text-rg-text' : 'text-rg-text2' }}"
                 >
                     {{ $info['native'] }}
                     @if($code === $current)

@@ -20,8 +20,11 @@
         title="{{ $buttonLabel }}"
         data-testid="share-native"
         aria-label="{{ $buttonLabel }}"
-        class="inline-flex size-9 cursor-pointer items-center justify-center rounded-lg border border-rg-border bg-rg-card2 text-rg-text2 transition-colors hover:border-rg-border2 hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+        class="group flex w-full cursor-pointer flex-col items-center gap-1.5 rounded-rgSm py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
     >
-        <x-ui.icon name="share" class="size-4" />
+        <span class="flex size-11 items-center justify-center rounded-full border border-rg-border2 bg-rg-accent text-rg-onAccent transition-transform group-hover:scale-105">
+            <x-ui.icon name="share" class="size-5" />
+        </span>
+        <span class="max-w-full truncate text-[11px] font-medium text-rg-text2 transition-colors group-hover:text-rg-text">{{ $buttonLabel }}</span>
     </button>
 </div>

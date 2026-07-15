@@ -26,4 +26,5 @@ return [
     'score' => 'Оценка',
     'comments' => ':count коментара',
     'post_image' => 'Изображение на публикацията',
+    'username_url_hint' => 'URL адресът на вашия профил е /u/:username.',
 ];
