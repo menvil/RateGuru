@@ -187,8 +187,9 @@
                 :origin="$origin"
                 :cuisine="$cuisine"
                 :sort="$sort"
+                :following-only="$this->isFollowingFeed()"
                 :selected-post-id="$selectedPostId"
-                :key="'feed-'.md5(json_encode([$search, $category, $origin, $cuisine, $sort]))"
+                :key="'feed-'.md5(json_encode([$search, $category, $origin, $cuisine, $sort, $feed]))"
             />
         </section>
 

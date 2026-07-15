@@ -10,12 +10,14 @@ use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Jobs\ProcessUploadedImageJob;
 use App\Models\Post;
+use App\Models\RatingGroup;
 use App\Models\User;
 use App\Services\Images\ImageStorage;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Observability\DomainLogger;
 use App\Support\Rating\RatingConfigurationManager;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -48,8 +50,9 @@ final class CreatePostAction
         $status = $isTrusted ? PostStatus::Published : PostStatus::Pending;
         $publishedAt = $isTrusted ? now() : null;
 
-        $categoryOptionId = $this->validatedCategoryOptionId($data->categoryOptionId);
-        $authorAnswers = $this->validatedAuthorAnswers($data->authorAnswerOptionIds);
+        $ratingGroups = $this->ratingConfiguration->activeGroups();
+        $categoryOptionId = $this->validatedCategoryOptionId($data->categoryOptionId, $ratingGroups);
+        $authorAnswers = $this->validatedAuthorAnswers($data->authorAnswerOptionIds, $ratingGroups);
 
         $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryOptionId, $authorAnswers) {
             $storedImage = $data->image !== null
@@ -109,7 +112,8 @@ final class CreatePostAction
         return $post;
     }
 
-    private function validatedCategoryOptionId(?int $categoryOptionId): ?int
+    /** @param Collection<int, RatingGroup> $ratingGroups */
+    private function validatedCategoryOptionId(?int $categoryOptionId, Collection $ratingGroups): ?int
     {
         if ($categoryOptionId === null) {
             return null;
@@ -117,9 +121,7 @@ final class CreatePostAction
 
         // The post category must be an active option of the first active rating
         // group — the same group the sidebar "Categories" block is built from.
-        $sidebarGroup = $this->ratingConfiguration->activeGroups()->first();
-
-        if ($sidebarGroup === null || $sidebarGroup->options->firstWhere('id', $categoryOptionId) === null) {
+        if (! in_array($categoryOptionId, $this->ratingConfiguration->sidebarGroupOptionIds($ratingGroups), true)) {
             throw CannotCreatePostException::becauseCategoryOptionIsInvalid();
         }
 
@@ -128,20 +130,19 @@ final class CreatePostAction
 
     /**
      * @param  array<int>  $authorAnswerOptionIds
+     * @param  Collection<int, RatingGroup>  $ratingGroups
      * @return list<array{rating_group_id: int, rating_option_id: int}>
      */
-    private function validatedAuthorAnswers(array $authorAnswerOptionIds): array
+    private function validatedAuthorAnswers(array $authorAnswerOptionIds, Collection $ratingGroups): array
     {
         if ($authorAnswerOptionIds === []) {
             return [];
         }
 
-        $groups = $this->ratingConfiguration->activeGroups();
-
         $answers = [];
 
         foreach ($authorAnswerOptionIds as $optionId) {
-            $group = $groups->first(
+            $group = $ratingGroups->first(
                 fn ($group): bool => $group->options->firstWhere('id', (int) $optionId) !== null,
             );
 
