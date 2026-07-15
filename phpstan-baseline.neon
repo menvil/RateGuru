@@ -1,0 +1,1207 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:notify\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Actions/Comments/AddCommentAction.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between int and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Actions/Comments/AddCommentAction.php
+
+		-
+			message: '#^Parameter \#1 \$post of method App\\Actions\\Comments\\DeleteCommentAction\:\:refreshCommentsCount\(\) expects App\\Models\\Post, Illuminate\\Database\\Eloquent\\Model\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Actions/Comments/DeleteCommentAction.php
+
+		-
+			message: '#^Cannot access property \$value on string\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: app/Actions/Comments/HideCommentAction.php
+
+		-
+			message: '#^Parameter \#1 \$post of method App\\Actions\\Comments\\HideCommentAction\:\:refreshCommentsCount\(\) expects App\\Models\\Post, Illuminate\\Database\\Eloquent\\Model\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Actions/Comments/HideCommentAction.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\CommentStatus\:\:Hidden will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Actions/Comments/HideCommentAction.php
+
+		-
+			message: '#^Property App\\Actions\\Comments\\RestoreCommentAction\:\:\$createModerationLog is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: app/Actions/Comments/RestoreCommentAction.php
+
+		-
+			message: '#^Result of \|\| is always true\.$#'
+			identifier: booleanOr.alwaysTrue
+			count: 1
+			path: app/Actions/Comments/RestoreCommentAction.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\CommentStatus\:\:Hidden will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Actions/Comments/RestoreCommentAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Comments/RestoreCommentAction.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\UserStatus\:\:Active will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Actions/Follows/FollowAuthorAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Follows/FollowAuthorAction.php
+
+		-
+			message: '#^Method App\\Actions\\Follows\\NotifyFollowersAboutNewPostAction\:\:getAlreadyNotifiedFollowerIds\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: app/Actions/Follows/NotifyFollowersAboutNewPostAction.php
+
+		-
+			message: '#^Property App\\Actions\\Follows\\NotifyFollowersAboutNewPostAction\:\:\$logger is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: app/Actions/Follows/NotifyFollowersAboutNewPostAction.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Actions/Follows/NotifyFollowersAboutNewPostAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Follows/NotifyFollowersAboutNewPostAction.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: app/Actions/Import/StoreImportedImageAction.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:notify\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Actions/Moderation/ApprovePostAction.php
+
+		-
+			message: '#^Property App\\Actions\\Moderation\\ApprovePostAction\:\:\$createModerationLog is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: app/Actions/Moderation/ApprovePostAction.php
+
+		-
+			message: '#^Result of \|\| is always true\.$#'
+			identifier: booleanOr.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/ApprovePostAction.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\PostStatus\:\:Pending will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/ApprovePostAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Moderation/ApprovePostAction.php
+
+		-
+			message: '#^Cannot access property \$value on string\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: app/Actions/Moderation/BanUserAction.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserStatus\:\:Banned will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Actions/Moderation/BanUserAction.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Actions/Moderation/CreateModerationLogAction.php
+
+		-
+			message: '#^Property App\\Actions\\Moderation\\HidePostAction\:\:\$createModerationLog is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: app/Actions/Moderation/HidePostAction.php
+
+		-
+			message: '#^Result of \|\| is always true\.$#'
+			identifier: booleanOr.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/HidePostAction.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/HidePostAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Moderation/HidePostAction.php
+
+		-
+			message: '#^Property App\\Actions\\Moderation\\MarkUserTrustedAction\:\:\$createModerationLog is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: app/Actions/Moderation/MarkUserTrustedAction.php
+
+		-
+			message: '#^Result of \|\| is always true\.$#'
+			identifier: booleanOr.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/MarkUserTrustedAction.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\UserRole\:\:User will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/MarkUserTrustedAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Moderation/MarkUserTrustedAction.php
+
+		-
+			message: '#^Property App\\Actions\\Moderation\\RejectPostAction\:\:\$createModerationLog is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: app/Actions/Moderation/RejectPostAction.php
+
+		-
+			message: '#^Result of \|\| is always true\.$#'
+			identifier: booleanOr.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/RejectPostAction.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\PostStatus\:\:Pending will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/RejectPostAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Moderation/RejectPostAction.php
+
+		-
+			message: '#^Property App\\Actions\\Moderation\\RestorePostAction\:\:\$createModerationLog is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: app/Actions/Moderation/RestorePostAction.php
+
+		-
+			message: '#^Result of \|\| is always true\.$#'
+			identifier: booleanOr.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/RestorePostAction.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\PostStatus\:\:Hidden will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Actions/Moderation/RestorePostAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Moderation/RestorePostAction.php
+
+		-
+			message: '#^Cannot access property \$value on string\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: app/Actions/Moderation/ShadowbanUserAction.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserStatus\:\:Shadowbanned will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Actions/Moderation/ShadowbanUserAction.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments string, array\{App\\Enums\\UserStatus\:\:Banned, App\\Enums\\UserStatus\:\:Shadowbanned\} and true will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: app/Actions/Moderation/UnbanUserAction.php
+
+		-
+			message: '#^Property App\\Actions\\Moderation\\UnbanUserAction\:\:\$createModerationLog is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: app/Actions/Moderation/UnbanUserAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Moderation/UnbanUserAction.php
+
+		-
+			message: '#^Cannot access property \$value on string\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: app/Actions/Posts/CreatePostAction.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 1
+			path: app/Actions/Posts/CreatePostAction.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Actions/Posts/CreatePostAction.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserStatus\:\:Active will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Actions/Posts/CreatePostAction.php
+
+		-
+			message: '#^Ternary operator condition is always false\.$#'
+			identifier: ternary.alwaysFalse
+			count: 2
+			path: app/Actions/Posts/CreatePostAction.php
+
+		-
+			message: '#^Property App\\Actions\\Posts\\SavePostAction\:\:\$logger is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: app/Actions/Posts/SavePostAction.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Actions/Posts/SavePostAction.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: app/Actions/Posts/SavePostAction.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Collection\<int, Illuminate\\Database\\Eloquent\\Model\>\|Illuminate\\Database\\Eloquent\\Model\:\:\$is_active\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Actions/Rating/ArchiveRatingOptionAction.php
+
+		-
+			message: '#^Anonymous function should return App\\Models\\RatingOption but returns Illuminate\\Database\\Eloquent\\Model\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Actions/Rating/CreateRatingOptionAction.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Collection\<int, Illuminate\\Database\\Eloquent\\Model\>\|Illuminate\\Database\\Eloquent\\Model\:\:\$is_active\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Actions/Rating/DeleteRatingOptionAction.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Collection\<int, Illuminate\\Database\\Eloquent\\Model\>\|Illuminate\\Database\\Eloquent\\Model\:\:votes\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Actions/Rating/DeleteRatingOptionAction.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Collection\<int, Illuminate\\Database\\Eloquent\\Model\>\|Illuminate\\Database\\Eloquent\\Model\:\:\$is_active\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Actions/Rating/UpdateRatingOptionAction.php
+
+		-
+			message: '#^Anonymous function should return App\\Models\\RatingOption but returns Illuminate\\Database\\Eloquent\\Collection\<int, Illuminate\\Database\\Eloquent\\Model\>\|Illuminate\\Database\\Eloquent\\Model\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Actions/Rating/UpdateRatingOptionAction.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Relations\\HasMany\:\:active\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Actions/Rating/ValidateRatingOptionTransitionAction.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Actions/Rating/VoteRatingOptionAction.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$is_active\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Actions/Rating/VoteRatingOptionAction.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\CommentVote\:\:\$type\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Actions/Votes/VoteCommentAction.php
+
+		-
+			message: '#^Access to an undefined property App\\Filament\\Pages\\ProjectSettingsPage\:\:\$form\.$#'
+			identifier: property.notFound
+			count: 3
+			path: app/Filament/Pages/ProjectSettingsPage.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$status\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Filament/Resources/Comments/Tables/CommentsTable.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\CommentStatus\:\:Hidden will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Filament/Resources/Comments/Tables/CommentsTable.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\CommentStatus\:\:Visible will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Filament/Resources/Comments/Tables/CommentsTable.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Post\:\:\$public_image_url\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Filament/Resources/Posts/Tables/PostsTable.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\PostStatus\:\:Pending will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Filament/Resources/Posts/Tables/PostsTable.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Filament/Resources/Posts/Tables/PostsTable.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Hidden will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Filament/Resources/Posts/Tables/PostsTable.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Pending will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 2
+			path: app/Filament/Resources/Posts/Tables/PostsTable.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 2
+			path: app/Filament/Resources/Posts/Tables/PostsTable.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 2
+			path: app/Filament/Resources/Posts/Tables/PostsTable.php
+
+		-
+			message: '#^Parameter \#2 \$group of method App\\Actions\\Rating\\CreateRatingOptionAction\:\:handle\(\) expects App\\Models\\RatingGroup, Illuminate\\Database\\Eloquent\\Model given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Filament/Resources/RatingGroups/RelationManagers/OptionsRelationManager.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>is_active" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Filament/Resources/RatingGroups/RelationManagers/OptionsRelationManager.php
+
+		-
+			message: '#^Parameter \#1 \$relations of method Illuminate\\Database\\Eloquent\\Builder\<Illuminate\\Database\\Eloquent\\Model\>\:\:with\(\) expects array\<array\|\(Closure\(Illuminate\\Database\\Eloquent\\Relations\\Relation\<\*, \*, \*\>\)\: mixed\)\|string\>\|string, array\{0\: ''reporter'', target\: Closure\(Illuminate\\Database\\Eloquent\\Relations\\MorphTo\)\: Illuminate\\Database\\Eloquent\\Relations\\MorphTo\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Filament/Resources/Reports/ReportResource.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$status\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Filament/Resources/Reports/Tables/ReportsTable.php
+
+		-
+			message: '#^Method App\\Filament\\Resources\\Reports\\Tables\\ReportsTable\:\:targetAuthor\(\) should return App\\Models\\User\|null but returns Illuminate\\Database\\Eloquent\\Model\|null\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Filament/Resources/Reports/Tables/ReportsTable.php
+
+		-
+			message: '#^Parameter \#1 \$relations of method Illuminate\\Database\\Eloquent\\Builder\<Illuminate\\Database\\Eloquent\\Model\>\:\:with\(\) expects array\<array\|\(Closure\(Illuminate\\Database\\Eloquent\\Relations\\Relation\<\*, \*, \*\>\)\: mixed\)\|string\>\|string, array\{target\: Closure\(Illuminate\\Database\\Eloquent\\Relations\\MorphTo\)\: void\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Filament/Resources/Reports/Tables/ReportsTable.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 1
+			path: app/Filament/Resources/Reports/Tables/ReportsTable.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\UserStatus\:\:Banned will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Filament/Resources/Reports/Tables/ReportsTable.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Filament/Resources/Reports/Tables/ReportsTable.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\ReportStatus\:\:Open will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 2
+			path: app/Filament/Resources/Reports/Tables/ReportsTable.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments string, array\{App\\Enums\\UserStatus\:\:Banned, App\\Enums\\UserStatus\:\:Shadowbanned\} and true will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: app/Filament/Resources/Users/Tables/UsersTable.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 1
+			path: app/Filament/Resources/Users/Tables/UsersTable.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\UserStatus\:\:Banned will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 2
+			path: app/Filament/Resources/Users/Tables/UsersTable.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\UserStatus\:\:Shadowbanned will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Filament/Resources/Users/Tables/UsersTable.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserStatus\:\:Active will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Filament/Resources/Users/Tables/UsersTable.php
+
+		-
+			message: '#^Variable \$user might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: app/Http/Controllers/Auth/RegisteredUserController.php
+
+		-
+			message: '#^Parameter \#1 \$user of class Illuminate\\Auth\\Events\\Verified constructor expects Illuminate\\Contracts\\Auth\\MustVerifyEmail, App\\Models\\User\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Controllers/Auth/VerifyEmailController.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\CommentResource\:\:\$body\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/CommentResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\CommentResource\:\:\$created_at\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/CommentResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\CommentResource\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/CommentResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\CommentResource\:\:\$post_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/CommentResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\CommentResource\:\:\$user\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/CommentResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$comments_count\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$created_at\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$description\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$downvotes_count\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$hot_score\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$public_image_url\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$published_at\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$tags\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$thumbnail_url\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$title\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$upvotes_count\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\PostResource\:\:\$user\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/PostResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\UserResource\:\:\$avatar_url\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/UserResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\UserResource\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/UserResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\UserResource\:\:\$name\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Api/UserResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Http\\Resources\\Api\\UserResource\:\:\$username\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Http/Resources/Api/UserResource.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Comment\:\:\$score\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Livewire/Comments/CommentVoting.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>score" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Comments/CommentVoting.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Livewire/Feed/FeedPage.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:translatedLabel\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Livewire/Feed/FeedPage.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Livewire/Feed/FeedPage.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string\|null and App\\Enums\\PostStatus\:\:Published will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Livewire/Feed/PostDrawer.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Contracts\\Pagination\\LengthAwarePaginator\:\:onEachSide\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Livewire/Feed/PostFeed.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Livewire/Feed/UploadPostForm.php
+
+		-
+			message: '#^Anonymous function should return Illuminate\\Support\\Collection\<int, string\> but returns Illuminate\\Support\\Collection\<int, decimal\-int\-string\>\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Livewire/Feed/UploadPostForm.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-empty\-string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Livewire/Feed/UploadPostForm.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>options" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Feed/UploadPostForm.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 3
+			path: app/Livewire/Moderation/InlinePostModeration.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Hidden will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Livewire/Moderation/InlinePostModeration.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Pending will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Livewire/Moderation/InlinePostModeration.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Livewire/Moderation/InlinePostModeration.php
+
+		-
+			message: '#^Access to an undefined property App\\Livewire\\Posts\\CuisineVoting\:\:\$post\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Livewire/Posts/CuisineVoting.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$cuisine\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Livewire/Posts/CuisineVoting.php
+
+		-
+			message: '#^Access to an undefined property App\\Livewire\\Posts\\OriginVoting\:\:\$post\.$#'
+			identifier: property.notFound
+			count: 3
+			path: app/Livewire/Posts/OriginVoting.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$origin\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Livewire/Posts/OriginVoting.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>homemade_votes_count" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Posts/OriginVoting.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>restaurant_votes_count" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Posts/OriginVoting.php
+
+		-
+			message: '#^Access to an undefined property App\\Livewire\\Posts\\PostShow\:\:\$post\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Livewire/Posts/PostShow.php
+
+		-
+			message: '#^Access to an undefined property App\\Livewire\\Posts\\PostVoting\:\:\$post\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Livewire/Posts/PostVoting.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$type\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Livewire/Posts/PostVoting.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>score" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Posts/PostVoting.php
+
+		-
+			message: '#^Cannot access property \$value on string\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: app/Livewire/Profile/EditProfileForm.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>value" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Profile/EditProfileForm.php
+
+		-
+			message: '#^Access to an undefined property App\\Livewire\\Profile\\ProfilePage\:\:\$isOwner\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Livewire/Profile/ProfilePage.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\ProfileActivityVisibility\:\:Public will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Livewire/Profile/ProfilePage.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>locale" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Settings/UserLocaleSettings.php
+
+		-
+			message: '#^Attribute class Livewire\\Attributes\\Prop does not exist\.$#'
+			identifier: attribute.notFound
+			count: 1
+			path: app/Livewire/Theme/ThemeSwitcher.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>theme_preference" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Theme/ThemeSwitcher.php
+
+		-
+			message: '#^Parameter \#3 \$option of method App\\Actions\\Rating\\VoteRatingOptionAction\:\:handle\(\) expects App\\Models\\RatingOption, Illuminate\\Database\\Eloquent\\Model given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Livewire/Voting/RatingVoting.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Voting/RatingVoting.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\CommentStatus\:\:Visible will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Models/Comment.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 2
+			path: app/Models/Post.php
+
+		-
+			message: '#^Cannot call method canCreateContent\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Models/User.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 1
+			path: app/Models/User.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between int\<0, max\> and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Models/User.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserRole\:\:Admin will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Models/User.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserRole\:\:Moderator will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Models/User.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserStatus\:\:Active will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 4
+			path: app/Models/User.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type string\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Models/User.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Notifications/FollowedAuthorPostedNotification.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Notifications/FollowedAuthorPostedNotification.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$username\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Notifications/FollowedAuthorPostedNotification.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>username" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Notifications/FollowedAuthorPostedNotification.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 1
+			path: app/Policies/CommentPolicy.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\CommentStatus\:\:Visible will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Policies/CommentPolicy.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 3
+			path: app/Policies/PostPolicy.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Draft will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Policies/PostPolicy.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\PostStatus\:\:Published will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Policies/PostPolicy.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserStatus\:\:Active will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Policies/PostPolicy.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments string, array\{App\\Enums\\UserRole\:\:Admin, App\\Enums\\UserRole\:\:Moderator\} and true will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: app/Policies/UserPolicy.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 4
+			path: app/Policies/UserPolicy.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and App\\Enums\\UserRole\:\:Admin will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Policies/UserPolicy.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserRole\:\:Admin will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 2
+			path: app/Policies/UserPolicy.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\UserRole\:\:User will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Policies/UserPolicy.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Providers/AppServiceProvider.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$label\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Providers/AppServiceProvider.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$label_translations\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Providers/AppServiceProvider.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<Illuminate\\Database\\Eloquent\\Model\>\:\:published\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Providers/AppServiceProvider.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Providers/AppServiceProvider.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\:\:published\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Queries/Feed/FeedQuery.php
+
+		-
+			message: '#^Negated boolean expression is always true\.$#'
+			identifier: booleanNot.alwaysTrue
+			count: 1
+			path: app/Queries/UserRatingActivityQuery.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and App\\Enums\\ProfileActivityVisibility\:\:Public will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Queries/UserRatingActivityQuery.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\CommentVote\:\:\$type\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/Comments/CommentVotingService.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\CuisineVote\:\:\$total\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/PostVoteResultService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$cuisine\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/PostVoteResultService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$origin\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/PostVoteResultService.php
+
+		-
+			message: '#^Cannot access property \$value on string\.$#'
+			identifier: property.nonObject
+			count: 3
+			path: app/Services/PostVoteResultService.php
+
+		-
+			message: '#^Using nullsafe property access on non\-nullable type string\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Services/PostVoteResultService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Relations\\HasMany\:\:active\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Services/Rating/LegacyRatingVoteMigrator.php
+
+		-
+			message: '#^Method App\\Services\\Rating\\LegacyRatingVoteMigrator\:\:option\(\) should return App\\Models\\RatingOption but returns Illuminate\\Database\\Eloquent\\Model\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Services/Rating/LegacyRatingVoteMigrator.php
+
+		-
+			message: '#^Instanceof between App\\Models\\User and App\\Models\\User will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 1
+			path: app/Support/Follows/FollowState.php
+
+		-
+			message: '#^Parameter \#1 \$followedAuthorIds of class App\\Support\\Follows\\FollowStateMap constructor expects array\<int, true\>, array\<mixed, bool\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Support/Follows/FollowState.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: app/Support/Import/Adapters/DirectImageImportAdapter.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:getAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Support/Import/OpenGraphParser.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>textContent" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Support/Import/OpenGraphParser.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Relations\\HasMany\:\:active\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: app/Support/Rating/RatingConfigurationManager.php
+
+		-
+			message: '#^Parameter \#1 \$relations of method Illuminate\\Database\\Eloquent\\Builder\<App\\Models\\RatingGroup\>\:\:with\(\) expects array\<array\|\(Closure\(Illuminate\\Database\\Eloquent\\Relations\\Relation\<\*, \*, \*\>\)\: mixed\)\|string\>\|string, array\{options\: Closure\(Illuminate\\Database\\Eloquent\\Relations\\HasMany\)\: Illuminate\\Database\\Eloquent\\Relations\\HasMany\} given\.$#'
+			identifier: argument.type
+			count: 2
+			path: app/Support/Rating/RatingConfigurationManager.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Relations\\HasMany\:\:ordered\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Support/Rating/RatingVoteDistribution.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Support/Rating/RatingVotingStateLoader.php
+
+		-
+			message: '#^Parameter \#1 \$savedPostIds of class App\\Support\\SavedPosts\\SavedPostStateMap constructor expects array\<int, true\>, array\<mixed, bool\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Support/SavedPosts/SavedPostState.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Post\:\:\$public_image_url\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Support/Seo/PostOpenGraph.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Post\:\:\$public_image_url\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Support/Sharing/PostShareMetadata.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/View/Components/Sharing/ShareButtons.php

@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -25,23 +26,48 @@ return new class extends Migration
             )
         SQL);
 
-        DB::statement(<<<'SQL'
-            INSERT INTO comment_votes_constrained (id, comment_id, user_id, type, created_at, updated_at)
-            SELECT id, comment_id, user_id, type, created_at, updated_at
-            FROM comment_votes
-            WHERE type IN ('up', 'down')
-        SQL);
+        DB::table('comment_votes_constrained')->insertUsing(
+            ['id', 'comment_id', 'user_id', 'type', 'created_at', 'updated_at'],
+            DB::table('comment_votes')
+                ->select(['id', 'comment_id', 'user_id', 'type', 'created_at', 'updated_at'])
+                ->whereIn('type', ['up', 'down'])
+        );
 
         Schema::drop('comment_votes');
         Schema::rename('comment_votes_constrained', 'comment_votes');
 
-        DB::statement('CREATE UNIQUE INDEX comment_votes_comment_id_user_id_unique ON comment_votes (comment_id, user_id)');
+        Schema::table('comment_votes', function (Blueprint $table) {
+            $table->unique(['comment_id', 'user_id']);
+        });
     }
 
     public function down(): void
     {
-        // Intentionally irreversible: dropping the check would allow invalid
-        // vote types again. See docs/design/phase-37-ui-polish-review.md.
-        throw new RuntimeException('This migration is intentionally irreversible.');
+        if (DB::getDriverName() !== 'sqlite' || ! Schema::hasTable('comment_votes')) {
+            return;
+        }
+
+        Schema::create('comment_votes_unconstrained', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('comment_id');
+            $table->unsignedBigInteger('user_id');
+            $table->string('type');
+            $table->timestamps();
+
+            $table->foreign('comment_id')->references('id')->on('comments')->cascadeOnDelete();
+            $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+        });
+
+        DB::table('comment_votes_unconstrained')->insertUsing(
+            ['id', 'comment_id', 'user_id', 'type', 'created_at', 'updated_at'],
+            DB::table('comment_votes')->select(['id', 'comment_id', 'user_id', 'type', 'created_at', 'updated_at'])
+        );
+
+        Schema::drop('comment_votes');
+        Schema::rename('comment_votes_unconstrained', 'comment_votes');
+
+        Schema::table('comment_votes', function (Blueprint $table) {
+            $table->unique(['comment_id', 'user_id']);
+        });
     }
 };

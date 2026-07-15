@@ -1,0 +1,609 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+
+# A new push to the same branch/PR cancels the still-running outdated run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-style:
+    name: Code style (Pint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Check code style
+        run: vendor/bin/pint --test
+
+  static-analysis:
+    name: Static analysis (PHPStan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run PHPStan
+        run: php -d memory_limit=1G vendor/bin/phpstan analyse --no-progress
+
+  frontend-build:
+    name: Frontend build (Vite)
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.build-metrics.outputs.files }}
+      size: ${{ steps.build-metrics.outputs.size }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build assets
+        run: npm run build
+
+      - name: Collect build metrics
+        id: build-metrics
+        run: |
+          echo "files=$(find public/build -type f | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -sh public/build | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload built assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-build
+          path: public/build
+          retention-days: 1
+
+  tests:
+    name: Tests (Pest)
+    runs-on: ubuntu-latest
+    needs: frontend-build
+    outputs:
+      assertions: ${{ steps.test-results.outputs.assertions }}
+      migrations: ${{ steps.sqlite-migrations.outputs.migrations }}
+      tests: ${{ steps.test-results.outputs.tests }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Download built assets
+        uses: actions/download-artifact@v4
+        with:
+          name: public-build
+          path: public/build
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+
+      # The Browser test suite (Pest v4 browser tests) drives a real Chromium
+      # through Playwright; without it `php artisan test` aborts at startup.
+      - name: Install Playwright
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install chromium --with-deps
+
+      - name: Prepare application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          touch database/database.sqlite
+
+      - name: Run SQLite migration and seed smoke check
+        id: sqlite-migrations
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
+        run: |
+          set -o pipefail
+          php artisan migrate:fresh --seed --force
+          php artisan migrate:status --no-ansi \
+            | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        id: pest
+        run: php artisan test --parallel --log-junit junit.xml
+
+      - name: Collect test results
+        id: test-results
+        if: always()
+        run: |
+          php -r '
+          $tests = "n/a";
+          $assertions = "n/a";
+
+          if (is_file("junit.xml") && ($junit = simplexml_load_file("junit.xml")) !== false) {
+              if (isset($junit["tests"])) {
+                  $tests = (string) $junit["tests"];
+                  $assertions = (string) ($junit["assertions"] ?? $assertions);
+              } elseif (isset($junit->testsuite[0])) {
+                  $totalTests = 0;
+                  $totalAssertions = 0;
+
+                  foreach ($junit->testsuite as $suite) {
+                      $totalTests += (int) ($suite["tests"] ?? 0);
+                      $totalAssertions += (int) ($suite["assertions"] ?? 0);
+                  }
+
+                  $tests = (string) $totalTests;
+                  $assertions = (string) $totalAssertions;
+              }
+          }
+
+          file_put_contents(getenv("GITHUB_OUTPUT"), sprintf(
+              "tests=%s\nassertions=%s\n",
+              $tests,
+              $assertions,
+          ), FILE_APPEND);
+          '
+
+      - name: Upload Laravel logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: laravel-logs
+          path: storage/logs
+          retention-days: 5
+
+  migrations-mariadb:
+    name: Migrations (MariaDB)
+    runs-on: ubuntu-latest
+    outputs:
+      migrations: ${{ steps.migration-metrics.outputs.migrations }}
+      rollback: ${{ steps.rollback.outcome }}
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_DATABASE: rateguru
+          MARIADB_USER: rateguru
+          MARIADB_PASSWORD: rateguru
+          MARIADB_ROOT_PASSWORD: rateguru-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Run migrations and seed on MariaDB
+        env:
+          DB_CONNECTION: mariadb
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: rateguru
+          DB_USERNAME: rateguru
+          DB_PASSWORD: rateguru
+        run: php artisan migrate:fresh --seed --force
+
+      - name: Collect MariaDB migration metrics
+        id: migration-metrics
+        env:
+          DB_CONNECTION: mariadb
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: rateguru
+          DB_USERNAME: rateguru
+          DB_PASSWORD: rateguru
+        run: |
+          set -o pipefail
+          php artisan migrate:status --no-ansi \
+            | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Check rollback path (non-blocking)
+        id: rollback
+        continue-on-error: true
+        env:
+          DB_CONNECTION: mariadb
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: rateguru
+          DB_USERNAME: rateguru
+          DB_PASSWORD: rateguru
+        run: |
+          php artisan migrate:reset --force
+          php artisan migrate --force
+
+  migrations-postgres:
+    name: Migrations (PostgreSQL)
+    runs-on: ubuntu-latest
+    outputs:
+      migrations: ${{ steps.migration-metrics.outputs.migrations }}
+      rollback: ${{ steps.rollback.outcome }}
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: rateguru
+          POSTGRES_USER: rateguru
+          POSTGRES_PASSWORD: rateguru
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U rateguru -d rateguru"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_pgsql
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Run migrations and seed on PostgreSQL
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: rateguru
+          DB_USERNAME: rateguru
+          DB_PASSWORD: rateguru
+        run: php artisan migrate:fresh --seed --force
+
+      - name: Collect PostgreSQL migration metrics
+        id: migration-metrics
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: rateguru
+          DB_USERNAME: rateguru
+          DB_PASSWORD: rateguru
+        run: |
+          set -o pipefail
+          php artisan migrate:status --no-ansi \
+            | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Check rollback path (non-blocking)
+        id: rollback
+        continue-on-error: true
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: rateguru
+          DB_USERNAME: rateguru
+          DB_PASSWORD: rateguru
+        run: |
+          php artisan migrate:reset --force
+          php artisan migrate --force
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    outputs:
+      composer-advisories: ${{ steps.dependency-metrics.outputs.composer-advisories }}
+      composer-packages: ${{ steps.dependency-metrics.outputs.composer-packages }}
+      npm-critical: ${{ steps.dependency-metrics.outputs.npm-critical }}
+      npm-high: ${{ steps.dependency-metrics.outputs.npm-high }}
+      npm-packages: ${{ steps.dependency-metrics.outputs.npm-packages }}
+      npm-vulnerabilities: ${{ steps.dependency-metrics.outputs.npm-vulnerabilities }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Audit Composer dependencies
+        # --locked: audits composer.lock directly, no vendor install needed
+        shell: bash
+        run: |
+          set -o pipefail
+          composer audit --locked --format=json | tee composer-audit.json
+
+      - name: Audit npm dependencies
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          npm ci --ignore-scripts
+          npm audit --audit-level=high --json | tee npm-audit.json
+
+      - name: Collect dependency metrics
+        id: dependency-metrics
+        if: always()
+        run: |
+          php -r '
+          $lock = json_decode(file_get_contents("composer.lock"), true) ?: [];
+          $audit = is_file("composer-audit.json")
+              ? (json_decode(file_get_contents("composer-audit.json"), true) ?: [])
+              : [];
+          $packages = count($lock["packages"] ?? []) + count($lock["packages-dev"] ?? []);
+          $advisories = 0;
+
+          foreach ($audit["advisories"] ?? [] as $items) {
+              $advisories += is_array($items) ? count($items) : 0;
+          }
+
+          file_put_contents(getenv("GITHUB_OUTPUT"), sprintf(
+              "composer-packages=%d\ncomposer-advisories=%d\n",
+              $packages,
+              $advisories,
+          ), FILE_APPEND);
+          '
+          node -e '
+          const fs = require("fs");
+          const report = fs.existsSync("npm-audit.json")
+            ? JSON.parse(fs.readFileSync("npm-audit.json", "utf8"))
+            : {};
+          const dependencies = report.metadata?.dependencies ?? {};
+          const vulnerabilities = report.metadata?.vulnerabilities ?? {};
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, [
+            `npm-packages=${dependencies.total ?? "n/a"}`,
+            `npm-vulnerabilities=${vulnerabilities.total ?? "n/a"}`,
+            `npm-high=${vulnerabilities.high ?? "n/a"}`,
+            `npm-critical=${vulnerabilities.critical ?? "n/a"}`,
+            "",
+          ].join("\n"));
+          '
+
+  ci-summary:
+    name: Summary
+    if: always()
+    runs-on: ubuntu-latest
+    needs:
+      - code-style
+      - static-analysis
+      - frontend-build
+      - tests
+      - migrations-mariadb
+      - migrations-postgres
+      - dependency-audit
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Publish CI results
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          CODE_STYLE_RESULT: ${{ needs['code-style'].result }}
+          STATIC_ANALYSIS_RESULT: ${{ needs['static-analysis'].result }}
+          FRONTEND_BUILD_RESULT: ${{ needs['frontend-build'].result }}
+          BUILD_FILES: ${{ needs['frontend-build'].outputs.files }}
+          BUILD_SIZE: ${{ needs['frontend-build'].outputs.size }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+          TEST_COUNT: ${{ needs.tests.outputs.tests }}
+          ASSERTION_COUNT: ${{ needs.tests.outputs.assertions }}
+          SQLITE_MIGRATIONS: ${{ needs.tests.outputs.migrations }}
+          MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
+          MARIADB_MIGRATIONS: ${{ needs['migrations-mariadb'].outputs.migrations }}
+          MARIADB_ROLLBACK: ${{ needs['migrations-mariadb'].outputs.rollback }}
+          POSTGRES_RESULT: ${{ needs['migrations-postgres'].result }}
+          POSTGRES_MIGRATIONS: ${{ needs['migrations-postgres'].outputs.migrations }}
+          POSTGRES_ROLLBACK: ${{ needs['migrations-postgres'].outputs.rollback }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
+          COMPOSER_PACKAGES: ${{ needs['dependency-audit'].outputs.composer-packages }}
+          COMPOSER_ADVISORIES: ${{ needs['dependency-audit'].outputs.composer-advisories }}
+          NPM_PACKAGES: ${{ needs['dependency-audit'].outputs.npm-packages }}
+          NPM_VULNERABILITIES: ${{ needs['dependency-audit'].outputs.npm-vulnerabilities }}
+          NPM_HIGH: ${{ needs['dependency-audit'].outputs.npm-high }}
+          NPM_CRITICAL: ${{ needs['dependency-audit'].outputs.npm-critical }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- rateguru-ci-summary -->';
+            const icon = (result) => ({
+              success: '✅',
+              failure: '❌',
+              cancelled: '⚪',
+              skipped: '➖',
+            }[result] ?? '❔');
+            const details = (result, successText) =>
+              result === 'success' ? successText : `${icon(result)} ${result} · see workflow log`;
+            const value = (name) => process.env[name] || 'n/a';
+            const tests = process.env.TEST_COUNT || 'n/a';
+            const assertions = process.env.ASSERTION_COUNT || 'n/a';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const lines = [
+              marker,
+              '## RateGuru CI',
+              '',
+              '| Check | Summary |',
+              '|---|---|',
+              `| Code style | ${details(process.env.CODE_STYLE_RESULT, 'Pint: no changes required')} |`,
+              `| Static analysis | ${details(process.env.STATIC_ANALYSIS_RESULT, 'PHPStan: 0 errors')} |`,
+              `| Frontend build | ${details(process.env.FRONTEND_BUILD_RESULT, `${value('BUILD_FILES')} files · ${value('BUILD_SIZE')}`)} |`,
+              `| Tests & SQLite | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('SQLITE_MIGRATIONS')} migrations · seed passed`)} |`,
+              `| MariaDB | ${details(process.env.MARIADB_RESULT, `${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
+              `| PostgreSQL | ${details(process.env.POSTGRES_RESULT, `${value('POSTGRES_MIGRATIONS')} migrations · seed passed · rollback ${value('POSTGRES_ROLLBACK')}`)} |`,
+              `| Dependencies | ${details(process.env.DEPENDENCY_AUDIT_RESULT, `Composer: ${value('COMPOSER_PACKAGES')} packages · ${value('COMPOSER_ADVISORIES')} advisories; npm: ${value('NPM_PACKAGES')} packages · ${value('NPM_VULNERABILITIES')} vulnerabilities (${value('NPM_HIGH')} high / ${value('NPM_CRITICAL')} critical)`)} |`,
+              '',
+              `[Open workflow run](${runUrl})`,
+            ];
+            const body = lines.join('\n');
+
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${body.replace(`${marker}\n`, '')}\n`);
+
+            if (context.eventName !== 'pull_request') {
+              return;
+            }
+
+            const pullRequest = context.payload.pull_request;
+
+            if (pullRequest.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.info('Skipping PR comment for an external fork.');
+              return;
+            }
+
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pullRequest.number,
+                per_page: 100,
+              });
+              const existing = comments.find((comment) =>
+                comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker),
+              );
+
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullRequest.number,
+                  body,
+                });
+              }
+            } catch (error) {
+              core.warning(`Could not publish the PR summary: ${error.message}`);
+            }
+
+      - name: Verify CI result
+        env:
+          CODE_STYLE_RESULT: ${{ needs['code-style'].result }}
+          STATIC_ANALYSIS_RESULT: ${{ needs['static-analysis'].result }}
+          FRONTEND_BUILD_RESULT: ${{ needs['frontend-build'].result }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+          MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
+          POSTGRES_RESULT: ${{ needs['migrations-postgres'].result }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
+        run: |
+          for result in \
+            "$CODE_STYLE_RESULT" \
+            "$STATIC_ANALYSIS_RESULT" \
+            "$FRONTEND_BUILD_RESULT" \
+            "$TESTS_RESULT" \
+            "$MARIADB_RESULT" \
+            "$POSTGRES_RESULT" \
+            "$DEPENDENCY_AUDIT_RESULT"
+          do
+            if [ "$result" != 'success' ]; then
+              echo "At least one CI job did not succeed."
+              exit 1
+            fi
+          done
