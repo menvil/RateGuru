@@ -164,10 +164,13 @@ final class UploadPostForm extends Component
      */
     private function categoryOptionChoices(Collection $ratingGroups): array
     {
-        return collect(app(RatingConfigurationManager::class)->sidebarGroupOptionIds($ratingGroups))
-            ->map(fn (int $optionId): string => (string) $optionId)
-            ->prepend('')
-            ->all();
+        return [
+            '',
+            ...array_map(
+                fn (int $optionId): string => (string) $optionId,
+                app(RatingConfigurationManager::class)->sidebarGroupOptionIds($ratingGroups),
+            ),
+        ];
     }
 
     /**
@@ -180,11 +183,13 @@ final class UploadPostForm extends Component
      */
     private function authorAnswerChoices(Collection $ratingGroups): array
     {
-        return collect(app(RatingConfigurationManager::class)->allActiveOptionIds($ratingGroups))
-            ->map(fn (int $optionId): string => (string) $optionId)
-            ->prepend('')
-            ->values()
-            ->all();
+        return [
+            '',
+            ...array_map(
+                fn (int $optionId): string => (string) $optionId,
+                app(RatingConfigurationManager::class)->allActiveOptionIds($ratingGroups),
+            ),
+        ];
     }
 
     /**
