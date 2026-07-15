@@ -2,10 +2,10 @@
 
 namespace Database\Seeders;
 
-class SetupFoodBgSeeder extends SetupPresetSeeder
+class SetupAiImagesSeeder extends SetupPresetSeeder
 {
     protected function presetKey(): string
     {
-        return 'food_bg';
+        return 'ai_images';
     }
 }

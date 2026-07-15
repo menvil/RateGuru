@@ -5,18 +5,18 @@ use App\Models\ProjectSettings;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('admin can apply cats preset from settings page', function () {
+it('admin can apply nature preset from settings page', function () {
     $admin = User::factory()->admin()->create();
 
     ProjectSettings::factory()->create();
 
     Livewire::actingAs($admin)
         ->test(ProjectSettingsPage::class)
-        ->call('applyPreset', 'cats')
+        ->call('applyPreset', 'nature')
         ->assertHasNoErrors();
 
-    expect(ProjectSettings::first()->site_name)->toBe('CatGuru');
-    expect(ProjectSettings::first()->active_preset_key)->toBe('cats');
+    expect(ProjectSettings::first()->site_name)->toBe('NatureGuru');
+    expect(ProjectSettings::first()->active_preset_key)->toBe('nature');
 });
 
 it('admin can apply food preset from settings page', function () {

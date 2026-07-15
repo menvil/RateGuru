@@ -1,8 +1,10 @@
 <?php
 
+use App\Livewire\Feed\FeedPage;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
+use Livewire\Livewire;
 
 it('hides comments when comments feature flag is disabled', function () {
     ProjectSettings::factory()->create([
@@ -82,4 +84,55 @@ it('shows upload button when allow_user_uploads is enabled', function () {
         ->get(route('feed'))
         ->assertOk()
         ->assertSee('data-testid="open-upload-button"', false);
+});
+
+it('uses the split-grid post detail layout when post_detail_overlay_mode is disabled', function () {
+    ProjectSettings::factory()->create([
+        'feature_flags' => [
+            'post_detail_overlay_mode' => false,
+        ],
+    ]);
+
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create(['user_id' => $user->id]);
+
+    Livewire::actingAs($user)
+        ->test(FeedPage::class)
+        ->call('selectPost', $post->id)
+        ->assertSee('data-testid="post-detail-column"', false)
+        ->assertDontSee('data-testid="post-detail-overlay"', false);
+});
+
+it('mounts the global sliding overlay in the layout when post_detail_overlay_mode is enabled', function () {
+    ProjectSettings::factory()->create([
+        'feature_flags' => [
+            'post_detail_overlay_mode' => true,
+        ],
+    ]);
+
+    $user = User::factory()->create();
+    Post::factory()->published()->create(['user_id' => $user->id]);
+
+    $this->actingAs($user)
+        ->get(route('feed'))
+        ->assertOk()
+        ->assertSee('data-testid="post-detail-overlay-backdrop-root"', false)
+        ->assertSee('data-testid="post-detail-overlay-host"', false);
+});
+
+it('does not mount the global sliding overlay when post_detail_overlay_mode is disabled', function () {
+    ProjectSettings::factory()->create([
+        'feature_flags' => [
+            'post_detail_overlay_mode' => false,
+        ],
+    ]);
+
+    $user = User::factory()->create();
+    Post::factory()->published()->create(['user_id' => $user->id]);
+
+    $this->actingAs($user)
+        ->get(route('feed'))
+        ->assertOk()
+        ->assertDontSee('data-testid="post-detail-overlay-backdrop-root"', false)
+        ->assertDontSee('data-testid="post-detail-overlay-host"', false);
 });

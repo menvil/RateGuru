@@ -42,7 +42,7 @@ it('upload form has import tab option', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('data-testid="import-tab"', false);
+        ->assertSee('data-testid="image-tab-url"', false);
 });
 
 it('upload form has upload tab option', function () {
@@ -50,7 +50,7 @@ it('upload form has upload tab option', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->assertSee('data-testid="upload-tab"', false);
+        ->assertSee('data-testid="image-tab-file"', false);
 });
 
 it('submit downloads importedImageUrl before validation and creates post', function () {
@@ -69,5 +69,6 @@ it('submit downloads importedImageUrl before validation and creates post', funct
         ->set('importedImageUrl', 'https://example.com/image.jpg')
         ->call('submit')
         ->assertDispatched('post-uploaded')
+        ->assertDispatched('toast', message: __('ui.upload.success_pending'))
         ->assertHasNoErrors();
 });

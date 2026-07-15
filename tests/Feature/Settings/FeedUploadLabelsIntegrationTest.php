@@ -3,7 +3,7 @@
 use App\Models\ProjectSettings;
 use App\Models\User;
 
-it('renders configured feed title and upload label', function () {
+it('renders configured upload label', function () {
     ProjectSettings::factory()->create([
         'feed_title' => 'Latest cats',
         'upload_cta_label' => 'Upload cat',
@@ -16,17 +16,16 @@ it('renders configured feed title and upload label', function () {
     $this->actingAs($user)
         ->get(route('feed'))
         ->assertOk()
-        ->assertSee('Latest cats')
         ->assertSee('Upload cat');
 });
 
-it('renders fallback feed title when settings row is missing', function () {
+it('renders feed page without feed title heading', function () {
     $user = User::factory()->create();
 
     $this->actingAs($user)
         ->get(route('feed'))
         ->assertOk()
-        ->assertSee('Latest posts');
+        ->assertDontSee('data-testid="feed-title"', false);
 });
 
 it('renders fallback upload label when settings row is missing', function () {

@@ -5,13 +5,14 @@ use App\Actions\Follows\UnfollowAuthorAction;
 use App\Actions\Posts\SavePostAction;
 use App\Actions\Posts\UnsavePostAction;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 
 it('logs saved post action', function () {
     Log::spy();
 
-    \App\Models\ProjectSettings::factory()->create([
+    ProjectSettings::factory()->create([
         'feature_flags' => ['show_saved_posts' => true],
     ]);
 
@@ -27,7 +28,7 @@ it('logs saved post action', function () {
 it('logs unsaved post action', function () {
     Log::spy();
 
-    \App\Models\ProjectSettings::factory()->create([
+    ProjectSettings::factory()->create([
         'feature_flags' => ['show_saved_posts' => true],
     ]);
 
@@ -43,7 +44,7 @@ it('logs unsaved post action', function () {
 it('logs follow action', function () {
     Log::spy();
 
-    \App\Models\ProjectSettings::factory()->create([
+    ProjectSettings::factory()->create([
         'feature_flags' => ['show_follow_buttons' => true],
     ]);
 
@@ -59,7 +60,7 @@ it('logs follow action', function () {
 it('logs unfollow action', function () {
     Log::spy();
 
-    \App\Models\ProjectSettings::factory()->create([
+    ProjectSettings::factory()->create([
         'feature_flags' => ['show_follow_buttons' => true],
     ]);
 

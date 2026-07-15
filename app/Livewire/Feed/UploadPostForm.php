@@ -8,8 +8,11 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Models\RatingGroup;
 use App\Models\Tag;
+use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -30,6 +33,18 @@ final class UploadPostForm extends Component
     public string $cuisineTruth = 'unknown';
 
     public array $tagIds = [];
+
+    // Author-chosen feed category: option id of the first active rating group
+    // (the sidebar "Categories" group), kept as a string because it is bound to
+    // a native <select> ('' = not selected).
+    public string $categoryOptionId = '';
+
+    // "From the author" section: toggle + one optional answer per active rating
+    // group, keyed by group id ('' = not selected).
+    public bool $knowsCorrectAnswer = false;
+
+    /** @var array<int|string, string> */
+    public array $authorAnswers = [];
 
     public $image = null;
 
@@ -53,7 +68,7 @@ final class UploadPostForm extends Component
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
-        $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError']);
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryOptionId', 'knowsCorrectAnswer', 'authorAnswers']);
         $this->loadTags();
         $this->activeTab = 'upload';
         $this->originTruth = OriginType::Unknown->value;
@@ -91,11 +106,14 @@ final class UploadPostForm extends Component
                 cuisineTruth: CuisineType::from($this->cuisineTruth),
                 tagIds: $this->tagIds,
                 image: $this->image,
+                categoryOptionId: $this->categoryOptionId !== '' ? (int) $this->categoryOptionId : null,
+                authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
             ));
 
             $this->dispatch('post-uploaded', postId: $post->id);
+            $this->dispatch('toast', message: __('ui.upload.success_pending'));
 
-            $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds']);
+            $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryOptionId', 'knowsCorrectAnswer', 'authorAnswers']);
             $this->importedImageUrl = null;
             $this->activeTab = 'upload';
             $this->tagSearch = '';
@@ -105,13 +123,14 @@ final class UploadPostForm extends Component
             $this->submitError = $e->getMessage();
         } catch (\Throwable $e) {
             report($e);
-            $this->submitError = 'Something went wrong while creating your post.';
+            $this->submitError = __('ui.upload.error_generic');
         }
     }
 
     protected function rules(): array
     {
         $imageMimes = implode(',', config('uploads.images.mimes', ['jpg', 'jpeg', 'png', 'webp']));
+        $ratingGroups = app(RatingConfigurationManager::class)->activeGroups();
 
         return [
             'title' => ['required', 'string', 'min:3', 'max:120'],
@@ -130,7 +149,64 @@ final class UploadPostForm extends Component
             'cuisineTruth' => ['nullable', Rule::enum(CuisineType::class)],
             'tagIds' => ['array', 'max:10'],
             'tagIds.*' => ['integer', 'exists:tags,id'],
+            'categoryOptionId' => [Rule::in($this->categoryOptionChoices($ratingGroups))],
+            'authorAnswers' => ['array'],
+            'authorAnswers.*' => [Rule::in($this->authorAnswerChoices($ratingGroups))],
         ];
+    }
+
+    /**
+     * Valid <select> values for the category field: '' (not selected) plus the
+     * active option ids of the sidebar category group.
+     *
+     * @param  Collection<int, RatingGroup>  $ratingGroups
+     * @return list<string>
+     */
+    private function categoryOptionChoices(Collection $ratingGroups): array
+    {
+        return [
+            '',
+            ...array_map(
+                fn (int $optionId): string => (string) $optionId,
+                app(RatingConfigurationManager::class)->sidebarGroupOptionIds($ratingGroups),
+            ),
+        ];
+    }
+
+    /**
+     * Valid <select> values for author answers: '' (not selected) plus every
+     * active option id across all active rating groups. Group/option pairing
+     * is enforced by CreatePostAction.
+     *
+     * @param  Collection<int, RatingGroup>  $ratingGroups
+     * @return list<string>
+     */
+    private function authorAnswerChoices(Collection $ratingGroups): array
+    {
+        return [
+            '',
+            ...array_map(
+                fn (int $optionId): string => (string) $optionId,
+                app(RatingConfigurationManager::class)->allActiveOptionIds($ratingGroups),
+            ),
+        ];
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function selectedAuthorAnswerOptionIds(): array
+    {
+        if (! $this->knowsCorrectAnswer) {
+            return [];
+        }
+
+        return collect($this->authorAnswers)
+            ->filter(fn ($optionId): bool => $optionId !== '' && $optionId !== null)
+            ->map(fn ($optionId): int => (int) $optionId)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     #[On('import-preview-selected')]
@@ -145,11 +221,16 @@ final class UploadPostForm extends Component
 
     public function render(): View
     {
+        $ratingGroups = app(RatingConfigurationManager::class)->activeGroups();
+
         return view('livewire.feed.upload-post-form', [
+            'ratingGroups' => $ratingGroups,
+            'categoryGroup' => $ratingGroups->first(),
             'tags' => $this->tags,
             'selectedTags' => $this->selectedTags(),
             'popularTags' => $this->popularTags(),
             'filteredTags' => $this->filteredTags(),
+            'unselectedTags' => $this->unselectedTags(),
         ]);
     }
 
@@ -177,6 +258,8 @@ final class UploadPostForm extends Component
             ->push($tagId)
             ->values()
             ->all();
+
+        $this->tagSearch = '';
     }
 
     private function loadTags(): void
@@ -226,6 +309,16 @@ final class UploadPostForm extends Component
 
         return $tags
             ->take(12)
+            ->values()
+            ->all();
+    }
+
+    private function unselectedTags(): array
+    {
+        $selectedIds = collect($this->tagIds)->map(fn ($id): int => (int) $id)->all();
+
+        return collect($this->filteredTags())
+            ->filter(fn (array $tag): bool => ! in_array((int) $tag['id'], $selectedIds, true))
             ->values()
             ->all();
     }

@@ -8,6 +8,7 @@ use App\Enums\ReportReason;
 use App\Exceptions\Reports\CannotReportContentException;
 use App\Models\Comment;
 use App\Models\Post;
+use App\Models\User;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\Rule;
@@ -71,6 +72,9 @@ final class ReportModal extends Component
                 ->where('status', CommentStatus::Visible)
                 ->find($this->reportableId),
 
+            'user' => User::query()
+                ->find($this->reportableId),
+
             default => abort(404),
         };
 
@@ -95,12 +99,12 @@ final class ReportModal extends Component
     private function labelForReason(ReportReason $reason): string
     {
         return match ($reason) {
-            ReportReason::Spam => 'Spam',
-            ReportReason::Offensive => 'Offensive',
-            ReportReason::Fake => 'Fake',
-            ReportReason::Copyright => 'Copyright',
-            ReportReason::NotFood => 'Wrong category',
-            ReportReason::Other => 'Other',
+            ReportReason::Spam => __('ui.report.reasons.spam'),
+            ReportReason::Offensive => __('ui.report.reasons.offensive'),
+            ReportReason::Fake => __('ui.report.reasons.fake'),
+            ReportReason::Copyright => __('ui.report.reasons.copyright'),
+            ReportReason::NotFood => __('ui.report.reasons.not_food'),
+            ReportReason::Other => __('ui.report.reasons.other'),
         };
     }
 

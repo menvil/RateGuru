@@ -83,7 +83,7 @@ final class InlinePostModeration extends Component
                 reason: $this->normalizedReason(),
             );
 
-            $this->success = 'Post approved.';
+            $this->success = __('ui.moderation.approved');
             $this->dispatch('post-moderated', postId: $this->postId, action: 'approved');
         });
     }
@@ -97,7 +97,7 @@ final class InlinePostModeration extends Component
                 reason: $this->normalizedReason(),
             );
 
-            $this->success = 'Post hidden.';
+            $this->success = __('ui.moderation.hidden');
             $this->dispatch('post-moderated', postId: $this->postId, action: 'hidden');
         });
     }
@@ -111,7 +111,7 @@ final class InlinePostModeration extends Component
                 reason: $this->normalizedReason(),
             );
 
-            $this->success = 'Post rejected.';
+            $this->success = __('ui.moderation.rejected');
             $this->dispatch('post-moderated', postId: $this->postId, action: 'rejected');
         });
     }
@@ -125,7 +125,7 @@ final class InlinePostModeration extends Component
                 reason: $this->normalizedReason(),
             );
 
-            $this->success = 'Post restored.';
+            $this->success = __('ui.moderation.restored');
             $this->dispatch('post-moderated', postId: $this->postId, action: 'restored');
         });
     }
@@ -158,7 +158,7 @@ final class InlinePostModeration extends Component
         $this->success = null;
 
         if (! $this->canModerate()) {
-            $this->error = 'You are not allowed to moderate posts.';
+            $this->error = __('ui.moderation.not_allowed');
 
             return;
         }

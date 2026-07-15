@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Actions\Counters\RecalculateCommentCountersAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
@@ -17,14 +18,18 @@ use App\Models\RatingGroup;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class DemoFillSeeder extends Seeder
 {
-    private const USER_COUNT         = 500;
-    private const POST_COUNT         = 100;
-    private const VOTE_RATIO         = 0.85;  // 85% of users vote per post
+    private const USER_COUNT = 500;
+
+    private const POST_COUNT = 100;
+
+    private const VOTE_RATIO = 0.85;  // 85% of users vote per post
+
     private const COMMENT_VOTE_RATIO = 0.50;  // 50% of users vote per comment
 
     private const POST_TITLES = [
@@ -158,23 +163,23 @@ class DemoFillSeeder extends Seeder
     // Users
     // -------------------------------------------------------------------------
 
-    private function createUsers(): \Illuminate\Support\Collection
+    private function createUsers(): Collection
     {
         $rows = [];
-        $now  = now()->toDateTimeString();
+        $now = now()->toDateTimeString();
 
         for ($i = 1; $i <= self::USER_COUNT; $i++) {
             $rows[] = [
-                'name'              => fake()->name(),
-                'username'          => 'user_fill_'.str_pad((string) $i, 3, '0', STR_PAD_LEFT),
-                'email'             => "fill{$i}@demo.test",
-                'password'          => Hash::make('password'),
+                'name' => fake()->name(),
+                'username' => 'user_fill_'.str_pad((string) $i, 3, '0', STR_PAD_LEFT),
+                'email' => "fill{$i}@demo.test",
+                'password' => Hash::make('password'),
                 'email_verified_at' => $now,
-                'role'              => UserRole::User->value,
-                'status'            => UserStatus::Active->value,
-                'trust_level'       => 1,
-                'created_at'        => $now,
-                'updated_at'        => $now,
+                'role' => UserRole::User->value,
+                'status' => UserStatus::Active->value,
+                'trust_level' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
             ];
         }
 
@@ -191,39 +196,39 @@ class DemoFillSeeder extends Seeder
     // Posts
     // -------------------------------------------------------------------------
 
-    private function createPosts(\Illuminate\Support\Collection $users): \Illuminate\Support\Collection
+    private function createPosts(Collection $users): Collection
     {
-        $originTypes  = OriginType::cases();
+        $originTypes = OriginType::cases();
         $cuisineTypes = CuisineType::cases();
-        $shuffled     = $users->shuffle();
-        $baseTime     = CarbonImmutable::now()->subDays(60);
-        $now          = now()->toDateTimeString();
+        $shuffled = $users->shuffle();
+        $baseTime = CarbonImmutable::now()->subDays(60);
+        $now = now()->toDateTimeString();
 
         foreach (self::POST_TITLES as $index => $title) {
-            $author    = $shuffled[$index % $shuffled->count()];
+            $author = $shuffled[$index % $shuffled->count()];
             $imagePath = $this->generatePostImage($author->id, $index + 1);
 
             DB::table('posts')->updateOrInsert(
                 ['title' => $title],
                 [
-                    'user_id'         => $author->id,
-                    'description'     => fake()->paragraph(3),
-                    'image_path'      => $imagePath,
-                    'image_url'       => null,
-                    'thumbnail_url'   => null,
-                    'source_url'      => null,
-                    'status'          => PostStatus::Published->value,
-                    'origin_truth'    => $originTypes[array_rand($originTypes)]->value,
-                    'cuisine_truth'   => $cuisineTypes[array_rand($cuisineTypes)]->value,
+                    'user_id' => $author->id,
+                    'description' => fake()->paragraph(3),
+                    'image_path' => $imagePath,
+                    'image_url' => null,
+                    'thumbnail_url' => null,
+                    'source_url' => null,
+                    'status' => PostStatus::Published->value,
+                    'origin_truth' => $originTypes[array_rand($originTypes)]->value,
+                    'cuisine_truth' => $cuisineTypes[array_rand($cuisineTypes)]->value,
                     // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
-                    'published_at'    => $baseTime->addHours($index * 14)->toDateTimeString(),
-                    'deleted_at'      => null, // clear any previous soft-delete so Eloquent finds the row
-                    'upvotes_count'   => 0,
+                    'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),
+                    'deleted_at' => null, // clear any previous soft-delete so Eloquent finds the row
+                    'upvotes_count' => 0,
                     'downvotes_count' => 0,
-                    'comments_count'  => 0,
-                    'hot_score'       => 0,
-                    'created_at'      => $now,
-                    'updated_at'      => $now,
+                    'comments_count' => 0,
+                    'hot_score' => 0,
+                    'created_at' => $now,
+                    'updated_at' => $now,
                 ],
             );
 
@@ -243,11 +248,12 @@ class DemoFillSeeder extends Seeder
 
     private function generatePostImage(int $userId, int $index): string
     {
-        $palette       = self::PALETTES[($index - 1) % count(self::PALETTES)];
-        $style         = ($index - 1) % 5;
-        [$r1,$g1,$b1]  = $this->hexToRgb($palette[0]);
-        [$r2,$g2,$b2]  = $this->hexToRgb($palette[1]);
-        $w = 800; $h = 600;
+        $palette = self::PALETTES[($index - 1) % count(self::PALETTES)];
+        $style = ($index - 1) % 5;
+        [$r1,$g1,$b1] = $this->hexToRgb($palette[0]);
+        [$r2,$g2,$b2] = $this->hexToRgb($palette[1]);
+        $w = 800;
+        $h = 600;
         $im = imagecreatetruecolor($w, $h);
         imagealphablending($im, true);
 
@@ -295,11 +301,12 @@ class DemoFillSeeder extends Seeder
         // Add top-to-bottom tint for diagonal feel
         for ($y = 0; $y < $h; $y += 2) {
             $alpha = (int) (($y / $h) * 50);
-            $tint  = imagecolorallocatealpha($im, 0, 0, 0, 127 - $alpha);
+            $tint = imagecolorallocatealpha($im, 0, 0, 0, 127 - $alpha);
             imagefilledrectangle($im, 0, $y, $w - 1, $y + 1, $tint);
         }
         // White glow
-        $cx = (int) ($w * 0.72); $cy = (int) ($h * 0.28);
+        $cx = (int) ($w * 0.72);
+        $cy = (int) ($h * 0.28);
         for ($r = 120; $r > 0; $r -= 4) {
             $alpha = max(0, min(127, (int) (127 - $r * 0.7)));
             imagefilledellipse($im, $cx, $cy, $r * 2, $r * 2, imagecolorallocatealpha($im, 255, 255, 255, $alpha));
@@ -313,10 +320,10 @@ class DemoFillSeeder extends Seeder
         imagefill($im, 0, 0, imagecolorallocate($im, $r2, $g2, $b2));
         $steps = 60;
         for ($s = $steps; $s >= 0; $s--) {
-            $t  = $s / $steps;
+            $t = $s / $steps;
             $ew = (int) ($w * $t);
             $eh = (int) ($h * $t);
-            $c  = imagecolorallocate($im, $this->lerp($r2, $r1, $t), $this->lerp($g2, $g1, $t), $this->lerp($b2, $b1, $t));
+            $c = imagecolorallocate($im, $this->lerp($r2, $r1, $t), $this->lerp($g2, $g1, $t), $this->lerp($b2, $b1, $t));
             imagefilledellipse($im, (int) ($w / 2), (int) ($h / 2), $ew, $eh, $c);
         }
         // Center bright spot
@@ -329,12 +336,12 @@ class DemoFillSeeder extends Seeder
     // Style 2: bold horizontal stripes with diagonal highlight
     private function drawStripes(\GdImage $im, int $w, int $h, int $r1, int $g1, int $b1, int $r2, int $g2, int $b2): void
     {
-        $count   = 10;
+        $count = 10;
         $stripeH = (int) ceil($h / $count);
         for ($s = 0; $s < $count; $s++) {
-            $t  = $s / ($count - 1);
+            $t = $s / ($count - 1);
             $y0 = $s * $stripeH;
-            $c  = imagecolorallocate($im, $this->lerp($r1, $r2, $t), $this->lerp($g1, $g2, $t), $this->lerp($b1, $b2, $t));
+            $c = imagecolorallocate($im, $this->lerp($r1, $r2, $t), $this->lerp($g1, $g2, $t), $this->lerp($b1, $b2, $t));
             imagefilledrectangle($im, 0, $y0, $w - 1, $y0 + $stripeH - 1, $c);
         }
         // Diagonal shimmer bar
@@ -347,15 +354,18 @@ class DemoFillSeeder extends Seeder
     // Style 3: grid mosaic
     private function drawGrid(\GdImage $im, int $w, int $h, int $r1, int $g1, int $b1, int $r2, int $g2, int $b2): void
     {
-        $cols = 7; $rows = 5;
-        $cw = (int) ceil($w / $cols); $ch = (int) ceil($h / $rows);
+        $cols = 7;
+        $rows = 5;
+        $cw = (int) ceil($w / $cols);
+        $ch = (int) ceil($h / $rows);
         for ($row = 0; $row < $rows; $row++) {
             for ($col = 0; $col < $cols; $col++) {
-                $t    = ($row * $cols + $col) / ($rows * $cols - 1);
+                $t = ($row * $cols + $col) / ($rows * $cols - 1);
                 $flip = ($row + $col) % 2 === 0;
-                $rt   = $flip ? $t : 1 - $t;
-                $c    = imagecolorallocate($im, $this->lerp($r1, $r2, $rt), $this->lerp($g1, $g2, $rt), $this->lerp($b1, $b2, $rt));
-                $x0 = $col * $cw; $y0 = $row * $ch;
+                $rt = $flip ? $t : 1 - $t;
+                $c = imagecolorallocate($im, $this->lerp($r1, $r2, $rt), $this->lerp($g1, $g2, $rt), $this->lerp($b1, $b2, $rt));
+                $x0 = $col * $cw;
+                $y0 = $row * $ch;
                 imagefilledrectangle($im, $x0, $y0, $x0 + $cw - 1, $y0 + $ch - 1, $c);
                 imagerectangle($im, $x0, $y0, $x0 + $cw - 1, $y0 + $ch - 1, imagecolorallocatealpha($im, 0, 0, 0, 80));
             }
@@ -373,16 +383,18 @@ class DemoFillSeeder extends Seeder
         imagefill($im, 0, 0, imagecolorallocate($im, $r1, $g1, $b1));
         $waveCount = 7;
         for ($wi = 0; $wi < $waveCount; $wi++) {
-            $t       = $wi / ($waveCount - 1);
+            $t = $wi / ($waveCount - 1);
             $yCenter = (int) ($h * ($wi + 1) / ($waveCount + 1));
-            $c       = imagecolorallocatealpha($im, $this->lerp($r2, $r1, $t), $this->lerp($g2, $g1, $t), $this->lerp($b2, $b1, $t), 20 + $wi * 12);
+            $c = imagecolorallocatealpha($im, $this->lerp($r2, $r1, $t), $this->lerp($g2, $g1, $t), $this->lerp($b2, $b1, $t), 20 + $wi * 12);
             $pts = [];
             for ($x = 0; $x <= $w; $x += 5) {
                 $pts[] = $x;
                 $pts[] = $yCenter + (int) (38 * sin(($x / $w) * M_PI * 4 + $wi * 0.9));
             }
-            $pts[] = $w; $pts[] = $h;
-            $pts[] = 0;  $pts[] = $h;
+            $pts[] = $w;
+            $pts[] = $h;
+            $pts[] = 0;
+            $pts[] = $h;
             imagefilledpolygon($im, $pts, $c);
         }
         // Shimmer line
@@ -395,7 +407,8 @@ class DemoFillSeeder extends Seeder
 
     private function drawVignette(\GdImage $im, int $w, int $h): void
     {
-        $cx = $w / 2; $cy = $h / 2;
+        $cx = $w / 2;
+        $cy = $h / 2;
         $maxD = sqrt($cx * $cx + $cy * $cy);
         // Sample every 2px for speed
         for ($y = 0; $y < $h; $y += 2) {
@@ -405,8 +418,8 @@ class DemoFillSeeder extends Seeder
                     continue;
                 }
                 $strength = ($d - 0.60) / 0.40;
-                $alpha    = max(0, min(127, (int) (127 - $strength * 100)));
-                $c        = imagecolorallocatealpha($im, 0, 0, 0, $alpha);
+                $alpha = max(0, min(127, (int) (127 - $strength * 100)));
+                $c = imagecolorallocatealpha($im, 0, 0, 0, $alpha);
                 imagesetpixel($im, $x, $y, $c);
                 if ($x + 1 < $w) {
                     imagesetpixel($im, $x + 1, $y, $c);
@@ -426,8 +439,8 @@ class DemoFillSeeder extends Seeder
     // -------------------------------------------------------------------------
 
     private function seedPostVotes(
-        \Illuminate\Support\Collection $users,
-        \Illuminate\Support\Collection $posts,
+        Collection $users,
+        Collection $posts,
     ): void {
         // Load all active rating groups with their active options only
         $ratingGroups = RatingGroup::query()
@@ -441,14 +454,14 @@ class DemoFillSeeder extends Seeder
             $g->id => $g->options->pluck('id')->all(),
         ])->all();
 
-        $originValues  = [OriginType::Homemade->value, OriginType::Restaurant->value];
+        $originValues = [OriginType::Homemade->value, OriginType::Restaurant->value];
         $cuisineValues = array_map(fn ($c) => $c->value, CuisineType::cases());
-        $now           = now()->toDateTimeString();
+        $now = now()->toDateTimeString();
 
-        $postVotes    = [];
-        $originVotes  = [];
+        $postVotes = [];
+        $originVotes = [];
         $cuisineVotes = [];
-        $ratingVotes  = [];
+        $ratingVotes = [];
 
         foreach ($posts as $post) {
             $voters = $users
@@ -458,25 +471,25 @@ class DemoFillSeeder extends Seeder
 
             foreach ($voters as $user) {
                 $postVotes[] = [
-                    'post_id'    => $post->id,
-                    'user_id'    => $user->id,
-                    'type'       => fake()->boolean(70) ? VoteType::Up->value : VoteType::Down->value,
+                    'post_id' => $post->id,
+                    'user_id' => $user->id,
+                    'type' => fake()->boolean(70) ? VoteType::Up->value : VoteType::Down->value,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
 
                 $originVotes[] = [
-                    'post_id'    => $post->id,
-                    'user_id'    => $user->id,
-                    'origin'     => $originValues[array_rand($originValues)],
+                    'post_id' => $post->id,
+                    'user_id' => $user->id,
+                    'origin' => $originValues[array_rand($originValues)],
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
 
                 $cuisineVotes[] = [
-                    'post_id'    => $post->id,
-                    'user_id'    => $user->id,
-                    'cuisine'    => $cuisineValues[array_rand($cuisineValues)],
+                    'post_id' => $post->id,
+                    'user_id' => $user->id,
+                    'cuisine' => $cuisineValues[array_rand($cuisineValues)],
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
@@ -487,12 +500,12 @@ class DemoFillSeeder extends Seeder
                         continue;
                     }
                     $ratingVotes[] = [
-                        'post_id'          => $post->id,
-                        'user_id'          => $user->id,
-                        'rating_group_id'  => $groupId,
+                        'post_id' => $post->id,
+                        'user_id' => $user->id,
+                        'rating_group_id' => $groupId,
                         'rating_option_id' => $optionIds[array_rand($optionIds)],
-                        'created_at'       => $now,
-                        'updated_at'       => $now,
+                        'created_at' => $now,
+                        'updated_at' => $now,
                     ];
                 }
             }
@@ -524,11 +537,11 @@ class DemoFillSeeder extends Seeder
     // -------------------------------------------------------------------------
 
     private function seedComments(
-        \Illuminate\Support\Collection $users,
-        \Illuminate\Support\Collection $posts,
-    ): \Illuminate\Support\Collection {
+        Collection $users,
+        Collection $posts,
+    ): Collection {
         $allComments = collect();
-        $now         = now()->toDateTimeString();
+        $now = now()->toDateTimeString();
 
         foreach ($posts as $post) {
             $commenters = $users
@@ -539,11 +552,11 @@ class DemoFillSeeder extends Seeder
             $topLevel = collect();
             foreach ($commenters as $user) {
                 $id = DB::table('comments')->insertGetId([
-                    'post_id'    => $post->id,
-                    'user_id'    => $user->id,
-                    'parent_id'  => null,
-                    'body'       => $this->randomBody(self::COMMENT_BODIES),
-                    'status'     => CommentStatus::Visible->value,
+                    'post_id' => $post->id,
+                    'user_id' => $user->id,
+                    'parent_id' => null,
+                    'body' => $this->randomBody(self::COMMENT_BODIES),
+                    'status' => CommentStatus::Visible->value,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
@@ -556,11 +569,11 @@ class DemoFillSeeder extends Seeder
                 $replyUsers = $users->where('id', '!=', $post->user_id)->shuffle()->take(fake()->numberBetween(2, 5));
                 foreach ($replyUsers as $user) {
                     $id = DB::table('comments')->insertGetId([
-                        'post_id'    => $post->id,
-                        'user_id'    => $user->id,
-                        'parent_id'  => $parent->id,
-                        'body'       => $this->randomBody(self::REPLY_BODIES),
-                        'status'     => CommentStatus::Visible->value,
+                        'post_id' => $post->id,
+                        'user_id' => $user->id,
+                        'parent_id' => $parent->id,
+                        'body' => $this->randomBody(self::REPLY_BODIES),
+                        'status' => CommentStatus::Visible->value,
                         'created_at' => $now,
                         'updated_at' => $now,
                     ]);
@@ -574,11 +587,11 @@ class DemoFillSeeder extends Seeder
                 $replyUsers = $users->where('id', '!=', $post->user_id)->shuffle()->take(fake()->numberBetween(1, 3));
                 foreach ($replyUsers as $user) {
                     $id = DB::table('comments')->insertGetId([
-                        'post_id'    => $post->id,
-                        'user_id'    => $user->id,
-                        'parent_id'  => $parent->id,
-                        'body'       => $this->randomBody(self::REPLY_BODIES),
-                        'status'     => CommentStatus::Visible->value,
+                        'post_id' => $post->id,
+                        'user_id' => $user->id,
+                        'parent_id' => $parent->id,
+                        'body' => $this->randomBody(self::REPLY_BODIES),
+                        'status' => CommentStatus::Visible->value,
                         'created_at' => $now,
                         'updated_at' => $now,
                     ]);
@@ -606,10 +619,10 @@ class DemoFillSeeder extends Seeder
     // -------------------------------------------------------------------------
 
     private function seedCommentVotes(
-        \Illuminate\Support\Collection $users,
-        \Illuminate\Support\Collection $comments,
+        Collection $users,
+        Collection $comments,
     ): void {
-        $now          = now()->toDateTimeString();
+        $now = now()->toDateTimeString();
         $commentVotes = [];
 
         foreach ($comments as $comment) {
@@ -621,8 +634,8 @@ class DemoFillSeeder extends Seeder
             foreach ($voters as $user) {
                 $commentVotes[] = [
                     'comment_id' => $comment->id,
-                    'user_id'    => $user->id,
-                    'type'       => fake()->boolean(75) ? VoteType::Up->value : VoteType::Down->value,
+                    'user_id' => $user->id,
+                    'type' => fake()->boolean(75) ? VoteType::Up->value : VoteType::Down->value,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
@@ -641,23 +654,22 @@ class DemoFillSeeder extends Seeder
 
         $this->command->getOutput()->writeln('');
 
-        // Batch update upvotes_count / downvotes_count per comment
-        DB::statement("
-            UPDATE comments
-            SET
-                upvotes_count   = (SELECT COUNT(*) FROM comment_votes WHERE comment_votes.comment_id = comments.id AND type = ?),
-                downvotes_count = (SELECT COUNT(*) FROM comment_votes WHERE comment_votes.comment_id = comments.id AND type = ?)
-        ", [VoteType::Up->value, VoteType::Down->value]);
+        $counters = app(RecalculateCommentCountersAction::class);
+
+        Comment::query()
+            ->select('id')
+            ->lazyById()
+            ->each(fn (Comment $comment) => $counters->handle($comment));
     }
 
     // -------------------------------------------------------------------------
     // Post counter recalculation
     // -------------------------------------------------------------------------
 
-    private function recalculatePosts(\Illuminate\Support\Collection $posts): void
+    private function recalculatePosts(Collection $posts): void
     {
         $counters = app(RecalculatePostCountersAction::class);
-        $score    = app(RecalculatePostScoreAction::class);
+        $score = app(RecalculatePostScoreAction::class);
 
         foreach ($posts as $post) {
             $post->refresh();

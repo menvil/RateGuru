@@ -11,11 +11,11 @@ it('theme switcher is visible on the feed page', function () {
 it('can switch to light theme via theme switcher', function () {
     visit(route('feed'))
         ->click('[data-testid="theme-option-light"]')
-        ->assertAttributeContains('html', 'data-theme', 'light');
+        ->assertAttributeContains('html[lang]', 'data-theme', 'light');
 });
 
 it('can switch to dark theme via theme switcher', function () {
     visit(route('feed'))
         ->click('[data-testid="theme-option-dark"]')
-        ->assertAttributeContains('html', 'data-theme', 'dark');
+        ->assertAttributeContains('html[lang]', 'data-theme', 'dark');
 });

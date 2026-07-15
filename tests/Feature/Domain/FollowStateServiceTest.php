@@ -3,6 +3,7 @@
 use App\Models\Follow;
 use App\Models\User;
 use App\Support\Follows\FollowState;
+use App\Support\Follows\FollowStateMap;
 
 it('returns follow states for multiple authors', function () {
     $viewer = User::factory()->create();
@@ -34,7 +35,7 @@ it('returns empty map for empty authors list', function () {
 
     $states = app(FollowState::class)->forViewerAndAuthors($viewer, []);
 
-    expect($states)->toBeInstanceOf(\App\Support\Follows\FollowStateMap::class);
+    expect($states)->toBeInstanceOf(FollowStateMap::class);
 });
 
 it('returns false for single isFollowing when not following', function () {

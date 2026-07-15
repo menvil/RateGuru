@@ -9,6 +9,10 @@ return [
         'defaults' => 'Настройки по умолчанию',
         'feature_flags' => 'Функциональные флаги',
         'presets' => 'Пресеты',
+        'apply_preset_title' => 'Применить пресет',
+        'apply_preset_description' => 'Применение пресета перезапишет текущие настройки проекта.',
+        'apply_preset_confirm' => "Применить пресет ':preset'? Это перезапишет текущие настройки.",
+        'save' => 'Сохранить настройки',
     ],
     'rating_groups' => [
         'nav_label' => 'Группы рейтингов',
@@ -29,6 +33,7 @@ return [
         'show_share_buttons' => 'Показывать кнопки шаринга',
         'show_vote_breakdown' => 'Показывать распределение голосов',
         'show_follow_buttons' => 'Показывать кнопки подписки',
+        'post_detail_overlay_mode' => 'Открывать посты в выезжающей панели',
         'show_saved_posts' => 'Показывать сохранённые посты',
         'allow_user_uploads' => 'Разрешить загрузки пользователям',
         'allow_guest_viewing' => 'Разрешить просмотр гостям',

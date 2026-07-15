@@ -24,7 +24,8 @@ it('rejects 172.31.255.255 upper bound of 172.16/12 range', function () {
 })->throws(UnsafeImportUrlException::class);
 
 it('allows 172.32.0.1 which is just outside the private range', function () {
-    $validator = new class extends UrlImportValidator {
+    $validator = new class extends UrlImportValidator
+    {
         protected function resolveHostname(string $host): array|false
         {
             return ['172.32.0.1'];
@@ -81,7 +82,8 @@ it('rejects http scheme', function () {
 })->throws(UnsafeImportUrlException::class);
 
 it('rejects hostname that resolves to private ip', function () {
-    $validator = new class extends UrlImportValidator {
+    $validator = new class extends UrlImportValidator
+    {
         protected function resolveHostname(string $host): array|false
         {
             return ['192.168.1.1'];
@@ -93,7 +95,8 @@ it('rejects hostname that resolves to private ip', function () {
 });
 
 it('rejects unresolvable hostname', function () {
-    $validator = new class extends UrlImportValidator {
+    $validator = new class extends UrlImportValidator
+    {
         protected function resolveHostname(string $host): array|false
         {
             return false;

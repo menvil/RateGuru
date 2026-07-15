@@ -3,6 +3,8 @@
 namespace App\Livewire\Profile;
 
 use App\Enums\ProfileActivityVisibility;
+use App\Models\Post;
+use App\Models\RatingVote;
 use App\Models\User;
 use App\Queries\SavedPosts\SavedPostsQuery;
 use App\Queries\UserPublicPostsQuery;
@@ -12,7 +14,9 @@ use App\Support\Profile\ProfileStatsData;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -55,7 +59,7 @@ final class ProfilePage extends Component
         return app(ProfileStats::class)->forUser($this->profileUser, auth()->user());
     }
 
-    /** @return LengthAwarePaginator<int, \App\Models\Post> */
+    /** @return LengthAwarePaginator<int, Post> */
     public function getPostsProperty(): LengthAwarePaginator
     {
         return app(UserPublicPostsQuery::class)->forProfile($this->profileUser);
@@ -67,13 +71,13 @@ final class ProfilePage extends Component
             || $this->profileUser->rating_activity_visibility === ProfileActivityVisibility::Public;
     }
 
-    /** @return \Illuminate\Database\Eloquent\Collection<int, \App\Models\RatingVote> */
-    public function getRatingActivityProperty(): \Illuminate\Database\Eloquent\Collection
+    /** @return Collection<int, RatingVote> */
+    public function getRatingActivityProperty(): Collection
     {
         return app(UserRatingActivityQuery::class)->forProfile($this->profileUser, auth()->user());
     }
 
-    /** @return LengthAwarePaginator<int, \App\Models\Post>|null */
+    /** @return LengthAwarePaginator<int, Post>|null */
     public function getSavedPostsProperty(): ?LengthAwarePaginator
     {
         if (! $this->isOwner) {
@@ -105,6 +109,14 @@ final class ProfilePage extends Component
     {
         return auth()->check()
             && auth()->id() !== $this->profileUser->id;
+    }
+
+    #[On('follow-state-changed')]
+    public function onFollowStateChanged(int $authorId): void
+    {
+        if ($authorId === $this->profileUser->id) {
+            $this->profileUser->loadCount(['followerRelations', 'followingRelations']);
+        }
     }
 
     public function setTab(string $tab): void

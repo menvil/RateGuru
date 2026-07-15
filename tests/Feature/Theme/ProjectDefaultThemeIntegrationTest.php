@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\ProjectSettings;
+use App\Models\User;
 use App\Support\Theme\ThemeManager;
 
 it('uses project default theme for guest when no local preference exists', function () {
@@ -32,7 +33,7 @@ it('uses system when project default is system and applies dark as default', fun
 });
 
 it('project settings admin page shows theme options', function () {
-    $admin = \App\Models\User::factory()->admin()->create();
+    $admin = User::factory()->admin()->create();
 
     $this->actingAs($admin)
         ->get('/admin/project-settings')

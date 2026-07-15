@@ -6,7 +6,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Validator;
 
 it('requires post title', function () {
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
 
     $validator = Validator::make([
         'image' => UploadedFile::fake()->image('dish.jpg'),
@@ -17,7 +17,7 @@ it('requires post title', function () {
 });
 
 it('requires post image', function () {
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
 
     $validator = Validator::make([
         'title' => 'Homemade pasta',
@@ -28,7 +28,7 @@ it('requires post image', function () {
 });
 
 it('requires image to be a valid image file', function () {
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
 
     $validator = Validator::make([
         'title' => 'Homemade pasta',
@@ -40,7 +40,7 @@ it('requires image to be a valid image file', function () {
 });
 
 it('allows description to be omitted', function () {
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
 
     $validator = Validator::make([
         'title' => 'Homemade pasta',
@@ -51,7 +51,7 @@ it('allows description to be omitted', function () {
 });
 
 it('allows source url to be omitted', function () {
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
 
     $validator = Validator::make([
         'title' => 'Homemade pasta',
@@ -62,11 +62,11 @@ it('allows source url to be omitted', function () {
 });
 
 it('requires source url to be valid url when provided', function () {
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
 
     $validator = Validator::make([
-        'title'      => 'Homemade pasta',
-        'image'      => UploadedFile::fake()->image('dish.jpg'),
+        'title' => 'Homemade pasta',
+        'image' => UploadedFile::fake()->image('dish.jpg'),
         'source_url' => 'not-a-url',
     ], $request->rules());
 
@@ -75,11 +75,11 @@ it('requires source url to be valid url when provided', function () {
 });
 
 it('validates origin truth enum value', function () {
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
 
     $validator = Validator::make([
-        'title'        => 'Homemade pasta',
-        'image'        => UploadedFile::fake()->image('dish.jpg'),
+        'title' => 'Homemade pasta',
+        'image' => UploadedFile::fake()->image('dish.jpg'),
         'origin_truth' => 'invalid',
     ], $request->rules());
 
@@ -88,11 +88,11 @@ it('validates origin truth enum value', function () {
 });
 
 it('validates cuisine truth enum value', function () {
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
 
     $validator = Validator::make([
-        'title'         => 'Homemade pasta',
-        'image'         => UploadedFile::fake()->image('dish.jpg'),
+        'title' => 'Homemade pasta',
+        'image' => UploadedFile::fake()->image('dish.jpg'),
         'cuisine_truth' => 'invalid',
     ], $request->rules());
 
@@ -101,11 +101,11 @@ it('validates cuisine truth enum value', function () {
 });
 
 it('validates tag ids exist', function () {
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
 
     $validator = Validator::make([
-        'title'   => 'Homemade pasta',
-        'image'   => UploadedFile::fake()->image('dish.jpg'),
+        'title' => 'Homemade pasta',
+        'image' => UploadedFile::fake()->image('dish.jpg'),
         'tag_ids' => [999999],
     ], $request->rules());
 
@@ -116,7 +116,7 @@ it('validates tag ids exist', function () {
 it('authorizes request when user can create content', function () {
     $user = User::factory()->create();
 
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
     $request->setUserResolver(fn () => $user);
 
     expect($request->authorize())->toBeTrue();
@@ -125,7 +125,7 @@ it('authorizes request when user can create content', function () {
 it('denies request when user cannot create content', function () {
     $user = User::factory()->banned()->create();
 
-    $request = new StorePostRequest();
+    $request = new StorePostRequest;
     $request->setUserResolver(fn () => $user);
 
     expect($request->authorize())->toBeFalse();

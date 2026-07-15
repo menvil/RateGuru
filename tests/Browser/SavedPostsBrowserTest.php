@@ -5,6 +5,8 @@ use App\Models\PostSave;
 use App\Models\ProjectSettings;
 use App\Models\User;
 
+use function Pest\Laravel\actingAs;
+
 it('can open saved posts page in browser', function () {
     ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
 
@@ -22,10 +24,10 @@ it('can open saved posts page in browser', function () {
         'post_id' => $post->id,
     ]);
 
-    loginAs($user);
+    actingAs($user);
 
     visit(route('saved-posts.index'))
-        ->assertSee('data-testid="saved-posts-page"', false)
+        ->assertPresent('[data-testid="saved-posts-page"]')
         ->assertSee('Browser Saved Post Title');
 });
 
@@ -37,8 +39,8 @@ it('shows empty state on saved posts page when no saved posts', function () {
         'password' => bcrypt('password'),
     ]);
 
-    loginAs($user);
+    actingAs($user);
 
     visit(route('saved-posts.index'))
-        ->assertSee('data-testid="saved-posts-empty-state"', false);
+        ->assertPresent('[data-testid="saved-posts-empty-state"]');
 });

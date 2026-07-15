@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Counters\RecalculatePostCountersAction;
+use App\Data\Counters\PostCounterSnapshot;
 use App\Enums\OriginType;
 use App\Enums\VoteType;
 use App\Models\OriginVote;
@@ -58,25 +60,26 @@ it('continues the batch and fails when one post errors', function () {
 
     PostVote::factory()->for($good)->create(['type' => VoteType::Up]);
 
-    $real = new \App\Actions\Counters\RecalculatePostCountersAction;
+    $real = new RecalculatePostCountersAction;
 
-    $fake = new class($bad->id, $real) extends \App\Actions\Counters\RecalculatePostCountersAction {
+    $fake = new class($bad->id, $real) extends RecalculatePostCountersAction
+    {
         public function __construct(
             private int $failPostId,
-            private \App\Actions\Counters\RecalculatePostCountersAction $real,
+            private RecalculatePostCountersAction $real,
         ) {}
 
-        public function handle(Post $post): \App\Data\Counters\PostCounterSnapshot
+        public function handle(Post $post): PostCounterSnapshot
         {
             if ($post->id === $this->failPostId) {
-                throw new \RuntimeException('boom');
+                throw new RuntimeException('boom');
             }
 
             return $this->real->handle($post);
         }
     };
 
-    app()->instance(\App\Actions\Counters\RecalculatePostCountersAction::class, $fake);
+    app()->instance(RecalculatePostCountersAction::class, $fake);
 
     $this->artisan('rateguru:recalculate-post-counters')
         ->expectsOutput('Recalculated counters for 1 posts.')

@@ -53,5 +53,5 @@ it('feature flags from db override defaults', function () {
 });
 
 it('missing settings row does not crash the app', function () {
-    expect(fn () => app(ProjectSettingsManager::class)->current())->not->toThrow(\Throwable::class);
+    expect(fn () => app(ProjectSettingsManager::class)->current())->not->toThrow(Throwable::class);
 });

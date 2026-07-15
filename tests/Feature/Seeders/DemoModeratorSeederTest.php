@@ -30,7 +30,7 @@ it('seeds demo moderator with hashed password', function () {
 it('does not seed demo moderator in production environment', function () {
     app()->detectEnvironment(fn () => 'production');
 
-    (new DemoModeratorSeeder())->run();
+    (new DemoModeratorSeeder)->run();
 
     expect(User::query()->where('email', 'moderator@rateguru.test')->exists())->toBeFalse();
 });

@@ -20,15 +20,15 @@ final class RecalculateCommentCountersAction
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $counts = CommentVote::query()
+            $upvotes = CommentVote::query()
                 ->where('comment_id', $lockedComment->id)
-                ->selectRaw('type, COUNT(*) as total')
-                ->groupBy('type')
-                ->get()
-                ->mapWithKeys(fn (CommentVote $vote): array => [$vote->type->value => (int) $vote->total]);
+                ->where('type', VoteType::Up->value)
+                ->count();
 
-            $upvotes = (int) ($counts[VoteType::Up->value] ?? 0);
-            $downvotes = (int) ($counts[VoteType::Down->value] ?? 0);
+            $downvotes = CommentVote::query()
+                ->where('comment_id', $lockedComment->id)
+                ->where('type', VoteType::Down->value)
+                ->count();
 
             $lockedComment->forceFill([
                 'upvotes_count' => $upvotes,

@@ -2,10 +2,10 @@
 
 namespace Database\Seeders;
 
-class SetupFoodGeneralSeeder extends SetupPresetSeeder
+class SetupBreastsSeeder extends SetupPresetSeeder
 {
     protected function presetKey(): string
     {
-        return 'food';
+        return 'breasts';
     }
 }

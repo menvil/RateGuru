@@ -2,7 +2,13 @@
     $hasSelectedPost = $selectedPostId !== null;
 @endphp
 @inject('settingsManager', \App\Support\Settings\ProjectSettingsManager::class)
-@php $feedSettings = $settingsManager->current(); @endphp
+@php
+    $feedSettings = $settingsManager->current();
+    $overlayMode = $feedSettings->featureFlag('post_detail_overlay_mode', false);
+    // When overlay mode is on, the layout-level global overlay (layouts/app.blade.php)
+    // handles the post detail panel instead of this inline split-grid column.
+    $splitMode = $hasSelectedPost && ! $overlayMode;
+@endphp
 
 <div
     class="min-h-screen min-w-0"
@@ -63,136 +69,59 @@
     x-on:post-selected.window="scrollToSelectedPost($event.detail.postId); scrollToDetailTarget($event.detail.focus)"
 >
     <div
-        class="{{ $hasSelectedPost
-            ? 'grid min-w-0 gap-5 lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)] lg:gap-0'
+        class="{{ $splitMode
+            ? 'rg-feed-split-grid min-w-0 gap-5'
             : 'grid min-w-0 lg:block' }}"
         data-testid="feed-content-shell"
     >
         <section
             x-ref="feedScroll"
-            class="{{ $hasSelectedPost
+            class="{{ $splitMode
                 ? 'min-w-0 lg:border-r lg:border-rg-border lg:pr-5'
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >
-            <div class="mb-5 flex flex-wrap items-center gap-3">
-                <div class="min-w-0 flex-1">
-                    <div class="flex flex-wrap items-center gap-2" data-testid="feed-rating-filters">
-                        <div class="relative" x-data="{ open: false }" x-on:click.outside="open = false">
-                            <button
-                                type="button"
-                                x-on:click="open = ! open"
-                                class="flex h-9 cursor-pointer items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-3 text-[12.5px] font-semibold text-rg-text2 transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                                data-testid="origin-filter-trigger"
-                                aria-haspopup="true"
-                                x-bind:aria-expanded="open"
-                            >
-                                {{ __('ui.voting.source') }}
-                                @if(count((array) $origin) > 0)
-                                    <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $origin) }}</span>
-                                @endif
-                                <x-ui.icon name="chevron-down" class="size-3.5" />
-                            </button>
-
-                            <div
-                                x-cloak
-                                x-show="open"
-                                class="absolute left-0 z-20 mt-2 w-48 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
-                                data-testid="origin-filter-menu"
-                            >
-                                @foreach($originOptions as $filter)
-                                    <button
-                                        type="button"
-                                        wire:click="toggleOrigin('{{ $filter['value'] }}')"
-                                        class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-1.5 text-left text-[12.5px] font-semibold text-rg-text2 transition hover:bg-rg-card"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            @checked(in_array($filter['value'], (array) $origin, true))
-                                            class="size-3.5 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-rg-accent"
-                                            tabindex="-1"
-                                            readonly
-                                        >
-                                        {{ $filter['label'] }}
-                                    </button>
-                                @endforeach
-
-                                <button
-                                    type="button"
-                                    wire:click="clearOriginFilters"
-                                    class="mt-1 block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-[12px] font-semibold text-rg-muted transition hover:bg-rg-card hover:text-rg-text"
+            @php $matchedUsers = $this->matchedUsers(); @endphp
+            @if($matchedUsers->isNotEmpty())
+                <div class="mb-5 rounded-rgCard border border-rg-border bg-rg-card p-4" data-testid="feed-user-results">
+                    <p class="mb-3 text-[11px] font-bold uppercase tracking-[0.12em] text-rg-muted">{{ __('ui.feed.users_heading') }}</p>
+                    <ul class="space-y-1">
+                        @foreach($matchedUsers as $matchedUser)
+                            <li>
+                                <a
+                                    href="{{ route('profile.show', ['username' => $matchedUser->username]) }}"
+                                    class="flex items-center gap-3 rounded-rgSm px-2 py-1.5 transition hover:bg-rg-card2"
+                                    data-testid="feed-user-result-{{ $matchedUser->id }}"
                                 >
-                                    {{ __('ui.feed.clear_filter') }}
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="relative" x-data="{ open: false }" x-on:click.outside="open = false">
-                            <button
-                                type="button"
-                                x-on:click="open = ! open"
-                                class="flex h-9 cursor-pointer items-center gap-1.5 rounded-rgSm border border-rg-border2 bg-rg-card2 px-3 text-[12.5px] font-semibold text-rg-text2 transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                                data-testid="cuisine-filter-trigger"
-                                aria-haspopup="true"
-                                x-bind:aria-expanded="open"
-                            >
-                                {{ __('ui.voting.category') }}
-                                @if(count((array) $cuisine) > 0)
-                                    <span class="rounded-rgPill bg-rg-accentSoft px-1.5 text-[11px] text-rg-accent2">{{ count((array) $cuisine) }}</span>
-                                @endif
-                                <x-ui.icon name="chevron-down" class="size-3.5" />
-                            </button>
-
-                            <div
-                                x-cloak
-                                x-show="open"
-                                class="absolute left-0 z-20 mt-2 w-52 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
-                                data-testid="cuisine-filter-menu"
-                            >
-                                @foreach($cuisineOptions as $filter)
-                                    <button
-                                        type="button"
-                                        wire:click="toggleCuisine('{{ $filter['value'] }}')"
-                                        class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-1.5 text-left text-[12.5px] font-semibold text-rg-text2 transition hover:bg-rg-card"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            @checked(in_array($filter['value'], (array) $cuisine, true))
-                                            class="size-3.5 rounded border-rg-border2 bg-rg-card text-rg-accent focus:ring-rg-accent"
-                                            tabindex="-1"
-                                            readonly
-                                        >
-                                        {{ $filter['label'] }}
-                                    </button>
-                                @endforeach
-
-                                <button
-                                    type="button"
-                                    wire:click="clearCuisineFilters"
-                                    class="mt-1 block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-[12px] font-semibold text-rg-muted transition hover:bg-rg-card hover:text-rg-text"
-                                >
-                                    {{ __('ui.feed.clear_filter') }}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                                    <x-ui.avatar
+                                        :src="$matchedUser->resolved_avatar_url"
+                                        :name="$matchedUser->resolved_display_name"
+                                        color="purple"
+                                    />
+                                    <span class="min-w-0">
+                                        <span class="block truncate text-sm font-semibold text-rg-text">{{ $matchedUser->resolved_display_name }}</span>
+                                        <span class="block truncate text-xs text-rg-muted">{{ '@'.$matchedUser->username }}</span>
+                                    </span>
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
                 </div>
-                <livewire:feed.sort-dropdown wire:model.live="sort" />
-            </div>
+            @endif
 
-            <h2 class="mb-4 text-base font-semibold text-rg-text2" data-testid="feed-title">{{ $feedSettings->feedTitle() }}</h2>
             <livewire:feed.post-feed
                 :search="$this->effectiveSearch()"
                 :tag="$category"
                 :origin="$origin"
                 :cuisine="$cuisine"
                 :sort="$sort"
+                :following-only="$this->isFollowingFeed()"
                 :selected-post-id="$selectedPostId"
-                :key="'feed-'.md5(json_encode([$search, $category, $origin, $cuisine, $sort]))"
+                :key="'feed-'.md5(json_encode([$search, $category, $origin, $cuisine, $sort, $feed]))"
             />
         </section>
 
-        @if($hasSelectedPost)
+        @if($splitMode)
             <aside
                 x-ref="detailScroll"
                 data-testid="post-detail-column"

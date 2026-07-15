@@ -114,6 +114,16 @@ class Post extends Model
         return $this->belongsToMany(Tag::class);
     }
 
+    public function authorAnswers(): HasMany
+    {
+        return $this->hasMany(PostAuthorAnswer::class);
+    }
+
+    public function categoryOption(): BelongsTo
+    {
+        return $this->belongsTo(RatingOption::class, 'category_option_id');
+    }
+
     protected function score(): Attribute
     {
         return Attribute::make(

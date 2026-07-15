@@ -4,7 +4,6 @@ use App\Filament\Resources\Tags\Pages\CreateTag;
 use App\Filament\Resources\Tags\Pages\EditTag;
 use App\Models\Tag;
 use App\Models\User;
-
 use Livewire\Livewire;
 
 it('allows admin to create tag from tag resource', function () {

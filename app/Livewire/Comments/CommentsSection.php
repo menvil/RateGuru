@@ -143,6 +143,27 @@ final class CommentsSection extends Component
     }
 
     #[On('comment-created')]
+    public function onCommentCreated(int $postId, ?int $commentId = null): void
+    {
+        if ($postId !== $this->postId) {
+            return;
+        }
+
+        // Surface the freshly posted comment: under "top"/"hot" sorting a new
+        // comment with zero votes lands at the bottom of the list, invisible
+        // to its author.
+        $isTopLevel = $commentId !== null && Comment::query()
+            ->whereKey($commentId)
+            ->whereNull('parent_id')
+            ->exists();
+
+        if ($isTopLevel && $this->commentSort !== 'newest') {
+            $this->commentSort = 'newest';
+        }
+
+        $this->refreshComments($postId);
+    }
+
     #[On('comment-deleted')]
     #[On('comment-hidden')]
     public function refreshComments(int $postId): void

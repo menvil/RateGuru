@@ -10,6 +10,7 @@
                 :is-own-post="$isOwnPost"
                 :error="$error"
                 :distribution="$distribution"
+                :variant="$variant"
                 test-id-prefix="rating-option-{{ $post->id }}"
             />
         </div>

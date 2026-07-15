@@ -7,6 +7,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Notifications\FollowedAuthorPostedNotification;
 use App\Support\Observability\DomainLogger;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -14,11 +15,12 @@ use Throwable;
 final class NotifyFollowersAboutNewPostAction
 {
     public function __construct(private readonly DomainLogger $logger) {}
+
     /**
      * @param  \Illuminate\Database\Eloquent\Collection<int, User>  $followers
-     * @return \Illuminate\Support\Collection<int, int>
+     * @return Collection<int, int>
      */
-    private function getAlreadyNotifiedFollowerIds(\Illuminate\Database\Eloquent\Collection $followers, Post $post): \Illuminate\Support\Collection
+    private function getAlreadyNotifiedFollowerIds(\Illuminate\Database\Eloquent\Collection $followers, Post $post): Collection
     {
         if ($followers->isEmpty()) {
             return collect();
@@ -26,7 +28,7 @@ final class NotifyFollowersAboutNewPostAction
 
         return DB::table('notifications')
             ->where('type', FollowedAuthorPostedNotification::class)
-            ->where('notifiable_type', (new User())->getMorphClass())
+            ->where('notifiable_type', (new User)->getMorphClass())
             ->whereIn('notifiable_id', $followers->pluck('id')->all())
             ->where('data->post_id', $post->id)
             ->pluck('notifiable_id');
@@ -66,6 +68,7 @@ final class NotifyFollowersAboutNewPostAction
                             'author_id' => $author->id,
                             'follower_id' => $follower->id,
                         ]);
+
                         continue;
                     }
 

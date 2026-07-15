@@ -127,6 +127,7 @@ class ProjectSettingsPage extends Page
                         Toggle::make('feature_flags.show_share_buttons')->label(__('admin.fields.show_share_buttons')),
                         Toggle::make('feature_flags.show_vote_breakdown')->label(__('admin.fields.show_vote_breakdown')),
                         Toggle::make('feature_flags.show_follow_buttons')->label(__('admin.fields.show_follow_buttons')),
+                        Toggle::make('feature_flags.post_detail_overlay_mode')->label(__('admin.fields.post_detail_overlay_mode')),
                         Toggle::make('feature_flags.show_saved_posts')->label(__('admin.fields.show_saved_posts')),
                         Toggle::make('feature_flags.allow_user_uploads')->label(__('admin.fields.allow_user_uploads')),
                         Toggle::make('feature_flags.allow_guest_viewing')->label(__('admin.fields.allow_guest_viewing')),

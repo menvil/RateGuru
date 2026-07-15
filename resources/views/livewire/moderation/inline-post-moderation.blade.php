@@ -9,7 +9,7 @@
                         rel="noopener"
                         class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
-                        Open in admin
+                        {{ __('ui.moderation.open_in_admin') }}
                     </a>
                 @endif
 
@@ -20,7 +20,7 @@
                         data-testid="moderation-approve"
                         class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
-                        Approve
+                        {{ __('ui.moderation.approve') }}
                     </button>
 
                     <button
@@ -29,7 +29,7 @@
                         data-testid="moderation-reject"
                         class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                     >
-                        Reject
+                        {{ __('ui.moderation.reject') }}
                     </button>
                 @endif
 
@@ -40,12 +40,12 @@
                         data-testid="moderation-hide"
                         class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                     >
-                        Hide
+                        {{ __('ui.moderation.hide') }}
                     </button>
 
-                    <x-ui.modal title="Hide this post?" state="compactHideOpen">
+                    <x-ui.modal title="{{ __('ui.moderation.hide_confirm_title') }}" state="compactHideOpen">
                         <p class="text-sm text-rg-text2">
-                            This will remove the post from public feeds.
+                            {{ __('ui.moderation.hide_confirm_description') }}
                         </p>
 
                         <x-slot:footer>
@@ -55,7 +55,7 @@
                                 x-on:click="compactHideOpen = false"
                                 data-testid="hide-confirmation-cancel"
                             >
-                                Cancel
+                                {{ __('ui.actions.cancel') }}
                             </x-ui.button>
 
                             <x-ui.button
@@ -65,7 +65,7 @@
                                 x-on:click="compactHideOpen = false"
                                 data-testid="hide-confirmation-confirm"
                             >
-                                Confirm hide
+                                {{ __('ui.moderation.confirm_hide') }}
                             </x-ui.button>
                         </x-slot:footer>
                     </x-ui.modal>
@@ -78,7 +78,7 @@
                         data-testid="moderation-restore"
                         class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
-                        Restore
+                        {{ __('ui.moderation.restore') }}
                     </button>
                 @endif
             </div>
@@ -89,7 +89,7 @@
             class="mt-3 rounded-md border border-rg-border2 bg-rg-card2 p-3"
         >
             <div class="flex items-center justify-between gap-2">
-                <x-ui.badge>Moderator</x-ui.badge>
+                <x-ui.badge>{{ __('ui.moderation.badge') }}</x-ui.badge>
 
                 <div data-testid="open-in-admin-link" class="text-xs">
                     @if ($this->adminPostUrl)
@@ -99,11 +99,11 @@
                             rel="noopener"
                             class="text-rg-text2 hover:text-rg-text"
                         >
-                            Open in admin
+                            {{ __('ui.moderation.open_in_admin') }}
                         </a>
                     @else
                         <span class="text-rg-muted">
-                            Open in admin
+                            {{ __('ui.moderation.open_in_admin') }}
                         </span>
                     @endif
                 </div>
@@ -123,14 +123,14 @@
 
             <div class="mt-2">
                 <label for="moderation-reason-{{ $post->id }}" class="block text-xs text-rg-text2">
-                    Reason
+                    {{ __('ui.moderation.reason') }}
                 </label>
                 <x-ui.textarea
                     name="moderation_reason"
                     id="moderation-reason-{{ $post->id }}"
                     rows="2"
                     maxlength="1000"
-                    placeholder="Optional moderation note..."
+                    placeholder="{{ __('ui.moderation.reason_placeholder') }}"
                     wire:model.defer="reason"
                     data-testid="moderation-reason-input"
                 />
@@ -143,7 +143,7 @@
                         wire:click="approve"
                         data-testid="moderation-approve"
                     >
-                        Approve
+                        {{ __('ui.moderation.approve') }}
                     </x-ui.button>
 
                     <x-ui.button
@@ -152,7 +152,7 @@
                         wire:click="reject"
                         data-testid="moderation-reject"
                     >
-                        Reject
+                        {{ __('ui.moderation.reject') }}
                     </x-ui.button>
                 @endif
 
@@ -163,7 +163,7 @@
                         x-on:click="confirmHideOpen = true"
                         data-testid="moderation-hide"
                     >
-                        Hide
+                        {{ __('ui.moderation.hide') }}
                     </x-ui.button>
                 @endif
 
@@ -173,16 +173,16 @@
                         wire:click="restore"
                         data-testid="moderation-restore"
                     >
-                        Restore
+                        {{ __('ui.moderation.restore') }}
                     </x-ui.button>
                 @endif
             </div>
 
             @if ($this->canHide)
                 <div data-testid="hide-confirmation-modal">
-                    <x-ui.modal title="Hide this post?" state="confirmHideOpen">
+                    <x-ui.modal title="{{ __('ui.moderation.hide_confirm_title') }}" state="confirmHideOpen">
                         <p class="text-sm text-rg-text2">
-                            This will remove the post from public feeds.
+                            {{ __('ui.moderation.hide_confirm_description') }}
                         </p>
 
                         <x-slot:footer>
@@ -192,7 +192,7 @@
                                 x-on:click="confirmHideOpen = false"
                                 data-testid="hide-confirmation-cancel"
                             >
-                                Cancel
+                                {{ __('ui.actions.cancel') }}
                             </x-ui.button>
 
                             <x-ui.button
@@ -202,7 +202,7 @@
                                 x-on:click="confirmHideOpen = false"
                                 data-testid="hide-confirmation-confirm"
                             >
-                                Confirm hide
+                                {{ __('ui.moderation.confirm_hide') }}
                             </x-ui.button>
                         </x-slot:footer>
                     </x-ui.modal>

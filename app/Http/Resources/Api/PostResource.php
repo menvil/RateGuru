@@ -54,5 +54,4 @@ final class PostResource extends JsonResource
 
         return app(PostUrl::class)->canonical($this->resource);
     }
-
 }

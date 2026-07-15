@@ -114,11 +114,13 @@ class CuisineVoting extends Component
      */
     public function getDistributionProperty(): array
     {
-        $counts = CuisineVote::query()
-            ->where('post_id', $this->postId)
-            ->selectRaw('cuisine, COUNT(*) as total')
-            ->groupBy('cuisine')
-            ->pluck('total', 'cuisine');
+        $counts = collect($this->options())
+            ->mapWithKeys(fn (CuisineType $cuisine): array => [
+                $cuisine->value => CuisineVote::query()
+                    ->where('post_id', $this->postId)
+                    ->where('cuisine', $cuisine->value)
+                    ->count(),
+            ]);
 
         $total = (int) $counts->sum();
 

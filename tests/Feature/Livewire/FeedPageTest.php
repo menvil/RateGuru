@@ -77,7 +77,7 @@ it('selects post for detail column on feed page', function () {
         ->assertSet('selectedPostId', $post->id)
         ->assertDispatched('post-selected', postId: $post->id)
         ->assertSee('data-testid="post-detail-column"', false)
-        ->assertSee('lg:grid-cols-[minmax(560px,1.4fr)_minmax(0,1fr)]', false);
+        ->assertSee('rg-feed-split-grid', false);
 });
 
 it('clears selected post from detail column', function () {
@@ -115,15 +115,15 @@ it('does not delete another users post from the feed page action menu event', fu
     expect(Post::query()->find($post->id))->not->toBeNull();
 });
 
-it('renders rating filters instead of category tags in the feed header', function () {
+it('does not render a sort dropdown in the feed header (sorting lives in the sidebar nav)', function () {
     Livewire::test(FeedPage::class)
-        ->assertSee('data-testid="feed-rating-filters"', false)
-        ->assertSee('Source')
-        ->assertSee('Category')
+        ->assertDontSee('data-testid="feed-rating-filters"', false)
         ->assertDontSee('data-testid="category-tabs"', false);
 });
 
 it('filters feed when origin filter is selected', function () {
+    seedFeedFilterGroups();
+
     Post::factory()->published()->create([
         'title' => 'Home Dish',
         'origin_truth' => OriginType::Homemade,
@@ -140,6 +140,8 @@ it('filters feed when origin filter is selected', function () {
 });
 
 it('supports selecting multiple origin filters', function () {
+    seedFeedFilterGroups();
+
     Post::factory()->published()->create([
         'title' => 'Home Dish',
         'origin_truth' => OriginType::Homemade,
@@ -157,6 +159,8 @@ it('supports selecting multiple origin filters', function () {
 });
 
 it('filters feed when cuisine filter is selected', function () {
+    seedFeedFilterGroups();
+
     Post::factory()->published()->create([
         'title' => 'Italian Dish',
         'cuisine_truth' => CuisineType::Italian,

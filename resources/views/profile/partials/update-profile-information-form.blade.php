@@ -26,7 +26,7 @@
         <div>
             <x-input-label for="username" :value="__('Username')" />
             <x-ui.input id="username" name="username" type="text" class="mt-1" :value="old('username', $user->username)" required autocomplete="username" />
-            <p class="mt-1 text-xs text-rg-muted">Your public profile URL is /u/{{ old('username', $user->username) ?: 'username' }}.</p>
+            <p class="mt-1 text-xs text-rg-muted">{{ __('profile.username_url_hint', ['username' => old('username', $user->username) ?: 'username']) }}</p>
             <x-input-error class="mt-2" :messages="$errors->get('username')" />
         </div>
 

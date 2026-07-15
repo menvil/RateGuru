@@ -53,7 +53,7 @@
                 <button
                     type="button"
                     class="cursor-pointer rounded-rgSm border border-rg-border2 bg-rg-card2 p-1 text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                    aria-label="Close modal"
+                    aria-label="{{ __('ui.a11y.close') }}"
                     x-on:click="{{ $state }} = false"
                 >
                     <x-ui.icon name="x" class="size-4" />

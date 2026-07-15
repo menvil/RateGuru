@@ -2,27 +2,22 @@
 
 namespace App\Livewire\Feed;
 
+use App\Models\RatingGroup;
+use App\Models\User;
+use App\Queries\Feed\MatchedUsersQuery;
 use App\Services\Feed\FeedPostDeletionService;
+use App\Support\Rating\RatingConfigurationManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Collection;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
 class FeedPage extends Component
 {
-    private const ORIGIN_OPTIONS = [
-        ['value' => 'homemade', 'label' => 'Source A'],
-        ['value' => 'restaurant', 'label' => 'Source B'],
-    ];
-
-    private const CUISINE_OPTIONS = [
-        ['value' => 'italian', 'label' => 'Category A'],
-        ['value' => 'asian', 'label' => 'Category B'],
-        ['value' => 'american', 'label' => 'Category C'],
-        ['value' => 'mexican', 'label' => 'Category D'],
-        ['value' => 'other', 'label' => 'Other'],
-    ];
+    private RatingConfigurationManager $ratingConfiguration;
 
     #[Url(as: 'search', except: '')]
     public string $search = '';
@@ -39,14 +34,23 @@ class FeedPage extends Component
     #[Url(as: 'sort', except: 'newest')]
     public string $sort = 'newest';
 
+    #[Url(as: 'feed', except: null)]
+    public ?string $feed = null;
+
     public ?int $selectedPostId = null;
 
     public ?string $deleteError = null;
+
+    public function boot(RatingConfigurationManager $ratingConfiguration): void
+    {
+        $this->ratingConfiguration = $ratingConfiguration;
+    }
 
     public function mount(): void
     {
         $this->normalizeSort();
         $this->normalizeFilters();
+        $this->normalizeFeed();
     }
 
     public function updatedSort(): void
@@ -132,11 +136,30 @@ class FeedPage extends Component
         $this->clearSelectedPost();
     }
 
+    /** @return Collection<int, RatingGroup> */
+    #[Computed]
+    public function activeGroups(): Collection
+    {
+        return $this->ratingConfiguration->activeGroups();
+    }
+
     private function normalizeSort(): void
     {
         if (! in_array($this->sort, ['newest', 'top', 'hot'], true)) {
             $this->sort = 'newest';
         }
+    }
+
+    private function normalizeFeed(): void
+    {
+        if ($this->feed !== 'following' || ! auth()->check()) {
+            $this->feed = null;
+        }
+    }
+
+    public function isFollowingFeed(): bool
+    {
+        return $this->feed === 'following' && auth()->check();
     }
 
     private function normalizeFilters(): void
@@ -145,20 +168,16 @@ class FeedPage extends Component
         $this->cuisine = $this->normalizeFilterValues($this->cuisine, $this->cuisineValues());
     }
 
-    /**
-     * @return list<string>
-     */
+    /** @return list<string> */
     private function originValues(): array
     {
-        return array_column(self::ORIGIN_OPTIONS, 'value');
+        return $this->activeGroups()->firstWhere('key', 'source')?->options->pluck('key')->all() ?? [];
     }
 
-    /**
-     * @return list<string>
-     */
+    /** @return list<string> */
     private function cuisineValues(): array
     {
-        return array_column(self::CUISINE_OPTIONS, 'value');
+        return $this->activeGroups()->firstWhere('key', 'category')?->options->pluck('key')->all() ?? [];
     }
 
     /**
@@ -202,12 +221,40 @@ class FeedPage extends Component
         return strlen($search) >= 3 ? $search : null;
     }
 
+    /** @return \Illuminate\Database\Eloquent\Collection<int, User> */
+    #[Computed]
+    public function matchedUsers(): \Illuminate\Database\Eloquent\Collection
+    {
+        $search = $this->effectiveSearch();
+
+        if ($search === null) {
+            return new \Illuminate\Database\Eloquent\Collection;
+        }
+
+        return app(MatchedUsersQuery::class)->search($search);
+    }
+
+    private function buildGroupOptions(string $key): array
+    {
+        $locale = app()->getLocale();
+
+        return $this->activeGroups()->firstWhere('key', $key)?->options
+            ->map(fn ($opt) => [
+                'value' => $opt->key,
+                'label' => $opt->translatedLabel($locale),
+            ])
+            ->all() ?? [];
+    }
+
     public function render(): View
     {
+        $locale = app()->getLocale();
+
         return view('livewire.feed.feed-page', [
-            'originOptions' => self::ORIGIN_OPTIONS,
-            'cuisineOptions' => self::CUISINE_OPTIONS,
-        ])
-            ->layout('layouts.app', app(AppLayoutData::class)->toArray());
+            'originOptions' => $this->buildGroupOptions('source'),
+            'cuisineOptions' => $this->buildGroupOptions('category'),
+            'originGroupLabel' => $this->activeGroups()->firstWhere('key', 'source')?->translatedLabel($locale) ?? __('ui.voting.source'),
+            'cuisineGroupLabel' => $this->activeGroups()->firstWhere('key', 'category')?->translatedLabel($locale) ?? __('ui.voting.category'),
+        ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

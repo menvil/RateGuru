@@ -33,11 +33,13 @@ it('renders the app header like the PlateRate reference topbar', function () {
     expect($html)
         ->toContain('h-[60px]')
         ->toContain('max-w-[1440px]')
-        ->toContain('md:grid-cols-[1fr_minmax(0,480px)_auto]')
+        ->toContain('lg:grid-cols-[1fr_minmax(0,480px)_auto]')
         ->toContain('Search tags, users, posts')
         ->toContain('data-testid="app-header-search"')
         ->toContain('text-[22px]')
-        ->toContain('text-rg-accent2');
+        // the brand wordmark renders its tail in the accent color, like the
+        // two-tone PlateRate reference logo
+        ->toContain('text-rg-accent');
 });
 
 it('renders the PlateRate reference sidebar shell', function () {

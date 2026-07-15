@@ -69,7 +69,7 @@ it('targets open and close drawer events to the matching drawer id', function ()
 
 it('honors side prop for desktop placement', function () {
     $right = Blade::render('<x-ui.drawer title="R" side="right">content</x-ui.drawer>');
-    $left  = Blade::render('<x-ui.drawer title="L" side="left">content</x-ui.drawer>');
+    $left = Blade::render('<x-ui.drawer title="L" side="left">content</x-ui.drawer>');
 
     expect($right)
         ->toContain('md:right-0')

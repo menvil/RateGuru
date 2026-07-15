@@ -3,9 +3,9 @@
 namespace App\Actions\Moderation;
 
 use App\Enums\ModerationActionType;
-use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
+use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostApprovedNotification;

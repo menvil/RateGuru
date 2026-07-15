@@ -1,7 +1,6 @@
 <?php
 
 use App\Jobs\ProcessUploadedImageJob;
-use App\Models\Post;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 it('has process uploaded image job', function () {
