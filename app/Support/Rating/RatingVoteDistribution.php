@@ -5,7 +5,6 @@ namespace App\Support\Rating;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
-use App\Models\RatingVote;
 
 class RatingVoteDistribution
 {
@@ -21,16 +20,14 @@ class RatingVoteDistribution
     {
         $options = $group->options()
             ->ordered()
+            ->withCount(['votes as vote_count' => fn ($query) => $query
+                ->where('post_id', $post->id)
+                ->where('rating_group_id', $group->id)])
             ->get();
 
-        $counts = $options
-            ->mapWithKeys(fn (RatingOption $option): array => [
-                $option->id => RatingVote::query()
-                    ->where('post_id', $post->id)
-                    ->where('rating_group_id', $group->id)
-                    ->where('rating_option_id', $option->id)
-                    ->count(),
-            ]);
+        $counts = $options->mapWithKeys(fn (RatingOption $option): array => [
+            $option->id => (int) $option->getAttribute('vote_count'),
+        ]);
 
         $total = (int) $counts->sum();
 

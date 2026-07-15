@@ -14,6 +14,11 @@ on:
       - develop
   workflow_dispatch:
 
+# A newer run for the same ref cancels an outstanding one.
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -62,11 +67,16 @@ jobs:
           touch database/database.sqlite
           npm run build
 
+      # Coverage measures the Unit and Feature suites only. The Browser suite
+      # is exercised (and gated) by the CI "Tests" job; adding it here hangs on
+      # PCOV coverage collection from a real Chromium and contributes just
+      # +0.16% (9 of 5625 statements), nearly all already hit by Feature tests.
       - name: Run tests with coverage
         id: coverage
         shell: bash
         run: |
           php -d memory_limit=1G artisan test \
+            --testsuite=Unit,Feature \
             --coverage \
             --coverage-clover=coverage.xml \
             --log-junit junit.xml
@@ -203,25 +213,24 @@ jobs:
                 issue_number: pullRequest.number,
                 per_page: 100,
               });
-              const existing = comments.find((comment) =>
+              const existingComments = comments.filter((comment) =>
                 comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker),
               );
 
-              if (existing) {
-                await github.rest.issues.updateComment({
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pullRequest.number,
+                body,
+              });
+
+              await Promise.all(existingComments.map((comment) =>
+                github.rest.issues.deleteComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  comment_id: existing.id,
-                  body,
-                });
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  body,
-                });
-              }
+                  comment_id: comment.id,
+                }),
+              ));
             } catch (error) {
               core.warning(`Could not publish the PR coverage summary: ${error.message}`);
             }

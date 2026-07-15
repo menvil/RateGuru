@@ -727,26 +727,8 @@ parameters:
 			path: app/Livewire/Feed/PostFeed.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Livewire/Feed/UploadPostForm.php
-
-		-
-			message: '#^Anonymous function should return Illuminate\\Support\\Collection\<int, string\> but returns Illuminate\\Support\\Collection\<int, decimal\-int\-string\>\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Livewire/Feed/UploadPostForm.php
-
-		-
 			message: '#^Strict comparison using \!\=\= between non\-empty\-string and null will always evaluate to true\.$#'
 			identifier: notIdentical.alwaysTrue
-			count: 1
-			path: app/Livewire/Feed/UploadPostForm.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>options" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Livewire/Feed/UploadPostForm.php
 
