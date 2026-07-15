@@ -17,7 +17,7 @@ final class UserRatingActivityQuery
         $isPublic = $profileUser->rating_activity_visibility === ProfileActivityVisibility::Public;
 
         if (! $isOwner && ! $isPublic) {
-            return new Collection();
+            return new Collection;
         }
 
         return RatingVote::query()

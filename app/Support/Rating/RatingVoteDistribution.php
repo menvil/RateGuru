@@ -19,18 +19,22 @@ class RatingVoteDistribution
      */
     public function forPostAndGroup(Post $post, RatingGroup $group): array
     {
-        $counts = RatingVote::query()
-            ->where('post_id', $post->id)
-            ->where('rating_group_id', $group->id)
-            ->selectRaw('rating_option_id, COUNT(*) as aggregate')
-            ->groupBy('rating_option_id')
-            ->pluck('aggregate', 'rating_option_id');
+        $options = $group->options()
+            ->ordered()
+            ->get();
+
+        $counts = $options
+            ->mapWithKeys(fn (RatingOption $option): array => [
+                $option->id => RatingVote::query()
+                    ->where('post_id', $post->id)
+                    ->where('rating_group_id', $group->id)
+                    ->where('rating_option_id', $option->id)
+                    ->count(),
+            ]);
 
         $total = (int) $counts->sum();
 
-        return $group->options()
-            ->ordered()
-            ->get()
+        return $options
             ->mapWithKeys(function ($option) use ($counts, $total): array {
                 $count = (int) ($counts[$option->id] ?? 0);
 

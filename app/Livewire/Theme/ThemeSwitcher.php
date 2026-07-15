@@ -3,6 +3,7 @@
 namespace App\Livewire\Theme;
 
 use App\Enums\ThemePreference;
+use Illuminate\View\View;
 use Livewire\Attributes\Prop;
 use Livewire\Component;
 
@@ -36,7 +37,7 @@ class ThemeSwitcher extends Component
         $this->dispatch('theme-preference-changed', preference: $preference);
     }
 
-    public function render(): \Illuminate\View\View
+    public function render(): View
     {
         return view('livewire.theme.theme-switcher');
     }

@@ -5,9 +5,10 @@ namespace App\Livewire\Profile;
 use App\Actions\Profile\UpdateUserProfileAction;
 use App\Models\User;
 use App\Support\Profile\ProfileValidationRules;
+use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rules\File;
 use Livewire\Component;
-use Livewire\Contracts\View;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 
 class EditProfileForm extends Component
@@ -22,7 +23,7 @@ class EditProfileForm extends Component
 
     public string $rating_activity_visibility = 'private';
 
-    /** @var \Livewire\Features\SupportFileUploads\TemporaryUploadedFile|null */
+    /** @var TemporaryUploadedFile|null */
     public $avatar = null;
 
     public function mount(): void
@@ -62,7 +63,7 @@ class EditProfileForm extends Component
         ];
     }
 
-    public function render(): \Illuminate\Contracts\View\View
+    public function render(): View
     {
         return view('livewire.profile.edit-profile-form');
     }

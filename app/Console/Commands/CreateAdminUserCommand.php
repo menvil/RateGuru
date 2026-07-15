@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
 use Illuminate\Console\Command;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Hash;
 
 class CreateAdminUserCommand extends Command
@@ -65,7 +66,7 @@ class CreateAdminUserCommand extends Command
                 'role' => UserRole::Admin,
                 'status' => UserStatus::Active,
             ]);
-        } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+        } catch (UniqueConstraintViolationException) {
             $this->error('A user with this email or username already exists.');
 
             return self::FAILURE;

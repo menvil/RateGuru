@@ -55,12 +55,12 @@ final class PostVoteResultService
         $homemadePct = $total > 0 ? (int) round(($homemade / $total) * 100) : 0;
 
         return [
-            'homemade'      => $homemade,
-            'restaurant'    => $restaurant,
-            'homemadePct'   => $homemadePct,
+            'homemade' => $homemade,
+            'restaurant' => $restaurant,
+            'homemadePct' => $homemadePct,
             'restaurantPct' => $total > 0 ? 100 - $homemadePct : 0,
-            'total'         => $total,
-            'current'       => $current,
+            'total' => $total,
+            'current' => $current,
         ];
     }
 
@@ -73,11 +73,7 @@ final class PostVoteResultService
             ? $post->cuisineVotes()->where('user_id', $user->id)->latest('id')->first()?->cuisine?->value
             : null;
 
-        $counts = CuisineVote::query()
-            ->where('post_id', $post->id)
-            ->selectRaw('cuisine, COUNT(*) as total')
-            ->groupBy('cuisine')
-            ->pluck('total', 'cuisine');
+        $counts = $this->cuisineCountsForPost((int) $post->id);
 
         return $this->buildCuisineDistribution($counts, $current);
     }
@@ -104,7 +100,6 @@ final class PostVoteResultService
     }
 
     /**
-     * @param  Collection<string,int>  $counts
      * @return array{rows:list<array{label:string,count:int,percentage:int}>,total:int,current:?string}
      */
     private function buildCuisineDistribution(Collection $counts, ?string $current): array
@@ -124,6 +119,20 @@ final class PostVoteResultService
             ->all();
 
         return ['rows' => $rows, 'total' => $total, 'current' => $current];
+    }
+
+    /**
+     * @return Collection<string,int<0,max>>
+     */
+    private function cuisineCountsForPost(int $postId): Collection
+    {
+        return collect(CuisineType::votable())
+            ->mapWithKeys(fn (CuisineType $cuisine): array => [
+                $cuisine->value => CuisineVote::query()
+                    ->where('post_id', $postId)
+                    ->where('cuisine', $cuisine->value)
+                    ->count(),
+            ]);
     }
 
     /**

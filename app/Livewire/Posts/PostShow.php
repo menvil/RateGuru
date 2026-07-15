@@ -3,6 +3,7 @@
 namespace App\Livewire\Posts;
 
 use App\Models\Post;
+use App\Services\Feed\FeedPostDeletionService;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Seo\PostOpenGraph;
 use App\Support\Settings\ProjectSettingsManager;
@@ -14,6 +15,8 @@ use Livewire\Component;
 final class PostShow extends Component
 {
     public int $postId;
+
+    public ?string $deleteError = null;
 
     public function mount(Post $post): void
     {
@@ -36,6 +39,25 @@ final class PostShow extends Component
         // components, so no page re-render is needed for them.
     }
 
+    public function deletePost(FeedPostDeletionService $feedPostDeletionService): void
+    {
+        $this->deleteError = null;
+
+        $result = $feedPostDeletionService->deleteForUser(auth()->user(), $this->postId);
+
+        if ($result->error !== null) {
+            $this->deleteError = $result->error;
+
+            return;
+        }
+
+        if (! $result->deleted) {
+            return;
+        }
+
+        $this->redirect(route('feed'), navigate: true);
+    }
+
     public function getCanSeeFollowButtonProperty(): bool
     {
         $post = $this->post;
@@ -50,6 +72,7 @@ final class PostShow extends Component
     {
         $post = $this->post;
         $openGraph = app(PostOpenGraph::class);
+        $user = auth()->user();
 
         return view('livewire.posts.post-show', [
             'ogDescription' => $openGraph->description($post),
@@ -59,6 +82,10 @@ final class PostShow extends Component
             'post' => $post,
             'activeRatingGroups' => $configuration->activeGroups(),
             'projectSettings' => $projectSettings,
+            'canReportPost' => $user?->can('report', $post) ?? false,
+            'canDeletePost' => $user?->can('deleteFromFeed', $post) ?? false,
+            'canModeratePost' => $user?->can('hide', $post) ?? false,
+            'deleteError' => $this->deleteError,
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

@@ -4,13 +4,14 @@ namespace App\Support\Observability;
 
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Str;
 
 final class LogContext
 {
     public function base(): array
     {
         $context = [
-            'request_id' => app()->bound('request_id') ? app('request_id') : (string) \Illuminate\Support\Str::uuid(),
+            'request_id' => app()->bound('request_id') ? app('request_id') : (string) Str::uuid(),
             'app_env' => app()->environment(),
             'locale' => app()->getLocale(),
         ];
