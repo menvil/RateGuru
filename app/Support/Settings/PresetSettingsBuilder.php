@@ -26,20 +26,24 @@ class PresetSettingsBuilder
         $result = [];
 
         foreach ($presetSettings as $field => $value) {
-            if (in_array($field, self::TRANSLATABLE, true)) {
-                if (is_array($value)) {
-                    $result[$field] = $value['en'] ?? null;
-                    $result["{$field}_translations"] = $value ?: null;
-                } else {
-                    // Documented custom-preset shape (docs/admin/project-presets.md)
-                    // allows a plain scalar string per field. Treat it as the base
-                    // (non-translated) value; leave translations unset.
-                    $result[$field] = $value;
-                    $result["{$field}_translations"] = null;
-                }
-            } else {
+            if (! in_array($field, self::TRANSLATABLE, true)) {
                 $result[$field] = $value;
+
+                continue;
             }
+
+            if (is_array($value)) {
+                $result[$field] = $value['en'] ?? null;
+                $result["{$field}_translations"] = $value ?: null;
+
+                continue;
+            }
+
+            // Documented custom-preset shape (docs/admin/project-presets.md)
+            // allows a plain scalar string per field. Treat it as the base
+            // (non-translated) value; leave translations unset.
+            $result[$field] = $value;
+            $result["{$field}_translations"] = null;
         }
 
         return $result;

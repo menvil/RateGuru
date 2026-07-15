@@ -83,6 +83,7 @@ class AppServiceProvider extends ServiceProvider
                 $firstGroup = RatingGroup::query()
                     ->active()
                     ->orderBy('sort_order')
+                    ->orderBy('id')
                     ->with(['options' => fn ($q) => $q->active()->ordered()])
                     ->first();
 
@@ -104,7 +105,7 @@ class AppServiceProvider extends ServiceProvider
                 [
                     'label' => __('ui.feed.all'),
                     'href' => route('feed'),
-                    'active' => $noFilters && blank(request('search')) && blank(request('sort')),
+                    'active' => $noFilters && blank(request('search')) && blank(request('sort')) && blank(request('feed')),
                 ],
             ];
 

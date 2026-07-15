@@ -8,9 +8,11 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -128,6 +130,7 @@ final class UploadPostForm extends Component
     protected function rules(): array
     {
         $imageMimes = implode(',', config('uploads.images.mimes', ['jpg', 'jpeg', 'png', 'webp']));
+        $ratingGroups = app(RatingConfigurationManager::class)->activeGroups();
 
         return [
             'title' => ['required', 'string', 'min:3', 'max:120'],
@@ -146,9 +149,9 @@ final class UploadPostForm extends Component
             'cuisineTruth' => ['nullable', Rule::enum(CuisineType::class)],
             'tagIds' => ['array', 'max:10'],
             'tagIds.*' => ['integer', 'exists:tags,id'],
-            'categoryOptionId' => [Rule::in($this->categoryOptionChoices())],
+            'categoryOptionId' => [Rule::in($this->categoryOptionChoices($ratingGroups))],
             'authorAnswers' => ['array'],
-            'authorAnswers.*' => [Rule::in($this->authorAnswerChoices())],
+            'authorAnswers.*' => [Rule::in($this->authorAnswerChoices($ratingGroups))],
         ];
     }
 
@@ -156,14 +159,13 @@ final class UploadPostForm extends Component
      * Valid <select> values for the category field: '' (not selected) plus the
      * active option ids of the sidebar category group.
      *
+     * @param  Collection<int, RatingGroup>  $ratingGroups
      * @return list<string>
      */
-    private function categoryOptionChoices(): array
+    private function categoryOptionChoices(Collection $ratingGroups): array
     {
-        $sidebarGroup = app(RatingConfigurationManager::class)->activeGroups()->first();
-
-        return collect($sidebarGroup?->options ?? [])
-            ->map(fn ($option): string => (string) $option->id)
+        return collect(app(RatingConfigurationManager::class)->sidebarGroupOptionIds($ratingGroups))
+            ->map(fn (int $optionId): string => (string) $optionId)
             ->prepend('')
             ->all();
     }
@@ -173,13 +175,13 @@ final class UploadPostForm extends Component
      * active option id across all active rating groups. Group/option pairing
      * is enforced by CreatePostAction.
      *
+     * @param  Collection<int, RatingGroup>  $ratingGroups
      * @return list<string>
      */
-    private function authorAnswerChoices(): array
+    private function authorAnswerChoices(Collection $ratingGroups): array
     {
-        return app(RatingConfigurationManager::class)
-            ->activeGroups()
-            ->flatMap(fn ($group) => $group->options->map(fn ($option): string => (string) $option->id))
+        return collect(app(RatingConfigurationManager::class)->allActiveOptionIds($ratingGroups))
+            ->map(fn (int $optionId): string => (string) $optionId)
             ->prepend('')
             ->values()
             ->all();

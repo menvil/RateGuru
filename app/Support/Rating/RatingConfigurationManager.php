@@ -31,6 +31,34 @@ class RatingConfigurationManager
             ->first();
     }
 
+    /**
+     * @param  Collection<int, RatingGroup>|null  $groups
+     * @return list<int>
+     */
+    public function sidebarGroupOptionIds(?Collection $groups = null): array
+    {
+        return ($groups ?? $this->activeGroups())
+            ->first()
+            ?->options
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->values()
+            ->all() ?? [];
+    }
+
+    /**
+     * @param  Collection<int, RatingGroup>|null  $groups
+     * @return list<int>
+     */
+    public function allActiveOptionIds(?Collection $groups = null): array
+    {
+        return ($groups ?? $this->activeGroups())
+            ->flatMap(fn (RatingGroup $group) => $group->options->pluck('id'))
+            ->map(fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+    }
+
     public function validateGroupHasAllowedOptionCount(RatingGroup $group): void
     {
         $activeOptionCount = $group->options()->active()->count();

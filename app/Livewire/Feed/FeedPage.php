@@ -2,10 +2,11 @@
 
 namespace App\Livewire\Feed;
 
-use App\Enums\UserStatus;
 use App\Models\RatingGroup;
 use App\Models\User;
+use App\Queries\Feed\MatchedUsersQuery;
 use App\Services\Feed\FeedPostDeletionService;
+use App\Support\Rating\RatingConfigurationManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
@@ -16,6 +17,8 @@ use Livewire\Component;
 
 class FeedPage extends Component
 {
+    private RatingConfigurationManager $ratingConfiguration;
+
     #[Url(as: 'search', except: '')]
     public string $search = '';
 
@@ -37,6 +40,11 @@ class FeedPage extends Component
     public ?int $selectedPostId = null;
 
     public ?string $deleteError = null;
+
+    public function boot(RatingConfigurationManager $ratingConfiguration): void
+    {
+        $this->ratingConfiguration = $ratingConfiguration;
+    }
 
     public function mount(): void
     {
@@ -132,12 +140,7 @@ class FeedPage extends Component
     #[Computed]
     public function activeGroups(): Collection
     {
-        return RatingGroup::query()
-            ->active()
-            ->orderBy('sort_order')
-            ->with(['options' => fn ($q) => $q->active()->ordered()])
-            ->get()
-            ->values();
+        return $this->ratingConfiguration->activeGroups();
     }
 
     private function normalizeSort(): void
@@ -219,6 +222,7 @@ class FeedPage extends Component
     }
 
     /** @return \Illuminate\Database\Eloquent\Collection<int, User> */
+    #[Computed]
     public function matchedUsers(): \Illuminate\Database\Eloquent\Collection
     {
         $search = $this->effectiveSearch();
@@ -227,17 +231,7 @@ class FeedPage extends Component
             return new \Illuminate\Database\Eloquent\Collection;
         }
 
-        return User::query()
-            ->where('status', UserStatus::Active)
-            ->where(function ($query) use ($search) {
-                $query
-                    ->where('username', 'like', "%{$search}%")
-                    ->orWhere('name', 'like', "%{$search}%")
-                    ->orWhere('display_name', 'like', "%{$search}%");
-            })
-            ->orderBy('username')
-            ->limit(5)
-            ->get();
+        return app(MatchedUsersQuery::class)->search($search);
     }
 
     private function buildGroupOptions(string $key): array
