@@ -2,20 +2,22 @@
 
 use App\Actions\Settings\ApplyProjectPresetAction;
 use App\Exceptions\Settings\UnknownProjectPresetException;
+use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\User;
 
 it('applies project preset to settings', function () {
     ProjectSettings::factory()->create([
         'site_name' => 'RateGuru',
     ]);
 
-    app(ApplyProjectPresetAction::class)->handle('cats');
+    app(ApplyProjectPresetAction::class)->handle('nature');
 
     $settings = ProjectSettings::first();
 
-    expect($settings->site_name)->toBe('CatGuru');
-    expect($settings->object_singular_name)->toBe('cat');
-    expect($settings->active_preset_key)->toBe('cats');
+    expect($settings->site_name)->toBe('NatureGuru');
+    expect($settings->object_singular_name)->toBe('photo');
+    expect($settings->active_preset_key)->toBe('nature');
 });
 
 it('creates settings row when missing and applies preset', function () {
@@ -35,11 +37,11 @@ it('fails for unknown project preset', function () {
 })->throws(UnknownProjectPresetException::class);
 
 it('does not touch posts or users when applying preset', function () {
-    $user = App\Models\User::factory()->create();
-    $post = App\Models\Post::factory()->create(['user_id' => $user->id]);
+    $user = User::factory()->create();
+    $post = Post::factory()->create(['user_id' => $user->id]);
 
-    app(ApplyProjectPresetAction::class)->handle('cats');
+    app(ApplyProjectPresetAction::class)->handle('nature');
 
-    expect(App\Models\User::count())->toBe(1);
-    expect(App\Models\Post::count())->toBe(1);
+    expect(User::count())->toBe(1);
+    expect(Post::count())->toBe(1);
 });

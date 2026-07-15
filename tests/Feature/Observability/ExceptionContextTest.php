@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\User;
 use App\Support\Observability\ExceptionContextBuilder;
 
 it('adds request id to exception context', function () {
@@ -21,7 +22,7 @@ it('adds exception_class to context', function () {
 });
 
 it('adds user id when authenticated', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
     $this->actingAs($user)->get(route('feed'));
 
     $context = app(ExceptionContextBuilder::class)->build(new RuntimeException('Test'));

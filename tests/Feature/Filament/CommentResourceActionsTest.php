@@ -2,6 +2,7 @@
 
 use App\Enums\CommentStatus;
 use App\Enums\ModerationActionType;
+use App\Filament\Resources\Comments\CommentResource;
 use App\Filament\Resources\Comments\Pages\ListComments;
 use App\Models\Comment;
 use App\Models\Post;
@@ -48,7 +49,7 @@ it('hides the hide action from normal users', function () {
     $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
 
     $this->actingAs($user)
-        ->get(\App\Filament\Resources\Comments\CommentResource::getUrl('index'))
+        ->get(CommentResource::getUrl('index'))
         ->assertForbidden();
 });
 

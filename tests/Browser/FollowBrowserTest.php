@@ -5,6 +5,8 @@ use App\Models\ProjectSettings;
 use App\Models\User;
 use Tests\Browser\Support\MobileViewports;
 
+use function Pest\Laravel\actingAs;
+
 it('can follow and unfollow author in browser', function () {
     ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
 
@@ -18,15 +20,15 @@ it('can follow and unfollow author in browser', function () {
         'username' => 'follow-author',
     ]);
 
-    loginAs($viewer);
+    actingAs($viewer);
 
     visit(route('profile.show', $author->username))
-        ->assertSee('data-testid="follow-button"', false)
-        ->click('[data-testid="follow-button"]')
-        ->pause(500)
+        ->assertPresent('[data-testid="profile-header"] [data-testid="follow-button"]')
+        ->click('[data-testid="profile-header"] [data-testid="follow-button"]')
+        ->wait(0.5)
         ->assertSee('Following')
-        ->click('[data-testid="follow-button"]')
-        ->pause(500)
+        ->click('[data-testid="profile-header"] [data-testid="follow-button"]')
+        ->wait(0.5)
         ->assertSee('Follow');
 });
 
@@ -39,10 +41,10 @@ it('does not show follow button on own profile in browser', function () {
         'username' => 'follow-self-user',
     ]);
 
-    loginAs($user);
+    actingAs($user);
 
     visit(route('profile.show', $user->username))
-        ->assertDontSee('data-testid="follow-button"', false);
+        ->assertNotPresent('[data-testid="follow-button"]');
 });
 
 it('follow button does not overflow at mobile viewport', function () {
@@ -58,11 +60,11 @@ it('follow button does not overflow at mobile viewport', function () {
         'username' => 'follow-mobile-author',
     ]);
 
-    loginAs($viewer);
+    actingAs($viewer);
 
     $overflow = visit(route('profile.show', $author->username))
         ->resize(...MobileViewports::MOBILE)
-        ->pause(500)
+        ->wait(0.5)
         ->script('document.documentElement.scrollWidth - window.innerWidth');
 
     // 1px tolerance for subpixel rendering differences across browsers
@@ -81,5 +83,5 @@ it('shows followers count on profile in browser', function () {
     ]);
 
     visit(route('profile.show', $author->username))
-        ->assertSee('data-testid="followers-count"', false);
+        ->assertPresent('[data-testid="followers-count"]');
 });

@@ -3,7 +3,7 @@
 it('has project presets config', function () {
     expect(config('project_presets.generic'))->not->toBeNull();
     expect(config('project_presets.food'))->not->toBeNull();
-    expect(config('project_presets.cats'))->not->toBeNull();
+    expect(config('project_presets.nature'))->not->toBeNull();
     expect(config('project_presets.ai_images'))->not->toBeNull();
 });
 
@@ -26,6 +26,7 @@ it('project presets have required shape', function () {
             'show_share_buttons',
             'show_vote_breakdown',
             'show_follow_buttons',
+            'post_detail_overlay_mode',
             'show_saved_posts',
             'allow_user_uploads',
             'allow_guest_viewing',

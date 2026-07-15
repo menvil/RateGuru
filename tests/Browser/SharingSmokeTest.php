@@ -33,7 +33,7 @@ it('all platform share buttons open new tab via window.open', function () {
     $page = visit(route('posts.show', $post));
 
     foreach ($providers as $testid) {
-        $page->assertAttributeContains("[data-testid=\"{$testid}\"]", '@click', 'window.open');
+        $page->assertAttributeContains("[data-testid=\"{$testid}\"]", '@click.prevent', 'window.open');
     }
 });
 

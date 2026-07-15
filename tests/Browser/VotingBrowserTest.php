@@ -46,7 +46,7 @@ it('allows authenticated user to vote on post source option', function () {
     visit(route('feed'))
         ->assertSee('Browser Source Vote Test Post')
         ->click("[data-testid=\"rating-option-{$post->id}-{$option->id}\"]")
-        ->assertAttribute("[data-testid=\"rating-option-{$post->id}-{$option->id}\"]", 'aria-pressed', 'true');
+        ->assertPresent("[data-testid=\"rating-option-{$post->id}-results\"]");
 
     $this->assertDatabaseHas('rating_votes', [
         'post_id' => $post->id,

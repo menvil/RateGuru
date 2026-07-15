@@ -130,6 +130,20 @@ it('renders user published posts grid on profile page', function () {
         ->assertSee('Published sample post');
 });
 
+it('renders profile posts as full feed post cards with the same controls as the feed', function () {
+    $user = User::factory()->create([
+        'username' => 'chef_ivan',
+    ]);
+
+    Post::factory()->for($user)->published()->create([
+        'title' => 'Published sample post',
+    ]);
+
+    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertSee('data-testid="post-card"', false)
+        ->assertSee('data-testid="post-card-voting"', false);
+});
+
 it('renders generic profile copy', function () {
     $user = User::factory()->create([
         'username' => 'alice',
@@ -240,8 +254,7 @@ it('shows report user placeholder to authenticated non owner', function () {
 
     Livewire::actingAs($viewer)
         ->test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertSee('Report user')
-        ->assertSee('data-testid="report-user-placeholder"', false);
+        ->assertSee('data-testid="report-user-button"', false);
 });
 
 it('does not show report user placeholder to profile owner', function () {
@@ -249,16 +262,14 @@ it('does not show report user placeholder to profile owner', function () {
 
     Livewire::actingAs($owner)
         ->test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertDontSee('Report user')
-        ->assertDontSee('data-testid="report-user-placeholder"', false);
+        ->assertDontSee('data-testid="report-user-button"', false);
 });
 
 it('does not show report user placeholder to guest', function () {
     User::factory()->create(['username' => 'chef_ivan']);
 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertDontSee('Report user')
-        ->assertDontSee('data-testid="report-user-placeholder"', false);
+        ->assertDontSee('data-testid="report-user-button"', false);
 });
 
 it('does not create reports from report user placeholder', function () {

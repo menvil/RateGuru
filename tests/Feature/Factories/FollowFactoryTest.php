@@ -24,7 +24,7 @@ it('throws when factory would create a self-follow', function () {
     expect(fn () => Follow::factory()->create([
         'follower_id' => $user->id,
         'author_id' => $user->id,
-    ]))->toThrow(\InvalidArgumentException::class);
+    ]))->toThrow(InvalidArgumentException::class);
 });
 
 it('creates follow for specific users', function () {
