@@ -126,7 +126,7 @@ final class ReportContentAction
     private function recountReports(Model $content): void
     {
         DB::transaction(function () use ($content) {
-            $content->newQuery()
+            $content->newQueryWithoutScopes()
                 ->whereKey($content->getKey())
                 ->lockForUpdate()
                 ->first();
@@ -136,7 +136,7 @@ final class ReportContentAction
                 ->where('target_id', $content->getKey())
                 ->count();
 
-            $content->newQuery()
+            $content->newQueryWithoutScopes()
                 ->whereKey($content->getKey())
                 ->update(['reports_count' => $count]);
         });

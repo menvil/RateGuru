@@ -57,8 +57,8 @@ it('validates password confirmation through a dedicated form request', function 
     $request = new ConfirmPasswordRequest;
 
     expect(Validator::make(['password' => 'password'], $request->rules())->passes())->toBeTrue()
-        ->and(Validator::make(['password' => ['password']], $request->rules())->fails())->toBeTrue()
-        ->and(Validator::make([], $request->rules())->fails())->toBeTrue();
+        ->and(Validator::make(['password' => ['password']], $request->rules())->errors()->has('password'))->toBeTrue()
+        ->and(Validator::make([], $request->rules())->errors()->has('password'))->toBeTrue();
 });
 
 it('validates password updates through a dedicated form request', function () {
@@ -69,13 +69,13 @@ it('validates password updates through a dedicated form request', function () {
         'password_confirmation' => 'new-password',
     ];
 
-    expect(Validator::make([...$valid, 'password' => ['new-password']], $request->rules())->fails())->toBeTrue()
-        ->and(Validator::make([...$valid, 'password_confirmation' => 'different'], $request->rules())->fails())->toBeTrue();
+    expect(Validator::make([...$valid, 'password' => ['new-password']], $request->rules())->errors()->has('password'))->toBeTrue()
+        ->and(Validator::make([...$valid, 'password_confirmation' => 'different'], $request->rules())->errors()->has('password'))->toBeTrue();
 });
 
 it('validates account deletion through a dedicated form request', function () {
     $request = new DeleteUserRequest;
 
-    expect(Validator::make(['password' => ['password']], $request->rules())->fails())->toBeTrue()
-        ->and(Validator::make([], $request->rules())->fails())->toBeTrue();
+    expect(Validator::make(['password' => ['password']], $request->rules())->errors()->has('password'))->toBeTrue()
+        ->and(Validator::make([], $request->rules())->errors()->has('password'))->toBeTrue();
 });

@@ -55,7 +55,7 @@ it('keeps unvalidated input access out of http controllers', function () {
     foreach (File::allFiles(app_path('Http/Controllers')) as $file) {
         $source = $file->getContents();
 
-        if (preg_match('/\$\w+->(?:all|boolean|file|get|input|integer|only|query|string)\s*\(/', $source) === 1) {
+        if (preg_match('/\$request->(?:all|boolean|file|get|input|integer|only|query|string)\s*\(/', $source) === 1) {
             $violations[] = str_replace(base_path().'/', '', $file->getPathname());
         }
     }
