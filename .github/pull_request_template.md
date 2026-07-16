@@ -6,6 +6,17 @@
 
 - [ ] I ran the relevant automated tests.
 
+## Architecture Review
+
+- [ ] HTTP input validation uses a dedicated Form Request; Livewire and Filament use framework-native validation.
+- [ ] Presentation code delegates persistence to Actions and contains no transaction boundary.
+- [ ] Resource authorization uses Policy/Gate; presentation code does not inspect roles or capabilities directly.
+- [ ] Reads use Eloquent or a Query Object; no base Query Builder dependency was added.
+- [ ] Raw SQL has a documented Query Object exception, bound inputs, and a semantic test.
+- [ ] Paginated queries end with a stable unique ordering column.
+- [ ] Database assumptions follow the SQLite runtime support contract.
+- [ ] No new PHPStan baseline entries were added.
+
 ## Visual Review
 
 - [ ] I ran browser smoke tests when this PR touches UI or Livewire flows.

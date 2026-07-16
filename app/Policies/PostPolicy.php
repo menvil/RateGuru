@@ -9,6 +9,11 @@ use App\Models\User;
 
 class PostPolicy
 {
+    public function create(User $user): bool
+    {
+        return $user->canCreateContent();
+    }
+
     public function update(User $user, Post $post): bool
     {
         return $post->user_id === $user->id

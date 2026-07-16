@@ -4,12 +4,13 @@ namespace App\Livewire\Comments;
 
 use App\Actions\Comments\DeleteCommentAction;
 use App\Actions\Comments\HideCommentAction;
-use App\Enums\CommentStatus;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
+use App\Queries\Comments\CommentListQuery;
 use App\Services\Comments\CommentReplyService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -31,50 +32,23 @@ final class CommentsSection extends Component
     #[Computed]
     public function comments(): Collection
     {
-        return Comment::query()
-            ->where('post_id', $this->postId)
-            ->where('status', CommentStatus::Visible)
-            ->whereNull('parent_id')
-            ->with([
-                'user',
-                'replies' => fn ($query) => $query
-                    ->where('status', CommentStatus::Visible)
-                    ->with('user')
-                    ->oldest()
-                    ->orderBy('id'),
-            ])
-            ->when($this->commentSort === 'newest', fn ($query) => $query
-                ->latest()
-                ->orderByDesc('id'))
-            ->when($this->commentSort === 'top', fn ($query) => $query
-                ->topRanked()
-                ->latest()
-                ->orderByDesc('id'))
-            ->when($this->commentSort === 'hot', fn ($query) => $query
-                ->mostActive()
-                ->latest()
-                ->orderByDesc('id'))
-            ->limit($this->visibleCount)
-            ->get();
+        return app(CommentListQuery::class)->get(
+            $this->postId,
+            $this->commentSort,
+            $this->visibleCount,
+        );
     }
 
     #[Computed]
     public function totalComments(): int
     {
-        return Comment::query()
-            ->where('post_id', $this->postId)
-            ->where('status', CommentStatus::Visible)
-            ->count();
+        return app(CommentListQuery::class)->countVisible($this->postId);
     }
 
     #[Computed]
     public function totalTopLevelComments(): int
     {
-        return Comment::query()
-            ->where('post_id', $this->postId)
-            ->where('status', CommentStatus::Visible)
-            ->whereNull('parent_id')
-            ->count();
+        return app(CommentListQuery::class)->countVisibleTopLevel($this->postId);
     }
 
     public function loadMore(): void
@@ -236,9 +210,7 @@ final class CommentsSection extends Component
 
     public function userCanHideComments(): bool
     {
-        $user = auth()->user();
-
-        return $user !== null && ($user->isModerator() || $user->isAdmin());
+        return Gate::allows('moderate-content');
     }
 
     public function render(): View

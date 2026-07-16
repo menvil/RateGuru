@@ -1,7 +1,9 @@
 # HTTP and database boundaries
 
-This document records the validation and persistence rules enforced by
-`tests/Feature/Architecture/HttpAndDatabaseBoundariesTest.php`.
+This document records the validation and persistence rules enforced by custom
+PHPStan rules under `tools/phpstan`. PHPStan is the authoritative general
+architecture check; focused Pest tests remain only for endpoint contracts and
+behavior that static analysis cannot prove.
 
 ## HTTP validation
 
@@ -14,6 +16,25 @@ framework-native validation lifecycle and are outside this rule.
 
 Authorization remains in policies. A `FormRequest::authorize()` method may
 delegate to a policy, but must not introduce a second authorization rule.
+
+Model and resource abilities are defined in their model policy. Global
+abilities that do not belong to one model are defined as named gates backed by
+a focused policy class. Controllers, Form Requests, Livewire components, and
+Filament pages may call Gate or policy abilities, but must not inspect RateGuru
+roles or capabilities directly. Actions may repeat the same ability check as a
+defence-in-depth boundary; they must delegate to the policy instead of
+reimplementing the rule.
+
+## Presentation writes
+
+Controllers, Form Requests, Livewire components, and Filament classes may
+validate input, invoke an Action, and shape their response or local UI state.
+They must not persist Eloquent models directly. Model, Eloquent Builder, and
+relationship mutations such as `save()`, `update()`, `delete()`, `create()`,
+and `updateOrCreate()` belong in `app/Actions`.
+
+This restriction is type-aware. Framework state APIs such as Filament
+`$form->fill()` are not Eloquent calls and remain allowed.
 
 ## Eloquent first
 
@@ -36,11 +57,10 @@ passed as bindings.
 
 The reviewed boundaries are:
 
-- `Comment` ranking scopes for arithmetic vote ordering.
+- `CommentListQuery` for arithmetic comment ranking.
 - `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
 - `MatchedUsersQuery` for literal LIKE searches.
-- `PostVoteResultService` for grouped vote counts.
-- `RatingVotingStateLoader` for grouped rating counts.
+- `RatingVoteCountsQuery` for grouped rating counts.
 
 Literal LIKE searches use `LikePattern` and an explicit SQL `ESCAPE` clause so
 user-supplied `%` and `_` characters are not interpreted as wildcards.
@@ -48,8 +68,49 @@ user-supplied `%` and `_` characters are not interpreted as wildcards.
 Adding another raw boundary requires updating the architecture test allowlist,
 documenting the reason here, and adding a behavior test.
 
+The PHPStan allowlist is exact and class-based. Directory-wide exclusions are
+not accepted. A new exception must therefore update
+`tools/phpstan/architecture.neon`, this reviewed-boundaries list, and a semantic
+test for the query result. Those semantics are certified against the
+[SQLite runtime contract](database-support.md); cross-engine migration smoke
+jobs do not expand that guarantee.
+
+## Static enforcement
+
+PHPStan rejects the following patterns before merge:
+
+- inline `Request::validate()`, `Validator` facade, or `validator()` calls in
+  HTTP controllers;
+- access to unvalidated request input in HTTP controllers, regardless of the
+  request variable name;
+- direct RateGuru role/capability checks such as `isAdmin()`, `isModerator()`,
+  or `canCreateContent()` in controllers, Form Requests, Livewire components,
+  and Filament classes;
+- direct Eloquent persistence from those presentation classes;
+- direct database facade access outside the exact infrastructure allowlist;
+- `DB::transaction()` inside HTTP controllers;
+- raw Eloquent or Query Builder methods outside the exact reviewed allowlist.
+
+The rules use resolved PHP types, class names, and namespaces. Calls such as
+`Auth::guard()->validate()`, `$client->get()`, `Model::query()`, relationship
+queries, Filament `$form->fill()`, framework-native Livewire validation, and
+`DB::transaction()` inside Actions or Services are intentionally allowed.
+Every rule has fixture tests covering both violations and false-positive cases.
+
 ## Stable pagination
 
 Every paginated query must finish with a unique deterministic ordering column,
 normally the model primary key. Sorting only by timestamps or aggregate scores
 is insufficient because multiple rows may share the same value.
+
+## Review enforcement
+
+The `Architecture & static analysis (PHPStan)` CI check is the executable
+contract. Its custom rules are covered by violation and false-positive fixtures.
+The pull request template requires an explicit architecture review, and
+`.coderabbit.yaml` gives CodeRabbit the same path-specific boundaries as a
+supplemental reviewer. Neither the checklist nor AI review replaces the CI
+check.
+
+Existing PHPStan baseline entries are migration debt. Architecture work should
+remove resolved entries and must not add a new entry to bypass a boundary.

@@ -1,0 +1,41 @@
+services:
+    -
+        class: RateGuru\PHPStan\Rules\NoInlineControllerValidationRule
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\NoControllerValidatorFacadeRule
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\NoControllerValidatorHelperRule
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\NoUnvalidatedControllerInputRule
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\NoDirectControllerPermissionCheckRule
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\NoPresentationModelMutationRule
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\RestrictedDatabaseFacadeRule
+        arguments:
+            allowedClasses:
+                - App\Services\Rating\LegacyRatingVoteMigrator
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\RestrictedRawQueryRule
+        arguments:
+            allowedClasses:
+                - App\Queries\Comments\CommentListQuery
+                - App\Queries\Feed\FeedQuery
+                - App\Queries\Feed\MatchedUsersQuery
+                - App\Queries\Rating\RatingVoteCountsQuery
+        tags: [phpstan.rules.rule]

@@ -5,6 +5,7 @@ namespace App\Support\Rating;
 use App\Models\Post;
 use App\Models\RatingVote;
 use App\Models\User;
+use App\Queries\Rating\RatingVoteCountsQuery;
 use Illuminate\Database\Eloquent\Collection;
 
 final class RatingVotingStateLoader
@@ -12,6 +13,7 @@ final class RatingVotingStateLoader
     public function __construct(
         private readonly RatingConfigurationManager $configuration,
         private readonly RatingVoteDistribution $distribution,
+        private readonly RatingVoteCountsQuery $voteCounts,
     ) {}
 
     /**
@@ -30,14 +32,7 @@ final class RatingVotingStateLoader
         $groups = $this->configuration->activeGroups();
         $postIds = $posts->modelKeys();
         $groupIds = $groups->modelKeys();
-        $counts = RatingVote::query()
-            ->whereIn('post_id', $postIds)
-            ->whereIn('rating_group_id', $groupIds)
-            ->select(['post_id', 'rating_group_id', 'rating_option_id'])
-            ->selectRaw('COUNT(*) as aggregate')
-            ->groupBy('post_id', 'rating_group_id', 'rating_option_id')
-            ->get()
-            ->groupBy(['post_id', 'rating_group_id']);
+        $counts = $this->voteCounts->forPostsAndGroups($postIds, $groupIds);
         $selected = $user === null
             ? collect()
             : RatingVote::query()

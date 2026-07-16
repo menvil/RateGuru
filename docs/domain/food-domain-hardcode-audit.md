@@ -91,7 +91,6 @@ These files are bound to current storage, relationships, events, exceptions, or 
 | `app/Models/OriginVote.php` | OriginVote | High | RatingVote | Yes | 44 | Keep legacy model until schema migration. |
 | `app/Models/Post.php` | origin_truth, cuisine_truth, originVotes, cuisineVotes | High | rating relationships | Yes | 44 | Keep legacy relationships until Phase 44. |
 | `app/Queries/Feed/FeedQuery.php` | origin/cuisine filters | High | source/category facade over legacy filters | Maybe | 43/44 | UI labels in 43; route/query names can be revisited. |
-| `app/Services/PostVoteResultService.php` | origin/cuisine distribution, homemade/restaurant counters | High | source/category distribution or rating distribution | Yes | 43/44 | Public labels in 43; final replacement in Phase 44. |
 | `app/View/Components/Feed/PostCard.php` | origin/cuisine distributions | Medium | source/category view props when safe | No | 43/44 | Rename public props only if view impact is controlled. |
 | `app/View/Components/Ui/BinaryChoice.php` | homemade/restaurant selected values | Medium | source option selected values | No/Maybe | 43/44 | Visible labels in 43; values can remain legacy. |
 | `app/View/Components/Ui/DishPlaceholder.php` | DishPlaceholder | Medium | PostImagePlaceholder | No | 43/44 | Rename component only if usage update is safe; visible labels first. |

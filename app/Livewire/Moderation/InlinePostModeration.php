@@ -11,6 +11,7 @@ use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
 use Closure;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
@@ -32,9 +33,7 @@ final class InlinePostModeration extends Component
     #[Computed]
     public function canModerate(): bool
     {
-        $user = auth()->user();
-
-        return $user !== null && ($user->isModerator() || $user->isAdmin());
+        return Gate::allows('moderate-content');
     }
 
     #[Computed]

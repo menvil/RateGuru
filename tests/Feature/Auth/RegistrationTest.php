@@ -1,7 +1,7 @@
 <?php
 
+use App\Actions\Auth\RegisterUserAction;
 use App\Actions\Users\GenerateUniqueUsernameAction;
-use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 
@@ -55,7 +55,7 @@ test('registration stops retrying username collisions after the maximum attempts
 
     $action = Mockery::mock(GenerateUniqueUsernameAction::class);
     $action->shouldReceive('handle')
-        ->times(RegisteredUserController::MAX_CREATE_ATTEMPTS)
+        ->times(RegisterUserAction::MAX_CREATE_ATTEMPTS)
         ->andReturn('taken_username');
     app()->instance(GenerateUniqueUsernameAction::class, $action);
 

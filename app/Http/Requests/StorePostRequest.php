@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
+use App\Models\Post;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -11,7 +12,7 @@ class StorePostRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->canCreateContent() ?? false;
+        return $this->user()?->can('create', Post::class) ?? false;
     }
 
     public function rules(): array

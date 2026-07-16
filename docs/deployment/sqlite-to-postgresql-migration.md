@@ -2,7 +2,9 @@
 
 ## Phase 42 status
 
-This is a strategy note. Migration from SQLite to PostgreSQL is not implemented in Phase 42.
+This began as a strategy note. Migration was not implemented in Phase 42 and
+remains unimplemented. PostgreSQL is not a supported runtime database. See the
+[database support contract](../architecture/database-support.md).
 
 ## When to migrate
 

@@ -2,7 +2,9 @@
 
 namespace App\Livewire\Theme;
 
+use App\Actions\Users\UpdateThemePreferenceAction;
 use App\Enums\ThemePreference;
+use App\Models\User;
 use Illuminate\View\View;
 use Livewire\Attributes\Prop;
 use Livewire\Component;
@@ -22,19 +24,22 @@ class ThemeSwitcher extends Component
 
     public function setThemePreference(string $preference): void
     {
-        if (! ThemePreference::isValid($preference)) {
+        $theme = ThemePreference::tryFrom($preference);
+
+        if ($theme === null) {
             $this->addError('preference', 'Invalid theme preference.');
 
             return;
         }
 
-        $this->preference = $preference;
+        $this->preference = $theme->value;
+        $user = auth()->user();
 
-        if (auth()->check()) {
-            auth()->user()->update(['theme_preference' => $preference]);
+        if ($user instanceof User) {
+            app(UpdateThemePreferenceAction::class)->handle($user, $theme);
         }
 
-        $this->dispatch('theme-preference-changed', preference: $preference);
+        $this->dispatch('theme-preference-changed', preference: $theme->value);
     }
 
     public function render(): View

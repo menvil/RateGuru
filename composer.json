@@ -37,6 +37,7 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "RateGuru\\PHPStan\\": "tools/phpstan/src/",
             "Tests\\": "tests/"
         }
     },
