@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Profile\DeleteUserAccountAction;
+use App\Actions\Profile\UpdateUserIdentityAction;
 use App\Http\Requests\DeleteUserRequest;
 use App\Http\Requests\ProfileUpdateRequest;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\View\View;
 
@@ -25,15 +27,17 @@ class ProfileController extends Controller
     /**
      * Update the user's profile information.
      */
-    public function update(ProfileUpdateRequest $request): RedirectResponse
-    {
-        $request->user()->fill($request->validated());
+    public function update(
+        ProfileUpdateRequest $request,
+        UpdateUserIdentityAction $updateIdentity,
+    ): RedirectResponse {
+        /** @var array{name: string, username: string, email: string} $validated */
+        $validated = $request->validated();
+        $user = $request->user();
 
-        if ($request->user()->isDirty('email')) {
-            $request->user()->email_verified_at = null;
-        }
+        assert($user instanceof User);
 
-        $request->user()->save();
+        $updateIdentity->execute($user, $validated);
 
         return Redirect::route('profile.edit')->with('status', 'profile-updated');
     }
@@ -41,13 +45,15 @@ class ProfileController extends Controller
     /**
      * Delete the user's account.
      */
-    public function destroy(DeleteUserRequest $request): RedirectResponse
-    {
+    public function destroy(
+        DeleteUserRequest $request,
+        DeleteUserAccountAction $deleteAccount,
+    ): RedirectResponse {
         $user = $request->user();
 
-        Auth::logout();
+        assert($user instanceof User);
 
-        $user->delete();
+        $deleteAccount->execute($user);
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
