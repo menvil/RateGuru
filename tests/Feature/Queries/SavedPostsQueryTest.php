@@ -30,6 +30,25 @@ it('returns saved posts for user ordered by saved date desc', function () {
     expect($result->items()[1]->id)->toBe($first->id);
 });
 
+it('uses post id as the final deterministic saved posts order', function () {
+    $user = User::factory()->create();
+    $posts = Post::factory()->published()->count(3)->create();
+    $savedAt = now()->startOfSecond();
+
+    foreach ($posts as $post) {
+        PostSave::factory()->create([
+            'user_id' => $user->id,
+            'post_id' => $post->id,
+            'created_at' => $savedAt,
+            'updated_at' => $savedAt,
+        ]);
+    }
+
+    $result = app(SavedPostsQuery::class)->forUser($user);
+
+    expect($result->pluck('id')->all())->toBe($posts->pluck('id')->reverse()->values()->all());
+});
+
 it('does not return saved posts from other users', function () {
     $owner = User::factory()->create();
     $other = User::factory()->create();
