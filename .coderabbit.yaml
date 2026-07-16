@@ -1,0 +1,49 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+reviews:
+  profile: assertive
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "app/Http/{Controllers,Requests}/**/*.php"
+      instructions: |
+        Enforce docs/architecture/http-and-database-boundaries.md.
+        Controllers may authorize, invoke Actions or Queries, and shape a response.
+        HTTP validation belongs in a dedicated Form Request. Form Requests may
+        delegate authorization to Policy/Gate but must not inspect roles or
+        capabilities directly. Flag direct Eloquent persistence, transactions,
+        DB facade access, raw SQL, and complex queries in this layer.
+    - path: "app/{Livewire,Filament}/**/*.php"
+      instructions: |
+        Keep presentation code thin. Framework-native validation and local UI
+        state are allowed. Persistence must be delegated to Actions and
+        authorization must use Policy/Gate. Flag direct role checks, Eloquent
+        mutations, transactions, raw SQL, and business rules in views/components.
+    - path: "app/Actions/**/*.php"
+      instructions: |
+        Actions own business mutations and transaction boundaries. Verify that
+        externally callable mutations repeat authorization through the existing
+        Policy/Gate ability when defence in depth is required. Check atomicity,
+        idempotency where relevant, and absence of N+1 writes.
+    - path: "app/Queries/**/*.php"
+      instructions: |
+        Prefer Eloquent models, relationships, scopes, aggregates, and bound
+        parameters. Raw SQL requires an exact exception in
+        docs/architecture/http-and-database-boundaries.md and a semantic test.
+        Check literal LIKE escaping, N+1 risks, aggregate efficiency, and stable
+        unique ordering for pagination.
+    - path: "database/migrations/**/*.php"
+      instructions: |
+        SQLite is the only supported runtime database. MariaDB and PostgreSQL CI
+        jobs are migration smoke checks only. Review against
+        docs/architecture/database-support.md and preserve SQLite correctness.
+    - path: "tests/**/*.php"
+      instructions: |
+        Require behavior-focused regression coverage for architecture changes.
+        Verify authorization denial paths, validation boundaries, query semantics,
+        stable ordering, query counts where performance matters, and false-positive
+        fixtures for custom PHPStan rules.

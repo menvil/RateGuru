@@ -1,9 +1,9 @@
 # HTTP and database boundaries
 
 This document records the validation and persistence rules enforced by custom
-PHPStan rules under `tools/phpstan`. The source-based Pest guard remains as a
-temporary migration check and will be removed after the PHPStan rules have
-covered all boundaries.
+PHPStan rules under `tools/phpstan`. PHPStan is the authoritative general
+architecture check; focused Pest tests remain only for endpoint contracts and
+behavior that static analysis cannot prove.
 
 ## HTTP validation
 
@@ -102,3 +102,15 @@ Every rule has fixture tests covering both violations and false-positive cases.
 Every paginated query must finish with a unique deterministic ordering column,
 normally the model primary key. Sorting only by timestamps or aggregate scores
 is insufficient because multiple rows may share the same value.
+
+## Review enforcement
+
+The `Architecture & static analysis (PHPStan)` CI check is the executable
+contract. Its custom rules are covered by violation and false-positive fixtures.
+The pull request template requires an explicit architecture review, and
+`.coderabbit.yaml` gives CodeRabbit the same path-specific boundaries as a
+supplemental reviewer. Neither the checklist nor AI review replaces the CI
+check.
+
+Existing PHPStan baseline entries are migration debt. Architecture work should
+remove resolved entries and must not add a new entry to bypass a boundary.

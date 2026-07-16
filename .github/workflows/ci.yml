@@ -45,7 +45,7 @@ jobs:
         run: vendor/bin/pint --test
 
   static-analysis:
-    name: Static analysis (PHPStan)
+    name: Architecture & static analysis (PHPStan)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -529,7 +529,7 @@ jobs:
               '| Check | Summary |',
               '|---|---|',
               `| Code style | ${details(process.env.CODE_STYLE_RESULT, 'Pint: no changes required')} |`,
-              `| Static analysis | ${details(process.env.STATIC_ANALYSIS_RESULT, 'PHPStan: 0 errors')} |`,
+              `| Architecture & static analysis | ${details(process.env.STATIC_ANALYSIS_RESULT, 'PHPStan: 0 errors')} |`,
               `| Frontend build | ${details(process.env.FRONTEND_BUILD_RESULT, `${value('BUILD_FILES')} files · ${value('BUILD_SIZE')}`)} |`,
               `| Tests & SQLite | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('SQLITE_MIGRATIONS')} migrations · seed passed`)} |`,
               `| MariaDB migration smoke | ${details(process.env.MARIADB_RESULT, `${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
