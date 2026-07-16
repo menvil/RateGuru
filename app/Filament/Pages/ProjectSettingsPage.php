@@ -3,10 +3,10 @@
 namespace App\Filament\Pages;
 
 use App\Actions\Settings\ApplyProjectPresetAction;
+use App\Actions\Settings\SaveProjectSettingsAction;
 use App\Exceptions\Settings\UnknownProjectPresetException;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\ProjectSettings;
-use App\Support\Settings\ProjectSettingsManager;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -176,12 +176,7 @@ class ProjectSettingsPage extends Page
     {
         $validated = $this->form->getState();
 
-        ProjectSettings::updateOrCreate(
-            ['id' => 1],
-            $validated
-        );
-
-        app(ProjectSettingsManager::class)->flush();
+        app(SaveProjectSettingsAction::class)->handle($validated);
 
         Notification::make()
             ->title('Settings saved')
