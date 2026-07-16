@@ -5,6 +5,7 @@ namespace App\Livewire\Feed;
 use App\Queries\Feed\FeedQuery;
 use App\Support\Rating\RatingVotingStateLoader;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -51,6 +52,7 @@ class PostFeed extends Component
         )->onEachSide(1);
         $posts = $paginator->getCollection();
         $user = auth()->user();
+        $canModerate = Gate::allows('moderate-content');
 
         return view('livewire.feed.post-feed', [
             'posts' => $posts,
@@ -64,7 +66,7 @@ class PostFeed extends Component
                 ->mapWithKeys(fn ($post): array => [(int) $post->id => $user?->can('report', $post) ?? false])
                 ->all(),
             'moderationPermissions' => $posts
-                ->mapWithKeys(fn ($post): array => [(int) $post->id => $user !== null && ($user->isModerator() || $user->isAdmin())])
+                ->mapWithKeys(fn ($post): array => [(int) $post->id => $canModerate])
                 ->all(),
         ]);
     }

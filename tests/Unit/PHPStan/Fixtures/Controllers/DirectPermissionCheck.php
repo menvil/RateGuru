@@ -14,6 +14,30 @@ final class DirectPermissionCheckController
     }
 }
 
+namespace App\Http\Requests\Fixtures;
+
+use App\Models\User;
+
+final class DirectPermissionCheckRequest
+{
+    public function authorize(User $user): bool
+    {
+        return $user->canCreateContent();
+    }
+}
+
+namespace App\Livewire\Fixtures;
+
+use App\Models\User;
+
+final class DirectPermissionCheckComponent
+{
+    public function canModerate(User $user): bool
+    {
+        return $user->isModerator();
+    }
+}
+
 namespace App\Policies\Fixtures;
 
 use App\Models\User;

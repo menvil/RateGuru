@@ -36,7 +36,7 @@ final class NoDirectControllerPermissionCheckRule implements Rule
     /** @return list<IdentifierRuleError> */
     public function processNode(Node $node, Scope $scope): array
     {
-        if (! ArchitectureScope::isHttpController($scope)
+        if (! ArchitectureScope::isPresentationLayer($scope)
             || ! $node->name instanceof Node\Identifier
             || ! in_array($node->name->toString(), self::PERMISSION_METHODS, true)
         ) {
@@ -45,10 +45,10 @@ final class NoDirectControllerPermissionCheckRule implements Rule
 
         return [
             RuleErrorBuilder::message(sprintf(
-                'HTTP controllers must authorize through Gate or policies; do not call %s() directly.',
+                'Presentation classes must authorize through Gate or policies; do not call %s() directly.',
                 $node->name->toString(),
             ))
-                ->identifier('rateguru.controller.directPermissionCheck')
+                ->identifier('rateguru.presentation.directPermissionCheck')
                 ->build(),
         ];
     }

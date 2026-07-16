@@ -16,6 +16,7 @@ use Filament\Pages\Page;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Gate;
 use UnitEnum;
 
 class ProjectSettingsPage extends Page
@@ -46,7 +47,7 @@ class ProjectSettingsPage extends Page
 
     public static function canAccess(): bool
     {
-        return auth()->user()?->isAdmin() ?? false;
+        return Gate::allows('manage-project-settings');
     }
 
     public function mount(): void
