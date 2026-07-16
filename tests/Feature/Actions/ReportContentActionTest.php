@@ -190,6 +190,23 @@ it('updates post reports count after report', function () {
     expect($post->fresh()->reports_count)->toBe(1);
 });
 
+it('updates reports count when the reported post is soft deleted', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create([
+        'reports_count' => 99,
+    ]);
+
+    $post->delete();
+
+    app(ReportContentAction::class)->handle(
+        user: $user,
+        content: $post,
+        reason: ReportReason::Spam,
+    );
+
+    expect(Post::withTrashed()->findOrFail($post->id)->reports_count)->toBe(1);
+});
+
 it('updates comment reports count after report', function () {
     $user = User::factory()->create();
 

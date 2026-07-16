@@ -3,12 +3,13 @@
 namespace App\Actions\Follows;
 
 use App\Enums\PostStatus;
+use App\Models\Follow;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\FollowedAuthorPostedNotification;
 use App\Support\Observability\DomainLogger;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -26,7 +27,7 @@ final class NotifyFollowersAboutNewPostAction
             return collect();
         }
 
-        return DB::table('notifications')
+        return DatabaseNotification::query()
             ->where('type', FollowedAuthorPostedNotification::class)
             ->where('notifiable_type', (new User)->getMorphClass())
             ->whereIn('notifiable_id', $followers->pluck('id')->all())
@@ -50,11 +51,12 @@ final class NotifyFollowersAboutNewPostAction
         $skippedCount = 0;
 
         User::query()
-            ->whereIn('id', function ($query) use ($author) {
-                $query->select('follower_id')
-                    ->from('follows')
-                    ->where('author_id', $author->id);
-            })
+            ->whereIn(
+                'id',
+                Follow::query()
+                    ->select('follower_id')
+                    ->where('author_id', $author->id),
+            )
             ->where('id', '!=', $author->id)
             ->where('notify_followed_author_posts', true)
             ->chunk(500, function ($followers) use ($post, $author, &$sentCount, &$skippedCount): void {

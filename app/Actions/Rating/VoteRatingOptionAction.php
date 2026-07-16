@@ -7,6 +7,7 @@ use App\Exceptions\Rating\CannotVoteForRatingOptionException;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Models\RatingVote;
 use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
@@ -65,13 +66,13 @@ final class VoteRatingOptionAction
                 throw CannotVoteForRatingOptionException::becauseGroupIsInactive();
             }
 
-            $existingOptionId = DB::table('rating_votes')
+            $existingOptionId = RatingVote::query()
                 ->where('user_id', $user->id)
                 ->where('post_id', $post->id)
                 ->where('rating_group_id', $group->id)
                 ->value('rating_option_id');
 
-            DB::table('rating_votes')->upsert(
+            RatingVote::query()->upsert(
                 [[
                     'user_id' => $user->id,
                     'post_id' => $post->id,

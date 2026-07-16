@@ -4,6 +4,7 @@ namespace App\Queries\Feed;
 
 use App\Enums\UserStatus;
 use App\Models\User;
+use App\Support\Database\LikePattern;
 use Illuminate\Database\Eloquent\Collection;
 
 final class MatchedUsersQuery
@@ -11,13 +12,15 @@ final class MatchedUsersQuery
     /** @return Collection<int, User> */
     public function search(string $search): Collection
     {
+        $pattern = LikePattern::containing($search);
+
         return User::query()
             ->where('status', UserStatus::Active)
-            ->where(function ($query) use ($search): void {
+            ->where(function ($query) use ($pattern): void {
                 $query
-                    ->where('username', 'like', "%{$search}%")
-                    ->orWhere('name', 'like', "%{$search}%")
-                    ->orWhere('display_name', 'like', "%{$search}%");
+                    ->whereRaw("username LIKE ? ESCAPE '!'", [$pattern])
+                    ->orWhereRaw("name LIKE ? ESCAPE '!'", [$pattern])
+                    ->orWhereRaw("display_name LIKE ? ESCAPE '!'", [$pattern]);
             })
             ->orderBy('username')
             ->limit(5)

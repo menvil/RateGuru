@@ -40,15 +40,20 @@ final class CommentsSection extends Component
                 'replies' => fn ($query) => $query
                     ->where('status', CommentStatus::Visible)
                     ->with('user')
-                    ->oldest(),
+                    ->oldest()
+                    ->orderBy('id'),
             ])
-            ->when($this->commentSort === 'newest', fn ($query) => $query->latest())
+            ->when($this->commentSort === 'newest', fn ($query) => $query
+                ->latest()
+                ->orderByDesc('id'))
             ->when($this->commentSort === 'top', fn ($query) => $query
-                ->orderByRaw('(upvotes_count - downvotes_count) DESC')
-                ->latest())
+                ->topRanked()
+                ->latest()
+                ->orderByDesc('id'))
             ->when($this->commentSort === 'hot', fn ($query) => $query
-                ->orderByRaw('(upvotes_count + downvotes_count) DESC')
-                ->latest())
+                ->mostActive()
+                ->latest()
+                ->orderByDesc('id'))
             ->limit($this->visibleCount)
             ->get();
     }
