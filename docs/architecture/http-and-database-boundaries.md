@@ -1,7 +1,9 @@
 # HTTP and database boundaries
 
-This document records the validation and persistence rules enforced by
-`tests/Feature/Architecture/HttpAndDatabaseBoundariesTest.php`.
+This document records the validation and persistence rules enforced by custom
+PHPStan rules under `tools/phpstan`. The source-based Pest guard remains as a
+temporary migration check and will be removed after the PHPStan rules have
+covered all boundaries.
 
 ## HTTP validation
 
@@ -47,6 +49,31 @@ user-supplied `%` and `_` characters are not interpreted as wildcards.
 
 Adding another raw boundary requires updating the architecture test allowlist,
 documenting the reason here, and adding a behavior test.
+
+The PHPStan allowlist is exact and class-based. Directory-wide exclusions are
+not accepted. A new exception must therefore update
+`tools/phpstan/architecture.neon`, this reviewed-boundaries list, and a semantic
+test for the query result.
+
+## Static enforcement
+
+PHPStan rejects the following patterns before merge:
+
+- inline `Request::validate()`, `Validator` facade, or `validator()` calls in
+  HTTP controllers;
+- access to unvalidated request input in HTTP controllers, regardless of the
+  request variable name;
+- direct RateGuru role/capability checks such as `isAdmin()`, `isModerator()`,
+  or `canCreateContent()` in HTTP controllers;
+- direct database facade access outside the exact infrastructure allowlist;
+- `DB::transaction()` inside HTTP controllers;
+- raw Eloquent or Query Builder methods outside the exact reviewed allowlist.
+
+The rules use resolved PHP types, class names, and namespaces. Calls such as
+`Auth::guard()->validate()`, `$client->get()`, `Model::query()`, relationship
+queries, framework-native Livewire validation, and `DB::transaction()` inside
+Actions or Services are intentionally allowed. Every rule has fixture tests
+covering both violations and false-positive cases.
 
 ## Stable pagination
 

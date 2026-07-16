@@ -1,5 +1,6 @@
 includes:
     - vendor/larastan/larastan/extension.neon
+    - tools/phpstan/architecture.neon
     - phpstan-baseline.neon
 
 parameters:
@@ -7,6 +8,7 @@ parameters:
 
     paths:
         - app
+        - tools/phpstan/src
 
     # Existing findings are frozen in phpstan-baseline.neon; the CI gate only
     # fails on NEW issues. Shrink the baseline opportunistically over time.
