@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Actions\Auth\ConfirmPasswordAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ConfirmPasswordRequest;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class ConfirmablePasswordController extends Controller
@@ -22,18 +22,15 @@ class ConfirmablePasswordController extends Controller
     /**
      * Confirm the user's password.
      */
-    public function store(ConfirmPasswordRequest $request): RedirectResponse
+    public function store(ConfirmPasswordRequest $request, ConfirmPasswordAction $confirmPassword): RedirectResponse
     {
+        /** @var array{password: string} $validated */
         $validated = $request->validated();
+        $user = $request->user();
 
-        if (! Auth::guard('web')->validate([
-            'email' => $request->user()->email,
-            'password' => $validated['password'],
-        ])) {
-            throw ValidationException::withMessages([
-                'password' => __('auth.password'),
-            ]);
-        }
+        assert($user instanceof User);
+
+        $confirmPassword->execute($user, $validated['password']);
 
         $request->session()->put('auth.password_confirmed_at', time());
 
