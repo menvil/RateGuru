@@ -30,9 +30,8 @@ services:
         class: RateGuru\PHPStan\Rules\RestrictedRawQueryRule
         arguments:
             allowedClasses:
-                - App\Models\Comment
+                - App\Queries\Comments\CommentListQuery
                 - App\Queries\Feed\FeedQuery
                 - App\Queries\Feed\MatchedUsersQuery
-                - App\Services\PostVoteResultService
-                - App\Support\Rating\RatingVotingStateLoader
+                - App\Queries\Rating\RatingVoteCountsQuery
         tags: [phpstan.rules.rule]

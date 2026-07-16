@@ -99,11 +99,10 @@ it('keeps the base query builder out of application dependencies', function () {
 
 it('limits raw sql expressions to reviewed eloquent query boundaries', function () {
     $allowedFiles = [
-        'app/Models/Comment.php',
+        'app/Queries/Comments/CommentListQuery.php',
         'app/Queries/Feed/FeedQuery.php',
         'app/Queries/Feed/MatchedUsersQuery.php',
-        'app/Services/PostVoteResultService.php',
-        'app/Support/Rating/RatingVotingStateLoader.php',
+        'app/Queries/Rating/RatingVoteCountsQuery.php',
     ];
     $violations = [];
 

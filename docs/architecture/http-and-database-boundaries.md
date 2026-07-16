@@ -46,11 +46,10 @@ passed as bindings.
 
 The reviewed boundaries are:
 
-- `Comment` ranking scopes for arithmetic vote ordering.
+- `CommentListQuery` for arithmetic comment ranking.
 - `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
 - `MatchedUsersQuery` for literal LIKE searches.
-- `PostVoteResultService` for grouped vote counts.
-- `RatingVotingStateLoader` for grouped rating counts.
+- `RatingVoteCountsQuery` for grouped rating counts.
 
 Literal LIKE searches use `LikePattern` and an explicit SQL `ESCAPE` clause so
 user-supplied `%` and `_` characters are not interpreted as wildcards.

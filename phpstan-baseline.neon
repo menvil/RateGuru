@@ -1057,36 +1057,6 @@ parameters:
 			path: app/Services/Comments/CommentVotingService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\CuisineVote\:\:\$total\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PostVoteResultService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$cuisine\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PostVoteResultService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$origin\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PostVoteResultService.php
-
-		-
-			message: '#^Cannot access property \$value on string\.$#'
-			identifier: property.nonObject
-			count: 3
-			path: app/Services/PostVoteResultService.php
-
-		-
-			message: '#^Using nullsafe property access on non\-nullable type string\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Services/PostVoteResultService.php
-
-		-
 			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Relations\\HasMany\:\:active\(\)\.$#'
 			identifier: method.notFound
 			count: 1
