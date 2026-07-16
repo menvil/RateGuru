@@ -261,7 +261,7 @@ jobs:
           cp .env.example .env
           php artisan key:generate --force
 
-      - name: Run migrations and seed on MariaDB
+      - name: Run MariaDB migration smoke
         env:
           DB_CONNECTION: mariadb
           DB_HOST: 127.0.0.1
@@ -345,7 +345,7 @@ jobs:
           cp .env.example .env
           php artisan key:generate --force
 
-      - name: Run migrations and seed on PostgreSQL
+      - name: Run PostgreSQL migration smoke
         env:
           DB_CONNECTION: pgsql
           DB_HOST: 127.0.0.1
@@ -532,8 +532,8 @@ jobs:
               `| Static analysis | ${details(process.env.STATIC_ANALYSIS_RESULT, 'PHPStan: 0 errors')} |`,
               `| Frontend build | ${details(process.env.FRONTEND_BUILD_RESULT, `${value('BUILD_FILES')} files · ${value('BUILD_SIZE')}`)} |`,
               `| Tests & SQLite | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('SQLITE_MIGRATIONS')} migrations · seed passed`)} |`,
-              `| MariaDB | ${details(process.env.MARIADB_RESULT, `${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
-              `| PostgreSQL | ${details(process.env.POSTGRES_RESULT, `${value('POSTGRES_MIGRATIONS')} migrations · seed passed · rollback ${value('POSTGRES_ROLLBACK')}`)} |`,
+              `| MariaDB migration smoke | ${details(process.env.MARIADB_RESULT, `${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
+              `| PostgreSQL migration smoke | ${details(process.env.POSTGRES_RESULT, `${value('POSTGRES_MIGRATIONS')} migrations · seed passed · rollback ${value('POSTGRES_ROLLBACK')}`)} |`,
               `| Dependencies | ${details(process.env.DEPENDENCY_AUDIT_RESULT, `Composer: ${value('COMPOSER_PACKAGES')} packages · ${value('COMPOSER_ADVISORIES')} advisories; npm: ${value('NPM_PACKAGES')} packages · ${value('NPM_VULNERABILITIES')} vulnerabilities (${value('NPM_HIGH')} high / ${value('NPM_CRITICAL')} critical)`)} |`,
               '',
               `[Open workflow run](${runUrl})`,

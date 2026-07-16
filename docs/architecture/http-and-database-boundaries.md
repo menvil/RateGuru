@@ -71,7 +71,9 @@ documenting the reason here, and adding a behavior test.
 The PHPStan allowlist is exact and class-based. Directory-wide exclusions are
 not accepted. A new exception must therefore update
 `tools/phpstan/architecture.neon`, this reviewed-boundaries list, and a semantic
-test for the query result.
+test for the query result. Those semantics are certified against the
+[SQLite runtime contract](database-support.md); cross-engine migration smoke
+jobs do not expand that guarantee.
 
 ## Static enforcement
 

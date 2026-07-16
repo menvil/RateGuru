@@ -8,9 +8,13 @@ RateGuru is a Laravel application for community-driven ratings and decision supp
 - Livewire
 - Alpine.js
 - Filament
-- SQLite
+- SQLite (supported runtime database)
 - Pest / PHPUnit
 - Tailwind CSS
+
+See the [Database support](docs/architecture/database-support.md) contract for
+the distinction between supported SQLite behavior and cross-engine migration
+smoke checks.
 
 ## Local Setup
 
