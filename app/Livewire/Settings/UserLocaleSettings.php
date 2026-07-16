@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Settings;
 
+use App\Actions\Users\UpdateUserLocaleAction;
 use App\Models\User;
 use App\Support\Locale\LocaleManager;
 use Illuminate\Contracts\View\View;
@@ -25,7 +26,7 @@ class UserLocaleSettings extends Component
 
         /** @var User $user */
         $user = auth()->user();
-        $user->update(['locale' => $this->locale]);
+        app(UpdateUserLocaleAction::class)->handle($user, $this->locale);
     }
 
     public function render(): View

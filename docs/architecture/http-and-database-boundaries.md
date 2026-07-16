@@ -25,6 +25,17 @@ roles or capabilities directly. Actions may repeat the same ability check as a
 defence-in-depth boundary; they must delegate to the policy instead of
 reimplementing the rule.
 
+## Presentation writes
+
+Controllers, Form Requests, Livewire components, and Filament classes may
+validate input, invoke an Action, and shape their response or local UI state.
+They must not persist Eloquent models directly. Model, Eloquent Builder, and
+relationship mutations such as `save()`, `update()`, `delete()`, `create()`,
+and `updateOrCreate()` belong in `app/Actions`.
+
+This restriction is type-aware. Framework state APIs such as Filament
+`$form->fill()` are not Eloquent calls and remain allowed.
+
 ## Eloquent first
 
 Application reads and writes should use Eloquent models, relationships, scopes,
@@ -73,15 +84,16 @@ PHPStan rejects the following patterns before merge:
 - direct RateGuru role/capability checks such as `isAdmin()`, `isModerator()`,
   or `canCreateContent()` in controllers, Form Requests, Livewire components,
   and Filament classes;
+- direct Eloquent persistence from those presentation classes;
 - direct database facade access outside the exact infrastructure allowlist;
 - `DB::transaction()` inside HTTP controllers;
 - raw Eloquent or Query Builder methods outside the exact reviewed allowlist.
 
 The rules use resolved PHP types, class names, and namespaces. Calls such as
 `Auth::guard()->validate()`, `$client->get()`, `Model::query()`, relationship
-queries, framework-native Livewire validation, and `DB::transaction()` inside
-Actions or Services are intentionally allowed. Every rule has fixture tests
-covering both violations and false-positive cases.
+queries, Filament `$form->fill()`, framework-native Livewire validation, and
+`DB::transaction()` inside Actions or Services are intentionally allowed.
+Every rule has fixture tests covering both violations and false-positive cases.
 
 ## Stable pagination
 
