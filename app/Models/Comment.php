@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\CommentStatus;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,6 +22,16 @@ class Comment extends Model
         return [
             'status' => CommentStatus::class,
         ];
+    }
+
+    public function scopeTopRanked(Builder $query): Builder
+    {
+        return $query->orderByRaw('(upvotes_count - downvotes_count) DESC');
+    }
+
+    public function scopeMostActive(Builder $query): Builder
+    {
+        return $query->orderByRaw('(upvotes_count + downvotes_count) DESC');
     }
 
     public function user(): BelongsTo

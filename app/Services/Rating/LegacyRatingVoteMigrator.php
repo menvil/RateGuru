@@ -5,6 +5,7 @@ namespace App\Services\Rating;
 use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Models\RatingVote;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -193,7 +194,7 @@ final class LegacyRatingVoteMigrator
                         continue;
                     }
 
-                    $created = DB::table('rating_votes')->insertOrIgnore([
+                    $created = RatingVote::query()->insertOrIgnore([
                         'user_id' => $legacyVote->user_id,
                         'post_id' => $legacyVote->post_id,
                         'rating_group_id' => $group->id,

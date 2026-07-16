@@ -108,12 +108,12 @@ final class ReportContentAction
 
     private function refreshCommentReportsCount(Comment $comment): void
     {
-        $this->recountReports(Comment::class, $comment->getKey(), $comment->getTable());
+        $this->recountReports($comment);
     }
 
     private function refreshPostReportsCount(Post $post): void
     {
-        $this->recountReports(Post::class, $post->getKey(), $post->getTable());
+        $this->recountReports($post);
     }
 
     /**
@@ -123,17 +123,22 @@ final class ReportContentAction
      * inside a transaction so concurrent reports cannot interleave a stale
      * lower count over a newer higher one (lost update).
      */
-    private function recountReports(string $type, int|string $id, string $table): void
+    private function recountReports(Model $content): void
     {
-        DB::transaction(function () use ($type, $id, $table) {
-            DB::table($table)->where('id', $id)->lockForUpdate()->first();
+        DB::transaction(function () use ($content) {
+            $content->newQuery()
+                ->whereKey($content->getKey())
+                ->lockForUpdate()
+                ->first();
 
             $count = Report::query()
-                ->where('target_type', $type)
-                ->where('target_id', $id)
+                ->where('target_type', $content::class)
+                ->where('target_id', $content->getKey())
                 ->count();
 
-            DB::table($table)->where('id', $id)->update(['reports_count' => $count]);
+            $content->newQuery()
+                ->whereKey($content->getKey())
+                ->update(['reports_count' => $count]);
         });
     }
 

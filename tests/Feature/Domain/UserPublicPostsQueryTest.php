@@ -61,6 +61,18 @@ it('returns paginated results', function () {
     expect($posts->count())->toBe(10);
 });
 
+it('uses post id as the final deterministic public posts order', function () {
+    $user = User::factory()->create();
+    $timestamp = now()->startOfSecond();
+    $created = Post::factory()->count(3)->for($user)->published()->create([
+        'published_at' => $timestamp,
+    ]);
+
+    $posts = app(UserPublicPostsQuery::class)->forProfile($user);
+
+    expect($posts->pluck('id')->all())->toBe($created->pluck('id')->reverse()->values()->all());
+});
+
 it('eager loads user and tags', function () {
     $user = User::factory()->create();
     Post::factory()->count(3)->for($user)->published()->create();
