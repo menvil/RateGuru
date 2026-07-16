@@ -19,6 +19,7 @@ final class SavedPostsQuery
             ->with(['user', 'tags'])
             ->select('posts.*', 'post_saves.created_at as saved_at')
             ->orderBy('post_saves.created_at', 'desc')
+            ->orderByDesc('posts.id')
             ->paginate($perPage);
     }
 }

@@ -4,15 +4,14 @@ namespace App\Http\Controllers\Auth;
 
 use App\Actions\Users\GenerateUniqueUsernameAction;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\RegisterUserRequest;
 use App\Models\User;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use RuntimeException;
@@ -35,20 +34,16 @@ class RegisteredUserController extends Controller
      * @throws ValidationException
      */
     public function store(
-        Request $request,
+        RegisterUserRequest $request,
         GenerateUniqueUsernameAction $generateUniqueUsername,
     ): RedirectResponse {
-        $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
-        ]);
+        $validated = $request->validated();
 
-        $password = Hash::make($request->password);
+        $password = Hash::make($validated['password']);
 
         for ($attempt = 1; $attempt <= self::MAX_CREATE_ATTEMPTS; $attempt++) {
             try {
-                $username = $generateUniqueUsername->handle($request->name);
+                $username = $generateUniqueUsername->handle($validated['name']);
             } catch (RuntimeException $exception) {
                 throw ValidationException::withMessages([
                     'name' => $exception->getMessage(),
@@ -57,9 +52,9 @@ class RegisteredUserController extends Controller
 
             try {
                 $user = User::create([
-                    'name' => $request->name,
+                    'name' => $validated['name'],
                     'username' => $username,
-                    'email' => $request->email,
+                    'email' => $validated['email'],
                     'password' => $password,
                 ]);
 

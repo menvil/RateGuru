@@ -33,7 +33,8 @@ final class RatingVotingStateLoader
         $counts = RatingVote::query()
             ->whereIn('post_id', $postIds)
             ->whereIn('rating_group_id', $groupIds)
-            ->selectRaw('post_id, rating_group_id, rating_option_id, COUNT(*) as aggregate')
+            ->select(['post_id', 'rating_group_id', 'rating_option_id'])
+            ->selectRaw('COUNT(*) as aggregate')
             ->groupBy('post_id', 'rating_group_id', 'rating_option_id')
             ->get()
             ->groupBy(['post_id', 'rating_group_id']);

@@ -189,7 +189,8 @@ final class PostVoteResultService
 
         return CuisineVote::query()
             ->whereIn('post_id', $postIds)
-            ->selectRaw('post_id, cuisine, COUNT(*) as total')
+            ->select(['post_id', 'cuisine'])
+            ->selectRaw('COUNT(*) as total')
             ->groupBy('post_id', 'cuisine')
             ->get()
             ->groupBy('post_id')

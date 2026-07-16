@@ -6,6 +6,7 @@ use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Models\Follow;
 use App\Models\Post;
+use App\Support\Database\LikePattern;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -73,19 +74,20 @@ final class FeedQuery
 
         if ($search !== null && trim($search) !== '') {
             $term = trim($search);
+            $pattern = LikePattern::containing($term);
 
-            $query->where(function (Builder $searchQuery) use ($term) {
+            $query->where(function (Builder $searchQuery) use ($pattern) {
                 $searchQuery
-                    ->where('title', 'like', "%{$term}%")
-                    ->orWhere('description', 'like', "%{$term}%");
+                    ->whereRaw("title LIKE ? ESCAPE '!'", [$pattern])
+                    ->orWhereRaw("description LIKE ? ESCAPE '!'", [$pattern]);
             });
         }
 
         return match ($sort) {
-            'newest' => $query->orderByDesc('published_at')->orderByDesc('created_at'),
-            'top' => $query->orderByRaw('(upvotes_count - downvotes_count) DESC')->orderByDesc('published_at'),
-            'hot' => $query->orderByDesc('hot_score')->orderByDesc('published_at'),
-            default => $query->orderByDesc('published_at')->orderByDesc('created_at'),
+            'newest' => $query->orderByDesc('published_at')->orderByDesc('created_at')->orderByDesc('id'),
+            'top' => $query->orderByRaw('(upvotes_count - downvotes_count) DESC')->orderByDesc('published_at')->orderByDesc('id'),
+            'hot' => $query->orderByDesc('hot_score')->orderByDesc('published_at')->orderByDesc('id'),
+            default => $query->orderByDesc('published_at')->orderByDesc('created_at')->orderByDesc('id'),
         };
     }
 

@@ -27,11 +27,17 @@ RateGuru is a Laravel + Livewire + Alpine + Filament application.
 
 ## Architecture rules
 - Controllers and Livewire components must stay thin.
+- HTTP controllers must use dedicated FormRequest classes for user-input validation.
+- HTTP controllers must consume validated input through validated() or safe(); inline validate(), validateWithBag(), Validator::make(), and validator() calls are forbidden.
 - Business logic goes into app/Actions.
 - Technical helpers go into app/Services.
 - Authorization goes into Policies.
 - Background work goes into Jobs.
 - Do not put business rules directly in Blade views.
+- Prefer Eloquent models, relationships, scopes, and app/Queries over direct Query Builder access.
+- DB::transaction() is allowed for atomic work; DB::table() and direct SQL execution require a documented technical exception.
+- Raw SQL expressions require an explicit reviewed allowlist entry, bound user values, and related tests.
+- Paginated queries must end with a unique deterministic ordering column such as id.
 
 ## UI rules
 - UI must follow the RateGuru design contract.

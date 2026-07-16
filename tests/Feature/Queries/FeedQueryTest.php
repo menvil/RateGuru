@@ -201,6 +201,33 @@ it('searches published posts by description', function () {
     expect($posts->pluck('id')->all())->toBe([$matching->id]);
 });
 
+it('treats like wildcards as literal feed search characters', function (string $search, string $matchingTitle, string $otherTitle) {
+    $matching = Post::factory()->published()->create(['title' => $matchingTitle]);
+    Post::factory()->published()->create(['title' => $otherTitle]);
+
+    $posts = app(FeedQuery::class)->get(search: $search);
+
+    expect($posts->pluck('id')->all())->toBe([$matching->id]);
+})->with([
+    'percent' => ['%', 'Save 100%', 'Save 1000'],
+    'underscore' => ['_', 'Dish_A', 'DishXA'],
+]);
+
+it('uses post id as the final deterministic feed order', function (string $sort) {
+    $timestamp = now()->startOfSecond();
+    $posts = Post::factory()->published()->count(3)->create([
+        'published_at' => $timestamp,
+        'created_at' => $timestamp,
+        'upvotes_count' => 5,
+        'downvotes_count' => 1,
+        'hot_score' => 10,
+    ]);
+
+    $result = app(FeedQuery::class)->get(sort: $sort);
+
+    expect($result->pluck('id')->all())->toBe($posts->pluck('id')->reverse()->values()->all());
+})->with(['newest', 'top', 'hot']);
+
 it('paginates feed posts', function () {
     Post::factory()->published()->count(25)->create();
     Post::factory()->pending()->count(5)->create();
