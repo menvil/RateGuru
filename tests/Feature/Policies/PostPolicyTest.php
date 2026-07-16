@@ -12,11 +12,24 @@ it('has post policy registered', function () {
 it('has expected post policy methods', function () {
     $policy = app(PostPolicy::class);
 
+    expect(method_exists($policy, 'create'))->toBeTrue();
     expect(method_exists($policy, 'update'))->toBeTrue();
     expect(method_exists($policy, 'hide'))->toBeTrue();
     expect(method_exists($policy, 'delete'))->toBeTrue();
     expect(method_exists($policy, 'deleteFromFeed'))->toBeTrue();
     expect(method_exists($policy, 'report'))->toBeTrue();
+});
+
+it('allows active users to create posts through the post policy', function () {
+    $user = User::factory()->create();
+
+    expect($user->can('create', Post::class))->toBeTrue();
+});
+
+it('does not allow banned users to create posts through the post policy', function () {
+    $user = User::factory()->banned()->create();
+
+    expect($user->can('create', Post::class))->toBeFalse();
 });
 
 it('allows user to update own draft post', function () {

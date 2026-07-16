@@ -17,6 +17,14 @@ framework-native validation lifecycle and are outside this rule.
 Authorization remains in policies. A `FormRequest::authorize()` method may
 delegate to a policy, but must not introduce a second authorization rule.
 
+Model and resource abilities are defined in their model policy. Global
+abilities that do not belong to one model are defined as named gates backed by
+a focused policy class. Controllers, Form Requests, Livewire components, and
+Filament pages may call Gate or policy abilities, but must not inspect RateGuru
+roles or capabilities directly. Actions may repeat the same ability check as a
+defence-in-depth boundary; they must delegate to the policy instead of
+reimplementing the rule.
+
 ## Eloquent first
 
 Application reads and writes should use Eloquent models, relationships, scopes,
@@ -64,7 +72,8 @@ PHPStan rejects the following patterns before merge:
 - access to unvalidated request input in HTTP controllers, regardless of the
   request variable name;
 - direct RateGuru role/capability checks such as `isAdmin()`, `isModerator()`,
-  or `canCreateContent()` in HTTP controllers;
+  or `canCreateContent()` in controllers, Form Requests, Livewire components,
+  and Filament classes;
 - direct database facade access outside the exact infrastructure allowlist;
 - `DB::transaction()` inside HTTP controllers;
 - raw Eloquent or Query Builder methods outside the exact reviewed allowlist.

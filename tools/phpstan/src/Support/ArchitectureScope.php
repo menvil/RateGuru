@@ -18,6 +18,30 @@ final class ArchitectureScope
             || ($namespace !== null && str_starts_with($namespace, 'App\\Http\\Controllers\\'));
     }
 
+    public static function isPresentationLayer(Scope $scope): bool
+    {
+        $namespace = $scope->getNamespace();
+
+        if ($namespace === null) {
+            return false;
+        }
+
+        foreach ([
+            'App\\Filament',
+            'App\\Http\\Controllers',
+            'App\\Http\\Requests',
+            'App\\Livewire',
+        ] as $presentationNamespace) {
+            if ($namespace === $presentationNamespace
+                || str_starts_with($namespace, $presentationNamespace.'\\')
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @param list<class-string> $allowedClasses */
     public static function isAllowedClass(Scope $scope, array $allowedClasses): bool
     {

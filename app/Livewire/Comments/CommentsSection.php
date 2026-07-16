@@ -10,6 +10,7 @@ use App\Models\Comment;
 use App\Services\Comments\CommentReplyService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -236,9 +237,7 @@ final class CommentsSection extends Component
 
     public function userCanHideComments(): bool
     {
-        $user = auth()->user();
-
-        return $user !== null && ($user->isModerator() || $user->isAdmin());
+        return Gate::allows('moderate-content');
     }
 
     public function render(): View

@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Policies\ModerationPolicy;
+use App\Policies\ProjectSettingsPolicy;
 use App\Services\Images\CloudinaryImageStorage;
 use App\Services\Images\ImageStorage;
 use App\Services\Images\LocalImageStorage;
@@ -46,6 +47,7 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
+        Gate::define('manage-project-settings', [ProjectSettingsPolicy::class, 'manage']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);

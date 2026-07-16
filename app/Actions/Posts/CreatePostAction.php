@@ -33,7 +33,7 @@ final class CreatePostAction
 
     public function handle(User $user, CreatePostData $data): Post
     {
-        if (! $user->canCreateContent()) {
+        if (! $user->can('create', Post::class)) {
             throw CannotCreatePostException::becauseUserIsNotAllowed();
         }
 

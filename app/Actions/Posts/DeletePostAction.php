@@ -12,7 +12,7 @@ final class DeletePostAction
 {
     public function handle(User $user, Post $post): void
     {
-        if ((int) $post->user_id !== (int) $user->id && ! $user->isAdmin() && ! $user->isModerator()) {
+        if (! $user->can('deleteFromFeed', $post)) {
             throw CannotDeletePostException::becauseUserIsNotAllowed();
         }
 
