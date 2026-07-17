@@ -23,6 +23,8 @@ it('configures coderabbit to review the enforced architecture boundaries', funct
 
     expect($configuration)
         ->toContain('schema.v2.json')
+        ->toContain('base_branches:')
+        ->toContain('- "main"')
         ->toContain('app/Http/{Controllers,Requests}/**/*.php')
         ->toContain('app/{Livewire,Filament}/**/*.php')
         ->toContain('app/Queries/**/*.php')
