@@ -64,7 +64,7 @@ final class AddCommentAction
         }
 
         if ($parent !== null) {
-            if (! $parent->exists || $parent->id === null) {
+            if (! $parent->exists) {
                 throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
             }
 

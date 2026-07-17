@@ -4,6 +4,7 @@ use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
 use App\Queries\UserPublicPostsQuery;
+use Illuminate\Pagination\Paginator;
 
 it('returns only public posts for profile user', function () {
     $user = User::factory()->create();
@@ -71,6 +72,26 @@ it('uses post id as the final deterministic public posts order', function () {
     $posts = app(UserPublicPostsQuery::class)->forProfile($user);
 
     expect($posts->pluck('id')->all())->toBe($created->pluck('id')->reverse()->values()->all());
+});
+
+it('keeps equally-published profile posts stable across pages', function () {
+    $user = User::factory()->create();
+    $timestamp = now()->startOfSecond();
+    $posts = Post::factory()->count(5)->for($user)->published()->create([
+        'published_at' => $timestamp,
+    ]);
+
+    Paginator::currentPageResolver(static fn (): int => 1);
+    $first = app(UserPublicPostsQuery::class)->forProfile($user, 2)->pluck('id');
+    Paginator::currentPageResolver(static fn (): int => 2);
+    $second = app(UserPublicPostsQuery::class)->forProfile($user, 2)->pluck('id');
+    Paginator::currentPageResolver(static fn (): int => 3);
+    $third = app(UserPublicPostsQuery::class)->forProfile($user, 2)->pluck('id');
+    Paginator::currentPageResolver(static fn (): int => 1);
+
+    expect($first->intersect($second))->toBeEmpty()
+        ->and($first->merge($second)->merge($third)->all())
+        ->toBe($posts->pluck('id')->reverse()->values()->all());
 });
 
 it('eager loads user and tags', function () {

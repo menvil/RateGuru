@@ -1,3 +1,71 @@
+parametersSchema:
+    architecture: mixed()
+
+parameters:
+    architecture:
+        lowLevelDatabaseExceptions:
+            -
+                class: App\Services\Rating\LegacyRatingVoteMigrator
+                methods: [table]
+                reason: 'Legacy vote tables are selected from trusted internal names and have no long-lived Eloquent model.'
+                behaviorTests: [tests/Feature/Console/MigrateLegacyRatingVotesCommandTest.php]
+                status: approved
+        rawSqlExceptions:
+            -
+                class: App\Queries\Comments\CommentListQuery
+                methods: [orderByRaw]
+                reason: 'Comment ranking requires an arithmetic vote expression with deterministic secondary ordering.'
+                bindings: literal_only
+                behaviorTests: [tests/Feature/Queries/CommentListQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Feed\FeedQuery
+                methods: [whereRaw, orWhereRaw]
+                reason: 'Literal LIKE search requires an explicit ESCAPE clause and separately bound patterns.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/FeedQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Feed\FeedQuery
+                methods: [orderByRaw]
+                reason: 'Top feed ranking requires an arithmetic vote expression with a unique final order.'
+                bindings: literal_only
+                behaviorTests: [tests/Feature/Queries/FeedQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Feed\MatchedUsersQuery
+                methods: [whereRaw, orWhereRaw]
+                reason: 'Literal user search requires an explicit ESCAPE clause and separately bound patterns.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/MatchedUsersQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Rating\RatingVoteCountsQuery
+                methods: [selectRaw]
+                reason: 'Grouped vote totals require an efficient COUNT aggregate without hydrating vote rows.'
+                bindings: literal_only
+                behaviorTests: [tests/Feature/Queries/RatingVoteCountsQueryTest.php]
+                status: approved
+        paginationBoundaries:
+            -
+                class: App\Queries\Feed\FeedQuery
+                method: paginate
+                uniqueOrder: [id]
+                behaviorTests: [tests/Feature/Queries/FeedQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\SavedPosts\SavedPostsQuery
+                method: forUser
+                uniqueOrder: [posts.id]
+                behaviorTests: [tests/Feature/Queries/SavedPostsQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\UserPublicPostsQuery
+                method: forProfile
+                uniqueOrder: [id]
+                behaviorTests: [tests/Feature/Domain/UserPublicPostsQueryTest.php]
+                status: approved
+
 services:
     -
         class: RateGuru\PHPStan\Rules\NoInlineControllerValidationRule
@@ -24,18 +92,27 @@ services:
         tags: [phpstan.rules.rule]
 
     -
+        class: RateGuru\PHPStan\Rules\NoControllerEloquentQueryRule
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\NoReadOnlyLayerMutationRule
+        tags: [phpstan.rules.rule]
+
+    -
+        class: RateGuru\PHPStan\Rules\RegisteredPaginationBoundaryRule
+        arguments:
+            boundaries: %architecture.paginationBoundaries%
+        tags: [phpstan.rules.rule]
+
+    -
         class: RateGuru\PHPStan\Rules\RestrictedDatabaseFacadeRule
         arguments:
-            allowedClasses:
-                - App\Services\Rating\LegacyRatingVoteMigrator
+            exceptions: %architecture.lowLevelDatabaseExceptions%
         tags: [phpstan.rules.rule]
 
     -
         class: RateGuru\PHPStan\Rules\RestrictedRawQueryRule
         arguments:
-            allowedClasses:
-                - App\Queries\Comments\CommentListQuery
-                - App\Queries\Feed\FeedQuery
-                - App\Queries\Feed\MatchedUsersQuery
-                - App\Queries\Rating\RatingVoteCountsQuery
+            exceptions: %architecture.rawSqlExceptions%
         tags: [phpstan.rules.rule]

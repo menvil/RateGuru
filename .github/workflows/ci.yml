@@ -47,9 +47,17 @@ jobs:
   static-analysis:
     name: Architecture & static analysis (PHPStan)
     runs-on: ubuntu-latest
+    outputs:
+      architecture-suppressions: ${{ steps.baseline-report.outputs.architecture-suppressions }}
+      baseline-delta: ${{ steps.baseline-report.outputs.baseline-delta }}
+      baseline-files: ${{ steps.baseline-report.outputs.baseline-files }}
+      baseline-findings: ${{ steps.baseline-report.outputs.baseline-findings }}
+      baseline-patterns: ${{ steps.baseline-report.outputs.baseline-patterns }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -67,8 +75,41 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      - name: Prepare baseline comparison
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git show "$BASE_SHA:phpstan-baseline.neon" > /tmp/phpstan-base-baseline.neon \
+            || touch /tmp/phpstan-base-baseline.neon
+
+      - name: Run baseline-free architecture rules
+        run: composer analyse:architecture
+
       - name: Run PHPStan
-        run: php -d memory_limit=1G vendor/bin/phpstan analyse --no-progress
+        run: composer analyse
+
+      - name: Collect baseline debt
+        id: baseline-report
+        if: always()
+        run: |
+          set -o pipefail
+          php tools/phpstan/bin/baseline-report.php \
+            --base=/tmp/phpstan-base-baseline.neon \
+            --github-output="$GITHUB_OUTPUT" \
+            | tee phpstan-suppressions.json
+
+      - name: Reject baseline growth
+        if: github.event_name == 'pull_request'
+        run: composer baseline:guard -- /tmp/phpstan-base-baseline.neon
+
+      - name: Upload PHPStan suppression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpstan-suppressions
+          path: phpstan-suppressions.json
+          retention-days: 14
 
   frontend-build:
     name: Frontend build (Vite)
@@ -486,6 +527,11 @@ jobs:
         env:
           CODE_STYLE_RESULT: ${{ needs['code-style'].result }}
           STATIC_ANALYSIS_RESULT: ${{ needs['static-analysis'].result }}
+          ARCHITECTURE_SUPPRESSIONS: ${{ needs['static-analysis'].outputs.architecture-suppressions }}
+          BASELINE_DELTA: ${{ needs['static-analysis'].outputs.baseline-delta }}
+          BASELINE_FILES: ${{ needs['static-analysis'].outputs.baseline-files }}
+          BASELINE_FINDINGS: ${{ needs['static-analysis'].outputs.baseline-findings }}
+          BASELINE_PATTERNS: ${{ needs['static-analysis'].outputs.baseline-patterns }}
           FRONTEND_BUILD_RESULT: ${{ needs['frontend-build'].result }}
           BUILD_FILES: ${{ needs['frontend-build'].outputs.files }}
           BUILD_SIZE: ${{ needs['frontend-build'].outputs.size }}
@@ -521,6 +567,10 @@ jobs:
             const value = (name) => process.env[name] || 'n/a';
             const tests = process.env.TEST_COUNT || 'n/a';
             const assertions = process.env.ASSERTION_COUNT || 'n/a';
+            const baselineFindings = value('BASELINE_FINDINGS');
+            const baselinePatterns = value('BASELINE_PATTERNS');
+            const baselineFiles = value('BASELINE_FILES');
+            const baselineDelta = value('BASELINE_DELTA');
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const lines = [
               marker,
@@ -529,7 +579,9 @@ jobs:
               '| Check | Summary |',
               '|---|---|',
               `| Code style | ${details(process.env.CODE_STYLE_RESULT, 'Pint: no changes required')} |`,
-              `| Architecture & static analysis | ${details(process.env.STATIC_ANALYSIS_RESULT, 'PHPStan: 0 errors')} |`,
+              `| Architecture & static analysis | ${details(process.env.STATIC_ANALYSIS_RESULT, 'Architecture: 0 violations · PHPStan: 0 new errors')} |`,
+              `| PHPStan suppressions | ${baselineFindings} findings · ${baselinePatterns} patterns · ${baselineFiles} files · delta ${baselineDelta} |`,
+              `| Architecture findings in baseline | ${value('ARCHITECTURE_SUPPRESSIONS')} |`,
               `| Frontend build | ${details(process.env.FRONTEND_BUILD_RESULT, `${value('BUILD_FILES')} files · ${value('BUILD_SIZE')}`)} |`,
               `| Tests & SQLite | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('SQLITE_MIGRATIONS')} migrations · seed passed`)} |`,
               `| MariaDB migration smoke | ${details(process.env.MARIADB_RESULT, `${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,

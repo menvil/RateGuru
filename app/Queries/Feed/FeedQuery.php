@@ -2,22 +2,26 @@
 
 namespace App\Queries\Feed;
 
+use App\Contracts\Persistence\RawSqlPersistenceBoundary;
+use App\Contracts\Persistence\StablePaginationBoundary;
 use App\Enums\CuisineType;
 use App\Enums\OriginType;
 use App\Models\Follow;
 use App\Models\Post;
 use App\Support\Database\LikePattern;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 
-final class FeedQuery
+final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoundary
 {
+    /** @return Builder<Post> */
     public function base(): Builder
     {
         return Post::query();
     }
 
+    /** @return Builder<Post> */
     public function query(
         ?string $search = null,
         ?string $tag = null,

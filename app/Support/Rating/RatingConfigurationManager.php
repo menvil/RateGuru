@@ -5,7 +5,7 @@ namespace App\Support\Rating;
 use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Models\RatingGroup;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\Relation;
 
 class RatingConfigurationManager
 {
@@ -71,8 +71,11 @@ class RatingConfigurationManager
         }
     }
 
-    private function activeOptions(HasMany $query): HasMany
+    private function activeOptions(Relation $query): void
     {
-        return $query->active()->ordered();
+        $query->getQuery()
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('id');
     }
 }

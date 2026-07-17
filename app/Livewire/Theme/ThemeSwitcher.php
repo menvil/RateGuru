@@ -6,20 +6,18 @@ use App\Actions\Users\UpdateThemePreferenceAction;
 use App\Enums\ThemePreference;
 use App\Models\User;
 use Illuminate\View\View;
-use Livewire\Attributes\Prop;
 use Livewire\Component;
 
 class ThemeSwitcher extends Component
 {
     public string $preference = 'system';
 
-    #[Prop]
     public string $layout = 'header';
 
     public function mount(): void
     {
         $user = auth()->user();
-        $this->preference = $user?->theme_preference ?? 'system';
+        $this->preference = $user instanceof User ? ($user->theme_preference ?? 'system') : 'system';
     }
 
     public function setThemePreference(string $preference): void

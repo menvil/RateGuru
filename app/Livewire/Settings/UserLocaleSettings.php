@@ -15,7 +15,8 @@ class UserLocaleSettings extends Component
 
     public function mount(): void
     {
-        $this->locale = auth()->user()?->locale ?? app()->getLocale();
+        $user = auth()->user();
+        $this->locale = $user instanceof User ? ($user->locale ?? app()->getLocale()) : app()->getLocale();
     }
 
     public function save(): void

@@ -12,6 +12,8 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 
 /**
+ * @property-read Post|null $post
+ *
  * @deprecated Use CategoryVoting for new UI code until Phase 44 replaces legacy category storage.
  */
 class CuisineVoting extends Component

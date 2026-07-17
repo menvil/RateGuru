@@ -14,7 +14,13 @@ final class RestrictedDatabaseFacadeRuleTest extends RuleTestCase
     protected function getRule(): Rule
     {
         return new RestrictedDatabaseFacadeRule([
-            'Tests\\PHPStan\\Fixtures\\ApprovedDatabaseAccess',
+            [
+                'class' => 'Tests\\PHPStan\\Fixtures\\ApprovedDatabaseAccess',
+                'methods' => ['table'],
+                'reason' => 'Legacy fixture.',
+                'behaviorTests' => [__FILE__],
+                'status' => 'approved',
+            ],
         ]);
     }
 
@@ -22,11 +28,13 @@ final class RestrictedDatabaseFacadeRuleTest extends RuleTestCase
     {
         $this->analyse([
             __DIR__.'/../Fixtures/Controllers/DatabaseAccess.php',
+            __DIR__.'/../Fixtures/Presentation/Transaction.php',
         ], [
             ['Direct DB::table() access is restricted to approved infrastructure classes.', 13],
             ['Direct DB::select() access is restricted to approved infrastructure classes.', 18],
             ['Direct DB::raw() access is restricted to approved infrastructure classes.', 23],
-            ['HTTP controllers must not manage transactions; move DB::transaction() to an Action.', 28],
+            ['Presentation classes must not manage transactions; move DB::transaction() to an Action.', 28],
+            ['Presentation classes must not manage transactions; move DB::transaction() to an Action.', 13],
         ]);
     }
 

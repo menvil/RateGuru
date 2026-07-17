@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Enums\PostStatus;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Policies\ModerationPolicy;
@@ -122,8 +123,8 @@ class AppServiceProvider extends ServiceProvider
             // Not locale-sensitive: labels/hrefs are built from slugs, not translations.
             $topTags = Cache::remember('sidebar-nav-top-tags', 300, function () {
                 return Tag::query()
-                    ->whereHas('posts', fn ($q) => $q->published())
-                    ->withCount(['posts as published_posts_count' => fn ($q) => $q->published()])
+                    ->whereHas('posts', fn ($query) => $query->where('status', PostStatus::Published))
+                    ->withCount(['posts as published_posts_count' => fn ($query) => $query->where('status', PostStatus::Published)])
                     ->orderByDesc('published_posts_count')
                     ->orderBy('name')
                     ->limit(5)

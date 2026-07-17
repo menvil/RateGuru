@@ -19,6 +19,7 @@ use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Gate;
 use UnitEnum;
 
+/** @property Schema $form */
 class ProjectSettingsPage extends Page
 {
     protected string $view = 'filament.pages.project-settings';

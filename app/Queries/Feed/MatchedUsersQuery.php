@@ -2,12 +2,13 @@
 
 namespace App\Queries\Feed;
 
+use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\UserStatus;
 use App\Models\User;
 use App\Support\Database\LikePattern;
 use Illuminate\Database\Eloquent\Collection;
 
-final class MatchedUsersQuery
+final class MatchedUsersQuery implements RawSqlPersistenceBoundary
 {
     /** @return Collection<int, User> */
     public function search(string $search): Collection

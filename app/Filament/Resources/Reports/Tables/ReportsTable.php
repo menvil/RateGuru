@@ -21,6 +21,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use RuntimeException;
 
 class ReportsTable
@@ -31,11 +32,13 @@ class ReportsTable
             // Eager-load the polymorphic target and its author so the
             // hideTarget/banTargetAuthor visibility closures (which read
             // $record->target and its ->user) don't trigger per-row queries.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['target' => function (MorphTo $morphTo): void {
-                $morphTo->morphWith([
-                    Post::class => ['user'],
-                    Comment::class => ['post', 'user'],
-                ]);
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['target' => function (Relation $relation): void {
+                if ($relation instanceof MorphTo) {
+                    $relation->morphWith([
+                        Post::class => ['user'],
+                        Comment::class => ['post', 'user'],
+                    ]);
+                }
             }]))
             ->columns([
                 TextColumn::make('target_type')

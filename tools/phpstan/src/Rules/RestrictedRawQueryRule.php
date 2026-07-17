@@ -13,12 +13,12 @@ use PhpParser\Node\Expr\CallLike;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\String_;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use PHPStan\Type\ObjectType;
-use RateGuru\PHPStan\Support\ArchitectureScope;
 
 use function in_array;
 use function sprintf;
@@ -39,8 +39,10 @@ final class RestrictedRawQueryRule implements Rule
         'whereRaw',
     ];
 
-    /** @param list<class-string> $allowedClasses */
-    public function __construct(private array $allowedClasses) {}
+    /**
+     * @param  list<array{class: class-string, methods: list<string>, reason: string, bindings: 'required'|'literal_only'|'internal_only', behaviorTests: list<string>, status: 'approved'}>  $exceptions
+     */
+    public function __construct(private array $exceptions) {}
 
     public function getNodeType(): string
     {
@@ -59,9 +61,30 @@ final class RestrictedRawQueryRule implements Rule
         $method = $node->name->toString();
 
         if (! in_array($method, self::RESTRICTED_METHODS, true)
-            || ArchitectureScope::isAllowedClass($scope, $this->allowedClasses)
-            || ! $this->isDatabaseQuery($scope, $node)
-        ) {
+            || ! $this->isDatabaseQuery($scope, $node)) {
+            return [];
+        }
+
+        $exception = $this->approvedException($scope, $method);
+
+        if ($exception !== null) {
+            if ($exception['bindings'] === 'required' && count($node->getArgs()) < 2) {
+                return [
+                    RuleErrorBuilder::message('This approved raw SQL call requires a separate bindings argument.')
+                        ->identifier('rateguru.database.rawQueryBindings')
+                        ->build(),
+                ];
+            }
+
+            if ($exception['bindings'] === 'literal_only'
+                && (! isset($node->getArgs()[0]) || ! $node->getArgs()[0]->value instanceof String_)) {
+                return [
+                    RuleErrorBuilder::message('This approved raw SQL call only permits a literal SQL string.')
+                        ->identifier('rateguru.database.rawQueryLiteral')
+                        ->build(),
+                ];
+            }
+
             return [];
         }
 
@@ -73,6 +96,23 @@ final class RestrictedRawQueryRule implements Rule
                 ->identifier('rateguru.database.rawQuery')
                 ->build(),
         ];
+    }
+
+    /**
+     * @return array{class: class-string, methods: list<string>, reason: string, bindings: 'required'|'literal_only'|'internal_only', behaviorTests: list<string>, status: 'approved'}|null
+     */
+    private function approvedException(Scope $scope, string $method): ?array
+    {
+        $class = $scope->getClassReflection()?->getName();
+
+        foreach ($this->exceptions as $exception) {
+            if ($exception['class'] === $class
+                && in_array($method, $exception['methods'], true)) {
+                return $exception;
+            }
+        }
+
+        return null;
     }
 
     private function isDatabaseQuery(Scope $scope, MethodCall|StaticCall $node): bool

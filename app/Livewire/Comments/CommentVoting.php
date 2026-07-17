@@ -70,7 +70,7 @@ final class CommentVoting extends Component
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
             'votingDisabled' => $comment !== null && auth()->check() && (int) $comment->user_id === (int) auth()->id(),
-            'score' => (int) ($comment?->score ?? 0),
+            'score' => (int) $comment?->score,
         ]);
     }
 }

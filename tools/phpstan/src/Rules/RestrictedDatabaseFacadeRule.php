@@ -38,8 +38,10 @@ final class RestrictedDatabaseFacadeRule implements Rule
         'update',
     ];
 
-    /** @param list<class-string> $allowedClasses */
-    public function __construct(private array $allowedClasses) {}
+    /**
+     * @param  list<array{class: class-string, methods: list<string>, reason: string, behaviorTests: list<string>, status: 'approved'}>  $exceptions
+     */
+    public function __construct(private array $exceptions) {}
 
     public function getNodeType(): string
     {
@@ -59,20 +61,19 @@ final class RestrictedDatabaseFacadeRule implements Rule
         $method = $node->name->toString();
 
         if ($method === 'transaction') {
-            if (! ArchitectureScope::isHttpController($scope)) {
+            if (! ArchitectureScope::isPresentationLayer($scope)) {
                 return [];
             }
 
             return [
-                RuleErrorBuilder::message('HTTP controllers must not manage transactions; move DB::transaction() to an Action.')
-                    ->identifier('rateguru.controller.transaction')
+                RuleErrorBuilder::message('Presentation classes must not manage transactions; move DB::transaction() to an Action.')
+                    ->identifier('rateguru.presentation.transaction')
                     ->build(),
             ];
         }
 
         if (! in_array($method, self::RESTRICTED_METHODS, true)
-            || ArchitectureScope::isAllowedClass($scope, $this->allowedClasses)
-        ) {
+            || $this->isApprovedException($scope, $method)) {
             return [];
         }
 
@@ -84,5 +85,19 @@ final class RestrictedDatabaseFacadeRule implements Rule
                 ->identifier('rateguru.database.restrictedFacade')
                 ->build(),
         ];
+    }
+
+    private function isApprovedException(Scope $scope, string $method): bool
+    {
+        $class = $scope->getClassReflection()?->getName();
+
+        foreach ($this->exceptions as $exception) {
+            if ($exception['class'] === $class
+                && in_array($method, $exception['methods'], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

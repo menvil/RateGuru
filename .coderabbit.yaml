@@ -31,11 +31,20 @@ reviews:
         idempotency where relevant, and absence of N+1 writes.
     - path: "app/Queries/**/*.php"
       instructions: |
+        Query Objects are read-only: flag mutations, transactions, and row
+        locks. Pagination must be registered in architecture.paginationBoundaries
+        with a unique final order and tied-sort cross-page behavior test.
         Prefer Eloquent models, relationships, scopes, aggregates, and bound
         parameters. Raw SQL requires an exact exception in
         docs/architecture/http-and-database-boundaries.md and a semantic test.
         Check literal LIKE escaping, N+1 risks, aggregate efficiency, and stable
         unique ordering for pagination.
+    - path: "tools/phpstan/**/*.php"
+      instructions: |
+        Architecture rules require violation and false-positive fixtures. Keep
+        matching type-aware for Model, Eloquent Builder, base Query Builder, and
+        Relation receivers. Architecture identifiers must start with rateguru.*
+        and must never be suppressible through a PHPStan baseline.
     - path: "database/migrations/**/*.php"
       instructions: |
         SQLite is the only supported runtime database. MariaDB and PostgreSQL CI

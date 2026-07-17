@@ -124,7 +124,7 @@ class OptionsRelationManager extends RelationManager
                 CreateAction::make()
                     ->using(fn (array $data): RatingOption => app(CreateRatingOptionAction::class)->handle(
                         auth()->user(),
-                        $this->getOwnerRecord(),
+                        $this->ownerGroup(),
                         $data,
                     ))
                     ->createAnother(false),
@@ -195,7 +195,7 @@ class OptionsRelationManager extends RelationManager
             /** @var RatingGroup $group */
             $group = $this->getOwnerRecord();
             $willBeActive = filter_var($value, FILTER_VALIDATE_BOOL);
-            $isCurrentlyActive = $record?->is_active ?? false;
+            $isCurrentlyActive = $record === null ? false : $record->is_active;
 
             try {
                 app(ValidateRatingOptionTransitionAction::class)
@@ -204,5 +204,16 @@ class OptionsRelationManager extends RelationManager
                 $fail($exception->getMessage());
             }
         };
+    }
+
+    private function ownerGroup(): RatingGroup
+    {
+        $owner = $this->getOwnerRecord();
+
+        if (! $owner instanceof RatingGroup) {
+            throw new \LogicException('Rating options require a rating group owner.');
+        }
+
+        return $owner;
     }
 }
