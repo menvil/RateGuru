@@ -14,11 +14,13 @@ class Follow extends Model
 
     protected $fillable = ['follower_id', 'author_id'];
 
+    /** @return BelongsTo<User, $this> */
     public function follower(): BelongsTo
     {
         return $this->belongsTo(User::class, 'follower_id');
     }
 
+    /** @return BelongsTo<User, $this> */
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'author_id');

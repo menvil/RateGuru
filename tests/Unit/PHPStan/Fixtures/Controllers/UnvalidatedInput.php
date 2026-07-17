@@ -10,12 +10,17 @@ use Illuminate\Http\Request;
 final class UnvalidatedInputController
 {
     /**
-     * @return array{mixed, mixed}
+     * @return array{mixed, mixed, mixed, mixed}
      */
     public function __invoke(Request $payload, Builder $query): array
     {
         $query->get();
 
-        return [$payload->input('status'), $payload->string('type')];
+        return [
+            $payload->input('status'),
+            $payload->string('type'),
+            $payload['page'],
+            $payload->sort,
+        ];
     }
 }

@@ -2,10 +2,11 @@
 
 namespace App\Queries\Rating;
 
+use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Models\RatingVote;
 use Illuminate\Support\Collection;
 
-final class RatingVoteCountsQuery
+final class RatingVoteCountsQuery implements RawSqlPersistenceBoundary
 {
     /**
      * @param  list<int>  $postIds

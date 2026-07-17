@@ -42,13 +42,18 @@ final class ArchitectureScope
         return false;
     }
 
-    /** @param list<class-string> $allowedClasses */
-    public static function isAllowedClass(Scope $scope, array $allowedClasses): bool
+    public static function readOnlyLayer(Scope $scope): ?string
     {
-        if (! $scope->isInClass()) {
-            return false;
+        $namespace = $scope->getNamespace();
+
+        if ($namespace === 'App\\Queries' || ($namespace !== null && str_starts_with($namespace, 'App\\Queries\\'))) {
+            return 'Query Objects';
         }
 
-        return in_array($scope->getClassReflection()->getName(), $allowedClasses, true);
+        if ($namespace === 'App\\Policies' || ($namespace !== null && str_starts_with($namespace, 'App\\Policies\\'))) {
+            return 'Policies';
+        }
+
+        return null;
     }
 }

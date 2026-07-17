@@ -40,7 +40,9 @@ class RatingVoting extends Component
     #[On('rating-voted')]
     public function onRatingVoted(int $postId, string $groupKey): void
     {
-        if ((int) ($this->post?->id ?? 0) === $postId && $this->groupKey === $groupKey) {
+        $currentPostId = $this->post instanceof Post ? (int) $this->post->id : 0;
+
+        if ($currentPostId === $postId && $this->groupKey === $groupKey) {
             $this->hasPreloadedState = false;
             $this->post = Post::query()->published()->find($postId);
         }

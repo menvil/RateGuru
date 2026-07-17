@@ -12,6 +12,7 @@ use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
+/** @property-read Post $post */
 final class PostShow extends Component
 {
     public int $postId;

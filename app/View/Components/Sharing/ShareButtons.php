@@ -45,7 +45,7 @@ final class ShareButtons extends Component
         ));
         $this->providerUrls = $this->buildProviderUrls($urlBuilder);
         $this->visibleProviders = collect($this->socialProviderKeys)->filter(
-            fn ($provider) => isset($this->providerUrls[$provider]) && $this->providerUrls[$provider] !== null
+            fn ($provider) => isset($this->providerUrls[$provider])
         )->values();
         $this->hasNative = isset($this->enabledProviders['native']);
     }

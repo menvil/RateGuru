@@ -24,6 +24,7 @@ final class SavedPostState
             return new SavedPostStateMap([]);
         }
 
+        /** @var array<int, true> $savedIds */
         $savedIds = PostSave::query()
             ->where('user_id', $user->id)
             ->whereIn('post_id', $postIds)

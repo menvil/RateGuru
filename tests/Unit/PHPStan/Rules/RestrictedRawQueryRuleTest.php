@@ -14,7 +14,31 @@ final class RestrictedRawQueryRuleTest extends RuleTestCase
     protected function getRule(): Rule
     {
         return new RestrictedRawQueryRule([
-            'Tests\\PHPStan\\Fixtures\\ApprovedRawQuery',
+            [
+                'class' => 'Tests\\PHPStan\\Fixtures\\ApprovedRawQuery',
+                'methods' => ['whereRaw'],
+                'reason' => 'Literal fixture.',
+                'bindings' => 'literal_only',
+                'behaviorTests' => [__FILE__],
+                'status' => 'approved',
+            ],
+            [
+                'class' => 'Tests\\PHPStan\\Fixtures\\MissingRawBindings',
+                'methods' => ['whereRaw'],
+                'reason' => 'Bound fixture.',
+                'bindings' => 'required',
+                'behaviorTests' => [__FILE__],
+                'status' => 'approved',
+            ],
+        ]);
+    }
+
+    public function test_approved_bound_expressions_require_a_bindings_argument(): void
+    {
+        $this->analyse([
+            __DIR__.'/../Fixtures/Database/MissingRawBindings.php',
+        ], [
+            ['This approved raw SQL call requires a separate bindings argument.', 13],
         ]);
     }
 

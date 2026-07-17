@@ -15,7 +15,7 @@
 - [ ] Raw SQL has a documented Query Object exception, bound inputs, and a semantic test.
 - [ ] Paginated queries end with a stable unique ordering column.
 - [ ] Database assumptions follow the SQLite runtime support contract.
-- [ ] No new PHPStan baseline entries were added.
+- [ ] PHPStan remains baseline-free; no suppression file or ignored architecture finding was added.
 
 ## Visual Review
 

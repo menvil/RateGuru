@@ -13,8 +13,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
+/**
+ * @property PostStatus $status
+ * @property OriginType|null $origin_truth
+ * @property CuisineType|null $cuisine_truth
+ * @property-read int $score
+ * @property-read string|null $public_image_url
+ * @property string|null $thumbnail_url
+ * @property Carbon|null $created_at
+ * @property Carbon|null $published_at
+ */
 class Post extends Model
 {
     use HasFactory, SoftDeletes;
@@ -74,51 +85,61 @@ class Post extends Model
         return $this->status === PostStatus::Published;
     }
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
+    /** @return HasMany<Comment, $this> */
     public function comments(): HasMany
     {
         return $this->hasMany(Comment::class);
     }
 
+    /** @return HasMany<PostVote, $this> */
     public function postVotes(): HasMany
     {
         return $this->hasMany(PostVote::class);
     }
 
+    /** @return HasMany<OriginVote, $this> */
     public function originVotes(): HasMany
     {
         return $this->hasMany(OriginVote::class);
     }
 
+    /** @return HasMany<CuisineVote, $this> */
     public function cuisineVotes(): HasMany
     {
         return $this->hasMany(CuisineVote::class);
     }
 
+    /** @return HasMany<PostSave, $this> */
     public function saves(): HasMany
     {
         return $this->hasMany(PostSave::class);
     }
 
+    /** @return BelongsToMany<User, $this> */
     public function savedByUsers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'post_saves')->withTimestamps();
     }
 
+    /** @return BelongsToMany<Tag, $this> */
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class);
     }
 
+    /** @return HasMany<PostAuthorAnswer, $this> */
     public function authorAnswers(): HasMany
     {
         return $this->hasMany(PostAuthorAnswer::class);
     }
 
+    /** @return BelongsTo<RatingOption, $this> */
     public function categoryOption(): BelongsTo
     {
         return $this->belongsTo(RatingOption::class, 'category_option_id');

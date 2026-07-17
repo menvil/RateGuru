@@ -1,0 +1,7 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Access to an undefined property\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Models/Post.php

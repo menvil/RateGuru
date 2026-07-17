@@ -13,6 +13,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\Relation;
 
 class ReportResource extends Resource
 {
@@ -43,10 +44,14 @@ class ReportResource extends Resource
         // visibility check (which reads $target->user) stays N+1-free.
         return parent::getEloquentQuery()->with([
             'reporter',
-            'target' => fn (MorphTo $morphTo) => $morphTo->morphWith([
-                Post::class => ['user'],
-                Comment::class => ['user'],
-            ]),
+            'target' => function (Relation $relation): void {
+                if ($relation instanceof MorphTo) {
+                    $relation->morphWith([
+                        Post::class => ['user'],
+                        Comment::class => ['user'],
+                    ]);
+                }
+            },
         ]);
     }
 

@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
+/**
+ * @property ReportReason $reason
+ * @property ReportStatus $status
+ */
 class Report extends Model
 {
     use HasFactory;
@@ -24,6 +28,7 @@ class Report extends Model
         ];
     }
 
+    /** @return BelongsTo<User, $this> */
     public function reporter(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reporter_id');
@@ -33,6 +38,8 @@ class Report extends Model
      * Polymorphic relation to the reported content (Post, Comment, or User).
      * Returns null when the target row has been deleted; callers must
      * tolerate that.
+     *
+     * @return MorphTo<Model, $this>
      */
     public function target(): MorphTo
     {

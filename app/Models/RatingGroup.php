@@ -38,11 +38,13 @@ class RatingGroup extends Model
         return TranslatableField::resolve($this->label_translations, $this->label, $locale);
     }
 
+    /** @return HasMany<RatingOption, $this> */
     public function options(): HasMany
     {
         return $this->hasMany(RatingOption::class);
     }
 
+    /** @return HasMany<RatingVote, $this> */
     public function votes(): HasMany
     {
         return $this->hasMany(RatingVote::class);

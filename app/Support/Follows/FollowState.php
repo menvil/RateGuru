@@ -16,12 +16,13 @@ final class FollowState
             return new FollowStateMap([]);
         }
 
-        $authorIds = collect($authors)->filter(fn ($a) => $a instanceof User)->pluck('id')->all();
+        $authorIds = collect($authors)->pluck('id')->all();
 
         if (empty($authorIds)) {
             return new FollowStateMap([]);
         }
 
+        /** @var array<int, true> $followedIds */
         $followedIds = Follow::query()
             ->where('follower_id', $viewer->id)
             ->whereIn('author_id', $authorIds)

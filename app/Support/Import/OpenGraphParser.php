@@ -3,6 +3,7 @@
 namespace App\Support\Import;
 
 use DOMDocument;
+use DOMElement;
 use DOMXPath;
 
 class OpenGraphParser
@@ -46,9 +47,15 @@ class OpenGraphParser
             return null;
         }
 
-        $content = $nodes->item(0)?->getAttribute('content');
+        $node = $nodes->item(0);
 
-        return ($content !== null && $content !== '') ? $content : null;
+        if (! $node instanceof DOMElement) {
+            return null;
+        }
+
+        $content = $node->getAttribute('content');
+
+        return $content !== '' ? $content : null;
     }
 
     private function extractTitle(DOMXPath $xpath): ?string
@@ -59,7 +66,7 @@ class OpenGraphParser
             return null;
         }
 
-        $text = trim($nodes->item(0)?->textContent ?? '');
+        $text = trim($nodes->item(0)->textContent);
 
         return $text !== '' ? $text : null;
     }

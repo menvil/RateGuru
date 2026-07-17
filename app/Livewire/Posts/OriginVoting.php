@@ -11,6 +11,8 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 
 /**
+ * @property-read Post|null $post
+ *
  * @deprecated Use SourceVoting for new UI code until Phase 44 replaces legacy source storage.
  */
 class OriginVoting extends Component
@@ -37,8 +39,8 @@ class OriginVoting extends Component
     {
         $post = $this->post;
 
-        $homemade = (int) ($post?->homemade_votes_count ?? 0);
-        $restaurant = (int) ($post?->restaurant_votes_count ?? 0);
+        $homemade = (int) $post?->homemade_votes_count;
+        $restaurant = (int) $post?->restaurant_votes_count;
         $total = $homemade + $restaurant;
 
         $homemadePct = $total > 0 ? (int) round(($homemade / $total) * 100) : 0;

@@ -1,0 +1,13 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Access to an undefined property\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Models/Post.php
+
+		-
+			message: '#^Invalid argument\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Actions/PostAction.php

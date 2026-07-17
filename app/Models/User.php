@@ -19,6 +19,12 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
 
+/**
+ * @property UserRole|null $role
+ * @property UserStatus|null $status
+ * @property int|null $trust_level
+ * @property ProfileActivityVisibility|null $rating_activity_visibility
+ */
 #[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_url', 'avatar_path', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser, MustVerifyEmail
@@ -83,41 +89,49 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
         return $this->role === UserRole::Admin;
     }
 
+    /** @return HasMany<Post, $this> */
     public function posts(): HasMany
     {
         return $this->hasMany(Post::class);
     }
 
+    /** @return HasMany<Comment, $this> */
     public function comments(): HasMany
     {
         return $this->hasMany(Comment::class);
     }
 
+    /** @return HasMany<PostSave, $this> */
     public function postSaves(): HasMany
     {
         return $this->hasMany(PostSave::class);
     }
 
+    /** @return BelongsToMany<Post, $this> */
     public function savedPostItems(): BelongsToMany
     {
         return $this->belongsToMany(Post::class, 'post_saves')->withTimestamps();
     }
 
+    /** @return HasMany<Follow, $this> */
     public function followingRelations(): HasMany
     {
         return $this->hasMany(Follow::class, 'follower_id');
     }
 
+    /** @return HasMany<Follow, $this> */
     public function followerRelations(): HasMany
     {
         return $this->hasMany(Follow::class, 'author_id');
     }
 
+    /** @return BelongsToMany<User, $this> */
     public function followingAuthors(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'follows', 'follower_id', 'author_id')->withTimestamps();
     }
 
+    /** @return BelongsToMany<User, $this> */
     public function followers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'follows', 'author_id', 'follower_id')->withTimestamps();

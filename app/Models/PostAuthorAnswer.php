@@ -15,16 +15,19 @@ class PostAuthorAnswer extends Model
         'rating_option_id',
     ];
 
+    /** @return BelongsTo<Post, $this> */
     public function post(): BelongsTo
     {
         return $this->belongsTo(Post::class);
     }
 
+    /** @return BelongsTo<RatingGroup, $this> */
     public function group(): BelongsTo
     {
         return $this->belongsTo(RatingGroup::class, 'rating_group_id');
     }
 
+    /** @return BelongsTo<RatingOption, $this> */
     public function option(): BelongsTo
     {
         return $this->belongsTo(RatingOption::class, 'rating_option_id');

@@ -11,7 +11,7 @@ it('provides an architecture checklist in every pull request', function () {
         ->toContain('Resource authorization uses Policy/Gate')
         ->toContain('Reads use Eloquent or a Query Object')
         ->toContain('Raw SQL has a documented Query Object exception')
-        ->toContain('No new PHPStan baseline entries');
+        ->toContain('PHPStan remains baseline-free');
 });
 
 it('configures coderabbit to review the enforced architecture boundaries', function () {
@@ -34,7 +34,28 @@ it('makes architecture enforcement explicit in the phpstan ci check', function (
 
     expect($workflow)
         ->toContain('name: Architecture & static analysis (PHPStan)')
-        ->toContain('php -d memory_limit=1G vendor/bin/phpstan analyse --no-progress');
+        ->toContain('composer analyse:architecture')
+        ->toContain('composer analyse')
+        ->toContain('baseline-findings')
+        ->toContain('PHPStan suppressions')
+        ->toContain('Architecture findings in baseline');
+});
+
+it('runs architecture rules without the legacy phpstan baseline', function () {
+    $configuration = File::get(base_path('tools/phpstan/architecture-only.neon'));
+
+    expect($configuration)
+        ->toContain('customRulesetUsed: true')
+        ->toContain('tools/phpstan/architecture.neon')
+        ->not->toContain('phpstan-baseline.neon');
+
+    $composer = File::get(base_path('composer.json'));
+
+    expect($composer)
+        ->toContain('"analyse:architecture"')
+        ->toContain('tools/phpstan/architecture-only.neon')
+        ->toContain('"baseline:report"')
+        ->toContain('"baseline:guard"');
 });
 
 it('retires temporary regex guards after phpstan parity', function () {
@@ -46,4 +67,12 @@ it('retires temporary regex guards after phpstan parity', function () {
         ->not->toContain("it('keeps unvalidated input")
         ->not->toContain("it('keeps direct query builder access")
         ->not->toContain("it('limits raw sql expressions");
+});
+
+it('keeps phpstan baseline free after retiring all suppressions', function () {
+    expect(File::exists(base_path('phpstan-baseline.neon')))->toBeFalse();
+
+    $configuration = File::get(base_path('phpstan.neon'));
+
+    expect($configuration)->not->toContain('phpstan-baseline.neon');
 });

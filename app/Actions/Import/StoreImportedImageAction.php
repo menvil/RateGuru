@@ -17,7 +17,7 @@ class StoreImportedImageAction
 
         $response = $this->client->get($imageUrl, $maxBytes);
 
-        $rawContentType = $response->header('Content-Type') ?? '';
+        $rawContentType = $response->header('Content-Type');
         $host = parse_url($imageUrl, PHP_URL_HOST) ?? 'unknown';
 
         if (empty(trim($rawContentType))) {

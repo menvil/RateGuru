@@ -4,6 +4,7 @@ use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\User;
 use App\Queries\SavedPosts\SavedPostsQuery;
+use Illuminate\Pagination\Paginator;
 
 it('returns saved posts for user ordered by saved date desc', function () {
     $user = User::factory()->create();
@@ -47,6 +48,33 @@ it('uses post id as the final deterministic saved posts order', function () {
     $result = app(SavedPostsQuery::class)->forUser($user);
 
     expect($result->pluck('id')->all())->toBe($posts->pluck('id')->reverse()->values()->all());
+});
+
+it('keeps equally-timed saved posts stable across pages', function () {
+    $user = User::factory()->create();
+    $posts = Post::factory()->published()->count(5)->create();
+    $savedAt = now()->startOfSecond();
+
+    foreach ($posts as $post) {
+        PostSave::factory()->create([
+            'user_id' => $user->id,
+            'post_id' => $post->id,
+            'created_at' => $savedAt,
+            'updated_at' => $savedAt,
+        ]);
+    }
+
+    Paginator::currentPageResolver(static fn (): int => 1);
+    $first = app(SavedPostsQuery::class)->forUser($user, 2)->pluck('id');
+    Paginator::currentPageResolver(static fn (): int => 2);
+    $second = app(SavedPostsQuery::class)->forUser($user, 2)->pluck('id');
+    Paginator::currentPageResolver(static fn (): int => 3);
+    $third = app(SavedPostsQuery::class)->forUser($user, 2)->pluck('id');
+    Paginator::currentPageResolver(static fn (): int => 1);
+
+    expect($first->intersect($second))->toBeEmpty()
+        ->and($first->merge($second)->merge($third)->all())
+        ->toBe($posts->pluck('id')->reverse()->values()->all());
 });
 
 it('does not return saved posts from other users', function () {
