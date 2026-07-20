@@ -10,6 +10,7 @@ use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
+/** @property-read Post|null $post */
 final class PostVoting extends Component
 {
     public int $postId;
@@ -94,7 +95,7 @@ final class PostVoting extends Component
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
             'votingDisabled' => ! auth()->check() || $isOwnPost,
-            'score' => (int) ($post?->score ?? 0),
+            'score' => (int) $post?->score,
         ]);
     }
 

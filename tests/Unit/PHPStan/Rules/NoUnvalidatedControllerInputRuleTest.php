@@ -23,11 +23,19 @@ final class NoUnvalidatedControllerInputRuleTest extends RuleTestCase
         ], [
             [
                 'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::input().',
-                19,
+                20,
             ],
             [
                 'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::string().',
-                19,
+                21,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not use Request array access.',
+                22,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not use Request magic properties.',
+                23,
             ],
         ]);
     }

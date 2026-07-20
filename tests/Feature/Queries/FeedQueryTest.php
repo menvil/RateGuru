@@ -7,6 +7,7 @@ use App\Models\Tag;
 use App\Models\User;
 use App\Queries\Feed\FeedQuery;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 
 it('returns only published posts', function () {
     $published = Post::factory()->published()->create();
@@ -237,4 +238,27 @@ it('paginates feed posts', function () {
     expect($paginator)->toBeInstanceOf(LengthAwarePaginator::class);
     expect($paginator->items())->toHaveCount(10);
     expect($paginator->total())->toBe(25);
+});
+
+it('keeps equal-ranked feed records stable across pages', function () {
+    $timestamp = now()->startOfSecond();
+    $posts = Post::factory()->published()->count(7)->create([
+        'published_at' => $timestamp,
+        'created_at' => $timestamp,
+        'upvotes_count' => 5,
+        'downvotes_count' => 1,
+        'hot_score' => 10,
+    ]);
+
+    Paginator::currentPageResolver(static fn (): int => 1);
+    $first = app(FeedQuery::class)->paginate(sort: 'top', perPage: 3)->pluck('id');
+    Paginator::currentPageResolver(static fn (): int => 2);
+    $second = app(FeedQuery::class)->paginate(sort: 'top', perPage: 3)->pluck('id');
+    Paginator::currentPageResolver(static fn (): int => 3);
+    $third = app(FeedQuery::class)->paginate(sort: 'top', perPage: 3)->pluck('id');
+    Paginator::currentPageResolver(static fn (): int => 1);
+
+    expect($first->intersect($second))->toBeEmpty()
+        ->and($first->merge($second)->merge($third)->all())
+        ->toBe($posts->pluck('id')->reverse()->values()->all());
 });

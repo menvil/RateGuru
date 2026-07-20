@@ -21,6 +21,7 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
 
+/** @property-read bool $isOwner */
 final class ProfilePage extends Component
 {
     use WithPagination;

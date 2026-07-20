@@ -52,6 +52,8 @@
 /public/build
 
 /plans
+/.claude/worktrees
+/coderabbit-review/results
 
 /.phpunit.cache
 /.phpunit.result.cache

@@ -2,13 +2,14 @@
 
 namespace App\Queries\Comments;
 
+use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\CommentStatus;
 use App\Models\Comment;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
-final class CommentListQuery
+final class CommentListQuery implements RawSqlPersistenceBoundary
 {
     /** @return Collection<int, Comment> */
     public function get(int $postId, string $sort, int $limit): Collection

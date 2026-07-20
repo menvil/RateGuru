@@ -1,0 +1,7 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Architecture violation\.$#'
+			identifier: rateguru.database.rawQuery
+			count: 1
+			path: app/Queries/UnsafeQuery.php

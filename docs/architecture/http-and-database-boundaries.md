@@ -36,6 +36,14 @@ and `updateOrCreate()` belong in `app/Actions`.
 This restriction is type-aware. Framework state APIs such as Filament
 `$form->fill()` are not Eloquent calls and remain allowed.
 
+HTTP controllers also do not own Eloquent reads. Route-model instances may be
+passed to a Query Object, Action, or response, but query construction,
+relationship loading, aggregates, and pagination belong in `app/Queries`.
+
+Query Objects and policies are read-only. Eloquent mutations, row locks, and
+transactions in either namespace are rejected. Atomic mutations and their
+locks belong in Actions; policies may only decide authorization.
+
 ## Eloquent first
 
 Application reads and writes should use Eloquent models, relationships, scopes,
@@ -65,7 +73,7 @@ The reviewed boundaries are:
 Literal LIKE searches use `LikePattern` and an explicit SQL `ESCAPE` clause so
 user-supplied `%` and `_` characters are not interpreted as wildcards.
 
-Adding another raw boundary requires updating the architecture test allowlist,
+Adding another raw boundary requires updating the executable registry,
 documenting the reason here, and adding a behavior test.
 
 The PHPStan allowlist is exact and class-based. Directory-wide exclusions are
@@ -87,8 +95,10 @@ PHPStan rejects the following patterns before merge:
   or `canCreateContent()` in controllers, Form Requests, Livewire components,
   and Filament classes;
 - direct Eloquent persistence from those presentation classes;
+- controller-owned Eloquent reads and pagination;
+- writes, locks, or transactions inside Query Objects and policies;
 - direct database facade access outside the exact infrastructure allowlist;
-- `DB::transaction()` inside HTTP controllers;
+- `DB::transaction()` anywhere in the presentation layer;
 - raw Eloquent or Query Builder methods outside the exact reviewed allowlist.
 
 The rules use resolved PHP types, class names, and namespaces. Calls such as
@@ -103,6 +113,11 @@ Every paginated query must finish with a unique deterministic ordering column,
 normally the model primary key. Sorting only by timestamps or aggregate scores
 is insufficient because multiple rows may share the same value.
 
+Eloquent pagination may only be created by a Query Object registered in
+`architecture.paginationBoundaries`. Every entry identifies the owning class
+and method, its unique final order, and behavior tests that request consecutive
+pages with tied sort values and assert that rows neither move nor overlap.
+
 ## Review enforcement
 
 The `Architecture & static analysis (PHPStan)` CI check is the executable
@@ -112,5 +127,8 @@ The pull request template requires an explicit architecture review, and
 supplemental reviewer. Neither the checklist nor AI review replaces the CI
 check.
 
-Existing PHPStan baseline entries are migration debt. Architecture work should
-remove resolved entries and must not add a new entry to bypass a boundary.
+RateGuru has no PHPStan baseline: the previous 226 suppressed findings were
+resolved and `phpstan-baseline.neon` was removed. CI publishes a suppression
+inventory in the workflow summary, PR comment, and downloadable JSON artifact;
+all counters must stay at zero. Reintroducing any suppression fails the baseline
+guard, and `rateguru.*` architecture identifiers are never suppressible.

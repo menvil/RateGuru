@@ -43,7 +43,7 @@ final class UploadPostForm extends Component
     // group, keyed by group id ('' = not selected).
     public bool $knowsCorrectAnswer = false;
 
-    /** @var array<int|string, string> */
+    /** @var array<int|string, string|null> */
     public array $authorAnswers = [];
 
     public $image = null;

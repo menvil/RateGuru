@@ -2,12 +2,13 @@
 
 namespace App\Queries\SavedPosts;
 
+use App\Contracts\Persistence\StablePaginationBoundary;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
-final class SavedPostsQuery
+final class SavedPostsQuery implements StablePaginationBoundary
 {
     public function forUser(User $user, int $perPage = 12): LengthAwarePaginator
     {

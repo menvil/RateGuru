@@ -2,6 +2,7 @@
 
 namespace App\Services\Rating;
 
+use App\Contracts\Persistence\LowLevelDatabaseBoundary;
 use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
@@ -9,7 +10,7 @@ use App\Models\RatingVote;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
-final class LegacyRatingVoteMigrator
+final class LegacyRatingVoteMigrator implements LowLevelDatabaseBoundary
 {
     /**
      * @return array{

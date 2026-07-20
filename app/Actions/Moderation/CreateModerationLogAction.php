@@ -23,7 +23,7 @@ final class CreateModerationLogAction
             'moderator_id' => $moderator->id,
             'action' => $action,
             'target_type' => $target::class,
-            'target_id' => $target->id,
+            'target_id' => $target->getKey(),
             'reason' => $reason,
             'metadata' => $metadata,
         ]);

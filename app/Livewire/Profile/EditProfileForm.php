@@ -33,7 +33,7 @@ class EditProfileForm extends Component
         $this->display_name = $user->display_name;
         $this->bio = $user->bio;
         $this->profile_website_url = $user->profile_website_url;
-        $this->rating_activity_visibility = $user->rating_activity_visibility?->value ?? 'private';
+        $this->rating_activity_visibility = $user->rating_activity_visibility->value;
     }
 
     public function save(UpdateUserProfileAction $action): void

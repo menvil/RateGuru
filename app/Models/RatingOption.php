@@ -30,11 +30,13 @@ class RatingOption extends Model
         return TranslatableField::resolve($this->label_translations, $this->label, $locale);
     }
 
+    /** @return BelongsTo<RatingGroup, $this> */
     public function group(): BelongsTo
     {
         return $this->belongsTo(RatingGroup::class, 'rating_group_id');
     }
 
+    /** @return HasMany<RatingVote, $this> */
     public function votes(): HasMany
     {
         return $this->hasMany(RatingVote::class);

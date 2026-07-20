@@ -25,6 +25,7 @@ class Tag extends Model
         return TranslatableField::resolve($this->name_translations, $this->name, $locale);
     }
 
+    /** @return BelongsToMany<Post, $this> */
     public function posts(): BelongsToMany
     {
         return $this->belongsToMany(Post::class);

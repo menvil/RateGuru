@@ -6,7 +6,10 @@ namespace RateGuru\PHPStan\Rules;
 
 use Illuminate\Http\Request;
 use PhpParser\Node;
+use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\ArrayDimFetch;
 use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\PropertyFetch;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
@@ -17,7 +20,7 @@ use RateGuru\PHPStan\Support\ArchitectureScope;
 use function in_array;
 use function sprintf;
 
-/** @implements Rule<MethodCall> */
+/** @implements Rule<Node> */
 final class NoUnvalidatedControllerInputRule implements Rule
 {
     /** @var list<string> */
@@ -43,33 +46,52 @@ final class NoUnvalidatedControllerInputRule implements Rule
 
     public function getNodeType(): string
     {
-        return MethodCall::class;
+        return Node::class;
     }
 
     /** @return list<IdentifierRuleError> */
     public function processNode(Node $node, Scope $scope): array
     {
-        if (! ArchitectureScope::isHttpController($scope) || ! $node->name instanceof Node\Identifier) {
+        if (! ArchitectureScope::isHttpController($scope)) {
+            return [];
+        }
+
+        if ($node instanceof ArrayDimFetch && $this->isRequest($scope, $node->var)) {
+            return [$this->error('HTTP controllers must read input from Form Request::validated() or safe(); do not use Request array access.')];
+        }
+
+        if ($node instanceof PropertyFetch && $this->isRequest($scope, $node->var)) {
+            return [$this->error('HTTP controllers must read input from Form Request::validated() or safe(); do not use Request magic properties.')];
+        }
+
+        if (! $node instanceof MethodCall || ! $node->name instanceof Node\Identifier) {
             return [];
         }
 
         $method = $node->name->toString();
-
         if (! in_array($method, self::RESTRICTED_METHODS, true)) {
             return [];
         }
 
-        if (! (new ObjectType(Request::class))->isSuperTypeOf($scope->getType($node->var))->yes()) {
+        if (! $this->isRequest($scope, $node->var)) {
             return [];
         }
 
-        return [
-            RuleErrorBuilder::message(sprintf(
-                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::%s().',
-                $method,
-            ))
-                ->identifier('rateguru.controller.unvalidatedInput')
-                ->build(),
-        ];
+        return [$this->error(sprintf(
+            'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::%s().',
+            $method,
+        ))];
+    }
+
+    private function isRequest(Scope $scope, Expr $expression): bool
+    {
+        return (new ObjectType(Request::class))->isSuperTypeOf($scope->getType($expression))->yes();
+    }
+
+    private function error(string $message): IdentifierRuleError
+    {
+        return RuleErrorBuilder::message($message)
+            ->identifier('rateguru.controller.unvalidatedInput')
+            ->build();
     }
 }

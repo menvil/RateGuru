@@ -23,7 +23,8 @@
         "nunomaduro/collision": "^8.6",
         "pestphp/pest": "^4.7",
         "pestphp/pest-plugin-browser": "^4.0",
-        "pestphp/pest-plugin-laravel": "^4.1"
+        "pestphp/pest-plugin-laravel": "^4.1",
+        "symfony/yaml": "^7.4"
     },
     "autoload": {
         "files": [
@@ -61,6 +62,12 @@
         "test:browser": "@php -d memory_limit=512M vendor/bin/pest --testsuite=Browser",
         "test:feature": "pest tests/Feature",
         "test:unit": "pest tests/Unit",
+        "test:database-boundaries": "@php -d memory_limit=512M vendor/bin/pest tests/Feature/Queries/CommentListQueryTest.php tests/Feature/Queries/FeedQueryTest.php tests/Feature/Queries/MatchedUsersQueryTest.php tests/Feature/Queries/RatingVoteCountsQueryTest.php tests/Feature/Console/MigrateLegacyRatingVotesCommandTest.php",
+        "test:pagination-boundaries": "@php -d memory_limit=512M vendor/bin/pest tests/Feature/Queries/FeedQueryTest.php tests/Feature/Queries/SavedPostsQueryTest.php tests/Feature/Domain/UserPublicPostsQueryTest.php",
+        "analyse": "php -d memory_limit=1G vendor/bin/phpstan analyse --no-progress",
+        "analyse:architecture": "php -d memory_limit=1G vendor/bin/phpstan analyse --no-progress -c tools/phpstan/architecture-only.neon",
+        "baseline:report": "@php tools/phpstan/bin/baseline-report.php",
+        "baseline:guard": "@php tools/phpstan/bin/baseline-guard.php",
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi",
