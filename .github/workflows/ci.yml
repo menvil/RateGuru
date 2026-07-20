@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload PHPStan suppression report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: phpstan-suppressions
           path: phpstan-suppressions.json
@@ -140,7 +140,7 @@ jobs:
           echo "size=$(du -sh public/build | cut -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload built assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: public-build
           path: public/build
@@ -250,7 +250,7 @@ jobs:
 
       - name: Upload Laravel logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: laravel-logs
           path: storage/logs
