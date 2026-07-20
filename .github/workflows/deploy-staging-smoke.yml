@@ -1,0 +1,218 @@
+name: Deploy staging smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy staging smoke release
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 10
+
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_INCOMING: ${{ vars.DEPLOY_INCOMING }}
+      DEPLOY_WRAPPER: ${{ vars.DEPLOY_WRAPPER }}
+
+    steps:
+      - name: Create release artifact
+        id: release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          release_id="v0.0.5-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:7}"
+          work_dir="$(mktemp -d)"
+          output_dir="${RUNNER_TEMP}/rateguru-release"
+
+          mkdir -p "${work_dir}/public"
+          mkdir -p "${output_dir}"
+
+          cat > "${work_dir}/public/index.php" <<PHP
+          <?php
+
+          declare(strict_types=1);
+
+          header('Content-Type: application/json; charset=utf-8');
+
+          echo json_encode([
+              'status' => 'ok',
+              'project' => 'rateguru',
+              'environment' => 'staging',
+              'release' => '${release_id}',
+              'message' => 'deployed by GitHub Actions smoke test',
+              'php_version' => PHP_VERSION,
+              'sapi' => PHP_SAPI,
+              'server_time_utc' => gmdate('c'),
+          ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+          PHP
+
+          cat > "${work_dir}/release.json" <<JSON
+          {
+            "project": "rateguru",
+            "release": "${release_id}",
+            "commit": "${GITHUB_SHA}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_number": "${GITHUB_RUN_NUMBER}",
+            "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "builder": "github-actions-smoke-test"
+          }
+          JSON
+
+          artifact_name="rateguru-${release_id}.tar.gz"
+          artifact_path="${output_dir}/${artifact_name}"
+
+          tar \
+            -C "${work_dir}" \
+            -czf "${artifact_path}" \
+            .
+
+          (
+            cd "${output_dir}"
+            sha256sum "${artifact_name}" \
+              > "${artifact_name}.sha256"
+          )
+
+          {
+            echo "release_id=${release_id}"
+            echo "artifact_name=${artifact_name}"
+            echo "artifact_path=${artifact_path}"
+            echo "checksum_path=${artifact_path}.sha256"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Created release ${release_id}"
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+
+          install -d -m 0700 "${HOME}/.ssh"
+
+          printf '%s\n' "${DEPLOY_SSH_KEY}" \
+            > "${HOME}/.ssh/rateguru_deploy"
+
+          printf '%s\n' "${DEPLOY_KNOWN_HOSTS}" \
+            > "${HOME}/.ssh/known_hosts"
+
+          chmod 0600 \
+            "${HOME}/.ssh/rateguru_deploy" \
+            "${HOME}/.ssh/known_hosts"
+
+          ssh-keygen \
+            -y \
+            -f "${HOME}/.ssh/rateguru_deploy" \
+            >/dev/null
+
+      - name: Test SSH connection
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          ssh \
+            -p "${DEPLOY_PORT}" \
+            -i "${HOME}/.ssh/rateguru_deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'id'
+
+      - name: Upload artifact
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ steps.release.outputs.artifact_path }}
+          CHECKSUM_PATH: ${{ steps.release.outputs.checksum_path }}
+        run: |
+          set -Eeuo pipefail
+
+          scp \
+            -P "${DEPLOY_PORT}" \
+            -i "${HOME}/.ssh/rateguru_deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "${ARTIFACT_PATH}" \
+            "${CHECKSUM_PATH}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_INCOMING}/"
+
+      - name: Deploy release
+        shell: bash
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          ARTIFACT_NAME: ${{ steps.release.outputs.artifact_name }}
+        run: |
+          set -Eeuo pipefail
+
+          release_id="${RELEASE_ID}"
+          artifact_name="${ARTIFACT_NAME}"
+
+          remote_artifact="${DEPLOY_INCOMING}/${artifact_name}"
+          remote_checksum="${remote_artifact}.sha256"
+
+          ssh \
+            -p "${DEPLOY_PORT}" \
+            -i "${HOME}/.ssh/rateguru_deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "sudo -n ${DEPLOY_WRAPPER} \
+              --release '${release_id}' \
+              --artifact '${remote_artifact}' \
+              --checksum '${remote_checksum}'"
+
+      - name: Verify deployed release
+        shell: bash
+        env:
+          EXPECTED_RELEASE: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -Eeuo pipefail
+
+          expected_release="${EXPECTED_RELEASE}"
+
+          response="$(
+            ssh \
+              -p "${DEPLOY_PORT}" \
+              -i "${HOME}/.ssh/rateguru_deploy" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "${DEPLOY_USER}@${DEPLOY_HOST}" \
+              "curl \
+                --fail \
+                --silent \
+                --show-error \
+                --header 'Host: rateguru-staging.internal' \
+                http://127.0.0.1/"
+          )"
+
+          printf '%s\n' "${response}"
+
+          actual_release="$(
+            printf '%s' "${response}" \
+              | jq -r '.release'
+          )"
+
+          status="$(
+            printf '%s' "${response}" \
+              | jq -r '.status'
+          )"
+
+          test "${status}" = "ok"
+          test "${actual_release}" = "${expected_release}"
+
+          echo "Verified release ${actual_release}"
