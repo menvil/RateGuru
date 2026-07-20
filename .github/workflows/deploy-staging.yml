@@ -1,10 +1,18 @@
-name: Deploy develop to staging
+name: Deploy to staging
 
 on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - develop
+
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref to build and deploy
+        description: Branch, tag, or commit SHA to deploy
         required: true
         default: develop
         type: string
@@ -12,7 +20,7 @@ on:
       run-migrations:
         description: Run Laravel migrations before switching current
         required: true
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -23,8 +31,71 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    name: Resolve staging source
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'develop'
+      )
+    runs-on: ubuntu-latest
+
+    outputs:
+      checkout_ref: ${{ steps.source.outputs.checkout_ref }}
+      source_ref: ${{ steps.source.outputs.source_ref }}
+      run_migrations: ${{ steps.source.outputs.run_migrations }}
+
+    steps:
+      - name: Resolve exact source revision
+        id: source
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DISPATCH_REF: ${{ inputs.ref }}
+          DISPATCH_RUN_MIGRATIONS: ${{ inputs.run-migrations }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            test "${WORKFLOW_RUN_BRANCH}" = "develop"
+            test -n "${WORKFLOW_RUN_SHA}"
+
+            checkout_ref="${WORKFLOW_RUN_SHA}"
+            source_ref="develop"
+            run_migrations="true"
+          else
+            test -n "${DISPATCH_REF}"
+
+            checkout_ref="${DISPATCH_REF}"
+            source_ref="${DISPATCH_REF}"
+
+            case "${DISPATCH_RUN_MIGRATIONS}" in
+              true|false)
+                run_migrations="${DISPATCH_RUN_MIGRATIONS}"
+                ;;
+              *)
+                echo "Invalid run-migrations value" >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+          {
+            echo "checkout_ref=${checkout_ref}"
+            echo "source_ref=${source_ref}"
+            echo "run_migrations=${run_migrations}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Source: ${source_ref}"
+          echo "Checkout ref: ${checkout_ref}"
+          echo "Run migrations: ${run_migrations}"
+
   build:
     name: Build immutable Laravel artifact
+    needs: resolve
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -38,7 +109,7 @@ jobs:
       - name: Checkout requested ref
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -75,7 +146,7 @@ jobs:
         id: release
         shell: bash
         env:
-          SOURCE_REF: ${{ inputs.ref }}
+          SOURCE_REF: ${{ needs.resolve.outputs.source_ref }}
         run: |
           set -Eeuo pipefail
 
@@ -83,7 +154,14 @@ jobs:
           short_sha="${source_sha:0:7}"
           timestamp="$(date -u +%Y%m%d-%H%M%S)"
 
-          release_id="v0.0.0-${timestamp}-${short_sha}"
+          normalized_source_ref="${SOURCE_REF#refs/tags/}"
+          release_version="v0.0.0"
+
+          if [[ "${normalized_source_ref}" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+)(-[A-Za-z0-9][A-Za-z0-9._-]*)?$ ]]; then
+            release_version="${BASH_REMATCH[1]}"
+          fi
+
+          release_id="${release_version}-${timestamp}-${short_sha}"
           artifact_name="rateguru-${release_id}.tar.gz"
           workflow_artifact_name="rateguru-release-${release_id}"
 
@@ -174,7 +252,9 @@ jobs:
   deploy:
     name: Deploy Laravel application to staging
     runs-on: ubuntu-latest
-    needs: build
+    needs:
+      - resolve
+      - build
     environment: staging
     timeout-minutes: 10
 
@@ -182,7 +262,9 @@ jobs:
       - name: Checkout deployment action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.build.outputs.source-sha }}
+          # Deployment code is always taken from the trusted develop branch,
+          # not from the arbitrary application ref being deployed.
+          ref: develop
           fetch-depth: 1
           persist-credentials: false
 
@@ -210,4 +292,4 @@ jobs:
           artifact-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}
           checksum-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}.sha256
 
-          run-migrations: ${{ inputs.run-migrations }}
+          run-migrations: ${{ needs.resolve.outputs.run_migrations }}
