@@ -9,6 +9,12 @@ on:
         default: develop
         type: string
 
+      run-migrations:
+        description: Run Laravel migrations before switching current
+        required: true
+        default: true
+        type: boolean
+
 permissions:
   contents: read
 
@@ -30,20 +36,21 @@ jobs:
 
     steps:
       - name: Checkout requested ref
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: "8.5"
           extensions: bcmath, curl, gd, intl, mbstring, pcntl, pdo_pgsql, redis, zip
           coverage: none
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 26
           cache: npm
@@ -154,7 +161,7 @@ jobs:
           du -h "${output_root}/${artifact_name}"
 
       - name: Upload immutable release artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ steps.release.outputs.workflow_artifact_name }}
           path: |
@@ -173,13 +180,14 @@ jobs:
 
     steps:
       - name: Checkout deployment action
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.build.outputs.source-sha }}
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Download immutable release artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: ${{ needs.build.outputs.workflow-artifact-name }}
           path: ${{ runner.temp }}/rateguru-release
@@ -202,4 +210,4 @@ jobs:
           artifact-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}
           checksum-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}.sha256
 
-          run-migrations: "true"
+          run-migrations: ${{ inputs.run-migrations }}

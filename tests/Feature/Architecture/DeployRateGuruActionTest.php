@@ -46,6 +46,8 @@ it('defines a hardened reusable RateGuru deployment action', function () {
 
     expect($source)
         ->toContain("release_regex='^v[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'")
+        ->toContain('expected_artifact_name="rateguru-${RELEASE_ID}.tar.gz"')
+        ->toContain('Artifact name ${artifact_name} does not match release ID ${RELEASE_ID}')
         ->toContain('test "${checksum_name}" = "${artifact_name}.sha256"')
         ->toContain('-o StrictHostKeyChecking=yes')
         ->toContain('-o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}"')

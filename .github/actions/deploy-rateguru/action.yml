@@ -78,6 +78,12 @@ runs:
 
         artifact_name="$(basename "${ARTIFACT_PATH}")"
         checksum_name="$(basename "${CHECKSUM_PATH}")"
+        expected_artifact_name="rateguru-${RELEASE_ID}.tar.gz"
+
+        if [[ "${artifact_name}" != "${expected_artifact_name}" ]]; then
+          echo "Artifact name ${artifact_name} does not match release ID ${RELEASE_ID}; expected ${expected_artifact_name}" >&2
+          exit 1
+        fi
 
         test "${checksum_name}" = "${artifact_name}.sha256"
 
