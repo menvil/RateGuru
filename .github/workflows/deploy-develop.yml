@@ -1,0 +1,205 @@
+name: Deploy develop to staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build and deploy
+        required: true
+        default: develop
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build immutable Laravel artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    outputs:
+      source-sha: ${{ steps.release.outputs.source_sha }}
+      release-id: ${{ steps.release.outputs.release_id }}
+      artifact-name: ${{ steps.release.outputs.artifact_name }}
+      workflow-artifact-name: ${{ steps.release.outputs.workflow_artifact_name }}
+
+    steps:
+      - name: Checkout requested ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.5"
+          extensions: bcmath, curl, gd, intl, mbstring, pcntl, pdo_pgsql, redis, zip
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install production PHP dependencies
+        env:
+          APP_ENV: production
+        run: |
+          composer install \
+            --no-dev \
+            --no-interaction \
+            --prefer-dist \
+            --no-progress \
+            --classmap-authoritative
+
+      - name: Build frontend assets
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build release archive
+        id: release
+        shell: bash
+        env:
+          SOURCE_REF: ${{ inputs.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          source_sha="$(git rev-parse HEAD)"
+          short_sha="${source_sha:0:7}"
+          timestamp="$(date -u +%Y%m%d-%H%M%S)"
+
+          release_id="v0.0.0-${timestamp}-${short_sha}"
+          artifact_name="rateguru-${release_id}.tar.gz"
+          workflow_artifact_name="rateguru-release-${release_id}"
+
+          package_root="${RUNNER_TEMP}/rateguru-package"
+          output_root="${RUNNER_TEMP}/rateguru-output"
+
+          rm -rf "${package_root}" "${output_root}"
+          mkdir -p "${package_root}" "${output_root}"
+
+          test -f artisan
+          test -f public/index.php
+          test -f vendor/autoload.php
+          test -f public/build/manifest.json
+
+          rsync \
+            --archive \
+            --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='node_modules/' \
+            --exclude='storage/' \
+            --exclude='tests/' \
+            --exclude='docs/' \
+            --exclude='coderabbit-review/' \
+            --exclude='tools/' \
+            --exclude='database/database.sqlite' \
+            --exclude='public/hot' \
+            ./ \
+            "${package_root}/"
+
+          jq \
+            --null-input \
+            --arg project "rateguru" \
+            --arg environment "staging" \
+            --arg source_ref "${SOURCE_REF}" \
+            --arg source_sha "${source_sha}" \
+            --arg release "${release_id}" \
+            --arg built_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg workflow_run_id "${GITHUB_RUN_ID}" \
+            --arg workflow_run_number "${GITHUB_RUN_NUMBER}" \
+            '{
+              project: $project,
+              environment: $environment,
+              source_ref: $source_ref,
+              source_sha: $source_sha,
+              release: $release,
+              built_at: $built_at,
+              workflow_run_id: $workflow_run_id,
+              workflow_run_number: $workflow_run_number
+            }' \
+            > "${package_root}/release.json"
+
+          tar \
+            -C "${package_root}" \
+            -czf "${output_root}/${artifact_name}" \
+            .
+
+          (
+            cd "${output_root}"
+
+            sha256sum "${artifact_name}" \
+              > "${artifact_name}.sha256"
+          )
+
+          {
+            echo "source_sha=${source_sha}"
+            echo "release_id=${release_id}"
+            echo "artifact_name=${artifact_name}"
+            echo "workflow_artifact_name=${workflow_artifact_name}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Built ${release_id}"
+          du -h "${output_root}/${artifact_name}"
+
+      - name: Upload immutable release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.release.outputs.workflow_artifact_name }}
+          path: |
+            ${{ runner.temp }}/rateguru-output/${{ steps.release.outputs.artifact_name }}
+            ${{ runner.temp }}/rateguru-output/${{ steps.release.outputs.artifact_name }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  deploy:
+    name: Deploy Laravel application to staging
+    runs-on: ubuntu-latest
+    needs: build
+    environment: staging
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout deployment action
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build.outputs.source-sha }}
+          fetch-depth: 1
+
+      - name: Download immutable release artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.workflow-artifact-name }}
+          path: ${{ runner.temp }}/rateguru-release
+
+      - name: Deploy to staging
+        uses: ./.github/actions/deploy-rateguru
+        with:
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          deploy-incoming: ${{ vars.DEPLOY_INCOMING }}
+          deploy-wrapper: ${{ vars.DEPLOY_WRAPPER }}
+          deploy-root: ${{ vars.DEPLOY_ROOT }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+          release-id: ${{ needs.build.outputs.release-id }}
+
+          artifact-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}
+          checksum-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}.sha256
+
+          run-migrations: "true"
