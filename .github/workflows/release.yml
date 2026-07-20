@@ -1,0 +1,362 @@
+name: Release to production
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rateguru-production-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate production tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      source-sha: ${{ steps.release.outputs.source_sha }}
+      source-tag: ${{ steps.release.outputs.source_tag }}
+      version: ${{ steps.release.outputs.version }}
+      release-id: ${{ steps.release.outputs.release_id }}
+      artifact-name: ${{ steps.release.outputs.artifact_name }}
+      workflow-artifact-name: ${{ steps.release.outputs.workflow_artifact_name }}
+
+    steps:
+      - name: Checkout production tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag and main ancestry
+        id: release
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ github.ref_name }}
+        run: |
+          set -Eeuo pipefail
+
+          tag_regex='^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[A-Za-z0-9][A-Za-z0-9._-]*)?$'
+
+          if [[ ! "${SOURCE_TAG}" =~ ${tag_regex} ]]; then
+            echo "Invalid production tag: ${SOURCE_TAG}" >&2
+            echo "Expected examples:" >&2
+            echo "  v0.5.0" >&2
+            echo "  v0.5.0-product-import" >&2
+            exit 1
+          fi
+
+          version="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+
+          git fetch \
+            --no-tags \
+            origin \
+            main:refs/remotes/origin/main
+
+          source_sha="$(
+            git rev-list \
+              -n 1 \
+              "${SOURCE_TAG}"
+          )"
+
+          test -n "${source_sha}"
+
+          if ! git merge-base \
+              --is-ancestor \
+              "${source_sha}" \
+              refs/remotes/origin/main
+          then
+            echo "Tag ${SOURCE_TAG} does not point to a commit contained in main." >&2
+            exit 1
+          fi
+
+          short_sha="${source_sha:0:7}"
+          timestamp="$(date -u +%Y%m%d-%H%M%S)"
+
+          release_id="${version}-${timestamp}-${short_sha}"
+          artifact_name="rateguru-${release_id}.tar.gz"
+          workflow_artifact_name="rateguru-production-${release_id}"
+
+          {
+            echo "source_sha=${source_sha}"
+            echo "source_tag=${SOURCE_TAG}"
+            echo "version=${version}"
+            echo "release_id=${release_id}"
+            echo "artifact_name=${artifact_name}"
+            echo "workflow_artifact_name=${workflow_artifact_name}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Production release validated"
+          echo "Tag:       ${SOURCE_TAG}"
+          echo "Version:   ${version}"
+          echo "Commit:    ${source_sha}"
+          echo "Release:   ${release_id}"
+
+  build:
+    name: Build immutable production artifact
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.validate.outputs.source-sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.5"
+          extensions: bcmath, curl, gd, intl, mbstring, pcntl, pdo_pgsql, redis, zip
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Validate Composer definition
+        run: composer validate --strict
+
+      - name: Install production PHP dependencies
+        env:
+          APP_ENV: production
+        run: |
+          composer install \
+            --no-dev \
+            --no-interaction \
+            --prefer-dist \
+            --no-progress \
+            --classmap-authoritative
+
+      - name: Build frontend assets
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build release archive
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.validate.outputs.source-sha }}
+          SOURCE_TAG: ${{ needs.validate.outputs.source-tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_ID: ${{ needs.validate.outputs.release-id }}
+          ARTIFACT_NAME: ${{ needs.validate.outputs.artifact-name }}
+        run: |
+          set -Eeuo pipefail
+
+          package_root="${RUNNER_TEMP}/rateguru-production-package"
+          output_root="${RUNNER_TEMP}/rateguru-production-output"
+
+          rm -rf \
+            "${package_root}" \
+            "${output_root}"
+
+          mkdir -p \
+            "${package_root}" \
+            "${output_root}"
+
+          test -f artisan
+          test -f public/index.php
+          test -f vendor/autoload.php
+          test -f public/build/manifest.json
+
+          rsync \
+            --archive \
+            --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='node_modules/' \
+            --exclude='storage/' \
+            --exclude='tests/' \
+            --exclude='docs/' \
+            --exclude='coderabbit-review/' \
+            --exclude='tools/' \
+            --exclude='database/database.sqlite' \
+            --exclude='public/hot' \
+            ./ \
+            "${package_root}/"
+
+          jq \
+            --null-input \
+            --arg project "rateguru" \
+            --arg source_ref "${SOURCE_TAG}" \
+            --arg source_tag "${SOURCE_TAG}" \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg version "${VERSION}" \
+            --arg release "${RELEASE_ID}" \
+            --arg built_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg workflow_run_id "${GITHUB_RUN_ID}" \
+            --arg workflow_run_number "${GITHUB_RUN_NUMBER}" \
+            --argjson targets '["staging", "production"]' \
+            '{
+              project: $project,
+              source_ref: $source_ref,
+              source_tag: $source_tag,
+              source_sha: $source_sha,
+              version: $version,
+              release: $release,
+              targets: $targets,
+              built_at: $built_at,
+              workflow_run_id: $workflow_run_id,
+              workflow_run_number: $workflow_run_number
+            }' \
+            > "${package_root}/release.json"
+
+          tar \
+            -C "${package_root}" \
+            -czf "${output_root}/${ARTIFACT_NAME}" \
+            .
+
+          (
+            cd "${output_root}"
+
+            sha256sum "${ARTIFACT_NAME}" \
+              > "${ARTIFACT_NAME}.sha256"
+          )
+
+          echo "Artifact:"
+          du -h "${output_root}/${ARTIFACT_NAME}"
+
+          echo "Checksum:"
+          cat "${output_root}/${ARTIFACT_NAME}.sha256"
+
+      - name: Upload immutable production artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ needs.validate.outputs.workflow-artifact-name }}
+          path: |
+            ${{ runner.temp }}/rateguru-production-output/${{ needs.validate.outputs.artifact-name }}
+            ${{ runner.temp }}/rateguru-production-output/${{ needs.validate.outputs.artifact-name }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  deploy-staging:
+    name: Verify release on staging
+    needs:
+      - validate
+      - build
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout trusted deployment action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.validate.outputs.source-sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download immutable production artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.validate.outputs.workflow-artifact-name }}
+          path: ${{ runner.temp }}/rateguru-production-release
+
+      - name: Deploy release artifact to staging
+        uses: ./.github/actions/deploy-rateguru
+        with:
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          deploy-incoming: ${{ vars.DEPLOY_INCOMING }}
+          deploy-wrapper: ${{ vars.DEPLOY_WRAPPER }}
+          deploy-root: ${{ vars.DEPLOY_ROOT }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+          release-id: ${{ needs.validate.outputs.release-id }}
+
+          artifact-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.validate.outputs.artifact-name }}
+          checksum-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.validate.outputs.artifact-name }}.sha256
+
+          run-migrations: "true"
+
+      - name: Write staging verification summary
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ needs.validate.outputs.source-tag }}
+          RELEASE_ID: ${{ needs.validate.outputs.release-id }}
+        run: |
+          {
+            echo "## Staging verification passed"
+            echo
+            echo "- Tag: \`${SOURCE_TAG}\`"
+            echo "- Release: \`${RELEASE_ID}\`"
+            echo "- Artifact will be promoted without rebuilding."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  deploy-production:
+    name: Deploy approved release to production
+    needs:
+      - validate
+      - build
+      - deploy-staging
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout trusted deployment action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.validate.outputs.source-sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download the same verified artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.validate.outputs.workflow-artifact-name }}
+          path: ${{ runner.temp }}/rateguru-production-release
+
+      - name: Deploy verified artifact to production
+        uses: ./.github/actions/deploy-rateguru
+        with:
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          deploy-incoming: ${{ vars.DEPLOY_INCOMING }}
+          deploy-wrapper: ${{ vars.DEPLOY_WRAPPER }}
+          deploy-root: ${{ vars.DEPLOY_ROOT }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+          release-id: ${{ needs.validate.outputs.release-id }}
+
+          artifact-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.validate.outputs.artifact-name }}
+          checksum-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.validate.outputs.artifact-name }}.sha256
+
+          run-migrations: "true"
+
+      - name: Write production deployment summary
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ needs.validate.outputs.source-tag }}
+          SOURCE_SHA: ${{ needs.validate.outputs.source-sha }}
+          RELEASE_ID: ${{ needs.validate.outputs.release-id }}
+        run: |
+          {
+            echo "## Production deployment completed"
+            echo
+            echo "- Tag: \`${SOURCE_TAG}\`"
+            echo "- Commit: \`${SOURCE_SHA}\`"
+            echo "- Release: \`${RELEASE_ID}\`"
+            echo "- Artifact was verified on staging before promotion."
+          } >> "${GITHUB_STEP_SUMMARY}"
