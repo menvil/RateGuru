@@ -133,6 +133,9 @@ jobs:
 
       - name: Upload artifact
         shell: bash
+        env:
+          ARTIFACT_PATH: ${{ steps.release.outputs.artifact_path }}
+          CHECKSUM_PATH: ${{ steps.release.outputs.checksum_path }}
         run: |
           set -Eeuo pipefail
 
@@ -142,17 +145,20 @@ jobs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
-            "${{ steps.release.outputs.artifact_path }}" \
-            "${{ steps.release.outputs.checksum_path }}" \
+            "${ARTIFACT_PATH}" \
+            "${CHECKSUM_PATH}" \
             "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_INCOMING}/"
 
       - name: Deploy release
         shell: bash
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          ARTIFACT_NAME: ${{ steps.release.outputs.artifact_name }}
         run: |
           set -Eeuo pipefail
 
-          release_id='${{ steps.release.outputs.release_id }}'
-          artifact_name='${{ steps.release.outputs.artifact_name }}'
+          release_id="${RELEASE_ID}"
+          artifact_name="${ARTIFACT_NAME}"
 
           remote_artifact="${DEPLOY_INCOMING}/${artifact_name}"
           remote_checksum="${remote_artifact}.sha256"
@@ -171,10 +177,12 @@ jobs:
 
       - name: Verify deployed release
         shell: bash
+        env:
+          EXPECTED_RELEASE: ${{ steps.release.outputs.release_id }}
         run: |
           set -Eeuo pipefail
 
-          expected_release='${{ steps.release.outputs.release_id }}'
+          expected_release="${EXPECTED_RELEASE}"
 
           response="$(
             ssh \
