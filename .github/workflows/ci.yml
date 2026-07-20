@@ -175,7 +175,7 @@ jobs:
         run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Download built assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: public-build
           path: public/build
