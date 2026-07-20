@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
-it('deploys successful develop builds and manually selected refs to staging', function () {
+it('deploys manually selected refs to staging', function () {
     $path = base_path('.github/workflows/deploy-staging.yml');
 
     expect(File::exists($path))->toBeTrue();
@@ -21,9 +21,7 @@ it('deploys successful develop builds and manually selected refs to staging', fu
     expect($workflow)
         ->toBeArray()
         ->and(data_get($workflow, 'name'))->toBe('Deploy to staging')
-        ->and(data_get($workflow, 'on.workflow_run.workflows'))->toBe(['CI'])
-        ->and(data_get($workflow, 'on.workflow_run.types'))->toBe(['completed'])
-        ->and(data_get($workflow, 'on.workflow_run.branches'))->toBe(['develop'])
+        ->and(data_get($workflow, 'on.workflow_run'))->toBeNull()
         ->and(data_get($workflow, 'on.workflow_dispatch.inputs.ref.default'))->toBe('develop')
         ->and(data_get($workflow, 'on.workflow_dispatch.inputs.ref.required'))->toBeTrue()
         ->and(data_get($workflow, 'on.workflow_dispatch.inputs.run-migrations.default'))->toBeFalse()
@@ -35,9 +33,7 @@ it('deploys successful develop builds and manually selected refs to staging', fu
         ->and(data_get($workflow, 'jobs.deploy.needs'))->toBe(['resolve', 'build'])
         ->and(data_get($workflow, 'jobs.deploy.environment'))->toBe('staging');
 
-    expect(data_get($resolveSteps->get('Resolve exact source revision'), 'env.WORKFLOW_RUN_SHA'))
-        ->toBe('${{ github.event.workflow_run.head_sha }}')
-        ->and(data_get($resolveSteps->get('Resolve exact source revision'), 'env.DISPATCH_REF'))
+    expect(data_get($resolveSteps->get('Resolve exact source revision'), 'env.DISPATCH_REF'))
         ->toBe('${{ inputs.ref }}')
         ->and(data_get($resolveSteps->get('Resolve exact source revision'), 'run'))
         ->not->toContain('${{');
@@ -74,6 +70,7 @@ it('deploys successful develop builds and manually selected refs to staging', fu
         ->not->toContain('${{');
 
     expect($source)
+        ->not->toMatch('/^  workflow_run:/m')
         ->toContain('--classmap-authoritative')
         ->toContain("--exclude='.env.*'")
         ->toContain("--exclude='database/database.sqlite'")
