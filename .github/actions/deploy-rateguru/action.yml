@@ -1,0 +1,266 @@
+name: Deploy RateGuru artifact
+description: Upload and deploy an immutable RateGuru release through restricted SSH
+
+inputs:
+  deploy-host:
+    required: true
+    description: SSH server hostname or IP
+
+  deploy-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  deploy-user:
+    required: true
+    description: Restricted deployment user
+
+  deploy-incoming:
+    required: true
+    description: Environment-specific incoming artifact directory
+
+  deploy-wrapper:
+    required: true
+    description: Environment-specific sudo deployment wrapper
+
+  deploy-root:
+    required: true
+    description: Environment root containing current and releases
+
+  ssh-private-key:
+    required: true
+    description: Deployment SSH private key
+
+  known-hosts:
+    required: true
+    description: Verified SSH known_hosts entry
+
+  release-id:
+    required: true
+    description: Immutable server release identifier
+
+  artifact-path:
+    required: true
+    description: Local release tar.gz path
+
+  checksum-path:
+    required: true
+    description: Local sha256 checksum path
+
+  run-migrations:
+    required: false
+    default: "true"
+    description: Run Laravel migrations before switching current
+
+runs:
+  using: composite
+
+  steps:
+    - name: Validate deployment inputs
+      shell: bash
+      env:
+        RELEASE_ID: ${{ inputs.release-id }}
+        ARTIFACT_PATH: ${{ inputs.artifact-path }}
+        CHECKSUM_PATH: ${{ inputs.checksum-path }}
+        RUN_MIGRATIONS: ${{ inputs.run-migrations }}
+      run: |
+        set -Eeuo pipefail
+
+        release_regex='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+        [[ "${RELEASE_ID}" =~ ${release_regex} ]] || {
+          echo "Invalid release ID: ${RELEASE_ID}" >&2
+          exit 1
+        }
+
+        test -f "${ARTIFACT_PATH}"
+        test -f "${CHECKSUM_PATH}"
+
+        artifact_name="$(basename "${ARTIFACT_PATH}")"
+        checksum_name="$(basename "${CHECKSUM_PATH}")"
+        expected_artifact_name="rateguru-${RELEASE_ID}.tar.gz"
+
+        if [[ "${artifact_name}" != "${expected_artifact_name}" ]]; then
+          echo "Artifact name ${artifact_name} does not match release ID ${RELEASE_ID}; expected ${expected_artifact_name}" >&2
+          exit 1
+        fi
+
+        test "${checksum_name}" = "${artifact_name}.sha256"
+
+        case "${RUN_MIGRATIONS}" in
+          true|false)
+            ;;
+          *)
+            echo "run-migrations must be true or false" >&2
+            exit 1
+            ;;
+        esac
+
+    - name: Configure SSH
+      shell: bash
+      env:
+        SSH_PRIVATE_KEY: ${{ inputs.ssh-private-key }}
+        KNOWN_HOSTS: ${{ inputs.known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_deploy_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${SSH_PRIVATE_KEY}" > "${key_path}"
+        printf '%s\n' "${KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    - name: Test SSH connection
+      shell: bash
+      env:
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+      run: |
+        set -Eeuo pipefail
+
+        ssh \
+          -p "${DEPLOY_PORT}" \
+          -i "${RATEGURU_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+          "${DEPLOY_USER}@${DEPLOY_HOST}" \
+          'id'
+
+    - name: Upload artifact
+      shell: bash
+      env:
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+        DEPLOY_INCOMING: ${{ inputs.deploy-incoming }}
+        ARTIFACT_PATH: ${{ inputs.artifact-path }}
+        CHECKSUM_PATH: ${{ inputs.checksum-path }}
+      run: |
+        set -Eeuo pipefail
+
+        scp \
+          -P "${DEPLOY_PORT}" \
+          -i "${RATEGURU_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+          "${ARTIFACT_PATH}" \
+          "${CHECKSUM_PATH}" \
+          "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_INCOMING}/"
+
+    - name: Deploy release
+      shell: bash
+      env:
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+        DEPLOY_INCOMING: ${{ inputs.deploy-incoming }}
+        DEPLOY_WRAPPER: ${{ inputs.deploy-wrapper }}
+        RELEASE_ID: ${{ inputs.release-id }}
+        ARTIFACT_PATH: ${{ inputs.artifact-path }}
+        RUN_MIGRATIONS: ${{ inputs.run-migrations }}
+      run: |
+        set -Eeuo pipefail
+
+        artifact_name="$(basename "${ARTIFACT_PATH}")"
+        remote_artifact="${DEPLOY_INCOMING}/${artifact_name}"
+        remote_checksum="${remote_artifact}.sha256"
+
+        printf -v remote_command \
+          'sudo -n %q --release %q --artifact %q --checksum %q' \
+          "${DEPLOY_WRAPPER}" \
+          "${RELEASE_ID}" \
+          "${remote_artifact}" \
+          "${remote_checksum}"
+
+        if [[ "${RUN_MIGRATIONS}" == "true" ]]; then
+          remote_command+=" --migrate"
+        fi
+
+        ssh \
+          -p "${DEPLOY_PORT}" \
+          -i "${RATEGURU_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+          "${DEPLOY_USER}@${DEPLOY_HOST}" \
+          "${remote_command}"
+
+    - name: Verify active release
+      shell: bash
+      env:
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+        DEPLOY_ROOT: ${{ inputs.deploy-root }}
+        EXPECTED_RELEASE: ${{ inputs.release-id }}
+      run: |
+        set -Eeuo pipefail
+
+        current_path="${DEPLOY_ROOT%/}/current"
+        release_json="${current_path}/release.json"
+
+        printf -v current_command \
+          'basename "$(readlink -f %q)"' \
+          "${current_path}"
+
+        actual_release="$(
+          ssh \
+            -p "${DEPLOY_PORT}" \
+            -i "${RATEGURU_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "${current_command}"
+        )"
+
+        test "${actual_release}" = "${EXPECTED_RELEASE}"
+
+        printf -v metadata_command 'cat %q' "${release_json}"
+
+        metadata="$(
+          ssh \
+            -p "${DEPLOY_PORT}" \
+            -i "${RATEGURU_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "${metadata_command}"
+        )"
+
+        metadata_release="$(
+          printf '%s' "${metadata}" |
+            jq -r '.release'
+        )"
+
+        test "${metadata_release}" = "${EXPECTED_RELEASE}"
+
+        printf '%s\n' "${metadata}"
+        echo "Verified active release ${actual_release}"
+
+    - name: Remove temporary SSH material
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RATEGURU_SSH_KEY_PATH:-}" \
+          "${RATEGURU_KNOWN_HOSTS_PATH:-}"
