@@ -8,13 +8,12 @@ RateGuru is a Laravel application for community-driven ratings and decision supp
 - Livewire
 - Alpine.js
 - Filament
-- SQLite (supported runtime database)
+- PostgreSQL (primary), SQLite and MariaDB (compatible runtimes)
 - Pest / PHPUnit
 - Tailwind CSS
 
 See the [Database support](docs/architecture/database-support.md) contract for
-the distinction between supported SQLite behavior and cross-engine migration
-smoke checks.
+the development commands and the three-engine CI compatibility matrix.
 
 ## Local Setup
 
@@ -33,12 +32,15 @@ cp .env.example .env
 php artisan key:generate
 ```
 
-Create the SQLite database and run migrations:
+Start PostgreSQL and run migrations:
 
 ```bash
-touch database/database.sqlite
+composer db:start
 php artisan migrate
 ```
+
+The Compose service uses the non-production credentials from `.env.example`.
+For a quick test run without PostgreSQL, use `composer test:sqlite`.
 
 For a fresh local database with deterministic demo data, see
 [docs/dev/seed-data.md](docs/dev/seed-data.md).
@@ -63,6 +65,9 @@ Run the application test suite:
 ```bash
 composer test
 ```
+
+`composer test` and `composer test:postgres` use PostgreSQL. Compatibility
+commands are `composer test:sqlite` and `composer test:mariadb`.
 
 ## Branch Strategy
 

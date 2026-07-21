@@ -2,46 +2,64 @@
 
 ## Supported runtime
 
-SQLite is the only supported runtime database for RateGuru. Local development,
-the application test suite, and the current production runbook all use SQLite.
-Query behavior, locking assumptions, and application-level database semantics
-are certified on SQLite only.
+PostgreSQL is the primary runtime database for RateGuru. Local development,
+the default PHPUnit configuration, CI, coverage, staging, and the recommended
+production configuration use PostgreSQL 17.
 
-The default must remain `DB_CONNECTION=sqlite` in `.env.example`, and PHPUnit
-must run with the SQLite connection. Changing the supported runtime database is
-a product and operations decision, not a transparent implementation detail.
+SQLite and MariaDB are supported compatibility targets. The application keeps
+portable migrations and query behavior, and the Unit and Feature suites run on
+all three engines in CI. Browser tests run once against PostgreSQL because they
+exercise the same application behavior and are substantially more expensive.
 
-## CI migration smoke checks
+Operational support is intentionally different from application compatibility:
+each deployment still needs engine-appropriate backup, restore, monitoring, and
+upgrade procedures.
 
-The MariaDB and PostgreSQL jobs are migration smoke checks. They verify that a
-fresh schema can be migrated and seeded and that the best-effort rollback path
-can run on those engines. They do not certify application query semantics. They
-also do not run the application test suite or certify transaction behavior,
-search behavior, or production readiness on either database.
+## Development and tests
 
-Keeping these jobs is useful because it exposes avoidable schema portability
-problems early. Their presence must not be represented as supported runtime
-compatibility.
+Start the primary local database and run its tests:
 
-## Query expressions
+```bash
+composer db:start
+composer test
+```
+
+The explicit alias `composer test:postgres` does the same thing. PostgreSQL uses
+`rateguru` for development and `rateguru_test` for tests, so test resets cannot
+erase the development database.
+
+Use SQLite when a PostgreSQL service is unavailable or a very fast local loop is
+useful:
+
+```bash
+composer test:sqlite
+```
+
+Use `composer test:mariadb` when a compatible local MariaDB test database is
+available. The command expects the documented non-production development
+credentials; CI provides its own isolated service with those values.
+
+## CI database matrix
+
+The primary Pest and Browser job runs on PostgreSQL. Coverage also runs on
+PostgreSQL. Separate compatibility jobs run the complete Unit and Feature suites,
+fresh migrations, the standard seed, and rollback checks on SQLite and MariaDB.
+
+This matrix certifies application behavior covered by the automated suite. It
+does not claim identical query plans, locking throughput, collation rules outside
+the tested behavior, or interchangeable database backup formats.
+
+## Portable database code
 
 Raw expressions are isolated in the approved Query Objects documented in
-[HTTP and database boundaries](http-and-database-boundaries.md). Their semantic
-tests run on SQLite. Expressions should use portable SQL when this does not
-make the SQLite implementation less correct or less efficient, but portability
-alone does not expand the support contract.
+[HTTP and database boundaries](http-and-database-boundaries.md). New migrations,
+constraints, indexes, and queries must pass the three-engine CI matrix. Any
+engine-specific implementation requires a documented technical exception and a
+shared behavior test.
 
-## Adding another supported database
+## Switching an existing checkout
 
-Supporting MariaDB or PostgreSQL requires a separate task that includes:
-
-- a production deployment and data-migration design;
-- the same semantic query tests on SQLite and the candidate database;
-- no driver-specific assertions at the public behavior boundary;
-- transaction, locking, JSON, collation, case-sensitivity, and timestamp tests;
-- backup, restore, observability, rollback, and staging rehearsal updates;
-- an explicit update to this document, `.env.example`, and the production
-  checklist.
-
-Until those acceptance criteria are complete, non-SQLite database jobs remain
-migration smoke checks only.
+Changing `DB_CONNECTION` does not move data. Keep the previous database intact,
+configure the target connection, run `php artisan migrate:fresh --seed` only for
+disposable development environments, and verify the application before removing
+old data. Production data must use a rehearsed export/import and rollback plan.

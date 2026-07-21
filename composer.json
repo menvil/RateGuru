@@ -47,10 +47,16 @@
             "composer install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
+            "@db:start",
             "@php artisan migrate --force",
             "npm install --ignore-scripts",
             "npm run build"
         ],
+        "db:start": [
+            "docker compose up -d --wait postgres",
+            "docker compose exec -T postgres sh /usr/local/bin/ensure-test-database"
+        ],
+        "db:stop": "docker compose stop postgres",
         "dev": [
             "Composer\\Config::disableProcessTimeout",
             "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1 --timeout=0\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite --kill-others"
@@ -58,6 +64,15 @@
         "test": [
             "@php artisan config:clear --ansi @no_additional_args",
             "@php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature"
+        ],
+        "test:postgres": "@test",
+        "test:sqlite": [
+            "DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan config:clear --ansi",
+            "DB_CONNECTION=sqlite DB_DATABASE=:memory: php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature"
+        ],
+        "test:mariadb": [
+            "DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php artisan config:clear --ansi",
+            "DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature"
         ],
         "test:browser": "@php -d memory_limit=512M vendor/bin/pest --testsuite=Browser",
         "test:feature": "pest tests/Feature",
@@ -81,7 +96,6 @@
         ],
         "post-create-project-cmd": [
             "@php artisan key:generate --ansi",
-            "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
             "@php artisan migrate --graceful --ansi"
         ],
         "pre-package-uninstall": [

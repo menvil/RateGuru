@@ -10,7 +10,7 @@ composer install
 cp .env.example .env
 php artisan key:generate
 
-touch database/database.sqlite
+composer db:start
 php artisan migrate
 
 npm install
@@ -23,6 +23,7 @@ php artisan serve
 Expected result:
 
 - `composer install` passes.
+- PostgreSQL becomes healthy through Docker Compose.
 - Migrations pass.
 - `npm run build` passes.
 - Tests pass.
