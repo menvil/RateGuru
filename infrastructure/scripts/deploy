@@ -115,23 +115,115 @@ PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
 
 acquire_deployment_lock "${ENVIRONMENT_ROOT}"
 
-DEPLOYMENT_STARTED=false
+ORIGINAL_CURRENT_PRESENT=false
+ORIGINAL_CURRENT_PATH=""
+ORIGINAL_PREVIOUS_PRESENT=false
+ORIGINAL_PREVIOUS_PATH=""
 
-cleanup_failed_release() {
+if [[ -L "${CURRENT_LINK}" ]]; then
+    ORIGINAL_CURRENT_PRESENT=true
+    ORIGINAL_CURRENT_PATH="$(readlink -f "${CURRENT_LINK}")"
+fi
+
+if [[ -L "${PREVIOUS_LINK}" ]]; then
+    ORIGINAL_PREVIOUS_PRESENT=true
+    ORIGINAL_PREVIOUS_PATH="$(readlink -f "${PREVIOUS_LINK}")"
+fi
+
+DEPLOYMENT_STARTED=false
+TERMINAL_HISTORY_WRITTEN=false
+CURRENT_SWITCHED=false
+FAILURE_STATUS="failed"
+
+restore_link_state() {
+    local link_path="$1"
+    local original_present="$2"
+    local original_path="$3"
+    local recovery_link="${link_path}.recovery"
+
+    if [[ "${original_present}" == true ]]; then
+        if [[ ! -d "${original_path}" ]]; then
+            log "WARNING: original symlink target is unavailable: ${original_path}"
+            return 1
+        fi
+
+        if ! ln -sfn "${original_path}" "${recovery_link}"; then
+            return 1
+        fi
+
+        if ! mv -Tf "${recovery_link}" "${link_path}"; then
+            rm -f "${recovery_link}" || true
+            return 1
+        fi
+    elif ! rm -f "${link_path}"; then
+        return 1
+    fi
+
+    return 0
+}
+
+restore_deployment_links() {
+    local recovery_failed=false
+
+    if ! restore_link_state \
+        "${CURRENT_LINK}" \
+        "${ORIGINAL_CURRENT_PRESENT}" \
+        "${ORIGINAL_CURRENT_PATH}"
+    then
+        recovery_failed=true
+    fi
+
+    if ! restore_link_state \
+        "${PREVIOUS_LINK}" \
+        "${ORIGINAL_PREVIOUS_PRESENT}" \
+        "${ORIGINAL_PREVIOUS_PATH}"
+    then
+        recovery_failed=true
+    fi
+
+    if ! systemctl reload "${PHP_FPM_SERVICE}"; then
+        recovery_failed=true
+    fi
+
+    [[ "${recovery_failed}" == false ]]
+}
+
+handle_deployment_exit() {
     local exit_code=$?
+    local recovery_succeeded=true
 
     trap - EXIT
 
     if (( exit_code != 0 )) \
         && [[ "${DEPLOYMENT_STARTED}" == true ]]
     then
-        if ! append_history \
-            "${ENVIRONMENT_ROOT}" \
-            "deployment-finished" \
-            "${RELEASE_ID}" \
-            "failed-setup"
+        if [[ "${CURRENT_SWITCHED}" == true ]]; then
+            log "deployment failed after switching current; restoring prior links"
+
+            if ! restore_deployment_links; then
+                recovery_succeeded=false
+                log "WARNING: unable to fully restore deployment symlinks"
+            fi
+        fi
+
+        if [[ "${TERMINAL_HISTORY_WRITTEN}" == false ]]; then
+            if append_history \
+                "${ENVIRONMENT_ROOT}" \
+                "deployment-finished" \
+                "${RELEASE_ID}" \
+                "${FAILURE_STATUS}"
+            then
+                TERMINAL_HISTORY_WRITTEN=true
+            else
+                log "WARNING: unable to record failed deployment"
+            fi
+        fi
+
+        if [[ -d "${RELEASE_ROOT}" ]] \
+            && { [[ "${CURRENT_SWITCHED}" == false ]] \
+                || [[ "${recovery_succeeded}" == true ]]; }
         then
-            log "WARNING: unable to record failed deployment setup"
+            rm -rf "${RELEASE_ROOT}" || true
         fi
     fi
 
@@ -142,7 +234,7 @@ cleanup_failed_release() {
     exit "${exit_code}"
 }
 
-trap cleanup_failed_release EXIT
+trap handle_deployment_exit EXIT
 
 [[ ! -e "${RELEASE_ROOT}" ]] \
     || fail "release already exists: ${RELEASE_ROOT}"
@@ -262,8 +354,6 @@ mv \
     "${TEMP_RELEASE_ROOT}" \
     "${RELEASE_ROOT}"
 
-trap - EXIT
-
 if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
     log "preparing Laravel release"
 
@@ -341,14 +431,7 @@ if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
                 -- "${PHP_BIN}" artisan migrate --force
         fi
     ); then
-        append_history \
-            "${ENVIRONMENT_ROOT}" \
-            "deployment-finished" \
-            "${RELEASE_ID}" \
-            "failed-preparation"
-
-        rm -rf "${RELEASE_ROOT}"
-
+        FAILURE_STATUS="failed-preparation"
         fail "Laravel release preparation failed"
     fi
 
@@ -365,12 +448,6 @@ if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
         -exec chmod 0640 {} +
 fi
 
-OLD_CURRENT_PATH=""
-
-if [[ -L "${CURRENT_LINK}" ]]; then
-    OLD_CURRENT_PATH="$(readlink -f "${CURRENT_LINK}")"
-fi
-
 log "switching current symlink"
 
 ln -sfn \
@@ -381,43 +458,22 @@ mv -Tf \
     "${CURRENT_LINK}.new" \
     "${CURRENT_LINK}"
 
+CURRENT_SWITCHED=true
+
 systemctl reload "${PHP_FPM_SERVICE}"
 
 if ! /home/www/rateguru/bin/health-check \
     --environment "${ENVIRONMENT}"
 then
-    log "health check failed; restoring previous current release"
-
-    if [[ -n "${OLD_CURRENT_PATH}" ]] \
-        && [[ -d "${OLD_CURRENT_PATH}" ]]
-    then
-        ln -sfn \
-            "${OLD_CURRENT_PATH}" \
-            "${CURRENT_LINK}.failed"
-
-        mv -Tf \
-            "${CURRENT_LINK}.failed" \
-            "${CURRENT_LINK}"
-
-        systemctl reload "${PHP_FPM_SERVICE}"
-    else
-        rm -f "${CURRENT_LINK}"
-    fi
-
-    append_history \
-        "${ENVIRONMENT_ROOT}" \
-        "deployment-finished" \
-        "${RELEASE_ID}" \
-        "failed-health-check"
-
+    FAILURE_STATUS="failed-health-check"
     fail "deployment health check failed"
 fi
 
-if [[ -n "${OLD_CURRENT_PATH}" ]] \
-    && [[ -d "${OLD_CURRENT_PATH}" ]]
+if [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
+    && [[ -d "${ORIGINAL_CURRENT_PATH}" ]]
 then
     ln -sfn \
-        "${OLD_CURRENT_PATH}" \
+        "${ORIGINAL_CURRENT_PATH}" \
         "${PREVIOUS_LINK}.new"
 
     mv -Tf \
@@ -435,10 +491,12 @@ if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
     ) || log "WARNING: queue restart command failed"
 fi
 
+log "${ENVIRONMENT} deployed successfully: ${RELEASE_ID}"
+
 append_history \
     "${ENVIRONMENT_ROOT}" \
     "deployment-finished" \
     "${RELEASE_ID}" \
     "success"
 
-log "${ENVIRONMENT} deployed successfully: ${RELEASE_ID}"
+TERMINAL_HISTORY_WRITTEN=true

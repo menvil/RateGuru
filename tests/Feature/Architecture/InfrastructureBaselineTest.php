@@ -72,13 +72,22 @@ it('provides a deployable non-secret deployment configuration template', functio
         ->toContain('PHP_FPM_SERVICE=php8.5-fpm');
 });
 
-it('records failed deployment setup after deployment starts', function () {
-    expect(infrastructureSource('scripts/deploy'))
+it('keeps deployment failure recovery active until terminal history is written', function () {
+    $deploy = infrastructureSource('scripts/deploy');
+
+    expect($deploy)
         ->toContain('DEPLOYMENT_STARTED=false')
         ->toContain('DEPLOYMENT_STARTED=true')
-        ->toContain('cleanup_failed_release()')
-        ->toContain('"deployment-finished"')
-        ->toContain('"failed-setup"');
+        ->toContain('TERMINAL_HISTORY_WRITTEN=false')
+        ->toContain('CURRENT_SWITCHED=false')
+        ->toContain('ORIGINAL_CURRENT_PATH=')
+        ->toContain('handle_deployment_exit()')
+        ->toContain('restore_deployment_links()')
+        ->toContain('FAILURE_STATUS="failed-preparation"')
+        ->toContain('FAILURE_STATUS="failed-health-check"')
+        ->not->toContain('migrate:rollback')
+        ->and(substr_count($deploy, '"deployment-finished"'))->toBe(2)
+        ->and(substr_count($deploy, 'trap - EXIT'))->toBe(1);
 });
 
 it('documents immutable offsite upload recovery', function () {
@@ -97,21 +106,34 @@ it('handles an absent migrations table in both restore tests', function () {
     }
 });
 
-it('restores the prior release when rollback health verification fails', function () {
-    expect(infrastructureSource('scripts/rollback'))
+it('restores both original links for every failed rollback switch', function () {
+    $rollback = infrastructureSource('scripts/rollback');
+
+    expect($rollback)
+        ->toContain('ORIGINAL_CURRENT_PATH=')
+        ->toContain('ORIGINAL_PREVIOUS_PATH=')
+        ->toContain('ORIGINAL_PREVIOUS_PRESENT=false')
+        ->toContain('ROLLBACK_STARTED=false')
+        ->toContain('SWITCH_STARTED=false')
+        ->toContain('TERMINAL_HISTORY_WRITTEN=false')
+        ->toContain('handle_rollback_exit()')
+        ->toContain('restore_original_links()')
+        ->toContain('systemctl reload "${PHP_FPM_SERVICE}"')
         ->toContain('if ! /home/www/rateguru/bin/health-check')
-        ->toContain('"${CURRENT_RELEASE_PATH}"')
-        ->toContain('"${CURRENT_LINK}.failed"')
-        ->toContain('"rollback-finished"')
-        ->toContain('"failed-health-check"');
+        ->toContain('FAILURE_STATUS="failed-health-check"')
+        ->and(substr_count($rollback, '"rollback-finished"'))->toBe(2)
+        ->and(substr_count($rollback, 'trap - EXIT'))->toBe(1);
 });
 
-it('continues status output when release metadata is malformed', function () {
+it('continues status output when release metadata or history is malformed', function () {
     expect(infrastructureSource('scripts/status'))
         ->toContain('if RELEASE_METADATA="$(jq . "${CURRENT_LINK}/release.json" 2>/dev/null)"')
         ->toContain('release.json is malformed')
         ->toContain('echo "Health"')
-        ->toContain('echo "Recent deployment history"');
+        ->toContain('echo "Recent deployment history"')
+        ->toContain('while IFS= read -r history_entry')
+        ->toContain('if ! jq . <<<"${history_entry}"')
+        ->toContain('Malformed history entry:');
 });
 
 it('provides required production environment settings', function () {

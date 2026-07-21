@@ -46,14 +46,21 @@ PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
 [[ -L "${CURRENT_LINK}" ]] \
     || fail "current symlink does not exist"
 
-CURRENT_RELEASE_PATH="$(readlink -f "${CURRENT_LINK}")"
-CURRENT_RELEASE_ID="$(basename "${CURRENT_RELEASE_PATH}")"
+ORIGINAL_CURRENT_PATH="$(readlink -f "${CURRENT_LINK}")"
+ORIGINAL_CURRENT_ID="$(basename "${ORIGINAL_CURRENT_PATH}")"
+ORIGINAL_PREVIOUS_PRESENT=false
+ORIGINAL_PREVIOUS_PATH=""
+
+if [[ -L "${PREVIOUS_LINK}" ]]; then
+    ORIGINAL_PREVIOUS_PRESENT=true
+    ORIGINAL_PREVIOUS_PATH="$(readlink -f "${PREVIOUS_LINK}")"
+fi
 
 if [[ "${USE_PREVIOUS}" == true ]]; then
-    [[ -L "${PREVIOUS_LINK}" ]] \
+    [[ "${ORIGINAL_PREVIOUS_PRESENT}" == true ]] \
         || fail "previous symlink does not exist"
 
-    TARGET_RELEASE_PATH="$(readlink -f "${PREVIOUS_LINK}")"
+    TARGET_RELEASE_PATH="${ORIGINAL_PREVIOUS_PATH}"
     TARGET_RELEASE="$(basename "${TARGET_RELEASE_PATH}")"
 else
     [[ -n "${TARGET_RELEASE}" ]] \
@@ -67,9 +74,119 @@ fi
 [[ -d "${TARGET_RELEASE_PATH}" ]] \
     || fail "target release does not exist: ${TARGET_RELEASE_PATH}"
 
-if [[ "${CURRENT_RELEASE_PATH}" == "${TARGET_RELEASE_PATH}" ]]; then
+if [[ "${ORIGINAL_CURRENT_PATH}" == "${TARGET_RELEASE_PATH}" ]]; then
     fail "target release is already current"
 fi
+
+ROLLBACK_STARTED=false
+SWITCH_STARTED=false
+TERMINAL_HISTORY_WRITTEN=false
+FAILURE_STATUS="failed"
+
+restore_link_state() {
+    local link_path="$1"
+    local original_present="$2"
+    local original_path="$3"
+    local recovery_link="${link_path}.recovery"
+
+    if [[ "${original_present}" == true ]]; then
+        if [[ ! -d "${original_path}" ]]; then
+            log "WARNING: original symlink target is unavailable: ${original_path}"
+            return 1
+        fi
+
+        if ! ln -sfn "${original_path}" "${recovery_link}"; then
+            return 1
+        fi
+
+        if ! mv -Tf "${recovery_link}" "${link_path}"; then
+            rm -f "${recovery_link}" || true
+            return 1
+        fi
+    elif ! rm -f "${link_path}"; then
+        return 1
+    fi
+
+    return 0
+}
+
+restore_original_links() {
+    local recovery_failed=false
+    local current_restored=true
+
+    if ! restore_link_state \
+        "${CURRENT_LINK}" \
+        true \
+        "${ORIGINAL_CURRENT_PATH}"
+    then
+        current_restored=false
+        recovery_failed=true
+    fi
+
+    if ! restore_link_state \
+        "${PREVIOUS_LINK}" \
+        "${ORIGINAL_PREVIOUS_PRESENT}" \
+        "${ORIGINAL_PREVIOUS_PATH}"
+    then
+        recovery_failed=true
+    fi
+
+    if ! systemctl reload "${PHP_FPM_SERVICE}"; then
+        recovery_failed=true
+    fi
+
+    if [[ "${current_restored}" == true ]]; then
+        if ! /home/www/rateguru/bin/health-check \
+            --environment "${ENVIRONMENT}"
+        then
+            recovery_failed=true
+        fi
+    fi
+
+    [[ "${recovery_failed}" == false ]]
+}
+
+handle_rollback_exit() {
+    local exit_code=$?
+
+    trap - EXIT
+
+    if (( exit_code != 0 )) \
+        && [[ "${ROLLBACK_STARTED}" == true ]]
+    then
+        if [[ "${SWITCH_STARTED}" == true ]]; then
+            log "rollback failed; restoring original current and previous links"
+
+            if ! restore_original_links; then
+                log "WARNING: rollback recovery or restored health verification failed"
+            fi
+        fi
+
+        if [[ "${TERMINAL_HISTORY_WRITTEN}" == false ]]; then
+            if append_history \
+                "${ENVIRONMENT_ROOT}" \
+                "rollback-finished" \
+                "${TARGET_RELEASE}" \
+                "${FAILURE_STATUS}"
+            then
+                TERMINAL_HISTORY_WRITTEN=true
+            else
+                log "WARNING: unable to record failed rollback"
+            fi
+        fi
+    fi
+
+    rm -f \
+        "${CURRENT_LINK}.new" \
+        "${CURRENT_LINK}.recovery" \
+        "${PREVIOUS_LINK}.new" \
+        "${PREVIOUS_LINK}.recovery" \
+        || true
+
+    exit "${exit_code}"
+}
+
+trap handle_rollback_exit EXIT
 
 append_history \
     "${ENVIRONMENT_ROOT}" \
@@ -77,8 +194,11 @@ append_history \
     "${TARGET_RELEASE}" \
     "running"
 
+ROLLBACK_STARTED=true
+SWITCH_STARTED=true
+
 ln -sfn \
-    "${CURRENT_RELEASE_PATH}" \
+    "${ORIGINAL_CURRENT_PATH}" \
     "${PREVIOUS_LINK}.new"
 
 mv -Tf \
@@ -98,36 +218,11 @@ systemctl reload "${PHP_FPM_SERVICE}"
 if ! /home/www/rateguru/bin/health-check \
     --environment "${ENVIRONMENT}"
 then
-    log "rollback health check failed; restoring ${CURRENT_RELEASE_ID}"
-
-    RECOVERY_FAILED=false
-
-    if ! ln -sfn \
-        "${CURRENT_RELEASE_PATH}" \
-        "${CURRENT_LINK}.failed" \
-        || ! mv -Tf \
-            "${CURRENT_LINK}.failed" \
-            "${CURRENT_LINK}"
-    then
-        RECOVERY_FAILED=true
-    fi
-
-    if ! systemctl reload "${PHP_FPM_SERVICE}"; then
-        RECOVERY_FAILED=true
-    fi
-
-    append_history \
-        "${ENVIRONMENT_ROOT}" \
-        "rollback-finished" \
-        "${TARGET_RELEASE}" \
-        "failed-health-check"
-
-    if [[ "${RECOVERY_FAILED}" == true ]]; then
-        fail "rollback health check failed and the prior release could not be fully restored"
-    fi
-
-    fail "rollback health check failed; restored ${CURRENT_RELEASE_ID}"
+    FAILURE_STATUS="failed-health-check"
+    fail "rollback health check failed; restoring ${ORIGINAL_CURRENT_ID}"
 fi
+
+log "${ENVIRONMENT} rolled back to ${TARGET_RELEASE}"
 
 append_history \
     "${ENVIRONMENT_ROOT}" \
@@ -135,4 +230,4 @@ append_history \
     "${TARGET_RELEASE}" \
     "success"
 
-log "${ENVIRONMENT} rolled back to ${TARGET_RELEASE}"
+TERMINAL_HISTORY_WRITTEN=true

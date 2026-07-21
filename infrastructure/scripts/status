@@ -97,8 +97,11 @@ echo "Recent deployment history"
 echo "----------------------------------------"
 
 if [[ -r "${HISTORY_FILE}" ]]; then
-    tail -6 "${HISTORY_FILE}" \
-        | jq .
+    while IFS= read -r history_entry; do
+        if ! jq . <<<"${history_entry}"; then
+            printf 'Malformed history entry: %s\n' "${history_entry}"
+        fi
+    done < <(tail -6 "${HISTORY_FILE}")
 else
     echo "No deployment history"
 fi
