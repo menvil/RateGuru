@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# shellcheck disable=SC1091
+source /home/www/rateguru/bin/common
+
+require_root
+
+ENVIRONMENT=""
+KEEP=""
+APPLY=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+
+  cleanup \
+    --environment staging|production \
+    [--keep NUMBER] \
+    [--apply]
+
+Without --apply, cleanup performs a dry run.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        --keep)
+            KEEP="${2:-}"
+            shift 2
+            ;;
+        --apply)
+            APPLY=true
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "${ENVIRONMENT}" ]] \
+    || fail "--environment is required"
+
+validate_environment "${ENVIRONMENT}"
+
+case "${ENVIRONMENT}" in
+    staging)
+        DEFAULT_KEEP="${STAGING_RELEASE_RETENTION}"
+        ;;
+    production)
+        DEFAULT_KEEP="${PRODUCTION_RELEASE_RETENTION}"
+        ;;
+esac
+
+if [[ -z "${KEEP}" ]]; then
+    KEEP="${DEFAULT_KEEP}"
+fi
+
+if [[ ! "${KEEP}" =~ ^[0-9]+$ ]]; then
+    fail "--keep must be a non-negative integer"
+fi
+
+ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
+RELEASES_ROOT="${ENVIRONMENT_ROOT}/releases"
+HISTORY_FILE="${ENVIRONMENT_ROOT}/deployments/history.jsonl"
+PINNED_FILE="${ENVIRONMENT_ROOT}/deployments/pinned-releases"
+
+acquire_deployment_lock "${ENVIRONMENT_ROOT}"
+
+touch "${PINNED_FILE}"
+chmod 0640 "${PINNED_FILE}"
+
+declare -A PROTECTED_RELEASES=()
+declare -A RELEASE_STATUSES=()
+
+protect_symlink_release() {
+    local link_path="$1"
+
+    if [[ -L "${link_path}" ]]; then
+        local resolved_path
+        local release_id
+
+        resolved_path="$(readlink -f "${link_path}")"
+        release_id="$(basename "${resolved_path}")"
+
+        PROTECTED_RELEASES["${release_id}"]=1
+    fi
+}
+
+protect_symlink_release "${ENVIRONMENT_ROOT}/current"
+protect_symlink_release "${ENVIRONMENT_ROOT}/previous"
+
+while IFS= read -r pinned_release; do
+    pinned_release="$(
+        printf '%s' "${pinned_release}" \
+            | sed -E 's/[[:space:]]*#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//'
+    )"
+
+    [[ -n "${pinned_release}" ]] || continue
+
+    PROTECTED_RELEASES["${pinned_release}"]=1
+done < "${PINNED_FILE}"
+
+if [[ -f "${HISTORY_FILE}" ]]; then
+    while IFS=$'\t' read -r release status; do
+        [[ -n "${release}" ]] || continue
+        RELEASE_STATUSES["${release}"]="${status}"
+    done < <(
+        jq -r '
+            select(.event == "deployment-finished")
+            | [.release, .status]
+            | @tsv
+        ' "${HISTORY_FILE}"
+    )
+fi
+
+mapfile -t RELEASES < <(
+    find "${RELEASES_ROOT}" \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -printf '%T@\t%f\n' \
+    | sort -nr \
+    | cut -f2-
+)
+
+SUCCESSFUL_RELEASE_COUNT=0
+DELETE_COUNT=0
+
+for release_id in "${RELEASES[@]}"; do
+    if [[ ! "${release_id}" =~ ${RELEASE_ID_REGEX} ]]; then
+        log "SKIP unknown directory: ${release_id}"
+        continue
+    fi
+
+    release_path="${RELEASES_ROOT}/${release_id}"
+    release_status="${RELEASE_STATUSES[${release_id}]:-unknown}"
+
+    if [[ -n "${PROTECTED_RELEASES[${release_id}]:-}" ]]; then
+        log "KEEP protected: ${release_id}"
+        continue
+    fi
+
+    case "${release_status}" in
+        success)
+            SUCCESSFUL_RELEASE_COUNT=$((SUCCESSFUL_RELEASE_COUNT + 1))
+
+            if (( SUCCESSFUL_RELEASE_COUNT <= KEEP )); then
+                log "KEEP retained successful release: ${release_id}"
+                continue
+            fi
+            ;;
+        failed-health-check)
+            log "DELETE candidate failed release: ${release_id}"
+            ;;
+        *)
+            log "KEEP unknown/untracked release: ${release_id}"
+            continue
+            ;;
+    esac
+
+    DELETE_COUNT=$((DELETE_COUNT + 1))
+
+    if [[ "${APPLY}" == true ]]; then
+        case "${release_path}" in
+            "${RELEASES_ROOT}"/v*)
+                rm -rf -- "${release_path}"
+                log "DELETED ${release_id}"
+
+                append_history \
+                    "${ENVIRONMENT_ROOT}" \
+                    "release-cleaned" \
+                    "${release_id}" \
+                    "success"
+                ;;
+            *)
+                fail "refusing to delete unsafe path: ${release_path}"
+                ;;
+        esac
+    else
+        log "DRY RUN would delete: ${release_id}"
+    fi
+done
+
+if [[ "${APPLY}" == true ]]; then
+    log "cleanup finished; deleted ${DELETE_COUNT} release(s)"
+else
+    log "cleanup dry run finished; ${DELETE_COUNT} release(s) would be deleted"
+fi

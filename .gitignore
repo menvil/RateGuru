@@ -74,3 +74,23 @@ Homestead.json
 Homestead.yaml
 .idea
 .vscode
+
+# Infrastructure secrets and runtime data
+/infrastructure/secrets/
+/infrastructure/**/*.env
+!/infrastructure/**/*.env.example
+/infrastructure/**/rclone.conf
+/infrastructure/**/*htpasswd*
+/infrastructure/**/authorized_keys
+/infrastructure/**/*.dump
+/infrastructure/**/*.sql
+/infrastructure/**/*.sql.gz
+/infrastructure/**/*.pem
+/infrastructure/**/*.key
+/infrastructure/backups/
+/infrastructure/uploads/
+
+# Temporary server configuration snapshots
+/infrastructure/config/**/*.before-*
+/infrastructure/config/**/*.backup-*
+/infrastructure/config/**/*.bak

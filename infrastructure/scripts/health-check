@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+source /home/www/rateguru/bin/common
+
+ENVIRONMENT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        *)
+            fail "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "${ENVIRONMENT}" ]] \
+    || fail "--environment is required"
+
+validate_environment "${ENVIRONMENT}"
+
+BASE_URL="$(environment_url "${ENVIRONMENT}")"
+HOST_HEADER="$(environment_host_header "${ENVIRONMENT}")"
+HEALTH_URL="${BASE_URL%/}/up"
+
+ATTEMPTS=10
+DELAY_SECONDS=2
+
+for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
+    HTTP_STATUS="$(
+        curl \
+            --silent \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            --max-time 5 \
+            --header "Host: ${HOST_HEADER}" \
+            "${HEALTH_URL}" \
+            2>/dev/null || true
+    )"
+
+    if [[ "${HTTP_STATUS}" == "200" ]]; then
+        log "${ENVIRONMENT} health check passed: ${HEALTH_URL}"
+        exit 0
+    fi
+
+    log "${ENVIRONMENT} health check attempt ${attempt}/${ATTEMPTS} failed with HTTP ${HTTP_STATUS:-000}"
+    sleep "${DELAY_SECONDS}"
+done
+
+fail "${ENVIRONMENT} health check failed: ${HEALTH_URL}"

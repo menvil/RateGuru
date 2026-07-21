@@ -1,0 +1,502 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# shellcheck disable=SC1091
+source /home/www/rateguru/bin/common
+
+require_root
+
+ENVIRONMENT=""
+RELEASE_ID=""
+ARTIFACT=""
+CHECKSUM_FILE=""
+RUN_MIGRATIONS=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+
+  deploy \
+    --environment staging|production \
+    --release v1.4.0-20260717-151500-a81d7f2 \
+    --artifact /path/to/release.tar.gz \
+    [--checksum /path/to/release.tar.gz.sha256] \
+    [--migrate]
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        --release)
+            RELEASE_ID="${2:-}"
+            shift 2
+            ;;
+        --artifact)
+            ARTIFACT="${2:-}"
+            shift 2
+            ;;
+        --checksum)
+            CHECKSUM_FILE="${2:-}"
+            shift 2
+            ;;
+        --migrate)
+            RUN_MIGRATIONS=true
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "${ENVIRONMENT}" ]] \
+    || fail "--environment is required"
+
+[[ -n "${RELEASE_ID}" ]] \
+    || fail "--release is required"
+
+[[ -n "${ARTIFACT}" ]] \
+    || fail "--artifact is required"
+
+validate_environment "${ENVIRONMENT}"
+validate_release_id "${RELEASE_ID}"
+
+ARTIFACT="$(readlink -f "${ARTIFACT}")"
+
+[[ -f "${ARTIFACT}" ]] \
+    || fail "artifact does not exist: ${ARTIFACT}"
+
+if [[ -z "${CHECKSUM_FILE}" ]]; then
+    CHECKSUM_FILE="${ARTIFACT}.sha256"
+fi
+
+CHECKSUM_FILE="$(readlink -f "${CHECKSUM_FILE}")"
+
+[[ -f "${CHECKSUM_FILE}" ]] \
+    || fail "checksum file does not exist: ${CHECKSUM_FILE}"
+
+ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
+RUNTIME_USER="$(environment_runtime_user "${ENVIRONMENT}")"
+CODE_GROUP="$(environment_code_group "${ENVIRONMENT}")"
+DEPLOY_ACCOUNT="$(environment_deploy_user "${ENVIRONMENT}")"
+INCOMING_ROOT="$(readlink -f "$(environment_incoming_artifacts "${ENVIRONMENT}")")"
+
+case "${ARTIFACT}" in
+    "${INCOMING_ROOT}"/*)
+        ;;
+    *)
+        fail "artifact must be located inside ${INCOMING_ROOT}"
+        ;;
+esac
+
+case "${CHECKSUM_FILE}" in
+    "${INCOMING_ROOT}"/*)
+        ;;
+    *)
+        fail "checksum must be located inside ${INCOMING_ROOT}"
+        ;;
+esac
+
+RELEASES_ROOT="${ENVIRONMENT_ROOT}/releases"
+RELEASE_ROOT="${RELEASES_ROOT}/${RELEASE_ID}"
+TEMP_RELEASE_ROOT="${RELEASES_ROOT}/.${RELEASE_ID}.tmp-$$"
+
+CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
+PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
+
+acquire_deployment_lock "${ENVIRONMENT_ROOT}"
+
+ORIGINAL_CURRENT_PRESENT=false
+ORIGINAL_CURRENT_PATH=""
+ORIGINAL_PREVIOUS_PRESENT=false
+ORIGINAL_PREVIOUS_PATH=""
+
+if [[ -L "${CURRENT_LINK}" ]]; then
+    ORIGINAL_CURRENT_PRESENT=true
+    ORIGINAL_CURRENT_PATH="$(readlink -f "${CURRENT_LINK}")"
+fi
+
+if [[ -L "${PREVIOUS_LINK}" ]]; then
+    ORIGINAL_PREVIOUS_PRESENT=true
+    ORIGINAL_PREVIOUS_PATH="$(readlink -f "${PREVIOUS_LINK}")"
+fi
+
+DEPLOYMENT_STARTED=false
+TERMINAL_HISTORY_WRITTEN=false
+CURRENT_SWITCHED=false
+FAILURE_STATUS="failed"
+
+restore_link_state() {
+    local link_path="$1"
+    local original_present="$2"
+    local original_path="$3"
+    local recovery_link="${link_path}.recovery"
+
+    if [[ "${original_present}" == true ]]; then
+        if [[ ! -d "${original_path}" ]]; then
+            log "WARNING: original symlink target is unavailable: ${original_path}"
+            return 1
+        fi
+
+        if ! ln -sfn "${original_path}" "${recovery_link}"; then
+            return 1
+        fi
+
+        if ! mv -Tf "${recovery_link}" "${link_path}"; then
+            rm -f "${recovery_link}" || true
+            return 1
+        fi
+    elif ! rm -f "${link_path}"; then
+        return 1
+    fi
+
+    return 0
+}
+
+restore_deployment_links() {
+    local recovery_failed=false
+
+    if ! restore_link_state \
+        "${CURRENT_LINK}" \
+        "${ORIGINAL_CURRENT_PRESENT}" \
+        "${ORIGINAL_CURRENT_PATH}"
+    then
+        recovery_failed=true
+    fi
+
+    if ! restore_link_state \
+        "${PREVIOUS_LINK}" \
+        "${ORIGINAL_PREVIOUS_PRESENT}" \
+        "${ORIGINAL_PREVIOUS_PATH}"
+    then
+        recovery_failed=true
+    fi
+
+    if ! systemctl reload "${PHP_FPM_SERVICE}"; then
+        recovery_failed=true
+    fi
+
+    [[ "${recovery_failed}" == false ]]
+}
+
+handle_deployment_exit() {
+    local exit_code=$?
+    local recovery_succeeded=true
+
+    trap - EXIT
+
+    if (( exit_code != 0 )) \
+        && [[ "${DEPLOYMENT_STARTED}" == true ]]
+    then
+        if [[ "${CURRENT_SWITCHED}" == true ]]; then
+            log "deployment failed after switching current; restoring prior links"
+
+            if ! restore_deployment_links; then
+                recovery_succeeded=false
+                log "WARNING: unable to fully restore deployment symlinks"
+            fi
+        fi
+
+        if [[ "${TERMINAL_HISTORY_WRITTEN}" == false ]]; then
+            if append_history \
+                "${ENVIRONMENT_ROOT}" \
+                "deployment-finished" \
+                "${RELEASE_ID}" \
+                "${FAILURE_STATUS}"
+            then
+                TERMINAL_HISTORY_WRITTEN=true
+            else
+                log "WARNING: unable to record failed deployment"
+            fi
+        fi
+
+        if [[ -d "${RELEASE_ROOT}" ]] \
+            && { [[ "${CURRENT_SWITCHED}" == false ]] \
+                || [[ "${recovery_succeeded}" == true ]]; }
+        then
+            rm -rf "${RELEASE_ROOT}" || true
+        fi
+    fi
+
+    if [[ -d "${TEMP_RELEASE_ROOT}" ]]; then
+        rm -rf "${TEMP_RELEASE_ROOT}" || true
+    fi
+
+    exit "${exit_code}"
+}
+
+trap handle_deployment_exit EXIT
+
+[[ ! -e "${RELEASE_ROOT}" ]] \
+    || fail "release already exists: ${RELEASE_ROOT}"
+
+log "verifying artifact checksum"
+
+(
+    cd "$(dirname "${ARTIFACT}")"
+
+    sha256sum \
+        --check \
+        "$(basename "${CHECKSUM_FILE}")"
+)
+
+log "validating artifact paths"
+
+if tar -tzf "${ARTIFACT}" \
+    | grep -Eq '(^/|(^|/)\.\.(/|$))'
+then
+    fail "artifact contains an unsafe path"
+fi
+
+AVAILABLE_KB="$(
+    df --output=avail "${RELEASES_ROOT}" \
+        | tail -1 \
+        | tr -d ' '
+)"
+
+ARTIFACT_KB="$(
+    du -k "${ARTIFACT}" \
+        | awk '{ print $1 }'
+)"
+
+REQUIRED_KB="$((ARTIFACT_KB * 5 + 102400))"
+
+if (( AVAILABLE_KB < REQUIRED_KB )); then
+    fail "insufficient disk space for release extraction"
+fi
+
+append_history \
+    "${ENVIRONMENT_ROOT}" \
+    "deployment-started" \
+    "${RELEASE_ID}" \
+    "running"
+
+DEPLOYMENT_STARTED=true
+
+log "extracting ${RELEASE_ID}"
+
+install \
+    -d \
+    -o "${DEPLOY_ACCOUNT}" \
+    -g "${CODE_GROUP}" \
+    -m 0750 \
+    "${TEMP_RELEASE_ROOT}"
+
+tar \
+    -xzf "${ARTIFACT}" \
+    --no-same-owner \
+    --no-same-permissions \
+    -C "${TEMP_RELEASE_ROOT}"
+
+[[ -f "${TEMP_RELEASE_ROOT}/public/index.php" ]] \
+    || fail "artifact does not contain public/index.php"
+
+if [[ -e "${TEMP_RELEASE_ROOT}/.env" ]] \
+    || [[ -L "${TEMP_RELEASE_ROOT}/.env" ]]
+then
+    rm -f "${TEMP_RELEASE_ROOT}/.env"
+fi
+
+if [[ -e "${TEMP_RELEASE_ROOT}/storage" ]] \
+    || [[ -L "${TEMP_RELEASE_ROOT}/storage" ]]
+then
+    rm -rf "${TEMP_RELEASE_ROOT}/storage"
+fi
+
+ln -s \
+    "${ENVIRONMENT_ROOT}/shared/.env" \
+    "${TEMP_RELEASE_ROOT}/.env"
+
+ln -s \
+    "${ENVIRONMENT_ROOT}/shared/storage" \
+    "${TEMP_RELEASE_ROOT}/storage"
+
+if [[ -e "${TEMP_RELEASE_ROOT}/public/storage" ]] \
+    || [[ -L "${TEMP_RELEASE_ROOT}/public/storage" ]]
+then
+    rm -rf "${TEMP_RELEASE_ROOT}/public/storage"
+fi
+
+ln -s \
+    "${ENVIRONMENT_ROOT}/shared/storage/app/public" \
+    "${TEMP_RELEASE_ROOT}/public/storage"
+
+chown -R \
+    "${DEPLOY_ACCOUNT}:${CODE_GROUP}" \
+    "${TEMP_RELEASE_ROOT}"
+
+find "${TEMP_RELEASE_ROOT}" \
+    -type d \
+    -exec chmod 0750 {} +
+
+find "${TEMP_RELEASE_ROOT}" \
+    -type f \
+    -exec chmod 0640 {} +
+
+if [[ "${RUN_MIGRATIONS}" == true ]] \
+    && [[ ! -f "${TEMP_RELEASE_ROOT}/artisan" ]]
+then
+    fail "--migrate was requested, but artifact does not contain artisan"
+fi
+
+# Move to the final immutable path before generating Laravel caches.
+# Laravel configuration may contain absolute application/storage paths.
+mv \
+    "${TEMP_RELEASE_ROOT}" \
+    "${RELEASE_ROOT}"
+
+if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
+    log "preparing Laravel release"
+
+    SHARED_STORAGE="${ENVIRONMENT_ROOT}/shared/storage"
+
+    install \
+        -d \
+        -o "${RUNTIME_USER}" \
+        -g "${RUNTIME_USER}" \
+        -m 2770 \
+        "${SHARED_STORAGE}/framework/cache/data" \
+        "${SHARED_STORAGE}/framework/sessions" \
+        "${SHARED_STORAGE}/framework/views" \
+        "${SHARED_STORAGE}/logs"
+
+    chown -R \
+        "${RUNTIME_USER}:${RUNTIME_USER}" \
+        "${SHARED_STORAGE}/framework" \
+        "${SHARED_STORAGE}/logs"
+
+    find \
+        "${SHARED_STORAGE}/framework" \
+        "${SHARED_STORAGE}/logs" \
+        -type d \
+        -exec chmod 2770 {} +
+
+    find \
+        "${SHARED_STORAGE}/framework" \
+        "${SHARED_STORAGE}/logs" \
+        -type f \
+        -exec chmod 0660 {} +
+
+    install \
+        -d \
+        -o "${RUNTIME_USER}" \
+        -g www-data \
+        -m 2710 \
+        "${SHARED_STORAGE}/app"
+
+    install \
+        -d \
+        -o "${RUNTIME_USER}" \
+        -g www-data \
+        -m 2750 \
+        "${SHARED_STORAGE}/app/public"
+
+    install \
+        -d \
+        -o "${RUNTIME_USER}" \
+        -g "${RUNTIME_USER}" \
+        -m 0770 \
+        "${RELEASE_ROOT}/bootstrap/cache"
+
+    rm -f \
+        "${RELEASE_ROOT}/bootstrap/cache/config.php" \
+        "${RELEASE_ROOT}/bootstrap/cache/events.php" \
+        "${RELEASE_ROOT}/bootstrap/cache/routes-"*.php
+
+    if ! (
+        cd "${RELEASE_ROOT}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan config:cache
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan view:cache
+
+        if [[ "${RUN_MIGRATIONS}" == true ]]; then
+            log "running database migrations"
+
+            runuser \
+                -u "${RUNTIME_USER}" \
+                -- "${PHP_BIN}" artisan migrate --force
+        fi
+    ); then
+        FAILURE_STATUS="failed-preparation"
+        fail "Laravel release preparation failed"
+    fi
+
+    chown -R \
+        "${DEPLOY_ACCOUNT}:${CODE_GROUP}" \
+        "${RELEASE_ROOT}/bootstrap/cache"
+
+    find "${RELEASE_ROOT}/bootstrap/cache" \
+        -type d \
+        -exec chmod 0750 {} +
+
+    find "${RELEASE_ROOT}/bootstrap/cache" \
+        -type f \
+        -exec chmod 0640 {} +
+fi
+
+log "switching current symlink"
+
+ln -sfn \
+    "${RELEASE_ROOT}" \
+    "${CURRENT_LINK}.new"
+
+mv -Tf \
+    "${CURRENT_LINK}.new" \
+    "${CURRENT_LINK}"
+
+CURRENT_SWITCHED=true
+
+systemctl reload "${PHP_FPM_SERVICE}"
+
+if ! /home/www/rateguru/bin/health-check \
+    --environment "${ENVIRONMENT}"
+then
+    FAILURE_STATUS="failed-health-check"
+    fail "deployment health check failed"
+fi
+
+if [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
+    && [[ -d "${ORIGINAL_CURRENT_PATH}" ]]
+then
+    ln -sfn \
+        "${ORIGINAL_CURRENT_PATH}" \
+        "${PREVIOUS_LINK}.new"
+
+    mv -Tf \
+        "${PREVIOUS_LINK}.new" \
+        "${PREVIOUS_LINK}"
+fi
+
+if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
+    (
+        cd "${RELEASE_ROOT}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan queue:restart
+    ) || log "WARNING: queue restart command failed"
+fi
+
+log "${ENVIRONMENT} deployed successfully: ${RELEASE_ID}"
+
+append_history \
+    "${ENVIRONMENT_ROOT}" \
+    "deployment-finished" \
+    "${RELEASE_ID}" \
+    "success"
+
+TERMINAL_HISTORY_WRITTEN=true

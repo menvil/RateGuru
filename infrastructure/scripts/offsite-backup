@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+ENVIRONMENT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+case "${ENVIRONMENT}" in
+    staging|production)
+        ;;
+    *)
+        echo "Usage: offsite-backup --environment staging|production" >&2
+        exit 1
+        ;;
+esac
+
+RCLONE_CONFIG="/root/.config/rclone/rclone.conf"
+RCLONE_REMOTE="rateguru-b2"
+BUCKET="rateguru-database-backups"
+
+LOCAL_ROOT="/home/www/rateguru/backups/${ENVIRONMENT}"
+REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${ENVIRONMENT}"
+
+LOCK_ROOT="/home/www/rateguru/run"
+LOCK_FILE="${LOCK_ROOT}/offsite-backup-${ENVIRONMENT}.lock"
+
+HISTORY_ROOT="/home/www/rateguru/backups"
+HISTORY_FILE="${HISTORY_ROOT}/offsite-history.jsonl"
+
+[[ -f "${RCLONE_CONFIG}" ]] || {
+    echo "Rclone configuration not found: ${RCLONE_CONFIG}" >&2
+    exit 1
+}
+
+install -d \
+    -o root \
+    -g root \
+    -m 0700 \
+    "${LOCK_ROOT}" \
+    "${HISTORY_ROOT}"
+
+exec 9>"${LOCK_FILE}"
+
+if ! flock -n 9; then
+    echo "Offsite backup for ${ENVIRONMENT} is already running" >&2
+    exit 1
+fi
+
+LATEST_BACKUP="$(
+    find "${LOCAL_ROOT}" \
+        -regextype posix-extended \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -regex '.*/[0-9]{8}-[0-9]{6}' \
+        -printf '%f\n' \
+    | sort \
+    | tail -1
+)"
+
+[[ -n "${LATEST_BACKUP}" ]] || {
+    echo "No timestamped local backup found in ${LOCAL_ROOT}" >&2
+    exit 1
+}
+
+LOCAL_DIRECTORY="${LOCAL_ROOT}/${LATEST_BACKUP}"
+REMOTE_DIRECTORY="${REMOTE_ROOT}/${LATEST_BACKUP}"
+
+REQUIRED_FILES=(
+    database.dump
+    storage-app.tar.gz
+    environment.env
+    release.json
+    server-configuration.tar.gz
+    manifest.json
+    SHA256SUMS
+)
+
+for required_file in "${REQUIRED_FILES[@]}"; do
+    if [[ ! -f "${LOCAL_DIRECTORY}/${required_file}" ]]; then
+        echo "Missing required backup file: ${required_file}" >&2
+        exit 1
+    fi
+done
+
+echo "Environment:    ${ENVIRONMENT}"
+echo "Local backup:   ${LOCAL_DIRECTORY}"
+echo "Remote backup:  ${REMOTE_DIRECTORY}"
+echo
+
+echo "Checking local SHA-256 checksums"
+
+(
+    cd "${LOCAL_DIRECTORY}"
+    sha256sum --check SHA256SUMS
+)
+
+echo
+echo "Checking Backblaze B2 access"
+
+rclone \
+    --config "${RCLONE_CONFIG}" \
+    lsf \
+    "${RCLONE_REMOTE}:${BUCKET}" \
+    >/dev/null
+
+echo "Uploading immutable backup"
+
+rclone \
+    --config "${RCLONE_CONFIG}" \
+    copy \
+    "${LOCAL_DIRECTORY}" \
+    "${REMOTE_DIRECTORY}" \
+    --immutable \
+    --check-first \
+    --checksum \
+    --stats-one-line \
+    --stats 10s
+
+echo
+echo "Comparing local and remote backup"
+
+rclone \
+    --config "${RCLONE_CONFIG}" \
+    check \
+    "${LOCAL_DIRECTORY}" \
+    "${REMOTE_DIRECTORY}" \
+    --checkers 4
+
+REMOTE_SIZE_JSON="$(
+    rclone \
+        --config "${RCLONE_CONFIG}" \
+        size \
+        "${REMOTE_DIRECTORY}" \
+        --json
+)"
+
+REMOTE_FILES="$(
+    jq -r '.count' <<<"${REMOTE_SIZE_JSON}"
+)"
+
+REMOTE_BYTES="$(
+    jq -r '.bytes' <<<"${REMOTE_SIZE_JSON}"
+)"
+
+jq \
+    --null-input \
+    --compact-output \
+    --arg status "ok" \
+    --arg uploaded_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg environment "${ENVIRONMENT}" \
+    --arg backup "${LATEST_BACKUP}" \
+    --arg remote "${REMOTE_DIRECTORY}" \
+    --argjson files "${REMOTE_FILES}" \
+    --argjson bytes "${REMOTE_BYTES}" \
+    '{
+        status: $status,
+        uploaded_at: $uploaded_at,
+        environment: $environment,
+        backup: $backup,
+        remote: $remote,
+        files: $files,
+        bytes: $bytes
+    }' \
+    | tee -a "${HISTORY_FILE}"
+
+chmod 0600 "${HISTORY_FILE}"
+
+echo
+echo "Offsite backup completed successfully."
