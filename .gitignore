@@ -89,3 +89,8 @@ Homestead.yaml
 /infrastructure/**/*.key
 /infrastructure/backups/
 /infrastructure/uploads/
+
+# Temporary server configuration snapshots
+/infrastructure/config/**/*.before-*
+/infrastructure/config/**/*.backup-*
+/infrastructure/config/**/*.bak
