@@ -1,0 +1,12 @@
+Defaults:deploy-rateguru-staging !requiretty
+Defaults:deploy-rateguru-production !requiretty
+
+deploy-rateguru-staging ALL=(root) NOPASSWD: \
+    /usr/local/sbin/rateguru-staging-deploy, \
+    /usr/local/sbin/rateguru-staging-rollback, \
+    /usr/local/sbin/rateguru-staging-cleanup
+
+deploy-rateguru-production ALL=(root) NOPASSWD: \
+    /usr/local/sbin/rateguru-production-deploy, \
+    /usr/local/sbin/rateguru-production-rollback, \
+    /usr/local/sbin/rateguru-production-cleanup

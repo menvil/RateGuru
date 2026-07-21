@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+CONFIG_FILE="/home/www/rateguru/config/deployment.conf"
+
+if [[ ! -r "${CONFIG_FILE}" ]]; then
+    echo "ERROR: deployment configuration is unavailable: ${CONFIG_FILE}" >&2
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+source "${CONFIG_FILE}"
+
+log() {
+    printf '[%s] %s\n' \
+        "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+        "$*"
+}
+
+fail() {
+    log "ERROR: $*" >&2
+    exit 1
+}
+
+require_root() {
+    if [[ "${EUID}" -ne 0 ]]; then
+        fail "this command must be executed as root"
+    fi
+}
+
+validate_environment() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging|production)
+            ;;
+        *)
+            fail "invalid environment: ${environment}"
+            ;;
+    esac
+}
+
+validate_release_id() {
+    local release_id="$1"
+
+    if [[ ! "${release_id}" =~ ${RELEASE_ID_REGEX} ]]; then
+        fail "invalid release ID: ${release_id}"
+    fi
+}
+
+environment_root() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "${STAGING_ROOT}"
+            ;;
+        production)
+            printf '%s\n' "${PRODUCTION_ROOT}"
+            ;;
+    esac
+}
+
+environment_runtime_user() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "${STAGING_RUNTIME_USER}"
+            ;;
+        production)
+            printf '%s\n' "${PRODUCTION_RUNTIME_USER}"
+            ;;
+    esac
+}
+
+environment_code_group() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "${STAGING_CODE_GROUP}"
+            ;;
+        production)
+            printf '%s\n' "${PRODUCTION_CODE_GROUP}"
+            ;;
+    esac
+}
+
+environment_url() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "http://127.0.0.1/"
+            ;;
+        production)
+            printf '%s\n' "http://127.0.0.1/"
+            ;;
+    esac
+}
+
+environment_host_header() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "rateguru-staging.internal"
+            ;;
+        production)
+            printf '%s\n' "rateguru-production.internal"
+            ;;
+    esac
+}
+
+acquire_deployment_lock() {
+    local environment_root="$1"
+
+    exec 200>"${environment_root}/locks/deployment.lock"
+
+    if ! flock -n 200; then
+        fail "another deployment operation is already running"
+    fi
+}
+
+append_history() {
+    local environment_root="$1"
+    local event="$2"
+    local release_id="${3:-null}"
+    local status="${4:-unknown}"
+
+    printf \
+        '{"timestamp":"%s","event":"%s","release":"%s","status":"%s","user":"%s"}\n' \
+        "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${event}" \
+        "${release_id}" \
+        "${status}" \
+        "${SUDO_USER:-$(id -un)}" \
+        >> "${environment_root}/deployments/history.jsonl"
+}
+
+environment_deploy_user() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "${STAGING_DEPLOY_USER}"
+            ;;
+        production)
+            printf '%s\n' "${PRODUCTION_DEPLOY_USER}"
+            ;;
+    esac
+}
+
+environment_incoming_artifacts() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "${STAGING_INCOMING_ARTIFACTS}"
+            ;;
+        production)
+            printf '%s\n' "${PRODUCTION_INCOMING_ARTIFACTS}"
+            ;;
+    esac
+}

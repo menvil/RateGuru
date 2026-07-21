@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# shellcheck disable=SC1091
+source /home/www/rateguru/bin/common
+
+require_root
+
+ENVIRONMENT=""
+TARGET_RELEASE=""
+USE_PREVIOUS=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        --release)
+            TARGET_RELEASE="${2:-}"
+            shift 2
+            ;;
+        --previous)
+            USE_PREVIOUS=true
+            shift
+            ;;
+        *)
+            fail "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "${ENVIRONMENT}" ]] \
+    || fail "--environment is required"
+
+validate_environment "${ENVIRONMENT}"
+
+ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
+
+acquire_deployment_lock "${ENVIRONMENT_ROOT}"
+
+CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
+PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
+
+[[ -L "${CURRENT_LINK}" ]] \
+    || fail "current symlink does not exist"
+
+CURRENT_RELEASE_PATH="$(readlink -f "${CURRENT_LINK}")"
+CURRENT_RELEASE_ID="$(basename "${CURRENT_RELEASE_PATH}")"
+
+if [[ "${USE_PREVIOUS}" == true ]]; then
+    [[ -L "${PREVIOUS_LINK}" ]] \
+        || fail "previous symlink does not exist"
+
+    TARGET_RELEASE_PATH="$(readlink -f "${PREVIOUS_LINK}")"
+    TARGET_RELEASE="$(basename "${TARGET_RELEASE_PATH}")"
+else
+    [[ -n "${TARGET_RELEASE}" ]] \
+        || fail "--release or --previous is required"
+
+    validate_release_id "${TARGET_RELEASE}"
+
+    TARGET_RELEASE_PATH="${ENVIRONMENT_ROOT}/releases/${TARGET_RELEASE}"
+fi
+
+[[ -d "${TARGET_RELEASE_PATH}" ]] \
+    || fail "target release does not exist: ${TARGET_RELEASE_PATH}"
+
+if [[ "${CURRENT_RELEASE_PATH}" == "${TARGET_RELEASE_PATH}" ]]; then
+    fail "target release is already current"
+fi
+
+append_history \
+    "${ENVIRONMENT_ROOT}" \
+    "rollback-started" \
+    "${TARGET_RELEASE}" \
+    "running"
+
+ln -sfn \
+    "${CURRENT_RELEASE_PATH}" \
+    "${PREVIOUS_LINK}.new"
+
+mv -Tf \
+    "${PREVIOUS_LINK}.new" \
+    "${PREVIOUS_LINK}"
+
+ln -sfn \
+    "${TARGET_RELEASE_PATH}" \
+    "${CURRENT_LINK}.new"
+
+mv -Tf \
+    "${CURRENT_LINK}.new" \
+    "${CURRENT_LINK}"
+
+systemctl reload "${PHP_FPM_SERVICE}"
+
+/home/www/rateguru/bin/health-check \
+    --environment "${ENVIRONMENT}"
+
+append_history \
+    "${ENVIRONMENT_ROOT}" \
+    "rollback-finished" \
+    "${TARGET_RELEASE}" \
+    "success"
+
+log "${ENVIRONMENT} rolled back to ${TARGET_RELEASE}"

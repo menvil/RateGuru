@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+ENVIRONMENT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+case "${ENVIRONMENT}" in
+    staging|production)
+        ;;
+    *)
+        echo "Usage: offsite-restore-test --environment staging|production" >&2
+        exit 1
+        ;;
+esac
+
+RCLONE_CONFIG="/root/.config/rclone/rclone.conf"
+RCLONE_REMOTE="rateguru-b2"
+BUCKET="rateguru-database-backups"
+
+REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${ENVIRONMENT}"
+
+LOCK_ROOT="/home/www/rateguru/run"
+LOCK_FILE="${LOCK_ROOT}/offsite-restore-test-${ENVIRONMENT}.lock"
+
+RESULT_ROOT="/home/www/rateguru/backups"
+RESULT_FILE="${RESULT_ROOT}/offsite-restore-tests.jsonl"
+
+TEMP_PARENT="/home/www/rateguru/backups/.offsite-restore"
+TEMP_DIRECTORY=""
+TEST_DATABASE=""
+
+cleanup() {
+    if [[ -n "${TEST_DATABASE}" ]]; then
+        runuser -u postgres -- \
+            /usr/bin/dropdb \
+                --if-exists \
+                "${TEST_DATABASE}" \
+                >/dev/null 2>&1 || true
+    fi
+
+    if [[ -n "${TEMP_DIRECTORY}" ]]; then
+        rm -rf -- "${TEMP_DIRECTORY}"
+    fi
+}
+
+trap cleanup EXIT
+
+[[ -f "${RCLONE_CONFIG}" ]] || {
+    echo "Rclone configuration not found: ${RCLONE_CONFIG}" >&2
+    exit 1
+}
+
+install -d \
+    -o root \
+    -g root \
+    -m 0700 \
+    "${LOCK_ROOT}" \
+    "${RESULT_ROOT}" \
+    "${TEMP_PARENT}"
+
+exec 9>"${LOCK_FILE}"
+
+if ! flock -n 9; then
+    echo "Offsite restore test for ${ENVIRONMENT} is already running" >&2
+    exit 1
+fi
+
+echo "Reading remote backup list"
+
+REMOTE_LIST="$(
+    rclone \
+        --config "${RCLONE_CONFIG}" \
+        lsf \
+        "${REMOTE_ROOT}" \
+        --dirs-only
+)"
+
+LATEST_BACKUP="$(
+    python3 -c '
+import re
+import sys
+
+names = []
+
+for line in sys.stdin:
+    name = line.strip().rstrip("/")
+
+    if re.fullmatch(r"[0-9]{8}-[0-9]{6}", name):
+        names.append(name)
+
+print(max(names) if names else "")
+' <<<"${REMOTE_LIST}"
+)"
+
+[[ -n "${LATEST_BACKUP}" ]] || {
+    echo "No timestamped remote backup found in ${REMOTE_ROOT}" >&2
+    exit 1
+}
+
+REMOTE_DIRECTORY="${REMOTE_ROOT}/${LATEST_BACKUP}"
+
+TEMP_DIRECTORY="$(
+    mktemp \
+        -d \
+        "${TEMP_PARENT}/${ENVIRONMENT}-${LATEST_BACKUP}.XXXXXX"
+)"
+
+echo
+echo "Environment:     ${ENVIRONMENT}"
+echo "Remote backup:   ${REMOTE_DIRECTORY}"
+echo "Temporary path:  ${TEMP_DIRECTORY}"
+echo
+
+echo "Downloading backup from Backblaze B2"
+
+rclone \
+    --config "${RCLONE_CONFIG}" \
+    copy \
+    "${REMOTE_DIRECTORY}" \
+    "${TEMP_DIRECTORY}" \
+    --check-first \
+    --checksum \
+    --stats-one-line \
+    --stats 10s
+
+REQUIRED_FILES=(
+    database.dump
+    storage-app.tar.gz
+    environment.env
+    release.json
+    server-configuration.tar.gz
+    manifest.json
+    SHA256SUMS
+)
+
+for required_file in "${REQUIRED_FILES[@]}"; do
+    if [[ ! -f "${TEMP_DIRECTORY}/${required_file}" ]]; then
+        echo "Missing downloaded backup file: ${required_file}" >&2
+        exit 1
+    fi
+done
+
+echo
+echo "Checking downloaded SHA-256 checksums"
+
+(
+    cd "${TEMP_DIRECTORY}"
+    sha256sum --check SHA256SUMS
+)
+
+echo
+echo "Checking storage archive"
+
+tar \
+    -tzf "${TEMP_DIRECTORY}/storage-app.tar.gz" \
+    >/dev/null
+
+TEST_DATABASE="rateguru_offsite_restore_${ENVIRONMENT}_$(date -u +%Y%m%d%H%M%S)_$$"
+TEST_DATABASE="${TEST_DATABASE//-/_}"
+
+echo
+echo "Creating temporary PostgreSQL database:"
+echo "${TEST_DATABASE}"
+
+runuser -u postgres -- \
+    /usr/bin/createdb \
+        --template=template0 \
+        "${TEST_DATABASE}"
+
+echo "Restoring downloaded PostgreSQL dump"
+
+runuser -u postgres -- \
+    /usr/bin/pg_restore \
+        --exit-on-error \
+        --single-transaction \
+        --no-owner \
+        --no-privileges \
+        --dbname="${TEST_DATABASE}" \
+    < "${TEMP_DIRECTORY}/database.dump"
+
+echo "Checking restored PostgreSQL database"
+
+TABLE_COUNT="$(
+    runuser -u postgres -- \
+        /usr/bin/psql \
+            --set ON_ERROR_STOP=1 \
+            --no-align \
+            --tuples-only \
+            --dbname="${TEST_DATABASE}" \
+            --command="
+                SELECT count(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'public';
+            "
+)"
+
+TABLE_COUNT="${TABLE_COUNT//[[:space:]]/}"
+
+if [[ ! "${TABLE_COUNT}" =~ ^[0-9]+$ ]] \
+    || (( TABLE_COUNT == 0 ))
+then
+    echo "Restored database contains no public tables" >&2
+    exit 1
+fi
+
+MIGRATION_COUNT="$(
+    runuser -u postgres -- \
+        /usr/bin/psql \
+            --set ON_ERROR_STOP=1 \
+            --no-align \
+            --tuples-only \
+            --dbname="${TEST_DATABASE}" \
+            --command="
+                SELECT count(*)
+                FROM public.migrations;
+            "
+)"
+
+MIGRATION_COUNT="${MIGRATION_COUNT//[[:space:]]/}"
+
+if [[ ! "${MIGRATION_COUNT}" =~ ^[0-9]+$ ]]; then
+    echo "Unable to validate migrations table" >&2
+    exit 1
+fi
+
+cleanup
+TEST_DATABASE=""
+TEMP_DIRECTORY=""
+trap - EXIT
+
+RESULT="$(
+    jq \
+        --null-input \
+        --compact-output \
+        --arg status "ok" \
+        --arg tested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg environment "${ENVIRONMENT}" \
+        --arg backup "${LATEST_BACKUP}" \
+        --arg remote "${REMOTE_DIRECTORY}" \
+        --argjson tables "${TABLE_COUNT}" \
+        --argjson migrations "${MIGRATION_COUNT}" \
+        '{
+            status: $status,
+            tested_at: $tested_at,
+            environment: $environment,
+            backup: $backup,
+            remote: $remote,
+            tables: $tables,
+            migrations: $migrations
+        }'
+)"
+
+printf '%s\n' "${RESULT}" \
+    | tee -a "${RESULT_FILE}"
+
+chmod 0600 "${RESULT_FILE}"
+
+echo
+echo "Offsite restore test completed successfully."

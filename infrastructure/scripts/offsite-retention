@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+ENVIRONMENT=""
+APPLY=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        --apply)
+            APPLY=true
+            shift
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+case "${ENVIRONMENT}" in
+    staging)
+        RETENTION_DAYS=30
+        ;;
+    production)
+        RETENTION_DAYS=90
+        ;;
+    *)
+        echo "Usage: offsite-retention --environment staging|production [--apply]" >&2
+        exit 1
+        ;;
+esac
+
+RCLONE_CONFIG="/root/.config/rclone/rclone.conf"
+RCLONE_REMOTE="rateguru-b2"
+BUCKET="rateguru-database-backups"
+
+REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${ENVIRONMENT}"
+
+LOCK_ROOT="/home/www/rateguru/run"
+LOCK_FILE="${LOCK_ROOT}/offsite-retention-${ENVIRONMENT}.lock"
+
+[[ -f "${RCLONE_CONFIG}" ]] || {
+    echo "Rclone configuration not found: ${RCLONE_CONFIG}" >&2
+    exit 1
+}
+
+install -d \
+    -o root \
+    -g root \
+    -m 0700 \
+    "${LOCK_ROOT}"
+
+exec 9>"${LOCK_FILE}"
+
+if ! flock -n 9; then
+    echo "Offsite retention for ${ENVIRONMENT} is already running" >&2
+    exit 1
+fi
+
+REMOTE_LIST="$(
+    rclone \
+        --config "${RCLONE_CONFIG}" \
+        lsf \
+        "${REMOTE_ROOT}" \
+        --dirs-only
+)"
+
+mapfile -t BACKUPS < <(
+    python3 -c '
+import re
+import sys
+
+names = []
+
+for line in sys.stdin:
+    name = line.strip().rstrip("/")
+
+    if re.fullmatch(r"[0-9]{8}-[0-9]{6}", name):
+        names.append(name)
+
+for name in sorted(set(names)):
+    print(name)
+' <<<"${REMOTE_LIST}"
+)
+
+if (( ${#BACKUPS[@]} == 0 )); then
+    echo "No timestamped remote backups found."
+    exit 0
+fi
+
+LATEST_BACKUP="${BACKUPS[-1]}"
+CUTOFF_EPOCH="$(
+    date \
+        -u \
+        -d "${RETENTION_DAYS} days ago" \
+        +%s
+)"
+
+echo "Environment:       ${ENVIRONMENT}"
+echo "Retention:         ${RETENTION_DAYS} days"
+echo "Latest protected:  ${LATEST_BACKUP}"
+echo "Mode:              $([[ "${APPLY}" == true ]] && echo APPLY || echo DRY-RUN)"
+echo
+
+DELETE_COUNT=0
+
+for backup in "${BACKUPS[@]}"; do
+    if [[ "${backup}" == "${LATEST_BACKUP}" ]]; then
+        echo "KEEP latest: ${backup}"
+        continue
+    fi
+
+    YEAR="${backup:0:4}"
+    MONTH="${backup:4:2}"
+    DAY="${backup:6:2}"
+    HOUR="${backup:9:2}"
+    MINUTE="${backup:11:2}"
+    SECOND="${backup:13:2}"
+
+    BACKUP_EPOCH="$(
+        date \
+            -u \
+            -d "${YEAR}-${MONTH}-${DAY} ${HOUR}:${MINUTE}:${SECOND} UTC" \
+            +%s
+    )"
+
+    if (( BACKUP_EPOCH >= CUTOFF_EPOCH )); then
+        echo "KEEP recent: ${backup}"
+        continue
+    fi
+
+    REMOTE_DIRECTORY="${REMOTE_ROOT}/${backup}"
+
+    if [[ "${APPLY}" == true ]]; then
+        echo "DELETE: ${REMOTE_DIRECTORY}"
+
+        rclone \
+            --config "${RCLONE_CONFIG}" \
+            purge \
+            "${REMOTE_DIRECTORY}"
+    else
+        echo "WOULD DELETE: ${REMOTE_DIRECTORY}"
+
+        rclone \
+            --config "${RCLONE_CONFIG}" \
+            purge \
+            "${REMOTE_DIRECTORY}" \
+            --dry-run
+    fi
+
+    DELETE_COUNT=$((DELETE_COUNT + 1))
+done
+
+echo
+echo "Retention candidates: ${DELETE_COUNT}"
+
+if [[ "${APPLY}" == false ]]; then
+    echo "No data was deleted. Run with --apply to perform deletion."
+fi
