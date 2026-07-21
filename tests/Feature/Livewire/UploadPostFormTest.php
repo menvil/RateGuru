@@ -1,7 +1,5 @@
 <?php
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\Post;
 use App\Models\Tag;
@@ -456,40 +454,6 @@ it('refreshes selectable tags when the upload modal opens again', function () {
         ->dispatch('upload-modal-opened')
         ->assertSee('NewTagAfterMount')
         ->assertSee('data-testid="upload-tag-'.$newTag->id.'"', false);
-});
-
-it('has cuisine truth default value', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSet('cuisineTruth', CuisineType::Unknown->value);
-});
-
-it('updates cuisineTruth property', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->set('cuisineTruth', CuisineType::Italian->value)
-        ->assertSet('cuisineTruth', CuisineType::Italian->value);
-});
-
-it('has origin truth default value', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSet('originTruth', OriginType::Unknown->value);
-});
-
-it('updates originTruth property', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->set('originTruth', OriginType::Homemade->value)
-        ->assertSet('originTruth', OriginType::Homemade->value);
 });
 
 it('has source url input', function () {

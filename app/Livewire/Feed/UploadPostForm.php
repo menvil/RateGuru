@@ -5,8 +5,6 @@ namespace App\Livewire\Feed;
 use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Models\RatingGroup;
 use App\Models\Tag;
@@ -27,10 +25,6 @@ final class UploadPostForm extends Component
     public ?string $description = null;
 
     public ?string $sourceUrl = null;
-
-    public string $originTruth = 'unknown';
-
-    public string $cuisineTruth = 'unknown';
 
     public array $tagIds = [];
 
@@ -71,8 +65,6 @@ final class UploadPostForm extends Component
         $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryOptionId', 'knowsCorrectAnswer', 'authorAnswers']);
         $this->loadTags();
         $this->activeTab = 'upload';
-        $this->originTruth = OriginType::Unknown->value;
-        $this->cuisineTruth = CuisineType::Unknown->value;
         $this->resetValidation();
     }
 
@@ -102,8 +94,6 @@ final class UploadPostForm extends Component
                 title: $this->title,
                 description: $this->description,
                 sourceUrl: $this->sourceUrl,
-                originTruth: OriginType::from($this->originTruth),
-                cuisineTruth: CuisineType::from($this->cuisineTruth),
                 tagIds: $this->tagIds,
                 image: $this->image,
                 categoryOptionId: $this->categoryOptionId !== '' ? (int) $this->categoryOptionId : null,
@@ -117,8 +107,6 @@ final class UploadPostForm extends Component
             $this->importedImageUrl = null;
             $this->activeTab = 'upload';
             $this->tagSearch = '';
-            $this->originTruth = OriginType::Unknown->value;
-            $this->cuisineTruth = CuisineType::Unknown->value;
         } catch (RateLimitExceededException $e) {
             $this->submitError = $e->getMessage();
         } catch (\Throwable $e) {
@@ -145,8 +133,6 @@ final class UploadPostForm extends Component
                     ->maxHeight((int) config('uploads.images.max_height', 6000)),
             ],
             'sourceUrl' => ['nullable', 'url', 'max:2048'],
-            'originTruth' => ['nullable', Rule::enum(OriginType::class)],
-            'cuisineTruth' => ['nullable', Rule::enum(CuisineType::class)],
             'tagIds' => ['array', 'max:10'],
             'tagIds.*' => ['integer', 'exists:tags,id'],
             'categoryOptionId' => [Rule::in($this->categoryOptionChoices($ratingGroups))],

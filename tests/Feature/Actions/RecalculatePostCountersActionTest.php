@@ -1,15 +1,8 @@
 <?php
 
 use App\Actions\Counters\RecalculatePostCountersAction;
-use App\Actions\Votes\VoteCuisineAction;
-use App\Actions\Votes\VoteOriginAction;
 use App\Actions\Votes\VotePostAction;
-use App\Data\Counters\PostCounterSnapshot;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\VoteType;
-use App\Models\CuisineVote;
-use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\User;
@@ -73,66 +66,6 @@ it('counts upvotes and downvotes independently', function () {
     expect($snapshot->downvotes)->toBe(1);
 });
 
-it('recalculates origin vote counters from origin votes', function () {
-    $post = Post::factory()->published()->create([
-        'homemade_votes_count' => 99,
-        'restaurant_votes_count' => 88,
-    ]);
-
-    OriginVote::factory()->for($post)->create([
-        'origin' => OriginType::Homemade,
-    ]);
-
-    OriginVote::factory()->for($post)->create([
-        'origin' => OriginType::Restaurant,
-    ]);
-
-    OriginVote::factory()->for($post)->create([
-        'origin' => OriginType::Restaurant,
-    ]);
-
-    $snapshot = app(RecalculatePostCountersAction::class)->handle($post);
-
-    expect($post->fresh()->homemade_votes_count)->toBe(1);
-    expect($post->fresh()->restaurant_votes_count)->toBe(2);
-    expect($snapshot->homemadeVotes)->toBe(1);
-    expect($snapshot->restaurantVotes)->toBe(2);
-});
-
-it('recalculates cuisine vote distribution from cuisine votes', function () {
-    $post = Post::factory()->published()->create();
-
-    CuisineVote::factory()->for($post)->create([
-        'cuisine' => CuisineType::Italian,
-    ]);
-
-    CuisineVote::factory()->for($post)->create([
-        'cuisine' => CuisineType::Italian,
-    ]);
-
-    CuisineVote::factory()->for($post)->create([
-        'cuisine' => CuisineType::Asian,
-    ]);
-
-    $snapshot = app(RecalculatePostCountersAction::class)->handle($post);
-
-    expect($snapshot->cuisineVotes)->toMatchArray([
-        CuisineType::Italian->value => 2,
-        CuisineType::Asian->value => 1,
-        CuisineType::American->value => 0,
-        CuisineType::Mexican->value => 0,
-        CuisineType::Other->value => 0,
-    ]);
-});
-
-it('does not require persisted cuisine counter columns on posts', function () {
-    $post = Post::factory()->published()->create();
-
-    $snapshot = app(RecalculatePostCountersAction::class)->handle($post);
-
-    expect($snapshot->cuisineVotes)->toBeArray();
-});
-
 it('recalculates counters after post vote instead of incrementing stale value', function () {
     $user = User::factory()->create();
 
@@ -145,75 +78,4 @@ it('recalculates counters after post vote instead of incrementing stale value', 
 
     expect($post->fresh()->upvotes_count)->toBe(1);
     expect($post->fresh()->downvotes_count)->toBe(0);
-});
-
-it('recalculates counters after origin vote instead of incrementing stale value', function () {
-    $user = User::factory()->create();
-
-    $post = Post::factory()->published()->create([
-        'homemade_votes_count' => 99,
-        'restaurant_votes_count' => 88,
-    ]);
-
-    app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade);
-
-    expect($post->fresh()->homemade_votes_count)->toBe(1);
-    expect($post->fresh()->restaurant_votes_count)->toBe(0);
-});
-
-it('calls counter recalculation after cuisine vote', function () {
-    $user = User::factory()->create();
-    $post = Post::factory()->published()->create();
-
-    $fake = new class extends RecalculatePostCountersAction
-    {
-        public bool $called = false;
-
-        public function handle(Post $post): PostCounterSnapshot
-        {
-            $this->called = true;
-
-            return new PostCounterSnapshot(
-                upvotes: 0,
-                downvotes: 0,
-                homemadeVotes: 0,
-                restaurantVotes: 0,
-                cuisineVotes: [],
-            );
-        }
-    };
-
-    app()->instance(RecalculatePostCountersAction::class, $fake);
-
-    app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
-
-    expect($fake->called)->toBeTrue();
-});
-
-it('does not recalculate when origin vote is an unchanged no-op', function () {
-    $user = User::factory()->create();
-    $post = Post::factory()->published()->create();
-
-    $spy = new class extends RecalculatePostCountersAction
-    {
-        public int $calls = 0;
-
-        public function handle(Post $post): PostCounterSnapshot
-        {
-            $this->calls++;
-
-            return new PostCounterSnapshot(0, 0, 0, 0, []);
-        }
-    };
-
-    app()->instance(RecalculatePostCountersAction::class, $spy);
-
-    $action = app(VoteOriginAction::class);
-
-    $action->handle($user, $post, OriginType::Homemade);
-    expect($spy->calls)->toBe(1);
-
-    // Re-selecting the same origin is a no-op and must not recalculate.
-    $action->handle($user, $post, OriginType::Homemade);
-    expect($spy->calls)->toBe(1);
 });

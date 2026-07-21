@@ -3,11 +3,7 @@
 namespace App\Actions\Counters;
 
 use App\Data\Counters\PostCounterSnapshot;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\VoteType;
-use App\Models\CuisineVote;
-use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\PostVote;
 use Illuminate\Support\Facades\DB;
@@ -40,38 +36,14 @@ class RecalculatePostCountersAction
                 ->where('type', VoteType::Down)
                 ->count();
 
-            $homemadeVotes = OriginVote::query()
-                ->where('post_id', $post->id)
-                ->where('origin', OriginType::Homemade)
-                ->count();
-
-            $restaurantVotes = OriginVote::query()
-                ->where('post_id', $post->id)
-                ->where('origin', OriginType::Restaurant)
-                ->count();
-
             $post->forceFill([
                 'upvotes_count' => $upvotes,
                 'downvotes_count' => $downvotes,
-                'homemade_votes_count' => $homemadeVotes,
-                'restaurant_votes_count' => $restaurantVotes,
             ])->save();
-
-            $cuisineVotes = [];
-
-            foreach (CuisineType::votable() as $cuisine) {
-                $cuisineVotes[$cuisine->value] = CuisineVote::query()
-                    ->where('post_id', $post->id)
-                    ->where('cuisine', $cuisine->value)
-                    ->count();
-            }
 
             return new PostCounterSnapshot(
                 upvotes: $upvotes,
                 downvotes: $downvotes,
-                homemadeVotes: $homemadeVotes,
-                restaurantVotes: $restaurantVotes,
-                cuisineVotes: $cuisineVotes,
             );
         });
     }

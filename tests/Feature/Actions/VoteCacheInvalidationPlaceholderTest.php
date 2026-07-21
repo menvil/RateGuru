@@ -1,13 +1,11 @@
 <?php
 
-use App\Actions\Votes\VoteCuisineAction;
-use App\Actions\Votes\VoteOriginAction;
+use App\Actions\Rating\VoteRatingOptionAction;
 use App\Actions\Votes\VotePostAction;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
+use App\Models\RatingOption;
 use App\Models\User;
 use App\Support\Cache\PostListCacheManager;
 
@@ -41,26 +39,30 @@ it('does not invalidate post list cache after failed post vote', function () {
     }
 });
 
-it('calls post list cache invalidation after successful origin vote', function () {
+it('calls post list cache invalidation after a changed rating vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
+    $option = RatingOption::factory()->create();
 
     $cache = Mockery::mock(PostListCacheManager::class);
     $cache->shouldReceive('invalidateForPost')->once();
 
     app()->instance(PostListCacheManager::class, $cache);
 
-    app(VoteOriginAction::class)->handle($user, $post, OriginType::Homemade);
+    app(VoteRatingOptionAction::class)->handle($user, $post, $option);
 });
 
-it('calls post list cache invalidation after successful cuisine vote', function () {
+it('does not invalidate post list cache after an unchanged rating vote', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
+    $option = RatingOption::factory()->create();
+
+    app(VoteRatingOptionAction::class)->handle($user, $post, $option);
 
     $cache = Mockery::mock(PostListCacheManager::class);
-    $cache->shouldReceive('invalidateForPost')->once();
+    $cache->shouldNotReceive('invalidateForPost');
 
     app()->instance(PostListCacheManager::class, $cache);
 
-    app(VoteCuisineAction::class)->handle($user, $post, CuisineType::Italian);
+    app(VoteRatingOptionAction::class)->handle($user, $post, $option);
 });

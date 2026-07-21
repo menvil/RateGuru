@@ -13,7 +13,6 @@ return new class extends Migration
             // group (the one the sidebar "Categories" block is built from).
             $table->foreignId('category_option_id')
                 ->nullable()
-                ->after('cuisine_truth')
                 ->constrained('rating_options')
                 ->nullOnDelete();
         });

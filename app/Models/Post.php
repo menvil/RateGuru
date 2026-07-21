@@ -2,8 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -18,8 +16,6 @@ use Illuminate\Support\Str;
 
 /**
  * @property PostStatus $status
- * @property OriginType|null $origin_truth
- * @property CuisineType|null $cuisine_truth
  * @property-read int $score
  * @property-read string|null $public_image_url
  * @property string|null $thumbnail_url
@@ -36,8 +32,6 @@ class Post extends Model
     {
         return [
             'status' => PostStatus::class,
-            'origin_truth' => OriginType::class,
-            'cuisine_truth' => CuisineType::class,
             'published_at' => 'datetime',
             'hot_score' => 'float',
             'needs_review' => 'boolean',
@@ -101,18 +95,6 @@ class Post extends Model
     public function postVotes(): HasMany
     {
         return $this->hasMany(PostVote::class);
-    }
-
-    /** @return HasMany<OriginVote, $this> */
-    public function originVotes(): HasMany
-    {
-        return $this->hasMany(OriginVote::class);
-    }
-
-    /** @return HasMany<CuisineVote, $this> */
-    public function cuisineVotes(): HasMany
-    {
-        return $this->hasMany(CuisineVote::class);
     }
 
     /** @return HasMany<PostSave, $this> */

@@ -22,13 +22,9 @@ return new class extends Migration
             $table->text('source_url')->nullable();
 
             $table->string('status')->default('pending');
-            $table->string('origin_truth')->default('unknown');
-            $table->string('cuisine_truth')->default('unknown');
 
             $table->unsignedInteger('upvotes_count')->default(0);
             $table->unsignedInteger('downvotes_count')->default(0);
-            $table->unsignedInteger('homemade_votes_count')->default(0);
-            $table->unsignedInteger('restaurant_votes_count')->default(0);
             $table->unsignedInteger('comments_count')->default(0);
             $table->unsignedInteger('reports_count')->default(0);
 

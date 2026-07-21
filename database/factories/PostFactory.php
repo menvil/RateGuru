@@ -2,8 +2,6 @@
 
 namespace Database\Factories;
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
@@ -26,13 +24,9 @@ class PostFactory extends Factory
             'source_url' => null,
 
             'status' => PostStatus::Pending,
-            'origin_truth' => OriginType::Unknown,
-            'cuisine_truth' => CuisineType::Unknown,
 
             'upvotes_count' => 0,
             'downvotes_count' => 0,
-            'homemade_votes_count' => 0,
-            'restaurant_votes_count' => 0,
             'comments_count' => 0,
             'reports_count' => 0,
             'hot_score' => 0,

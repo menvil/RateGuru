@@ -2,8 +2,6 @@
 
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\ProcessUploadedImageJob;
@@ -22,8 +20,6 @@ it('creates a published post for default trusted user', function () {
         title: 'Homemade pasta',
         description: null,
         sourceUrl: null,
-        originTruth: OriginType::Unknown,
-        cuisineTruth: CuisineType::Unknown,
         tagIds: [],
         image: null,
     );
@@ -82,28 +78,6 @@ it('persists source url', function () {
     ));
 
     expect($post->fresh()->source_url)->toBe('https://example.com/original');
-});
-
-it('stores origin truth', function () {
-    $user = User::factory()->create();
-
-    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Homemade pasta',
-        originTruth: OriginType::Homemade,
-    ));
-
-    expect($post->fresh()->origin_truth)->toBe(OriginType::Homemade);
-});
-
-it('stores cuisine truth', function () {
-    $user = User::factory()->create();
-
-    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Homemade pasta',
-        cuisineTruth: CuisineType::Italian,
-    ));
-
-    expect($post->fresh()->cuisine_truth)->toBe(CuisineType::Italian);
 });
 
 it('attaches tags to created post', function () {
