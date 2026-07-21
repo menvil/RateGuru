@@ -115,10 +115,31 @@ PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
 
 acquire_deployment_lock "${ENVIRONMENT_ROOT}"
 
+DEPLOYMENT_STARTED=false
+
 cleanup_failed_release() {
-    if [[ -d "${TEMP_RELEASE_ROOT}" ]]; then
-        rm -rf "${TEMP_RELEASE_ROOT}"
+    local exit_code=$?
+
+    trap - EXIT
+
+    if (( exit_code != 0 )) \
+        && [[ "${DEPLOYMENT_STARTED}" == true ]]
+    then
+        if ! append_history \
+            "${ENVIRONMENT_ROOT}" \
+            "deployment-finished" \
+            "${RELEASE_ID}" \
+            "failed-setup"
+        then
+            log "WARNING: unable to record failed deployment setup"
+        fi
     fi
+
+    if [[ -d "${TEMP_RELEASE_ROOT}" ]]; then
+        rm -rf "${TEMP_RELEASE_ROOT}" || true
+    fi
+
+    exit "${exit_code}"
 }
 
 trap cleanup_failed_release EXIT
@@ -166,6 +187,8 @@ append_history \
     "deployment-started" \
     "${RELEASE_ID}" \
     "running"
+
+DEPLOYMENT_STARTED=true
 
 log "extracting ${RELEASE_ID}"
 

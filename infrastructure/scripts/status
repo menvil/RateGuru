@@ -70,7 +70,12 @@ echo "----------------------------------------"
 if [[ -L "${CURRENT_LINK}" ]] \
     && [[ -r "${CURRENT_LINK}/release.json" ]]
 then
-    jq . "${CURRENT_LINK}/release.json"
+    if RELEASE_METADATA="$(jq . "${CURRENT_LINK}/release.json" 2>/dev/null)"
+    then
+        printf '%s\n' "${RELEASE_METADATA}"
+    else
+        echo "release.json is malformed"
+    fi
 else
     echo "release.json is unavailable"
 fi

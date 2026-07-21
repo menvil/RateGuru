@@ -5,6 +5,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # local backup -> B2 upload -> offsite retention.
 30 2 * * * root /home/www/rateguru/bin/backup-cycle --environment staging >> /var/log/rateguru/staging-backup-cycle.log 2>&1
 
-# Every Sunday at 04:10 UTC:
-# test local backup and then independently download and restore B2 backup.
-10 4 * * 0 root /home/www/rateguru/bin/restore-test --environment staging && /home/www/rateguru/bin/offsite-restore-test --environment staging >> /var/log/rateguru/staging-restore-cycle.log 2>&1
+# Every Sunday, independently verify the local and offsite staging backups.
+10 4 * * 0 root /home/www/rateguru/bin/restore-test --environment staging >> /var/log/rateguru/staging-local-restore-test.log 2>&1
+40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --environment staging >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1

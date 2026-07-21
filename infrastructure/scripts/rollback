@@ -95,8 +95,39 @@ mv -Tf \
 
 systemctl reload "${PHP_FPM_SERVICE}"
 
-/home/www/rateguru/bin/health-check \
+if ! /home/www/rateguru/bin/health-check \
     --environment "${ENVIRONMENT}"
+then
+    log "rollback health check failed; restoring ${CURRENT_RELEASE_ID}"
+
+    RECOVERY_FAILED=false
+
+    if ! ln -sfn \
+        "${CURRENT_RELEASE_PATH}" \
+        "${CURRENT_LINK}.failed" \
+        || ! mv -Tf \
+            "${CURRENT_LINK}.failed" \
+            "${CURRENT_LINK}"
+    then
+        RECOVERY_FAILED=true
+    fi
+
+    if ! systemctl reload "${PHP_FPM_SERVICE}"; then
+        RECOVERY_FAILED=true
+    fi
+
+    append_history \
+        "${ENVIRONMENT_ROOT}" \
+        "rollback-finished" \
+        "${TARGET_RELEASE}" \
+        "failed-health-check"
+
+    if [[ "${RECOVERY_FAILED}" == true ]]; then
+        fail "rollback health check failed and the prior release could not be fully restored"
+    fi
+
+    fail "rollback health check failed; restored ${CURRENT_RELEASE_ID}"
+fi
 
 append_history \
     "${ENVIRONMENT_ROOT}" \

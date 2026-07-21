@@ -225,8 +225,11 @@ MIGRATION_COUNT="$(
             --tuples-only \
             --dbname="${TEST_DATABASE}" \
             --command="
-                SELECT count(*)
-                FROM public.migrations;
+                SELECT CASE
+                    WHEN to_regclass('public.migrations') IS NULL
+                        THEN 0
+                    ELSE (SELECT count(*) FROM migrations)
+                END;
             "
 )"
 

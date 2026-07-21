@@ -27,6 +27,22 @@ case "${ENVIRONMENT}" in
         ;;
 esac
 
+LOCK_ROOT="/home/www/rateguru/run"
+LOCK_FILE="${LOCK_ROOT}/restore-test-${ENVIRONMENT}.lock"
+
+install -d \
+    -o root \
+    -g root \
+    -m 0700 \
+    "${LOCK_ROOT}"
+
+exec 9>"${LOCK_FILE}"
+
+if ! flock -n 9; then
+    echo "Restore test for ${ENVIRONMENT} is already running" >&2
+    exit 1
+fi
+
 BACKUP_ROOT="/home/www/rateguru/backups/${ENVIRONMENT}"
 
 LATEST_BACKUP="$(
