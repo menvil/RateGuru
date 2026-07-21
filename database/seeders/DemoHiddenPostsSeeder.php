@@ -7,6 +7,7 @@ use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Database\Seeders\Support\DemoPostMediaGenerator;
 use Illuminate\Database\Seeder;
 
 class DemoHiddenPostsSeeder extends Seeder
@@ -19,8 +20,9 @@ class DemoHiddenPostsSeeder extends Seeder
             return;
         }
 
-        foreach ($this->posts() as $demoPost) {
+        foreach ($this->posts() as $index => $demoPost) {
             $author = User::query()->where('email', $demoPost['author'])->firstOrFail();
+            app(DemoPostMediaGenerator::class)->create($demoPost['image_path'], $index + 17);
 
             $post = Post::query()->updateOrCreate(
                 ['title' => $demoPost['title']],
@@ -57,14 +59,14 @@ class DemoHiddenPostsSeeder extends Seeder
             [
                 'title' => 'Demo Hidden: Removed From Feed 01',
                 'description' => 'A hidden source B post kept for admin moderation filter checks.',
-                'image_path' => 'demo/posts/hidden-01.jpg',
+                'image_path' => 'demo/posts/hidden-01.svg',
                 'author' => 'bob@rateguru.test',
                 'tags' => ['source-b', 'sample-f'],
             ],
             [
                 'title' => 'Demo Hidden: Removed From Feed 02',
                 'description' => 'A hidden source A post that should stay outside public feed results.',
-                'image_path' => 'demo/posts/hidden-02.jpg',
+                'image_path' => 'demo/posts/hidden-02.svg',
                 'author' => 'alice@rateguru.test',
                 'tags' => ['source-a', 'category-c'],
             ],
