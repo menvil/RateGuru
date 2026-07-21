@@ -81,6 +81,5 @@ it('does not load full vote relations for feed counts', function () {
     $first = $posts->items()[0];
 
     expect($first->relationLoaded('postVotes'))->toBeFalse();
-    expect($first->relationLoaded('originVotes'))->toBeFalse();
-    expect($first->relationLoaded('cuisineVotes'))->toBeFalse();
+    expect($first->relationLoaded('ratingVotes'))->toBeFalse();
 });

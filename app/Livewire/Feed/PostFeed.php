@@ -18,9 +18,9 @@ class PostFeed extends Component
 
     public ?string $tag = null;
 
-    public mixed $origin = [];
+    public mixed $category = [];
 
-    public mixed $cuisine = [];
+    public array $ratings = [];
 
     public string $sort = 'newest';
 
@@ -46,8 +46,8 @@ class PostFeed extends Component
             search: $this->search !== '' ? $this->search : null,
             tag: $this->tag !== '' ? $this->tag : null,
             sort: $this->sort,
-            origin: $this->origin,
-            cuisine: $this->cuisine,
+            category: $this->category,
+            ratingFilters: $this->ratings,
             followedByUserId: $this->followingOnly ? auth()->id() : null,
         )->onEachSide(1);
         $posts = $paginator->getCollection();

@@ -75,9 +75,9 @@ class AppServiceProvider extends ServiceProvider
 
         View::composer('layouts.partials.app-sidebar-content', function ($view): void {
             $locale = app()->getLocale();
-            $activeOrigin = (array) request('origin');
-            $activeCuisine = (array) request('cuisine');
-            $noFilters = $activeOrigin === [] && $activeCuisine === [];
+            $activeCategories = (array) request('category');
+            $activeRatings = (array) request('ratings');
+            $noFilters = $activeCategories === [] && $activeRatings === [];
 
             // Cached as plain arrays, not Eloquent models: the file cache store's
             // serializable_classes=false setting silently corrupts cached objects
@@ -115,8 +115,8 @@ class AppServiceProvider extends ServiceProvider
             foreach ($firstGroupOptions as $option) {
                 $categories[] = [
                     'label' => TranslatableField::resolve($option['label_translations'], $option['label'], $locale),
-                    'href' => route('feed', ['origin' => [$option['key']]]),
-                    'active' => in_array($option['key'], $activeOrigin, true),
+                    'href' => route('feed', ['category' => [$option['key']]]),
+                    'active' => in_array($option['key'], $activeCategories, true),
                 ];
             }
 

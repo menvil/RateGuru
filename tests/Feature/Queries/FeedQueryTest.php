@@ -1,7 +1,5 @@
 <?php
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
@@ -112,51 +110,6 @@ it('filters published posts by tag slug', function () {
     $hiddenMatching->tags()->attach($pasta);
 
     $posts = app(FeedQuery::class)->get(tag: 'pasta');
-
-    expect($posts->pluck('id')->all())->toBe([$matching->id]);
-});
-
-it('filters published posts by origin truth', function () {
-    $matching = Post::factory()->published()->create([
-        'origin_truth' => OriginType::Homemade,
-    ]);
-
-    Post::factory()->published()->create([
-        'origin_truth' => OriginType::Restaurant,
-    ]);
-
-    $posts = app(FeedQuery::class)->get(origin: OriginType::Homemade->value);
-
-    expect($posts->pluck('id')->all())->toBe([$matching->id]);
-});
-
-it('filters published posts by multiple origin truths', function () {
-    $homemade = Post::factory()->published()->create([
-        'origin_truth' => OriginType::Homemade,
-    ]);
-
-    $restaurant = Post::factory()->published()->create([
-        'origin_truth' => OriginType::Restaurant,
-    ]);
-
-    $posts = app(FeedQuery::class)->get(origin: [
-        OriginType::Homemade->value,
-        OriginType::Restaurant->value,
-    ]);
-
-    expect($posts->pluck('id')->all())->toBe([$restaurant->id, $homemade->id]);
-});
-
-it('filters published posts by cuisine truth', function () {
-    $matching = Post::factory()->published()->create([
-        'cuisine_truth' => CuisineType::Italian,
-    ]);
-
-    Post::factory()->published()->create([
-        'cuisine_truth' => CuisineType::Asian,
-    ]);
-
-    $posts = app(FeedQuery::class)->get(cuisine: CuisineType::Italian->value);
 
     expect($posts->pluck('id')->all())->toBe([$matching->id]);
 });

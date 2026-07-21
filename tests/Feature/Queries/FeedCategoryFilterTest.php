@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\OriginType;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Queries\Feed\FeedQuery;
@@ -19,26 +18,14 @@ it('filters posts by author-chosen category option key', function () {
     $restaurantPost = Post::factory()->published()->create(['category_option_id' => $restaurant->id]);
     $uncategorisedPost = Post::factory()->published()->create();
 
-    $results = app(FeedQuery::class)->get(origin: ['homemade']);
+    $results = app(FeedQuery::class)->get(category: ['homemade']);
 
     expect($results->pluck('id')->all())->toContain($homemadePost->id);
     expect($results->pluck('id')->all())->not->toContain($restaurantPost->id);
     expect($results->pluck('id')->all())->not->toContain($uncategorisedPost->id);
 });
 
-it('matches posts by legacy origin_truth alongside category option keys', function () {
-    $homemade = $this->sourceGroup->options()->where('key', 'homemade')->firstOrFail();
-
-    $legacyPost = Post::factory()->published()->create(['origin_truth' => OriginType::Homemade]);
-    $categorisedPost = Post::factory()->published()->create(['category_option_id' => $homemade->id]);
-
-    $results = app(FeedQuery::class)->get(origin: ['homemade']);
-
-    expect($results->pluck('id')->all())->toContain($legacyPost->id);
-    expect($results->pluck('id')->all())->toContain($categorisedPost->id);
-});
-
-it('filters by an option key that is not a legacy enum value', function () {
+it('filters by any configured category option key', function () {
     $custom = $this->sourceGroup->options()->create([
         'key' => 'natural',
         'label' => 'Natural',
@@ -49,16 +36,16 @@ it('filters by an option key that is not a legacy enum value', function () {
     $naturalPost = Post::factory()->published()->create(['category_option_id' => $custom->id]);
     $otherPost = Post::factory()->published()->create();
 
-    $results = app(FeedQuery::class)->get(origin: ['natural']);
+    $results = app(FeedQuery::class)->get(category: ['natural']);
 
     expect($results->pluck('id')->all())->toContain($naturalPost->id);
     expect($results->pluck('id')->all())->not->toContain($otherPost->id);
 });
 
-it('returns everything when the origin filter is empty', function () {
+it('returns everything when the category filter is empty', function () {
     $post = Post::factory()->published()->create();
 
-    $results = app(FeedQuery::class)->get(origin: []);
+    $results = app(FeedQuery::class)->get(category: []);
 
     expect($results->pluck('id')->all())->toContain($post->id);
 });
