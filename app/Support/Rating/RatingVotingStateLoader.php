@@ -23,13 +23,13 @@ final class RatingVotingStateLoader
      *     selected_option_id: int|null
      * }>>
      */
-    public function forPosts(Collection $posts, ?User $user): array
+    public function forPosts(Collection $posts, ?User $user, ?Collection $groups = null): array
     {
         if ($posts->isEmpty()) {
             return [];
         }
 
-        $groups = $this->configuration->activeGroups();
+        $groups ??= $this->configuration->activeGroups();
         $postIds = $posts->modelKeys();
         $groupIds = $groups->modelKeys();
         $counts = $this->voteCounts->forPostsAndGroups($postIds, $groupIds);

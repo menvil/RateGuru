@@ -2,6 +2,8 @@
 
 use App\Livewire\Profile\ProfilePage;
 use App\Models\Post;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\Report;
 use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -142,6 +144,16 @@ it('renders profile posts as full feed post cards with the same controls as the 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertSee('data-testid="post-card"', false)
         ->assertSee('data-testid="post-card-voting"', false);
+});
+
+it('renders active rating groups on profile post cards', function () {
+    $user = User::factory()->create(['username' => 'profile_author']);
+    Post::factory()->for($user)->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'confidence', 'label' => 'Confidence']);
+    RatingOption::factory()->count(2)->for($group, 'group')->create();
+
+    Livewire::test(ProfilePage::class, ['username' => $user->username])
+        ->assertSee('data-testid="post-card-rating-confidence"', false);
 });
 
 it('renders generic profile copy', function () {

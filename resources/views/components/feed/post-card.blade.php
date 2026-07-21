@@ -80,26 +80,19 @@
 
         <div class="mt-3 space-y-2.5" wire:click.stop wire:keydown.stop>
             @if($post->exists)
-                <div data-testid="post-card-source-voting">
-                    <livewire:posts.source-voting
-                        :post-id="$post->id"
-                        :has-preloaded-state="isset($ratingVotingState['source'])"
-                        :preloaded-distribution="$ratingVotingState['source']['distribution'] ?? []"
-                        :preloaded-selected-option-id="$ratingVotingState['source']['selected_option_id'] ?? null"
-                        :key="'post-card-source-voting-'.$post->id"
-                    />
-                </div>
-
-                <div data-testid="post-card-category-voting">
-                    <livewire:posts.category-voting
-                        :post-id="$post->id"
-                        variant="compact"
-                        :has-preloaded-state="isset($ratingVotingState['category'])"
-                        :preloaded-distribution="$ratingVotingState['category']['distribution'] ?? []"
-                        :preloaded-selected-option-id="$ratingVotingState['category']['selected_option_id'] ?? null"
-                        :key="'post-card-category-voting-'.$post->id"
-                    />
-                </div>
+                @foreach($ratingGroups as $ratingGroup)
+                    <div data-testid="post-card-rating-{{ $ratingGroup->key }}">
+                        <livewire:voting.rating-voting
+                            :post="$post"
+                            :group-key="$ratingGroup->key"
+                            variant="{{ $ratingGroup->options->count() > 2 ? 'compact' : 'default' }}"
+                            :has-preloaded-state="isset($ratingVotingState[$ratingGroup->key])"
+                            :preloaded-distribution="$ratingVotingState[$ratingGroup->key]['distribution'] ?? []"
+                            :preloaded-selected-option-id="$ratingVotingState[$ratingGroup->key]['selected_option_id'] ?? null"
+                            :key="'post-card-rating-'.$ratingGroup->key.'-'.$post->id"
+                        />
+                    </div>
+                @endforeach
             @endif
         </div>
 

@@ -11,6 +11,7 @@ use App\Queries\UserPublicPostsQuery;
 use App\Queries\UserRatingActivityQuery;
 use App\Support\Profile\ProfileStats;
 use App\Support\Profile\ProfileStatsData;
+use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
@@ -128,9 +129,11 @@ final class ProfilePage extends Component
         }
     }
 
-    public function render(): View
+    public function render(RatingConfigurationManager $ratingConfiguration): View
     {
-        return view('livewire.profile.profile-page')
+        return view('livewire.profile.profile-page', [
+            'ratingGroups' => $ratingConfiguration->activeGroups(),
+        ])
             ->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

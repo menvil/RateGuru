@@ -56,7 +56,7 @@ The action also verifies that:
 
 `RatingVoting` is the generic Livewire component. It receives a post and `groupKey`, renders configured options, records votes through `VoteRatingOptionAction`, and displays the selected option and distribution.
 
-`SourceVoting` and `CategoryVoting` are compatibility wrappers. They hardcode the `source` and `category` group keys but use `rating_votes` for all new votes. They no longer create rows in the legacy vote tables.
+Public post cards load all active groups in configured order and render one `RatingVoting` instance per group. The feed and saved-post pages preload distributions in bulk. No group key is hardcoded in the card, so a newly activated group appears without a new Livewire wrapper or Blade branch.
 
 ## Default configuration
 
@@ -90,4 +90,3 @@ The admin UI enforces 2-10 options through group validation and prospective acti
 `ArchiveRatingOptionAction` sets `is_active` to false and records `archived_at`. Archiving and deleting an active option are both blocked when the change would reduce the group below `min_options`.
 
 Never reuse an archived option ID for a different meaning. Create a new option instead.
-

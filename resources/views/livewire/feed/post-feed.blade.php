@@ -30,6 +30,7 @@
                 <x-feed.post-card
                     :post="$post"
                     :selected="$selectedPostId === $post->id"
+                    :rating-groups="$ratingGroups"
                     :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
                     :can-delete-post="$deletePermissions[$post->id] ?? false"
                     :can-report-post="$reportPermissions[$post->id] ?? false"
