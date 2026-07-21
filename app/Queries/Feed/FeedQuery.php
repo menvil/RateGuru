@@ -69,8 +69,8 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
 
             $query->where(function (Builder $searchQuery) use ($pattern) {
                 $searchQuery
-                    ->whereRaw("title LIKE ? ESCAPE '!'", [$pattern])
-                    ->orWhereRaw("description LIKE ? ESCAPE '!'", [$pattern]);
+                    ->whereRaw("LOWER(title) LIKE LOWER(?) ESCAPE '!'", [$pattern])
+                    ->orWhereRaw("LOWER(description) LIKE LOWER(?) ESCAPE '!'", [$pattern]);
             });
         }
 

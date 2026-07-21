@@ -12,6 +12,7 @@ class ProjectSettingsFactory extends Factory
     public function definition(): array
     {
         return [
+            'id' => 1,
             'site_name' => 'RateGuru',
             'site_tagline' => 'Rate anything',
             'site_description' => null,

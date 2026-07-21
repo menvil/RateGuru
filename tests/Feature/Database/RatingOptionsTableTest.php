@@ -31,10 +31,13 @@ it('uses rating option defaults', function () {
         'updated_at' => now(),
     ]);
 
-    expect(DB::table('rating_options')->find($optionId))
-        ->is_active->toBe(1)
+    $option = DB::table('rating_options')->find($optionId);
+
+    expect($option)
         ->sort_order->toBe(0)
         ->archived_at->toBeNull();
+
+    expect((bool) $option->is_active)->toBeTrue();
 });
 
 it('requires unique rating option keys within a group', function () {
