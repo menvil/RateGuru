@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+ENVIRONMENT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+case "${ENVIRONMENT}" in
+    staging|production)
+        ;;
+    *)
+        echo "Usage: restore-test --environment staging|production" >&2
+        exit 1
+        ;;
+esac
+
+LOCK_ROOT="/home/www/rateguru/run"
+LOCK_FILE="${LOCK_ROOT}/restore-test-${ENVIRONMENT}.lock"
+
+install -d \
+    -o root \
+    -g root \
+    -m 0700 \
+    "${LOCK_ROOT}"
+
+exec 9>"${LOCK_FILE}"
+
+if ! flock -n 9; then
+    echo "Restore test for ${ENVIRONMENT} is already running" >&2
+    exit 1
+fi
+
+BACKUP_ROOT="/home/www/rateguru/backups/${ENVIRONMENT}"
+
+LATEST_BACKUP="$(
+    find "${BACKUP_ROOT}" \
+        -regextype posix-extended \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -regex '.*/[0-9]{8}-[0-9]{6}' \
+        -printf '%f\n' \
+    | sort \
+    | tail -1
+)"
+
+[[ -n "${LATEST_BACKUP}" ]] || {
+    echo "No backup found for ${ENVIRONMENT}" >&2
+    exit 1
+}
+
+BACKUP_DIRECTORY="${BACKUP_ROOT}/${LATEST_BACKUP}"
+TEST_DATABASE="rateguru_restore_${ENVIRONMENT}_$(date -u +%Y%m%d%H%M%S)_$$"
+TEST_DATABASE="${TEST_DATABASE//-/_}"
+
+cleanup() {
+    runuser -u postgres -- \
+        /usr/bin/dropdb \
+        --if-exists \
+        "${TEST_DATABASE}" \
+        >/dev/null 2>&1 || true
+}
+
+trap cleanup EXIT
+
+echo "Testing backup:"
+echo "${BACKUP_DIRECTORY}"
+
+(
+    cd "${BACKUP_DIRECTORY}"
+    sha256sum --check SHA256SUMS
+)
+
+tar \
+    -tzf "${BACKUP_DIRECTORY}/storage-app.tar.gz" \
+    >/dev/null
+
+runuser -u postgres -- \
+    /usr/bin/createdb \
+        --template=template0 \
+        "${TEST_DATABASE}"
+
+echo "Restoring PostgreSQL dump into temporary database"
+
+# The backup remains root-only. The root shell opens the file and passes
+# the already-open stdin stream to pg_restore running as postgres.
+runuser -u postgres -- \
+    /usr/bin/pg_restore \
+        --exit-on-error \
+        --single-transaction \
+        --no-owner \
+        --no-privileges \
+        --dbname="${TEST_DATABASE}" \
+    < "${BACKUP_DIRECTORY}/database.dump"
+
+TABLE_COUNT="$(
+    runuser -u postgres -- \
+        /usr/bin/psql \
+            --no-align \
+            --tuples-only \
+            --dbname="${TEST_DATABASE}" \
+            --command="
+                SELECT count(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'public';
+            "
+)"
+
+TABLE_COUNT="${TABLE_COUNT//[[:space:]]/}"
+
+if [[ ! "${TABLE_COUNT}" =~ ^[0-9]+$ ]] \
+    || (( TABLE_COUNT == 0 ))
+then
+    echo "Restored database contains no public tables" >&2
+    exit 1
+fi
+
+MIGRATION_COUNT="$(
+    runuser -u postgres -- \
+        /usr/bin/psql \
+            --no-align \
+            --tuples-only \
+            --dbname="${TEST_DATABASE}" \
+            --command="
+                SELECT CASE
+                    WHEN to_regclass('public.migrations') IS NULL
+                        THEN 0
+                    ELSE (SELECT count(*) FROM migrations)
+                END;
+            "
+)"
+
+MIGRATION_COUNT="${MIGRATION_COUNT//[[:space:]]/}"
+
+cleanup
+trap - EXIT
+
+RESULT="$(
+    jq \
+        --null-input \
+        --arg tested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg environment "${ENVIRONMENT}" \
+        --arg backup "${LATEST_BACKUP}" \
+        --argjson tables "${TABLE_COUNT}" \
+        --argjson migrations "${MIGRATION_COUNT}" \
+        '{
+            status: "ok",
+            tested_at: $tested_at,
+            environment: $environment,
+            backup: $backup,
+            tables: $tables,
+            migrations: $migrations
+        }'
+)"
+
+printf '%s\n' "${RESULT}" \
+    | tee -a "${BACKUP_ROOT}/restore-tests.jsonl"
+
+echo
+echo "Restore test completed successfully."

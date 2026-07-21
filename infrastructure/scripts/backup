@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+ENVIRONMENT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+case "${ENVIRONMENT}" in
+    staging)
+        ENVIRONMENT_ROOT="/home/www/rateguru/staging"
+        DATABASE_NAME="rateguru_staging"
+        RETENTION_DAYS=14
+        ;;
+    production)
+        ENVIRONMENT_ROOT="/home/www/rateguru/production"
+        DATABASE_NAME="rateguru_production"
+        RETENTION_DAYS=30
+        ;;
+    *)
+        echo "Usage: backup --environment staging|production" >&2
+        exit 1
+        ;;
+esac
+
+BACKUP_ROOT="/home/www/rateguru/backups/${ENVIRONMENT}"
+TIMESTAMP="$(date -u +%Y%m%d-%H%M%S)"
+TEMP_ROOT="${BACKUP_ROOT}/.${TIMESTAMP}.tmp"
+FINAL_ROOT="${BACKUP_ROOT}/${TIMESTAMP}"
+LOCK_FILE="/home/www/rateguru/run/backup-${ENVIRONMENT}.lock"
+
+install -d -o root -g root -m 0700 \
+    /home/www/rateguru/run \
+    "${BACKUP_ROOT}"
+
+exec 9>"${LOCK_FILE}"
+
+if ! flock -n 9; then
+    echo "${ENVIRONMENT} backup is already running" >&2
+    exit 1
+fi
+
+cleanup() {
+    rm -rf "${TEMP_ROOT}"
+}
+
+trap cleanup EXIT
+
+install -d -o root -g root -m 0700 "${TEMP_ROOT}"
+
+CURRENT_RELEASE="unknown"
+
+if [[ -L "${ENVIRONMENT_ROOT}/current" ]]; then
+    CURRENT_RELEASE="$(
+        basename "$(
+            readlink -f "${ENVIRONMENT_ROOT}/current"
+        )"
+    )"
+fi
+
+echo "Backing up PostgreSQL database ${DATABASE_NAME}"
+
+runuser -u postgres -- \
+    /usr/bin/pg_dump \
+        --format=custom \
+        --compress=9 \
+        --no-owner \
+        --no-privileges \
+        "${DATABASE_NAME}" \
+    > "${TEMP_ROOT}/database.dump"
+
+echo "Backing up application storage"
+
+tar \
+    -C "${ENVIRONMENT_ROOT}/shared/storage" \
+    -czf "${TEMP_ROOT}/storage-app.tar.gz" \
+    app
+
+echo "Backing up environment configuration"
+
+install \
+    -o root \
+    -g root \
+    -m 0600 \
+    "${ENVIRONMENT_ROOT}/shared/.env" \
+    "${TEMP_ROOT}/environment.env"
+
+if [[ -f "${ENVIRONMENT_ROOT}/current/release.json" ]]; then
+    install \
+        -o root \
+        -g root \
+        -m 0600 \
+        "${ENVIRONMENT_ROOT}/current/release.json" \
+        "${TEMP_ROOT}/release.json"
+else
+    printf '{}\n' > "${TEMP_ROOT}/release.json"
+fi
+
+echo "Backing up server configuration"
+
+INFRA_PATHS=(
+    "home/www/rateguru/bin"
+    "home/www/rateguru/config"
+    "home/www/rateguru/DEPLOYMENT_POLICY"
+    "home/www/rateguru/runbooks"
+    "etc/nginx/sites-available/rateguru-staging"
+    "etc/nginx/sites-available/rateguru-production"
+    "etc/nginx/rateguru-staging.htpasswd"
+    "etc/php/8.5/fpm/pool.d/rateguru-staging.conf"
+    "etc/php/8.5/fpm/pool.d/rateguru-production.conf"
+    "etc/supervisor/conf.d/rateguru-staging-queue.conf"
+    "etc/supervisor/conf.d/rateguru-production-queue.conf"
+    "etc/cron.d/rateguru-staging-scheduler"
+    "etc/cron.d/rateguru-production-scheduler"
+    "home/deploy-rateguru-staging/.ssh/authorized_keys"
+    "home/deploy-rateguru-production/.ssh/authorized_keys"
+)
+
+EXISTING_INFRA_PATHS=()
+
+for path in "${INFRA_PATHS[@]}"; do
+    if [[ -e "/${path}" ]]; then
+        EXISTING_INFRA_PATHS+=("${path}")
+    fi
+done
+
+while IFS= read -r path; do
+    EXISTING_INFRA_PATHS+=("${path#/}")
+done < <(
+    find \
+        /etc/sudoers.d \
+        /etc/ssh/sshd_config.d \
+        -maxdepth 1 \
+        -type f \
+        -iname '*rateguru*' \
+        2>/dev/null
+)
+
+tar \
+    -C / \
+    -czf "${TEMP_ROOT}/server-configuration.tar.gz" \
+    "${EXISTING_INFRA_PATHS[@]}"
+
+jq \
+    --null-input \
+    --arg project "rateguru" \
+    --arg environment "${ENVIRONMENT}" \
+    --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg hostname "$(hostname -f 2>/dev/null || hostname)" \
+    --arg database "${DATABASE_NAME}" \
+    --arg release "${CURRENT_RELEASE}" \
+    --arg postgres_version "$(/usr/bin/pg_dump --version)" \
+    --arg php_version "$(/usr/bin/php8.5 -r 'echo PHP_VERSION;')" \
+    '{
+        project: $project,
+        environment: $environment,
+        created_at: $created_at,
+        hostname: $hostname,
+        database: $database,
+        release: $release,
+        postgres_version: $postgres_version,
+        php_version: $php_version
+    }' \
+    > "${TEMP_ROOT}/manifest.json"
+
+(
+    cd "${TEMP_ROOT}"
+
+    sha256sum \
+        database.dump \
+        storage-app.tar.gz \
+        environment.env \
+        release.json \
+        server-configuration.tar.gz \
+        manifest.json \
+        > SHA256SUMS
+)
+
+mv "${TEMP_ROOT}" "${FINAL_ROOT}"
+trap - EXIT
+
+# Remove only timestamped backup directories.
+# Do not touch auxiliary directories such as uploads.
+find "${BACKUP_ROOT}" \
+    -regextype posix-extended \
+    -mindepth 1 \
+    -maxdepth 1 \
+    -type d \
+    -regex '.*/[0-9]{8}-[0-9]{6}' \
+    -mtime "+${RETENTION_DAYS}" \
+    -exec rm -rf -- {} +
+
+echo
+echo "Backup completed:"
+echo "${FINAL_ROOT}"
+
+du -sh "${FINAL_ROOT}"

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+ENVIRONMENT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+case "${ENVIRONMENT}" in
+    staging|production)
+        ;;
+    *)
+        echo "Usage: backup-cycle --environment staging|production" >&2
+        exit 1
+        ;;
+esac
+
+LOCK_ROOT="/home/www/rateguru/run"
+LOCK_FILE="${LOCK_ROOT}/backup-cycle-${ENVIRONMENT}.lock"
+
+install -d \
+    -o root \
+    -g root \
+    -m 0700 \
+    "${LOCK_ROOT}"
+
+exec 9>"${LOCK_FILE}"
+
+if ! flock -n 9; then
+    echo "Backup cycle for ${ENVIRONMENT} is already running" >&2
+    exit 1
+fi
+
+echo "========================================"
+echo "RateGuru backup cycle"
+echo "Environment: ${ENVIRONMENT}"
+echo "Started:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "========================================"
+
+echo
+echo "[1/3] Creating local backup"
+
+/home/www/rateguru/bin/backup \
+    --environment "${ENVIRONMENT}"
+
+echo
+echo "[2/3] Uploading offsite backup"
+
+/home/www/rateguru/bin/offsite-backup \
+    --environment "${ENVIRONMENT}"
+
+echo
+echo "[3/3] Applying offsite retention"
+
+/home/www/rateguru/bin/offsite-retention \
+    --environment "${ENVIRONMENT}" \
+    --apply
+
+echo
+echo "Backup cycle completed:"
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

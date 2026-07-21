@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+source /home/www/rateguru/bin/common
+
+ENVIRONMENT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --environment)
+            ENVIRONMENT="${2:-}"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: status --environment staging|production"
+            exit 0
+            ;;
+        *)
+            fail "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "${ENVIRONMENT}" ]] \
+    || fail "--environment is required"
+
+validate_environment "${ENVIRONMENT}"
+
+ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
+CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
+PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
+HISTORY_FILE="${ENVIRONMENT_ROOT}/deployments/history.jsonl"
+
+print_link() {
+    local label="$1"
+    local link="$2"
+
+    if [[ -L "${link}" ]]; then
+        local path
+        local release
+
+        path="$(readlink -f "${link}")"
+        release="$(basename "${path}")"
+
+        printf '%-12s %s\n' "${label}:" "${release}"
+        printf '%-12s %s\n' "${label} path:" "${path}"
+    else
+        printf '%-12s %s\n' "${label}:" "not configured"
+    fi
+}
+
+echo "========================================"
+echo "RateGuru deployment status"
+echo "========================================"
+printf '%-12s %s\n' "Environment:" "${ENVIRONMENT}"
+printf '%-12s %s\n' "Checked at:" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+echo
+echo "Releases"
+echo "----------------------------------------"
+
+print_link "Current" "${CURRENT_LINK}"
+print_link "Previous" "${PREVIOUS_LINK}"
+
+echo
+echo "Current release metadata"
+echo "----------------------------------------"
+
+if [[ -L "${CURRENT_LINK}" ]] \
+    && [[ -r "${CURRENT_LINK}/release.json" ]]
+then
+    if RELEASE_METADATA="$(jq . "${CURRENT_LINK}/release.json" 2>/dev/null)"
+    then
+        printf '%s\n' "${RELEASE_METADATA}"
+    else
+        echo "release.json is malformed"
+    fi
+else
+    echo "release.json is unavailable"
+fi
+
+echo
+echo "Health"
+echo "----------------------------------------"
+
+if /home/www/rateguru/bin/health-check \
+    --environment "${ENVIRONMENT}"
+then
+    echo "Status: healthy"
+else
+    echo "Status: unhealthy"
+fi
+
+echo
+echo "Recent deployment history"
+echo "----------------------------------------"
+
+if [[ -r "${HISTORY_FILE}" ]]; then
+    while IFS= read -r history_entry; do
+        if ! jq . <<<"${history_entry}"; then
+            printf 'Malformed history entry: %s\n' "${history_entry}"
+        fi
+    done < <(tail -6 "${HISTORY_FILE}")
+else
+    echo "No deployment history"
+fi

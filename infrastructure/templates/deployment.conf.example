@@ -1,0 +1,21 @@
+# Non-secret deployment settings installed as:
+# /home/www/rateguru/config/deployment.conf
+
+RELEASE_ID_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+PHP_BIN=/usr/bin/php8.5
+PHP_FPM_SERVICE=php8.5-fpm
+
+STAGING_ROOT=/home/www/rateguru/staging
+STAGING_RUNTIME_USER=rateguru-staging
+STAGING_CODE_GROUP=rateguru-staging
+STAGING_DEPLOY_USER=deploy-rateguru-staging
+STAGING_INCOMING_ARTIFACTS=/home/deploy-rateguru-staging/incoming
+STAGING_RELEASE_RETENTION=5
+
+PRODUCTION_ROOT=/home/www/rateguru/production
+PRODUCTION_RUNTIME_USER=rateguru-production
+PRODUCTION_CODE_GROUP=rateguru-production
+PRODUCTION_DEPLOY_USER=deploy-rateguru-production
+PRODUCTION_INCOMING_ARTIFACTS=/home/deploy-rateguru-production/incoming
+PRODUCTION_RELEASE_RETENTION=10
