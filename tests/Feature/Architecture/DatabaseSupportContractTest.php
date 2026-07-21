@@ -56,6 +56,8 @@ it('runs primary and compatibility test suites in ci', function () {
         ->toContain('- name: Run PostgreSQL tests')
         ->toContain('- name: Run SQLite compatibility tests')
         ->toContain('- name: Run MariaDB compatibility tests')
+        ->and(substr_count($workflow, '- name: Download built assets'))
+        ->toBe(3)
         ->and($coverage)
         ->toContain('image: postgres:17-alpine')
         ->toContain('extensions: mbstring, pdo_pgsql, pcov');
