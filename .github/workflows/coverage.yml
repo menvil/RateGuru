@@ -216,15 +216,25 @@ jobs:
               const existingComments = comments.filter((comment) =>
                 comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker),
               );
+              const [existing, ...duplicateComments] = existingComments;
 
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pullRequest.number,
-                body,
-              });
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullRequest.number,
+                  body,
+                });
+              }
 
-              await Promise.all(existingComments.map((comment) =>
+              await Promise.all(duplicateComments.map((comment) =>
                 github.rest.issues.deleteComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
