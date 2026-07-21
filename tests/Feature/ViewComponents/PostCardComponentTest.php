@@ -7,6 +7,7 @@ use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Models\User;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Blade;
 
 it('renders post voting component in post card', function () {
@@ -18,11 +19,11 @@ it('renders post voting component in post card', function () {
 });
 
 it('renders post card title', function () {
-    $post = Post::factory()->published()->make(['title' => 'Homemade Carbonara']);
+    $post = Post::factory()->published()->make(['title' => 'Sample Post']);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('Homemade Carbonara');
+    expect($html)->toContain('Sample Post');
 });
 
 it('renders post image when image url exists', function () {
@@ -61,14 +62,14 @@ it('renders image placeholder when image url is missing', function () {
 
 it('renders post title and description', function () {
     $post = Post::factory()->published()->make([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)
-        ->toContain('Homemade Carbonara')
+        ->toContain('Sample Post')
         ->toContain('Creamy pasta with pepper');
 });
 
@@ -275,15 +276,27 @@ it('does not render delete action in the post card menu for another user', funct
     expect($html)->not->toContain('data-testid="post-card-delete"');
 });
 
-it('renders source voting component in post card for persisted posts', function () {
+it('renders every supplied rating group in post card for persisted posts', function () {
     $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create([
+        'key' => 'confidence',
+        'label' => 'Confidence',
+    ]);
+    $group->options()->createMany([
+        ['key' => 'low', 'label' => 'Low', 'sort_order' => 10],
+        ['key' => 'high', 'label' => 'High', 'sort_order' => 20],
+    ]);
+    $ratingGroups = new Collection([$group->load('options')]);
 
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+    $html = Blade::render(
+        '<x-feed.post-card :post="$post" :rating-groups="$ratingGroups" />',
+        compact('post', 'ratingGroups'),
+    );
 
     expect($html)
-        ->toContain('post-card-source-voting')
-        ->toContain('Source')
-        ->not->toContain('What do you think?');
+        ->toContain('post-card-rating-confidence')
+        ->toContain('rating-voting-confidence-'.$post->id)
+        ->toContain('Confidence');
 });
 
 it('renders feed card rating histogram via preloaded state after the current user votes', function () {
@@ -318,7 +331,7 @@ it('does not render rating histogram before the current user votes', function ()
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     // No selected option → buttons shown, not the results block
-    expect($html)->not->toContain('post-card-origin-results');
+    expect($html)->not->toContain('rating-option-'.$post->id.'-results');
 });
 
 it('does not break rendering on an unsaved post', function () {
@@ -327,8 +340,8 @@ it('does not break rendering on an unsaved post', function () {
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)->toContain('post-card');
-    // Unsaved posts must not render the interactive Livewire source component.
-    expect($html)->not->toContain('post-card-source-voting');
+    // Unsaved posts must not render interactive Livewire rating components.
+    expect($html)->not->toContain('post-card-rating-');
 });
 
 it('keeps post card free of service locator vote and authorization queries', function () {
@@ -351,10 +364,8 @@ it('delegates result rendering to the rating voting components', function () {
     // Post card no longer renders its own distribution blocks; the rating
     // voting Livewire components (and their rating-options view) own that.
     expect($view)
-        ->not->toContain('post-card-origin-results')
-        ->not->toContain('post-card-cuisine-results')
-        ->toContain('posts.source-voting')
-        ->toContain('posts.category-voting');
+        ->toContain('voting.rating-voting')
+        ->toContain('@foreach($ratingGroups as $ratingGroup)');
 });
 
 it('renders save button on post card when feature is enabled', function () {

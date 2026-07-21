@@ -4,8 +4,6 @@ namespace App\Queries\Feed;
 
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Contracts\Persistence\StablePaginationBoundary;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Models\Follow;
 use App\Models\Post;
 use App\Support\Database\LikePattern;
@@ -26,8 +24,8 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
         ?string $search = null,
         ?string $tag = null,
         string $sort = 'newest',
-        array|string|null $origin = null,
-        array|string|null $cuisine = null,
+        array|string|null $category = null,
+        array $ratingFilters = [],
         ?int $followedByUserId = null,
     ): Builder {
         $query = $this->base()
@@ -49,31 +47,20 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
             });
         }
 
-        $originTypes = $this->originTypes($origin);
-        $categoryOptionKeys = $this->categoryOptionKeys($origin);
+        $categoryOptionKeys = $this->optionKeys($category);
 
-        // The origin filter accepts both legacy OriginType values (old posts store
-        // them in origin_truth) and rating-option keys of the sidebar category
-        // group (the author-chosen posts.category_option_id) — sidebar "Categories"
-        // links pass the latter.
-        if ($originTypes !== [] || $categoryOptionKeys !== []) {
-            $query->where(function (Builder $originQuery) use ($originTypes, $categoryOptionKeys) {
-                if ($originTypes !== []) {
-                    $originQuery->whereIn('origin_truth', $originTypes);
-                }
-
-                if ($categoryOptionKeys !== []) {
-                    $originQuery->orWhereHas('categoryOption', function (Builder $optionQuery) use ($categoryOptionKeys) {
-                        $optionQuery->whereIn('key', $categoryOptionKeys);
-                    });
-                }
+        if ($categoryOptionKeys !== []) {
+            $query->whereHas('categoryOption', function (Builder $optionQuery) use ($categoryOptionKeys) {
+                $optionQuery->whereIn('key', $categoryOptionKeys);
             });
         }
 
-        $cuisineTypes = $this->cuisineTypes($cuisine);
-
-        if ($cuisineTypes !== []) {
-            $query->whereIn('cuisine_truth', $cuisineTypes);
+        foreach ($this->normalizeRatingFilters($ratingFilters) as $groupKey => $optionKeys) {
+            $query->whereHas('authorAnswers', function (Builder $answerQuery) use ($groupKey, $optionKeys) {
+                $answerQuery
+                    ->whereHas('group', fn (Builder $groupQuery) => $groupQuery->where('key', $groupKey))
+                    ->whereHas('option', fn (Builder $optionQuery) => $optionQuery->whereIn('key', $optionKeys));
+            });
         }
 
         if ($search !== null && trim($search) !== '') {
@@ -99,10 +86,16 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
         ?string $search = null,
         ?string $tag = null,
         string $sort = 'newest',
-        array|string|null $origin = null,
-        array|string|null $cuisine = null,
+        array|string|null $category = null,
+        array $ratingFilters = [],
     ): Collection {
-        return $this->query($search, $tag, $sort, $origin, $cuisine)->get();
+        return $this->query(
+            search: $search,
+            tag: $tag,
+            sort: $sort,
+            category: $category,
+            ratingFilters: $ratingFilters,
+        )->get();
     }
 
     public function paginate(
@@ -110,37 +103,25 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
         ?string $tag = null,
         string $sort = 'newest',
         ?int $perPage = null,
-        array|string|null $origin = null,
-        array|string|null $cuisine = null,
+        array|string|null $category = null,
+        array $ratingFilters = [],
         ?int $followedByUserId = null,
     ): LengthAwarePaginator {
-        return $this->query(search: $search, tag: $tag, sort: $sort, origin: $origin, cuisine: $cuisine, followedByUserId: $followedByUserId)
+        return $this->query(
+            search: $search,
+            tag: $tag,
+            sort: $sort,
+            category: $category,
+            ratingFilters: $ratingFilters,
+            followedByUserId: $followedByUserId,
+        )
             ->paginate($this->normalizePerPage($perPage));
     }
 
-    /**
-     * @return list<OriginType>
-     */
-    private function originTypes(array|string|null $origin): array
+    /** @return list<string> */
+    private function optionKeys(array|string|null $values): array
     {
-        return collect((array) $origin)
-            ->map(fn ($value): ?OriginType => is_string($value) ? OriginType::tryFrom($value) : null)
-            ->filter(fn (?OriginType $type): bool => $type !== null && $type !== OriginType::Unknown)
-            ->unique(fn (OriginType $type): string => $type->value)
-            ->values()
-            ->all();
-    }
-
-    /**
-     * Every origin filter value doubles as a rating-option key for the
-     * author-chosen post category (legacy enum values included — preset option
-     * keys like 'homemade' overlap with them).
-     *
-     * @return list<string>
-     */
-    private function categoryOptionKeys(array|string|null $origin): array
-    {
-        return collect((array) $origin)
+        return collect((array) $values)
             ->filter(fn ($value): bool => is_string($value) && trim($value) !== '')
             ->map(fn (string $value): string => trim($value))
             ->unique()
@@ -148,17 +129,24 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
             ->all();
     }
 
-    /**
-     * @return list<CuisineType>
-     */
-    private function cuisineTypes(array|string|null $cuisine): array
+    /** @return array<string, list<string>> */
+    private function normalizeRatingFilters(array $filters): array
     {
-        return collect((array) $cuisine)
-            ->map(fn ($value): ?CuisineType => is_string($value) ? CuisineType::tryFrom($value) : null)
-            ->filter(fn (?CuisineType $type): bool => $type !== null && $type !== CuisineType::Unknown)
-            ->unique(fn (CuisineType $type): string => $type->value)
-            ->values()
-            ->all();
+        $normalized = [];
+
+        foreach ($filters as $groupKey => $optionKeys) {
+            if (! is_string($groupKey) || trim($groupKey) === '') {
+                continue;
+            }
+
+            $options = $this->optionKeys(is_array($optionKeys) ? $optionKeys : null);
+
+            if ($options !== []) {
+                $normalized[trim($groupKey)] = $options;
+            }
+        }
+
+        return $normalized;
     }
 
     private function normalizePerPage(?int $perPage): int

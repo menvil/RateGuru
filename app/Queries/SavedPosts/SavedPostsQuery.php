@@ -6,7 +6,7 @@ use App\Contracts\Persistence\StablePaginationBoundary;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 final class SavedPostsQuery implements StablePaginationBoundary
 {

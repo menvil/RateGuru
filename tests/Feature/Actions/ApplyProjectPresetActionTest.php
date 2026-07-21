@@ -23,13 +23,13 @@ it('applies project preset to settings', function () {
 it('creates settings row when missing and applies preset', function () {
     expect(ProjectSettings::count())->toBe(0);
 
-    app(ApplyProjectPresetAction::class)->handle('food');
+    app(ApplyProjectPresetAction::class)->handle('ai_images');
 
     $settings = ProjectSettings::first();
 
     expect($settings)->not->toBeNull();
-    expect($settings->site_name)->toBe('FoodGuru');
-    expect($settings->active_preset_key)->toBe('food');
+    expect($settings->site_name)->toBe('AIGuru');
+    expect($settings->active_preset_key)->toBe('ai_images');
 });
 
 it('fails for unknown project preset', function () {

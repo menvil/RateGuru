@@ -22,14 +22,14 @@ class FeedPage extends Component
     #[Url(as: 'search', except: '')]
     public string $search = '';
 
-    #[Url(as: 'category', except: null)]
-    public ?string $category = null;
+    #[Url(as: 'tag', except: null)]
+    public ?string $tag = null;
 
-    #[Url(as: 'origin', except: [])]
-    public mixed $origin = [];
+    #[Url(as: 'category', except: [])]
+    public mixed $category = [];
 
-    #[Url(as: 'cuisine', except: [])]
-    public mixed $cuisine = [];
+    #[Url(as: 'ratings', except: [])]
+    public mixed $ratings = [];
 
     #[Url(as: 'sort', except: 'newest')]
     public string $sort = 'newest';
@@ -58,34 +58,51 @@ class FeedPage extends Component
         $this->normalizeSort();
     }
 
-    public function updatedOrigin(): void
+    public function updatedCategory(): void
     {
         $this->normalizeFilters();
     }
 
-    public function updatedCuisine(): void
+    public function updatedRatings(): void
     {
         $this->normalizeFilters();
     }
 
-    public function toggleOrigin(string $origin): void
+    public function toggleCategory(string $category): void
     {
-        $this->origin = $this->toggleFilterValue($this->origin, $origin, $this->originValues());
+        $this->category = $this->toggleFilterValue($this->category, $category, $this->categoryValues());
     }
 
-    public function clearOriginFilters(): void
+    public function clearCategoryFilters(): void
     {
-        $this->origin = [];
+        $this->category = [];
     }
 
-    public function toggleCuisine(string $cuisine): void
+    public function toggleRatingOption(string $groupKey, string $optionKey): void
     {
-        $this->cuisine = $this->toggleFilterValue($this->cuisine, $cuisine, $this->cuisineValues());
+        $group = $this->activeGroups()->firstWhere('key', $groupKey);
+
+        if ($group === null) {
+            $this->normalizeFilters();
+
+            return;
+        }
+
+        $ratings = is_array($this->ratings) ? $this->ratings : [];
+        $ratings[$groupKey] = $this->toggleFilterValue(
+            $ratings[$groupKey] ?? [],
+            $optionKey,
+            $group->options->pluck('key')->all(),
+        );
+        $this->ratings = $ratings;
+        $this->normalizeFilters();
     }
 
-    public function clearCuisineFilters(): void
+    public function clearRatingGroupFilters(string $groupKey): void
     {
-        $this->cuisine = [];
+        $ratings = is_array($this->ratings) ? $this->ratings : [];
+        unset($ratings[$groupKey]);
+        $this->ratings = $ratings;
     }
 
     #[On('select-post')]
@@ -164,20 +181,37 @@ class FeedPage extends Component
 
     private function normalizeFilters(): void
     {
-        $this->origin = $this->normalizeFilterValues($this->origin, $this->originValues());
-        $this->cuisine = $this->normalizeFilterValues($this->cuisine, $this->cuisineValues());
+        $this->category = $this->normalizeFilterValues($this->category, $this->categoryValues());
+        $this->ratings = $this->normalizeRatingFilters($this->ratings);
     }
 
     /** @return list<string> */
-    private function originValues(): array
+    private function categoryValues(): array
     {
-        return $this->activeGroups()->firstWhere('key', 'source')?->options->pluck('key')->all() ?? [];
+        return $this->activeGroups()->first()?->options->pluck('key')->all() ?? [];
     }
 
-    /** @return list<string> */
-    private function cuisineValues(): array
+    /** @return array<string, list<string>> */
+    private function normalizeRatingFilters(mixed $filters): array
     {
-        return $this->activeGroups()->firstWhere('key', 'category')?->options->pluck('key')->all() ?? [];
+        if (! is_array($filters)) {
+            return [];
+        }
+
+        $normalized = [];
+
+        foreach ($this->activeGroups() as $group) {
+            $values = $this->normalizeFilterValues(
+                $filters[$group->key] ?? [],
+                $group->options->pluck('key')->all(),
+            );
+
+            if ($values !== []) {
+                $normalized[$group->key] = $values;
+            }
+        }
+
+        return $normalized;
     }
 
     /**
@@ -234,27 +268,9 @@ class FeedPage extends Component
         return app(MatchedUsersQuery::class)->search($search);
     }
 
-    private function buildGroupOptions(string $key): array
-    {
-        $locale = app()->getLocale();
-
-        return $this->activeGroups()->firstWhere('key', $key)?->options
-            ->map(fn ($opt) => [
-                'value' => $opt->key,
-                'label' => $opt->translatedLabel($locale),
-            ])
-            ->all() ?? [];
-    }
-
     public function render(): View
     {
-        $locale = app()->getLocale();
-
-        return view('livewire.feed.feed-page', [
-            'originOptions' => $this->buildGroupOptions('source'),
-            'cuisineOptions' => $this->buildGroupOptions('category'),
-            'originGroupLabel' => $this->activeGroups()->firstWhere('key', 'source')?->translatedLabel($locale) ?? __('ui.voting.source'),
-            'cuisineGroupLabel' => $this->activeGroups()->firstWhere('key', 'category')?->translatedLabel($locale) ?? __('ui.voting.category'),
-        ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
+        return view('livewire.feed.feed-page')
+            ->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

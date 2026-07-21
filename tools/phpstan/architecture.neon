@@ -3,13 +3,7 @@ parametersSchema:
 
 parameters:
     architecture:
-        lowLevelDatabaseExceptions:
-            -
-                class: App\Services\Rating\LegacyRatingVoteMigrator
-                methods: [table]
-                reason: 'Legacy vote tables are selected from trusted internal names and have no long-lived Eloquent model.'
-                behaviorTests: [tests/Feature/Console/MigrateLegacyRatingVotesCommandTest.php]
-                status: approved
+        lowLevelDatabaseExceptions: []
         rawSqlExceptions:
             -
                 class: App\Queries\Comments\CommentListQuery

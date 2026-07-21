@@ -6,27 +6,28 @@ use App\Actions\Counters\RecalculateCommentCountersAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Enums\VoteType;
 use App\Models\Comment;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\RatingGroup;
+use App\Models\RatingVote;
 use App\Models\User;
+use App\Support\Rating\RatingConfigurationManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 
 class DemoFillSeeder extends Seeder
 {
     private const USER_COUNT = 500;
-
-    private const POST_COUNT = 100;
 
     private const VOTE_RATIO = 0.85;  // 85% of users vote per post
 
@@ -49,7 +50,7 @@ class DemoFillSeeder extends Seeder
         'Steel Suspension Bridge', 'Skyscraper Window View', 'Train Station Vault',
         'Baroque Cathedral Nave', 'Modern Art Museum Atrium', 'Night Market Crowd',
         'Floating Village River', 'Foggy Hilltop Town',
-        // Food / Still Life
+        // Objects / Still Life
         'Rustic Barn in Meadow', 'Farm Table Harvest', 'Wood Fire Pizza',
         'Artisan Bread Loaves', 'Morning Coffee Pour', 'Colorful Spice Market',
         'Sushi Platter Display', 'Fresh Pasta Dough', 'Street Taco Stand',
@@ -138,19 +139,25 @@ class DemoFillSeeder extends Seeder
             return;
         }
 
-        $this->command->info('Creating '.self::USER_COUNT.' users...');
+        $this->command->info('Creating '.$this->userCount().' users...');
         $users = $this->createUsers();
 
-        $this->command->info('Creating '.self::POST_COUNT.' posts with images...');
+        $this->command->info('Removing previously generated media...');
+        $this->clearGeneratedMedia();
+
+        $this->command->info('Creating '.count($this->postTitles()).' posts with images...');
         $posts = $this->createPosts($users);
 
-        $this->command->info('Seeding post votes (85% participation)...');
+        $this->command->info('Removing previously generated interactions...');
+        $this->clearGeneratedInteractions($users, $posts);
+
+        $this->command->info('Seeding post votes ('.$this->percentage($this->voteRatio()).'% participation)...');
         $this->seedPostVotes($users, $posts);
 
         $this->command->info('Seeding comments (2-3 levels deep)...');
         $comments = $this->seedComments($users, $posts);
 
-        $this->command->info('Seeding comment votes (50% participation)...');
+        $this->command->info('Seeding comment votes ('.$this->percentage($this->commentVoteRatio()).'% participation)...');
         $this->seedCommentVotes($users, $comments);
 
         $this->command->info('Recalculating post counters and scores...');
@@ -167,13 +174,14 @@ class DemoFillSeeder extends Seeder
     {
         $rows = [];
         $now = now()->toDateTimeString();
+        $password = Hash::make('password');
 
-        for ($i = 1; $i <= self::USER_COUNT; $i++) {
+        for ($i = 1; $i <= $this->userCount(); $i++) {
             $rows[] = [
                 'name' => fake()->name(),
                 'username' => 'user_fill_'.str_pad((string) $i, 3, '0', STR_PAD_LEFT),
                 'email' => "fill{$i}@demo.test",
-                'password' => Hash::make('password'),
+                'password' => $password,
                 'email_verified_at' => $now,
                 'role' => UserRole::User->value,
                 'status' => UserStatus::Active->value,
@@ -189,6 +197,7 @@ class DemoFillSeeder extends Seeder
 
         return User::query()
             ->where('email', 'like', 'fill%@demo.test')
+            ->orderBy('id')
             ->get();
     }
 
@@ -198,15 +207,18 @@ class DemoFillSeeder extends Seeder
 
     private function createPosts(Collection $users): Collection
     {
-        $originTypes = OriginType::cases();
-        $cuisineTypes = CuisineType::cases();
-        $shuffled = $users->shuffle();
+        $titles = $this->postTitles();
+        $categoryOptionIds = app(RatingConfigurationManager::class)->sidebarGroupOptionIds();
+        $authors = $users->values();
         $baseTime = CarbonImmutable::now()->subDays(60);
         $now = now()->toDateTimeString();
 
-        foreach (self::POST_TITLES as $index => $title) {
-            $author = $shuffled[$index % $shuffled->count()];
+        foreach ($titles as $index => $title) {
+            $author = $authors[$index % $authors->count()];
             $imagePath = $this->generatePostImage($author->id, $index + 1);
+            $categoryOptionId = $categoryOptionIds === [] || $index % 3 === 2
+                ? null
+                : $categoryOptionIds[$index % count($categoryOptionIds)];
 
             DB::table('posts')->updateOrInsert(
                 ['title' => $title],
@@ -217,9 +229,8 @@ class DemoFillSeeder extends Seeder
                     'image_url' => null,
                     'thumbnail_url' => null,
                     'source_url' => null,
+                    'category_option_id' => $categoryOptionId,
                     'status' => PostStatus::Published->value,
-                    'origin_truth' => $originTypes[array_rand($originTypes)]->value,
-                    'cuisine_truth' => $cuisineTypes[array_rand($cuisineTypes)]->value,
                     // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
                     'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),
                     'deleted_at' => null, // clear any previous soft-delete so Eloquent finds the row
@@ -238,7 +249,7 @@ class DemoFillSeeder extends Seeder
         $this->command->getOutput()->writeln('');
 
         return Post::query()
-            ->whereIn('title', self::POST_TITLES)
+            ->whereIn('title', $titles)
             ->get();
     }
 
@@ -267,16 +278,18 @@ class DemoFillSeeder extends Seeder
 
         $this->drawVignette($im, $w, $h);
 
-        $dir = storage_path("app/public/posts/{$userId}");
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
         $filename = 'fill_post_'.str_pad((string) $index, 3, '0', STR_PAD_LEFT).'.jpg';
-        imagejpeg($im, "{$dir}/{$filename}", 85);
+        $path = "posts/{$userId}/{$filename}";
+        ob_start();
+        $encoded = imagejpeg($im, null, 85);
+        $contents = ob_get_clean();
         imagedestroy($im);
 
-        return "posts/{$userId}/{$filename}";
+        if (! $encoded || ! is_string($contents) || ! Storage::disk('public')->put($path, $contents)) {
+            throw new RuntimeException("Unable to create demo fill image at [{$path}].");
+        }
+
+        return $path;
     }
 
     private function hexToRgb(int $hex): array
@@ -454,42 +467,22 @@ class DemoFillSeeder extends Seeder
             $g->id => $g->options->pluck('id')->all(),
         ])->all();
 
-        $originValues = [OriginType::Homemade->value, OriginType::Restaurant->value];
-        $cuisineValues = array_map(fn ($c) => $c->value, CuisineType::cases());
         $now = now()->toDateTimeString();
 
         $postVotes = [];
-        $originVotes = [];
-        $cuisineVotes = [];
         $ratingVotes = [];
 
         foreach ($posts as $post) {
             $voters = $users
                 ->where('id', '!=', $post->user_id)
                 ->shuffle()
-                ->take((int) round($users->count() * self::VOTE_RATIO));
+                ->take((int) round($users->count() * $this->voteRatio()));
 
             foreach ($voters as $user) {
                 $postVotes[] = [
                     'post_id' => $post->id,
                     'user_id' => $user->id,
                     'type' => fake()->boolean(70) ? VoteType::Up->value : VoteType::Down->value,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-
-                $originVotes[] = [
-                    'post_id' => $post->id,
-                    'user_id' => $user->id,
-                    'origin' => $originValues[array_rand($originValues)],
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-
-                $cuisineVotes[] = [
-                    'post_id' => $post->id,
-                    'user_id' => $user->id,
-                    'cuisine' => $cuisineValues[array_rand($cuisineValues)],
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
@@ -519,14 +512,6 @@ class DemoFillSeeder extends Seeder
             DB::table('post_votes')->upsert($chunk, ['post_id', 'user_id'], ['type', 'updated_at']);
         }
 
-        foreach (array_chunk($originVotes, 500) as $chunk) {
-            DB::table('origin_votes')->upsert($chunk, ['post_id', 'user_id'], ['origin', 'updated_at']);
-        }
-
-        foreach (array_chunk($cuisineVotes, 500) as $chunk) {
-            DB::table('cuisine_votes')->upsert($chunk, ['post_id', 'user_id'], ['cuisine', 'updated_at']);
-        }
-
         foreach (array_chunk($ratingVotes, 500) as $chunk) {
             DB::table('rating_votes')->upsert($chunk, ['post_id', 'user_id', 'rating_group_id'], ['rating_option_id', 'updated_at']);
         }
@@ -547,7 +532,7 @@ class DemoFillSeeder extends Seeder
             $commenters = $users
                 ->where('id', '!=', $post->user_id)
                 ->shuffle()
-                ->take(fake()->numberBetween(6, 12));
+                ->take($this->topLevelCommentCount());
 
             $topLevel = collect();
             foreach ($commenters as $user) {
@@ -566,7 +551,10 @@ class DemoFillSeeder extends Seeder
 
             $level2 = collect();
             foreach ($topLevel as $parent) {
-                $replyUsers = $users->where('id', '!=', $post->user_id)->shuffle()->take(fake()->numberBetween(2, 5));
+                $replyUsers = $users
+                    ->where('id', '!=', $post->user_id)
+                    ->shuffle()
+                    ->take($this->replyCount());
                 foreach ($replyUsers as $user) {
                     $id = DB::table('comments')->insertGetId([
                         'post_id' => $post->id,
@@ -582,9 +570,12 @@ class DemoFillSeeder extends Seeder
                 }
             }
 
-            $deepCount = min($level2->count(), fake()->numberBetween(3, 8));
+            $deepCount = min($level2->count(), $this->deepReplyParentCount());
             foreach ($level2->random($deepCount) as $parent) {
-                $replyUsers = $users->where('id', '!=', $post->user_id)->shuffle()->take(fake()->numberBetween(1, 3));
+                $replyUsers = $users
+                    ->where('id', '!=', $post->user_id)
+                    ->shuffle()
+                    ->take($this->deepReplyCount());
                 foreach ($replyUsers as $user) {
                     $id = DB::table('comments')->insertGetId([
                         'post_id' => $post->id,
@@ -629,7 +620,7 @@ class DemoFillSeeder extends Seeder
             $voters = $users
                 ->where('id', '!=', $comment->user_id)
                 ->shuffle()
-                ->take((int) round($users->count() * self::COMMENT_VOTE_RATIO));
+                ->take((int) round($users->count() * $this->commentVoteRatio()));
 
             foreach ($voters as $user) {
                 $commentVotes[] = [
@@ -657,6 +648,7 @@ class DemoFillSeeder extends Seeder
         $counters = app(RecalculateCommentCountersAction::class);
 
         Comment::query()
+            ->whereIn('id', $comments->pluck('id'))
             ->select('id')
             ->lazyById()
             ->each(fn (Comment $comment) => $counters->handle($comment));
@@ -677,6 +669,86 @@ class DemoFillSeeder extends Seeder
             $post->refresh();
             $score->handle($post);
         }
+    }
+
+    private function clearGeneratedInteractions(Collection $users, Collection $posts): void
+    {
+        $userIds = $users->modelKeys();
+        $postIds = $posts->modelKeys();
+
+        Comment::withTrashed()
+            ->whereIn('post_id', $postIds)
+            ->whereIn('user_id', $userIds)
+            ->forceDelete();
+
+        PostVote::query()
+            ->whereIn('post_id', $postIds)
+            ->whereIn('user_id', $userIds)
+            ->delete();
+
+        RatingVote::query()
+            ->whereIn('post_id', $postIds)
+            ->whereIn('user_id', $userIds)
+            ->delete();
+    }
+
+    private function clearGeneratedMedia(): void
+    {
+        $disk = Storage::disk('public');
+        $paths = array_values(array_filter(
+            $disk->allFiles('posts'),
+            fn (string $path): bool => preg_match('#/fill_post_\d+\.jpg$#', $path) === 1,
+        ));
+
+        if ($paths !== []) {
+            $disk->delete($paths);
+        }
+    }
+
+    protected function userCount(): int
+    {
+        return self::USER_COUNT;
+    }
+
+    /** @return list<string> */
+    protected function postTitles(): array
+    {
+        return self::POST_TITLES;
+    }
+
+    protected function voteRatio(): float
+    {
+        return self::VOTE_RATIO;
+    }
+
+    protected function commentVoteRatio(): float
+    {
+        return self::COMMENT_VOTE_RATIO;
+    }
+
+    protected function topLevelCommentCount(): int
+    {
+        return fake()->numberBetween(6, 12);
+    }
+
+    protected function replyCount(): int
+    {
+        return fake()->numberBetween(2, 5);
+    }
+
+    protected function deepReplyParentCount(): int
+    {
+        return fake()->numberBetween(3, 8);
+    }
+
+    protected function deepReplyCount(): int
+    {
+        return fake()->numberBetween(1, 3);
+    }
+
+    private function percentage(float $ratio): int
+    {
+        return (int) round($ratio * 100);
     }
 
     private function randomBody(array $pool): string

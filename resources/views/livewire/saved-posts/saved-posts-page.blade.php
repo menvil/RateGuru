@@ -10,7 +10,11 @@
     @else
         <div class="space-y-4">
             @foreach($savedPosts as $post)
-                <x-feed.post-card :post="$post" />
+                <x-feed.post-card
+                    :post="$post"
+                    :rating-groups="$ratingGroups"
+                    :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
+                />
             @endforeach
         </div>
 

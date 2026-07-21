@@ -64,8 +64,6 @@ final class CreatePostAction
                 'title' => $data->title,
                 'description' => $data->description,
                 'source_url' => $data->sourceUrl,
-                'origin_truth' => $data->originTruth,
-                'cuisine_truth' => $data->cuisineTruth,
                 'category_option_id' => $categoryOptionId,
                 'status' => $status,
                 'published_at' => $publishedAt,

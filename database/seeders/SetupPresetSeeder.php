@@ -20,9 +20,9 @@ use Illuminate\Support\Str;
  * Subclass and set $preset to one of the keys in config/project_presets.php.
  *
  * Usage:
- *   php artisan db:seed --class=SetupFoodSeeder
  *   php artisan db:seed --class=SetupNatureSeeder
  *   php artisan db:seed --class=SetupAiImagesSeeder
+ *   php artisan db:seed --class=SetupBreastsSeeder
  */
 abstract class SetupPresetSeeder extends Seeder
 {

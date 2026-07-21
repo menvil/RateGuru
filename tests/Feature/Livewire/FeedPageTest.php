@@ -1,10 +1,9 @@
 <?php
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Livewire\Feed\FeedPage;
 use App\Models\Post;
+use App\Models\RatingGroup;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -27,19 +26,19 @@ it('has search state on feed page', function () {
 });
 
 it('filters feed results when search state changes', function () {
-    Post::factory()->published()->create(['title' => 'Homemade Pasta']);
+    Post::factory()->published()->create(['title' => 'Sample Entry']);
     Post::factory()->published()->create(['title' => 'Chocolate Cake']);
 
     Livewire::test(FeedPage::class)
-        ->set('search', 'pasta')
-        ->assertSee('Homemade Pasta')
+        ->set('search', 'sample')
+        ->assertSee('Sample Entry')
         ->assertDontSee('Chocolate Cake');
 });
 
 it('has rating filter state on feed page', function () {
     Livewire::test(FeedPage::class)
-        ->assertSet('origin', [])
-        ->assertSet('cuisine', []);
+        ->assertSet('category', [])
+        ->assertSet('ratings', []);
 });
 
 it('has sort state on feed page with default newest', function () {
@@ -121,59 +120,71 @@ it('does not render a sort dropdown in the feed header (sorting lives in the sid
         ->assertDontSee('data-testid="category-tabs"', false);
 });
 
-it('filters feed when origin filter is selected', function () {
+it('filters feed when a category is selected', function () {
     seedFeedFilterGroups();
+    $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    $first = $group->options()->where('key', 'source_a')->firstOrFail();
+    $second = $group->options()->where('key', 'source_b')->firstOrFail();
 
     Post::factory()->published()->create([
-        'title' => 'Home Dish',
-        'origin_truth' => OriginType::Homemade,
+        'title' => 'First category post',
+        'category_option_id' => $first->id,
     ]);
     Post::factory()->published()->create([
-        'title' => 'Restaurant Dish',
-        'origin_truth' => OriginType::Restaurant,
+        'title' => 'Second category post',
+        'category_option_id' => $second->id,
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('toggleOrigin', OriginType::Homemade->value)
-        ->assertSee('Home Dish')
-        ->assertDontSee('Restaurant Dish');
+        ->call('toggleCategory', 'source_a')
+        ->assertSee('First category post')
+        ->assertDontSee('Second category post');
 });
 
-it('supports selecting multiple origin filters', function () {
+it('supports selecting multiple categories', function () {
     seedFeedFilterGroups();
+    $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
+    $first = $group->options()->where('key', 'source_a')->firstOrFail();
+    $second = $group->options()->where('key', 'source_b')->firstOrFail();
 
     Post::factory()->published()->create([
-        'title' => 'Home Dish',
-        'origin_truth' => OriginType::Homemade,
+        'title' => 'First category post',
+        'category_option_id' => $first->id,
     ]);
     Post::factory()->published()->create([
-        'title' => 'Restaurant Dish',
-        'origin_truth' => OriginType::Restaurant,
+        'title' => 'Second category post',
+        'category_option_id' => $second->id,
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('toggleOrigin', OriginType::Homemade->value)
-        ->call('toggleOrigin', OriginType::Restaurant->value)
-        ->assertSee('Home Dish')
-        ->assertSee('Restaurant Dish');
+        ->call('toggleCategory', 'source_a')
+        ->call('toggleCategory', 'source_b')
+        ->assertSee('First category post')
+        ->assertSee('Second category post');
 });
 
-it('filters feed when cuisine filter is selected', function () {
+it('filters feed by a generic author answer', function () {
     seedFeedFilterGroups();
+    $group = RatingGroup::query()->where('key', 'category')->firstOrFail();
+    $first = $group->options()->where('key', 'category_a')->firstOrFail();
+    $second = $group->options()->where('key', 'category_b')->firstOrFail();
 
-    Post::factory()->published()->create([
-        'title' => 'Italian Dish',
-        'cuisine_truth' => CuisineType::Italian,
+    $matching = Post::factory()->published()->create(['title' => 'Matching answer']);
+    $matching->authorAnswers()->create([
+        'rating_group_id' => $group->id,
+        'rating_option_id' => $first->id,
     ]);
-    Post::factory()->published()->create([
-        'title' => 'Asian Dish',
-        'cuisine_truth' => CuisineType::Asian,
+
+    $other = Post::factory()->published()->create(['title' => 'Other answer']);
+    $other->authorAnswers()->create([
+        'rating_group_id' => $group->id,
+        'rating_option_id' => $second->id,
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('toggleCuisine', CuisineType::Italian->value)
-        ->assertSee('Italian Dish')
-        ->assertDontSee('Asian Dish');
+        ->call('toggleRatingOption', 'category', 'category_a')
+        ->assertSee('Matching answer')
+        ->assertDontSee('Other answer');
 });
 
 it('does not search feed until at least three characters are entered', function () {

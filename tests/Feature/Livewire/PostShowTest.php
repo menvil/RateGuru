@@ -12,12 +12,12 @@ use Livewire\Livewire;
 
 it('can render post show component for published post', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
     ]);
 
     Livewire::test(PostShow::class, ['post' => $post])
         ->assertStatus(200)
-        ->assertSee('Homemade Carbonara');
+        ->assertSee('Sample Post');
 });
 
 it('renders generic post show copy', function () {
@@ -32,10 +32,7 @@ it('renders generic post show copy', function () {
         ->assertOk()
         ->assertSee('Generic Test Post')
         ->assertSee('Source')
-        ->assertSee('Category')
-        ->assertDontSee('Cuisine guess')
-        ->assertDontSee('Homemade')
-        ->assertDontSee('Restaurant');
+        ->assertSee('Category');
 });
 
 it('does not resolve an unpublished post', function () {

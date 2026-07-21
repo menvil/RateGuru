@@ -111,13 +111,13 @@
 
             <livewire:feed.post-feed
                 :search="$this->effectiveSearch()"
-                :tag="$category"
-                :origin="$origin"
-                :cuisine="$cuisine"
+                :tag="$tag"
+                :category="$category"
+                :ratings="$ratings"
                 :sort="$sort"
                 :following-only="$this->isFollowingFeed()"
                 :selected-post-id="$selectedPostId"
-                :key="'feed-'.md5(json_encode([$search, $category, $origin, $cuisine, $sort, $feed]))"
+                :key="'feed-'.md5(json_encode([$search, $tag, $category, $ratings, $sort, $feed]))"
             />
         </section>
 

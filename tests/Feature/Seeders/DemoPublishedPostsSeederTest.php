@@ -7,6 +7,7 @@ use Database\Seeders\DemoDatabaseSeeder;
 use Database\Seeders\DemoPublishedPostsSeeder;
 use Database\Seeders\DemoTagsSeeder;
 use Database\Seeders\DemoUsersSeeder;
+use Illuminate\Support\Facades\Storage;
 
 it('seeds published demo posts', function () {
     $this->seed(DemoUsersSeeder::class);
@@ -24,6 +25,31 @@ it('seeds published posts with authors and tags', function () {
 
     expect($post->user)->not->toBeNull();
     expect($post->tags()->count())->toBeGreaterThan(0);
+});
+
+it('seeds both categorized and uncategorized published posts', function () {
+    $this->seed(DemoDatabaseSeeder::class);
+
+    $publishedPosts = Post::query()->where('status', PostStatus::Published);
+
+    expect((clone $publishedPosts)->whereNotNull('category_option_id')->exists())->toBeTrue()
+        ->and((clone $publishedPosts)->whereNull('category_option_id')->exists())->toBeTrue();
+});
+
+it('creates public media files for every seeded post image path', function () {
+    Storage::fake('public');
+
+    $this->seed(DemoDatabaseSeeder::class);
+
+    $imagePaths = Post::query()
+        ->whereNotNull('image_path')
+        ->pluck('image_path');
+
+    expect($imagePaths)->toHaveCount(19);
+
+    foreach ($imagePaths as $imagePath) {
+        Storage::disk('public')->assertExists($imagePath);
+    }
 });
 
 it('seeded published posts are visible through feed query', function () {

@@ -3,6 +3,7 @@
 use App\Livewire\Feed\PostFeed;
 use App\Models\Post;
 use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\RatingVote;
 use App\Models\User;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
@@ -40,10 +41,10 @@ it('can render post feed component', function () {
 });
 
 it('shows published post title', function () {
-    Post::factory()->published()->create(['title' => 'Homemade Carbonara']);
+    Post::factory()->published()->create(['title' => 'Sample Post']);
 
     Livewire::test(PostFeed::class)
-        ->assertSee('Homemade Carbonara');
+        ->assertSee('Sample Post');
 });
 
 it('does not show pending post title', function () {
@@ -73,11 +74,35 @@ it('has loading skeleton markup', function () {
 });
 
 it('renders post cards using the post card component', function () {
-    Post::factory()->published()->create(['title' => 'Homemade Carbonara']);
+    Post::factory()->published()->create(['title' => 'Sample Post']);
 
     Livewire::test(PostFeed::class)
         ->assertSee('data-testid="post-card"', false)
-        ->assertSee('Homemade Carbonara');
+        ->assertSee('Sample Post');
+});
+
+it('renders an arbitrary active rating group on every feed card', function () {
+    $post = Post::factory()->published()->create(['title' => 'Open Question']);
+    $group = RatingGroup::factory()->create([
+        'key' => 'confidence',
+        'label' => 'Confidence',
+    ]);
+    RatingOption::factory()->for($group, 'group')->create([
+        'key' => 'low',
+        'label' => 'Low',
+        'sort_order' => 10,
+    ]);
+    RatingOption::factory()->for($group, 'group')->create([
+        'key' => 'high',
+        'label' => 'High',
+        'sort_order' => 20,
+    ]);
+
+    Livewire::test(PostFeed::class)
+        ->assertSee('Open Question')
+        ->assertSee('data-testid="post-card-rating-confidence"', false)
+        ->assertSee('data-testid="rating-voting-confidence-'.$post->id.'"', false)
+        ->assertSee('Confidence');
 });
 
 it('passes bulk loaded post card vote results and permissions into feed cards', function () {

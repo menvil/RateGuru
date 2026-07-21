@@ -23,6 +23,10 @@ return new class extends Migration
                 ->cascadeOnDelete();
             $table->unique(['post_id', 'rating_group_id']);
             $table->index('rating_option_id');
+            $table->index(
+                ['rating_group_id', 'rating_option_id', 'post_id'],
+                'paa_group_option_post_idx',
+            );
         });
     }
 

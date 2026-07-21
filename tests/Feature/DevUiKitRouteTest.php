@@ -47,21 +47,21 @@ it('renders modal shell in the dev ui kit', function () {
     $this->get('/dev/ui-kit')
         ->assertOk()
         ->assertSee('Open Modal')
-        ->assertSee('Upload Dish Preview');
+        ->assertSee('Upload Post Preview');
 });
 
 it('renders drawer shell in the dev ui kit', function () {
     $this->get('/dev/ui-kit')
         ->assertOk()
         ->assertSee('Open Drawer')
-        ->assertSee('Dish Details Preview')
-        ->assertSee('Homemade or Restaurant?');
+        ->assertSee('Post Details Preview')
+        ->assertSee('Which option fits best?');
 });
 
 it('renders form controls in the dev ui kit', function () {
     $this->get('/dev/ui-kit')
         ->assertOk()
-        ->assertSee('Dish title')
+        ->assertSee('Post title')
         ->assertSee('Description')
         ->assertSee('Validation error example')
         ->assertSee('Disabled input');
@@ -74,12 +74,12 @@ it('renders the PlateRate reference composition in the UI kit', function () {
         ->assertSee('Home')
         ->assertSee('CATEGORIES')
         ->assertSee('TOP TAGS')
-        ->assertSee('Homemade or restaurant?')
-        ->assertSee('CARBONARA · 4 servings')
+        ->assertSee('Which option fits best?')
+        ->assertSee('SAMPLE POST · IMAGE 01')
         ->assertSee('What do you think?')
-        ->assertSee('Cuisine guess:')
+        ->assertSee('Choose a category:')
         ->assertSee('Results')
-        ->assertSee('Cuisine guess distribution')
+        ->assertSee('Category distribution')
         ->assertSee('Comments');
 });
 
@@ -92,7 +92,7 @@ it('renders the core PlateRate reference regions', function () {
         ->assertSee('data-ui="platerate-feed"', false)
         ->assertSee('data-ui="post-card"', false)
         ->assertSee('data-ui="vote-rail"', false)
-        ->assertSee('data-ui="dish-placeholder"', false)
+        ->assertSee('data-ui="image-placeholder"', false)
         ->assertSee('data-ui="platerate-detail-column"', false)
         ->assertSee('data-ui="results-panel"', false)
         ->assertSee('data-ui="comments-panel"', false);
@@ -102,17 +102,9 @@ it('renders post card example in the feed components section of ui kit', functio
     $this->get('/dev/ui-kit')
         ->assertOk()
         ->assertSee('Feed Components')
-        ->assertSee('Homemade Carbonara')
-        ->assertSee('data-testid="ui-kit-source-voting"', false)
-        ->assertSee('data-testid="ui-kit-category-voting"', false)
+        ->assertSee('Sample Post')
         ->assertSee('Configurable rating')
         ->assertSee('data-testid="rating-option-1"', false);
-});
-
-it('does not render the old abstract placeholder label in the reference composition', function () {
-    $this->get('/dev/ui-kit')
-        ->assertOk()
-        ->assertDontSee('Food Image Placeholder');
 });
 
 it('renders comment item example in ui kit', function () {

@@ -158,7 +158,7 @@ The raw color guard test (`RawColorGuardTest`) scans active views and fails if f
 
 Documented exceptions (allowed):
 - `text-white` on avatar initials — required for readability on colored gradient
-- `bg-white/10`, `bg-black/35` in dish-placeholder — decorative opacity overlays on image backgrounds
+- `bg-white/10`, `bg-black/35` in image-placeholder — decorative opacity overlays on image backgrounds
 
 ---
 

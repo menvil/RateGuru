@@ -11,16 +11,16 @@ Presets live in `config/project_presets.php`.
 | Key | Label | Site name | Object |
 |-----|-------|-----------|--------|
 | `generic` | Generic rating | RateGuru | post / posts |
-| `food` | Food rating | FoodGuru | dish / dishes |
-| `cats` | Cat photos rating | CatGuru | cat / cats |
+| `nature` | Nature & travel photography | NatureGuru | photo / photos |
 | `ai_images` | AI image rating | AIGuru | image / images |
+| `breasts` | Breast rating | BreastGuru | photo / photos |
 
 ## How applying a preset works
 
 ```text
 config/project_presets.php
     ↓
-ApplyProjectPresetAction::handle('cats')
+ApplyProjectPresetAction::handle('nature')
     ↓
 ProjectSettings::updateOrCreate(['id' => 1], [...preset values...])
     ↓
@@ -34,11 +34,11 @@ After applying, the settings row contains the preset values. The admin can then 
 Each preset in `config/project_presets.php` must have:
 
 ```php
-'cats' => [
-    'label' => 'Cat photos rating',      // shown in admin UI
+'my_preset' => [
+    'label' => 'My rating preset',      // shown in admin UI
     'settings' => [                        // written to project_settings columns
-        'site_name' => 'CatGuru',
-        'site_tagline' => 'Rate every cat',
+        'site_name' => 'MyGuru',
+        'site_tagline' => 'Rate every post',
         'site_description' => '...',
         'object_singular_name' => 'cat',
         'object_plural_name' => 'cats',
@@ -74,13 +74,13 @@ No code changes outside the config file are needed.
 
 ```php
 // FORBIDDEN
-if ($settings->activePresetKey() === 'cats') {
-    // special cats behavior
+if ($settings->activePresetKey() === 'nature') {
+    // special preset behavior
 }
 
 // FORBIDDEN
-@if(app(ProjectSettingsManager::class)->current()->activePresetKey() === 'food')
-    <x-food-specific-component />
+@if(app(ProjectSettingsManager::class)->current()->activePresetKey() === 'nature')
+    <x-preset-specific-component />
 @endif
 ```
 
@@ -89,7 +89,7 @@ The correct approach: presets write values into settings, and UI reads those val
 ```blade
 // Correct
 @inject('settingsManager', \App\Support\Settings\ProjectSettingsManager::class)
-{{ $settingsManager->current()->objectPluralName() }}  {{-- shows "cats", "dishes", etc. --}}
+{{ $settingsManager->current()->objectPluralName() }}  {{-- uses the configured plural label --}}
 ```
 
 If a preset needs truly different UI behavior, create a separate Phase for that feature — not a conditional branch inside existing components.

@@ -145,7 +145,11 @@
                     @else
                         <div data-testid="profile-posts-grid" class="space-y-4">
                             @foreach($this->posts as $post)
-                                <x-feed.post-card :post="$post" wire:key="profile-post-{{ $post->id }}" />
+                                <x-feed.post-card
+                                    :post="$post"
+                                    :rating-groups="$ratingGroups"
+                                    wire:key="profile-post-{{ $post->id }}"
+                                />
                             @endforeach
                         </div>
 
@@ -198,7 +202,11 @@
                     @elseif($this->savedPosts)
                         <div class="space-y-4" data-testid="profile-saved-posts-grid">
                             @foreach($this->savedPosts as $post)
-                                <x-feed.post-card :post="$post" wire:key="profile-saved-post-{{ $post->id }}" />
+                                <x-feed.post-card
+                                    :post="$post"
+                                    :rating-groups="$ratingGroups"
+                                    wire:key="profile-saved-post-{{ $post->id }}"
+                                />
                             @endforeach
                         </div>
                         <div class="mt-6">

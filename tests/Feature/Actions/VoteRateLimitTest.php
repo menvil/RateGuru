@@ -1,14 +1,8 @@
 <?php
 
-use App\Actions\Votes\VoteCuisineAction;
-use App\Actions\Votes\VoteOriginAction;
 use App\Actions\Votes\VotePostAction;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\VoteType;
-use App\Exceptions\Votes\CannotVoteCuisineException;
 use App\Exceptions\Votes\CannotVoteException;
-use App\Exceptions\Votes\CannotVoteOriginException;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\User;
@@ -72,29 +66,3 @@ it('does not block another user when first user hits vote limit', function () {
 
     expect($second->fresh()->upvotes_count)->toBe(1);
 });
-
-it('applies shared vote rate limit to origin voting', function () {
-    config()->set('rate_limits.vote.max_attempts', 1);
-    config()->set('rate_limits.vote.decay_seconds', 60);
-
-    $user = User::factory()->create();
-    $first = Post::factory()->published()->create();
-    $second = Post::factory()->published()->create();
-
-    app(VotePostAction::class)->handle($user, $first, VoteType::Up);
-
-    app(VoteOriginAction::class)->handle($user, $second, OriginType::Homemade);
-})->throws(CannotVoteOriginException::class, 'You are voting too quickly. Please try again later.');
-
-it('applies shared vote rate limit to cuisine voting', function () {
-    config()->set('rate_limits.vote.max_attempts', 1);
-    config()->set('rate_limits.vote.decay_seconds', 60);
-
-    $user = User::factory()->create();
-    $first = Post::factory()->published()->create();
-    $second = Post::factory()->published()->create();
-
-    app(VotePostAction::class)->handle($user, $first, VoteType::Up);
-
-    app(VoteCuisineAction::class)->handle($user, $second, CuisineType::Italian);
-})->throws(CannotVoteCuisineException::class, 'You are voting too quickly. Please try again later.');

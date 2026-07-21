@@ -7,6 +7,6 @@ it('contains expected report reasons', function () {
     expect(ReportReason::Offensive->value)->toBe('offensive');
     expect(ReportReason::Fake->value)->toBe('fake');
     expect(ReportReason::Copyright->value)->toBe('copyright');
-    expect(ReportReason::NotFood->value)->toBe('not_food');
+    expect(ReportReason::WrongCategory->value)->toBe('wrong_category');
     expect(ReportReason::Other->value)->toBe('other');
 });

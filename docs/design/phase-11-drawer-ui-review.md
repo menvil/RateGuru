@@ -25,7 +25,7 @@
 - [x] Title renders — `<h2>` with `font-bold text-rg-text`
 - [x] Description renders — `<p>` with `text-rg-muted`, skipped gracefully when null
 - [x] Author metadata renders — avatar, name, username, published timestamp
-- [x] Vote summary renders read-only — Score, Homemade, Restaurant in 3-column grid
+- [x] Vote summary renders read-only — score and configured option totals.
 - [x] Comments placeholder renders — "Comments will appear here" via `x-ui.empty-state`
 - [x] Not found state works — `x-ui.error-message` for invalid/hidden post ids
 - [x] Loading state exists — `wire:loading` skeleton markup

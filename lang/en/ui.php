@@ -91,7 +91,7 @@ return [
             'offensive' => 'Offensive',
             'fake' => 'Fake',
             'copyright' => 'Copyright',
-            'not_food' => 'Wrong category',
+            'wrong_category' => 'Wrong category',
             'other' => 'Other',
         ],
     ],

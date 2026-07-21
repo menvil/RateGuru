@@ -2,19 +2,17 @@
 
 use App\Enums\PostStatus;
 use App\Enums\VoteType;
-use App\Models\CuisineVote;
-use App\Models\OriginVote;
 use App\Models\Post;
 use App\Models\PostVote;
+use App\Models\RatingVote;
 use Database\Seeders\DemoDatabaseSeeder;
 use Database\Seeders\DemoVotesSeeder;
 
-it('seeds post votes', function () {
+it('seeds post and configurable rating votes', function () {
     $this->seed(DemoDatabaseSeeder::class);
 
     expect(PostVote::query()->count())->toBeGreaterThan(0);
-    expect(OriginVote::query()->count())->toBeGreaterThan(0);
-    expect(CuisineVote::query()->count())->toBeGreaterThan(0);
+    expect(RatingVote::query()->count())->toBeGreaterThan(0);
 });
 
 it('keeps vote counters consistent after seeding votes', function () {
@@ -43,12 +41,10 @@ it('seeds posts with recalculated hot scores', function () {
 it('seeds votes idempotently', function () {
     $this->seed(DemoDatabaseSeeder::class);
     $postVotes = PostVote::query()->count();
-    $originVotes = OriginVote::query()->count();
-    $cuisineVotes = CuisineVote::query()->count();
+    $ratingVotes = RatingVote::query()->count();
 
     $this->seed(DemoVotesSeeder::class);
 
     expect(PostVote::query()->count())->toBe($postVotes);
-    expect(OriginVote::query()->count())->toBe($originVotes);
-    expect(CuisineVote::query()->count())->toBe($cuisineVotes);
+    expect(RatingVote::query()->count())->toBe($ratingVotes);
 });

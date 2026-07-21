@@ -18,12 +18,8 @@ it('creates posts table with required columns', function () {
         'thumbnail_url',
         'source_url',
         'status',
-        'origin_truth',
-        'cuisine_truth',
         'upvotes_count',
         'downvotes_count',
-        'homemade_votes_count',
-        'restaurant_votes_count',
         'comments_count',
         'reports_count',
         'hot_score',
@@ -31,5 +27,6 @@ it('creates posts table with required columns', function () {
         'created_at',
         'updated_at',
         'deleted_at',
+        'category_option_id',
     ]))->toBeTrue();
 });

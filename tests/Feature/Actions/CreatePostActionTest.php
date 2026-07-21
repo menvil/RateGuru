@@ -2,8 +2,6 @@
 
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\ProcessUploadedImageJob;
@@ -19,11 +17,9 @@ it('creates a published post for default trusted user', function () {
     $user = User::factory()->create();
 
     $data = new CreatePostData(
-        title: 'Homemade pasta',
+        title: 'Sample entry',
         description: null,
         sourceUrl: null,
-        originTruth: OriginType::Unknown,
-        cuisineTruth: CuisineType::Unknown,
         tagIds: [],
         image: null,
     );
@@ -33,7 +29,7 @@ it('creates a published post for default trusted user', function () {
     expect($post)->toBeInstanceOf(Post::class);
     expect($post->exists)->toBeTrue();
     expect($post->user_id)->toBe($user->id);
-    expect($post->title)->toBe('Homemade pasta');
+    expect($post->title)->toBe('Sample entry');
     expect($post->status)->toBe(PostStatus::Published);
     expect($post->published_at)->not->toBeNull();
 });
@@ -66,7 +62,7 @@ it('persists post description', function () {
     $user = User::factory()->create();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Homemade pasta',
+        title: 'Sample entry',
         description: 'Fresh pasta with tomato sauce',
     ));
 
@@ -77,33 +73,11 @@ it('persists source url', function () {
     $user = User::factory()->create();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Homemade pasta',
+        title: 'Sample entry',
         sourceUrl: 'https://example.com/original',
     ));
 
     expect($post->fresh()->source_url)->toBe('https://example.com/original');
-});
-
-it('stores origin truth', function () {
-    $user = User::factory()->create();
-
-    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Homemade pasta',
-        originTruth: OriginType::Homemade,
-    ));
-
-    expect($post->fresh()->origin_truth)->toBe(OriginType::Homemade);
-});
-
-it('stores cuisine truth', function () {
-    $user = User::factory()->create();
-
-    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Homemade pasta',
-        cuisineTruth: CuisineType::Italian,
-    ));
-
-    expect($post->fresh()->cuisine_truth)->toBe(CuisineType::Italian);
 });
 
 it('attaches tags to created post', function () {

@@ -54,9 +54,9 @@ it('creates a post with category and author answers', function () {
     Storage::fake('public');
 
     $user = User::factory()->create();
-    $categoryOption = $this->sourceGroup->options()->where('key', 'homemade')->firstOrFail();
-    $sourceAnswer = $this->sourceGroup->options()->where('key', 'restaurant')->firstOrFail();
-    $categoryAnswer = $this->categoryGroup->options()->where('key', 'italian')->firstOrFail();
+    $categoryOption = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
+    $sourceAnswer = $this->sourceGroup->options()->where('key', 'source_b')->firstOrFail();
+    $categoryAnswer = $this->categoryGroup->options()->where('key', 'category_a')->firstOrFail();
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
@@ -100,7 +100,7 @@ it('ignores author answers when the toggle is off', function () {
     Storage::fake('public');
 
     $user = User::factory()->create();
-    $sourceAnswer = $this->sourceGroup->options()->where('key', 'homemade')->firstOrFail();
+    $sourceAnswer = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
@@ -121,7 +121,7 @@ it('rejects a category value that is not a sidebar group option', function () {
     Storage::fake('public');
 
     $user = User::factory()->create();
-    $secondGroupOption = $this->categoryGroup->options()->where('key', 'asian')->firstOrFail();
+    $secondGroupOption = $this->categoryGroup->options()->where('key', 'category_b')->firstOrFail();
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
@@ -136,7 +136,7 @@ it('rejects a category value that is not a sidebar group option', function () {
 
 it('resets category and author answers when the upload modal reopens', function () {
     $user = User::factory()->create();
-    $categoryOption = $this->sourceGroup->options()->where('key', 'homemade')->firstOrFail();
+    $categoryOption = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
