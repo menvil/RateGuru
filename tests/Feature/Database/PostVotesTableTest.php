@@ -1,7 +1,5 @@
 <?php
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Enums\VoteType;
 use App\Models\User;
@@ -26,10 +24,8 @@ it('does not allow duplicate post vote for same user and post', function () {
 
     $postId = DB::table('posts')->insertGetId([
         'user_id' => $user->id,
-        'title' => 'Test dish',
+        'title' => 'Test post',
         'status' => PostStatus::Published->value,
-        'origin_truth' => OriginType::Unknown->value,
-        'cuisine_truth' => CuisineType::Unknown->value,
         'created_at' => now(),
         'updated_at' => now(),
     ]);

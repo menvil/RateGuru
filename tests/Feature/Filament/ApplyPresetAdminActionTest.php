@@ -19,18 +19,18 @@ it('admin can apply nature preset from settings page', function () {
     expect(ProjectSettings::first()->active_preset_key)->toBe('nature');
 });
 
-it('admin can apply food preset from settings page', function () {
+it('admin can apply AI images preset from settings page', function () {
     $admin = User::factory()->admin()->create();
 
     ProjectSettings::factory()->create();
 
     Livewire::actingAs($admin)
         ->test(ProjectSettingsPage::class)
-        ->call('applyPreset', 'food')
+        ->call('applyPreset', 'ai_images')
         ->assertHasNoErrors();
 
-    expect(ProjectSettings::first()->site_name)->toBe('FoodGuru');
-    expect(ProjectSettings::first()->active_preset_key)->toBe('food');
+    expect(ProjectSettings::first()->site_name)->toBe('AIGuru');
+    expect(ProjectSettings::first()->active_preset_key)->toBe('ai_images');
 });
 
 it('does not apply unknown preset from settings page', function () {

@@ -28,13 +28,13 @@ it('renders post voting component on post show page', function () {
 
 it('renders published post show page', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
     ]);
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('Homemade Carbonara')
+        ->assertSee('Sample Post')
         ->assertSee('Creamy pasta with pepper');
 });
 
@@ -154,17 +154,17 @@ it('does not render related posts placeholder', function () {
 
 it('renders seo title for post page', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
     ]);
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('<title>Homemade Carbonara · '.config('app.name', 'RateGuru').'</title>', false);
+        ->assertSee('<title>Sample Post · '.config('app.name', 'RateGuru').'</title>', false);
 });
 
 it('renders open graph metadata for post page', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
         'image_url' => '/storage/posts/1/dish.jpg',
     ]);
@@ -172,7 +172,7 @@ it('renders open graph metadata for post page', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('property="og:title"', false)
-        ->assertSee('content="Homemade Carbonara · RateGuru"', false)
+        ->assertSee('content="Sample Post · RateGuru"', false)
         ->assertSee('property="og:description"', false)
         ->assertSee('Creamy pasta with pepper', false)
         ->assertSee('property="og:type"', false)

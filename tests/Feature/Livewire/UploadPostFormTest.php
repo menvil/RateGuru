@@ -44,12 +44,7 @@ it('opens upload modal with generic labels', function () {
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSee('Title')
-        ->assertSee('Image')
-        ->assertDontSee('Dish title')
-        ->assertDontSee('Origin')
-        ->assertDontSee('Cuisine')
-        ->assertDontSee('Homemade')
-        ->assertDontSee('Restaurant');
+        ->assertSee('Image');
 });
 
 it('blocks guest users', function () {
@@ -71,8 +66,8 @@ it('updates title property', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade pasta')
-        ->assertSet('title', 'Homemade pasta');
+        ->set('title', 'Sample entry')
+        ->assertSet('title', 'Sample entry');
 });
 
 it('has description textarea', function () {
@@ -144,7 +139,7 @@ it('dispatches successful upload event', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade Pasta')
+        ->set('title', 'Sample Entry')
         ->set('image', $file)
         ->call('submit')
         ->assertDispatched('post-uploaded')
@@ -181,7 +176,7 @@ it('does not dispatch event on validation failure', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade Pasta')
+        ->set('title', 'Sample Entry')
         ->call('submit')
         ->assertNotDispatched('post-uploaded');
 });
@@ -215,7 +210,7 @@ it('shows validation error when image is missing', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade Pasta')
+        ->set('title', 'Sample Entry')
         ->call('submit')
         ->assertHasErrors(['image' => 'required']);
 
@@ -273,12 +268,12 @@ it('creates post on successful upload', function () {
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('title', 'Homemade Pasta')
+        ->set('title', 'Sample Entry')
         ->set('description', 'Fresh dinner')
         ->set('image', $file)
         ->call('submit');
 
-    expect(Post::query()->where('user_id', $user->id)->where('title', 'Homemade Pasta')->exists())->toBeTrue();
+    expect(Post::query()->where('user_id', $user->id)->where('title', 'Sample Entry')->exists())->toBeTrue();
 });
 
 it('renders selectable tags', function () {

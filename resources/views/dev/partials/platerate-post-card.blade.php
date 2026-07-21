@@ -1,11 +1,11 @@
 @props([
     'selected' => false,
-    'user' => 'pasta_lover',
+    'user' => 'sample_author',
     'time' => '2h ago',
     'score' => '128',
-    'title' => 'Homemade or restaurant?',
-    'dishLabel' => 'CARBONARA · 4 servings',
-    'dishPalette' => 'carbonara',
+    'title' => 'Which option fits best?',
+    'imageLabel' => 'SAMPLE POST · IMAGE 01',
+    'imagePalette' => 'warm',
     'comments' => '34',
     'avatarColor' => 'purple',
 ])
@@ -23,21 +23,21 @@
         <h3 class="mt-3 text-base font-bold text-rg-text">{{ $title }}</h3>
 
         <div class="mt-3">
-            <x-ui.dish-placeholder :palette="$dishPalette" :label="$dishLabel" ratio="feed" />
+            <x-ui.image-placeholder :palette="$imagePalette" :label="$imageLabel" ratio="feed" />
         </div>
 
         <div class="mt-3 space-y-3">
             <p class="text-[13px] font-semibold text-rg-text2">What do you think?</p>
-            <x-ui.binary-choice selected="homemade" />
+            <x-ui.binary-choice selected="option_a" />
 
             <div>
-                <p class="mb-2 text-[13px] font-semibold text-rg-text2">Cuisine guess:</p>
+                <p class="mb-2 text-[13px] font-semibold text-rg-text2">Choose a category:</p>
                 <div class="flex flex-wrap gap-2">
-                    <x-ui.cuisine-chip active>IT</x-ui.cuisine-chip>
-                    <x-ui.cuisine-chip>AS</x-ui.cuisine-chip>
-                    <x-ui.cuisine-chip>US</x-ui.cuisine-chip>
-                    <x-ui.cuisine-chip>MX</x-ui.cuisine-chip>
-                    <x-ui.cuisine-chip>OT</x-ui.cuisine-chip>
+                    <x-ui.rating-option-chip active>A</x-ui.rating-option-chip>
+                    <x-ui.rating-option-chip>B</x-ui.rating-option-chip>
+                    <x-ui.rating-option-chip>C</x-ui.rating-option-chip>
+                    <x-ui.rating-option-chip>D</x-ui.rating-option-chip>
+                    <x-ui.rating-option-chip>OT</x-ui.rating-option-chip>
                 </div>
             </div>
         </div>

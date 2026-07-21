@@ -65,7 +65,7 @@ Public post cards load all active groups in configured order and render one `Rat
 - Source: `source_a`, `source_b`.
 - Category: `category_a`, `category_b`, `category_c`.
 
-The explicit legacy migration may add `category_d` and `category_other` so every valid historical category choice maps to a distinct generic option.
+The author's category selection is optional and is stored independently from tags and rating votes. Tags are also optional and may contain multiple values.
 
 ## Admin management
 

@@ -6,8 +6,8 @@
             ['New', 'plus', false],
             ['Following', 'users', false],
         ];
-        $categories = ['All', 'Homemade', 'Restaurant', 'Desserts', 'Mains', 'Drinks', 'Breakfast'];
-        $tags = ['#pasta', '#ramen', '#burger', '#brunch', '#dessert'];
+        $categories = ['All', 'Category A', 'Category B', 'Category C', 'Category D'];
+        $tags = ['#sample', '#popular', '#new', '#visual', '#discussion'];
     @endphp
 
     <nav class="space-y-1">

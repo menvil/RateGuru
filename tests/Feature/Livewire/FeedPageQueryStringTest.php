@@ -7,18 +7,18 @@ use App\Models\Tag;
 use Livewire\Livewire;
 
 it('hydrates search from query string', function () {
-    Post::factory()->published()->create(['title' => 'Homemade Pasta']);
+    Post::factory()->published()->create(['title' => 'Sample Entry']);
     Post::factory()->published()->create(['title' => 'Chocolate Cake']);
 
-    $this->get('/?search=pasta')
-        ->assertSee('Homemade Pasta')
+    $this->get('/?search=sample')
+        ->assertSee('Sample Entry')
         ->assertDontSee('Chocolate Cake');
 });
 
 it('sets search property from query string', function () {
-    Livewire::withQueryParams(['search' => 'pasta'])
+    Livewire::withQueryParams(['search' => 'sample'])
         ->test(FeedPage::class)
-        ->assertSet('search', 'pasta');
+        ->assertSet('search', 'sample');
 });
 
 it('has empty default search', function () {
@@ -49,8 +49,8 @@ it('sets tag property from query string', function () {
 it('hydrates category from query string', function () {
     seedFeedFilterGroups();
     $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $first = $group->options()->where('key', 'homemade')->firstOrFail();
-    $second = $group->options()->where('key', 'restaurant')->firstOrFail();
+    $first = $group->options()->where('key', 'source_a')->firstOrFail();
+    $second = $group->options()->where('key', 'source_b')->firstOrFail();
 
     Post::factory()->published()->create([
         'title' => 'First category post',
@@ -62,7 +62,7 @@ it('hydrates category from query string', function () {
         'category_option_id' => $second->id,
     ]);
 
-    $this->get('/?category[0]=homemade')
+    $this->get('/?category[0]=source_a')
         ->assertSee('First category post')
         ->assertDontSee('Second category post');
 });
@@ -70,16 +70,16 @@ it('hydrates category from query string', function () {
 it('sets category property from query string', function () {
     seedFeedFilterGroups();
 
-    Livewire::withQueryParams(['category' => 'restaurant'])
+    Livewire::withQueryParams(['category' => 'source_b'])
         ->test(FeedPage::class)
-        ->assertSet('category', ['restaurant']);
+        ->assertSet('category', ['source_b']);
 });
 
 it('hydrates multiple category filters from query string', function () {
     seedFeedFilterGroups();
     $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $first = $group->options()->where('key', 'homemade')->firstOrFail();
-    $second = $group->options()->where('key', 'restaurant')->firstOrFail();
+    $first = $group->options()->where('key', 'source_a')->firstOrFail();
+    $second = $group->options()->where('key', 'source_b')->firstOrFail();
 
     Post::factory()->published()->create([
         'title' => 'First category post',
@@ -93,7 +93,7 @@ it('hydrates multiple category filters from query string', function () {
 
     Post::factory()->published()->create(['title' => 'Uncategorised post']);
 
-    $this->get('/?category[0]=homemade&category[1]=restaurant')
+    $this->get('/?category[0]=source_a&category[1]=source_b')
         ->assertSee('First category post')
         ->assertSee('Second category post')
         ->assertDontSee('Uncategorised post');
@@ -102,8 +102,8 @@ it('hydrates multiple category filters from query string', function () {
 it('hydrates generic rating filters from query string', function () {
     seedFeedFilterGroups();
     $group = RatingGroup::query()->where('key', 'category')->firstOrFail();
-    $first = $group->options()->where('key', 'italian')->firstOrFail();
-    $second = $group->options()->where('key', 'asian')->firstOrFail();
+    $first = $group->options()->where('key', 'category_a')->firstOrFail();
+    $second = $group->options()->where('key', 'category_b')->firstOrFail();
 
     $matching = Post::factory()->published()->create(['title' => 'Matching answer']);
     $matching->authorAnswers()->create([
@@ -117,7 +117,7 @@ it('hydrates generic rating filters from query string', function () {
         'rating_option_id' => $second->id,
     ]);
 
-    $this->get('/?ratings[category][0]=italian')
+    $this->get('/?ratings[category][0]=category_a')
         ->assertSee('Matching answer')
         ->assertDontSee('Other answer');
 });
@@ -125,9 +125,9 @@ it('hydrates generic rating filters from query string', function () {
 it('sets generic rating filters from query string', function () {
     seedFeedFilterGroups();
 
-    Livewire::withQueryParams(['ratings' => ['category' => ['asian']]])
+    Livewire::withQueryParams(['ratings' => ['category' => ['category_b']]])
         ->test(FeedPage::class)
-        ->assertSet('ratings', ['category' => ['asian']]);
+        ->assertSet('ratings', ['category' => ['category_b']]);
 });
 
 it('hydrates sort from query string', function () {

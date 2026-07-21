@@ -5,8 +5,7 @@ use App\Models\User;
 it('serves feed page on home route', function () {
     $this->get('/')
         ->assertOk()
-        ->assertSee('RateGuru')
-        ->assertDontSee('Discover dishes');
+        ->assertSee('RateGuru');
 });
 
 it('renders base feed layout', function () {
@@ -19,10 +18,7 @@ it('renders base feed layout', function () {
 it('renders generic feed copy', function () {
     $this->get(route('feed'))
         ->assertOk()
-        ->assertDontSee('Latest dishes')
-        ->assertDontSee('Cuisine guess')
-        ->assertDontSee('>Origin<', false)
-        ->assertDontSee('>Dish<', false);
+        ->assertSee('Search tags, users, posts');
 });
 
 it('renders header search with responsive submit behavior', function () {
@@ -63,9 +59,7 @@ it('renders generic upload copy for authenticated users', function () {
     $this->actingAs($user)
         ->get(route('feed'))
         ->assertOk()
-        ->assertSee('Upload post')
-        ->assertDontSee('Upload dish')
-        ->assertDontSee('Food photo');
+        ->assertSee('Upload post');
 });
 
 it('renders authenticated header actions without changing guest header behavior', function () {

@@ -11,17 +11,17 @@ beforeEach(function () {
 });
 
 it('filters posts by author-chosen category option key', function () {
-    $homemade = $this->sourceGroup->options()->where('key', 'homemade')->firstOrFail();
-    $restaurant = $this->sourceGroup->options()->where('key', 'restaurant')->firstOrFail();
+    $firstCategory = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
+    $secondCategory = $this->sourceGroup->options()->where('key', 'source_b')->firstOrFail();
 
-    $homemadePost = Post::factory()->published()->create(['category_option_id' => $homemade->id]);
-    $restaurantPost = Post::factory()->published()->create(['category_option_id' => $restaurant->id]);
+    $firstCategoryPost = Post::factory()->published()->create(['category_option_id' => $firstCategory->id]);
+    $secondCategoryPost = Post::factory()->published()->create(['category_option_id' => $secondCategory->id]);
     $uncategorisedPost = Post::factory()->published()->create();
 
-    $results = app(FeedQuery::class)->get(category: ['homemade']);
+    $results = app(FeedQuery::class)->get(category: ['source_a']);
 
-    expect($results->pluck('id')->all())->toContain($homemadePost->id);
-    expect($results->pluck('id')->all())->not->toContain($restaurantPost->id);
+    expect($results->pluck('id')->all())->toContain($firstCategoryPost->id);
+    expect($results->pluck('id')->all())->not->toContain($secondCategoryPost->id);
     expect($results->pluck('id')->all())->not->toContain($uncategorisedPost->id);
 });
 

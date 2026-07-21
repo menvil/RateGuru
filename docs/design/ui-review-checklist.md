@@ -19,7 +19,7 @@
 
 ## General
 
-- [ ] Mandatory: public-facing copy uses generic post, Source, and Category wording
+- [ ] Mandatory: public-facing copy uses generic post, rating group, rating option, category, and tag wording
 - [ ] Dark background is preserved
 - [ ] Text contrast is acceptable
 - [ ] Accent purple is used consistently
@@ -42,8 +42,8 @@
 - [ ] Avatar/user/time row exists.
 - [ ] Title exists.
 - [ ] Image placeholder exists.
-- [ ] Binary voting controls exist.
-- [ ] Category chips exist.
+- [ ] Active rating groups render in configured order.
+- [ ] Rating options support binary and multi-option layouts.
 - [ ] Footer actions exist.
 
 ## Detail anatomy

@@ -17,24 +17,24 @@
                     <div class="space-y-4">
                         @include('dev.partials.platerate-post-card', [
                             'selected' => true,
-                            'user' => 'pasta_lover',
+                            'user' => 'sample_author',
                             'time' => '2h ago',
                             'score' => '128',
-                            'title' => 'Homemade or restaurant?',
-                            'dishLabel' => 'CARBONARA · 4 servings',
-                            'dishPalette' => 'carbonara',
+                            'title' => 'Which option fits best?',
+                            'imageLabel' => 'SAMPLE POST · IMAGE 01',
+                            'imagePalette' => 'warm',
                             'comments' => '34',
                             'avatarColor' => 'purple',
                         ])
 
                         @include('dev.partials.platerate-post-card', [
                             'selected' => false,
-                            'user' => 'fit_guy',
+                            'user' => 'visual_reviewer',
                             'time' => '5h ago',
                             'score' => '89',
                             'title' => 'Real or AI?',
-                            'dishLabel' => 'MATCHA · plated set',
-                            'dishPalette' => 'matcha',
+                            'imageLabel' => 'SAMPLE POST · IMAGE 02',
+                            'imagePalette' => 'green',
                             'comments' => '18',
                             'avatarColor' => 'green',
                         ])

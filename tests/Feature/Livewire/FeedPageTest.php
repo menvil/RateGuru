@@ -26,12 +26,12 @@ it('has search state on feed page', function () {
 });
 
 it('filters feed results when search state changes', function () {
-    Post::factory()->published()->create(['title' => 'Homemade Pasta']);
+    Post::factory()->published()->create(['title' => 'Sample Entry']);
     Post::factory()->published()->create(['title' => 'Chocolate Cake']);
 
     Livewire::test(FeedPage::class)
-        ->set('search', 'pasta')
-        ->assertSee('Homemade Pasta')
+        ->set('search', 'sample')
+        ->assertSee('Sample Entry')
         ->assertDontSee('Chocolate Cake');
 });
 
@@ -123,8 +123,8 @@ it('does not render a sort dropdown in the feed header (sorting lives in the sid
 it('filters feed when a category is selected', function () {
     seedFeedFilterGroups();
     $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $first = $group->options()->where('key', 'homemade')->firstOrFail();
-    $second = $group->options()->where('key', 'restaurant')->firstOrFail();
+    $first = $group->options()->where('key', 'source_a')->firstOrFail();
+    $second = $group->options()->where('key', 'source_b')->firstOrFail();
 
     Post::factory()->published()->create([
         'title' => 'First category post',
@@ -136,7 +136,7 @@ it('filters feed when a category is selected', function () {
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('toggleCategory', 'homemade')
+        ->call('toggleCategory', 'source_a')
         ->assertSee('First category post')
         ->assertDontSee('Second category post');
 });
@@ -144,8 +144,8 @@ it('filters feed when a category is selected', function () {
 it('supports selecting multiple categories', function () {
     seedFeedFilterGroups();
     $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $first = $group->options()->where('key', 'homemade')->firstOrFail();
-    $second = $group->options()->where('key', 'restaurant')->firstOrFail();
+    $first = $group->options()->where('key', 'source_a')->firstOrFail();
+    $second = $group->options()->where('key', 'source_b')->firstOrFail();
 
     Post::factory()->published()->create([
         'title' => 'First category post',
@@ -157,8 +157,8 @@ it('supports selecting multiple categories', function () {
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('toggleCategory', 'homemade')
-        ->call('toggleCategory', 'restaurant')
+        ->call('toggleCategory', 'source_a')
+        ->call('toggleCategory', 'source_b')
         ->assertSee('First category post')
         ->assertSee('Second category post');
 });
@@ -166,8 +166,8 @@ it('supports selecting multiple categories', function () {
 it('filters feed by a generic author answer', function () {
     seedFeedFilterGroups();
     $group = RatingGroup::query()->where('key', 'category')->firstOrFail();
-    $first = $group->options()->where('key', 'italian')->firstOrFail();
-    $second = $group->options()->where('key', 'asian')->firstOrFail();
+    $first = $group->options()->where('key', 'category_a')->firstOrFail();
+    $second = $group->options()->where('key', 'category_b')->firstOrFail();
 
     $matching = Post::factory()->published()->create(['title' => 'Matching answer']);
     $matching->authorAnswers()->create([
@@ -182,7 +182,7 @@ it('filters feed by a generic author answer', function () {
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('toggleRatingOption', 'category', 'italian')
+        ->call('toggleRatingOption', 'category', 'category_a')
         ->assertSee('Matching answer')
         ->assertDontSee('Other answer');
 });

@@ -24,12 +24,12 @@
                 <div class="space-y-4">
                     @include('dev.partials.platerate-post-card', [
                         'selected' => true,
-                        'user' => 'pasta_lover',
+                        'user' => 'sample_author',
                         'time' => '2h ago',
                         'score' => '128',
                         'title' => 'Post Card Shell',
-                        'dishLabel' => 'CARBONARA · 4 servings',
-                        'dishPalette' => 'carbonara',
+                        'imageLabel' => 'SAMPLE POST · IMAGE 01',
+                        'imagePalette' => 'warm',
                         'comments' => '34',
                         'avatarColor' => 'purple',
                     ])
@@ -39,20 +39,20 @@
                         <p class="mt-2 text-sm text-rg-muted">Selected state uses accent border and selected ring.</p>
                     </x-ui.card>
 
-                    <x-ui.dish-placeholder label="Dish Placeholder" palette="matcha" ratio="feed" />
+                    <x-ui.image-placeholder label="Image Placeholder" palette="green" ratio="feed" />
 
                     <div class="rounded-rgCard border border-rg-border bg-rg-card p-4">
-                        <p class="mb-3 text-sm font-semibold text-rg-text">Vote Rail / Binary Choice / Cuisine Chips</p>
+                        <p class="mb-3 text-sm font-semibold text-rg-text">Vote Rail / Binary Choice / Rating Option Chips</p>
                         <div class="flex items-center gap-5">
                             <x-ui.vote-rail score="128" active="up" />
                             <div class="flex-1 space-y-3">
-                                <x-ui.binary-choice selected="homemade" />
+                                <x-ui.binary-choice selected="option_a" />
                                 <div class="flex flex-wrap gap-2">
-                                    <x-ui.cuisine-chip active>IT</x-ui.cuisine-chip>
-                                    <x-ui.cuisine-chip>AS</x-ui.cuisine-chip>
-                                    <x-ui.cuisine-chip>US</x-ui.cuisine-chip>
-                                    <x-ui.cuisine-chip>MX</x-ui.cuisine-chip>
-                                    <x-ui.cuisine-chip>OT</x-ui.cuisine-chip>
+                                    <x-ui.rating-option-chip active>A</x-ui.rating-option-chip>
+                                    <x-ui.rating-option-chip>B</x-ui.rating-option-chip>
+                                    <x-ui.rating-option-chip>C</x-ui.rating-option-chip>
+                                    <x-ui.rating-option-chip>D</x-ui.rating-option-chip>
+                                    <x-ui.rating-option-chip>OT</x-ui.rating-option-chip>
                                 </div>
                             </div>
                         </div>
@@ -76,34 +76,6 @@
 
             <div class="max-w-xl space-y-4">
                 <x-feed.post-card :post="$demoPost" />
-
-                <x-voting.source-options
-                    :post="$demoPost"
-                    :current-value="null"
-                    :voting-disabled="false"
-                    :is-own-post="false"
-                    error=""
-                    root-test-id="ui-kit-source-voting"
-                    unavailable-test-id="ui-kit-source-voting-unavailable"
-                    error-test-id="ui-kit-source-voting-error"
-                    option-a-test-id="ui-kit-source-vote-a"
-                    option-b-test-id="ui-kit-source-vote-b"
-                    option-a-value="homemade"
-                    option-b-value="restaurant"
-                />
-
-                <x-voting.category-options
-                    :post="$demoPost"
-                    :options="\App\Enums\CuisineType::votable()"
-                    :current-value="null"
-                    :voting-disabled="false"
-                    :is-own-post="false"
-                    error=""
-                    variant="default"
-                    root-test-id="ui-kit-category-voting"
-                    unavailable-test-id="ui-kit-category-voting-unavailable"
-                    error-test-id="ui-kit-category-voting-error"
-                />
 
                 <x-voting.rating-options
                     :group="$demoRatingGroup"
@@ -133,8 +105,8 @@
                             <x-ui.icon name="upload" class="size-4" />
                             Upload Button
                         </x-ui.button>
-                        <x-ui.cuisine-chip active>Category Pill Active</x-ui.cuisine-chip>
-                        <x-ui.cuisine-chip>Category Pill Inactive</x-ui.cuisine-chip>
+                        <x-ui.rating-option-chip active>Rating Option Active</x-ui.rating-option-chip>
+                        <x-ui.rating-option-chip>Rating Option Inactive</x-ui.rating-option-chip>
                         <x-ui.action-button icon="comment">Action Button</x-ui.action-button>
                     </div>
                 </section>
@@ -175,8 +147,8 @@
 
                     <div class="mt-4 space-y-4">
                         <div class="space-y-2">
-                            <label for="ui-kit-form-dish-title" class="text-sm font-medium text-rg-text">Dish title</label>
-                            <x-ui.input id="ui-kit-form-dish-title" name="form_dish_title" placeholder="Truffle mushroom toast" />
+                            <label for="ui-kit-form-post-title" class="text-sm font-medium text-rg-text">Post title</label>
+                            <x-ui.input id="ui-kit-form-post-title" name="form_post_title" placeholder="A clear post title" />
                         </div>
 
                         <div class="space-y-2">
@@ -204,7 +176,7 @@
                             Upload dropzone
                         </div>
 
-                        <x-ui.error-message title="Validation error example" message="Dish title must be specific enough for voters." />
+                        <x-ui.error-message title="Validation error example" message="Post title must be specific enough for voters." />
                     </div>
                 </section>
 
@@ -214,9 +186,9 @@
                     <div class="mt-4 flex flex-wrap items-center gap-3" x-data="{ open: false }">
                         <x-ui.button x-on:click="open = true">Open Modal</x-ui.button>
 
-                        <x-ui.modal title="Upload Dish Preview" size="lg">
+                        <x-ui.modal title="Upload Post Preview" size="lg">
                             <div class="space-y-4">
-                                <p class="text-sm font-semibold text-rg-text">Create post / Upload dish</p>
+                                <p class="text-sm font-semibold text-rg-text">Create post / Upload image</p>
 
                                 <div class="grid grid-cols-2 gap-2 rounded-rgControl bg-rg-card2 p-1">
                                     <button type="button" class="rounded-rgSm bg-rg-accent px-3 py-2 text-xs font-semibold text-rg-onAccent">Photo</button>
@@ -224,15 +196,15 @@
                                 </div>
 
                                 <div class="rounded-rgCard border border-dashed border-rg-accentBorder bg-rg-accentSoft p-5 text-center text-sm font-semibold text-rg-accent2">
-                                    Drop dish image here
+                                    Drop post image here
                                 </div>
 
-                                <x-ui.input name="modal_title" placeholder="Dish title" />
+                                <x-ui.input name="modal_title" placeholder="Post title" />
                                 <x-ui.textarea name="modal_description" rows="3" placeholder="Description" />
 
                                 <div class="flex flex-wrap gap-2">
-                                    <x-ui.badge variant="accent">#pasta</x-ui.badge>
-                                    <x-ui.badge variant="neutral">#homemade</x-ui.badge>
+                                    <x-ui.badge variant="accent">#sample</x-ui.badge>
+                                    <x-ui.badge variant="neutral">#popular</x-ui.badge>
                                 </div>
                             </div>
 
@@ -259,11 +231,11 @@
                             </x-slot:content>
                         </x-ui.dropdown>
 
-                        <x-ui.drawer id="ui-kit-mobile-drawer" title="Dish Details Preview" size="lg">
+                        <x-ui.drawer id="ui-kit-mobile-drawer" title="Post Details Preview" size="lg">
                             <div class="space-y-5">
-                                <x-ui.dish-placeholder label="CARBONARA · 4 servings" palette="carbonara" ratio="video" />
-                                <h4 class="text-lg font-bold text-rg-text">Homemade or Restaurant?</h4>
-                                <x-ui.binary-choice selected="homemade" />
+                                <x-ui.image-placeholder label="SAMPLE POST · IMAGE 01" palette="warm" ratio="video" />
+                                <h4 class="text-lg font-bold text-rg-text">Which option fits best?</h4>
+                                <x-ui.binary-choice selected="option_a" />
                                 <p class="text-sm text-rg-muted">Mobile drawer preview; desktop reference uses the fixed right detail column above.</p>
                             </div>
                         </x-ui.drawer>

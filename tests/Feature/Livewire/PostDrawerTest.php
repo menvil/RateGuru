@@ -45,12 +45,12 @@ it('renders post voting component in drawer', function () {
 
 it('renders selected published post', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Homemade Carbonara')
+        ->assertSee('Sample Post')
         ->assertSee('Creamy pasta with pepper');
 });
 
@@ -177,12 +177,12 @@ it('renders large post image in drawer', function () {
 
 it('renders drawer post title and description', function () {
     $post = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Homemade Carbonara')
+        ->assertSee('Sample Post')
         ->assertSee('Creamy pasta with pepper');
 });
 

@@ -27,18 +27,16 @@ Route::get('/dashboard', function () {
 
 Route::get('/dev/ui-kit', function () {
     $demoPost = new Post([
-        'title' => 'Homemade Carbonara',
-        'description' => 'Creamy pasta with pepper and guanciale.',
+        'title' => 'Sample Post',
+        'description' => 'A neutral preview used to demonstrate configurable rating components.',
         'upvotes_count' => 128,
         'downvotes_count' => 12,
         'comments_count' => 24,
-        'homemade_votes_count' => 70,
-        'restaurant_votes_count' => 30,
         'image_url' => null,
     ]);
     $demoPost->setRelation('user', new User([
-        'name' => 'Demo Chef',
-        'username' => 'demo_chef',
+        'name' => 'Demo Author',
+        'username' => 'demo_author',
     ]));
 
     $demoRatingGroup = new RatingGroup([

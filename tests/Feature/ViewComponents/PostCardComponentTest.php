@@ -19,11 +19,11 @@ it('renders post voting component in post card', function () {
 });
 
 it('renders post card title', function () {
-    $post = Post::factory()->published()->make(['title' => 'Homemade Carbonara']);
+    $post = Post::factory()->published()->make(['title' => 'Sample Post']);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('Homemade Carbonara');
+    expect($html)->toContain('Sample Post');
 });
 
 it('renders post image when image url exists', function () {
@@ -62,14 +62,14 @@ it('renders image placeholder when image url is missing', function () {
 
 it('renders post title and description', function () {
     $post = Post::factory()->published()->make([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)
-        ->toContain('Homemade Carbonara')
+        ->toContain('Sample Post')
         ->toContain('Creamy pasta with pepper');
 });
 
@@ -331,7 +331,7 @@ it('does not render rating histogram before the current user votes', function ()
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     // No selected option → buttons shown, not the results block
-    expect($html)->not->toContain('post-card-origin-results');
+    expect($html)->not->toContain('rating-option-'.$post->id.'-results');
 });
 
 it('does not break rendering on an unsaved post', function () {
@@ -364,11 +364,8 @@ it('delegates result rendering to the rating voting components', function () {
     // Post card no longer renders its own distribution blocks; the rating
     // voting Livewire components (and their rating-options view) own that.
     expect($view)
-        ->not->toContain('post-card-origin-results')
-        ->not->toContain('post-card-cuisine-results')
         ->toContain('voting.rating-voting')
-        ->not->toContain('posts.source-voting')
-        ->not->toContain('posts.category-voting');
+        ->toContain('@foreach($ratingGroups as $ratingGroup)');
 });
 
 it('renders save button on post card when feature is enabled', function () {

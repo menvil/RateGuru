@@ -3,6 +3,7 @@
 namespace App\Support\Rating;
 
 use App\Models\Post;
+use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Models\User;
 use App\Queries\Rating\RatingVoteCountsQuery;
@@ -18,6 +19,7 @@ final class RatingVotingStateLoader
 
     /**
      * @param  Collection<int, Post>  $posts
+     * @param  Collection<int, RatingGroup>|null  $groups
      * @return array<int, array<string, array{
      *     distribution: array<int, array{count: int, percent: float, label: string}>,
      *     selected_option_id: int|null

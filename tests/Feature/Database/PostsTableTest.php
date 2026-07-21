@@ -29,16 +29,4 @@ it('creates posts table with required columns', function () {
         'deleted_at',
         'category_option_id',
     ]))->toBeTrue();
-
-    expect(Schema::hasColumns('posts', [
-        'origin_truth',
-        'cuisine_truth',
-        'homemade_votes_count',
-        'restaurant_votes_count',
-    ]))->toBeFalse();
-});
-
-it('does not create legacy domain vote tables', function () {
-    expect(Schema::hasTable('origin_votes'))->toBeFalse()
-        ->and(Schema::hasTable('cuisine_votes'))->toBeFalse();
 });

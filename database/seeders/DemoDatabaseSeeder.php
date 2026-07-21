@@ -13,6 +13,7 @@ class DemoDatabaseSeeder extends Seeder
         }
 
         $this->call([
+            DefaultRatingConfigurationSeeder::class,
             DemoUsersSeeder::class,
             DemoAdminSeeder::class,
             DemoModeratorSeeder::class,

@@ -6,8 +6,6 @@ use App\Actions\Counters\RecalculateCommentCountersAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
@@ -49,7 +47,7 @@ class DemoFillSeeder extends Seeder
         'Steel Suspension Bridge', 'Skyscraper Window View', 'Train Station Vault',
         'Baroque Cathedral Nave', 'Modern Art Museum Atrium', 'Night Market Crowd',
         'Floating Village River', 'Foggy Hilltop Town',
-        // Food / Still Life
+        // Objects / Still Life
         'Rustic Barn in Meadow', 'Farm Table Harvest', 'Wood Fire Pizza',
         'Artisan Bread Loaves', 'Morning Coffee Pour', 'Colorful Spice Market',
         'Sushi Platter Display', 'Fresh Pasta Dough', 'Street Taco Stand',
@@ -198,8 +196,6 @@ class DemoFillSeeder extends Seeder
 
     private function createPosts(Collection $users): Collection
     {
-        $originTypes = OriginType::cases();
-        $cuisineTypes = CuisineType::cases();
         $shuffled = $users->shuffle();
         $baseTime = CarbonImmutable::now()->subDays(60);
         $now = now()->toDateTimeString();
@@ -218,8 +214,6 @@ class DemoFillSeeder extends Seeder
                     'thumbnail_url' => null,
                     'source_url' => null,
                     'status' => PostStatus::Published->value,
-                    'origin_truth' => $originTypes[array_rand($originTypes)]->value,
-                    'cuisine_truth' => $cuisineTypes[array_rand($cuisineTypes)]->value,
                     // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
                     'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),
                     'deleted_at' => null, // clear any previous soft-delete so Eloquent finds the row
@@ -454,13 +448,9 @@ class DemoFillSeeder extends Seeder
             $g->id => $g->options->pluck('id')->all(),
         ])->all();
 
-        $originValues = [OriginType::Homemade->value, OriginType::Restaurant->value];
-        $cuisineValues = array_map(fn ($c) => $c->value, CuisineType::cases());
         $now = now()->toDateTimeString();
 
         $postVotes = [];
-        $originVotes = [];
-        $cuisineVotes = [];
         $ratingVotes = [];
 
         foreach ($posts as $post) {
@@ -474,22 +464,6 @@ class DemoFillSeeder extends Seeder
                     'post_id' => $post->id,
                     'user_id' => $user->id,
                     'type' => fake()->boolean(70) ? VoteType::Up->value : VoteType::Down->value,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-
-                $originVotes[] = [
-                    'post_id' => $post->id,
-                    'user_id' => $user->id,
-                    'origin' => $originValues[array_rand($originValues)],
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-
-                $cuisineVotes[] = [
-                    'post_id' => $post->id,
-                    'user_id' => $user->id,
-                    'cuisine' => $cuisineValues[array_rand($cuisineValues)],
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
@@ -517,14 +491,6 @@ class DemoFillSeeder extends Seeder
 
         foreach (array_chunk($postVotes, 500) as $chunk) {
             DB::table('post_votes')->upsert($chunk, ['post_id', 'user_id'], ['type', 'updated_at']);
-        }
-
-        foreach (array_chunk($originVotes, 500) as $chunk) {
-            DB::table('origin_votes')->upsert($chunk, ['post_id', 'user_id'], ['origin', 'updated_at']);
-        }
-
-        foreach (array_chunk($cuisineVotes, 500) as $chunk) {
-            DB::table('cuisine_votes')->upsert($chunk, ['post_id', 'user_id'], ['cuisine', 'updated_at']);
         }
 
         foreach (array_chunk($ratingVotes, 500) as $chunk) {

@@ -2,8 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\Tag;
@@ -31,8 +29,6 @@ class DemoPendingPostsSeeder extends Seeder
                     'thumbnail_url' => null,
                     'source_url' => null,
                     'status' => PostStatus::Pending,
-                    'origin_truth' => $demoPost['origin_truth'],
-                    'cuisine_truth' => $demoPost['cuisine_truth'],
                     'published_at' => null,
                 ],
             );
@@ -49,8 +45,6 @@ class DemoPendingPostsSeeder extends Seeder
      *     description: string,
      *     image_path: string,
      *     author: string,
-     *     origin_truth: OriginType,
-     *     cuisine_truth: CuisineType,
      *     tags: list<string>
      * }>
      */
@@ -62,8 +56,6 @@ class DemoPendingPostsSeeder extends Seeder
                 'description' => 'A newly submitted sample post waiting for moderator approval.',
                 'image_path' => 'demo/posts/pending-01.jpg',
                 'author' => 'alice@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::Italian,
                 'tags' => ['category-a', 'source-a'],
             ],
             [
@@ -71,8 +63,6 @@ class DemoPendingPostsSeeder extends Seeder
                 'description' => 'A source B sample post waiting in the pending moderation queue.',
                 'image_path' => 'demo/posts/pending-02.jpg',
                 'author' => 'bob@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Asian,
                 'tags' => ['category-b', 'source-b'],
             ],
             [
@@ -80,8 +70,6 @@ class DemoPendingPostsSeeder extends Seeder
                 'description' => 'A category D submission that should not appear in public feed yet.',
                 'image_path' => 'demo/posts/pending-03.jpg',
                 'author' => 'carla@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Mexican,
                 'tags' => ['category-d', 'sample-c'],
             ],
         ];

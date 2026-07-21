@@ -17,7 +17,7 @@ beforeEach(function () {
 
 it('persists the author-chosen category option', function () {
     $user = User::factory()->create();
-    $option = $this->sourceGroup->options()->where('key', 'homemade')->firstOrFail();
+    $option = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Categorised dish',
@@ -25,12 +25,12 @@ it('persists the author-chosen category option', function () {
     ));
 
     expect($post->category_option_id)->toBe($option->id);
-    expect($post->categoryOption->key)->toBe('homemade');
+    expect($post->categoryOption->key)->toBe('source_a');
 });
 
 it('rejects a category option that does not belong to the sidebar group', function () {
     $user = User::factory()->create();
-    $secondGroupOption = $this->categoryGroup->options()->where('key', 'italian')->firstOrFail();
+    $secondGroupOption = $this->categoryGroup->options()->where('key', 'category_a')->firstOrFail();
 
     app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Wrong category dish',
@@ -40,8 +40,8 @@ it('rejects a category option that does not belong to the sidebar group', functi
 
 it('persists author answers, one per rating group', function () {
     $user = User::factory()->create();
-    $sourceOption = $this->sourceGroup->options()->where('key', 'restaurant')->firstOrFail();
-    $categoryOption = $this->categoryGroup->options()->where('key', 'asian')->firstOrFail();
+    $sourceOption = $this->sourceGroup->options()->where('key', 'source_b')->firstOrFail();
+    $categoryOption = $this->categoryGroup->options()->where('key', 'category_b')->firstOrFail();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Dish with answers',
@@ -70,8 +70,8 @@ it('allows creating a post without any author answers', function () {
 
 it('rejects two author answers for the same rating group', function () {
     $user = User::factory()->create();
-    $first = $this->sourceGroup->options()->where('key', 'homemade')->firstOrFail();
-    $second = $this->sourceGroup->options()->where('key', 'restaurant')->firstOrFail();
+    $first = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
+    $second = $this->sourceGroup->options()->where('key', 'source_b')->firstOrFail();
 
     app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Conflicting answers dish',
@@ -93,7 +93,7 @@ it('rejects an author answer from an inactive rating group', function () {
 
 it('deletes author answers together with the post', function () {
     $user = User::factory()->create();
-    $sourceOption = $this->sourceGroup->options()->where('key', 'homemade')->firstOrFail();
+    $sourceOption = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Doomed dish',

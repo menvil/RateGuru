@@ -17,7 +17,7 @@ it('creates a published post for default trusted user', function () {
     $user = User::factory()->create();
 
     $data = new CreatePostData(
-        title: 'Homemade pasta',
+        title: 'Sample entry',
         description: null,
         sourceUrl: null,
         tagIds: [],
@@ -29,7 +29,7 @@ it('creates a published post for default trusted user', function () {
     expect($post)->toBeInstanceOf(Post::class);
     expect($post->exists)->toBeTrue();
     expect($post->user_id)->toBe($user->id);
-    expect($post->title)->toBe('Homemade pasta');
+    expect($post->title)->toBe('Sample entry');
     expect($post->status)->toBe(PostStatus::Published);
     expect($post->published_at)->not->toBeNull();
 });
@@ -62,7 +62,7 @@ it('persists post description', function () {
     $user = User::factory()->create();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Homemade pasta',
+        title: 'Sample entry',
         description: 'Fresh pasta with tomato sauce',
     ));
 
@@ -73,7 +73,7 @@ it('persists source url', function () {
     $user = User::factory()->create();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Homemade pasta',
+        title: 'Sample entry',
         sourceUrl: 'https://example.com/original',
     ));
 

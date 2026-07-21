@@ -40,8 +40,7 @@ Password: password
 - hidden posts
 - comments
 - post votes
-- origin votes
-- cuisine votes
+- configurable rating votes
 - reports for posts and comments
 - demo admin account
 - demo moderator account

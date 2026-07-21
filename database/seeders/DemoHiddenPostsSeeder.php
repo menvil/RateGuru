@@ -2,8 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\Tag;
@@ -34,8 +32,6 @@ class DemoHiddenPostsSeeder extends Seeder
                     'thumbnail_url' => null,
                     'source_url' => null,
                     'status' => PostStatus::Hidden,
-                    'origin_truth' => $demoPost['origin_truth'],
-                    'cuisine_truth' => $demoPost['cuisine_truth'],
                     'published_at' => CarbonImmutable::parse(self::PUBLISHED_AT),
                 ],
             );
@@ -52,8 +48,6 @@ class DemoHiddenPostsSeeder extends Seeder
      *     description: string,
      *     image_path: string,
      *     author: string,
-     *     origin_truth: OriginType,
-     *     cuisine_truth: CuisineType,
      *     tags: list<string>
      * }>
      */
@@ -65,8 +59,6 @@ class DemoHiddenPostsSeeder extends Seeder
                 'description' => 'A hidden source B post kept for admin moderation filter checks.',
                 'image_path' => 'demo/posts/hidden-01.jpg',
                 'author' => 'bob@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Other,
                 'tags' => ['source-b', 'sample-f'],
             ],
             [
@@ -74,8 +66,6 @@ class DemoHiddenPostsSeeder extends Seeder
                 'description' => 'A hidden source A post that should stay outside public feed results.',
                 'image_path' => 'demo/posts/hidden-02.jpg',
                 'author' => 'alice@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::American,
                 'tags' => ['source-a', 'category-c'],
             ],
         ];

@@ -41,10 +41,10 @@ it('can render post feed component', function () {
 });
 
 it('shows published post title', function () {
-    Post::factory()->published()->create(['title' => 'Homemade Carbonara']);
+    Post::factory()->published()->create(['title' => 'Sample Post']);
 
     Livewire::test(PostFeed::class)
-        ->assertSee('Homemade Carbonara');
+        ->assertSee('Sample Post');
 });
 
 it('does not show pending post title', function () {
@@ -74,11 +74,11 @@ it('has loading skeleton markup', function () {
 });
 
 it('renders post cards using the post card component', function () {
-    Post::factory()->published()->create(['title' => 'Homemade Carbonara']);
+    Post::factory()->published()->create(['title' => 'Sample Post']);
 
     Livewire::test(PostFeed::class)
         ->assertSee('data-testid="post-card"', false)
-        ->assertSee('Homemade Carbonara');
+        ->assertSee('Sample Post');
 });
 
 it('renders an arbitrary active rating group on every feed card', function () {

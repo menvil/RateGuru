@@ -2,12 +2,11 @@
 
 namespace Database\Seeders;
 
-use App\Enums\CuisineType;
-use App\Enums\OriginType;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
+use App\Support\Rating\RatingConfigurationManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use RuntimeException;
@@ -22,8 +21,17 @@ class DemoPublishedPostsSeeder extends Seeder
             return;
         }
 
+        $categoryOptions = app(RatingConfigurationManager::class)
+            ->activeGroups()
+            ->first()
+            ?->options
+            ->values() ?? collect();
+
         foreach ($this->posts() as $index => $demoPost) {
             $author = User::query()->where('email', $demoPost['author'])->firstOrFail();
+            $categoryOption = $categoryOptions->isEmpty() || $index % 3 === 2
+                ? null
+                : $categoryOptions[$index % $categoryOptions->count()];
 
             $post = Post::query()->updateOrCreate(
                 ['title' => $demoPost['title']],
@@ -34,9 +42,8 @@ class DemoPublishedPostsSeeder extends Seeder
                     'image_url' => null,
                     'thumbnail_url' => null,
                     'source_url' => null,
+                    'category_option_id' => $categoryOption?->id,
                     'status' => PostStatus::Published,
-                    'origin_truth' => $demoPost['origin_truth'],
-                    'cuisine_truth' => $demoPost['cuisine_truth'],
                     'published_at' => CarbonImmutable::parse(self::BASE_PUBLISHED_AT)->subHours($index + 1),
                 ],
             );
@@ -61,8 +68,6 @@ class DemoPublishedPostsSeeder extends Seeder
      *     description: string,
      *     image_path: string,
      *     author: string,
-     *     origin_truth: OriginType,
-     *     cuisine_truth: CuisineType,
      *     tags: list<string>
      * }>
      */
@@ -74,8 +79,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for source and category voting checks.',
                 'image_path' => 'demo/posts/sample-01.jpg',
                 'author' => 'alice@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::Italian,
                 'tags' => ['category-a', 'source-a', 'sample-a'],
             ],
             [
@@ -83,8 +86,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for public feed and report checks.',
                 'image_path' => 'demo/posts/sample-02.jpg',
                 'author' => 'bob@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Asian,
                 'tags' => ['category-b', 'source-b', 'sample-b'],
             ],
             [
@@ -92,8 +93,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for resolved report checks.',
                 'image_path' => 'demo/posts/sample-03.jpg',
                 'author' => 'carla@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Mexican,
                 'tags' => ['category-d', 'source-b', 'sample-c'],
             ],
             [
@@ -101,8 +100,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for feed and profile checks.',
                 'image_path' => 'demo/posts/sample-04.jpg',
                 'author' => 'trusted@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::American,
                 'tags' => ['category-c', 'source-a', 'sample-d'],
             ],
             [
@@ -110,8 +107,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post with a clean layout for scrolling checks.',
                 'image_path' => 'demo/posts/sample-05.jpg',
                 'author' => 'alice@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::Asian,
                 'tags' => ['category-b', 'source-a', 'sample-e'],
             ],
             [
@@ -119,8 +114,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for search and ranking checks.',
                 'image_path' => 'demo/posts/sample-06.jpg',
                 'author' => 'bob@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Other,
                 'tags' => ['sample-a', 'source-b', 'sample-f'],
             ],
             [
@@ -128,8 +121,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for longer feed checks.',
                 'image_path' => 'demo/posts/sample-07.jpg',
                 'author' => 'alice@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::Asian,
                 'tags' => ['category-b', 'source-a', 'sample-a'],
             ],
             [
@@ -137,8 +128,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for comments and feed interactions.',
                 'image_path' => 'demo/posts/sample-08.jpg',
                 'author' => 'bob@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::American,
                 'tags' => ['category-c', 'source-b', 'sample-b'],
             ],
             [
@@ -146,8 +135,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for lazy loading and profile pagination checks.',
                 'image_path' => 'demo/posts/sample-09.jpg',
                 'author' => 'trusted@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::American,
                 'tags' => ['category-c', 'source-a', 'sample-c'],
             ],
             [
@@ -155,8 +142,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for category and source filters.',
                 'image_path' => 'demo/posts/sample-10.jpg',
                 'author' => 'carla@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Mexican,
                 'tags' => ['category-d', 'source-b', 'sample-d'],
             ],
             [
@@ -164,8 +149,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for compact card rendering checks.',
                 'image_path' => 'demo/posts/sample-11.jpg',
                 'author' => 'alice@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::Italian,
                 'tags' => ['category-a', 'source-a', 'sample-e'],
             ],
             [
@@ -173,8 +156,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for category voting checks.',
                 'image_path' => 'demo/posts/sample-12.jpg',
                 'author' => 'bob@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Asian,
                 'tags' => ['category-b', 'source-b', 'sample-f'],
             ],
             [
@@ -182,8 +163,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for source voting checks.',
                 'image_path' => 'demo/posts/sample-13.jpg',
                 'author' => 'trusted@rateguru.test',
-                'origin_truth' => OriginType::Homemade,
-                'cuisine_truth' => CuisineType::American,
                 'tags' => ['category-c', 'source-a', 'sample-a'],
             ],
             [
@@ -191,8 +170,6 @@ class DemoPublishedPostsSeeder extends Seeder
                 'description' => 'Sample post for feed scrolling and comments checks.',
                 'image_path' => 'demo/posts/sample-14.jpg',
                 'author' => 'carla@rateguru.test',
-                'origin_truth' => OriginType::Restaurant,
-                'cuisine_truth' => CuisineType::Other,
                 'tags' => ['sample-b', 'source-b', 'sample-c'],
             ],
         ];

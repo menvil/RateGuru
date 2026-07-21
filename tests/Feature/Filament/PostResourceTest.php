@@ -61,7 +61,7 @@ it('renders an image column in the post resource table', function () {
 
 it('renders a searchable, sortable title column', function () {
     $admin = User::factory()->admin()->create();
-    $post = Post::factory()->published()->create(['title' => 'Homemade Pasta']);
+    $post = Post::factory()->published()->create(['title' => 'Sample Entry']);
 
     $this->actingAs($admin);
 
@@ -69,7 +69,7 @@ it('renders a searchable, sortable title column', function () {
         ->assertCanSeeTableRecords([$post])
         ->assertTableColumnExists('title')
         ->assertCanRenderTableColumn('title')
-        ->assertSee('Homemade Pasta')
+        ->assertSee('Sample Entry')
         ->assertSee(route('posts.show', $post), false);
 });
 

@@ -3,11 +3,11 @@
         <x-ui.icon name="x" class="size-4" />
     </button>
 
-    <p class="text-xs font-medium text-rg-muted">Posted by pasta_lover · 2h ago</p>
-    <h2 class="mt-2 pr-10 text-[22px] font-bold tracking-normal text-rg-text">Homemade or restaurant?</h2>
+    <p class="text-xs font-medium text-rg-muted">Posted by sample_author · 2h ago</p>
+    <h2 class="mt-2 pr-10 text-[22px] font-bold tracking-normal text-rg-text">Which option fits best?</h2>
 
     <div class="mt-4">
-        <x-ui.dish-placeholder palette="carbonara" label="CARBONARA · 4 servings" ratio="detail" />
+        <x-ui.image-placeholder palette="warm" label="SAMPLE POST · IMAGE 01" ratio="detail" />
     </div>
 
     <footer class="mt-3 flex items-center gap-4">

@@ -11,10 +11,10 @@
 
     <div class="mt-5 space-y-4">
         @foreach ([
-            ['realjudge', '2h ago', 'Looks restaurant to me. Pasta is too uniform and the plating is suspiciously perfect.', 'blue', false],
-            ['nattylover', '2h ago', 'Nah homemade. Look at the cracked pepper distribution and that imperfect rim.', 'yellow', false],
-            ['realjudge', '1h ago', 'Maybe - but the egg yolk is way too saturated. That is a pro shot.', 'blue', true],
-            ['cuisine_nerd', '3h ago', 'Carbonara without cream, finally.', 'green', false],
+            ['reviewer_one', '2h ago', 'Option A fits the description and presentation best.', 'blue', false],
+            ['reviewer_two', '2h ago', 'I picked Option B because of the details near the edge.', 'yellow', false],
+            ['reviewer_one', '1h ago', 'Fair point — the lighting changes how it reads.', 'blue', true],
+            ['category_fan', '3h ago', 'Category A looks like the closest match.', 'green', false],
         ] as [$user, $time, $body, $color, $reply])
             <div class="{{ $reply ? 'ml-4 border-l border-rg-border pl-4' : '' }} grid grid-cols-[32px_1fr] gap-2.5 text-[13px]">
                 <x-ui.avatar :name="$user" :color="$color" size="md" />

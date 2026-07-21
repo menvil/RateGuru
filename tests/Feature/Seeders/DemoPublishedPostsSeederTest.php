@@ -26,6 +26,15 @@ it('seeds published posts with authors and tags', function () {
     expect($post->tags()->count())->toBeGreaterThan(0);
 });
 
+it('seeds both categorized and uncategorized published posts', function () {
+    $this->seed(DemoDatabaseSeeder::class);
+
+    $publishedPosts = Post::query()->where('status', PostStatus::Published);
+
+    expect((clone $publishedPosts)->whereNotNull('category_option_id')->exists())->toBeTrue()
+        ->and((clone $publishedPosts)->whereNull('category_option_id')->exists())->toBeTrue();
+});
+
 it('seeded published posts are visible through feed query', function () {
     $this->seed(DemoDatabaseSeeder::class);
 

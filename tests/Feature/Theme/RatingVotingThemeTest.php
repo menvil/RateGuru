@@ -8,8 +8,6 @@ it('voting component views use theme token classes', function (string $path) {
     expect($content)->toContain('rg-');
 })->with([
     'views/components/voting/rating-options.blade.php',
-    'views/components/voting/source-options.blade.php',
-    'views/components/voting/category-options.blade.php',
 ]);
 
 it('voting components do not use raw background colors', function (string $path) {
@@ -20,8 +18,6 @@ it('voting components do not use raw background colors', function (string $path)
     expect($content)->not->toContain('bg-gray-');
 })->with([
     'views/components/voting/rating-options.blade.php',
-    'views/components/voting/source-options.blade.php',
-    'views/components/voting/category-options.blade.php',
 ]);
 
 it('renders rating voting on post show page', function () {

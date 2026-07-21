@@ -116,7 +116,7 @@ it('filters published posts by tag slug', function () {
 
 it('searches published posts by title', function () {
     $matching = Post::factory()->published()->create([
-        'title' => 'Homemade Carbonara',
+        'title' => 'Sample Post',
         'description' => 'Dinner',
     ]);
 
@@ -129,7 +129,7 @@ it('searches published posts by title', function () {
         'title' => 'Hidden Carbonara',
     ]);
 
-    $posts = app(FeedQuery::class)->get(search: 'carbonara');
+    $posts = app(FeedQuery::class)->get(search: 'sample');
 
     expect($posts->pluck('id')->all())->toBe([$matching->id]);
 });
