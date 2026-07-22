@@ -93,6 +93,16 @@ it('runs primary and compatibility test suites in ci', function () {
         expect($downloadSteps)->toHaveCount(1)
             ->and($downloadSteps->first())->toBe($downloadStep);
     }
+
+    foreach (['tests-sqlite', 'migrations-mariadb'] as $job) {
+        $rollbackSteps = collect($workflow['jobs'][$job]['steps'])
+            ->filter(fn (array $step): bool => ($step['id'] ?? null) === 'rollback')
+            ->values();
+
+        expect($rollbackSteps)->toHaveCount(1)
+            ->and($rollbackSteps->first()['name'])->toBe('Check rollback path')
+            ->and($rollbackSteps->first())->not->toHaveKey('continue-on-error');
+    }
 });
 
 it('links the database support contract from the project entry points', function () {

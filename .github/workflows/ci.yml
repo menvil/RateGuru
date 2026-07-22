@@ -163,7 +163,7 @@ jobs:
       tests: ${{ steps.test-results.outputs.tests }}
     services:
       postgres:
-        image: postgres:18.4-alpine
+        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
         env:
           POSTGRES_DB: rateguru_test
           POSTGRES_USER: rateguru
@@ -347,9 +347,8 @@ jobs:
             | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
             >> "$GITHUB_OUTPUT"
 
-      - name: Check rollback path (non-blocking)
+      - name: Check rollback path
         id: rollback
-        continue-on-error: true
         run: |
           php artisan migrate:reset --force
           php artisan migrate --force
@@ -413,9 +412,8 @@ jobs:
             | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
             >> "$GITHUB_OUTPUT"
 
-      - name: Check rollback path (non-blocking)
+      - name: Check rollback path
         id: rollback
-        continue-on-error: true
         env:
           DB_CONNECTION: sqlite
           DB_DATABASE: database/database.sqlite
@@ -569,10 +567,13 @@ jobs:
             const baselinePatterns = value('BASELINE_PATTERNS');
             const baselineFiles = value('BASELINE_FILES');
             const baselineDelta = value('BASELINE_DELTA');
+            const generatedAt = new Date().toISOString();
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const lines = [
               marker,
               '## RateGuru CI',
+              '',
+              `_Updated: ${generatedAt}_`,
               '',
               '| Check | Summary |',
               '|---|---|',
@@ -613,25 +614,15 @@ jobs:
               const existingComments = comments.filter((comment) =>
                 comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker),
               );
-              const [existing, ...duplicateComments] = existingComments;
 
-              if (existing) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existing.id,
-                  body,
-                });
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  body,
-                });
-              }
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pullRequest.number,
+                body,
+              });
 
-              await Promise.all(duplicateComments.map((comment) =>
+              await Promise.all(existingComments.map((comment) =>
                 github.rest.issues.deleteComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
