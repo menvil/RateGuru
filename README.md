@@ -32,15 +32,33 @@ cp .env.example .env
 php artisan key:generate
 ```
 
-Start PostgreSQL and run migrations:
+Install and start PostgreSQL 18.4 through Homebrew:
 
 ```bash
-composer db:start
+brew install postgresql@18
+brew services start postgresql@18
+```
+
+Create the non-production role and the separate development and test databases
+once per machine:
+
+```bash
+createuser --createdb --login rateguru
+psql postgres -c "ALTER ROLE rateguru PASSWORD 'rateguru';"
+createdb --owner=rateguru rateguru
+createdb --owner=rateguru rateguru_test
+```
+
+Then run migrations:
+
+```bash
 php artisan migrate
 ```
 
-The Compose service uses the non-production credentials from `.env.example`.
-For a quick test run without PostgreSQL, use `composer test:sqlite`.
+RateGuru does not require Docker for local development. Laravel, frontend tools,
+and PostgreSQL run directly on the host. GitHub Actions uses its own isolated
+PostgreSQL container. For a quick test run without PostgreSQL, use
+`composer test:sqlite`.
 
 For a fresh local database with deterministic demo data, see
 [docs/dev/seed-data.md](docs/dev/seed-data.md).

@@ -1,10 +1,10 @@
 # Database test matrix
 
-PostgreSQL is the default test database. Start it once, then use the normal test
-command:
+PostgreSQL 18.4 is the default test database. Start the Homebrew service, then
+use the normal test command:
 
 ```bash
-composer db:start
+brew services start postgresql@18
 composer test
 ```
 

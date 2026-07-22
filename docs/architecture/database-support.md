@@ -4,7 +4,7 @@
 
 PostgreSQL is the primary runtime database for RateGuru. Local development,
 the default PHPUnit configuration, CI, coverage, staging, and the recommended
-production configuration use PostgreSQL 17.
+production configuration use PostgreSQL 18.4.
 
 SQLite and MariaDB are supported compatibility targets. The application keeps
 portable migrations and query behavior, and the Unit and Feature suites run on
@@ -17,14 +17,17 @@ upgrade procedures.
 
 ## Development and tests
 
-Start the primary local database and run its tests:
+Install and start the primary local database, then run its tests:
 
 ```bash
-composer db:start
+brew install postgresql@18
+brew services start postgresql@18
 composer test
 ```
 
-The explicit alias `composer test:postgres` does the same thing. PostgreSQL uses
+The one-time role and database creation commands are documented in the project
+README. Docker is not required for local development. The explicit alias
+`composer test:postgres` does the same thing as `composer test`. PostgreSQL uses
 `rateguru` for development and `rateguru_test` for tests, so test resets cannot
 erase the development database.
 
@@ -41,9 +44,11 @@ credentials; CI provides its own isolated service with those values.
 
 ## CI database matrix
 
-The primary Pest and Browser job runs on PostgreSQL. Coverage also runs on
-PostgreSQL. Separate compatibility jobs run the complete Unit and Feature suites,
-fresh migrations, the standard seed, and rollback checks on SQLite and MariaDB.
+The primary Pest and Browser job runs on the pinned `postgres:18.4-alpine`
+service container. Coverage uses the same image. These containers exist only
+inside GitHub Actions. Separate compatibility jobs run the complete Unit and
+Feature suites, fresh migrations, the standard seed, and rollback checks on
+SQLite and MariaDB.
 
 This matrix certifies application behavior covered by the automated suite. It
 does not claim identical query plans, locking throughput, collation rules outside

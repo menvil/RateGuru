@@ -10,7 +10,12 @@ composer install
 cp .env.example .env
 php artisan key:generate
 
-composer db:start
+brew install postgresql@18
+brew services start postgresql@18
+createuser --createdb --login rateguru
+psql postgres -c "ALTER ROLE rateguru PASSWORD 'rateguru';"
+createdb --owner=rateguru rateguru
+createdb --owner=rateguru rateguru_test
 php artisan migrate
 
 npm install
@@ -23,7 +28,7 @@ php artisan serve
 Expected result:
 
 - `composer install` passes.
-- PostgreSQL becomes healthy through Docker Compose.
+- Homebrew PostgreSQL 18.4 becomes healthy.
 - Migrations pass.
 - `npm run build` passes.
 - Tests pass.

@@ -35,17 +35,20 @@ it('provides explicit test commands for every supported database', function () {
         ->toHaveKeys(['test', 'test:postgres', 'test:sqlite', 'test:mariadb']);
 });
 
-it('provides a local PostgreSQL service', function () {
-    $compose = File::get(base_path('compose.yaml'));
-    $testDatabaseSetup = File::get(base_path('infrastructure/local/postgres/ensure-test-database.sh'));
+it('uses host PostgreSQL for local development without Docker Compose', function () {
+    $composer = json_decode(
+        File::get(base_path('composer.json')),
+        true,
+        flags: JSON_THROW_ON_ERROR,
+    );
 
-    expect($compose)
-        ->toContain('postgres:17-alpine')
-        ->toContain('POSTGRES_DB: rateguru')
-        ->toContain('POSTGRES_USER: rateguru')
-        ->toContain('ensure-test-database.sh')
-        ->and($testDatabaseSetup)
-        ->toContain('rateguru_test');
+    expect(File::exists(base_path('compose.yaml')))->toBeFalse()
+        ->and(File::exists(base_path('infrastructure/local/postgres/ensure-test-database.sh')))->toBeFalse()
+        ->and($composer['scripts'])->not->toHaveKeys(['db:start', 'db:stop'])
+        ->and($composer['scripts']['setup'])->not->toContain('@db:start')
+        ->and(File::get(base_path('README.md')))
+        ->toContain('brew install postgresql@18')
+        ->toContain('brew services start postgresql@18');
 });
 
 it('runs primary and compatibility test suites in ci', function () {
@@ -59,7 +62,7 @@ it('runs primary and compatibility test suites in ci', function () {
         ->and(substr_count($workflow, '- name: Download built assets'))
         ->toBe(3)
         ->and($coverage)
-        ->toContain('image: postgres:17-alpine')
+        ->toContain('image: postgres:18.4-alpine')
         ->toContain('extensions: mbstring, pdo_pgsql, pcov');
 });
 
