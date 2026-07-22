@@ -9,8 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('comments', function (Blueprint $table) {
-            $table->unsignedInteger('upvotes_count')->default(0)->after('reports_count');
-            $table->unsignedInteger('downvotes_count')->default(0)->after('upvotes_count');
+            $table->integer('upvotes_count')->default(0)->after('reports_count');
+            $table->integer('downvotes_count')->default(0)->after('upvotes_count');
         });
     }
 

@@ -23,8 +23,8 @@ return new class extends Migration
 
             $table->string('status')->default('pending');
 
-            $table->unsignedInteger('upvotes_count')->default(0);
-            $table->unsignedInteger('downvotes_count')->default(0);
+            $table->integer('upvotes_count')->default(0);
+            $table->integer('downvotes_count')->default(0);
             $table->unsignedInteger('comments_count')->default(0);
             $table->unsignedInteger('reports_count')->default(0);
 
