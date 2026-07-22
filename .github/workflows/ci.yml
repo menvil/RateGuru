@@ -25,7 +25,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.5'
           extensions: mbstring
           coverage: none
 
@@ -62,7 +62,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.5'
           extensions: mbstring
           coverage: none
 
@@ -147,13 +147,34 @@ jobs:
           retention-days: 1
 
   tests:
-    name: Tests (Pest)
+    name: Tests (Pest + PostgreSQL)
     runs-on: ubuntu-latest
     needs: frontend-build
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: rateguru_test
+      DB_USERNAME: rateguru
+      DB_PASSWORD: rateguru
     outputs:
       assertions: ${{ steps.test-results.outputs.assertions }}
-      migrations: ${{ steps.sqlite-migrations.outputs.migrations }}
+      migrations: ${{ steps.postgres-migrations.outputs.migrations }}
       tests: ${{ steps.test-results.outputs.tests }}
+    services:
+      postgres:
+        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        env:
+          POSTGRES_DB: rateguru_test
+          POSTGRES_USER: rateguru
+          POSTGRES_PASSWORD: rateguru
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U rateguru -d rateguru_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -161,8 +182,8 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_sqlite
+          php-version: '8.5'
+          extensions: mbstring, pdo_pgsql
           coverage: none
 
       - name: Cache Composer packages
@@ -175,7 +196,7 @@ jobs:
         run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Download built assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: public-build
           path: public/build
@@ -197,13 +218,9 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate --force
-          touch database/database.sqlite
 
-      - name: Run SQLite migration and seed smoke check
-        id: sqlite-migrations
-        env:
-          DB_CONNECTION: sqlite
-          DB_DATABASE: database/database.sqlite
+      - name: Run PostgreSQL migration and seed smoke check
+        id: postgres-migrations
         run: |
           set -o pipefail
           php artisan migrate:fresh --seed --force
@@ -211,7 +228,7 @@ jobs:
             | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
             >> "$GITHUB_OUTPUT"
 
-      - name: Run tests
+      - name: Run PostgreSQL tests
         id: pest
         run: php artisan test --parallel --log-junit junit.xml
 
@@ -257,8 +274,16 @@ jobs:
           retention-days: 5
 
   migrations-mariadb:
-    name: Migrations (MariaDB)
+    name: Compatibility (MariaDB)
     runs-on: ubuntu-latest
+    needs: frontend-build
+    env:
+      DB_CONNECTION: mariadb
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: rateguru_test
+      DB_USERNAME: rateguru
+      DB_PASSWORD: rateguru
     outputs:
       migrations: ${{ steps.migration-metrics.outputs.migrations }}
       rollback: ${{ steps.rollback.outcome }}
@@ -266,7 +291,7 @@ jobs:
       mariadb:
         image: mariadb:11.4
         env:
-          MARIADB_DATABASE: rateguru
+          MARIADB_DATABASE: rateguru_test
           MARIADB_USER: rateguru
           MARIADB_PASSWORD: rateguru
           MARIADB_ROOT_PASSWORD: rateguru-root
@@ -284,7 +309,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.5'
           extensions: mbstring, pdo_mysql
           coverage: none
 
@@ -297,70 +322,44 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      - name: Download built assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: public-build
+          path: public/build
+
       - name: Prepare application
         run: |
           cp .env.example .env
           php artisan key:generate --force
 
+      - name: Run MariaDB compatibility tests
+        run: composer test:mariadb
+
       - name: Run MariaDB migration smoke
-        env:
-          DB_CONNECTION: mariadb
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
         run: php artisan migrate:fresh --seed --force
 
       - name: Collect MariaDB migration metrics
         id: migration-metrics
-        env:
-          DB_CONNECTION: mariadb
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
         run: |
           set -o pipefail
           php artisan migrate:status --no-ansi \
             | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
             >> "$GITHUB_OUTPUT"
 
-      - name: Check rollback path (non-blocking)
+      - name: Check rollback path
         id: rollback
-        continue-on-error: true
-        env:
-          DB_CONNECTION: mariadb
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
         run: |
           php artisan migrate:reset --force
           php artisan migrate --force
 
-  migrations-postgres:
-    name: Migrations (PostgreSQL)
+  tests-sqlite:
+    name: Compatibility (SQLite)
     runs-on: ubuntu-latest
+    needs: frontend-build
     outputs:
       migrations: ${{ steps.migration-metrics.outputs.migrations }}
       rollback: ${{ steps.rollback.outcome }}
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_DB: rateguru
-          POSTGRES_USER: rateguru
-          POSTGRES_PASSWORD: rateguru
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U rateguru -d rateguru"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -368,8 +367,8 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_pgsql
+          php-version: '8.5'
+          extensions: mbstring, pdo_sqlite
           coverage: none
 
       - name: Cache Composer packages
@@ -381,46 +380,43 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      - name: Download built assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: public-build
+          path: public/build
+
       - name: Prepare application
         run: |
           cp .env.example .env
           php artisan key:generate --force
+          touch database/database.sqlite
 
-      - name: Run PostgreSQL migration smoke
+      - name: Run SQLite compatibility tests
+        run: composer test:sqlite
+
+      - name: Run SQLite migration smoke
         env:
-          DB_CONNECTION: pgsql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
         run: php artisan migrate:fresh --seed --force
 
-      - name: Collect PostgreSQL migration metrics
+      - name: Collect SQLite migration metrics
         id: migration-metrics
         env:
-          DB_CONNECTION: pgsql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
         run: |
           set -o pipefail
           php artisan migrate:status --no-ansi \
             | awk '/ Ran / { count++ } END { print "migrations=" count+0 }' \
             >> "$GITHUB_OUTPUT"
 
-      - name: Check rollback path (non-blocking)
+      - name: Check rollback path
         id: rollback
-        continue-on-error: true
         env:
-          DB_CONNECTION: pgsql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_DATABASE: rateguru
-          DB_USERNAME: rateguru
-          DB_PASSWORD: rateguru
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
         run: |
           php artisan migrate:reset --force
           php artisan migrate --force
@@ -442,7 +438,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.5'
           extensions: mbstring
           coverage: none
 
@@ -515,7 +511,7 @@ jobs:
       - frontend-build
       - tests
       - migrations-mariadb
-      - migrations-postgres
+      - tests-sqlite
       - dependency-audit
     permissions:
       contents: read
@@ -538,13 +534,13 @@ jobs:
           TESTS_RESULT: ${{ needs.tests.result }}
           TEST_COUNT: ${{ needs.tests.outputs.tests }}
           ASSERTION_COUNT: ${{ needs.tests.outputs.assertions }}
-          SQLITE_MIGRATIONS: ${{ needs.tests.outputs.migrations }}
+          POSTGRES_MIGRATIONS: ${{ needs.tests.outputs.migrations }}
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
           MARIADB_MIGRATIONS: ${{ needs['migrations-mariadb'].outputs.migrations }}
           MARIADB_ROLLBACK: ${{ needs['migrations-mariadb'].outputs.rollback }}
-          POSTGRES_RESULT: ${{ needs['migrations-postgres'].result }}
-          POSTGRES_MIGRATIONS: ${{ needs['migrations-postgres'].outputs.migrations }}
-          POSTGRES_ROLLBACK: ${{ needs['migrations-postgres'].outputs.rollback }}
+          SQLITE_RESULT: ${{ needs['tests-sqlite'].result }}
+          SQLITE_MIGRATIONS: ${{ needs['tests-sqlite'].outputs.migrations }}
+          SQLITE_ROLLBACK: ${{ needs['tests-sqlite'].outputs.rollback }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
           COMPOSER_PACKAGES: ${{ needs['dependency-audit'].outputs.composer-packages }}
           COMPOSER_ADVISORIES: ${{ needs['dependency-audit'].outputs.composer-advisories }}
@@ -571,10 +567,13 @@ jobs:
             const baselinePatterns = value('BASELINE_PATTERNS');
             const baselineFiles = value('BASELINE_FILES');
             const baselineDelta = value('BASELINE_DELTA');
+            const generatedAt = new Date().toISOString();
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const lines = [
               marker,
               '## RateGuru CI',
+              '',
+              `_Updated: ${generatedAt}_`,
               '',
               '| Check | Summary |',
               '|---|---|',
@@ -583,9 +582,9 @@ jobs:
               `| PHPStan suppressions | ${baselineFindings} findings · ${baselinePatterns} patterns · ${baselineFiles} files · delta ${baselineDelta} |`,
               `| Architecture findings in baseline | ${value('ARCHITECTURE_SUPPRESSIONS')} |`,
               `| Frontend build | ${details(process.env.FRONTEND_BUILD_RESULT, `${value('BUILD_FILES')} files · ${value('BUILD_SIZE')}`)} |`,
-              `| Tests & SQLite | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('SQLITE_MIGRATIONS')} migrations · seed passed`)} |`,
-              `| MariaDB migration smoke | ${details(process.env.MARIADB_RESULT, `${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
-              `| PostgreSQL migration smoke | ${details(process.env.POSTGRES_RESULT, `${value('POSTGRES_MIGRATIONS')} migrations · seed passed · rollback ${value('POSTGRES_ROLLBACK')}`)} |`,
+              `| Tests & PostgreSQL | ${details(process.env.TESTS_RESULT, `${tests} tests · ${assertions} assertions · ${value('POSTGRES_MIGRATIONS')} migrations · seed passed`)} |`,
+              `| SQLite compatibility | ${details(process.env.SQLITE_RESULT, `Unit + Feature passed · ${value('SQLITE_MIGRATIONS')} migrations · seed passed · rollback ${value('SQLITE_ROLLBACK')}`)} |`,
+              `| MariaDB compatibility | ${details(process.env.MARIADB_RESULT, `Unit + Feature passed · ${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
               `| Dependencies | ${details(process.env.DEPENDENCY_AUDIT_RESULT, `Composer: ${value('COMPOSER_PACKAGES')} packages · ${value('COMPOSER_ADVISORIES')} advisories; npm: ${value('NPM_PACKAGES')} packages · ${value('NPM_VULNERABILITIES')} vulnerabilities (${value('NPM_HIGH')} high / ${value('NPM_CRITICAL')} critical)`)} |`,
               '',
               `[Open workflow run](${runUrl})`,
@@ -615,25 +614,15 @@ jobs:
               const existingComments = comments.filter((comment) =>
                 comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker),
               );
-              const [existing, ...duplicateComments] = existingComments;
 
-              if (existing) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existing.id,
-                  body,
-                });
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  body,
-                });
-              }
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pullRequest.number,
+                body,
+              });
 
-              await Promise.all(duplicateComments.map((comment) =>
+              await Promise.all(existingComments.map((comment) =>
                 github.rest.issues.deleteComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -651,7 +640,7 @@ jobs:
           FRONTEND_BUILD_RESULT: ${{ needs['frontend-build'].result }}
           TESTS_RESULT: ${{ needs.tests.result }}
           MARIADB_RESULT: ${{ needs['migrations-mariadb'].result }}
-          POSTGRES_RESULT: ${{ needs['migrations-postgres'].result }}
+          SQLITE_RESULT: ${{ needs['tests-sqlite'].result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
         run: |
           for result in \
@@ -660,7 +649,7 @@ jobs:
             "$FRONTEND_BUILD_RESULT" \
             "$TESTS_RESULT" \
             "$MARIADB_RESULT" \
-            "$POSTGRES_RESULT" \
+            "$SQLITE_RESULT" \
             "$DEPENDENCY_AUDIT_RESULT"
           do
             if [ "$result" != 'success' ]; then

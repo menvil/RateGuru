@@ -7,6 +7,7 @@ use App\Enums\UserStatus;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class CreateAdminUserCommand extends Command
@@ -58,14 +59,14 @@ class CreateAdminUserCommand extends Command
         }
 
         try {
-            User::create([
+            DB::transaction(fn (): User => User::create([
                 'email' => $email,
                 'username' => $username,
                 'name' => $name,
                 'password' => Hash::make($password),
                 'role' => UserRole::Admin,
                 'status' => UserStatus::Active,
-            ]);
+            ]));
         } catch (UniqueConstraintViolationException) {
             $this->error('A user with this email or username already exists.');
 

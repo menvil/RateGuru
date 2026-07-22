@@ -11,13 +11,15 @@
 
 ## Database
 
-- Set `DB_CONNECTION=sqlite`; SQLite is the only supported runtime database.
-- Confirm the SQLite database path.
+- Prefer `DB_CONNECTION=pgsql`; PostgreSQL is the primary runtime database.
+- Configure a dedicated database, least-privilege user, SSL mode, and connection
+  limits for the deployment environment.
 - Take a backup before deployment.
-- For SQLite, see [SQLite backup strategy](sqlite-backup-strategy.md).
-- For future PostgreSQL planning, see [SQLite to PostgreSQL migration note](sqlite-to-postgresql-migration.md).
+- If deploying on SQLite, see [SQLite backup strategy](sqlite-backup-strategy.md).
+- For an existing SQLite data set, see
+  [SQLite to PostgreSQL migration note](sqlite-to-postgresql-migration.md).
 - See the [database support contract](../architecture/database-support.md)
-  before treating migration smoke checks as runtime compatibility.
+  for the tested compatibility matrix.
 - See [deployment migration docs](migrations.md).
 - Run production migrations with `php artisan migrate --force`.
 - Never run destructive reset commands against production data.

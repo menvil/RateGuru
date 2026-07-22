@@ -19,9 +19,9 @@ final class MatchedUsersQuery implements RawSqlPersistenceBoundary
             ->where('status', UserStatus::Active)
             ->where(function ($query) use ($pattern): void {
                 $query
-                    ->whereRaw("username LIKE ? ESCAPE '!'", [$pattern])
-                    ->orWhereRaw("name LIKE ? ESCAPE '!'", [$pattern])
-                    ->orWhereRaw("display_name LIKE ? ESCAPE '!'", [$pattern]);
+                    ->whereRaw("LOWER(username) LIKE LOWER(?) ESCAPE '!'", [$pattern])
+                    ->orWhereRaw("LOWER(name) LIKE LOWER(?) ESCAPE '!'", [$pattern])
+                    ->orWhereRaw("LOWER(display_name) LIKE LOWER(?) ESCAPE '!'", [$pattern]);
             })
             ->orderBy('username')
             ->limit(5)

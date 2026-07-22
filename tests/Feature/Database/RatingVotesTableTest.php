@@ -54,7 +54,7 @@ it('rejects rating votes whose option belongs to another group', function () {
 });
 
 it('creates rating vote lookup indexes', function () {
-    $indexes = collect(DB::select("PRAGMA index_list('rating_votes')"))
+    $indexes = collect(Schema::getIndexes('rating_votes'))
         ->pluck('name');
 
     expect($indexes)

@@ -59,10 +59,10 @@ final class TogglePostSaveAction
             }
 
             try {
-                PostSave::query()->create([
+                DB::transaction(fn (): PostSave => PostSave::query()->create([
                     'user_id' => $user->id,
                     'post_id' => $post->id,
-                ]);
+                ]));
             } catch (QueryException $e) {
                 if (! $this->isUniqueConstraintViolation($e)) {
                     throw $e;

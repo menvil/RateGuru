@@ -8,6 +8,7 @@ use Illuminate\Auth\Events\Registered;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -36,12 +37,12 @@ final class RegisterUserAction
             }
 
             try {
-                $user = User::create([
+                $user = DB::transaction(fn (): User => User::create([
                     'name' => $validated['name'],
                     'username' => $username,
                     'email' => $validated['email'],
                     'password' => $password,
-                ]);
+                ]));
 
                 break;
             } catch (QueryException $exception) {
