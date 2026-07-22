@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\File;
+use Symfony\Component\Yaml\Yaml;
 
 it('documents PostgreSQL as primary with SQLite and MariaDB compatibility', function () {
     $path = base_path('docs/architecture/database-support.md');
@@ -10,7 +11,7 @@ it('documents PostgreSQL as primary with SQLite and MariaDB compatibility', func
     $contract = preg_replace('/\s+/', ' ', File::get($path));
 
     expect($contract)
-        ->toContain('PostgreSQL is the primary runtime database')
+        ->toContain('PostgreSQL 18.4 is the minimum supported primary runtime')
         ->toContain('SQLite and MariaDB are supported compatibility targets')
         ->toContain('Unit and Feature suites run on all three engines');
 });
@@ -31,8 +32,19 @@ it('provides explicit test commands for every supported database', function () {
         flags: JSON_THROW_ON_ERROR,
     );
 
-    expect($composer['scripts'])
-        ->toHaveKeys(['test', 'test:postgres', 'test:sqlite', 'test:mariadb']);
+    $scripts = $composer['scripts'];
+
+    expect($scripts['test'])->toBe([
+        '@php artisan config:clear --ansi @no_additional_args',
+        '@php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature',
+    ])->and($scripts['test:postgres'])->toBe('@test')
+        ->and($scripts['test:sqlite'])->toBe([
+            'DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan config:clear --ansi',
+            'DB_CONNECTION=sqlite DB_DATABASE=:memory: php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature',
+        ])->and($scripts['test:mariadb'])->toBe([
+            'DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php artisan config:clear --ansi',
+            'DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=rateguru_test DB_USERNAME=rateguru DB_PASSWORD=rateguru php -d memory_limit=512M vendor/bin/pest --testsuite=Unit,Feature',
+        ]);
 });
 
 it('uses host PostgreSQL for local development without Docker Compose', function () {
@@ -52,18 +64,35 @@ it('uses host PostgreSQL for local development without Docker Compose', function
 });
 
 it('runs primary and compatibility test suites in ci', function () {
-    $workflow = File::get(base_path('.github/workflows/ci.yml'));
+    $workflowPath = base_path('.github/workflows/ci.yml');
+    $workflowContents = File::get($workflowPath);
+    $workflow = Yaml::parseFile($workflowPath);
     $coverage = File::get(base_path('.github/workflows/coverage.yml'));
+    $downloadStep = [
+        'name' => 'Download built assets',
+        'uses' => 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
+        'with' => [
+            'name' => 'public-build',
+            'path' => 'public/build',
+        ],
+    ];
 
-    expect($workflow)
+    expect($workflowContents)
         ->toContain('- name: Run PostgreSQL tests')
         ->toContain('- name: Run SQLite compatibility tests')
         ->toContain('- name: Run MariaDB compatibility tests')
-        ->and(substr_count($workflow, '- name: Download built assets'))
-        ->toBe(3)
         ->and($coverage)
         ->toContain('image: postgres:18.4-alpine')
         ->toContain('extensions: mbstring, pdo_pgsql, pcov');
+
+    foreach (['tests', 'tests-sqlite', 'migrations-mariadb'] as $job) {
+        $downloadSteps = collect($workflow['jobs'][$job]['steps'])
+            ->filter(fn (array $step): bool => ($step['name'] ?? null) === 'Download built assets')
+            ->values();
+
+        expect($downloadSteps)->toHaveCount(1)
+            ->and($downloadSteps->first())->toBe($downloadStep);
+    }
 });
 
 it('links the database support contract from the project entry points', function () {

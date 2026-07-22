@@ -4,6 +4,7 @@ RateGuru is a Laravel application for community-driven ratings and decision supp
 
 ## Stack
 
+- PHP 8.5+
 - Laravel
 - Livewire
 - Alpine.js
@@ -32,11 +33,13 @@ cp .env.example .env
 php artisan key:generate
 ```
 
-Install and start PostgreSQL 18.4 through Homebrew:
+Install PHP 8.5 and PostgreSQL 18.4 through Homebrew, then start PostgreSQL:
 
 ```bash
+brew install php
 brew install postgresql@18
 brew services start postgresql@18
+php -v
 ```
 
 Create the non-production role and the separate development and test databases

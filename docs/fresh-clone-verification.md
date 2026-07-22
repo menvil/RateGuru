@@ -6,6 +6,8 @@ Use this checklist to verify RateGuru from a clean clone.
 git clone https://github.com/menvil/rateguru.git rateguru-check
 cd rateguru-check
 
+brew install php
+php -v
 composer install
 cp .env.example .env
 php artisan key:generate
@@ -28,6 +30,7 @@ php artisan serve
 Expected result:
 
 - `composer install` passes.
+- `php -v` reports PHP 8.5 or newer.
 - Homebrew PostgreSQL 18.4 becomes healthy.
 - Migrations pass.
 - `npm run build` passes.

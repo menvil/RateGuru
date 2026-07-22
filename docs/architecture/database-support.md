@@ -2,9 +2,10 @@
 
 ## Supported runtime
 
-PostgreSQL is the primary runtime database for RateGuru. Local development,
-the default PHPUnit configuration, CI, coverage, staging, and the recommended
-production configuration use PostgreSQL 18.4.
+PostgreSQL 18.4 is the minimum supported primary runtime for RateGuru. Local
+development, the default PHPUnit configuration, CI, coverage, staging, and the
+recommended production configuration use this baseline or a newer compatible
+minor release.
 
 SQLite and MariaDB are supported compatibility targets. The application keeps
 portable migrations and query behavior, and the Unit and Feature suites run on
