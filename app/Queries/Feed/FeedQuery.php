@@ -30,7 +30,7 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
     ): Builder {
         $query = $this->base()
             ->published()
-            ->with(['user', 'tags']);
+            ->with(['user', 'tags', 'category']);
 
         if ($followedByUserId !== null) {
             $query->whereIn(
@@ -47,11 +47,11 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
             });
         }
 
-        $categoryOptionKeys = $this->optionKeys($category);
+        $categorySlugs = $this->optionKeys($category);
 
-        if ($categoryOptionKeys !== []) {
-            $query->whereHas('categoryOption', function (Builder $optionQuery) use ($categoryOptionKeys) {
-                $optionQuery->whereIn('key', $categoryOptionKeys);
+        if ($categorySlugs !== []) {
+            $query->whereHas('category', function (Builder $categoryQuery) use ($categorySlugs) {
+                $categoryQuery->whereIn('slug', $categorySlugs);
             });
         }
 

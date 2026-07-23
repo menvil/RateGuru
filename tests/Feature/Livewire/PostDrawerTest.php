@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Feed\PostDrawer;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -52,6 +53,15 @@ it('renders selected published post', function () {
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Sample Post')
         ->assertSee('Creamy pasta with pepper');
+});
+
+it('renders the standalone post category in the drawer', function () {
+    $category = Category::factory()->create(['name' => 'Desserts', 'slug' => 'desserts']);
+    $post = Post::factory()->published()->create(['category_id' => $category->id]);
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="post-drawer-category"', false)
+        ->assertSee('Desserts');
 });
 
 it('renders share buttons in post drawer for published post', function () {

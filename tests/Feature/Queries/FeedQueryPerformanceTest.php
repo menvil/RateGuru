@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
@@ -51,6 +52,28 @@ it('does not perform n plus one queries when accessing feed post tags', function
 
         foreach ($posts->items() as $post) {
             $post->tags->pluck('slug')->all();
+        }
+    });
+
+    expect($queryCount)->toBeLessThanOrEqual(6);
+});
+
+it('eager loads standalone categories for feed posts', function () {
+    $categories = Category::factory()->count(3)->create();
+
+    Post::factory()
+        ->count(10)
+        ->published()
+        ->create()
+        ->each(fn (Post $post, int $index) => $post->update([
+            'category_id' => $categories[$index % $categories->count()]->id,
+        ]));
+
+    $queryCount = countQueriesForFeed(function (): void {
+        $posts = app(FeedQuery::class)->paginate(perPage: 10);
+
+        foreach ($posts->items() as $post) {
+            $post->category?->slug;
         }
     });
 

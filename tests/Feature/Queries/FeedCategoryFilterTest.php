@@ -1,45 +1,36 @@
 <?php
 
+use App\Models\Category;
 use App\Models\Post;
-use App\Models\RatingGroup;
 use App\Queries\Feed\FeedQuery;
 
-beforeEach(function () {
-    seedFeedFilterGroups();
+it('filters posts by standalone category slug', function () {
+    $firstCategory = Category::factory()->create(['slug' => 'desserts']);
+    $secondCategory = Category::factory()->create(['slug' => 'soups']);
 
-    $this->sourceGroup = RatingGroup::query()->where('key', 'source')->firstOrFail();
-});
-
-it('filters posts by author-chosen category option key', function () {
-    $firstCategory = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
-    $secondCategory = $this->sourceGroup->options()->where('key', 'source_b')->firstOrFail();
-
-    $firstCategoryPost = Post::factory()->published()->create(['category_option_id' => $firstCategory->id]);
-    $secondCategoryPost = Post::factory()->published()->create(['category_option_id' => $secondCategory->id]);
+    $firstCategoryPost = Post::factory()->published()->create(['category_id' => $firstCategory->id]);
+    $secondCategoryPost = Post::factory()->published()->create(['category_id' => $secondCategory->id]);
     $uncategorisedPost = Post::factory()->published()->create();
 
-    $results = app(FeedQuery::class)->get(category: ['source_a']);
+    $results = app(FeedQuery::class)->get(category: ['desserts']);
 
     expect($results->pluck('id')->all())->toContain($firstCategoryPost->id);
     expect($results->pluck('id')->all())->not->toContain($secondCategoryPost->id);
     expect($results->pluck('id')->all())->not->toContain($uncategorisedPost->id);
 });
 
-it('filters by any configured category option key', function () {
-    $custom = $this->sourceGroup->options()->create([
-        'key' => 'natural',
-        'label' => 'Natural',
-        'is_active' => true,
-        'sort_order' => 30,
-    ]);
+it('matches any selected category while each post keeps only one category', function () {
+    $desserts = Category::factory()->create(['slug' => 'desserts']);
+    $soups = Category::factory()->create(['slug' => 'soups']);
 
-    $naturalPost = Post::factory()->published()->create(['category_option_id' => $custom->id]);
+    $dessertPost = Post::factory()->published()->create(['category_id' => $desserts->id]);
+    $soupPost = Post::factory()->published()->create(['category_id' => $soups->id]);
     $otherPost = Post::factory()->published()->create();
 
-    $results = app(FeedQuery::class)->get(category: ['natural']);
+    $results = app(FeedQuery::class)->get(category: ['desserts', 'soups']);
 
-    expect($results->pluck('id')->all())->toContain($naturalPost->id);
-    expect($results->pluck('id')->all())->not->toContain($otherPost->id);
+    expect($results->pluck('id')->all())->toContain($dessertPost->id, $soupPost->id)
+        ->not->toContain($otherPost->id);
 });
 
 it('returns everything when the category filter is empty', function () {

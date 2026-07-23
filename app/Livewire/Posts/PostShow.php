@@ -28,7 +28,7 @@ final class PostShow extends Component
     {
         return Post::query()
             ->published()
-            ->with(['user', 'tags'])
+            ->with(['user', 'tags', 'category'])
             ->findOrFail($this->postId);
     }
 

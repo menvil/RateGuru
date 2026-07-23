@@ -3,6 +3,7 @@
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
 use App\Livewire\Posts\PostShow;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -18,6 +19,16 @@ it('can render post show component for published post', function () {
     Livewire::test(PostShow::class, ['post' => $post])
         ->assertStatus(200)
         ->assertSee('Sample Post');
+});
+
+it('renders the standalone post category on the public page', function () {
+    $category = Category::factory()->create(['name' => 'Desserts', 'slug' => 'desserts']);
+    $post = Post::factory()->published()->create(['category_id' => $category->id]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('data-testid="post-show-category"', false)
+        ->assertSee('Desserts');
 });
 
 it('renders generic post show copy', function () {

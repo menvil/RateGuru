@@ -89,7 +89,7 @@ final class PostDrawer extends Component
         if ($this->postId !== null) {
             $post = Post::query()
                 ->published()
-                ->with(['user', 'tags'])
+                ->with(['user', 'tags', 'category'])
                 ->find($this->postId);
         }
 

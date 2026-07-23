@@ -2,6 +2,7 @@
 
 use App\Enums\PostStatus;
 use App\Livewire\Feed\FeedPage;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
@@ -117,50 +118,54 @@ it('does not delete another users post from the feed page action menu event', fu
 it('does not render a sort dropdown in the feed header (sorting lives in the sidebar nav)', function () {
     Livewire::test(FeedPage::class)
         ->assertDontSee('data-testid="feed-rating-filters"', false)
-        ->assertDontSee('data-testid="category-tabs"', false);
+        ->assertDontSee('data-testid="tag-tabs"', false);
 });
 
 it('filters feed when a category is selected', function () {
-    seedFeedFilterGroups();
-    $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $first = $group->options()->where('key', 'source_a')->firstOrFail();
-    $second = $group->options()->where('key', 'source_b')->firstOrFail();
+    $first = Category::factory()->create(['slug' => 'desserts']);
+    $second = Category::factory()->create(['slug' => 'soups']);
 
     Post::factory()->published()->create([
         'title' => 'First category post',
-        'category_option_id' => $first->id,
+        'category_id' => $first->id,
     ]);
     Post::factory()->published()->create([
         'title' => 'Second category post',
-        'category_option_id' => $second->id,
+        'category_id' => $second->id,
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('toggleCategory', 'source_a')
+        ->call('toggleCategory', 'desserts')
         ->assertSee('First category post')
         ->assertDontSee('Second category post');
 });
 
 it('supports selecting multiple categories', function () {
-    seedFeedFilterGroups();
-    $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $first = $group->options()->where('key', 'source_a')->firstOrFail();
-    $second = $group->options()->where('key', 'source_b')->firstOrFail();
+    $first = Category::factory()->create(['slug' => 'desserts']);
+    $second = Category::factory()->create(['slug' => 'soups']);
 
     Post::factory()->published()->create([
         'title' => 'First category post',
-        'category_option_id' => $first->id,
+        'category_id' => $first->id,
     ]);
     Post::factory()->published()->create([
         'title' => 'Second category post',
-        'category_option_id' => $second->id,
+        'category_id' => $second->id,
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('toggleCategory', 'source_a')
-        ->call('toggleCategory', 'source_b')
+        ->call('toggleCategory', 'desserts')
+        ->call('toggleCategory', 'soups')
         ->assertSee('First category post')
         ->assertSee('Second category post');
+});
+
+it('ignores inactive and unknown category filters', function () {
+    Category::factory()->inactive()->create(['slug' => 'hidden']);
+
+    Livewire::withQueryParams(['category' => ['hidden', 'unknown']])
+        ->test(FeedPage::class)
+        ->assertSet('category', []);
 });
 
 it('filters feed by a generic author answer', function () {

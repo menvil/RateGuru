@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Feed\PostFeed;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -71,6 +72,21 @@ it('renders post title and description', function () {
     expect($html)
         ->toContain('Sample Post')
         ->toContain('Creamy pasta with pepper');
+});
+
+it('renders the standalone category as linked post metadata', function () {
+    $category = Category::factory()->create([
+        'name' => 'Desserts',
+        'slug' => 'desserts',
+    ]);
+    $post = Post::factory()->published()->create(['category_id' => $category->id]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post->load('category')]);
+
+    expect($html)
+        ->toContain('data-testid="post-card-category"')
+        ->toContain('Desserts')
+        ->toContain('category%5B0%5D=desserts');
 });
 
 it('renders post description under the title before the image', function () {

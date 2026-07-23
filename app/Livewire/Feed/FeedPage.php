@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Feed;
 
+use App\Models\Category;
 use App\Models\RatingGroup;
 use App\Models\User;
 use App\Queries\Feed\MatchedUsersQuery;
@@ -188,7 +189,11 @@ class FeedPage extends Component
     /** @return list<string> */
     private function categoryValues(): array
     {
-        return $this->activeGroups()->first()?->options->pluck('key')->all() ?? [];
+        return Category::query()
+            ->active()
+            ->ordered()
+            ->pluck('slug')
+            ->all();
     }
 
     /** @return array<string, list<string>> */

@@ -3,7 +3,7 @@
 namespace App\Providers;
 
 use App\Enums\PostStatus;
-use App\Models\RatingGroup;
+use App\Models\Category;
 use App\Models\Tag;
 use App\Policies\ModerationPolicy;
 use App\Policies\ProjectSettingsPolicy;
@@ -77,33 +77,24 @@ class AppServiceProvider extends ServiceProvider
             $locale = app()->getLocale();
             $activeCategories = (array) request('category');
             $activeRatings = (array) request('ratings');
-            $noFilters = $activeCategories === [] && $activeRatings === [];
+            $noFilters = $activeCategories === [] && $activeRatings === [] && blank(request('tag'));
 
             // Cached as plain arrays, not Eloquent models: the file cache store's
             // serializable_classes=false setting silently corrupts cached objects
             // on read (unserialize returns __PHP_Incomplete_Class).
-            $firstGroupOptions = Cache::remember('sidebar-nav-rating-group-options', 300, function () {
-                $firstGroup = RatingGroup::query()
+            $sidebarCategories = Cache::remember('sidebar-nav-categories', 300, function () {
+                return Category::query()
                     ->active()
-                    ->orderBy('sort_order')
-                    ->orderBy('id')
-                    ->with(['options' => fn ($q) => $q->active()->ordered()])
-                    ->first();
-
-                if ($firstGroup === null) {
-                    return [];
-                }
-
-                return $firstGroup->options
-                    ->map(fn ($option): array => [
-                        'key' => $option->key,
-                        'label' => $option->label,
-                        'label_translations' => $option->label_translations,
+                    ->ordered()
+                    ->get()
+                    ->map(fn (Category $category): array => [
+                        'slug' => $category->slug,
+                        'name' => $category->name,
+                        'name_translations' => $category->name_translations,
                     ])
                     ->all();
             });
 
-            // Only first group shown in sidebar (second group is a feed-page dropdown only)
             $categories = [
                 [
                     'label' => __('ui.feed.all'),
@@ -112,11 +103,15 @@ class AppServiceProvider extends ServiceProvider
                 ],
             ];
 
-            foreach ($firstGroupOptions as $option) {
+            foreach ($sidebarCategories as $category) {
                 $categories[] = [
-                    'label' => TranslatableField::resolve($option['label_translations'], $option['label'], $locale),
-                    'href' => route('feed', ['category' => [$option['key']]]),
-                    'active' => in_array($option['key'], $activeCategories, true),
+                    'label' => TranslatableField::resolve(
+                        $category['name_translations'],
+                        $category['name'],
+                        $locale,
+                    ),
+                    'href' => route('feed', ['category' => [$category['slug']]]),
+                    'active' => in_array($category['slug'], $activeCategories, true),
                 ];
             }
 
@@ -131,7 +126,7 @@ class AppServiceProvider extends ServiceProvider
                     ->get()
                     ->map(fn ($tag): array => [
                         'label' => '#'.$tag->slug,
-                        'href' => route('feed', ['search' => $tag->slug]),
+                        'href' => route('feed', ['tag' => $tag->slug]),
                     ])
                     ->all();
             });
@@ -139,7 +134,7 @@ class AppServiceProvider extends ServiceProvider
             $fallbackTags = collect(['sample-a', 'sample-b', 'sample-c', 'sample-d', 'sample-e'])
                 ->map(fn (string $tag): array => [
                     'label' => '#'.$tag,
-                    'href' => route('feed', ['search' => $tag]),
+                    'href' => route('feed', ['tag' => $tag]),
                 ])
                 ->all();
 
