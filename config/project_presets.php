@@ -30,7 +30,29 @@ return [
             'allow_user_uploads' => true,
             'allow_guest_viewing' => true,
         ],
-        'rating_groups' => null,
+        'rating_groups' => [
+            [
+                'key' => 'source',
+                'label' => ['en' => 'Source', 'ru' => 'Источник', 'bg' => 'Източник'],
+                'description' => ['en' => null, 'ru' => null, 'bg' => null],
+                'sort_order' => 10,
+                'options' => [
+                    ['key' => 'source_a', 'label' => ['en' => 'Source A', 'ru' => 'Источник A', 'bg' => 'Източник A'], 'sort_order' => 10],
+                    ['key' => 'source_b', 'label' => ['en' => 'Source B', 'ru' => 'Источник B', 'bg' => 'Източник B'], 'sort_order' => 20],
+                ],
+            ],
+            [
+                'key' => 'category',
+                'label' => ['en' => 'Category', 'ru' => 'Категория', 'bg' => 'Категория'],
+                'description' => ['en' => null, 'ru' => null, 'bg' => null],
+                'sort_order' => 20,
+                'options' => [
+                    ['key' => 'category_a', 'label' => ['en' => 'Category A', 'ru' => 'Категория A', 'bg' => 'Категория A'], 'sort_order' => 10],
+                    ['key' => 'category_b', 'label' => ['en' => 'Category B', 'ru' => 'Категория B', 'bg' => 'Категория B'], 'sort_order' => 20],
+                    ['key' => 'category_c', 'label' => ['en' => 'Category C', 'ru' => 'Категория C', 'bg' => 'Категория C'], 'sort_order' => 30],
+                ],
+            ],
+        ],
         'tags' => null,
     ],
 

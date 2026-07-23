@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use Illuminate\Database\Seeder;
 
@@ -9,6 +10,10 @@ class DefaultRatingConfigurationSeeder extends Seeder
 {
     public function run(): void
     {
+        if (ProjectSettings::query()->whereNotNull('preset_applied_at')->exists()) {
+            return;
+        }
+
         foreach ($this->configuration() as $groupData) {
             $options = $groupData['options'];
             unset($groupData['options']);

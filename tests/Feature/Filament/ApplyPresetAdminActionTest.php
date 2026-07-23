@@ -3,42 +3,43 @@
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Models\ProjectSettings;
 use App\Models\User;
-use Livewire\Livewire;
+use Illuminate\Support\Carbon;
 
-it('admin can apply nature preset from settings page', function () {
+it('does not expose preset application controls in project settings', function () {
     $admin = User::factory()->admin()->create();
-
     ProjectSettings::factory()->create();
 
-    Livewire::actingAs($admin)
-        ->test(ProjectSettingsPage::class)
-        ->call('applyPreset', 'nature')
-        ->assertHasNoErrors();
+    $this->actingAs($admin)
+        ->get('/admin/project-settings')
+        ->assertOk()
+        ->assertDontSee('Apply a preset')
+        ->assertDontSee('wire:click="applyPreset', false);
 
-    expect(ProjectSettings::first()->site_name)->toBe('NatureGuru');
-    expect(ProjectSettings::first()->active_preset_key)->toBe('nature');
+    expect(method_exists(ProjectSettingsPage::class, 'applyPreset'))->toBeFalse();
 });
 
-it('admin can apply AI images preset from settings page', function () {
+it('shows the installed preset and application time as read-only information', function () {
     $admin = User::factory()->admin()->create();
+    ProjectSettings::factory()->create([
+        'active_preset_key' => 'nature',
+        'preset_applied_at' => Carbon::parse('2026-07-22 10:00:00'),
+    ]);
 
-    ProjectSettings::factory()->create();
-
-    Livewire::actingAs($admin)
-        ->test(ProjectSettingsPage::class)
-        ->call('applyPreset', 'ai_images')
-        ->assertHasNoErrors();
-
-    expect(ProjectSettings::first()->site_name)->toBe('AIGuru');
-    expect(ProjectSettings::first()->active_preset_key)->toBe('ai_images');
+    $this->actingAs($admin)
+        ->get('/admin/project-settings')
+        ->assertOk()
+        ->assertSee('Installation preset')
+        ->assertSee('Nature &amp; travel photography', false)
+        ->assertSee('2026-07-22 10:00:00');
 });
 
-it('does not apply unknown preset from settings page', function () {
+it('shows the setup command when no installation preset was applied', function () {
     $admin = User::factory()->admin()->create();
+    ProjectSettings::factory()->create(['preset_applied_at' => null]);
 
-    Livewire::actingAs($admin)
-        ->test(ProjectSettingsPage::class)
-        ->call('applyPreset', 'unknown')
-        ->assertHasNoErrors()
-        ->assertNotified('Unknown project preset: [unknown].');
+    $this->actingAs($admin)
+        ->get('/admin/project-settings')
+        ->assertOk()
+        ->assertSee('No installation preset has been applied.')
+        ->assertSee('php artisan rateguru:setup');
 });

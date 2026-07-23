@@ -28,6 +28,7 @@ class ProjectSettings extends Model
         'default_theme',
         'default_sort',
         'active_preset_key',
+        'preset_applied_at',
         'feature_flags',
     ];
 
@@ -40,5 +41,6 @@ class ProjectSettings extends Model
         'object_plural_name_translations' => 'array',
         'upload_cta_label_translations' => 'array',
         'feed_title_translations' => 'array',
+        'preset_applied_at' => 'datetime',
     ];
 }

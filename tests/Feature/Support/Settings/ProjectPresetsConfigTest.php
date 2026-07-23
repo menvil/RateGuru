@@ -9,7 +9,13 @@ it('has project presets config', function () {
 
 it('project presets have required shape', function () {
     foreach (config('project_presets') as $preset) {
-        expect($preset)->toHaveKeys(['label', 'settings', 'feature_flags']);
+        expect($preset)->toHaveKeys([
+            'label',
+            'settings',
+            'feature_flags',
+            'rating_groups',
+            'tags',
+        ]);
         expect($preset['settings'])->toHaveKeys([
             'site_name',
             'site_tagline',
@@ -31,5 +37,27 @@ it('project presets have required shape', function () {
             'allow_user_uploads',
             'allow_guest_viewing',
         ]);
+
+        if ($preset['rating_groups'] !== null) {
+            foreach ($preset['rating_groups'] as $group) {
+                expect($group)->toHaveKeys([
+                    'key',
+                    'label',
+                    'description',
+                    'sort_order',
+                    'options',
+                ]);
+
+                foreach ($group['options'] as $option) {
+                    expect($option)->toHaveKeys(['key', 'label', 'sort_order']);
+                }
+            }
+        }
+
+        if ($preset['tags'] !== null) {
+            foreach ($preset['tags'] as $tag) {
+                expect($tag)->toHaveKeys(['en', 'ru', 'bg']);
+            }
+        }
     }
 });

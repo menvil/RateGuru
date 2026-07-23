@@ -2,16 +2,25 @@
 
 namespace App\Actions\Settings;
 
+use App\Data\Settings\ProjectPresetApplicationResult;
+use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
+use App\Exceptions\Settings\ProjectPresetHasContentException;
 use App\Exceptions\Settings\UnknownProjectPresetException;
+use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
+use App\Models\Tag;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class ApplyProjectPresetAction
 {
     public function __construct(private readonly ProjectSettingsManager $manager) {}
 
-    public function handle(string $presetKey): void
+    public function handle(string $presetKey, bool $force = false): ProjectPresetApplicationResult
     {
         $presets = config('project_presets');
 
@@ -25,16 +34,144 @@ class ApplyProjectPresetAction
             throw UnknownProjectPresetException::for($presetKey);
         }
 
-        $settings = PresetSettingsBuilder::build($preset['settings']);
+        if (! $force && ProjectSettings::query()->whereNotNull('preset_applied_at')->exists()) {
+            throw ProjectPresetAlreadyAppliedException::make();
+        }
 
-        ProjectSettings::updateOrCreate(
-            ['id' => 1],
-            array_merge($settings, [
-                'feature_flags' => $preset['feature_flags'],
-                'active_preset_key' => $presetKey,
-            ])
-        );
+        if (! $force && Post::query()->exists()) {
+            throw ProjectPresetHasContentException::make();
+        }
+
+        $result = DB::transaction(function () use ($presetKey, $preset): ProjectPresetApplicationResult {
+            $settings = PresetSettingsBuilder::build($preset['settings']);
+
+            ProjectSettings::query()->updateOrCreate(
+                ['id' => 1],
+                array_merge($settings, [
+                    'feature_flags' => $preset['feature_flags'],
+                    'active_preset_key' => $presetKey,
+                    'preset_applied_at' => now(),
+                ]),
+            );
+
+            [$ratingGroups, $ratingOptions] = $this->applyRatingGroups($preset['rating_groups'] ?? null);
+            [$tags, $removedTags] = $this->applyTags($preset['tags'] ?? null);
+
+            return new ProjectPresetApplicationResult(
+                presetKey: $presetKey,
+                ratingGroups: $ratingGroups,
+                ratingOptions: $ratingOptions,
+                tags: $tags,
+                removedTags: $removedTags,
+            );
+        });
 
         $this->manager->flush();
+
+        return $result;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>|null  $groups
+     * @return array{0: int, 1: int}
+     */
+    private function applyRatingGroups(?array $groups): array
+    {
+        if ($groups === null) {
+            return [0, 0];
+        }
+
+        RatingGroup::query()->update(['is_active' => false]);
+        RatingOption::query()->update(['is_active' => false, 'archived_at' => now()]);
+
+        $optionCount = 0;
+
+        foreach ($groups as $groupData) {
+            [$label, $labelTranslations] = $this->splitTranslatable($groupData['label'] ?? null);
+            [$description, $descriptionTranslations] = $this->splitTranslatable($groupData['description'] ?? null);
+
+            $group = RatingGroup::query()->updateOrCreate(
+                ['key' => $groupData['key']],
+                [
+                    'label' => $label,
+                    'label_translations' => $labelTranslations,
+                    'description' => $description,
+                    'description_translations' => $descriptionTranslations,
+                    'sort_order' => $groupData['sort_order'] ?? 10,
+                    'is_active' => true,
+                    'min_options' => 2,
+                    'max_options' => 10,
+                ],
+            );
+
+            foreach ($groupData['options'] as $optionData) {
+                [$optionLabel, $optionLabelTranslations] = $this->splitTranslatable($optionData['label'] ?? null);
+                [$optionDescription, $optionDescriptionTranslations] = $this->splitTranslatable($optionData['description'] ?? null);
+
+                $group->options()->updateOrCreate(
+                    ['key' => $optionData['key']],
+                    [
+                        'label' => $optionLabel,
+                        'label_translations' => $optionLabelTranslations,
+                        'description' => $optionDescription,
+                        'description_translations' => $optionDescriptionTranslations,
+                        'sort_order' => $optionData['sort_order'] ?? 10,
+                        'is_active' => true,
+                        'archived_at' => null,
+                    ],
+                );
+
+                $optionCount++;
+            }
+        }
+
+        return [count($groups), $optionCount];
+    }
+
+    /**
+     * @param  array<int, array<string, string|null>|string>|null  $tags
+     * @return array{0: int, 1: int}
+     */
+    private function applyTags(?array $tags): array
+    {
+        if ($tags === null || $tags === []) {
+            return [0, 0];
+        }
+
+        $keptSlugs = [];
+
+        foreach ($tags as $tagData) {
+            [$name, $nameTranslations] = $this->splitTranslatable($tagData);
+            $slug = Str::slug((string) $name);
+            $keptSlugs[] = $slug;
+
+            Tag::query()->updateOrCreate(
+                ['slug' => $slug],
+                [
+                    'name' => $name,
+                    'name_translations' => $nameTranslations,
+                ],
+            );
+        }
+
+        $removedTags = Tag::query()->whereNotIn('slug', $keptSlugs)->delete();
+
+        return [count($tags), $removedTags];
+    }
+
+    /**
+     * @return array{0: string|null, 1: array<string, string|null>|null}
+     */
+    private function splitTranslatable(mixed $value): array
+    {
+        if ($value === null) {
+            return [null, null];
+        }
+
+        if (is_string($value)) {
+            return [$value, null];
+        }
+
+        return [$value['en'] ?? null, $value];
     }
 }

@@ -19,3 +19,16 @@ it('seeds default project settings idempotently', function () {
 
     expect(ProjectSettings::count())->toBe(1);
 });
+
+it('does not overwrite an installation preset', function () {
+    ProjectSettings::factory()->create([
+        'site_name' => 'NatureGuru',
+        'active_preset_key' => 'nature',
+        'preset_applied_at' => now(),
+    ]);
+
+    $this->seed(DefaultProjectSettingsSeeder::class);
+
+    expect(ProjectSettings::firstOrFail()->site_name)->toBe('NatureGuru')
+        ->and(ProjectSettings::firstOrFail()->active_preset_key)->toBe('nature');
+});
