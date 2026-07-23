@@ -9,8 +9,10 @@
 #   --apply   Install and activate Mailpit (canonical) + Mailtrap Local (mirror)
 #             from checksum-verified pinned release archives.
 #
-# Guarantees:
-#   * Never installs an unverified binary and never uses "latest".
+# Behavior:
+#   * Compares each downloaded archive's SHA-256 against the committed pin in
+#     SHA256SUMS and refuses to install on a mismatch; only pinned versions
+#     are downloaded (never "latest").
 #   * Never modifies the Laravel production environment.
 #   * Idempotent: re-running restarts only what actually changed.
 #   * On apply failure, previously installed files are rolled back.
