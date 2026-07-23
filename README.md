@@ -58,6 +58,16 @@ Then run migrations:
 php artisan migrate
 ```
 
+On a new project, choose and apply its one-time installation preset before
+creating or importing posts:
+
+```bash
+php artisan rateguru:setup nature
+```
+
+See [Project presets](docs/admin/project-presets.md) for available keys and
+reset safeguards.
+
 RateGuru does not require Docker for local development. Laravel, frontend tools,
 and PostgreSQL run directly on the host. GitHub Actions uses its own isolated
 PostgreSQL container. For a quick test run without PostgreSQL, use

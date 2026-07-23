@@ -19,6 +19,7 @@ psql postgres -c "ALTER ROLE rateguru PASSWORD 'rateguru';"
 createdb --owner=rateguru rateguru
 createdb --owner=rateguru rateguru_test
 php artisan migrate
+php artisan rateguru:setup generic
 
 npm install
 npm run build
@@ -33,6 +34,7 @@ Expected result:
 - `php -v` reports PHP 8.5 or newer.
 - Homebrew PostgreSQL 18.4 becomes healthy.
 - Migrations pass.
+- The generic installation preset is applied.
 - `npm run build` passes.
 - Tests pass.
 - Home page opens.
