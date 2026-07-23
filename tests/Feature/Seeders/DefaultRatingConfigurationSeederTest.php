@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use Database\Seeders\DatabaseSeeder;
@@ -43,4 +44,17 @@ it('includes default rating configuration in the database seeder', function () {
 
     expect(RatingGroup::query()->whereIn('key', ['source', 'category'])->count())
         ->toBe(2);
+});
+
+it('does not overwrite rating options from an installation preset', function () {
+    ProjectSettings::factory()->create([
+        'active_preset_key' => 'nature',
+        'preset_applied_at' => now(),
+    ]);
+    $source = RatingGroup::factory()->create(['key' => 'source']);
+    RatingOption::factory()->for($source, 'group')->create(['key' => 'professional']);
+
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
+    expect(RatingOption::query()->pluck('key')->all())->toBe(['professional']);
 });

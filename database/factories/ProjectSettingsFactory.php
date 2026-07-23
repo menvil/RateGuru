@@ -24,6 +24,7 @@ class ProjectSettingsFactory extends Factory
             'default_theme' => 'system',
             'default_sort' => 'hot',
             'active_preset_key' => 'generic',
+            'preset_applied_at' => null,
             'feature_flags' => [
                 'show_comments' => true,
                 'show_share_buttons' => true,

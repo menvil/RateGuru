@@ -18,6 +18,7 @@ it('has project settings table', function () {
         'default_theme',
         'default_sort',
         'active_preset_key',
+        'preset_applied_at',
         'feature_flags',
         'created_at',
         'updated_at',

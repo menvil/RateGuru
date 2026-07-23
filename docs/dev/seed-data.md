@@ -8,6 +8,18 @@ Run a fresh local database with the compact demo dataset:
 php artisan migrate:fresh --seed
 ```
 
+To review a non-generic preset with demo content, apply it explicitly after the
+demo seed. `--force` is required because the seed has already created posts:
+
+```bash
+php artisan migrate:fresh --seed
+php artisan rateguru:setup nature --force
+```
+
+This preserves demo users and posts while replacing settings, rating
+configuration, and tags. Existing votes remain attached to their archived
+options.
+
 If the schema is already migrated and you only need to rerun seeders:
 
 ```bash

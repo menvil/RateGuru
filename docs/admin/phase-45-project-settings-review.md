@@ -1,5 +1,8 @@
 # Phase 45 — Project Settings / Presets — Review Checklist
 
+> RG-897 supersedes the original reusable admin preset action. Presets are now
+> one-time installation operations executed by `php artisan rateguru:setup`.
+
 ## Database & Model
 
 - [x] `project_settings` table exists with all required columns
@@ -21,19 +24,21 @@
 
 ## Presets
 
-- [x] `config/project_presets.php` exists with generic, food, cats, ai_images presets
-- [x] All presets have required shape: label, settings{}, feature_flags{}
-- [x] `ApplyProjectPresetAction` applies preset and flushes manager cache
+- [x] `config/project_presets.php` exists with generic, nature, ai_images, breasts presets
+- [x] All presets define settings, feature flags, rating groups/options, and tags
+- [x] `ApplyProjectPresetAction` applies the full preset in a transaction and flushes manager cache
 - [x] `UnknownProjectPresetException` thrown for invalid preset key
+- [x] `preset_applied_at` prevents accidental repeated installation
+- [x] Existing posts block normal installation; reviewed `--force` is explicit
 
 ## Admin UI
 
 - [x] `ProjectSettingsPage` Filament page exists at `/admin/project-settings`
 - [x] Admin can access; regular user and moderator cannot
-- [x] Form fields cover all ProjectSettings columns
+- [x] Form fields cover editable ProjectSettings columns
 - [x] Validation: required fields, max lengths, theme/sort enum validation
-- [x] Admin can apply preset via `applyPreset()` with confirmation
-- [x] Unknown preset rejected with form error
+- [x] Preset state and installation time are read-only in admin
+- [x] Admin exposes no preset application action
 
 ## Public UI Integration
 
@@ -81,7 +86,8 @@
 - [x] `ApplyProjectPresetActionTest` — apply preset, unknown preset throws
 - [x] `ProjectSettingsPageTest` — admin access, user/moderator forbidden
 - [x] `ProjectSettingsValidationTest` — required fields, invalid theme/sort
-- [x] `ApplyPresetAdminActionTest` — apply cats/food, reject unknown
+- [x] `ApplyPresetAdminActionTest` — no apply controls; read-only installation status
+- [x] `SetupProjectPresetCommandTest` — confirmation, guards, force, full setup
 - [x] `LayoutSettingsIntegrationTest` — configured and fallback site name
 - [x] `FeedUploadLabelsIntegrationTest` — configured and fallback labels
 - [x] `FeatureFlagsPublicUiTest` — comments/share/upload hidden by flags

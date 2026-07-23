@@ -9,6 +9,10 @@ class DefaultProjectSettingsSeeder extends Seeder
 {
     public function run(): void
     {
+        if (ProjectSettings::query()->whereNotNull('preset_applied_at')->exists()) {
+            return;
+        }
+
         ProjectSettings::updateOrCreate(
             ['id' => 1],
             [

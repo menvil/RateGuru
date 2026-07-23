@@ -2,11 +2,11 @@
 
 namespace App\Filament\Pages;
 
-use App\Actions\Settings\ApplyProjectPresetAction;
 use App\Actions\Settings\SaveProjectSettingsAction;
-use App\Exceptions\Settings\UnknownProjectPresetException;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\ProjectSettings;
+use App\Services\Settings\ProjectPresetStatusService;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -62,6 +62,14 @@ class ProjectSettingsPage extends Page
     {
         return $form
             ->schema([
+                Section::make(__('admin.project_settings.preset_status_title'))
+                    ->description(__('admin.project_settings.preset_status_description'))
+                    ->schema([
+                        Placeholder::make('preset_status')
+                            ->label(__('admin.project_settings.preset_status_label'))
+                            ->content(fn (): string => $this->presetStatus()),
+                    ]),
+
                 Section::make(__('admin.project_settings.site_identity'))
                     ->schema([
                         TextInput::make('site_name')
@@ -185,32 +193,8 @@ class ProjectSettingsPage extends Page
             ->send();
     }
 
-    public function applyPreset(string $presetKey): void
+    private function presetStatus(): string
     {
-        try {
-            app(ApplyProjectPresetAction::class)->handle($presetKey);
-        } catch (UnknownProjectPresetException $e) {
-            Notification::make()
-                ->title($e->getMessage())
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        $settings = ProjectSettings::find(1);
-        $this->form->fill($settings ? $settings->toArray() : []);
-
-        Notification::make()
-            ->title("Preset '{$presetKey}' applied")
-            ->success()
-            ->send();
-    }
-
-    public static function presetOptions(): array
-    {
-        return collect(config('project_presets', []))
-            ->mapWithKeys(fn (array $preset, string $key): array => [$key => $preset['label']])
-            ->all();
+        return app(ProjectPresetStatusService::class)->display();
     }
 }

@@ -15,7 +15,20 @@
 - `default_theme` — one of `system`, `light`, `dark`
 - `default_sort` — one of `hot`, `new`, `top`
 - `active_preset_key` — which preset was last applied (informational only)
+- `preset_applied_at` — successful one-time preset installation timestamp
 - `feature_flags` — JSON object controlling UI visibility
+
+## Installation preset status
+
+Project presets are installed from the server with
+`php artisan rateguru:setup`. The Project Settings admin page exposes the
+installed preset label (for example, “Nature & travel photography”) and
+`preset_applied_at` as read-only status; it cannot apply or replace a preset.
+The label is resolved from the stored `active_preset_key`.
+
+This separation is intentional: a preset also synchronizes rating groups,
+rating options, and tags, so it is not a normal settings-form operation. See
+`docs/admin/project-presets.md` for the command workflow and safety guards.
 
 ## Fallback defaults
 
@@ -32,6 +45,7 @@ default_locale = en
 default_theme = system
 default_sort = hot
 active_preset_key = generic
+preset_applied_at = null
 feature_flags:
   show_comments = true
   show_share_buttons = true
