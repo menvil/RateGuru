@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Actions\Settings\SaveProjectSettingsAction;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\ProjectSettings;
+use App\Services\Settings\ProjectPresetStatusService;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -194,18 +195,6 @@ class ProjectSettingsPage extends Page
 
     private function presetStatus(): string
     {
-        $settings = ProjectSettings::find(1);
-
-        if ($settings?->preset_applied_at === null) {
-            return __('admin.project_settings.preset_not_applied');
-        }
-
-        $presetKey = $settings->active_preset_key;
-        $presetLabel = config("project_presets.{$presetKey}.label", $presetKey);
-
-        return __('admin.project_settings.preset_applied', [
-            'preset' => $presetLabel,
-            'date' => $settings->preset_applied_at->format('Y-m-d H:i:s'),
-        ]);
+        return app(ProjectPresetStatusService::class)->display();
     }
 }

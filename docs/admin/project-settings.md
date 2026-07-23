@@ -22,8 +22,9 @@
 
 Project presets are installed from the server with
 `php artisan rateguru:setup`. The Project Settings admin page exposes the
-installed preset key and `preset_applied_at` as read-only status; it cannot
-apply or replace a preset.
+installed preset label (for example, “Nature & travel photography”) and
+`preset_applied_at` as read-only status; it cannot apply or replace a preset.
+The label is resolved from the stored `active_preset_key`.
 
 This separation is intentional: a preset also synchronizes rating groups,
 rating options, and tags, so it is not a normal settings-form operation. See

@@ -10,8 +10,10 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     Carbon::setTestNow('2026-07-22 10:00:00');
@@ -89,6 +91,23 @@ it('refuses to apply a preset when content already exists', function () {
 
     app(ApplyProjectPresetAction::class)->handle('nature');
 })->throws(ProjectPresetHasContentException::class);
+
+it('checks setup guards inside the application transaction', function () {
+    ProjectSettings::factory()->create();
+    $projectSettingsQueryLevels = [];
+    $baselineTransactionLevel = DB::transactionLevel();
+
+    DB::listen(function (QueryExecuted $query) use (&$projectSettingsQueryLevels): void {
+        if (str_contains($query->sql, 'project_settings')) {
+            $projectSettingsQueryLevels[] = DB::transactionLevel();
+        }
+    });
+
+    app(ApplyProjectPresetAction::class)->handle('nature');
+
+    expect($projectSettingsQueryLevels)->not->toBeEmpty()
+        ->and(min($projectSettingsQueryLevels))->toBeGreaterThan($baselineTransactionLevel);
+});
 
 it('allows an explicit forced reapplication without deleting posts or users', function () {
     $user = User::factory()->create();

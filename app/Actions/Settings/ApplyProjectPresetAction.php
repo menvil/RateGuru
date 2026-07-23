@@ -34,16 +34,27 @@ class ApplyProjectPresetAction
             throw UnknownProjectPresetException::for($presetKey);
         }
 
-        if (! $force && ProjectSettings::query()->whereNotNull('preset_applied_at')->exists()) {
-            throw ProjectPresetAlreadyAppliedException::make();
-        }
-
-        if (! $force && Post::query()->exists()) {
-            throw ProjectPresetHasContentException::make();
-        }
-
-        $result = DB::transaction(function () use ($presetKey, $preset): ProjectPresetApplicationResult {
+        $result = DB::transaction(function () use ($force, $presetKey, $preset): ProjectPresetApplicationResult {
             $settings = PresetSettingsBuilder::build($preset['settings']);
+
+            ProjectSettings::query()->firstOrCreate(
+                ['id' => 1],
+                array_merge($settings, [
+                    'feature_flags' => $preset['feature_flags'],
+                    'active_preset_key' => $presetKey,
+                    'preset_applied_at' => null,
+                ]),
+            );
+
+            $existingSettings = ProjectSettings::query()->lockForUpdate()->find(1);
+
+            if (! $force && $existingSettings?->preset_applied_at !== null) {
+                throw ProjectPresetAlreadyAppliedException::make();
+            }
+
+            if (! $force && Post::query()->exists()) {
+                throw ProjectPresetHasContentException::make();
+            }
 
             ProjectSettings::query()->updateOrCreate(
                 ['id' => 1],
