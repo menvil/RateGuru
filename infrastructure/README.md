@@ -6,13 +6,26 @@ Project-specific infrastructure for RateGuru.
 
 - deployment and rollback scripts;
 - local and offsite backup scripts;
+- staging mail capture (Mailpit + Mailtrap Local) — see
+  [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
 - Nginx configuration;
 - PHP-FPM pools;
 - Supervisor queue workers;
 - cron configuration;
 - sudoers and SSH restrictions;
 - environment variable templates;
-- operational runbooks.
+- operational runbooks;
+- the phased [`ROADMAP.md`](ROADMAP.md).
+
+## Committed non-secret config exception
+
+`infrastructure/**/*.env` is gitignored by default so secret env files are
+never committed. Two mail-capture files are explicitly re-included because they
+contain only non-secret, loopback-only settings:
+
+- `config/mail-capture/versions.env` — pinned upstream versions;
+- `config/mail-capture/mailpit.env` — loopback bind addresses, retention, and
+  the loopback relay target.
 
 ## Secrets are not stored here
 

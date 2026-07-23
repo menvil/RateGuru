@@ -1,0 +1,21 @@
+# Mailtrap Local configuration for the RateGuru staging mail-capture slice.
+#
+# This file is intentionally committed. It contains no secrets. It is installed
+# to /etc/rateguru/mail-capture/mailtrap-local.yml and referenced by the
+# rateguru-mailtrap-local.service unit via MAILTRAP_LOCAL_CONFIG=.
+#
+# Mailtrap Local is the SECONDARY, experimental mirror. It receives a
+# best-effort copy relayed by Mailpit. It is never a hard dependency of
+# Mailpit and never of Laravel SMTP delivery.
+#
+# Only the non-secret "storage" section is pinned here. The cloud/relay/webhook
+# integrations are intentionally left unconfigured: this instance is a purely
+# local sink and must not forward mail anywhere or hold credentials.
+#
+# Listener addresses and the SQLite path are passed as explicit command-line
+# flags in the systemd unit (loopback 127.0.0.1:3535 / 127.0.0.1:3550), so they
+# do not need to be repeated here.
+
+storage:
+  # Retention cap: keep at most 5000 messages; the oldest are evicted past it.
+  max_messages: 5000

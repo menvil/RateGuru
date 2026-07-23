@@ -79,6 +79,10 @@ Homestead.yaml
 /infrastructure/secrets/
 /infrastructure/**/*.env
 !/infrastructure/**/*.env.example
+# Non-secret, committed mail-capture config (pinned versions + loopback-only
+# Mailpit settings; contain no credentials).
+!/infrastructure/config/mail-capture/versions.env
+!/infrastructure/config/mail-capture/mailpit.env
 /infrastructure/**/rclone.conf
 /infrastructure/**/*htpasswd*
 /infrastructure/**/authorized_keys

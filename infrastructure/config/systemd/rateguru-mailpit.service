@@ -1,0 +1,53 @@
+[Unit]
+Description=RateGuru staging Mailpit (canonical mail capture)
+Documentation=https://mailpit.axllent.org/
+Documentation=file:/home/www/rateguru/runbooks/mail-capture.md
+# Mailtrap Local is a best-effort mirror target, not a hard dependency:
+# Wants= (not Requires=) so Mailpit still starts and keeps running when the
+# mirror is stopped, failed, or masked.
+Wants=network-online.target rateguru-mailtrap-local.service
+After=network-online.target rateguru-mailtrap-local.service
+
+[Service]
+Type=simple
+User=rateguru-mailpit
+Group=rateguru-mailpit
+EnvironmentFile=/etc/rateguru/mail-capture/mailpit.env
+ExecStart=/usr/local/bin/rateguru-mailpit
+Restart=on-failure
+RestartSec=2
+
+# Logs go to journald (Mailpit logs to stdout/stderr).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rateguru-mailpit
+
+# --- Hardening -------------------------------------------------------------
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+# Loopback TCP only (plus AF_UNIX for internal use); no raw/netlink families.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Empty capability set: Mailpit binds only high ports (>1024), so it needs
+# no capabilities at all.
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+# The persistent SQLite directory is the only writable location.
+ReadWritePaths=/var/lib/rateguru-mail-capture/mailpit
+
+[Install]
+WantedBy=multi-user.target
