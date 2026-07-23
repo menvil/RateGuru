@@ -73,6 +73,16 @@ it('creates a usable generic rating configuration on an empty project', function
         ->and(RatingOption::query()->active()->count())->toBe(5);
 });
 
+it('creates the settings singleton with id one after the sequence has advanced', function () {
+    $attributes = ProjectSettings::factory()->raw();
+    unset($attributes['id']);
+    ProjectSettings::query()->create($attributes)->delete();
+
+    app(ApplyProjectPresetAction::class)->handle('generic');
+
+    expect(ProjectSettings::firstOrFail()->getKey())->toBe(1);
+});
+
 it('fails for unknown project preset', function () {
     app(ApplyProjectPresetAction::class)->handle('unknown');
 })->throws(UnknownProjectPresetException::class);

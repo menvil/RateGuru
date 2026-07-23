@@ -36,19 +36,22 @@ class ApplyProjectPresetAction
 
         $result = DB::transaction(function () use ($force, $presetKey, $preset): ProjectPresetApplicationResult {
             $settings = PresetSettingsBuilder::build($preset['settings']);
+            $appliedSettings = array_merge($settings, [
+                'feature_flags' => $preset['feature_flags'],
+                'active_preset_key' => $presetKey,
+                'preset_applied_at' => now(),
+            ]);
 
-            ProjectSettings::query()->firstOrCreate(
-                ['id' => 1],
-                array_merge($settings, [
-                    'feature_flags' => $preset['feature_flags'],
-                    'active_preset_key' => $presetKey,
-                    'preset_applied_at' => null,
-                ]),
+            $initialSettings = ProjectSettings::unguarded(
+                fn (): ProjectSettings => ProjectSettings::query()->firstOrCreate(
+                    ['id' => 1],
+                    $appliedSettings,
+                ),
             );
 
-            $existingSettings = ProjectSettings::query()->lockForUpdate()->find(1);
+            $existingSettings = ProjectSettings::query()->lockForUpdate()->findOrFail(1);
 
-            if (! $force && $existingSettings?->preset_applied_at !== null) {
+            if (! $force && ! $initialSettings->wasRecentlyCreated && $existingSettings->preset_applied_at !== null) {
                 throw ProjectPresetAlreadyAppliedException::make();
             }
 
@@ -56,14 +59,7 @@ class ApplyProjectPresetAction
                 throw ProjectPresetHasContentException::make();
             }
 
-            ProjectSettings::query()->updateOrCreate(
-                ['id' => 1],
-                array_merge($settings, [
-                    'feature_flags' => $preset['feature_flags'],
-                    'active_preset_key' => $presetKey,
-                    'preset_applied_at' => now(),
-                ]),
-            );
+            $existingSettings->fill($appliedSettings)->save();
 
             [$ratingGroups, $ratingOptions] = $this->applyRatingGroups($preset['rating_groups'] ?? null);
             [$tags, $removedTags] = $this->applyTags($preset['tags'] ?? null);
