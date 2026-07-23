@@ -190,8 +190,8 @@ Retention is enforced by the services themselves — no cron job is involved.
    `infrastructure/config/mail-capture/checksums/` with the official Linux
    `amd64` and `arm64` SHA-256 digests (see that directory's `README.md` for
    provenance). Never install an unverified binary; never use `latest`.
-3. `sudo install-mail-capture --check` then `--apply`.
-4. `sudo verify-mail-capture`.
+3. `sudo infrastructure/scripts/install-mail-capture --check` then `--apply`.
+4. `sudo infrastructure/scripts/verify-mail-capture`.
 
 The installer restarts only the service whose binary/config/unit actually
 changed. Persistent SQLite data survives upgrades.

@@ -2,8 +2,9 @@
 
 Each `*.sha256` file here pins the SHA-256 of every release archive the
 installer is permitted to download for the versions declared in
-`../versions.env`. The installer refuses to install any archive whose digest
-is not listed here (`sha256sum -c`), so an unverified or tampered binary can
+`../versions.env`. For each downloaded archive the installer computes its
+`sha256sum` and compares that digest against the value pinned here, refusing to
+install anything that does not match, so an unverified or tampered binary can
 never be installed.
 
 ## Provenance

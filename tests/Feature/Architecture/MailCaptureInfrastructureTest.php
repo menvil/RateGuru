@@ -11,6 +11,61 @@ function mailCaptureSource(string $path): string
     return File::get($full);
 }
 
+/**
+ * Parse an env/`KEY=VALUE` file into an ordered map, ignoring blank and
+ * commented lines. Values are returned verbatim (trailing CR stripped).
+ *
+ * @return array<string, string>
+ */
+function mailCaptureEnvValues(string $path): array
+{
+    $out = [];
+
+    foreach (preg_split('/\R/', mailCaptureSource($path)) as $line) {
+        $trimmed = trim($line);
+
+        if ($trimmed === '' || str_starts_with($trimmed, '#') || ! str_contains($trimmed, '=')) {
+            continue;
+        }
+
+        [$key, $value] = explode('=', $trimmed, 2);
+        $out[trim($key)] = rtrim($value, "\r");
+    }
+
+    return $out;
+}
+
+/**
+ * Collect the values of a systemd directive from uncommented `Key=Value`
+ * lines only (skips comments, section headers and continuation lines).
+ *
+ * @return array<int, string>
+ */
+function mailCaptureDirectiveValues(string $path, string $key): array
+{
+    $values = [];
+
+    foreach (preg_split('/\R/', mailCaptureSource($path)) as $line) {
+        $trimmed = ltrim($line);
+
+        if ($trimmed === '' || $trimmed[0] === '#' || $trimmed[0] === ';' || $trimmed[0] === '[') {
+            continue;
+        }
+
+        if (! str_contains($trimmed, '=')) {
+            continue;
+        }
+
+        [$lineKey, $value] = explode('=', $trimmed, 2);
+
+        if (trim($lineKey) === $key) {
+            $values[] = rtrim($value, "\r");
+        }
+    }
+
+    return $values;
+}
+
 it('ships every required mail-capture file', function () {
     $required = [
         'ROADMAP.md',
@@ -105,32 +160,39 @@ it('enforces retention limits', function () {
 });
 
 it('hardens both systemd units', function () {
-    $directives = [
-        'NoNewPrivileges=true',
-        'PrivateTmp=true',
-        'PrivateDevices=true',
-        'ProtectSystem=strict',
-        'ProtectHome=true',
-        'ProtectKernelTunables=true',
-        'ProtectKernelModules=true',
-        'ProtectControlGroups=true',
-        'RestrictSUIDSGID=true',
-        'LockPersonality=true',
-        'CapabilityBoundingSet=',
+    // Exact configured values, asserted against parsed (uncommented) directives.
+    $expected = [
+        'NoNewPrivileges' => 'true',
+        'PrivateTmp' => 'true',
+        'PrivateDevices' => 'true',
+        'ProtectSystem' => 'strict',
+        'ProtectHome' => 'true',
+        'ProtectKernelTunables' => 'true',
+        'ProtectKernelModules' => 'true',
+        'ProtectControlGroups' => 'true',
+        'RestrictSUIDSGID' => 'true',
+        'LockPersonality' => 'true',
+        'CapabilityBoundingSet' => '', // empty: no capabilities at all
     ];
 
-    foreach (['rateguru-mailpit', 'rateguru-mailtrap-local'] as $unit) {
-        $source = mailCaptureSource('config/systemd/'.$unit.'.service');
+    $readWritePaths = [
+        'rateguru-mailpit' => '/var/lib/rateguru-mail-capture/mailpit',
+        'rateguru-mailtrap-local' => '/var/lib/rateguru-mail-capture/mailtrap-local',
+    ];
 
-        foreach ($directives as $directive) {
-            expect($source)->toContain($directive);
+    foreach ($readWritePaths as $unit => $stateDir) {
+        $path = 'config/systemd/'.$unit.'.service';
+
+        foreach ($expected as $key => $value) {
+            // toContain is variadic (all args are needles), so assert the exact
+            // value without a message argument.
+            expect(mailCaptureDirectiveValues($path, $key))->toContain($value);
         }
-    }
 
-    expect(mailCaptureSource('config/systemd/rateguru-mailpit.service'))
-        ->toContain('ReadWritePaths=/var/lib/rateguru-mail-capture/mailpit');
-    expect(mailCaptureSource('config/systemd/rateguru-mailtrap-local.service'))
-        ->toContain('ReadWritePaths=/var/lib/rateguru-mail-capture/mailtrap-local');
+        // Exactly one ReadWritePaths, pointing at this service's state dir only.
+        expect(mailCaptureDirectiveValues($path, 'ReadWritePaths'))
+            ->toBe([$stateDir], "{$unit}: must grant write access to exactly {$stateDir}");
+    }
 });
 
 it('makes Mailpit want, but not require, Mailtrap Local', function () {
@@ -151,20 +213,27 @@ it('makes Mailpit want, but not require, Mailtrap Local', function () {
 it('protects both web UIs with the shared staging Basic Auth', function () {
     foreach (['rateguru-mailpit-staging', 'rateguru-mailtrap-local-staging'] as $vhost) {
         expect(mailCaptureSource('config/nginx/'.$vhost))
-            ->toContain('auth_basic')
-            ->toContain('auth_basic_user_file /etc/nginx/rateguru-staging.htpasswd');
+            // Active auth_basic directive with a non-empty realm (not commented).
+            ->toMatch('/^\s*auth_basic\s+"[^"]+";\s*$/m')
+            // Active auth_basic_user_file pointing at the exact shared htpasswd.
+            ->toMatch('#^\s*auth_basic_user_file\s+/etc/nginx/rateguru-staging\.htpasswd;\s*$#m');
     }
 });
 
 it('proxies WebSockets to loopback only', function () {
-    foreach ([
-        'rateguru-mailpit-staging' => 'http://127.0.0.1:8025',
-        'rateguru-mailtrap-local-staging' => 'http://127.0.0.1:3550',
-    ] as $vhost => $upstream) {
+    // Each vhost proxies to its own loopback upstream and uses its own uniquely
+    // named connection-upgrade map variable (so the two vhosts never collide).
+    $vhosts = [
+        'rateguru-mailpit-staging' => ['http://127.0.0.1:8025', '$mailpit_connection_upgrade'],
+        'rateguru-mailtrap-local-staging' => ['http://127.0.0.1:3550', '$mailtrap_connection_upgrade'],
+    ];
+
+    foreach ($vhosts as $vhost => [$upstream, $connectionVar]) {
         expect(mailCaptureSource('config/nginx/'.$vhost))
             ->toContain('proxy_pass '.$upstream.';')
+            ->toContain('proxy_http_version 1.1;')
             ->toContain('proxy_set_header Upgrade $http_upgrade;')
-            ->toContain('proxy_set_header Connection');
+            ->toContain('proxy_set_header Connection '.$connectionVar.';');
     }
 });
 
@@ -185,52 +254,98 @@ it('never exposes an SMTP or raw capture port publicly through Nginx', function 
 });
 
 it('points staging Laravel mail at the Mailpit loopback SMTP', function () {
-    $staging = mailCaptureSource('templates/environment/staging.env.example');
+    $env = mailCaptureEnvValues('templates/environment/staging.env.example');
 
-    expect($staging)
-        ->toContain('MAIL_MAILER=smtp')
-        ->toContain('MAIL_HOST=127.0.0.1')
-        ->toContain('MAIL_PORT=1025')
-        ->toContain('MAIL_USERNAME=')
-        ->toContain('MAIL_PASSWORD=')
-        ->toContain('MAIL_ENCRYPTION=')
-        ->toContain('MAIL_FROM_ADDRESS=noreply@staging.invalid')
-        ->toContain('MAIL_FROM_NAME="${APP_NAME}"');
+    // Exact values, including the deliberately empty credential/encryption keys.
+    expect($env)
+        ->toHaveKey('MAIL_USERNAME')
+        ->toHaveKey('MAIL_PASSWORD')
+        ->toHaveKey('MAIL_ENCRYPTION');
+
+    expect($env['MAIL_MAILER'])->toBe('smtp');
+    expect($env['MAIL_HOST'])->toBe('127.0.0.1');
+    expect($env['MAIL_PORT'])->toBe('1025');
+    expect($env['MAIL_USERNAME'])->toBe('');
+    expect($env['MAIL_PASSWORD'])->toBe('');
+    expect($env['MAIL_ENCRYPTION'])->toBe('');
+    expect($env['MAIL_FROM_ADDRESS'])->toBe('noreply@staging.invalid');
+    expect($env['MAIL_FROM_NAME'])->toBe('"${APP_NAME}"');
 });
 
 it('leaves the production mail configuration unchanged', function () {
-    $production = mailCaptureSource('templates/environment/production.env.example');
+    $env = mailCaptureEnvValues('templates/environment/production.env.example');
 
-    // Production mail keys stay empty; no SMTP host/port/mailer is injected.
-    expect($production)
-        ->toContain('MAIL_MAILER=')
-        ->toContain('MAIL_FROM_ADDRESS=')
-        ->toContain('MAIL_FROM_NAME=')
-        ->not->toContain('MAIL_MAILER=smtp')
-        ->not->toContain('MAIL_HOST=')
-        ->not->toContain('MAIL_PORT=')
-        ->not->toContain('127.0.0.1:1025');
+    // Production mail keys stay exactly empty; no SMTP mailer/sender is injected.
+    expect($env['MAIL_MAILER'])->toBe('');
+    expect($env['MAIL_FROM_ADDRESS'])->toBe('');
+    expect($env['MAIL_FROM_NAME'])->toBe('');
+
+    // No staging SMTP wiring leaked into the production template.
+    expect($env)
+        ->not->toHaveKey('MAIL_HOST')
+        ->not->toHaveKey('MAIL_PORT')
+        ->not->toHaveKey('MAIL_USERNAME')
+        ->not->toHaveKey('MAIL_PASSWORD')
+        ->not->toHaveKey('MAIL_ENCRYPTION');
 });
 
-it('keeps the installer check mode free of side effects', function () {
+it('dispatches --check to a root-free code path', function () {
     $installer = mailCaptureSource('scripts/install-mail-capture');
 
-    // --check must dispatch to run_check.
-    expect($installer)->toMatch('/--check\)\s*\n\s*MODE="check"/');
-
-    // The run_check body must not perform any mutating operation.
-    expect(preg_match('/run_check\(\)\s*\{(.*?)\n\}/s', $installer, $matches))->toBe(1);
-    $body = $matches[1];
-
-    foreach (['useradd', 'systemctl', 'daemon-reload', 'fetch_binary', 'download ', 'install -o', 'mv -f', 'nginx -t'] as $mutating) {
-        expect(str_contains($body, $mutating))
-            ->toBeFalse("run_check must not call '{$mutating}'");
-    }
-
-    // Apply-only work lives in run_apply, which does require root.
+    // --check must dispatch to run_check; apply-only work lives in run_apply,
+    // which is the path that requires root.
     expect($installer)
+        ->toMatch('/--check\)\s*\n\s*MODE="check"/')
         ->toContain('require_root')
         ->toContain('run_apply');
+});
+
+it('runs installer --check with stubbed commands and mutates nothing', function () {
+    $installer = base_path('infrastructure/scripts/install-mail-capture');
+    $stubDir = sys_get_temp_dir().'/mc-check-stubs-'.uniqid();
+    $log = $stubDir.'/invoked.log';
+
+    expect(mkdir($stubDir, 0o755, true))->toBeTrue();
+
+    try {
+        // Fake `uname` so run_check proceeds past the Linux/arch gate on any host.
+        file_put_contents(
+            $stubDir.'/uname',
+            "#!/usr/bin/env bash\ncase \"\$1\" in\n  -s) echo Linux;;\n  -m) echo x86_64;;\n  *) echo Linux;;\nesac\n",
+        );
+        chmod($stubDir.'/uname', 0o755);
+
+        // Any mutating command (filesystem, network, users, services) records
+        // its invocation. A side-effect-free check must never trigger one.
+        $mutating = [
+            'useradd', 'systemctl', 'systemd-analyze', 'nginx',
+            'curl', 'wget', 'install', 'mkdir', 'rm', 'cp', 'mv',
+            'chmod', 'chown', 'ln', 'tar', 'sha256sum',
+        ];
+
+        foreach ($mutating as $cmd) {
+            file_put_contents(
+                $stubDir.'/'.$cmd,
+                "#!/usr/bin/env bash\necho \"{$cmd} \$*\" >> ".escapeshellarg($log)."\nexit 0\n",
+            );
+            chmod($stubDir.'/'.$cmd, 0o755);
+        }
+
+        $command = 'PATH='.escapeshellarg($stubDir).':"$PATH" '
+            .escapeshellarg($installer).' --check 2>&1';
+
+        $output = [];
+        $exit = 0;
+        exec($command, $output, $exit);
+
+        expect($exit)->toBe(0, "check mode failed:\n".implode("\n", $output));
+        expect(file_exists($log))
+            ->toBeFalse('check mode invoked a mutating command: '
+                .(file_exists($log) ? file_get_contents($log) : ''));
+    } finally {
+        array_map('unlink', glob($stubDir.'/*') ?: []);
+        @rmdir($stubDir);
+    }
 });
 
 it('documents the recovery drill distinctions in the roadmap', function () {
@@ -250,6 +365,14 @@ it('excludes captured staging mail from disaster-recovery backups', function () 
     $backup = mailCaptureSource('scripts/backup');
 
     expect($runbook)->toContain('exclude');
-    // The backup allowlist must never include the mail-capture state dir.
-    expect($backup)->not->toContain('rateguru-mail-capture');
+
+    // Parse the backup allowlist itself and assert it neither names the
+    // mail-capture state tree nor a broader /var/lib parent that would sweep
+    // it in indirectly.
+    expect(preg_match('/INFRA_PATHS=\((.*?)\)/s', $backup, $allowlist))
+        ->toBe(1, 'could not locate the INFRA_PATHS allowlist in scripts/backup');
+
+    expect($allowlist[1])
+        ->not->toContain('rateguru-mail-capture')
+        ->not->toContain('var/lib');
 });

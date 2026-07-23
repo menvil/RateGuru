@@ -52,7 +52,7 @@ listener_line() {
 api_summary() {
     # api_summary <base> <count-expr>
     local base="$1"
-    curl -fsS --max-time 5 "${base}/api/v1/messages" 2>/dev/null || printf ''
+    curl -fsS --noproxy '*' --max-time 5 "${base}/api/v1/messages" 2>/dev/null || printf ''
 }
 
 echo "========================================"

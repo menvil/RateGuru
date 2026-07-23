@@ -98,7 +98,7 @@ new_token() {
 api_count() {
     # api_count <base> <token>
     local n
-    n="$(curl -fsS --max-time 10 "$1/api/v1/search?query=$2" 2>/dev/null | jq -r '.messages | length' 2>/dev/null || echo 0)"
+    n="$(curl -fsS --noproxy '*' --max-time 10 "$1/api/v1/search?query=$2" 2>/dev/null | jq -r '.messages | length' 2>/dev/null || echo 0)"
     [[ "${n}" =~ ^[0-9]+$ ]] || n=0
     printf '%s\n' "${n}"
 }
@@ -117,11 +117,11 @@ poll_present() {
 delete_by_token() {
     # delete_by_token <base> <token> <id-key> <payload-key>
     local base="$1" token="$2" idkey="$3" payloadkey="$4" ids json
-    ids="$(curl -fsS --max-time 10 "${base}/api/v1/search?query=${token}" 2>/dev/null \
+    ids="$(curl -fsS --noproxy '*' --max-time 10 "${base}/api/v1/search?query=${token}" 2>/dev/null \
         | jq -r ".messages[].${idkey}" 2>/dev/null || true)"
     [[ -n "${ids}" ]] || return 0
     json="$(printf '%s\n' ${ids} | jq -R . | jq -sc "{\"${payloadkey}\": .}")"
-    curl -fsS --max-time 10 -X DELETE -H 'Content-Type: application/json' \
+    curl -fsS --noproxy '*' --max-time 10 -X DELETE -H 'Content-Type: application/json' \
         -d "${json}" "${base}/api/v1/messages" >/dev/null 2>&1 || true
 }
 
@@ -129,7 +129,7 @@ wait_for_api() {
     # wait_for_api <url> <timeout>
     local url="$1" timeout="$2" waited=0
     while (( waited < timeout )); do
-        curl -fsS --max-time 5 "${url}" >/dev/null 2>&1 && return 0
+        curl -fsS --noproxy '*' --max-time 5 "${url}" >/dev/null 2>&1 && return 0
         sleep 1
         (( waited += 1 ))
     done

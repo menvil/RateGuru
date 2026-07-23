@@ -184,11 +184,23 @@ validate_config() {
         [[ -r "${path}" ]] || fail "missing required committed file: ${path}"
     done
 
-    # The two service config files must remain loopback-only and secret-free.
-    grep -q '127.0.0.1:1025' "${CONFIG_DIR}/mailpit.env" \
+    # Every listener must remain loopback-only. Mailpit's binds live in its env
+    # file; Mailtrap Local's binds are passed as CLI flags in its systemd unit
+    # (its YAML holds only the retention cap, no listener keys), and Mailpit's
+    # mirror relay target must also be loopback.
+    local mailpit_env="${CONFIG_DIR}/mailpit.env"
+    grep -Eq '^MP_SMTP_BIND_ADDR=127\.0\.0\.1:1025$' "${mailpit_env}" \
         || fail "mailpit.env does not bind SMTP to loopback 127.0.0.1:1025"
-    grep -q '127.0.0.1:8025' "${CONFIG_DIR}/mailpit.env" \
+    grep -Eq '^MP_UI_BIND_ADDR=127\.0\.0\.1:8025$' "${mailpit_env}" \
         || fail "mailpit.env does not bind HTTP to loopback 127.0.0.1:8025"
+    grep -Eq '^MP_SMTP_RELAY_HOST=127\.0\.0\.1$' "${mailpit_env}" \
+        || fail "mailpit.env relay host is not loopback 127.0.0.1"
+
+    local mailtrap_unit="${SYSTEMD_SRC}/rateguru-mailtrap-local.service"
+    grep -Eq -- '--smtp-listen 127\.0\.0\.1:3535' "${mailtrap_unit}" \
+        || fail "mailtrap-local unit does not bind SMTP to loopback 127.0.0.1:3535"
+    grep -Eq -- '--http-listen 127\.0\.0\.1:3550' "${mailtrap_unit}" \
+        || fail "mailtrap-local unit does not bind HTTP/API to loopback 127.0.0.1:3550"
 
     log "committed configuration is present and loopback-bound"
 }

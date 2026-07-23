@@ -21,11 +21,11 @@ Project-specific infrastructure for RateGuru.
 
 `infrastructure/**/*.env` is gitignored by default so secret env files are
 never committed. Two mail-capture files are explicitly re-included because they
-contain only non-secret, loopback-only settings:
+are non-secret:
 
-- `config/mail-capture/versions.env` — pinned upstream versions;
-- `config/mail-capture/mailpit.env` — loopback bind addresses, retention, and
-  the loopback relay target.
+- `config/mail-capture/versions.env` — pinned upstream release versions only;
+- `config/mail-capture/mailpit.env` — loopback-only bind addresses, retention,
+  and the loopback relay target.
 
 ## Secrets are not stored here
 
