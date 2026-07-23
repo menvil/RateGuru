@@ -17,7 +17,7 @@ final class SavedPostsQuery implements StablePaginationBoundary
             ->where('post_saves.user_id', $user->id)
             ->where('posts.status', PostStatus::Published)
             ->whereNull('posts.deleted_at')
-            ->with(['user', 'tags'])
+            ->with(['user', 'tags', 'category'])
             ->select('posts.*', 'post_saves.created_at as saved_at')
             ->orderBy('post_saves.created_at', 'desc')
             ->orderByDesc('posts.id')

@@ -77,9 +77,9 @@ it('renders the PlateRate reference composition in the UI kit', function () {
         ->assertSee('Which option fits best?')
         ->assertSee('SAMPLE POST · IMAGE 01')
         ->assertSee('What do you think?')
-        ->assertSee('Choose a category:')
+        ->assertSee('Choose an attribute:')
         ->assertSee('Results')
-        ->assertSee('Category distribution')
+        ->assertSee('Attribute distribution')
         ->assertSee('Comments');
 });
 
@@ -111,5 +111,5 @@ it('renders comment item example in ui kit', function () {
     $this->get('/dev/ui-kit')
         ->assertOk()
         ->assertSee('Comment Item')
-        ->assertSee('Looks delicious.');
+        ->assertSee('Great example.');
 });

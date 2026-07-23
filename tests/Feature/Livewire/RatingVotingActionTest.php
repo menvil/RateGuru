@@ -11,14 +11,14 @@ use Livewire\Livewire;
 it('allows an authenticated user to vote through rating voting', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $group = RatingGroup::factory()->create(['key' => 'source']);
+    $group = RatingGroup::factory()->create(['key' => 'type']);
     $option = RatingOption::factory()->for($group, 'group')->create();
 
     Livewire::actingAs($user)
-        ->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'source'])
+        ->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
         ->call('vote', $option->id)
         ->assertHasNoErrors()
-        ->assertDispatched('rating-voted', postId: $post->id, groupKey: 'source')
+        ->assertDispatched('rating-voted', postId: $post->id, groupKey: 'type')
         ->assertSee('data-testid="rating-option-'.$post->id.'-'.$option->id.'"', false)
         ->assertSee('text-rg-accent', false);
 
@@ -33,12 +33,12 @@ it('allows an authenticated user to vote through rating voting', function () {
 it('replaces a rating vote through the component without creating duplicates', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $group = RatingGroup::factory()->create(['key' => 'source']);
+    $group = RatingGroup::factory()->create(['key' => 'type']);
     $first = RatingOption::factory()->for($group, 'group')->create();
     $second = RatingOption::factory()->for($group, 'group')->create();
 
     Livewire::actingAs($user)
-        ->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'source'])
+        ->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
         ->call('vote', $first->id)
         ->call('vote', $second->id)
         ->assertHasNoErrors();
@@ -59,10 +59,10 @@ it('replaces a rating vote through the component without creating duplicates', f
 
 it('does not allow guests to vote through rating voting', function () {
     $post = Post::factory()->published()->create();
-    $group = RatingGroup::factory()->create(['key' => 'source']);
+    $group = RatingGroup::factory()->create(['key' => 'type']);
     $option = RatingOption::factory()->for($group, 'group')->create();
 
-    Livewire::test(RatingVoting::class, ['post' => $post, 'groupKey' => 'source'])
+    Livewire::test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
         ->call('vote', $option->id)
         ->assertSet('error', 'Guests cannot vote on rating options.')
         ->assertSee('Sign in to vote.');
@@ -73,12 +73,12 @@ it('does not allow guests to vote through rating voting', function () {
 it('does not allow an option from a different rating group', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    RatingGroup::factory()->create(['key' => 'source']);
-    $otherGroup = RatingGroup::factory()->create(['key' => 'category']);
+    RatingGroup::factory()->create(['key' => 'type']);
+    $otherGroup = RatingGroup::factory()->create(['key' => 'attribute']);
     $otherOption = RatingOption::factory()->for($otherGroup, 'group')->create();
 
     Livewire::actingAs($user)
-        ->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'source'])
+        ->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
         ->call('vote', $otherOption->id)
         ->assertSee('Rating option is not available for this group.');
 

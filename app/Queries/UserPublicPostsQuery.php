@@ -14,7 +14,7 @@ final class UserPublicPostsQuery implements StablePaginationBoundary
         return Post::query()
             ->published()
             ->where('user_id', $user->id)
-            ->with(['user', 'tags'])
+            ->with(['user', 'tags', 'category'])
             ->latest('published_at')
             ->orderByDesc('id')
             ->paginate($perPage);

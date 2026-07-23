@@ -25,7 +25,7 @@
 ## Presets
 
 - [x] `config/project_presets.php` exists with generic, nature, ai_images, breasts presets
-- [x] All presets define settings, feature flags, rating groups/options, and tags
+- [x] All presets define settings, feature flags, categories, rating groups/options, and tags
 - [x] `ApplyProjectPresetAction` applies the full preset in a transaction and flushes manager cache
 - [x] `UnknownProjectPresetException` thrown for invalid preset key
 - [x] `preset_applied_at` prevents accidental repeated installation

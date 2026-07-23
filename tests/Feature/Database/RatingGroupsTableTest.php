@@ -22,8 +22,8 @@ it('creates rating groups table with required columns', function () {
 
 it('uses rating group defaults', function () {
     $id = DB::table('rating_groups')->insertGetId([
-        'key' => 'source',
-        'label' => 'Source',
+        'key' => 'type',
+        'label' => 'Type',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
@@ -40,15 +40,15 @@ it('uses rating group defaults', function () {
 
 it('requires unique rating group keys', function () {
     DB::table('rating_groups')->insert([
-        'key' => 'source',
-        'label' => 'Source',
+        'key' => 'type',
+        'label' => 'Type',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
     expect(fn () => DB::table('rating_groups')->insert([
-        'key' => 'source',
-        'label' => 'Another Source',
+        'key' => 'type',
+        'label' => 'Another Type',
         'created_at' => now(),
         'updated_at' => now(),
     ]))->toThrow(QueryException::class);

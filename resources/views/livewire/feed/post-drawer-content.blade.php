@@ -66,6 +66,12 @@
                 <p class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
             @endif
 
+            @if($post->category)
+                <div class="mt-3">
+                    <x-posts.category-link :category="$post->category" test-id="post-drawer-category" />
+                </div>
+            @endif
+
             <div class="mt-4">
                 @if($post->public_image_url)
                     <button

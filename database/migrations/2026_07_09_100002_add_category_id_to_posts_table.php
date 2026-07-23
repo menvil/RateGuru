@@ -9,19 +9,17 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('posts', function (Blueprint $table) {
-            // Author-chosen feed category: an option of the first active rating
-            // group (the one the sidebar "Categories" block is built from).
-            $table->foreignId('category_option_id')
+            $table->foreignId('category_id')
                 ->nullable()
-                ->constrained('rating_options')
-                ->nullOnDelete();
+                ->constrained()
+                ->restrictOnDelete();
         });
     }
 
     public function down(): void
     {
         Schema::table('posts', function (Blueprint $table) {
-            $table->dropConstrainedForeignId('category_option_id');
+            $table->dropConstrainedForeignId('category_id');
         });
     }
 };

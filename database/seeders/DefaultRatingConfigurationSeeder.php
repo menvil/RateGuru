@@ -4,12 +4,15 @@ namespace Database\Seeders;
 
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
+use App\Services\Rating\LegacyDefaultRatingConfigurationSynchronizer;
 use Illuminate\Database\Seeder;
 
 class DefaultRatingConfigurationSeeder extends Seeder
 {
     public function run(): void
     {
+        app(LegacyDefaultRatingConfigurationSynchronizer::class)->synchronize();
+
         if (ProjectSettings::query()->whereNotNull('preset_applied_at')->exists()) {
             return;
         }
@@ -55,30 +58,30 @@ class DefaultRatingConfigurationSeeder extends Seeder
     {
         return [
             [
-                'key' => 'source',
-                'label' => 'Source',
+                'key' => 'type',
+                'label' => 'Type',
                 'description' => null,
                 'min_options' => 2,
                 'max_options' => 10,
                 'is_active' => true,
                 'sort_order' => 10,
                 'options' => [
-                    $this->option('source_a', 'Source A', 10),
-                    $this->option('source_b', 'Source B', 20),
+                    $this->option('type_a', 'Type A', 10),
+                    $this->option('type_b', 'Type B', 20),
                 ],
             ],
             [
-                'key' => 'category',
-                'label' => 'Category',
+                'key' => 'attribute',
+                'label' => 'Attribute',
                 'description' => null,
                 'min_options' => 2,
                 'max_options' => 10,
                 'is_active' => true,
                 'sort_order' => 20,
                 'options' => [
-                    $this->option('category_a', 'Category A', 10),
-                    $this->option('category_b', 'Category B', 20),
-                    $this->option('category_c', 'Category C', 30),
+                    $this->option('attribute_a', 'Attribute A', 10),
+                    $this->option('attribute_b', 'Attribute B', 20),
+                    $this->option('attribute_c', 'Attribute C', 30),
                 ],
             ],
         ];

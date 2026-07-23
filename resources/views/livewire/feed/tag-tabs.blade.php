@@ -1,4 +1,4 @@
-<div class="flex flex-wrap gap-2 pb-1" role="tablist" data-testid="category-tabs">
+<div class="flex flex-wrap gap-2 pb-1" role="tablist" data-testid="tag-tabs">
     <button
         type="button"
         role="tab"

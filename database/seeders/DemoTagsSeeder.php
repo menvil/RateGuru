@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Tag;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class DemoTagsSeeder extends Seeder
 {
@@ -13,12 +14,25 @@ class DemoTagsSeeder extends Seeder
             return;
         }
 
-        foreach ($this->tags() as $tag) {
-            Tag::query()->updateOrCreate(
-                ['slug' => $tag['slug']],
-                ['name' => $tag['name']],
-            );
-        }
+        DB::transaction(function (): void {
+            Tag::query()
+                ->whereIn('slug', [
+                    'category-a',
+                    'category-b',
+                    'category-c',
+                    'category-d',
+                    'source-a',
+                    'source-b',
+                ])
+                ->delete();
+
+            foreach ($this->tags() as $tag) {
+                Tag::query()->updateOrCreate(
+                    ['slug' => $tag['slug']],
+                    ['name' => $tag['name']],
+                );
+            }
+        });
     }
 
     /**
@@ -27,12 +41,12 @@ class DemoTagsSeeder extends Seeder
     private function tags(): array
     {
         return [
-            ['name' => 'Category A', 'slug' => 'category-a'],
-            ['name' => 'Category B', 'slug' => 'category-b'],
-            ['name' => 'Category C', 'slug' => 'category-c'],
-            ['name' => 'Category D', 'slug' => 'category-d'],
-            ['name' => 'Source A', 'slug' => 'source-a'],
-            ['name' => 'Source B', 'slug' => 'source-b'],
+            ['name' => 'Featured', 'slug' => 'featured'],
+            ['name' => 'Community', 'slug' => 'community'],
+            ['name' => 'Visual', 'slug' => 'visual'],
+            ['name' => 'Discussion', 'slug' => 'discussion'],
+            ['name' => 'Original', 'slug' => 'original'],
+            ['name' => 'Curated', 'slug' => 'curated'],
             ['name' => 'Sample A', 'slug' => 'sample-a'],
             ['name' => 'Sample B', 'slug' => 'sample-b'],
             ['name' => 'Sample C', 'slug' => 'sample-c'],

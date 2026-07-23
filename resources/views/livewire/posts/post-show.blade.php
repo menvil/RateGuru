@@ -195,8 +195,12 @@
                 @endif
             </footer>
 
-            @if($post->tags->isNotEmpty() || $post->source_url)
+            @if($post->category || $post->tags->isNotEmpty() || $post->source_url)
                 <section class="mt-4 flex flex-wrap items-center gap-2">
+                    @if($post->category)
+                        <x-posts.category-link :category="$post->category" test-id="post-show-category" />
+                    @endif
+
                     @foreach($post->tags as $tag)
                         <x-ui.badge>{{ $tag->name }}</x-ui.badge>
                     @endforeach
@@ -208,7 +212,7 @@
                             target="_blank"
                             class="text-xs font-semibold text-rg-accent2 hover:underline"
                         >
-                            {{ __('ui.voting.source') }}
+                            {{ __('ui.upload.source_url') }}
                         </a>
                     @endif
                 </section>

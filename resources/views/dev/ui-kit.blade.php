@@ -205,6 +205,9 @@
                                 <div class="flex flex-wrap gap-2">
                                     <x-ui.badge variant="accent">#sample</x-ui.badge>
                                     <x-ui.badge variant="neutral">#popular</x-ui.badge>
+                                    <x-posts.category-link
+                                        :category="new \App\Models\Category(['name' => 'Sample category', 'slug' => 'sample-category'])"
+                                    />
                                 </div>
                             </div>
 
@@ -257,7 +260,7 @@
 
                     @php
                         $uiKitComment = new \App\Models\Comment([
-                            'body' => 'Looks delicious.',
+                            'body' => 'Great example.',
                             'created_at' => now()->subMinutes(5),
                         ]);
 

@@ -50,7 +50,7 @@
 
 - [ ] Detail post exists.
 - [ ] Results panel exists.
-- [ ] Category distribution exists.
+- [ ] Configurable rating-group distribution exists.
 - [ ] Comments panel exists.
 - [ ] Comment composer exists.
 - [ ] Nested reply style exists.

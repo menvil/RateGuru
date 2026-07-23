@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Feed\FeedPage;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\Tag;
@@ -47,53 +48,49 @@ it('sets tag property from query string', function () {
 });
 
 it('hydrates category from query string', function () {
-    seedFeedFilterGroups();
-    $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $first = $group->options()->where('key', 'source_a')->firstOrFail();
-    $second = $group->options()->where('key', 'source_b')->firstOrFail();
+    $first = Category::factory()->create(['slug' => 'desserts']);
+    $second = Category::factory()->create(['slug' => 'soups']);
 
     Post::factory()->published()->create([
         'title' => 'First category post',
-        'category_option_id' => $first->id,
+        'category_id' => $first->id,
     ]);
 
     Post::factory()->published()->create([
         'title' => 'Second category post',
-        'category_option_id' => $second->id,
+        'category_id' => $second->id,
     ]);
 
-    $this->get('/?category[0]=source_a')
+    $this->get('/?category[0]=desserts')
         ->assertSee('First category post')
         ->assertDontSee('Second category post');
 });
 
 it('sets category property from query string', function () {
-    seedFeedFilterGroups();
+    Category::factory()->create(['slug' => 'soups']);
 
-    Livewire::withQueryParams(['category' => 'source_b'])
+    Livewire::withQueryParams(['category' => 'soups'])
         ->test(FeedPage::class)
-        ->assertSet('category', ['source_b']);
+        ->assertSet('category', ['soups']);
 });
 
 it('hydrates multiple category filters from query string', function () {
-    seedFeedFilterGroups();
-    $group = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $first = $group->options()->where('key', 'source_a')->firstOrFail();
-    $second = $group->options()->where('key', 'source_b')->firstOrFail();
+    $first = Category::factory()->create(['slug' => 'desserts']);
+    $second = Category::factory()->create(['slug' => 'soups']);
 
     Post::factory()->published()->create([
         'title' => 'First category post',
-        'category_option_id' => $first->id,
+        'category_id' => $first->id,
     ]);
 
     Post::factory()->published()->create([
         'title' => 'Second category post',
-        'category_option_id' => $second->id,
+        'category_id' => $second->id,
     ]);
 
     Post::factory()->published()->create(['title' => 'Uncategorised post']);
 
-    $this->get('/?category[0]=source_a&category[1]=source_b')
+    $this->get('/?category[0]=desserts&category[1]=soups')
         ->assertSee('First category post')
         ->assertSee('Second category post')
         ->assertDontSee('Uncategorised post');
@@ -101,9 +98,9 @@ it('hydrates multiple category filters from query string', function () {
 
 it('hydrates generic rating filters from query string', function () {
     seedFeedFilterGroups();
-    $group = RatingGroup::query()->where('key', 'category')->firstOrFail();
-    $first = $group->options()->where('key', 'category_a')->firstOrFail();
-    $second = $group->options()->where('key', 'category_b')->firstOrFail();
+    $group = RatingGroup::query()->where('key', 'attribute')->firstOrFail();
+    $first = $group->options()->where('key', 'attribute_a')->firstOrFail();
+    $second = $group->options()->where('key', 'attribute_b')->firstOrFail();
 
     $matching = Post::factory()->published()->create(['title' => 'Matching answer']);
     $matching->authorAnswers()->create([
@@ -117,7 +114,7 @@ it('hydrates generic rating filters from query string', function () {
         'rating_option_id' => $second->id,
     ]);
 
-    $this->get('/?ratings[category][0]=category_a')
+    $this->get('/?ratings[attribute][0]=attribute_a')
         ->assertSee('Matching answer')
         ->assertDontSee('Other answer');
 });
@@ -125,9 +122,9 @@ it('hydrates generic rating filters from query string', function () {
 it('sets generic rating filters from query string', function () {
     seedFeedFilterGroups();
 
-    Livewire::withQueryParams(['ratings' => ['category' => ['category_b']]])
+    Livewire::withQueryParams(['ratings' => ['attribute' => ['attribute_b']]])
         ->test(FeedPage::class)
-        ->assertSet('ratings', ['category' => ['category_b']]);
+        ->assertSet('ratings', ['attribute' => ['attribute_b']]);
 });
 
 it('hydrates sort from query string', function () {

@@ -22,6 +22,8 @@ it('keeps active code free of retired domain identifiers', function () {
         '/origin_(?:truth|votes)|(?:vote|votes)_origin/',
         '/dish-placeholder|DishPlaceholder/',
         '/cuisine-chip/',
+        '/category_option_id|categoryOptionId|categoryOption\b/',
+        '/sidebarGroupOptionIds/',
     ];
     $violations = [];
 

@@ -6,7 +6,7 @@
             ['New', 'plus', false],
             ['Following', 'users', false],
         ];
-        $categories = ['All', 'Category A', 'Category B', 'Category C', 'Category D'];
+        $categories = ['All', 'General', 'Showcase', 'Other'];
         $tags = ['#sample', '#popular', '#new', '#visual', '#discussion'];
     @endphp
 

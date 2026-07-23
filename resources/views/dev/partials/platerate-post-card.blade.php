@@ -31,7 +31,7 @@
             <x-ui.binary-choice selected="option_a" />
 
             <div>
-                <p class="mb-2 text-[13px] font-semibold text-rg-text2">Choose a category:</p>
+                <p class="mb-2 text-[13px] font-semibold text-rg-text2">Choose an attribute:</p>
                 <div class="flex flex-wrap gap-2">
                     <x-ui.rating-option-chip active>A</x-ui.rating-option-chip>
                     <x-ui.rating-option-chip>B</x-ui.rating-option-chip>

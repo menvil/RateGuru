@@ -9,6 +9,7 @@ use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Jobs\ProcessUploadedImageJob;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
@@ -51,10 +52,10 @@ final class CreatePostAction
         $publishedAt = $isTrusted ? now() : null;
 
         $ratingGroups = $this->ratingConfiguration->activeGroups();
-        $categoryOptionId = $this->validatedCategoryOptionId($data->categoryOptionId, $ratingGroups);
+        $categoryId = $this->validatedCategoryId($data->categoryId);
         $authorAnswers = $this->validatedAuthorAnswers($data->authorAnswerOptionIds, $ratingGroups);
 
-        $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryOptionId, $authorAnswers) {
+        $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers) {
             $storedImage = $data->image !== null
                 ? $this->imageStorage->storePostImage($data->image, $user)
                 : null;
@@ -64,7 +65,7 @@ final class CreatePostAction
                 'title' => $data->title,
                 'description' => $data->description,
                 'source_url' => $data->sourceUrl,
-                'category_option_id' => $categoryOptionId,
+                'category_id' => $categoryId,
                 'status' => $status,
                 'published_at' => $publishedAt,
                 'image_path' => $storedImage?->path,
@@ -110,20 +111,17 @@ final class CreatePostAction
         return $post;
     }
 
-    /** @param Collection<int, RatingGroup> $ratingGroups */
-    private function validatedCategoryOptionId(?int $categoryOptionId, Collection $ratingGroups): ?int
+    private function validatedCategoryId(?int $categoryId): ?int
     {
-        if ($categoryOptionId === null) {
+        if ($categoryId === null) {
             return null;
         }
 
-        // The post category must be an active option of the first active rating
-        // group — the same group the sidebar "Categories" block is built from.
-        if (! in_array($categoryOptionId, $this->ratingConfiguration->sidebarGroupOptionIds($ratingGroups), true)) {
-            throw CannotCreatePostException::becauseCategoryOptionIsInvalid();
+        if (! Category::query()->active()->whereKey($categoryId)->exists()) {
+            throw CannotCreatePostException::becauseCategoryIsInvalid();
         }
 
-        return $categoryOptionId;
+        return $categoryId;
     }
 
     /**

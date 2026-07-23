@@ -27,6 +27,8 @@ it('creates posts table with required columns', function () {
         'created_at',
         'updated_at',
         'deleted_at',
-        'category_option_id',
+        'category_id',
     ]))->toBeTrue();
+
+    expect(Schema::hasColumn('posts', 'category_option_id'))->toBeFalse();
 });

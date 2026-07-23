@@ -6,6 +6,7 @@ use App\Data\Settings\ProjectPresetApplicationResult;
 use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
 use App\Exceptions\Settings\ProjectPresetHasContentException;
 use App\Exceptions\Settings\UnknownProjectPresetException;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -13,6 +14,7 @@ use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -61,11 +63,14 @@ class ApplyProjectPresetAction
 
             $existingSettings->fill($appliedSettings)->save();
 
+            [$categories, $deactivatedCategories] = $this->applyCategories($preset['categories'] ?? null);
             [$ratingGroups, $ratingOptions] = $this->applyRatingGroups($preset['rating_groups'] ?? null);
             [$tags, $removedTags] = $this->applyTags($preset['tags'] ?? null);
 
             return new ProjectPresetApplicationResult(
                 presetKey: $presetKey,
+                categories: $categories,
+                deactivatedCategories: $deactivatedCategories,
                 ratingGroups: $ratingGroups,
                 ratingOptions: $ratingOptions,
                 tags: $tags,
@@ -74,8 +79,42 @@ class ApplyProjectPresetAction
         });
 
         $this->manager->flush();
+        Cache::forget('sidebar-nav-categories');
 
         return $result;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>|null  $categories
+     * @return array{0: int, 1: int}
+     */
+    private function applyCategories(?array $categories): array
+    {
+        if ($categories === null) {
+            return [0, 0];
+        }
+
+        $keptSlugs = array_column($categories, 'slug');
+        $deactivatedCategories = Category::query()
+            ->active()
+            ->whereNotIn('slug', $keptSlugs)
+            ->update(['is_active' => false]);
+
+        foreach ($categories as $categoryData) {
+            [$name, $nameTranslations] = $this->splitTranslatable($categoryData['name'] ?? null);
+
+            Category::query()->updateOrCreate(
+                ['slug' => $categoryData['slug']],
+                [
+                    'name' => $name,
+                    'name_translations' => $nameTranslations,
+                    'sort_order' => $categoryData['sort_order'] ?? 10,
+                    'is_active' => true,
+                ],
+            );
+        }
+
+        return [count($categories), $deactivatedCategories];
     }
 
     /**

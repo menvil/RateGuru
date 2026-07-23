@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Feed\PostDrawer;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -52,6 +53,15 @@ it('renders selected published post', function () {
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
         ->assertSee('Sample Post')
         ->assertSee('Creamy pasta with pepper');
+});
+
+it('renders the standalone post category in the drawer', function () {
+    $category = Category::factory()->create(['name' => 'Desserts', 'slug' => 'desserts']);
+    $post = Post::factory()->published()->create(['category_id' => $category->id]);
+
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])
+        ->assertSee('data-testid="post-drawer-category"', false)
+        ->assertSee('Desserts');
 });
 
 it('renders share buttons in post drawer for published post', function () {
@@ -131,20 +141,20 @@ it('renders drawer vote summary with histogram after voting', function () {
         'upvotes_count' => 12,
         'downvotes_count' => 3,
     ]);
-    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
+    $type = RatingGroup::query()->where('key', 'type')->firstOrFail();
+    [$typeA, $typeB] = $type->options()->ordered()->get()->all();
 
-    RatingVote::factory()->count(7)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
-    RatingVote::factory()->count(5)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
+    RatingVote::factory()->count(7)->for($post)->for($type, 'group')->for($typeA, 'option')->create();
+    RatingVote::factory()->count(5)->for($post)->for($type, 'group')->for($typeB, 'option')->create();
     // User's own vote triggers histogram display
-    RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
+    RatingVote::factory()->for($post)->for($type, 'group')->for($typeA, 'option')->create(['user_id' => $user->id]);
 
-    // sourceA = 8, sourceB = 5, total = 13 → 62% (8) / 38% (5)
+    // typeA = 8, typeB = 5, total = 13 → 62% (8) / 38% (5)
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Source')
-        ->assertSee('Source A')
-        ->assertSee('Source B')
+        ->assertSee('Type')
+        ->assertSee('Type A')
+        ->assertSee('Type B')
         ->assertSee('62% (8)')
         ->assertSee('38% (5)');
 });
@@ -221,33 +231,33 @@ it('renders image placeholder when drawer post has no image', function () {
         ->assertSee('Image preview');
 });
 
-it('renders source voting buttons in drawer before user votes', function () {
+it('renders type voting buttons in drawer before user votes', function () {
     $this->seed(DefaultRatingConfigurationSeeder::class);
 
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Source')
-        ->assertSee('Source A')
-        ->assertSee('Source B');
+        ->assertSee('Type')
+        ->assertSee('Type A')
+        ->assertSee('Type B');
 });
 
-it('renders drawer rating histogram after user votes on source group', function () {
+it('renders drawer rating histogram after user votes on type group', function () {
     $this->seed(DefaultRatingConfigurationSeeder::class);
 
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
+    $type = RatingGroup::query()->where('key', 'type')->firstOrFail();
+    [$typeA, $typeB] = $type->options()->ordered()->get()->all();
 
-    RatingVote::factory()->count(3)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
-    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
-    RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
+    RatingVote::factory()->count(3)->for($post)->for($type, 'group')->for($typeA, 'option')->create();
+    RatingVote::factory()->count(2)->for($post)->for($type, 'group')->for($typeB, 'option')->create();
+    RatingVote::factory()->for($post)->for($type, 'group')->for($typeA, 'option')->create(['user_id' => $user->id]);
 
-    // sourceA = 4, sourceB = 2, total = 6 → 67% (4) / 33% (2)
+    // typeA = 4, typeB = 2, total = 6 → 67% (4) / 33% (2)
     Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Source A')
+        ->assertSee('Type A')
         ->assertSee('67% (4)')
         ->assertSee('33% (2)');
 });
@@ -257,19 +267,19 @@ it('renders drawer rating histogram with percentage and vote count on same line'
 
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
+    $type = RatingGroup::query()->where('key', 'type')->firstOrFail();
+    [$typeA, $typeB] = $type->options()->ordered()->get()->all();
 
-    RatingVote::factory()->count(3)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
-    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
-    RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
+    RatingVote::factory()->count(3)->for($post)->for($type, 'group')->for($typeA, 'option')->create();
+    RatingVote::factory()->count(2)->for($post)->for($type, 'group')->for($typeB, 'option')->create();
+    RatingVote::factory()->for($post)->for($type, 'group')->for($typeA, 'option')->create(['user_id' => $user->id]);
 
     $html = Livewire::actingAs($user)
         ->test(PostDrawer::class, ['postId' => $post->id])
         ->html();
 
-    // source is a binary group → side-by-side percentages with vote counts in parens
-    // user's vote is included: sourceA=4, sourceB=2, total=6 → 67% (4) / 33% (2)
+    // type is a binary group → side-by-side percentages with vote counts in parens
+    // user's vote is included: typeA=4, typeB=2, total=6 → 67% (4) / 33% (2)
     expect($html)->toContain('67% (4)');
     expect($html)->toContain('33% (2)');
 });
@@ -280,19 +290,19 @@ it('uses rating group question as drawer section header', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Source')
-        ->assertSee('Category');
+        ->assertSee('Type')
+        ->assertSee('Attribute');
 });
 
-it('renders category voting buttons in drawer', function () {
+it('renders attribute voting buttons in drawer', function () {
     $this->seed(DefaultRatingConfigurationSeeder::class);
 
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('Category A')
-        ->assertSee('Category B')
-        ->assertSee('Category C');
+        ->assertSee('Attribute A')
+        ->assertSee('Attribute B')
+        ->assertSee('Attribute C');
 });
 
 it('renders drawer rating groups in order', function () {
@@ -302,7 +312,7 @@ it('renders drawer rating groups in order', function () {
 
     $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
 
-    expect(strpos($html, 'Source'))->toBeLessThan(strpos($html, 'Category'));
+    expect(strpos($html, 'Type'))->toBeLessThan(strpos($html, 'Attribute'));
 });
 
 it('does not listen for vote events so the card does not reload on votes', function () {

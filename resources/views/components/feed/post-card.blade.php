@@ -58,6 +58,12 @@
             <p class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
         @endif
 
+        @if($post->category)
+            <div class="mt-2">
+                <x-posts.category-link :category="$post->category" test-id="post-card-category" />
+            </div>
+        @endif
+
         @if($post->public_image_url)
             <button
                 type="button"

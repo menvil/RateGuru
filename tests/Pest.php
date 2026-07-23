@@ -56,14 +56,14 @@ function something()
  */
 function seedFeedFilterGroups(): void
 {
-    $source = RatingGroup::factory()->create(['key' => 'source', 'sort_order' => 10]);
-    RatingOption::factory()->create(['rating_group_id' => $source->id, 'key' => 'source_a', 'sort_order' => 10]);
-    RatingOption::factory()->create(['rating_group_id' => $source->id, 'key' => 'source_b', 'sort_order' => 20]);
+    $type = RatingGroup::factory()->create(['key' => 'type', 'sort_order' => 10]);
+    RatingOption::factory()->create(['rating_group_id' => $type->id, 'key' => 'type_a', 'sort_order' => 10]);
+    RatingOption::factory()->create(['rating_group_id' => $type->id, 'key' => 'type_b', 'sort_order' => 20]);
 
-    $category = RatingGroup::factory()->create(['key' => 'category', 'sort_order' => 20]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'category_a', 'sort_order' => 10]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'category_b', 'sort_order' => 20]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'category_c', 'sort_order' => 30]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'category_d', 'sort_order' => 40]);
-    RatingOption::factory()->create(['rating_group_id' => $category->id, 'key' => 'category_other', 'sort_order' => 50]);
+    $attribute = RatingGroup::factory()->create(['key' => 'attribute', 'sort_order' => 20]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_a', 'sort_order' => 10]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_b', 'sort_order' => 20]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_c', 'sort_order' => 30]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_d', 'sort_order' => 40]);
+    RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_other', 'sort_order' => 50]);
 }

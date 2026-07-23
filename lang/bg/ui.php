@@ -135,8 +135,6 @@ return [
         'delete' => 'Изтрий',
     ],
     'voting' => [
-        'source' => 'Източник',
-        'category' => 'Категория',
         'vote' => 'Гласувай',
         'votes_count' => ':count глас|:count гласа',
         'sign_in_to_vote' => 'Влезте, за да гласувате.',

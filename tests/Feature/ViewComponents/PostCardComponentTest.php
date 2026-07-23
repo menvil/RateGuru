@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Feed\PostFeed;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -71,6 +72,40 @@ it('renders post title and description', function () {
     expect($html)
         ->toContain('Sample Post')
         ->toContain('Creamy pasta with pepper');
+});
+
+it('renders the standalone category as linked post metadata', function () {
+    $category = Category::factory()->create([
+        'name' => 'Desserts',
+        'slug' => 'desserts',
+    ]);
+    $post = Post::factory()->published()->create(['category_id' => $category->id]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post->load('category')]);
+
+    expect($html)
+        ->toContain('data-testid="post-card-category"')
+        ->toContain('Desserts')
+        ->toContain('wire:navigate')
+        ->toContain('category%5B0%5D=desserts');
+});
+
+it('renders an inactive category as non-navigable post metadata', function () {
+    $category = Category::factory()->inactive()->create([
+        'name' => 'Archived',
+        'slug' => 'archived',
+    ]);
+
+    $html = Blade::render(
+        '<x-posts.category-link :category="$category" test-id="post-card-category" />',
+        ['category' => $category],
+    );
+
+    expect($html)
+        ->toContain('data-testid="post-card-category"')
+        ->toContain('Archived')
+        ->not->toContain('category%5B0%5D=archived')
+        ->not->toContain('wire:navigate');
 });
 
 it('renders post description under the title before the image', function () {
@@ -304,12 +339,12 @@ it('renders feed card rating histogram via preloaded state after the current use
 
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    [$sourceA, $sourceB] = $source->options()->ordered()->get()->all();
+    $type = RatingGroup::query()->where('key', 'type')->firstOrFail();
+    [$typeA, $typeB] = $type->options()->ordered()->get()->all();
 
-    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceA, 'option')->create();
-    RatingVote::factory()->count(2)->for($post)->for($source, 'group')->for($sourceB, 'option')->create();
-    RatingVote::factory()->for($post)->for($source, 'group')->for($sourceA, 'option')->create(['user_id' => $user->id]);
+    RatingVote::factory()->count(2)->for($post)->for($type, 'group')->for($typeA, 'option')->create();
+    RatingVote::factory()->count(2)->for($post)->for($type, 'group')->for($typeB, 'option')->create();
+    RatingVote::factory()->for($post)->for($type, 'group')->for($typeA, 'option')->create(['user_id' => $user->id]);
 
     $this->actingAs($user);
 
@@ -317,7 +352,7 @@ it('renders feed card rating histogram via preloaded state after the current use
         ->test(PostFeed::class)
         ->html();
 
-    // binary source group → 60% (3) / 40% (2)
+    // binary type group → 60% (3) / 40% (2)
     expect($html)
         ->toContain('60% (3)')
         ->toContain('40% (2)');
