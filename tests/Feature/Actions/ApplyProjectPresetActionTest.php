@@ -4,6 +4,7 @@ use App\Actions\Settings\ApplyProjectPresetAction;
 use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
 use App\Exceptions\Settings\ProjectPresetHasContentException;
 use App\Exceptions\Settings\UnknownProjectPresetException;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -29,13 +30,14 @@ it('applies the complete project preset atomically', function () {
     ]);
     $legacyGroup = RatingGroup::factory()->create(['key' => 'legacy']);
     $legacyOption = RatingOption::factory()->for($legacyGroup, 'group')->create(['key' => 'legacy_option']);
+    $legacyCategory = Category::factory()->create(['slug' => 'legacy']);
     Tag::factory()->create(['name' => 'Legacy', 'slug' => 'legacy']);
 
-    app(ApplyProjectPresetAction::class)->handle('nature');
+    $result = app(ApplyProjectPresetAction::class)->handle('nature');
 
     $settings = ProjectSettings::firstOrFail();
-    $source = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $category = RatingGroup::query()->where('key', 'category')->firstOrFail();
+    $photographerType = RatingGroup::query()->where('key', 'photographer_type')->firstOrFail();
+    $shotType = RatingGroup::query()->where('key', 'shot_type')->firstOrFail();
 
     expect($settings->site_name)->toBe('NatureGuru')
         ->and($settings->object_singular_name)->toBe('photo')
@@ -44,13 +46,18 @@ it('applies the complete project preset atomically', function () {
         ->and($legacyGroup->fresh()->is_active)->toBeFalse()
         ->and($legacyOption->fresh()->is_active)->toBeFalse()
         ->and($legacyOption->fresh()->archived_at)->not->toBeNull()
-        ->and($source->is_active)->toBeTrue()
-        ->and($source->options()->active()->ordered()->pluck('key')->all())
+        ->and($legacyCategory->fresh()->is_active)->toBeFalse()
+        ->and($photographerType->is_active)->toBeTrue()
+        ->and($photographerType->options()->active()->ordered()->pluck('key')->all())
         ->toBe(['professional', 'amateur'])
-        ->and($category->is_active)->toBeTrue()
-        ->and($category->options()->active()->count())->toBe(8)
+        ->and($shotType->is_active)->toBeTrue()
+        ->and($shotType->options()->active()->count())->toBe(4)
+        ->and(Category::query()->active()->ordered()->pluck('slug')->all())
+        ->toBe(['landscape', 'wildlife', 'macro', 'urban'])
         ->and(Tag::query()->where('slug', 'legacy')->exists())->toBeFalse()
-        ->and(Tag::query()->count())->toBe(count(config('project_presets.nature.tags')));
+        ->and(Tag::query()->count())->toBe(count(config('project_presets.nature.tags')))
+        ->and($result->categories)->toBe(4)
+        ->and($result->deactivatedCategories)->toBe(1);
 });
 
 it('creates settings row when missing and applies preset', function () {
@@ -70,7 +77,8 @@ it('creates a usable generic rating configuration on an empty project', function
     app(ApplyProjectPresetAction::class)->handle('generic');
 
     expect(RatingGroup::query()->active()->count())->toBe(2)
-        ->and(RatingOption::query()->active()->count())->toBe(5);
+        ->and(RatingOption::query()->active()->count())->toBe(5)
+        ->and(Category::query()->active()->count())->toBe(3);
 });
 
 it('creates the settings singleton with id one after the sequence has advanced', function () {
@@ -148,6 +156,7 @@ it('rolls back every preset change when one part fails', function () {
     expect(ProjectSettings::firstOrFail()->site_name)->toBe('Before')
         ->and(ProjectSettings::firstOrFail()->preset_applied_at)->toBeNull()
         ->and($legacyGroup->fresh()->is_active)->toBeTrue()
-        ->and(RatingGroup::query()->where('key', 'source')->exists())->toBeFalse()
+        ->and(RatingGroup::query()->where('key', 'photographer_type')->exists())->toBeFalse()
+        ->and(Category::query()->exists())->toBeFalse()
         ->and(Tag::query()->exists())->toBeFalse();
 });

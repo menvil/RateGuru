@@ -32,8 +32,8 @@ it('renders the standalone post category on the public page', function () {
 });
 
 it('renders generic post show copy', function () {
-    RatingGroup::factory()->create(['key' => 'source',   'label' => 'Source',   'sort_order' => 10]);
-    RatingGroup::factory()->create(['key' => 'category', 'label' => 'Category', 'sort_order' => 20]);
+    RatingGroup::factory()->create(['key' => 'type', 'label' => 'Type', 'sort_order' => 10]);
+    RatingGroup::factory()->create(['key' => 'attribute', 'label' => 'Attribute', 'sort_order' => 20]);
 
     $post = Post::factory()->published()->create([
         'title' => 'Generic Test Post',
@@ -42,8 +42,8 @@ it('renders generic post show copy', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('Generic Test Post')
-        ->assertSee('Source')
-        ->assertSee('Category');
+        ->assertSee('Type')
+        ->assertSee('Attribute');
 });
 
 it('does not resolve an unpublished post', function () {
@@ -104,9 +104,7 @@ it('refreshes the score panel on post votes but not on rating votes', function (
 
     expect($component)
         ->toContain("#[On('post-voted')]")
-        ->not->toContain("#[On('rating-voted')]")
-        ->not->toContain("#[On('source-voted')]")
-        ->not->toContain("#[On('category-voted')]");
+        ->not->toContain("#[On('rating-voted')]");
 });
 
 it('renders save button on post show page when feature is enabled', function () {

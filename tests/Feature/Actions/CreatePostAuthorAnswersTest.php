@@ -12,8 +12,8 @@ use App\Models\User;
 beforeEach(function () {
     seedFeedFilterGroups();
 
-    $this->sourceGroup = RatingGroup::query()->where('key', 'source')->firstOrFail();
-    $this->categoryGroup = RatingGroup::query()->where('key', 'category')->firstOrFail();
+    $this->typeGroup = RatingGroup::query()->where('key', 'type')->firstOrFail();
+    $this->attributeGroup = RatingGroup::query()->where('key', 'attribute')->firstOrFail();
 });
 
 it('persists the author-chosen standalone category', function () {
@@ -21,7 +21,7 @@ it('persists the author-chosen standalone category', function () {
     $category = Category::factory()->create(['slug' => 'desserts']);
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Categorised dish',
+        title: 'Categorised post',
         categoryId: $category->id,
     ));
 
@@ -34,7 +34,7 @@ it('rejects an inactive standalone category', function () {
     $category = Category::factory()->inactive()->create();
 
     app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Wrong category dish',
+        title: 'Wrong category post',
         categoryId: $category->id,
     ));
 })->throws(CannotCreatePostException::class);
@@ -42,30 +42,30 @@ it('rejects an inactive standalone category', function () {
 it('persists author answers independently from the post category', function () {
     $user = User::factory()->create();
     $category = Category::factory()->create();
-    $sourceOption = $this->sourceGroup->options()->where('key', 'source_b')->firstOrFail();
-    $categoryOption = $this->categoryGroup->options()->where('key', 'category_b')->firstOrFail();
+    $typeOption = $this->typeGroup->options()->where('key', 'type_b')->firstOrFail();
+    $attributeOption = $this->attributeGroup->options()->where('key', 'attribute_b')->firstOrFail();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Dish with answers',
+        title: 'Post with answers',
         categoryId: $category->id,
-        authorAnswerOptionIds: [$sourceOption->id, $categoryOption->id],
+        authorAnswerOptionIds: [$typeOption->id, $attributeOption->id],
     ));
 
     $answers = PostAuthorAnswer::query()->where('post_id', $post->id)->get();
 
     expect($answers)->toHaveCount(2);
     expect($post->category_id)->toBe($category->id);
-    expect($answers->firstWhere('rating_group_id', $this->sourceGroup->id)->rating_option_id)
-        ->toBe($sourceOption->id);
-    expect($answers->firstWhere('rating_group_id', $this->categoryGroup->id)->rating_option_id)
-        ->toBe($categoryOption->id);
+    expect($answers->firstWhere('rating_group_id', $this->typeGroup->id)->rating_option_id)
+        ->toBe($typeOption->id);
+    expect($answers->firstWhere('rating_group_id', $this->attributeGroup->id)->rating_option_id)
+        ->toBe($attributeOption->id);
 });
 
 it('allows creating a post without any author answers', function () {
     $user = User::factory()->create();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'No answers dish',
+        title: 'Post without answers',
     ));
 
     expect(PostAuthorAnswer::query()->where('post_id', $post->id)->count())->toBe(0);
@@ -74,11 +74,11 @@ it('allows creating a post without any author answers', function () {
 
 it('rejects two author answers for the same rating group', function () {
     $user = User::factory()->create();
-    $first = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
-    $second = $this->sourceGroup->options()->where('key', 'source_b')->firstOrFail();
+    $first = $this->typeGroup->options()->where('key', 'type_a')->firstOrFail();
+    $second = $this->typeGroup->options()->where('key', 'type_b')->firstOrFail();
 
     app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Conflicting answers dish',
+        title: 'Post with conflicting answers',
         authorAnswerOptionIds: [$first->id, $second->id],
     ));
 })->throws(CannotCreatePostException::class);
@@ -90,18 +90,18 @@ it('rejects an author answer from an inactive rating group', function () {
     $inactiveGroupOption = RatingOption::factory()->create(['rating_group_id' => $inactiveGroup->id]);
 
     app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Inactive group dish',
+        title: 'Post with inactive group',
         authorAnswerOptionIds: [$inactiveGroupOption->id],
     ));
 })->throws(CannotCreatePostException::class);
 
 it('deletes author answers together with the post', function () {
     $user = User::factory()->create();
-    $sourceOption = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
+    $typeOption = $this->typeGroup->options()->where('key', 'type_a')->firstOrFail();
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Doomed dish',
-        authorAnswerOptionIds: [$sourceOption->id],
+        title: 'Post to delete',
+        authorAnswerOptionIds: [$typeOption->id],
     ));
 
     $post->forceDelete();

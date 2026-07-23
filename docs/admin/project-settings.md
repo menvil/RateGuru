@@ -7,8 +7,8 @@
 - `site_name` — displayed in browser title, header brand, and page meta
 - `site_tagline` — short descriptor for the project
 - `site_description` — longer description (used in future meta tags)
-- `object_singular_name` — what a single rated item is called (e.g. "post", "dish", "cat")
-- `object_plural_name` — plural form (e.g. "posts", "dishes", "cats")
+- `object_singular_name` — what a single rated item is called (e.g. "post", "photo", "animal")
+- `object_plural_name` — plural form (e.g. "posts", "photos", "animals")
 - `upload_cta_label` — text of the upload button (e.g. "Upload post")
 - `feed_title` — heading above the main feed (e.g. "Latest posts")
 - `default_locale` — locale string (e.g. `en`)
@@ -26,8 +26,8 @@ installed preset label (for example, “Nature & travel photography”) and
 `preset_applied_at` as read-only status; it cannot apply or replace a preset.
 The label is resolved from the stored `active_preset_key`.
 
-This separation is intentional: a preset also synchronizes rating groups,
-rating options, and tags, so it is not a normal settings-form operation. See
+This separation is intentional: a preset also synchronizes categories, rating
+groups, rating options, and tags, so it is not a normal settings-form operation. See
 `docs/admin/project-presets.md` for the command workflow and safety guards.
 
 ## Fallback defaults

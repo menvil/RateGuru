@@ -48,7 +48,7 @@ class SetupProjectPresetCommand extends Command
         $this->info("Selected preset [{$presetKey}]: {$label}");
 
         if (! $this->option('force') && ! $this->confirm(
-            "Apply preset [{$presetKey}]? This replaces project settings, rating configuration, and tags.",
+            "Apply preset [{$presetKey}]? This replaces project settings, categories, rating configuration, and tags.",
         )) {
             $this->warn('Setup cancelled.');
 
@@ -66,6 +66,8 @@ class SetupProjectPresetCommand extends Command
         $this->table(
             ['Changed', 'Count'],
             [
+                ['Categories synced', $result->categories],
+                ['Categories deactivated', $result->deactivatedCategories],
                 ['Rating groups', $result->ratingGroups],
                 ['Rating options', $result->ratingOptions],
                 ['Tags synced', $result->tags],

@@ -11,32 +11,32 @@ use Livewire\Livewire;
 it('renders active rating options for a group in sort order', function () {
     $post = Post::factory()->published()->create();
     $group = RatingGroup::factory()->create([
-        'key' => 'source',
-        'label' => 'Source',
+        'key' => 'type',
+        'label' => 'Type',
     ]);
     $second = RatingOption::factory()->for($group, 'group')->create([
-        'label' => 'Source B',
+        'label' => 'Type B',
         'is_active' => true,
         'sort_order' => 20,
     ]);
     $first = RatingOption::factory()->for($group, 'group')->create([
-        'label' => 'Source A',
+        'label' => 'Type A',
         'is_active' => true,
         'sort_order' => 10,
     ]);
     RatingOption::factory()->for($group, 'group')->create([
-        'label' => 'Hidden Source',
+        'label' => 'Hidden Type',
         'is_active' => false,
         'sort_order' => 0,
     ]);
 
     $component = Livewire::test(RatingVoting::class, [
         'post' => $post,
-        'groupKey' => 'source',
+        'groupKey' => 'type',
     ])
-        ->assertSee('data-testid="rating-voting-source-'.$post->id.'"', false)
-        ->assertSee('Source')
-        ->assertDontSee('Hidden Source');
+        ->assertSee('data-testid="rating-voting-type-'.$post->id.'"', false)
+        ->assertSee('Type')
+        ->assertDontSee('Hidden Type');
 
     expect(strpos($component->html(), $first->label))
         ->toBeLessThan(strpos($component->html(), $second->label));
@@ -45,7 +45,7 @@ it('renders active rating options for a group in sort order', function () {
 it('marks the authenticated users selected rating option', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $group = RatingGroup::factory()->create(['key' => 'source']);
+    $group = RatingGroup::factory()->create(['key' => 'type']);
     $option = RatingOption::factory()->for($group, 'group')->create();
 
     RatingVote::factory()
@@ -58,7 +58,7 @@ it('marks the authenticated users selected rating option', function () {
     Livewire::actingAs($user)
         ->test(RatingVoting::class, [
             'post' => $post,
-            'groupKey' => 'source',
+            'groupKey' => 'type',
         ])
         ->assertSee('data-testid="rating-option-'.$post->id.'-'.$option->id.'"', false)
         ->assertSee('text-rg-accent', false);
@@ -81,9 +81,9 @@ it('renders nothing for a missing or inactive rating group', function (string $g
 it('renders binary rating distribution after the current user votes', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $group = RatingGroup::factory()->create(['key' => 'source']);
-    $first = RatingOption::factory()->for($group, 'group')->create(['label' => 'Source A']);
-    $second = RatingOption::factory()->for($group, 'group')->create(['label' => 'Source B']);
+    $group = RatingGroup::factory()->create(['key' => 'type']);
+    $first = RatingOption::factory()->for($group, 'group')->create(['label' => 'Type A']);
+    $second = RatingOption::factory()->for($group, 'group')->create(['label' => 'Type B']);
 
     // 3 votes for first (incl. the current user), 1 vote for second → 75% (3) / 25% (1)
     RatingVote::factory()->count(2)->for($post)->for($group, 'group')->for($first, 'option')->create();
@@ -93,7 +93,7 @@ it('renders binary rating distribution after the current user votes', function (
     Livewire::actingAs($user)
         ->test(RatingVoting::class, [
             'post' => $post,
-            'groupKey' => 'source',
+            'groupKey' => 'type',
         ])
         ->assertSee('75% (3)')
         ->assertSee('25% (1)');
@@ -102,7 +102,7 @@ it('renders binary rating distribution after the current user votes', function (
 it('renders multi-option rating distribution after the current user votes', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
-    $group = RatingGroup::factory()->create(['key' => 'category']);
+    $group = RatingGroup::factory()->create(['key' => 'attribute']);
     $a = RatingOption::factory()->for($group, 'group')->create(['label' => 'Alpha']);
     $b = RatingOption::factory()->for($group, 'group')->create(['label' => 'Beta']);
     $c = RatingOption::factory()->for($group, 'group')->create(['label' => 'Gamma']);
@@ -114,7 +114,7 @@ it('renders multi-option rating distribution after the current user votes', func
     Livewire::actingAs($user)
         ->test(RatingVoting::class, [
             'post' => $post,
-            'groupKey' => 'category',
+            'groupKey' => 'attribute',
         ])
         ->assertSee('50%')
         ->assertSee('1 vote');

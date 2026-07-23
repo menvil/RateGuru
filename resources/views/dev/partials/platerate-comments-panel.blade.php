@@ -14,7 +14,7 @@
             ['reviewer_one', '2h ago', 'Option A fits the description and presentation best.', 'blue', false],
             ['reviewer_two', '2h ago', 'I picked Option B because of the details near the edge.', 'yellow', false],
             ['reviewer_one', '1h ago', 'Fair point — the lighting changes how it reads.', 'blue', true],
-            ['category_fan', '3h ago', 'Category A looks like the closest match.', 'green', false],
+            ['attribute_fan', '3h ago', 'Attribute A looks like the closest match.', 'green', false],
         ] as [$user, $time, $body, $color, $reply])
             <div class="{{ $reply ? 'ml-4 border-l border-rg-border pl-4' : '' }} grid grid-cols-[32px_1fr] gap-2.5 text-[13px]">
                 <x-ui.avatar :name="$user" :color="$color" size="md" />

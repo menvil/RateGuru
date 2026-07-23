@@ -260,7 +260,7 @@
 
                     @php
                         $uiKitComment = new \App\Models\Comment([
-                            'body' => 'Looks delicious.',
+                            'body' => 'Great example.',
                             'created_at' => now()->subMinutes(5),
                         ]);
 

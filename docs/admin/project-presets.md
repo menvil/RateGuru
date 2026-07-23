@@ -6,11 +6,13 @@ A project preset is a one-time installation template. It configures the whole
 rating site before real content is created:
 
 - project identity, object labels, locale, theme, and feature flags;
+- optional single-value post categories used by feed navigation and filtering;
 - rating groups and options;
 - tags.
 
 Presets live in `config/project_presets.php`. After installation, administrators
-may edit normal project settings, rating configuration, and tags independently.
+may edit normal project settings, categories, rating configuration, and tags
+independently.
 Runtime code must not branch on the preset key.
 
 ## Available presets
@@ -37,10 +39,10 @@ php artisan rateguru:setup
 ```
 
 The command shows the selected preset and asks for confirmation. On success it
-prints the numbers of rating groups, rating options, and tags changed.
+prints the numbers of categories, rating groups, rating options, and tags changed.
 
 The command applies all changes in one database transaction. If any part fails,
-settings, rating configuration, and tags are rolled back together. The
+settings, categories, rating configuration, and tags are rolled back together. The
 `project_settings.preset_applied_at` timestamp records successful installation.
 
 ## Safety rules
@@ -61,7 +63,9 @@ php artisan rateguru:setup ai_images --force
 
 `--force` does not delete users or posts, but it can replace project settings,
 deactivate old rating groups and options, and delete tags not present in the new
-preset. Use it only after reviewing those effects and taking any required backup.
+preset. Categories omitted by the new preset are deactivated rather than deleted,
+so existing post relationships remain valid. Use `--force` only after reviewing
+those effects and taking any required backup.
 
 Default seeders detect `preset_applied_at` and do not overwrite an installed
 preset when `php artisan db:seed` is run later.
@@ -88,10 +92,17 @@ Each preset must define:
     'feature_flags' => [
         // All supported feature flags.
     ],
+    'categories' => [
+        [
+            'slug' => 'showcase',
+            'name' => ['en' => 'Showcase', 'ru' => '...', 'bg' => '...'],
+            'sort_order' => 10,
+        ],
+    ],
     'rating_groups' => [
         [
-            'key' => 'category',
-            'label' => ['en' => 'Category', 'ru' => '...', 'bg' => '...'],
+            'key' => 'type',
+            'label' => ['en' => 'Type', 'ru' => '...', 'bg' => '...'],
             'description' => ['en' => null, 'ru' => null, 'bg' => null],
             'sort_order' => 10,
             'options' => [
@@ -109,10 +120,26 @@ Each preset must define:
 ],
 ```
 
-Set `rating_groups` or `tags` to `null` to keep the existing records unchanged.
-A non-empty list is synchronized: configured records are activated or created,
+Set `categories`, `rating_groups`, or `tags` to `null` to keep the corresponding
+records unchanged. Configured categories are activated or created and omitted
+categories are deactivated. Configured rating records are activated or created,
 old options are archived, old groups are deactivated, and non-configured tags
 are removed.
+
+Categories, rating groups, and tags have distinct meanings:
+
+- a post has zero or one category, chosen by its author and used for navigation;
+- a rating group is a question visitors answer by choosing one option;
+- a post can have many tags for flexible search and discovery.
+
+After setup, administrators manage these independently in Filament:
+
+- **Categories** adds, edits, orders, activates, or deactivates post categories;
+- **Rating groups** controls voting questions and their options;
+- **Tags** controls the many-to-many discovery vocabulary.
+
+A category referenced by a post cannot be deleted. Deactivate it instead to
+preserve existing content while removing it from new uploads and feed filters.
 
 ## Adding a preset
 

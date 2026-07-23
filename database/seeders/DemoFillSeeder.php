@@ -10,13 +10,13 @@ use App\Enums\PostStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Enums\VoteType;
+use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Models\User;
-use App\Support\Rating\RatingConfigurationManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
@@ -208,7 +208,7 @@ class DemoFillSeeder extends Seeder
     private function createPosts(Collection $users): Collection
     {
         $titles = $this->postTitles();
-        $categoryOptionIds = app(RatingConfigurationManager::class)->sidebarGroupOptionIds();
+        $categoryIds = Category::query()->active()->ordered()->pluck('id')->all();
         $authors = $users->values();
         $baseTime = CarbonImmutable::now()->subDays(60);
         $now = now()->toDateTimeString();
@@ -216,9 +216,9 @@ class DemoFillSeeder extends Seeder
         foreach ($titles as $index => $title) {
             $author = $authors[$index % $authors->count()];
             $imagePath = $this->generatePostImage($author->id, $index + 1);
-            $categoryOptionId = $categoryOptionIds === [] || $index % 3 === 2
+            $categoryId = $categoryIds === [] || $index % 3 === 2
                 ? null
-                : $categoryOptionIds[$index % count($categoryOptionIds)];
+                : $categoryIds[$index % count($categoryIds)];
 
             DB::table('posts')->updateOrInsert(
                 ['title' => $title],
@@ -229,7 +229,7 @@ class DemoFillSeeder extends Seeder
                     'image_url' => null,
                     'thumbnail_url' => null,
                     'source_url' => null,
-                    'category_option_id' => $categoryOptionId,
+                    'category_id' => $categoryId,
                     'status' => PostStatus::Published->value,
                     // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
                     'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),

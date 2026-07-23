@@ -22,7 +22,7 @@
     </div>
 
     <div>
-        <h3 class="text-base font-bold text-rg-text">Category distribution</h3>
+        <h3 class="text-base font-bold text-rg-text">Attribute distribution</h3>
         <div class="mt-4 space-y-2.5">
             @foreach (['A' => 41, 'B' => 7, 'C' => 18, 'D' => 28, 'OT' => 6] as $label => $value)
                 <div>

@@ -127,12 +127,6 @@ class Post extends Model
         return $this->hasMany(PostAuthorAnswer::class);
     }
 
-    /** @return BelongsTo<RatingOption, $this> */
-    public function categoryOption(): BelongsTo
-    {
-        return $this->belongsTo(RatingOption::class, 'category_option_id');
-    }
-
     protected function score(): Attribute
     {
         return Attribute::make(

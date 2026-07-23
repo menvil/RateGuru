@@ -62,8 +62,11 @@ Public post cards load all active groups in configured order and render one `Rat
 
 `DefaultRatingConfigurationSeeder` creates idempotent defaults:
 
-- Source: `source_a`, `source_b`.
-- Category: `category_a`, `category_b`, `category_c`.
+- Type: `type_a`, `type_b`.
+- Attribute: `attribute_a`, `attribute_b`, `attribute_c`.
+
+These are rating groups and their answer options. They are independent from the
+optional standalone category assigned to a post and from the post's many tags.
 
 The author's category selection is optional and is stored independently from tags and rating votes. Tags are also optional and may contain multiple values.
 

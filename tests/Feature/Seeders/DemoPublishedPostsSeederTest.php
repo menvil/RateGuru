@@ -32,8 +32,8 @@ it('seeds both categorized and uncategorized published posts', function () {
 
     $publishedPosts = Post::query()->where('status', PostStatus::Published);
 
-    expect((clone $publishedPosts)->whereNotNull('category_option_id')->exists())->toBeTrue()
-        ->and((clone $publishedPosts)->whereNull('category_option_id')->exists())->toBeTrue();
+    expect((clone $publishedPosts)->whereNotNull('category_id')->exists())->toBeTrue()
+        ->and((clone $publishedPosts)->whereNull('category_id')->exists())->toBeTrue();
 });
 
 it('creates public media files for every seeded post image path', function () {

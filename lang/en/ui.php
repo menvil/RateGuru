@@ -135,8 +135,6 @@ return [
         'delete' => 'Delete',
     ],
     'voting' => [
-        'source' => 'Source',
-        'category' => 'Category',
         'vote' => 'Vote',
         'votes_count' => ':count vote|:count votes',
         'sign_in_to_vote' => 'Sign in to vote.',

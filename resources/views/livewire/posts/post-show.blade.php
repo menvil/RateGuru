@@ -212,7 +212,7 @@
                             target="_blank"
                             class="text-xs font-semibold text-rg-accent2 hover:underline"
                         >
-                            {{ __('ui.voting.source') }}
+                            {{ __('ui.upload.source_url') }}
                         </a>
                     @endif
                 </section>

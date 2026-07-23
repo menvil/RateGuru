@@ -58,21 +58,21 @@ class DemoPendingPostsSeeder extends Seeder
                 'description' => 'A newly submitted sample post waiting for moderator approval.',
                 'image_path' => 'demo/posts/pending-01.svg',
                 'author' => 'alice@rateguru.test',
-                'tags' => ['category-a', 'source-a'],
+                'tags' => ['featured', 'original'],
             ],
             [
                 'title' => 'Demo Pending: Needs Moderation 02',
                 'description' => 'A source B sample post waiting in the pending moderation queue.',
                 'image_path' => 'demo/posts/pending-02.svg',
                 'author' => 'bob@rateguru.test',
-                'tags' => ['category-b', 'source-b'],
+                'tags' => ['community', 'curated'],
             ],
             [
                 'title' => 'Demo Pending: Needs Moderation 03',
                 'description' => 'A category D submission that should not appear in public feed yet.',
                 'image_path' => 'demo/posts/pending-03.svg',
                 'author' => 'carla@rateguru.test',
-                'tags' => ['category-d', 'sample-c'],
+                'tags' => ['discussion', 'sample-c'],
             ],
         ];
     }

@@ -35,21 +35,6 @@ class RatingConfigurationManager
      * @param  Collection<int, RatingGroup>|null  $groups
      * @return list<int>
      */
-    public function sidebarGroupOptionIds(?Collection $groups = null): array
-    {
-        return ($groups ?? $this->activeGroups())
-            ->first()
-            ?->options
-            ->pluck('id')
-            ->map(fn ($id): int => (int) $id)
-            ->values()
-            ->all() ?? [];
-    }
-
-    /**
-     * @param  Collection<int, RatingGroup>|null  $groups
-     * @return list<int>
-     */
     public function allActiveOptionIds(?Collection $groups = null): array
     {
         return ($groups ?? $this->activeGroups())

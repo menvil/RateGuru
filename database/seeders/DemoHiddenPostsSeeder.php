@@ -61,14 +61,14 @@ class DemoHiddenPostsSeeder extends Seeder
                 'description' => 'A hidden source B post kept for admin moderation filter checks.',
                 'image_path' => 'demo/posts/hidden-01.svg',
                 'author' => 'bob@rateguru.test',
-                'tags' => ['source-b', 'sample-f'],
+                'tags' => ['curated', 'sample-f'],
             ],
             [
                 'title' => 'Demo Hidden: Removed From Feed 02',
                 'description' => 'A hidden source A post that should stay outside public feed results.',
                 'image_path' => 'demo/posts/hidden-02.svg',
                 'author' => 'alice@rateguru.test',
-                'tags' => ['source-a', 'category-c'],
+                'tags' => ['original', 'visual'],
             ],
         ];
     }

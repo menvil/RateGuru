@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -8,7 +9,7 @@ use App\Models\Tag;
 it('applies a complete preset through the setup command', function () {
     $this->artisan('rateguru:setup', ['preset' => 'nature'])
         ->expectsConfirmation(
-            'Apply preset [nature]? This replaces project settings, rating configuration, and tags.',
+            'Apply preset [nature]? This replaces project settings, categories, rating configuration, and tags.',
             'yes',
         )
         ->expectsOutput('Preset [nature] applied successfully.')
@@ -16,6 +17,7 @@ it('applies a complete preset through the setup command', function () {
 
     expect(ProjectSettings::firstOrFail()->active_preset_key)->toBe('nature')
         ->and(ProjectSettings::firstOrFail()->preset_applied_at)->not->toBeNull()
+        ->and(Category::query()->active()->count())->toBe(count(config('project_presets.nature.categories')))
         ->and(RatingGroup::query()->active()->count())->toBe(2)
         ->and(Tag::query()->count())->toBe(count(config('project_presets.nature.tags')));
 });
@@ -28,7 +30,7 @@ it('refuses to run a second time without force', function () {
 
     $this->artisan('rateguru:setup', ['preset' => 'ai_images'])
         ->expectsConfirmation(
-            'Apply preset [ai_images]? This replaces project settings, rating configuration, and tags.',
+            'Apply preset [ai_images]? This replaces project settings, categories, rating configuration, and tags.',
             'yes',
         )
         ->expectsOutput('A project preset has already been applied. Use --force to replace it deliberately.')
@@ -42,7 +44,7 @@ it('refuses to configure a site that already has posts', function () {
 
     $this->artisan('rateguru:setup', ['preset' => 'nature'])
         ->expectsConfirmation(
-            'Apply preset [nature]? This replaces project settings, rating configuration, and tags.',
+            'Apply preset [nature]? This replaces project settings, categories, rating configuration, and tags.',
             'yes',
         )
         ->expectsOutput('Project content already exists. Use --force only after reviewing the destructive preset changes.')

@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Str;
+
 it('has project presets config', function () {
     expect(config('project_presets.generic'))->not->toBeNull();
     expect(config('project_presets.nature'))->not->toBeNull();
@@ -13,6 +15,7 @@ it('project presets have required shape', function () {
             'label',
             'settings',
             'feature_flags',
+            'categories',
             'rating_groups',
             'tags',
         ]);
@@ -38,6 +41,15 @@ it('project presets have required shape', function () {
             'allow_guest_viewing',
         ]);
 
+        foreach ($preset['categories'] as $category) {
+            expect($category)->toHaveKeys([
+                'slug',
+                'name',
+                'sort_order',
+            ]);
+            expect($category['name'])->toHaveKeys(['en', 'ru', 'bg']);
+        }
+
         if ($preset['rating_groups'] !== null) {
             foreach ($preset['rating_groups'] as $group) {
                 expect($group)->toHaveKeys([
@@ -59,5 +71,27 @@ it('project presets have required shape', function () {
                 expect($tag)->toHaveKeys(['en', 'ru', 'bg']);
             }
         }
+    }
+});
+
+it('keeps post categories separate from rating group terminology', function () {
+    expect(array_column(config('project_presets.generic.rating_groups'), 'key'))
+        ->toBe(['type', 'attribute'])
+        ->and(array_column(config('project_presets.nature.rating_groups'), 'key'))
+        ->toBe(['photographer_type', 'shot_type'])
+        ->and(array_column(config('project_presets.ai_images.rating_groups'), 'key'))
+        ->toBe(['model', 'style'])
+        ->and(array_column(config('project_presets.breasts.rating_groups'), 'key'))
+        ->toBe(['type', 'cup_size']);
+});
+
+it('does not duplicate preset categories as tags', function () {
+    foreach (config('project_presets') as $preset) {
+        $categorySlugs = array_column($preset['categories'], 'slug');
+        $tagSlugs = collect($preset['tags'] ?? [])
+            ->map(fn (array $tag): string => Str::slug($tag['en']))
+            ->all();
+
+        expect(array_intersect($categorySlugs, $tagSlugs))->toBeEmpty();
     }
 });

@@ -2,12 +2,14 @@
 
 namespace Tests\Feature\Seeders;
 
+use App\Models\Category;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\RatingVote;
 use App\Models\User;
+use Database\Seeders\DefaultCategorySeeder;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Database\Seeders\DemoFillSeeder;
 use Illuminate\Support\Facades\Storage;
@@ -61,6 +63,7 @@ class SmallDemoFillSeeder extends DemoFillSeeder
 
 beforeEach(function () {
     Storage::fake('public');
+    $this->seed(DefaultCategorySeeder::class);
     $this->seed(DefaultRatingConfigurationSeeder::class);
 });
 
@@ -74,8 +77,9 @@ it('creates a mix of categorized and uncategorized large demo posts with media',
     ])->get();
 
     expect($posts)->toHaveCount(3)
-        ->and($posts->whereNotNull('category_option_id'))->toHaveCount(2)
-        ->and($posts->whereNull('category_option_id'))->toHaveCount(1);
+        ->and($posts->whereNotNull('category_id'))->toHaveCount(2)
+        ->and($posts->whereNull('category_id'))->toHaveCount(1)
+        ->and(Category::query()->active()->count())->toBeGreaterThan(0);
 
     foreach ($posts as $post) {
         Storage::disk('public')->assertExists($post->image_path);

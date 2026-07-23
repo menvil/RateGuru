@@ -6,9 +6,9 @@ use Database\Seeders\DemoTagsSeeder;
 it('seeds demo tags', function () {
     $this->seed(DemoTagsSeeder::class);
 
-    expect(Tag::query()->where('slug', 'category-a')->exists())->toBeTrue();
-    expect(Tag::query()->where('slug', 'category-b')->exists())->toBeTrue();
-    expect(Tag::query()->where('slug', 'source-a')->exists())->toBeTrue();
+    expect(Tag::query()->where('slug', 'featured')->exists())->toBeTrue();
+    expect(Tag::query()->where('slug', 'community')->exists())->toBeTrue();
+    expect(Tag::query()->where('slug', 'original')->exists())->toBeTrue();
 });
 
 it('seeds tags with unique slugs', function () {

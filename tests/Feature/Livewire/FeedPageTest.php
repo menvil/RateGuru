@@ -170,9 +170,9 @@ it('ignores inactive and unknown category filters', function () {
 
 it('filters feed by a generic author answer', function () {
     seedFeedFilterGroups();
-    $group = RatingGroup::query()->where('key', 'category')->firstOrFail();
-    $first = $group->options()->where('key', 'category_a')->firstOrFail();
-    $second = $group->options()->where('key', 'category_b')->firstOrFail();
+    $group = RatingGroup::query()->where('key', 'attribute')->firstOrFail();
+    $first = $group->options()->where('key', 'attribute_a')->firstOrFail();
+    $second = $group->options()->where('key', 'attribute_b')->firstOrFail();
 
     $matching = Post::factory()->published()->create(['title' => 'Matching answer']);
     $matching->authorAnswers()->create([
@@ -187,7 +187,7 @@ it('filters feed by a generic author answer', function () {
     ]);
 
     Livewire::test(FeedPage::class)
-        ->call('toggleRatingOption', 'category', 'category_a')
+        ->call('toggleRatingOption', 'attribute', 'attribute_a')
         ->assertSee('Matching answer')
         ->assertDontSee('Other answer');
 });
