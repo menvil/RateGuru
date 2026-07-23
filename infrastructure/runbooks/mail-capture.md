@@ -37,10 +37,12 @@ Guarantees:
 - **Mailpit always stores the canonical local copy.** Storage happens
   regardless of the relay outcome.
 - **Mailtrap Local receives a best-effort mirrored copy** via Mailpit
-  relay-all (`MP_SMTP_RELAY_ALL=true`, target `127.0.0.1:3535`).
-- **A Mailtrap Local failure never fails Laravel SMTP delivery.** Mailpit is
-  configured *without* `MP_SMTP_RELAY_FWD_SMTP_ERRORS`, so a relay error is
-  logged to journald but is **not** returned to the upstream SMTP client.
+  relay-all: `mailpit.env` enables the toggle (`MP_SMTP_RELAY_ALL=true`) and
+  points at `mailpit-relay.yml`, which defines the loopback target
+  (`host: 127.0.0.1`, `port: 3535`, `auth: none`).
+- **A Mailtrap Local failure never fails Laravel SMTP delivery.** The relay
+  config sets `forward-smtp-errors: false`, so a relay error is logged to
+  journald but is **not** returned to the upstream SMTP client.
 - **A Mailtrap Local failure never stops Mailpit.** The systemd unit uses
   `Wants=` (not `Requires=`) for `rateguru-mailtrap-local.service`.
 - Mailtrap Local is independent and never depends on Mailpit.
@@ -93,7 +95,7 @@ What `--apply` does:
 1. requires root and a supported Linux architecture (amd64 / arm64);
 2. validates committed configuration and pinned checksums;
 3. downloads the pinned release archives and verifies their SHA-256 against
-   `config/mail-capture/checksums/`;
+   `config/mail-capture/SHA256SUMS`;
 4. creates the `rateguru-mailpit` / `rateguru-mailtrap-local` system users and
    the state directories idempotently;
 5. installs binaries atomically to `/usr/local/bin/`;
@@ -111,7 +113,8 @@ Installed layout:
 |------|---------|
 | `/usr/local/bin/rateguru-mailpit` | Mailpit binary |
 | `/usr/local/bin/rateguru-mailtrap-local` | Mailtrap Local binary |
-| `/etc/rateguru/mail-capture/mailpit.env` | Mailpit env (loopback + relay + retention) |
+| `/etc/rateguru/mail-capture/mailpit.env` | Mailpit env (listeners, retention, relay toggle) |
+| `/etc/rateguru/mail-capture/mailpit-relay.yml` | Mailpit relay/mirror target |
 | `/etc/rateguru/mail-capture/mailtrap-local.yml` | Mailtrap Local storage config |
 | `/etc/rateguru/mail-capture/versions.env` | Installed pinned versions |
 | `/etc/systemd/system/rateguru-mailpit.service` | Mailpit unit |
@@ -186,15 +189,26 @@ Retention is enforced by the services themselves — no cron job is involved.
 
 1. Update `MAILPIT_VERSION` / `MAILTRAP_LOCAL_VERSION` in
    `infrastructure/config/mail-capture/versions.env`.
-2. Add a matching checksum file under
-   `infrastructure/config/mail-capture/checksums/` with the official Linux
-   `amd64` and `arm64` SHA-256 digests (see that directory's `README.md` for
-   provenance). Never install an unverified binary; never use `latest`.
+2. Update the Linux `amd64` and `arm64` digests for the changed archives in
+   `infrastructure/config/mail-capture/SHA256SUMS`. Never install an unverified
+   binary; never use `latest`.
 3. `sudo infrastructure/scripts/install-mail-capture --check` then `--apply`.
 4. `sudo infrastructure/scripts/verify-mail-capture`.
 
 The installer restarts only the service whose binary/config/unit actually
 changed. Persistent SQLite data survives upgrades.
+
+### Checksum provenance
+
+`SHA256SUMS` pins the digest of every archive the installer may download, keyed
+by archive filename; only Linux `amd64`/`arm64` are supported install targets.
+
+- Mailtrap Local rows are copied verbatim (Linux only) from the upstream
+  release `checksums.txt`
+  (`https://github.com/mailtrap/mailtrap-local/releases/download/v<version>/checksums.txt`).
+- Mailpit does not publish a `checksums.txt` asset, so its rows are computed
+  with `sha256sum` from the official GitHub release archives
+  (`https://github.com/axllent/mailpit/releases/tag/v<version>`).
 
 ## Rollback
 
@@ -257,9 +271,10 @@ ever introduced, add `/var/lib/rateguru-mail-capture` to its exclude list.
   `/etc/nginx/rateguru-staging.htpasswd` and Certbot certificates.
 - **No public SMTP.** Ports 1025/3535/8025/3550 are never exposed by Nginx and
   have no public listener.
-- **No secrets in Git.** `versions.env` and `mailpit.env` are committed but
-  contain only non-secret loopback settings; the Mailtrap `secret.key` is
-  generated on the server and gitignored.
+- **No secrets in Git.** The committed config (`versions.env`, `SHA256SUMS`,
+  `mailpit.env`, `mailpit-relay.yml`, `mailtrap-local.yml`) holds only
+  non-secret ports, paths, limits, mirror routing and pinned digests; the
+  Mailtrap `secret.key` is generated on the server and gitignored.
 - **Hardened systemd units:** `NoNewPrivileges`, `PrivateTmp`,
   `PrivateDevices`, `ProtectSystem=strict`, `ProtectHome`, kernel/cgroup
   protections, empty `CapabilityBoundingSet`, restricted address families, and

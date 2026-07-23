@@ -1,0 +1,28 @@
+# Mailpit SMTP relay (mirror) configuration.
+#
+# This file is intentionally committed and contains no secrets: it only routes
+# the best-effort mirror to a private loopback service.
+#
+# Loaded by rateguru-mailpit.service through MP_SMTP_RELAY_CONFIG (set in
+# mailpit.env) and installed to /etc/rateguru/mail-capture/mailpit-relay.yml.
+# It defines WHERE Mailpit mirrors captured mail; the relay-all toggle itself
+# stays in mailpit.env (MP_SMTP_RELAY_ALL=true), because Mailpit exposes that
+# switch only via flag/env, not via this file.
+#
+# The keys are top-level, matching Mailpit's SMTPRelayConfig schema as parsed
+# by --smtp-relay-config / MP_SMTP_RELAY_CONFIG.
+
+# Mirror target: the Mailtrap Local SMTP listener on loopback.
+host: 127.0.0.1
+port: 3535
+
+# Private loopback target: no authentication, no TLS.
+auth: none
+
+# Keep the original Message-ID so the mirrored copy matches the canonical one.
+preserve-message-ids: true
+
+# Relay failures are logged to journald but never returned to the upstream SMTP
+# client, so a Mailtrap Local outage never fails Laravel delivery, never aborts
+# Mailpit's canonical local storage, and never stops Mailpit.
+forward-smtp-errors: false

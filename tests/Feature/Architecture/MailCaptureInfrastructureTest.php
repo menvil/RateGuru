@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\File;
+use Symfony\Component\Yaml\Yaml;
 
 function mailCaptureSource(string $path): string
 {
@@ -71,9 +72,9 @@ it('ships every required mail-capture file', function () {
         'ROADMAP.md',
         'config/mail-capture/versions.env',
         'config/mail-capture/mailpit.env',
+        'config/mail-capture/mailpit-relay.yml',
         'config/mail-capture/mailtrap-local.yml',
-        'config/mail-capture/checksums/mailpit-1.30.5.sha256',
-        'config/mail-capture/checksums/mailtrap-local-0.2.0.sha256',
+        'config/mail-capture/SHA256SUMS',
         'config/systemd/rateguru-mailpit.service',
         'config/systemd/rateguru-mailtrap-local.service',
         'config/nginx/rateguru-mailpit-staging',
@@ -112,13 +113,12 @@ it('pins exact versions and never uses latest', function () {
 });
 
 it('commits verifiable SHA-256 checksums for both pinned releases', function () {
-    $mailpit = mailCaptureSource('config/mail-capture/checksums/mailpit-1.30.5.sha256');
-    $mailtrap = mailCaptureSource('config/mail-capture/checksums/mailtrap-local-0.2.0.sha256');
+    // A single SHA256SUMS pins every archive the installer may download.
+    $checksums = mailCaptureSource('config/mail-capture/SHA256SUMS');
 
-    expect($mailpit)
+    expect($checksums)
         ->toMatch('/^[0-9a-f]{64}  mailpit-linux-amd64\.tar\.gz$/m')
         ->toMatch('/^[0-9a-f]{64}  mailpit-linux-arm64\.tar\.gz$/m')
-        ->and($mailtrap)
         ->toMatch('/^[0-9a-f]{64}  mailtrap-local_0\.2\.0_linux_amd64\.tar\.gz$/m')
         ->toMatch('/^[0-9a-f]{64}  mailtrap-local_0\.2\.0_linux_arm64\.tar\.gz$/m');
 });
@@ -138,14 +138,25 @@ it('binds every capture listener to loopback only', function () {
 });
 
 it('configures a best-effort relay-all mirror to Mailtrap Local', function () {
-    $mailpit = mailCaptureSource('config/mail-capture/mailpit.env');
+    // mailpit.env enables relay-all and references the relay config file...
+    $env = mailCaptureEnvValues('config/mail-capture/mailpit.env');
 
-    expect($mailpit)
-        ->toContain('MP_SMTP_RELAY_ALL=true')
-        ->toContain('MP_SMTP_RELAY_HOST=127.0.0.1')
-        ->toContain('MP_SMTP_RELAY_PORT=3535')
-        // Relay failures must NOT be forwarded to the upstream SMTP client.
-        ->not->toContain('MP_SMTP_RELAY_FWD_SMTP_ERRORS=true');
+    expect($env['MP_SMTP_RELAY_ALL'])->toBe('true');
+    expect($env['MP_SMTP_RELAY_CONFIG'])->toBe('/etc/rateguru/mail-capture/mailpit-relay.yml');
+    // The relay target moved out of the env file.
+    expect($env)
+        ->not->toHaveKey('MP_SMTP_RELAY_HOST')
+        ->not->toHaveKey('MP_SMTP_RELAY_PORT');
+
+    // ...and mailpit-relay.yml defines the loopback target using Mailpit's
+    // top-level relay schema, with failures logged rather than forwarded.
+    $relay = Yaml::parse(mailCaptureSource('config/mail-capture/mailpit-relay.yml'));
+
+    expect($relay['host'])->toBe('127.0.0.1');
+    expect($relay['port'])->toBe(3535);
+    expect($relay['auth'])->toBe('none');
+    // forward-smtp-errors must stay false so a mirror outage never fails delivery.
+    expect($relay['forward-smtp-errors'])->toBeFalse();
 });
 
 it('enforces retention limits', function () {
