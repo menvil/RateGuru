@@ -6,6 +6,7 @@ use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Models\Category;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Support\Rating\RatingConfigurationManager;
@@ -28,10 +29,9 @@ final class UploadPostForm extends Component
 
     public array $tagIds = [];
 
-    // Author-chosen feed category: option id of the first active rating group
-    // (the sidebar "Categories" group), kept as a string because it is bound to
-    // a native <select> ('' = not selected).
-    public string $categoryOptionId = '';
+    // Standalone category id, kept as a string because it is bound to a native
+    // <select> ('' = not selected).
+    public string $categoryId = '';
 
     // "From the author" section: toggle + one optional answer per active rating
     // group, keyed by group id ('' = not selected).
@@ -62,7 +62,7 @@ final class UploadPostForm extends Component
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
-        $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryOptionId', 'knowsCorrectAnswer', 'authorAnswers']);
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
         $this->loadTags();
         $this->activeTab = 'upload';
         $this->resetValidation();
@@ -96,14 +96,14 @@ final class UploadPostForm extends Component
                 sourceUrl: $this->sourceUrl,
                 tagIds: $this->tagIds,
                 image: $this->image,
-                categoryOptionId: $this->categoryOptionId !== '' ? (int) $this->categoryOptionId : null,
+                categoryId: $this->categoryId !== '' ? (int) $this->categoryId : null,
                 authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
             ));
 
             $this->dispatch('post-uploaded', postId: $post->id);
             $this->dispatch('toast', message: __('ui.upload.success_pending'));
 
-            $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryOptionId', 'knowsCorrectAnswer', 'authorAnswers']);
+            $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
             $this->importedImageUrl = null;
             $this->activeTab = 'upload';
             $this->tagSearch = '';
@@ -135,27 +135,13 @@ final class UploadPostForm extends Component
             'sourceUrl' => ['nullable', 'url', 'max:2048'],
             'tagIds' => ['array', 'max:10'],
             'tagIds.*' => ['integer', 'exists:tags,id'],
-            'categoryOptionId' => [Rule::in($this->categoryOptionChoices($ratingGroups))],
+            'categoryId' => [
+                'nullable',
+                Rule::exists('categories', 'id')
+                    ->where(fn ($query) => $query->where('is_active', true)),
+            ],
             'authorAnswers' => ['array'],
             'authorAnswers.*' => [Rule::in($this->authorAnswerChoices($ratingGroups))],
-        ];
-    }
-
-    /**
-     * Valid <select> values for the category field: '' (not selected) plus the
-     * active option ids of the sidebar category group.
-     *
-     * @param  Collection<int, RatingGroup>  $ratingGroups
-     * @return list<string>
-     */
-    private function categoryOptionChoices(Collection $ratingGroups): array
-    {
-        return [
-            '',
-            ...array_map(
-                fn (int $optionId): string => (string) $optionId,
-                app(RatingConfigurationManager::class)->sidebarGroupOptionIds($ratingGroups),
-            ),
         ];
     }
 
@@ -211,7 +197,7 @@ final class UploadPostForm extends Component
 
         return view('livewire.feed.upload-post-form', [
             'ratingGroups' => $ratingGroups,
-            'categoryGroup' => $ratingGroups->first(),
+            'categories' => Category::query()->active()->ordered()->get(),
             'tags' => $this->tags,
             'selectedTags' => $this->selectedTags(),
             'popularTags' => $this->popularTags(),

@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Feed\UploadPostForm;
+use App\Models\Category;
 use App\Models\Post;
 use App\Models\PostAuthorAnswer;
 use App\Models\RatingGroup;
@@ -16,13 +17,16 @@ beforeEach(function () {
     $this->categoryGroup = RatingGroup::query()->where('key', 'category')->firstOrFail();
 });
 
-it('renders the category select with sidebar group options', function () {
+it('renders the category select with active standalone categories', function () {
     $user = User::factory()->create();
+    Category::factory()->create(['name' => 'Desserts']);
+    Category::factory()->inactive()->create(['name' => 'Hidden category']);
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->assertSeeHtml('data-testid="upload-category-select"')
-        ->assertSee('Category');
+        ->assertSee('Desserts')
+        ->assertDontSee('Hidden category');
 });
 
 it('renders the author section with an Alpine-toggled answers block', function () {
@@ -54,7 +58,7 @@ it('creates a post with category and author answers', function () {
     Storage::fake('public');
 
     $user = User::factory()->create();
-    $categoryOption = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
+    $category = Category::factory()->create();
     $sourceAnswer = $this->sourceGroup->options()->where('key', 'source_b')->firstOrFail();
     $categoryAnswer = $this->categoryGroup->options()->where('key', 'category_a')->firstOrFail();
 
@@ -62,7 +66,7 @@ it('creates a post with category and author answers', function () {
         ->test(UploadPostForm::class)
         ->set('title', 'Answered dish')
         ->set('image', UploadedFile::fake()->image('dish.jpg'))
-        ->set('categoryOptionId', (string) $categoryOption->id)
+        ->set('categoryId', (string) $category->id)
         ->set('knowsCorrectAnswer', true)
         ->set('authorAnswers', [
             (string) $this->sourceGroup->id => (string) $sourceAnswer->id,
@@ -73,7 +77,7 @@ it('creates a post with category and author answers', function () {
 
     $post = Post::query()->where('title', 'Answered dish')->firstOrFail();
 
-    expect($post->category_option_id)->toBe($categoryOption->id);
+    expect($post->category_id)->toBe($category->id);
     expect(PostAuthorAnswer::query()->where('post_id', $post->id)->pluck('rating_option_id')->sort()->values()->all())
         ->toBe(collect([$sourceAnswer->id, $categoryAnswer->id])->sort()->values()->all());
 });
@@ -117,34 +121,35 @@ it('ignores author answers when the toggle is off', function () {
     expect(PostAuthorAnswer::query()->where('post_id', $post->id)->count())->toBe(0);
 });
 
-it('rejects a category value that is not a sidebar group option', function () {
+it('rejects an inactive category value', function () {
     Storage::fake('public');
 
     $user = User::factory()->create();
-    $secondGroupOption = $this->categoryGroup->options()->where('key', 'category_b')->firstOrFail();
+    $category = Category::factory()->inactive()->create();
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
         ->set('title', 'Invalid category dish')
         ->set('image', UploadedFile::fake()->image('dish.jpg'))
-        ->set('categoryOptionId', (string) $secondGroupOption->id)
+        ->set('categoryId', (string) $category->id)
         ->call('submit')
-        ->assertHasErrors(['categoryOptionId']);
+        ->assertHasErrors(['categoryId']);
 
     expect(Post::query()->where('title', 'Invalid category dish')->exists())->toBeFalse();
 });
 
 it('resets category and author answers when the upload modal reopens', function () {
     $user = User::factory()->create();
-    $categoryOption = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
+    $category = Category::factory()->create();
+    $sourceOption = $this->sourceGroup->options()->where('key', 'source_a')->firstOrFail();
 
     Livewire::actingAs($user)
         ->test(UploadPostForm::class)
-        ->set('categoryOptionId', (string) $categoryOption->id)
+        ->set('categoryId', (string) $category->id)
         ->set('knowsCorrectAnswer', true)
-        ->set('authorAnswers', [(string) $this->sourceGroup->id => (string) $categoryOption->id])
+        ->set('authorAnswers', [(string) $this->sourceGroup->id => (string) $sourceOption->id])
         ->dispatch('upload-modal-opened')
-        ->assertSet('categoryOptionId', '')
+        ->assertSet('categoryId', '')
         ->assertSet('knowsCorrectAnswer', false)
         ->assertSet('authorAnswers', []);
 });

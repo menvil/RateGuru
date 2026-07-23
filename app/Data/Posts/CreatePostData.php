@@ -13,9 +13,8 @@ final readonly class CreatePostData
         /** @var array<int> $tagIds */
         public array $tagIds = [],
         public ?UploadedFile $image = null,
-        // Author-chosen feed category: an active option of the first active
-        // rating group (the one the sidebar "Categories" block is built from).
-        public ?int $categoryOptionId = null,
+        // Optional standalone taxonomy selected by the author.
+        public ?int $categoryId = null,
         /**
          * Author's claimed correct answers ("I know the correct answer"):
          * active rating option ids, at most one per active rating group.

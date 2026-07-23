@@ -27,6 +27,7 @@ it('creates posts table with required columns', function () {
         'created_at',
         'updated_at',
         'deleted_at',
+        'category_id',
         'category_option_id',
     ]))->toBeTrue();
 });

@@ -332,22 +332,22 @@
         </div>
 
         {{-- Category — public, feeds the sidebar "Categories" filter --}}
-        @if($categoryGroup !== null && $categoryGroup->options->isNotEmpty())
+        @if($categories->isNotEmpty())
             <div>
-                <x-input-label for="category_option_id" :value="__('ui.upload.category')" />
+                <x-input-label for="category_id" :value="__('ui.upload.category')" />
                 <select
-                    id="category_option_id"
-                    wire:model.defer="categoryOptionId"
+                    id="category_id"
+                    wire:model.defer="categoryId"
                     data-testid="upload-category-select"
                     class="mt-1 block w-full rounded-rgControl border border-rg-border2 bg-rg-card px-3 py-2 text-sm text-rg-text shadow-sm focus:border-rg-accent focus:outline-none focus:ring-1 focus:ring-rg-accent"
                 >
                     <option value="">{{ __('ui.upload.category_placeholder') }}</option>
-                    @foreach($categoryGroup->options as $option)
-                        <option value="{{ $option->id }}">{{ $option->translatedLabel() }}</option>
+                    @foreach($categories as $category)
+                        <option value="{{ $category->id }}">{{ $category->translatedName() }}</option>
                     @endforeach
                 </select>
                 <div data-testid="field-error-category" class="mt-1">
-                    <x-input-error :messages="$errors->get('categoryOptionId')" />
+                    <x-input-error :messages="$errors->get('categoryId')" />
                 </div>
             </div>
         @endif
