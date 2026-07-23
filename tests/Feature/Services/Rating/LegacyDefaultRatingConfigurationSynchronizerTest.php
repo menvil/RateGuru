@@ -9,8 +9,11 @@ it('rolls back legacy option changes when deactivating the group fails', functio
     RatingOption::factory()->for($source, 'group')->create(['key' => 'source_a']);
     RatingOption::factory()->for($source, 'group')->create(['key' => 'source_b']);
     $exception = null;
+    $originalDispatcher = RatingGroup::getEventDispatcher()
+        ?? throw new RuntimeException('The model event dispatcher is unavailable.');
 
-    RatingGroup::updating(function (): void {
+    RatingGroup::setEventDispatcher(clone $originalDispatcher);
+    RatingGroup::updating(static function (): void {
         throw new RuntimeException('Simulated rating group failure.');
     });
 
@@ -19,10 +22,16 @@ it('rolls back legacy option changes when deactivating the group fails', functio
     } catch (RuntimeException $caught) {
         $exception = $caught;
     } finally {
-        RatingGroup::flushEventListeners();
+        RatingGroup::setEventDispatcher($originalDispatcher);
     }
 
+    $refreshedSource = $source->fresh();
+
     expect($exception)->not->toBeNull()
-        ->and($source->fresh()->is_active)->toBeTrue()
-        ->and($source->options()->active()->count())->toBe(2);
+        ->and($refreshedSource->is_active)->toBeTrue()
+        ->and($refreshedSource->options()->count())->toBe(2)
+        ->and($refreshedSource->options()->active()->count())->toBe(2)
+        ->and($refreshedSource->options()->whereNotNull('archived_at')->exists())->toBeFalse()
+        ->and($refreshedSource->options()->orderBy('key')->pluck('key')->all())
+        ->toBe(['source_a', 'source_b']);
 });
