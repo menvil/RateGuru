@@ -115,6 +115,12 @@ class Post extends Model
         return $this->belongsToMany(Tag::class);
     }
 
+    /** @return BelongsTo<Category, $this> */
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(Category::class);
+    }
+
     /** @return HasMany<PostAuthorAnswer, $this> */
     public function authorAnswers(): HasMany
     {
