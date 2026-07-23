@@ -3,6 +3,7 @@
 namespace App\Services\Rating;
 
 use App\Models\RatingGroup;
+use Illuminate\Support\Facades\DB;
 
 final class LegacyDefaultRatingConfigurationSynchronizer
 {
@@ -13,28 +14,30 @@ final class LegacyDefaultRatingConfigurationSynchronizer
             'category' => ['category_a', 'category_b', 'category_c'],
         ];
 
-        $groups = RatingGroup::query()
-            ->active()
-            ->whereIn('key', array_keys($legacyDefaults))
-            ->with('options')
-            ->get();
+        DB::transaction(function () use ($legacyDefaults): void {
+            $groups = RatingGroup::query()
+                ->active()
+                ->whereIn('key', array_keys($legacyDefaults))
+                ->with('options')
+                ->get();
 
-        foreach ($groups as $group) {
-            $optionKeys = $group->options
-                ->pluck('key')
-                ->sort()
-                ->values()
-                ->all();
+            foreach ($groups as $group) {
+                $optionKeys = $group->options
+                    ->pluck('key')
+                    ->sort()
+                    ->values()
+                    ->all();
 
-            if ($optionKeys !== $legacyDefaults[$group->key]) {
-                continue;
+                if ($optionKeys !== $legacyDefaults[$group->key]) {
+                    continue;
+                }
+
+                $group->options()->update([
+                    'is_active' => false,
+                    'archived_at' => now(),
+                ]);
+                $group->update(['is_active' => false]);
             }
-
-            $group->options()->update([
-                'is_active' => false,
-                'archived_at' => now(),
-            ]);
-            $group->update(['is_active' => false]);
-        }
+        });
     }
 }

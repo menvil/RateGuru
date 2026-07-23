@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Tag;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class DemoTagsSeeder extends Seeder
 {
@@ -13,23 +14,25 @@ class DemoTagsSeeder extends Seeder
             return;
         }
 
-        Tag::query()
-            ->whereIn('slug', [
-                'category-a',
-                'category-b',
-                'category-c',
-                'category-d',
-                'source-a',
-                'source-b',
-            ])
-            ->delete();
+        DB::transaction(function (): void {
+            Tag::query()
+                ->whereIn('slug', [
+                    'category-a',
+                    'category-b',
+                    'category-c',
+                    'category-d',
+                    'source-a',
+                    'source-b',
+                ])
+                ->delete();
 
-        foreach ($this->tags() as $tag) {
-            Tag::query()->updateOrCreate(
-                ['slug' => $tag['slug']],
-                ['name' => $tag['name']],
-            );
-        }
+            foreach ($this->tags() as $tag) {
+                Tag::query()->updateOrCreate(
+                    ['slug' => $tag['slug']],
+                    ['name' => $tag['name']],
+                );
+            }
+        });
     }
 
     /**

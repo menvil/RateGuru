@@ -6,9 +6,9 @@ use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Exceptions\Abuse\RateLimitExceededException;
-use App\Models\Category;
 use App\Models\RatingGroup;
 use App\Models\Tag;
+use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
@@ -193,13 +193,13 @@ final class UploadPostForm extends Component
         $this->activeTab = 'upload';
     }
 
-    public function render(): View
+    public function render(ActiveCategoriesQuery $activeCategories): View
     {
         $ratingGroups = app(RatingConfigurationManager::class)->activeGroups();
 
         return view('livewire.feed.upload-post-form', [
             'ratingGroups' => $ratingGroups,
-            'categories' => Category::query()->active()->ordered()->get(),
+            'categories' => $activeCategories->get(),
             'tags' => $this->tags,
             'selectedTags' => $this->selectedTags(),
             'popularTags' => $this->popularTags(),

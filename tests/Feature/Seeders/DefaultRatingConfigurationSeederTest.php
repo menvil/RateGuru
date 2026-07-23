@@ -59,6 +59,23 @@ it('does not overwrite rating options from an installation preset', function () 
     expect(RatingOption::query()->pluck('key')->all())->toBe(['professional']);
 });
 
+it('synchronizes legacy defaults after an installation preset was applied', function () {
+    ProjectSettings::factory()->create([
+        'active_preset_key' => 'nature',
+        'preset_applied_at' => now(),
+    ]);
+    $source = RatingGroup::factory()->create(['key' => 'source']);
+    RatingOption::factory()->for($source, 'group')->create(['key' => 'source_a']);
+    RatingOption::factory()->for($source, 'group')->create(['key' => 'source_b']);
+
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
+    expect($source->fresh()->is_active)->toBeFalse()
+        ->and($source->options()->active()->exists())->toBeFalse()
+        ->and(RatingGroup::query()->whereIn('key', ['type', 'attribute'])->exists())
+        ->toBeFalse();
+});
+
 it('replaces only known active legacy default groups on an upgraded installation', function () {
     $source = RatingGroup::factory()->create(['key' => 'source']);
     RatingOption::factory()->for($source, 'group')->create(['key' => 'source_a']);

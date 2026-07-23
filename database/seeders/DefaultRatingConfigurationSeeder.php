@@ -11,11 +11,11 @@ class DefaultRatingConfigurationSeeder extends Seeder
 {
     public function run(): void
     {
+        app(LegacyDefaultRatingConfigurationSynchronizer::class)->synchronize();
+
         if (ProjectSettings::query()->whereNotNull('preset_applied_at')->exists()) {
             return;
         }
-
-        app(LegacyDefaultRatingConfigurationSynchronizer::class)->synchronize();
 
         foreach ($this->configuration() as $groupData) {
             $options = $groupData['options'];

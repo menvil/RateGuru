@@ -130,17 +130,25 @@ it('lists categories with post counts', function () {
 
 it('orders category management deterministically by sort order and id', function () {
     $admin = User::factory()->admin()->create();
-    Category::factory()->create(['sort_order' => 20]);
-    Category::factory()->count(2)->create(['sort_order' => 10]);
+    $first = Category::factory()->create(['sort_order' => 5]);
+    $tied = Category::factory()->count(3)->create(['sort_order' => 10]);
+    $last = Category::factory()->create(['sort_order' => 20]);
     $this->actingAs($admin);
 
     $query = Livewire::test(ListCategories::class)
         ->instance()
         ->getFilteredSortedTableQuery();
 
-    expect($query)->not->toBeNull()
-        ->and($query->getQuery()->orders)->toBe([
-            ['column' => 'sort_order', 'direction' => 'asc'],
-            ['column' => 'id', 'direction' => 'asc'],
-        ]);
+    expect($query)->not->toBeNull();
+
+    $firstPage = (clone $query)->paginate(perPage: 2, page: 1);
+    $secondPage = (clone $query)->paginate(perPage: 2, page: 2);
+    $thirdPage = (clone $query)->paginate(perPage: 2, page: 3);
+
+    expect($firstPage->getCollection()->pluck('id')->all())
+        ->toBe([$first->id, $tied[0]->id])
+        ->and($secondPage->getCollection()->pluck('id')->all())
+        ->toBe([$tied[1]->id, $tied[2]->id])
+        ->and($thirdPage->getCollection()->pluck('id')->all())
+        ->toBe([$last->id]);
 });
