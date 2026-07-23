@@ -18,7 +18,7 @@ class CategoriesTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->withCount('posts'))
+            ->modifyQueryUsing(self::applyDefaultOrdering(...))
             ->columns([
                 TextColumn::make('name')
                     ->searchable()
@@ -43,7 +43,6 @@ class CategoriesTable
                     ->numeric()
                     ->sortable(),
             ])
-            ->defaultSort('sort_order')
             ->recordActions([
                 EditAction::make(),
                 Action::make('delete')
@@ -73,5 +72,14 @@ class CategoriesTable
                             ->send();
                     }),
             ]);
+    }
+
+    /**
+     * @param  Builder<Category>  $query
+     * @return Builder<Category>
+     */
+    private static function applyDefaultOrdering(Builder $query): Builder
+    {
+        return $query->withCount('posts')->ordered();
     }
 }

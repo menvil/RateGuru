@@ -13,6 +13,17 @@ class DemoTagsSeeder extends Seeder
             return;
         }
 
+        Tag::query()
+            ->whereIn('slug', [
+                'category-a',
+                'category-b',
+                'category-c',
+                'category-d',
+                'source-a',
+                'source-b',
+            ])
+            ->delete();
+
         foreach ($this->tags() as $tag) {
             Tag::query()->updateOrCreate(
                 ['slug' => $tag['slug']],

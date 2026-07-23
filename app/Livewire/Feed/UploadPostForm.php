@@ -137,6 +137,8 @@ final class UploadPostForm extends Component
             'tagIds.*' => ['integer', 'exists:tags,id'],
             'categoryId' => [
                 'nullable',
+                'bail',
+                'integer',
                 Rule::exists('categories', 'id')
                     ->where(fn ($query) => $query->where('is_active', true)),
             ],

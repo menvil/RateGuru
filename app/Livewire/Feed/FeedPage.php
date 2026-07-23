@@ -2,9 +2,9 @@
 
 namespace App\Livewire\Feed;
 
-use App\Models\Category;
 use App\Models\RatingGroup;
 use App\Models\User;
+use App\Queries\Categories\ActiveCategorySlugsQuery;
 use App\Queries\Feed\MatchedUsersQuery;
 use App\Services\Feed\FeedPostDeletionService;
 use App\Support\Rating\RatingConfigurationManager;
@@ -19,6 +19,8 @@ use Livewire\Component;
 class FeedPage extends Component
 {
     private RatingConfigurationManager $ratingConfiguration;
+
+    private ActiveCategorySlugsQuery $activeCategorySlugs;
 
     #[Url(as: 'search', except: '')]
     public string $search = '';
@@ -42,9 +44,12 @@ class FeedPage extends Component
 
     public ?string $deleteError = null;
 
-    public function boot(RatingConfigurationManager $ratingConfiguration): void
-    {
+    public function boot(
+        RatingConfigurationManager $ratingConfiguration,
+        ActiveCategorySlugsQuery $activeCategorySlugs,
+    ): void {
         $this->ratingConfiguration = $ratingConfiguration;
+        $this->activeCategorySlugs = $activeCategorySlugs;
     }
 
     public function mount(): void
@@ -189,11 +194,7 @@ class FeedPage extends Component
     /** @return list<string> */
     private function categoryValues(): array
     {
-        return Category::query()
-            ->active()
-            ->ordered()
-            ->pluck('slug')
-            ->all();
+        return $this->activeCategorySlugs->get();
     }
 
     /** @return array<string, list<string>> */

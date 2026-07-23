@@ -40,3 +40,12 @@ it('returns everything when the category filter is empty', function () {
 
     expect($results->pluck('id')->all())->toContain($post->id);
 });
+
+it('does not match posts through an inactive category slug', function () {
+    $category = Category::factory()->inactive()->create(['slug' => 'archived']);
+    $post = Post::factory()->published()->create(['category_id' => $category->id]);
+
+    $results = app(FeedQuery::class)->get(category: ['archived']);
+
+    expect($results->pluck('id')->all())->not->toContain($post->id);
+});

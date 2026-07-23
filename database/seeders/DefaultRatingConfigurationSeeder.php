@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
+use App\Services\Rating\LegacyDefaultRatingConfigurationSynchronizer;
 use Illuminate\Database\Seeder;
 
 class DefaultRatingConfigurationSeeder extends Seeder
@@ -13,6 +14,8 @@ class DefaultRatingConfigurationSeeder extends Seeder
         if (ProjectSettings::query()->whereNotNull('preset_applied_at')->exists()) {
             return;
         }
+
+        app(LegacyDefaultRatingConfigurationSynchronizer::class)->synchronize();
 
         foreach ($this->configuration() as $groupData) {
             $options = $groupData['options'];

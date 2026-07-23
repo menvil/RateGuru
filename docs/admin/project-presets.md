@@ -63,9 +63,11 @@ php artisan rateguru:setup ai_images --force
 
 `--force` does not delete users or posts, but it can replace project settings,
 deactivate old rating groups and options, and delete tags not present in the new
-preset. Categories omitted by the new preset are deactivated rather than deleted,
-so existing post relationships remain valid. Use `--force` only after reviewing
-those effects and taking any required backup.
+preset. When `categories` is `null`, existing category records are unchanged.
+When a preset provides an explicit category list, categories omitted from that
+list are deactivated rather than deleted, so existing post relationships remain
+valid. Use `--force` only after reviewing those effects and taking any required
+backup.
 
 Default seeders detect `preset_applied_at` and do not overwrite an installed
 preset when `php artisan db:seed` is run later.

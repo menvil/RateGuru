@@ -10,7 +10,15 @@ it('has project presets config', function () {
 });
 
 it('project presets have required shape', function () {
-    foreach (config('project_presets') as $preset) {
+    $presets = [
+        ...config('project_presets'),
+        'without_categories' => [
+            ...config('project_presets.generic'),
+            'categories' => null,
+        ],
+    ];
+
+    foreach ($presets as $preset) {
         expect($preset)->toHaveKeys([
             'label',
             'settings',
@@ -41,13 +49,15 @@ it('project presets have required shape', function () {
             'allow_guest_viewing',
         ]);
 
-        foreach ($preset['categories'] as $category) {
-            expect($category)->toHaveKeys([
-                'slug',
-                'name',
-                'sort_order',
-            ]);
-            expect($category['name'])->toHaveKeys(['en', 'ru', 'bg']);
+        if ($preset['categories'] !== null) {
+            foreach ($preset['categories'] as $category) {
+                expect($category)->toHaveKeys([
+                    'slug',
+                    'name',
+                    'sort_order',
+                ]);
+                expect($category['name'])->toHaveKeys(['en', 'ru', 'bg']);
+            }
         }
 
         if ($preset['rating_groups'] !== null) {
@@ -86,7 +96,19 @@ it('keeps post categories separate from rating group terminology', function () {
 });
 
 it('does not duplicate preset categories as tags', function () {
-    foreach (config('project_presets') as $preset) {
+    $presets = [
+        ...config('project_presets'),
+        'without_categories' => [
+            ...config('project_presets.generic'),
+            'categories' => null,
+        ],
+    ];
+
+    foreach ($presets as $preset) {
+        if ($preset['categories'] === null) {
+            continue;
+        }
+
         $categorySlugs = array_column($preset['categories'], 'slug');
         $tagSlugs = collect($preset['tags'] ?? [])
             ->map(fn (array $tag): string => Str::slug($tag['en']))

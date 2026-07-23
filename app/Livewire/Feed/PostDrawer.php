@@ -6,6 +6,7 @@ use App\Actions\Posts\DeletePostAction;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotDeletePostException;
 use App\Models\Post;
+use App\Queries\Posts\PublishedPostDetailsQuery;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
@@ -82,15 +83,14 @@ final class PostDrawer extends Component
         $this->dispatch('clear-selected-post');
     }
 
-    public function render(RatingConfigurationManager $configuration): View
-    {
+    public function render(
+        RatingConfigurationManager $configuration,
+        PublishedPostDetailsQuery $publishedPostDetails,
+    ): View {
         $post = null;
 
         if ($this->postId !== null) {
-            $post = Post::query()
-                ->published()
-                ->with(['user', 'tags', 'category'])
-                ->find($this->postId);
+            $post = $publishedPostDetails->find($this->postId);
         }
 
         return view('livewire.feed.post-drawer', [

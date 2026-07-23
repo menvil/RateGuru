@@ -80,6 +80,20 @@ it('validates category slug and name', function () {
         ]);
 });
 
+it('rejects a category slug outside the url safe format', function () {
+    $admin = User::factory()->admin()->create();
+    $this->actingAs($admin);
+
+    Livewire::test(CreateCategory::class)
+        ->fillForm([
+            'name' => 'Invalid slug category',
+            'slug' => 'Invalid slug',
+            'sort_order' => 10,
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['slug' => 'regex']);
+});
+
 it('edits category metadata and active state', function () {
     $admin = User::factory()->admin()->create();
     $category = Category::factory()->create();
@@ -112,4 +126,21 @@ it('lists categories with post counts', function () {
     Livewire::test(ListCategories::class)
         ->assertCanSeeTableRecords([$category])
         ->assertTableColumnStateSet('posts_count', 2, record: $category);
+});
+
+it('orders category management deterministically by sort order and id', function () {
+    $admin = User::factory()->admin()->create();
+    Category::factory()->create(['sort_order' => 20]);
+    Category::factory()->count(2)->create(['sort_order' => 10]);
+    $this->actingAs($admin);
+
+    $query = Livewire::test(ListCategories::class)
+        ->instance()
+        ->getFilteredSortedTableQuery();
+
+    expect($query)->not->toBeNull()
+        ->and($query->getQuery()->orders)->toBe([
+            ['column' => 'sort_order', 'direction' => 'asc'],
+            ['column' => 'id', 'direction' => 'asc'],
+        ]);
 });

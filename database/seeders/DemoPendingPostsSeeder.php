@@ -62,14 +62,14 @@ class DemoPendingPostsSeeder extends Seeder
             ],
             [
                 'title' => 'Demo Pending: Needs Moderation 02',
-                'description' => 'A source B sample post waiting in the pending moderation queue.',
+                'description' => 'A curated sample post waiting in the pending moderation queue.',
                 'image_path' => 'demo/posts/pending-02.svg',
                 'author' => 'bob@rateguru.test',
                 'tags' => ['community', 'curated'],
             ],
             [
                 'title' => 'Demo Pending: Needs Moderation 03',
-                'description' => 'A category D submission that should not appear in public feed yet.',
+                'description' => 'A discussion submission that should not appear in public feed yet.',
                 'image_path' => 'demo/posts/pending-03.svg',
                 'author' => 'carla@rateguru.test',
                 'tags' => ['discussion', 'sample-c'],

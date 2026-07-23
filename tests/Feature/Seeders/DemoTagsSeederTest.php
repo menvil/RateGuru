@@ -31,3 +31,17 @@ it('seeds at least ten url safe tags idempotently', function () {
         expect($slug)->toMatch('/^[a-z0-9]+(?:-[a-z0-9]+)*$/');
     });
 });
+
+it('removes only obsolete demo taxonomy tags when reseeded', function () {
+    Tag::factory()->create(['slug' => 'category-a']);
+    Tag::factory()->create(['slug' => 'source-b']);
+    $unrelated = Tag::factory()->create(['slug' => 'user-owned']);
+
+    $this->seed(DemoTagsSeeder::class);
+    $this->seed(DemoTagsSeeder::class);
+
+    expect(Tag::query()->whereIn('slug', ['category-a', 'source-b'])->exists())
+        ->toBeFalse()
+        ->and($unrelated->fresh())->not->toBeNull()
+        ->and(Tag::query()->where('slug', 'featured')->exists())->toBeTrue();
+});

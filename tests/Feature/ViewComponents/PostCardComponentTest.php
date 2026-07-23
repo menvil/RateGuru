@@ -86,7 +86,26 @@ it('renders the standalone category as linked post metadata', function () {
     expect($html)
         ->toContain('data-testid="post-card-category"')
         ->toContain('Desserts')
+        ->toContain('wire:navigate')
         ->toContain('category%5B0%5D=desserts');
+});
+
+it('renders an inactive category as non-navigable post metadata', function () {
+    $category = Category::factory()->inactive()->create([
+        'name' => 'Archived',
+        'slug' => 'archived',
+    ]);
+
+    $html = Blade::render(
+        '<x-posts.category-link :category="$category" test-id="post-card-category" />',
+        ['category' => $category],
+    );
+
+    expect($html)
+        ->toContain('data-testid="post-card-category"')
+        ->toContain('Archived')
+        ->not->toContain('category%5B0%5D=archived')
+        ->not->toContain('wire:navigate');
 });
 
 it('renders post description under the title before the image', function () {

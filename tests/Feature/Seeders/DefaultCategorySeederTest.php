@@ -4,6 +4,7 @@ use App\Models\Category;
 use App\Models\ProjectSettings;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DefaultCategorySeeder;
+use Illuminate\Database\QueryException;
 
 it('seeds generic standalone categories', function () {
     $this->seed(DefaultCategorySeeder::class);
@@ -35,4 +36,25 @@ it('does not overwrite categories from an installation preset', function () {
     $this->seed(DefaultCategorySeeder::class);
 
     expect(Category::query()->pluck('slug')->all())->toBe(['landscape']);
+});
+
+it('rolls back every default category when one category fails', function () {
+    config()->set('project_presets.generic.categories', [
+        [
+            'slug' => 'transactional-category',
+            'name' => ['en' => 'Transactional', 'ru' => 'Транзакционная', 'bg' => 'Транзакционна'],
+            'sort_order' => 10,
+        ],
+        [
+            'slug' => 'invalid-category',
+            'name' => ['en' => null, 'ru' => null, 'bg' => null],
+            'sort_order' => 20,
+        ],
+    ]);
+
+    expect(fn () => $this->seed(DefaultCategorySeeder::class))
+        ->toThrow(QueryException::class);
+
+    expect(Category::query()->where('slug', 'transactional-category')->exists())
+        ->toBeFalse();
 });

@@ -10,7 +10,7 @@ Each row defines one independently configurable voting question.
 
 Important fields:
 
-- `key`: stable integration key such as `source` or `category`.
+- `key`: stable integration key such as `type` or `attribute`.
 - `label` and `description`: admin-managed display copy.
 - `min_options` and `max_options`: allowed active option range.
 - `is_active`: controls public availability.

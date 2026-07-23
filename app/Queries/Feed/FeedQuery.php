@@ -4,6 +4,7 @@ namespace App\Queries\Feed;
 
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Contracts\Persistence\StablePaginationBoundary;
+use App\Models\Category;
 use App\Models\Follow;
 use App\Models\Post;
 use App\Support\Database\LikePattern;
@@ -50,9 +51,13 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
         $categorySlugs = $this->optionKeys($category);
 
         if ($categorySlugs !== []) {
-            $query->whereHas('category', function (Builder $categoryQuery) use ($categorySlugs) {
-                $categoryQuery->whereIn('slug', $categorySlugs);
-            });
+            $query->whereIn(
+                'category_id',
+                Category::query()
+                    ->active()
+                    ->whereIn('slug', $categorySlugs)
+                    ->select('id'),
+            );
         }
 
         foreach ($this->normalizeRatingFilters($ratingFilters) as $groupKey => $optionKeys) {

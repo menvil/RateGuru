@@ -138,6 +138,22 @@ it('rejects an inactive category value', function () {
     expect(Post::query()->where('title', 'Invalid category post')->exists())->toBeFalse();
 });
 
+it('rejects a non-numeric category before checking category existence', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Malformed category post')
+        ->set('image', UploadedFile::fake()->image('post.jpg'))
+        ->set('categoryId', 'not-a-number')
+        ->call('submit')
+        ->assertHasErrors(['categoryId' => 'integer']);
+
+    expect(Post::query()->where('title', 'Malformed category post')->exists())->toBeFalse();
+});
+
 it('resets category and author answers when the upload modal reopens', function () {
     $user = User::factory()->create();
     $category = Category::factory()->create();

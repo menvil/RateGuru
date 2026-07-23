@@ -58,3 +58,27 @@ it('does not overwrite rating options from an installation preset', function () 
 
     expect(RatingOption::query()->pluck('key')->all())->toBe(['professional']);
 });
+
+it('replaces only known active legacy default groups on an upgraded installation', function () {
+    $source = RatingGroup::factory()->create(['key' => 'source']);
+    RatingOption::factory()->for($source, 'group')->create(['key' => 'source_a']);
+    RatingOption::factory()->for($source, 'group')->create(['key' => 'source_b']);
+
+    $category = RatingGroup::factory()->create(['key' => 'category']);
+    RatingOption::factory()->for($category, 'group')->create(['key' => 'category_a']);
+    RatingOption::factory()->for($category, 'group')->create(['key' => 'category_b']);
+    RatingOption::factory()->for($category, 'group')->create(['key' => 'category_c']);
+
+    $unrelated = RatingGroup::factory()->create(['key' => 'confidence']);
+    RatingOption::factory()->for($unrelated, 'group')->create(['key' => 'confidence_high']);
+
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+
+    expect(RatingGroup::query()->active()->orderBy('key')->pluck('key')->all())
+        ->toBe(['attribute', 'confidence', 'type'])
+        ->and($source->fresh()->is_active)->toBeFalse()
+        ->and($category->fresh()->is_active)->toBeFalse()
+        ->and($unrelated->fresh()->is_active)->toBeTrue()
+        ->and($source->options()->active()->exists())->toBeFalse()
+        ->and($category->options()->active()->exists())->toBeFalse();
+});
