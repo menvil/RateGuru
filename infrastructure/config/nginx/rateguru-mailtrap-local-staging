@@ -1,0 +1,61 @@
+# RateGuru staging — Mailtrap Local web UI + API reverse proxy.
+#
+# Publishes ONLY the loopback Mailtrap Local HTTP endpoint (127.0.0.1:3550)
+# over HTTPS with Basic Auth. The SMTP port (3535) and the raw HTTP/API port
+# (3550) are never exposed publicly by this vhost.
+
+# WebSocket upgrade helper. Uniquely named so this vhost file stays
+# self-contained and never collides with the mailpit vhost's own map.
+map $http_upgrade $mailtrap_connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# Public HTTP endpoint: redirect visitors to HTTPS.
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name mailtrap.rateguru.staging.myprojects.pp.ua;
+
+    return 301 https://$host$request_uri;
+}
+
+# Public HTTPS endpoint.
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+
+    server_name mailtrap.rateguru.staging.myprojects.pp.ua;
+
+    auth_basic "RateGuru staging mail capture";
+    auth_basic_user_file /etc/nginx/rateguru-staging.htpasswd;
+
+    access_log /var/log/nginx/rateguru-mailtrap-local-staging-access.log;
+    error_log /var/log/nginx/rateguru-mailtrap-local-staging-error.log;
+
+    client_max_body_size 32m;
+
+    # Certbot-managed certificate (same layout as the primary staging vhost).
+    ssl_certificate /etc/letsencrypt/live/mailtrap.rateguru.staging.myprojects.pp.ua/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mailtrap.rateguru.staging.myprojects.pp.ua/privkey.pem;
+
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    location / {
+        # Proxy only to the loopback Mailtrap Local HTTP/API listener.
+        proxy_pass http://127.0.0.1:3550;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support for the live message stream (/cable).
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $mailtrap_connection_upgrade;
+        proxy_read_timeout 3600s;
+    }
+}

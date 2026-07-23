@@ -1,0 +1,575 @@
+#!/usr/bin/env bash
+#
+# install-mail-capture — install/verify the RateGuru staging mail-capture slice.
+#
+# Modes:
+#   --check   Validate committed configuration, pinned versions, checksums and
+#             architecture support. Read-only: makes NO changes to the system
+#             (no downloads, no users, no files, no services).
+#   --apply   Install and activate Mailpit (canonical) + Mailtrap Local (mirror)
+#             from checksum-verified pinned release archives.
+#
+# Behavior:
+#   * Compares each downloaded archive's SHA-256 against the committed pin in
+#     SHA256SUMS and refuses to install on a mismatch; only pinned versions
+#     are downloaded (never "latest").
+#   * Never modifies the Laravel production environment.
+#   * Idempotent: re-running restarts only what actually changed.
+#   * On apply failure, previously installed files are rolled back.
+
+set -Eeuo pipefail
+umask 022
+
+# --- Locations --------------------------------------------------------------
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+CONFIG_DIR="${REPO_ROOT}/infrastructure/config/mail-capture"
+CHECKSUMS_FILE="${CONFIG_DIR}/SHA256SUMS"
+SYSTEMD_SRC="${REPO_ROOT}/infrastructure/config/systemd"
+NGINX_SRC="${REPO_ROOT}/infrastructure/config/nginx"
+
+# Installed target locations.
+BIN_MAILPIT="/usr/local/bin/rateguru-mailpit"
+BIN_MAILTRAP="/usr/local/bin/rateguru-mailtrap-local"
+ETC_DIR="/etc/rateguru/mail-capture"
+ENV_MAILPIT="${ETC_DIR}/mailpit.env"
+YML_MAILPIT_RELAY="${ETC_DIR}/mailpit-relay.yml"
+YML_MAILTRAP="${ETC_DIR}/mailtrap-local.yml"
+VERSIONS_DST="${ETC_DIR}/versions.env"
+UNIT_DIR="/etc/systemd/system"
+UNIT_MAILPIT="${UNIT_DIR}/rateguru-mailpit.service"
+UNIT_MAILTRAP="${UNIT_DIR}/rateguru-mailtrap-local.service"
+NGINX_AVAILABLE="/etc/nginx/sites-available"
+NGINX_ENABLED="/etc/nginx/sites-enabled"
+NGINX_MAILPIT_NAME="rateguru-mailpit-staging"
+NGINX_MAILTRAP_NAME="rateguru-mailtrap-local-staging"
+
+STATE_ROOT="/var/lib/rateguru-mail-capture"
+STATE_MAILPIT="${STATE_ROOT}/mailpit"
+STATE_MAILTRAP="${STATE_ROOT}/mailtrap-local"
+BACKUP_ROOT="/var/backups/rateguru-mail-capture"
+
+USER_MAILPIT="rateguru-mailpit"
+USER_MAILTRAP="rateguru-mailtrap-local"
+
+# --- Logging ----------------------------------------------------------------
+
+log() {
+    printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
+fail() {
+    printf '[%s] ERROR: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
+    exit 1
+}
+
+# --- Argument parsing -------------------------------------------------------
+
+MODE=""
+
+usage() {
+    cat <<'USAGE'
+Usage: install-mail-capture --check | --apply
+
+  --check   Validate committed configuration only. No system changes.
+  --apply   Install and activate the mail-capture services (requires root).
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --check)
+            MODE="check"
+            shift
+            ;;
+        --apply)
+            MODE="apply"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            fail "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "${MODE}" ]] || { usage >&2; fail "one of --check or --apply is required"; }
+
+# --- Shared helpers ---------------------------------------------------------
+
+require_root() {
+    [[ "${EUID}" -eq 0 ]] || fail "this command must be executed as root"
+}
+
+detect_arch() {
+    local machine
+    machine="$(uname -m)"
+
+    case "${machine}" in
+        x86_64|amd64)
+            printf 'amd64\n'
+            ;;
+        aarch64|arm64)
+            printf 'arm64\n'
+            ;;
+        *)
+            fail "unsupported architecture: ${machine} (supported: x86_64/amd64, aarch64/arm64)"
+            ;;
+    esac
+}
+
+require_linux() {
+    [[ "$(uname -s)" == "Linux" ]] || fail "mail capture is only supported on Linux"
+}
+
+load_versions() {
+    local versions_file="${CONFIG_DIR}/versions.env"
+    [[ -r "${versions_file}" ]] || fail "missing pinned versions file: ${versions_file}"
+
+    # shellcheck disable=SC1090
+    source "${versions_file}"
+
+    [[ -n "${MAILPIT_VERSION:-}" ]] || fail "MAILPIT_VERSION is not pinned"
+    [[ -n "${MAILTRAP_LOCAL_VERSION:-}" ]] || fail "MAILTRAP_LOCAL_VERSION is not pinned"
+
+    [[ "${MAILPIT_VERSION}" != "latest" ]] || fail "MAILPIT_VERSION must be pinned, not 'latest'"
+    [[ "${MAILTRAP_LOCAL_VERSION}" != "latest" ]] || fail "MAILTRAP_LOCAL_VERSION must be pinned, not 'latest'"
+
+    [[ "${MAILPIT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+        || fail "MAILPIT_VERSION is not a valid semantic version: ${MAILPIT_VERSION}"
+    [[ "${MAILTRAP_LOCAL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+        || fail "MAILTRAP_LOCAL_VERSION is not a valid semantic version: ${MAILTRAP_LOCAL_VERSION}"
+}
+
+mailpit_archive() {
+    printf 'mailpit-linux-%s.tar.gz\n' "$1"
+}
+
+mailtrap_archive() {
+    printf 'mailtrap-local_%s_linux_%s.tar.gz\n' "${MAILTRAP_LOCAL_VERSION}" "$1"
+}
+
+expected_checksum() {
+    # expected_checksum <archive-name>: look up the pinned digest in SHA256SUMS.
+    awk -v archive="$1" '$2 == archive { print $1 }' "${CHECKSUMS_FILE}"
+}
+
+# --- Validation (side-effect free) -----------------------------------------
+
+validate_config() {
+    local arch="$1"
+
+    local required=(
+        "${CONFIG_DIR}/versions.env"
+        "${CONFIG_DIR}/SHA256SUMS"
+        "${CONFIG_DIR}/mailpit.env"
+        "${CONFIG_DIR}/mailpit-relay.yml"
+        "${CONFIG_DIR}/mailtrap-local.yml"
+        "${SYSTEMD_SRC}/rateguru-mailpit.service"
+        "${SYSTEMD_SRC}/rateguru-mailtrap-local.service"
+        "${NGINX_SRC}/${NGINX_MAILPIT_NAME}"
+        "${NGINX_SRC}/${NGINX_MAILTRAP_NAME}"
+    )
+
+    local path
+    for path in "${required[@]}"; do
+        [[ -r "${path}" ]] || fail "missing required committed file: ${path}"
+    done
+
+    # Every listener must remain loopback-only. Mailpit's own binds live in its
+    # env file; its mirror relay TARGET lives in mailpit-relay.yml; Mailtrap
+    # Local's binds are CLI flags in its systemd unit (its YAML holds only the
+    # retention cap, no listener keys).
+    local mailpit_env="${CONFIG_DIR}/mailpit.env"
+    grep -Eq '^MP_SMTP_BIND_ADDR=127\.0\.0\.1:1025$' "${mailpit_env}" \
+        || fail "mailpit.env does not bind SMTP to loopback 127.0.0.1:1025"
+    grep -Eq '^MP_UI_BIND_ADDR=127\.0\.0\.1:8025$' "${mailpit_env}" \
+        || fail "mailpit.env does not bind HTTP to loopback 127.0.0.1:8025"
+    grep -Eq "^MP_SMTP_RELAY_CONFIG=${YML_MAILPIT_RELAY//./\\.}$" "${mailpit_env}" \
+        || fail "mailpit.env does not reference the relay config ${YML_MAILPIT_RELAY}"
+
+    local mailpit_relay="${CONFIG_DIR}/mailpit-relay.yml"
+    grep -Eq '^host:[[:space:]]*127\.0\.0\.1$' "${mailpit_relay}" \
+        || fail "mailpit-relay.yml relay host is not loopback 127.0.0.1"
+    grep -Eq '^port:[[:space:]]*3535$' "${mailpit_relay}" \
+        || fail "mailpit-relay.yml relay port is not 3535"
+
+    local mailtrap_unit="${SYSTEMD_SRC}/rateguru-mailtrap-local.service"
+    grep -Eq -- '--smtp-listen 127\.0\.0\.1:3535' "${mailtrap_unit}" \
+        || fail "mailtrap-local unit does not bind SMTP to loopback 127.0.0.1:3535"
+    grep -Eq -- '--http-listen 127\.0\.0\.1:3550' "${mailtrap_unit}" \
+        || fail "mailtrap-local unit does not bind HTTP/API to loopback 127.0.0.1:3550"
+
+    log "committed configuration is present and loopback-bound"
+}
+
+validate_checksums() {
+    local arch="$1"
+    local mp_archive mt_archive mp_sum mt_sum
+
+    [[ -r "${CHECKSUMS_FILE}" ]] || fail "missing checksum file: ${CHECKSUMS_FILE}"
+
+    mp_archive="$(mailpit_archive "${arch}")"
+    mt_archive="$(mailtrap_archive "${arch}")"
+
+    mp_sum="$(expected_checksum "${mp_archive}")"
+    mt_sum="$(expected_checksum "${mt_archive}")"
+
+    [[ "${mp_sum}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "no valid SHA-256 pinned for ${mp_archive} in ${CHECKSUMS_FILE}"
+    [[ "${mt_sum}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "no valid SHA-256 pinned for ${mt_archive} in ${CHECKSUMS_FILE}"
+
+    log "pinned checksums present for ${mp_archive} and ${mt_archive}"
+}
+
+# --- Download + verify ------------------------------------------------------
+
+download() {
+    # download <url> <dest>
+    local url="$1" dest="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl --fail --location --silent --show-error --max-time 120 --output "${dest}" "${url}"
+    elif command -v wget >/dev/null 2>&1; then
+        wget --quiet --timeout=120 --output-document="${dest}" "${url}"
+    else
+        fail "neither curl nor wget is available to download ${url}"
+    fi
+}
+
+verify_archive() {
+    # verify_archive <archive-path> <expected-sha256>
+    local archive="$1" expected="$2" actual
+
+    actual="$(sha256sum "${archive}" | awk '{ print $1 }')"
+
+    [[ "${actual}" == "${expected}" ]] \
+        || fail "checksum mismatch for ${archive}: expected ${expected}, got ${actual}"
+}
+
+# fetch_binary <name> <url> <archive> <binary-in-archive> <staged-out>
+fetch_binary() {
+    local name="$1" url="$2" archive="$3" inner="$4" staged_out="$5"
+    local expected work
+
+    expected="$(expected_checksum "${archive}")"
+    [[ "${expected}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "no pinned checksum for ${archive}"
+
+    work="$(mktemp -d)"
+    STAGING_DIRS+=("${work}")
+
+    log "downloading ${name} ${archive}"
+    download "${url}" "${work}/${archive}"
+
+    log "verifying ${name} checksum"
+    verify_archive "${work}/${archive}" "${expected}"
+
+    tar -xzf "${work}/${archive}" -C "${work}"
+    [[ -f "${work}/${inner}" ]] || fail "archive ${archive} does not contain ${inner}"
+
+    install -m 0755 "${work}/${inner}" "${staged_out}"
+}
+
+# --- Apply-mode installation with rollback ---------------------------------
+
+BACKUP_DIR=""
+STAGING_DIRS=()
+ROLLBACK_RESTORE=()   # files that existed before and were backed up
+ROLLBACK_REMOVE=()    # files that did not exist before (remove on rollback)
+APPLY_COMMITTED=false
+
+# Change flags — drive daemon-reload and restart-only-changed.
+CHANGED_MAILPIT_BIN=false
+CHANGED_MAILTRAP_BIN=false
+CHANGED_MAILPIT_SVC=false
+CHANGED_MAILTRAP_SVC=false
+CHANGED_UNIT=false
+CHANGED_NGINX=false
+
+files_differ() {
+    # files_differ <src> <dst> -> true (0) if dst missing or content differs
+    local src="$1" dst="$2"
+    [[ -f "${dst}" ]] || return 0
+    ! cmp -s "${src}" "${dst}"
+}
+
+record_target() {
+    # record_target <dst>: snapshot for rollback before it is written
+    local dst="$1"
+    if [[ -e "${dst}" || -L "${dst}" ]]; then
+        local backup_path="${BACKUP_DIR}${dst}"
+        install -d -m 0700 "$(dirname "${backup_path}")"
+        cp -a "${dst}" "${backup_path}"
+        ROLLBACK_RESTORE+=("${dst}")
+    else
+        ROLLBACK_REMOVE+=("${dst}")
+    fi
+}
+
+install_file() {
+    # install_file <src> <dst> <mode>
+    local src="$1" dst="$2" mode="$3"
+    record_target "${dst}"
+    install -o root -g root -m "${mode}" "${src}" "${dst}"
+}
+
+install_binary_atomic() {
+    # install_binary_atomic <staged-src> <dst>
+    local src="$1" dst="$2" tmp
+    record_target "${dst}"
+    tmp="${dst}.tmp.$$"
+    install -o root -g root -m 0755 "${src}" "${tmp}"
+    mv -f "${tmp}" "${dst}"
+}
+
+ensure_symlink() {
+    # ensure_symlink <target> <link>
+    local target="$1" link="$2"
+    if [[ -L "${link}" && "$(readlink "${link}")" == "${target}" ]]; then
+        return 0
+    fi
+    record_target "${link}"
+    ln -sfn "${target}" "${link}"
+    CHANGED_NGINX=true
+}
+
+rollback() {
+    log "rolling back installed files"
+
+    local dst
+    for dst in "${ROLLBACK_REMOVE[@]:-}"; do
+        [[ -n "${dst}" ]] || continue
+        rm -f "${dst}"
+    done
+
+    for dst in "${ROLLBACK_RESTORE[@]:-}"; do
+        [[ -n "${dst}" ]] || continue
+        local backup_path="${BACKUP_DIR}${dst}"
+        if [[ -e "${backup_path}" || -L "${backup_path}" ]]; then
+            rm -rf "${dst}"
+            cp -a "${backup_path}" "${dst}"
+        fi
+    done
+
+    if [[ "${CHANGED_UNIT}" == true ]]; then
+        systemctl daemon-reload || true
+    fi
+
+    log "rollback complete; backups remain in ${BACKUP_DIR}"
+}
+
+cleanup_staging() {
+    local dir
+    for dir in "${STAGING_DIRS[@]:-}"; do
+        [[ -n "${dir}" && -d "${dir}" ]] && rm -rf "${dir}"
+    done
+}
+
+on_apply_error() {
+    local code=$?
+    trap - ERR EXIT
+    log "apply failed (exit ${code})"
+    if [[ "${APPLY_COMMITTED}" == false ]]; then
+        rollback
+    fi
+    cleanup_staging
+    exit "${code}"
+}
+
+create_user() {
+    # create_user <name> <home>
+    local name="$1" home="$2"
+    if id "${name}" >/dev/null 2>&1; then
+        return 0
+    fi
+    log "creating system user ${name}"
+    useradd \
+        --system \
+        --no-create-home \
+        --home-dir "${home}" \
+        --shell /usr/sbin/nologin \
+        "${name}"
+}
+
+# --- Modes ------------------------------------------------------------------
+
+run_check() {
+    local arch
+    require_linux
+    arch="$(detect_arch)"
+    load_versions
+
+    log "mode: check (read-only)"
+    log "architecture: linux/${arch}"
+    log "pinned versions: mailpit=${MAILPIT_VERSION}, mailtrap-local=${MAILTRAP_LOCAL_VERSION}"
+
+    validate_config "${arch}"
+    validate_checksums "${arch}"
+
+    log "check passed: configuration, versions and checksums are valid"
+}
+
+run_apply() {
+    local arch
+    require_root
+    require_linux
+    arch="$(detect_arch)"
+    load_versions
+
+    log "mode: apply"
+    log "architecture: linux/${arch}"
+    log "pinned versions: mailpit=${MAILPIT_VERSION}, mailtrap-local=${MAILTRAP_LOCAL_VERSION}"
+
+    validate_config "${arch}"
+    validate_checksums "${arch}"
+
+    for tool in tar sha256sum install useradd systemctl nginx; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+
+    BACKUP_DIR="${BACKUP_ROOT}/$(date -u '+%Y%m%dT%H%M%SZ')"
+    install -d -m 0700 "${BACKUP_ROOT}"
+    install -d -m 0700 "${BACKUP_DIR}"
+    log "backups for this run: ${BACKUP_DIR}"
+
+    trap on_apply_error ERR EXIT
+
+    # 1. Users (idempotent).
+    create_user "${USER_MAILPIT}" "${STATE_MAILPIT}"
+    create_user "${USER_MAILTRAP}" "${STATE_MAILTRAP}"
+
+    # 2. Directories (idempotent). Shared parent stays root-owned; each state
+    #    dir is writable only by its own service user.
+    install -d -o root -g root -m 0755 "${ETC_DIR}"
+    install -d -o root -g root -m 0755 "${STATE_ROOT}"
+    install -d -o "${USER_MAILPIT}" -g "${USER_MAILPIT}" -m 0750 "${STATE_MAILPIT}"
+    install -d -o "${USER_MAILTRAP}" -g "${USER_MAILTRAP}" -m 0750 "${STATE_MAILTRAP}"
+
+    # 3. Download + checksum-verify + stage binaries into a temp workspace.
+    local stage_dir
+    stage_dir="$(mktemp -d)"
+    STAGING_DIRS+=("${stage_dir}")
+
+    fetch_binary \
+        "mailpit" \
+        "https://github.com/axllent/mailpit/releases/download/v${MAILPIT_VERSION}/$(mailpit_archive "${arch}")" \
+        "$(mailpit_archive "${arch}")" \
+        "mailpit" \
+        "${stage_dir}/mailpit"
+
+    fetch_binary \
+        "mailtrap-local" \
+        "https://github.com/mailtrap/mailtrap-local/releases/download/v${MAILTRAP_LOCAL_VERSION}/$(mailtrap_archive "${arch}")" \
+        "$(mailtrap_archive "${arch}")" \
+        "mailtrap-local" \
+        "${stage_dir}/mailtrap-local"
+
+    # 4. Compute what changed (so we restart only changed services).
+    files_differ "${stage_dir}/mailpit" "${BIN_MAILPIT}" && CHANGED_MAILPIT_BIN=true
+    files_differ "${stage_dir}/mailtrap-local" "${BIN_MAILTRAP}" && CHANGED_MAILTRAP_BIN=true
+
+    local mailpit_unit_changed=false mailtrap_unit_changed=false
+    files_differ "${SYSTEMD_SRC}/rateguru-mailpit.service" "${UNIT_MAILPIT}" && mailpit_unit_changed=true
+    files_differ "${SYSTEMD_SRC}/rateguru-mailtrap-local.service" "${UNIT_MAILTRAP}" && mailtrap_unit_changed=true
+
+    local mailpit_env_changed=false mailpit_relay_changed=false mailtrap_yml_changed=false
+    files_differ "${CONFIG_DIR}/mailpit.env" "${ENV_MAILPIT}" && mailpit_env_changed=true
+    files_differ "${CONFIG_DIR}/mailpit-relay.yml" "${YML_MAILPIT_RELAY}" && mailpit_relay_changed=true
+    files_differ "${CONFIG_DIR}/mailtrap-local.yml" "${YML_MAILTRAP}" && mailtrap_yml_changed=true
+
+    files_differ "${NGINX_SRC}/${NGINX_MAILPIT_NAME}" "${NGINX_AVAILABLE}/${NGINX_MAILPIT_NAME}" && CHANGED_NGINX=true
+    files_differ "${NGINX_SRC}/${NGINX_MAILTRAP_NAME}" "${NGINX_AVAILABLE}/${NGINX_MAILTRAP_NAME}" && CHANGED_NGINX=true
+
+    # 5. Install binaries atomically.
+    [[ "${CHANGED_MAILPIT_BIN}" == true ]] && install_binary_atomic "${stage_dir}/mailpit" "${BIN_MAILPIT}"
+    [[ "${CHANGED_MAILTRAP_BIN}" == true ]] && install_binary_atomic "${stage_dir}/mailtrap-local" "${BIN_MAILTRAP}"
+
+    # 6. Install environment/config files.
+    [[ "${mailpit_env_changed}" == true ]] && install_file "${CONFIG_DIR}/mailpit.env" "${ENV_MAILPIT}" 0644
+    [[ "${mailpit_relay_changed}" == true ]] && install_file "${CONFIG_DIR}/mailpit-relay.yml" "${YML_MAILPIT_RELAY}" 0644
+    [[ "${mailtrap_yml_changed}" == true ]] && install_file "${CONFIG_DIR}/mailtrap-local.yml" "${YML_MAILTRAP}" 0644
+    files_differ "${CONFIG_DIR}/versions.env" "${VERSIONS_DST}" \
+        && install_file "${CONFIG_DIR}/versions.env" "${VERSIONS_DST}" 0644
+
+    # 7. Install systemd units.
+    if [[ "${mailpit_unit_changed}" == true ]]; then
+        install_file "${SYSTEMD_SRC}/rateguru-mailpit.service" "${UNIT_MAILPIT}" 0644
+        CHANGED_UNIT=true
+    fi
+    if [[ "${mailtrap_unit_changed}" == true ]]; then
+        install_file "${SYSTEMD_SRC}/rateguru-mailtrap-local.service" "${UNIT_MAILTRAP}" 0644
+        CHANGED_UNIT=true
+    fi
+
+    # 8. Install Nginx vhosts and enable them.
+    install -d -o root -g root -m 0755 "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
+    [[ "${CHANGED_NGINX}" == true ]] && install_file "${NGINX_SRC}/${NGINX_MAILPIT_NAME}" "${NGINX_AVAILABLE}/${NGINX_MAILPIT_NAME}" 0644
+    [[ "${CHANGED_NGINX}" == true ]] && install_file "${NGINX_SRC}/${NGINX_MAILTRAP_NAME}" "${NGINX_AVAILABLE}/${NGINX_MAILTRAP_NAME}" 0644
+    ensure_symlink "${NGINX_AVAILABLE}/${NGINX_MAILPIT_NAME}" "${NGINX_ENABLED}/${NGINX_MAILPIT_NAME}"
+    ensure_symlink "${NGINX_AVAILABLE}/${NGINX_MAILTRAP_NAME}" "${NGINX_ENABLED}/${NGINX_MAILTRAP_NAME}"
+
+    # 9. Reload systemd only if a unit changed, then verify unit syntax.
+    if [[ "${CHANGED_UNIT}" == true ]]; then
+        log "reloading systemd"
+        systemctl daemon-reload
+    fi
+    log "verifying systemd units"
+    systemd-analyze verify "${UNIT_MAILPIT}" "${UNIT_MAILTRAP}"
+
+    # 10. Validate Nginx before touching the running server.
+    log "validating nginx configuration"
+    nginx -t
+
+    # From here the on-disk state is consistent; do not auto-rollback files.
+    APPLY_COMMITTED=true
+
+    CHANGED_MAILPIT_SVC=false
+    CHANGED_MAILTRAP_SVC=false
+    { [[ "${CHANGED_MAILPIT_BIN}" == true ]] || [[ "${mailpit_env_changed}" == true ]] || [[ "${mailpit_relay_changed}" == true ]] || [[ "${mailpit_unit_changed}" == true ]]; } && CHANGED_MAILPIT_SVC=true
+    { [[ "${CHANGED_MAILTRAP_BIN}" == true ]] || [[ "${mailtrap_yml_changed}" == true ]] || [[ "${mailtrap_unit_changed}" == true ]]; } && CHANGED_MAILTRAP_SVC=true
+
+    # 11. Enable services (idempotent) and restart only changed ones. Start the
+    #     mirror first so Mailpit can relay to it immediately.
+    systemctl enable rateguru-mailtrap-local.service >/dev/null 2>&1 || true
+    systemctl enable rateguru-mailpit.service >/dev/null 2>&1 || true
+
+    if [[ "${CHANGED_MAILTRAP_SVC}" == true ]] || ! systemctl is-active --quiet rateguru-mailtrap-local.service; then
+        log "restarting rateguru-mailtrap-local.service"
+        systemctl restart rateguru-mailtrap-local.service
+    fi
+    if [[ "${CHANGED_MAILPIT_SVC}" == true ]] || ! systemctl is-active --quiet rateguru-mailpit.service; then
+        log "restarting rateguru-mailpit.service"
+        systemctl restart rateguru-mailpit.service
+    fi
+
+    # 12. Reload Nginx if its configuration changed.
+    if [[ "${CHANGED_NGINX}" == true ]]; then
+        log "reloading nginx"
+        systemctl reload nginx
+    fi
+
+    trap - ERR EXIT
+    cleanup_staging
+
+    log "apply complete"
+    log "  mailpit     : $(systemctl is-active rateguru-mailpit.service 2>/dev/null || echo unknown)"
+    log "  mailtrap    : $(systemctl is-active rateguru-mailtrap-local.service 2>/dev/null || echo unknown)"
+    log "  backups     : ${BACKUP_DIR}"
+    log "Run 'verify-mail-capture' to confirm capture and mirroring."
+}
+
+case "${MODE}" in
+    check)
+        run_check
+        ;;
+    apply)
+        run_apply
+        ;;
+esac

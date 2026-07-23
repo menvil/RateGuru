@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+#
+# status-mail-capture — read-only overview of the staging mail-capture slice.
+#
+# Shows installed versions, systemd status, listener status, persistent
+# storage sizes, message/database status, Nginx configuration presence, and
+# recent journald errors. It never modifies anything.
+
+set -Eeuo pipefail
+
+ETC_DIR="/etc/rateguru/mail-capture"
+VERSIONS_FILE="${ETC_DIR}/versions.env"
+BIN_MAILPIT="/usr/local/bin/rateguru-mailpit"
+BIN_MAILTRAP="/usr/local/bin/rateguru-mailtrap-local"
+STATE_MAILPIT="/var/lib/rateguru-mail-capture/mailpit"
+STATE_MAILTRAP="/var/lib/rateguru-mail-capture/mailtrap-local"
+NGINX_MAILPIT="/etc/nginx/sites-available/rateguru-mailpit-staging"
+NGINX_MAILTRAP="/etc/nginx/sites-available/rateguru-mailtrap-local-staging"
+
+MAILPIT_API="http://127.0.0.1:8025"
+MAILTRAP_API="http://127.0.0.1:3550"
+
+section() {
+    printf '\n%s\n' "$1"
+    printf '%s\n' "----------------------------------------"
+}
+
+kv() { printf '%-22s %s\n' "$1" "$2"; }
+
+svc_line() {
+    # svc_line <label> <unit>
+    local label="$1" unit="$2" active enabled
+    active="$(systemctl is-active "${unit}" 2>/dev/null || true)"
+    enabled="$(systemctl is-enabled "${unit}" 2>/dev/null || true)"
+    kv "${label}:" "active=${active:-unknown} enabled=${enabled:-unknown}"
+}
+
+listener_line() {
+    # listener_line <label> <port>
+    local label="$1" port="$2" status="down"
+    if command -v ss >/dev/null 2>&1; then
+        if ss -ltnH "sport = :${port}" 2>/dev/null | grep -qE "(127\.0\.0\.1|\[::1\]):${port}\b"; then
+            status="listening (loopback)"
+        fi
+    elif (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+        exec 3>&- 3<&-
+        status="listening"
+    fi
+    kv "${label} (:${port}):" "${status}"
+}
+
+api_summary() {
+    # api_summary <base> <count-expr>
+    local base="$1"
+    curl -fsS --noproxy '*' --max-time 5 "${base}/api/v1/messages" 2>/dev/null || printf ''
+}
+
+echo "========================================"
+echo "RateGuru staging mail capture status"
+echo "========================================"
+kv "Checked at:" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+section "Installed versions"
+if [[ -r "${VERSIONS_FILE}" ]]; then
+    # shellcheck disable=SC1090
+    ( source "${VERSIONS_FILE}"; \
+        kv "Pinned Mailpit:" "${MAILPIT_VERSION:-unknown}"; \
+        kv "Pinned Mailtrap Local:" "${MAILTRAP_LOCAL_VERSION:-unknown}" )
+else
+    kv "Pinned versions:" "not installed (${VERSIONS_FILE} missing)"
+fi
+if [[ -x "${BIN_MAILPIT}" ]]; then
+    kv "Mailpit binary:" "$("${BIN_MAILPIT}" version 2>/dev/null | head -n1 || echo present)"
+else
+    kv "Mailpit binary:" "not installed"
+fi
+if [[ -x "${BIN_MAILTRAP}" ]]; then
+    kv "Mailtrap binary:" "$("${BIN_MAILTRAP}" --version 2>/dev/null | head -n1 || echo present)"
+else
+    kv "Mailtrap binary:" "not installed"
+fi
+
+section "systemd services"
+svc_line "Mailpit (canonical)" "rateguru-mailpit.service"
+svc_line "Mailtrap Local (mirror)" "rateguru-mailtrap-local.service"
+
+section "Loopback listeners"
+listener_line "Mailpit SMTP" "1025"
+listener_line "Mailpit HTTP/API" "8025"
+listener_line "Mailtrap SMTP" "3535"
+listener_line "Mailtrap HTTP/API" "3550"
+
+section "Persistent storage"
+for dir in "${STATE_MAILPIT}" "${STATE_MAILTRAP}"; do
+    if [[ -d "${dir}" ]]; then
+        kv "$(basename "${dir}"):" "$(du -sh "${dir}" 2>/dev/null | awk '{print $1}') at ${dir}"
+    else
+        kv "$(basename "${dir}"):" "absent (${dir})"
+    fi
+done
+
+section "Message / database status"
+if command -v jq >/dev/null 2>&1; then
+    MP_JSON="$(api_summary "${MAILPIT_API}")"
+    if [[ -n "${MP_JSON}" ]]; then
+        kv "Mailpit messages:" "$(jq -r '(.messages_count // .total // 0)' <<<"${MP_JSON}" 2>/dev/null || echo unknown)"
+    else
+        kv "Mailpit messages:" "API unavailable"
+    fi
+    MT_JSON="$(api_summary "${MAILTRAP_API}")"
+    if [[ -n "${MT_JSON}" ]]; then
+        kv "Mailtrap messages:" "$(jq -r '(.messages_count // .total // 0)' <<<"${MT_JSON}" 2>/dev/null || echo unknown)"
+    else
+        kv "Mailtrap messages:" "API unavailable"
+    fi
+else
+    kv "Message counts:" "jq not available"
+fi
+
+section "Nginx configuration"
+[[ -f "${NGINX_MAILPIT}" ]]  && kv "Mailpit vhost:"  "present" || kv "Mailpit vhost:"  "absent"
+[[ -f "${NGINX_MAILTRAP}" ]] && kv "Mailtrap vhost:" "present" || kv "Mailtrap vhost:" "absent"
+
+section "Recent journald errors"
+if command -v journalctl >/dev/null 2>&1; then
+    journalctl \
+        -u rateguru-mailpit.service \
+        -u rateguru-mailtrap-local.service \
+        -p err --no-pager --since '-24h' 2>/dev/null \
+        | tail -n 20 || echo "no recent errors"
+else
+    echo "journalctl not available"
+fi
+
+echo
