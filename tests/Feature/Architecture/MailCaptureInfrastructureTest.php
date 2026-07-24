@@ -222,19 +222,34 @@ it('makes Mailpit want, but not require, Mailtrap Local', function () {
 });
 
 it('publishes both web UIs on environment-owned staging hostnames', function () {
-    // The slice belongs to the shared staging environment, so the hostnames and
-    // their certificates carry no project segment.
+    // The slice belongs to the shared staging environment, so the hostnames
+    // carry no project segment.
     $hosts = [
         'mailpit-staging' => 'mailpit.staging.myprojects.pp.ua',
         'mailtrap-local-staging' => 'mailtrap.staging.myprojects.pp.ua',
     ];
 
     foreach ($hosts as $vhost => $host) {
-        expect(mailCaptureSource('config/nginx/'.$vhost))
-            ->toContain('server_name '.$host.';')
-            ->toContain('ssl_certificate /etc/letsencrypt/live/'.$host.'/fullchain.pem;')
-            ->toContain('ssl_certificate_key /etc/letsencrypt/live/'.$host.'/privkey.pem;');
+        expect(mailCaptureSource('config/nginx/'.$vhost))->toContain('server_name '.$host.';');
     }
+});
+
+it('serves both web UIs from one shared SAN certificate', function () {
+    // Both hostnames are one operational service and share a single Certbot
+    // lineage; per-hostname certificate directories must not come back.
+    foreach (['mailpit-staging', 'mailtrap-local-staging'] as $vhost) {
+        expect(mailCaptureSource('config/nginx/'.$vhost))
+            ->toContain('ssl_certificate /etc/letsencrypt/live/staging-mail-capture/fullchain.pem;')
+            ->toContain('ssl_certificate_key /etc/letsencrypt/live/staging-mail-capture/privkey.pem;')
+            ->not->toContain('/etc/letsencrypt/live/mailpit.staging.myprojects.pp.ua/')
+            ->not->toContain('/etc/letsencrypt/live/mailtrap.staging.myprojects.pp.ua/');
+    }
+
+    // The runbook must provision exactly that lineage, covering both names.
+    expect(mailCaptureSource('runbooks/mail-capture.md'))
+        ->toContain('--cert-name staging-mail-capture')
+        ->toContain('-d mailpit.staging.myprojects.pp.ua')
+        ->toContain('-d mailtrap.staging.myprojects.pp.ua');
 });
 
 it('protects both web UIs with the shared staging Basic Auth', function () {

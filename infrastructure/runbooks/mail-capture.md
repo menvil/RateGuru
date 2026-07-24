@@ -61,22 +61,28 @@ Two DNS records must point at the staging host before requesting certificates:
 - `mailpit.staging.myprojects.pp.ua`
 - `mailtrap.staging.myprojects.pp.ua`
 
-Certificates are Certbot-managed, matching the primary staging vhost. The
-committed vhosts are HTTPS-only and reference
-`/etc/letsencrypt/live/<host>/fullchain.pem` and `privkey.pem`, so the
-certificates must exist **before** `install-mail-capture --apply` runs
+Both hostnames are one operational service, so they share **one** Certbot SAN
+certificate under the lineage name `staging-mail-capture` — not two independent
+certificate directories. Both committed vhosts are HTTPS-only and reference
+`/etc/letsencrypt/live/staging-mail-capture/fullchain.pem` and `privkey.pem`, so
+the certificate must exist **before** `install-mail-capture --apply` runs
 `nginx -t` (otherwise the config test fails and apply rolls back).
 
-Provision the certificates first, then apply:
+Provision the certificate first, then apply:
 
 ```bash
-# Obtain certs before the HTTPS vhosts are active (standalone briefly binds :80).
-sudo certbot certonly --standalone \
+# Obtain the cert before the HTTPS vhosts are active (standalone briefly binds :80).
+sudo certbot certonly \
+    --standalone \
+    --cert-name staging-mail-capture \
     -d mailpit.staging.myprojects.pp.ua \
     -d mailtrap.staging.myprojects.pp.ua
 
 sudo infrastructure/scripts/install-mail-capture --apply
 ```
+
+`--cert-name` pins the lineage directory, so it stays `staging-mail-capture`
+regardless of which hostname is listed first and across later `-d` changes.
 
 `options-ssl-nginx.conf` and `ssl-dhparams.pem` are provided by the existing
 Certbot install (same as the primary staging vhost). Renewals are handled by

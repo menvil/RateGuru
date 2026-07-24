@@ -37,9 +37,11 @@ server {
 
     client_max_body_size 32m;
 
-    # Certbot-managed certificate (same layout as the primary staging vhost).
-    ssl_certificate /etc/letsencrypt/live/mailpit.staging.myprojects.pp.ua/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/mailpit.staging.myprojects.pp.ua/privkey.pem;
+    # Certbot-managed SAN certificate shared with the Mailtrap Local vhost: both
+    # hostnames are one operational service, so they share one lineage
+    # (certbot --cert-name staging-mail-capture).
+    ssl_certificate /etc/letsencrypt/live/staging-mail-capture/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/staging-mail-capture/privkey.pem;
 
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
