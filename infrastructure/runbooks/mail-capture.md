@@ -239,9 +239,21 @@ sudo systemctl stop staging-mailtrap-local.service
 sudo systemctl start staging-mailtrap-local.service   # mirroring resumes
 ```
 
-To keep it stopped across reboots: `sudo systemctl disable --now
-staging-mailtrap-local.service`. Mailpit is unaffected because it only
-`Wants=` the mirror.
+To keep it stopped, mask it. `disable` is not enough: Mailpit `Wants=` the
+mirror, so systemd starts the mirror again on the next Mailpit start or reboot
+even with its `[Install]` symlinks removed.
+
+```bash
+sudo systemctl mask --now staging-mailtrap-local.service
+
+# Bring the mirror back:
+sudo systemctl unmask staging-mailtrap-local.service
+sudo systemctl enable --now staging-mailtrap-local.service
+```
+
+Mailpit is unaffected either way, because it only `Wants=` the mirror: with the
+mirror masked, relay attempts fail, are logged to journald, and are dropped —
+the canonical local copy is still stored.
 
 ## Persistent storage
 
