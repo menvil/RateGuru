@@ -1,8 +1,8 @@
-# Mailtrap Local configuration for the RateGuru staging mail-capture slice.
+# Mailtrap Local configuration for the shared staging mail-capture slice.
 #
 # This file is intentionally committed. It contains no secrets. It is installed
-# to /etc/rateguru/mail-capture/mailtrap-local.yml and referenced by the
-# rateguru-mailtrap-local.service unit via MAILTRAP_LOCAL_CONFIG=.
+# to /etc/staging-mail-capture/mailtrap-local.yml and referenced by the
+# staging-mailtrap-local.service unit via MAILTRAP_LOCAL_CONFIG=.
 #
 # Mailtrap Local is the SECONDARY, experimental mirror. It receives a
 # best-effort copy relayed by Mailpit. It is never a hard dependency of

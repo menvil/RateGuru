@@ -75,10 +75,10 @@ it('ships every required mail-capture file', function () {
         'config/mail-capture/mailpit-relay.yml',
         'config/mail-capture/mailtrap-local.yml',
         'config/mail-capture/SHA256SUMS',
-        'config/systemd/rateguru-mailpit.service',
-        'config/systemd/rateguru-mailtrap-local.service',
-        'config/nginx/rateguru-mailpit-staging',
-        'config/nginx/rateguru-mailtrap-local-staging',
+        'config/systemd/staging-mailpit.service',
+        'config/systemd/staging-mailtrap-local.service',
+        'config/nginx/mailpit-staging',
+        'config/nginx/mailtrap-local-staging',
         'scripts/install-mail-capture',
         'scripts/verify-mail-capture',
         'scripts/status-mail-capture',
@@ -125,7 +125,7 @@ it('commits verifiable SHA-256 checksums for both pinned releases', function () 
 
 it('binds every capture listener to loopback only', function () {
     $mailpit = mailCaptureSource('config/mail-capture/mailpit.env');
-    $mailtrapUnit = mailCaptureSource('config/systemd/rateguru-mailtrap-local.service');
+    $mailtrapUnit = mailCaptureSource('config/systemd/staging-mailtrap-local.service');
 
     expect($mailpit)
         ->toContain('MP_SMTP_BIND_ADDR=127.0.0.1:1025')
@@ -142,7 +142,7 @@ it('configures a best-effort relay-all mirror to Mailtrap Local', function () {
     $env = mailCaptureEnvValues('config/mail-capture/mailpit.env');
 
     expect($env['MP_SMTP_RELAY_ALL'])->toBe('true');
-    expect($env['MP_SMTP_RELAY_CONFIG'])->toBe('/etc/rateguru/mail-capture/mailpit-relay.yml');
+    expect($env['MP_SMTP_RELAY_CONFIG'])->toBe('/etc/staging-mail-capture/mailpit-relay.yml');
     // The relay target moved out of the env file.
     expect($env)
         ->not->toHaveKey('MP_SMTP_RELAY_HOST')
@@ -187,8 +187,8 @@ it('hardens both systemd units', function () {
     ];
 
     $readWritePaths = [
-        'rateguru-mailpit' => '/var/lib/rateguru-mail-capture/mailpit',
-        'rateguru-mailtrap-local' => '/var/lib/rateguru-mail-capture/mailtrap-local',
+        'staging-mailpit' => '/var/lib/staging-mail-capture/mailpit',
+        'staging-mailtrap-local' => '/var/lib/staging-mail-capture/mailtrap-local',
     ];
 
     foreach ($readWritePaths as $unit => $stateDir) {
@@ -207,22 +207,38 @@ it('hardens both systemd units', function () {
 });
 
 it('makes Mailpit want, but not require, Mailtrap Local', function () {
-    $mailpit = mailCaptureSource('config/systemd/rateguru-mailpit.service');
+    $mailpit = mailCaptureSource('config/systemd/staging-mailpit.service');
 
     expect($mailpit)
-        ->toContain('Wants=network-online.target rateguru-mailtrap-local.service')
-        ->toContain('After=network-online.target rateguru-mailtrap-local.service')
+        ->toContain('Wants=network-online.target staging-mailtrap-local.service')
+        ->toContain('After=network-online.target staging-mailtrap-local.service')
         // No Requires= directive (matching the start of a line, not the comment
         // that explains why we deliberately avoid it).
         ->not->toMatch('/^Requires=/m');
 
     // The mirror must never depend on Mailpit.
-    expect(mailCaptureSource('config/systemd/rateguru-mailtrap-local.service'))
-        ->not->toContain('rateguru-mailpit.service');
+    expect(mailCaptureSource('config/systemd/staging-mailtrap-local.service'))
+        ->not->toContain('staging-mailpit.service');
+});
+
+it('publishes both web UIs on environment-owned staging hostnames', function () {
+    // The slice belongs to the shared staging environment, so the hostnames and
+    // their certificates carry no project segment.
+    $hosts = [
+        'mailpit-staging' => 'mailpit.staging.myprojects.pp.ua',
+        'mailtrap-local-staging' => 'mailtrap.staging.myprojects.pp.ua',
+    ];
+
+    foreach ($hosts as $vhost => $host) {
+        expect(mailCaptureSource('config/nginx/'.$vhost))
+            ->toContain('server_name '.$host.';')
+            ->toContain('ssl_certificate /etc/letsencrypt/live/'.$host.'/fullchain.pem;')
+            ->toContain('ssl_certificate_key /etc/letsencrypt/live/'.$host.'/privkey.pem;');
+    }
 });
 
 it('protects both web UIs with the shared staging Basic Auth', function () {
-    foreach (['rateguru-mailpit-staging', 'rateguru-mailtrap-local-staging'] as $vhost) {
+    foreach (['mailpit-staging', 'mailtrap-local-staging'] as $vhost) {
         expect(mailCaptureSource('config/nginx/'.$vhost))
             // Active auth_basic directive with a non-empty realm (not commented).
             ->toMatch('/^\s*auth_basic\s+"[^"]+";\s*$/m')
@@ -235,8 +251,8 @@ it('proxies WebSockets to loopback only', function () {
     // Each vhost proxies to its own loopback upstream and uses its own uniquely
     // named connection-upgrade map variable (so the two vhosts never collide).
     $vhosts = [
-        'rateguru-mailpit-staging' => ['http://127.0.0.1:8025', '$mailpit_connection_upgrade'],
-        'rateguru-mailtrap-local-staging' => ['http://127.0.0.1:3550', '$mailtrap_connection_upgrade'],
+        'mailpit-staging' => ['http://127.0.0.1:8025', '$mailpit_connection_upgrade'],
+        'mailtrap-local-staging' => ['http://127.0.0.1:3550', '$mailtrap_connection_upgrade'],
     ];
 
     foreach ($vhosts as $vhost => [$upstream, $connectionVar]) {
@@ -249,7 +265,7 @@ it('proxies WebSockets to loopback only', function () {
 });
 
 it('never exposes an SMTP or raw capture port publicly through Nginx', function () {
-    foreach (['rateguru-mailpit-staging', 'rateguru-mailtrap-local-staging'] as $vhost) {
+    foreach (['mailpit-staging', 'mailtrap-local-staging'] as $vhost) {
         $source = mailCaptureSource('config/nginx/'.$vhost);
 
         // Only 80 and 443 may be listened on.
@@ -309,6 +325,64 @@ it('dispatches --check to a root-free code path', function () {
         ->toMatch('/--check\)\s*\n\s*MODE="check"/')
         ->toContain('require_root')
         ->toContain('run_apply');
+});
+
+it('installs every artefact under environment-owned names', function () {
+    $installer = mailCaptureSource('scripts/install-mail-capture');
+
+    $targets = [
+        'BIN_MAILPIT' => '/usr/local/bin/staging-mailpit',
+        'BIN_MAILTRAP' => '/usr/local/bin/staging-mailtrap-local',
+        'ETC_DIR' => '/etc/staging-mail-capture',
+        'STATE_ROOT' => '/var/lib/staging-mail-capture',
+        'BACKUP_ROOT' => '/var/backups/staging-mail-capture',
+        'USER_MAILPIT' => 'staging-mailpit',
+        'USER_MAILTRAP' => 'staging-mailtrap-local',
+        'NGINX_MAILPIT_NAME' => 'mailpit-staging',
+        'NGINX_MAILTRAP_NAME' => 'mailtrap-local-staging',
+    ];
+
+    foreach ($targets as $variable => $value) {
+        expect($installer)->toContain($variable.'="'.$value.'"');
+    }
+
+    // Unit paths are built from UNIT_DIR, so assert the unit file names.
+    expect($installer)
+        ->toContain('UNIT_MAILPIT="${UNIT_DIR}/staging-mailpit.service"')
+        ->toContain('UNIT_MAILTRAP="${UNIT_DIR}/staging-mailtrap-local.service"');
+});
+
+it('keeps project-scoped names out of the shared staging slice', function () {
+    $paths = [
+        'config/systemd/staging-mailpit.service',
+        'config/systemd/staging-mailtrap-local.service',
+        'config/nginx/mailpit-staging',
+        'config/nginx/mailtrap-local-staging',
+        'config/mail-capture/mailpit.env',
+        'config/mail-capture/mailpit-relay.yml',
+        'config/mail-capture/mailtrap-local.yml',
+        'scripts/install-mail-capture',
+        'scripts/verify-mail-capture',
+        'scripts/status-mail-capture',
+        'runbooks/mail-capture.md',
+    ];
+
+    // Two project-scoped paths are deliberate and pre-existing: the shared
+    // staging htpasswd, and the deployed location of this runbook (the RateGuru
+    // repository is the temporary source of truth). Nothing else may be.
+    $deliberate = [
+        '/etc/nginx/rateguru-staging.htpasswd',
+        '/home/www/rateguru/runbooks/mail-capture.md',
+    ];
+
+    foreach ($paths as $path) {
+        expect(str_replace($deliberate, '', mailCaptureSource($path)))
+            ->not->toContain('rateguru-mailpit')
+            ->not->toContain('rateguru-mailtrap')
+            ->not->toContain('rateguru-mail-capture')
+            ->not->toContain('/etc/rateguru/')
+            ->not->toContain('.rateguru.staging.');
+    }
 });
 
 it('runs installer --check with stubbed commands and mutates nothing', function () {
@@ -384,6 +458,6 @@ it('excludes captured staging mail from disaster-recovery backups', function () 
         ->toBe(1, 'could not locate the INFRA_PATHS allowlist in scripts/backup');
 
     expect($allowlist[1])
-        ->not->toContain('rateguru-mail-capture')
+        ->not->toContain('staging-mail-capture')
         ->not->toContain('var/lib');
 });

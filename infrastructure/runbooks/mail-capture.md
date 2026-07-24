@@ -1,10 +1,17 @@
-# RateGuru staging mail capture
+# Staging mail capture
 
-Loopback-only staging mail capture for RateGuru. Mail sent by the staging
-Laravel app is captured locally and never delivered to real inboxes.
+Loopback-only mail capture for the shared staging environment. Mail sent by any
+staging app on the host is captured locally and never delivered to real
+inboxes.
 
 - **Mailpit** — the canonical capture service.
 - **Mailtrap Local** — a secondary, experimental mirror.
+
+The services are environment-owned, not project-owned: hostnames, systemd
+units, system users and state directories are named `staging-*` / `*.staging.`
+and are shared by every project deployed to the staging host. The committed
+source of truth currently lives in this RateGuru repository under
+`infrastructure/`, and moves out once a second project exists.
 
 This slice adds **no** production SMTP delivery, inbound mail, DKIM/SPF/DMARC,
 bounce processing, support mailboxes, Postfix, Docker, or any public SMTP
@@ -44,15 +51,15 @@ Guarantees:
   config sets `forward-smtp-errors: false`, so a relay error is logged to
   journald but is **not** returned to the upstream SMTP client.
 - **A Mailtrap Local failure never stops Mailpit.** The systemd unit uses
-  `Wants=` (not `Requires=`) for `rateguru-mailtrap-local.service`.
+  `Wants=` (not `Requires=`) for `staging-mailtrap-local.service`.
 - Mailtrap Local is independent and never depends on Mailpit.
 
 ## DNS and TLS prerequisites
 
 Two DNS records must point at the staging host before requesting certificates:
 
-- `mailpit.rateguru.staging.myprojects.pp.ua`
-- `mailtrap.rateguru.staging.myprojects.pp.ua`
+- `mailpit.staging.myprojects.pp.ua`
+- `mailtrap.staging.myprojects.pp.ua`
 
 Certificates are Certbot-managed, matching the primary staging vhost. The
 committed vhosts are HTTPS-only and reference
@@ -65,8 +72,8 @@ Provision the certificates first, then apply:
 ```bash
 # Obtain certs before the HTTPS vhosts are active (standalone briefly binds :80).
 sudo certbot certonly --standalone \
-    -d mailpit.rateguru.staging.myprojects.pp.ua \
-    -d mailtrap.rateguru.staging.myprojects.pp.ua
+    -d mailpit.staging.myprojects.pp.ua \
+    -d mailtrap.staging.myprojects.pp.ua
 
 sudo infrastructure/scripts/install-mail-capture --apply
 ```
@@ -74,8 +81,9 @@ sudo infrastructure/scripts/install-mail-capture --apply
 `options-ssl-nginx.conf` and `ssl-dhparams.pem` are provided by the existing
 Certbot install (same as the primary staging vhost). Renewals are handled by
 the existing Certbot timer; `certbot renew` reloads Nginx automatically. Both
-hosts reuse `/etc/nginx/rateguru-staging.htpasswd` for Basic Auth, so no new
-password file is required.
+hosts reuse the existing staging password file
+`/etc/nginx/rateguru-staging.htpasswd` for Basic Auth, so no new password file
+and no new credentials are required.
 
 ## Installation
 
@@ -96,12 +104,12 @@ What `--apply` does:
 2. validates committed configuration and pinned checksums;
 3. downloads the pinned release archives and verifies their SHA-256 against
    `config/mail-capture/SHA256SUMS`;
-4. creates the `rateguru-mailpit` / `rateguru-mailtrap-local` system users and
+4. creates the `staging-mailpit` / `staging-mailtrap-local` system users and
    the state directories idempotently;
 5. installs binaries atomically to `/usr/local/bin/`;
-6. installs env/config to `/etc/rateguru/mail-capture/`;
+6. installs env/config to `/etc/staging-mail-capture/`;
 7. installs the systemd units and Nginx vhosts (backing up any replaced file
-   under `/var/backups/rateguru-mail-capture/<timestamp>/`);
+   under `/var/backups/staging-mail-capture/<timestamp>/`);
 8. runs `systemd-analyze verify` and `nginx -t`;
 9. `daemon-reload`s only when a unit changed and restarts only changed
    services (mirror first, then Mailpit);
@@ -111,18 +119,18 @@ Installed layout:
 
 | Path | Purpose |
 |------|---------|
-| `/usr/local/bin/rateguru-mailpit` | Mailpit binary |
-| `/usr/local/bin/rateguru-mailtrap-local` | Mailtrap Local binary |
-| `/etc/rateguru/mail-capture/mailpit.env` | Mailpit env (listeners, retention, relay toggle) |
-| `/etc/rateguru/mail-capture/mailpit-relay.yml` | Mailpit relay/mirror target |
-| `/etc/rateguru/mail-capture/mailtrap-local.yml` | Mailtrap Local storage config |
-| `/etc/rateguru/mail-capture/versions.env` | Installed pinned versions |
-| `/etc/systemd/system/rateguru-mailpit.service` | Mailpit unit |
-| `/etc/systemd/system/rateguru-mailtrap-local.service` | Mailtrap Local unit |
-| `/etc/nginx/sites-available/rateguru-mailpit-staging` | Mailpit vhost |
-| `/etc/nginx/sites-available/rateguru-mailtrap-local-staging` | Mailtrap vhost |
-| `/var/lib/rateguru-mail-capture/mailpit` | Mailpit SQLite |
-| `/var/lib/rateguru-mail-capture/mailtrap-local` | Mailtrap Local SQLite |
+| `/usr/local/bin/staging-mailpit` | Mailpit binary |
+| `/usr/local/bin/staging-mailtrap-local` | Mailtrap Local binary |
+| `/etc/staging-mail-capture/mailpit.env` | Mailpit env (listeners, retention, relay toggle) |
+| `/etc/staging-mail-capture/mailpit-relay.yml` | Mailpit relay/mirror target |
+| `/etc/staging-mail-capture/mailtrap-local.yml` | Mailtrap Local storage config |
+| `/etc/staging-mail-capture/versions.env` | Installed pinned versions |
+| `/etc/systemd/system/staging-mailpit.service` | Mailpit unit |
+| `/etc/systemd/system/staging-mailtrap-local.service` | Mailtrap Local unit |
+| `/etc/nginx/sites-available/mailpit-staging` | Mailpit vhost |
+| `/etc/nginx/sites-available/mailtrap-local-staging` | Mailtrap vhost |
+| `/var/lib/staging-mail-capture/mailpit` | Mailpit SQLite |
+| `/var/lib/staging-mail-capture/mailtrap-local` | Mailtrap Local SQLite |
 
 ## Laravel staging configuration
 
@@ -168,10 +176,10 @@ changes anything.
 ## journald logs
 
 ```bash
-journalctl -u rateguru-mailpit.service -f
-journalctl -u rateguru-mailtrap-local.service -f
+journalctl -u staging-mailpit.service -f
+journalctl -u staging-mailtrap-local.service -f
 # relay errors (mirror down) show up as Mailpit errors:
-journalctl -u rateguru-mailpit.service -p err --since '-1h'
+journalctl -u staging-mailpit.service -p err --since '-1h'
 ```
 
 Both services log to journald only; there are no separate log files.
@@ -216,7 +224,7 @@ by archive filename; only Linux `amd64`/`arm64` are supported install targets.
   automatically restores every file it had replaced and removes files it
   created, then `daemon-reload`s if a unit had changed.
 - **After a completed apply:** the previous versions of any replaced files are
-  under `/var/backups/rateguru-mail-capture/<timestamp>/` (mirroring their
+  under `/var/backups/staging-mail-capture/<timestamp>/` (mirroring their
   absolute paths). To revert, re-point `versions.env` at the previous pinned
   version (with its checksum file) and re-run `--apply`, or restore the backed
   up unit/config files manually and `systemctl daemon-reload` + restart.
@@ -226,25 +234,25 @@ by archive filename; only Linux `amd64`/`arm64` are supported install targets.
 Mailtrap Local can be stopped without affecting Mailpit or Laravel:
 
 ```bash
-sudo systemctl stop rateguru-mailtrap-local.service
+sudo systemctl stop staging-mailtrap-local.service
 # Mailpit keeps capturing; relay attempts are logged as errors and dropped.
-sudo systemctl start rateguru-mailtrap-local.service   # mirroring resumes
+sudo systemctl start staging-mailtrap-local.service   # mirroring resumes
 ```
 
 To keep it stopped across reboots: `sudo systemctl disable --now
-rateguru-mailtrap-local.service`. Mailpit is unaffected because it only
+staging-mailtrap-local.service`. Mailpit is unaffected because it only
 `Wants=` the mirror.
 
 ## Persistent storage
 
-SQLite databases live under `/var/lib/rateguru-mail-capture/`:
+SQLite databases live under `/var/lib/staging-mail-capture/`:
 
-- `mailpit/mailpit.db` — owned by `rateguru-mailpit`, mode `0750` dir.
-- `mailtrap-local/mailtrap-local.sqlite3` — owned by `rateguru-mailtrap-local`,
+- `mailpit/mailpit.db` — owned by `staging-mailpit`, mode `0750` dir.
+- `mailtrap-local/mailtrap-local.sqlite3` — owned by `staging-mailtrap-local`,
   mode `0750` dir. This directory also holds the Mailtrap Local
   `secret.key` (generated by the binary at first start; never committed).
 
-The shared parent `/var/lib/rateguru-mail-capture` stays root-owned; each
+The shared parent `/var/lib/staging-mail-capture` stays root-owned; each
 service can write only to its own subdirectory (enforced by both filesystem
 ownership and the unit's `ReadWritePaths=`).
 
@@ -259,16 +267,16 @@ disaster-recovery backups:
 
 The backup tooling (`infrastructure/scripts/backup`) snapshots an explicit
 allowlist of server-configuration paths and does **not** include
-`/var/lib/rateguru-mail-capture`. Keep it that way: never add the mail-capture
+`/var/lib/staging-mail-capture`. Keep it that way: never add the mail-capture
 state directories to any backup allowlist. If a full-disk backup mechanism is
-ever introduced, add `/var/lib/rateguru-mail-capture` to its exclude list.
+ever introduced, add `/var/lib/staging-mail-capture` to its exclude list.
 
 ## Security model
 
 - **Loopback only.** Every SMTP/HTTP listener binds `127.0.0.1` (1025, 8025,
   3535, 3550). Nginx is the only public surface, on 443 (and 80 → 443).
-- **Basic Auth + TLS** on both web UIs, reusing
-  `/etc/nginx/rateguru-staging.htpasswd` and Certbot certificates.
+- **Basic Auth + TLS** on both web UIs, reusing the existing staging password
+  file `/etc/nginx/rateguru-staging.htpasswd` and Certbot certificates.
 - **No public SMTP.** Ports 1025/3535/8025/3550 are never exposed by Nginx and
   have no public listener.
 - **No secrets in Git.** The committed config (`versions.env`, `SHA256SUMS`,
@@ -279,16 +287,16 @@ ever introduced, add `/var/lib/rateguru-mail-capture` to its exclude list.
   `PrivateDevices`, `ProtectSystem=strict`, `ProtectHome`, kernel/cgroup
   protections, empty `CapabilityBoundingSet`, restricted address families, and
   an explicit single `ReadWritePaths` state directory per service.
-- **Dedicated non-login users** (`rateguru-mailpit`,
-  `rateguru-mailtrap-local`), each able to write only to its own state dir.
+- **Dedicated non-login users** (`staging-mailpit`,
+  `staging-mailtrap-local`), each able to write only to its own state dir.
 
 ## Troubleshooting
 
 - **Nothing captured:** confirm `MAIL_HOST=127.0.0.1` / `MAIL_PORT=1025` in the
-  staging `.env`, `systemctl is-active rateguru-mailpit.service`, and
+  staging `.env`, `systemctl is-active staging-mailpit.service`, and
   `status-mail-capture` listener output.
 - **Mirror empty but Mailpit has the message:** Mailtrap Local is down or
-  relay failed — check `journalctl -u rateguru-mailpit.service -p err`. This is
+  relay failed — check `journalctl -u staging-mailpit.service -p err`. This is
   expected to be non-fatal; Mailpit keeps the canonical copy.
 - **`nginx -t` fails during apply:** the installer stops before activating and
   rolls back; fix DNS/cert paths and re-run `--apply`.

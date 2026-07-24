@@ -8,14 +8,14 @@
 
 set -Eeuo pipefail
 
-ETC_DIR="/etc/rateguru/mail-capture"
+ETC_DIR="/etc/staging-mail-capture"
 VERSIONS_FILE="${ETC_DIR}/versions.env"
-BIN_MAILPIT="/usr/local/bin/rateguru-mailpit"
-BIN_MAILTRAP="/usr/local/bin/rateguru-mailtrap-local"
-STATE_MAILPIT="/var/lib/rateguru-mail-capture/mailpit"
-STATE_MAILTRAP="/var/lib/rateguru-mail-capture/mailtrap-local"
-NGINX_MAILPIT="/etc/nginx/sites-available/rateguru-mailpit-staging"
-NGINX_MAILTRAP="/etc/nginx/sites-available/rateguru-mailtrap-local-staging"
+BIN_MAILPIT="/usr/local/bin/staging-mailpit"
+BIN_MAILTRAP="/usr/local/bin/staging-mailtrap-local"
+STATE_MAILPIT="/var/lib/staging-mail-capture/mailpit"
+STATE_MAILTRAP="/var/lib/staging-mail-capture/mailtrap-local"
+NGINX_MAILPIT="/etc/nginx/sites-available/mailpit-staging"
+NGINX_MAILTRAP="/etc/nginx/sites-available/mailtrap-local-staging"
 
 MAILPIT_API="http://127.0.0.1:8025"
 MAILTRAP_API="http://127.0.0.1:3550"
@@ -56,7 +56,7 @@ api_summary() {
 }
 
 echo "========================================"
-echo "RateGuru staging mail capture status"
+echo "Staging mail capture status"
 echo "========================================"
 kv "Checked at:" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
@@ -81,8 +81,8 @@ else
 fi
 
 section "systemd services"
-svc_line "Mailpit (canonical)" "rateguru-mailpit.service"
-svc_line "Mailtrap Local (mirror)" "rateguru-mailtrap-local.service"
+svc_line "Mailpit (canonical)" "staging-mailpit.service"
+svc_line "Mailtrap Local (mirror)" "staging-mailtrap-local.service"
 
 section "Loopback listeners"
 listener_line "Mailpit SMTP" "1025"
@@ -124,8 +124,8 @@ section "Nginx configuration"
 section "Recent journald errors"
 if command -v journalctl >/dev/null 2>&1; then
     journalctl \
-        -u rateguru-mailpit.service \
-        -u rateguru-mailtrap-local.service \
+        -u staging-mailpit.service \
+        -u staging-mailtrap-local.service \
         -p err --no-pager --since '-24h' 2>/dev/null \
         | tail -n 20 || echo "no recent errors"
 else

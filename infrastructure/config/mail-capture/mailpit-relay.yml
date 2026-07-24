@@ -3,8 +3,8 @@
 # This file is intentionally committed and contains no secrets: it only routes
 # the best-effort mirror to a private loopback service.
 #
-# Loaded by rateguru-mailpit.service through MP_SMTP_RELAY_CONFIG (set in
-# mailpit.env) and installed to /etc/rateguru/mail-capture/mailpit-relay.yml.
+# Loaded by staging-mailpit.service through MP_SMTP_RELAY_CONFIG (set in
+# mailpit.env) and installed to /etc/staging-mail-capture/mailpit-relay.yml.
 # It defines WHERE Mailpit mirrors captured mail; the relay-all toggle itself
 # stays in mailpit.env (MP_SMTP_RELAY_ALL=true), because Mailpit exposes that
 # switch only via flag/env, not via this file.

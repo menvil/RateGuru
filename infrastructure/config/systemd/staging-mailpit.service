@@ -1,26 +1,28 @@
 [Unit]
-Description=RateGuru staging Mailpit (canonical mail capture)
+Description=Staging Mailpit (canonical mail capture)
 Documentation=https://mailpit.axllent.org/
+# The runbook ships from the RateGuru repository, which is the temporary source
+# of truth for shared staging infrastructure.
 Documentation=file:/home/www/rateguru/runbooks/mail-capture.md
 # Mailtrap Local is a best-effort mirror target, not a hard dependency:
 # Wants= (not Requires=) so Mailpit still starts and keeps running when the
 # mirror is stopped, failed, or masked.
-Wants=network-online.target rateguru-mailtrap-local.service
-After=network-online.target rateguru-mailtrap-local.service
+Wants=network-online.target staging-mailtrap-local.service
+After=network-online.target staging-mailtrap-local.service
 
 [Service]
 Type=simple
-User=rateguru-mailpit
-Group=rateguru-mailpit
-EnvironmentFile=/etc/rateguru/mail-capture/mailpit.env
-ExecStart=/usr/local/bin/rateguru-mailpit
+User=staging-mailpit
+Group=staging-mailpit
+EnvironmentFile=/etc/staging-mail-capture/mailpit.env
+ExecStart=/usr/local/bin/staging-mailpit
 Restart=on-failure
 RestartSec=2
 
 # Logs go to journald (Mailpit logs to stdout/stderr).
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=rateguru-mailpit
+SyslogIdentifier=staging-mailpit
 
 # --- Hardening -------------------------------------------------------------
 NoNewPrivileges=true
@@ -47,7 +49,7 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 UMask=0077
 # The persistent SQLite directory is the only writable location.
-ReadWritePaths=/var/lib/rateguru-mail-capture/mailpit
+ReadWritePaths=/var/lib/staging-mail-capture/mailpit
 
 [Install]
 WantedBy=multi-user.target
