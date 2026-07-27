@@ -28,7 +28,7 @@
                  dropdowns (user menu, notifications, search suggestions) open invisibly
                  behind the open panel — they cannot escape the header's stacking context. --}}
             <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-testid="app-header">
-                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4 lg:grid lg:grid-cols-[1fr_minmax(0,480px)_auto] lg:gap-4 lg:px-5">
+                <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4">
                     <button
                         type="button"
                         class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
@@ -71,7 +71,8 @@
                             x-data="{ open: false }"
                             @keydown.escape.window="open = false"
                             @post-uploaded.window="open = false"
-                            class="ml-auto flex shrink-0 items-center justify-end gap-2 lg:ml-0 lg:gap-3 lg:justify-self-end"
+                            class="flex shrink-0 items-center justify-end gap-2 lg:gap-3 lg:justify-self-end"
+                            data-testid="header-auth-actions"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
                             <x-ui.button
@@ -175,7 +176,10 @@
                             @endif
                         </div>
                     @else
-                        <div class="ml-auto flex shrink-0 items-center justify-end gap-2 lg:ml-0 lg:justify-self-end">
+                        <div
+                            class="flex shrink-0 items-center justify-end gap-2 lg:justify-self-end"
+                            data-testid="header-guest-actions"
+                        >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
                                 <x-ui.button
                                     data-testid="guest-upload-button"
@@ -264,7 +268,8 @@
                 ></div>
 
                 <div
-                    class="fixed inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-rg-border bg-rg-sidebar px-4 py-4"
+                    class="fixed inset-y-0 left-0 flex w-[85vw] flex-col overflow-y-auto border-r border-rg-border bg-rg-sidebar px-4 py-4"
+                    data-testid="mobile-nav-panel"
                     x-transition:enter="transition ease-out duration-200"
                     x-transition:enter-start="-translate-x-full"
                     x-transition:enter-end="translate-x-0"
@@ -305,11 +310,7 @@
                         data-testid="mobile-nav-search"
                     />
 
-                    <div
-                        class="mb-5 rounded-rgCard border border-rg-border bg-rg-card p-3"
-                        data-testid="mobile-nav-theme"
-                    >
-                        <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('ui.theme') }}</p>
+                    <div class="mb-5" data-testid="mobile-nav-theme">
                         <livewire:theme.theme-switcher layout="dropdown" />
                     </div>
 

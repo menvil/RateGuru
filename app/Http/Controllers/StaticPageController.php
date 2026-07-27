@@ -28,20 +28,25 @@ final class StaticPageController extends Controller
 
     public function contact(): View
     {
-        return $this->show('contact');
+        return view('pages.contact', $this->pageData('contact'));
     }
 
     private function show(string $pageKey): View
     {
+        return view('pages.static', $this->pageData($pageKey));
+    }
+
+    /**
+     * @return array{pageKey: string, siteName: string, title: string, content: string}
+     */
+    private function pageData(string $pageKey): array
+    {
         $settings = $this->settings->current();
-        $page = $settings->staticPage($pageKey);
 
-        abort_unless(filled($page['title']) && filled($page['content']), 404);
-
-        return view('pages.static', [
+        return [
             'pageKey' => $pageKey,
             'siteName' => $settings->siteName(),
-            ...$page,
-        ]);
+            ...$settings->staticPage($pageKey),
+        ];
     }
 }

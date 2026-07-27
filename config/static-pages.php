@@ -19,43 +19,43 @@ return [
         'privacy' => [
             'en' => [
                 'title' => 'Privacy Policy',
-                'content' => '',
+                'content' => 'The RateGuru privacy policy is being prepared. An administrator can replace this temporary text with the approved policy for every supported language.',
             ],
             'ru' => [
                 'title' => 'Политика конфиденциальности',
-                'content' => '',
+                'content' => 'Политика конфиденциальности RateGuru готовится к публикации. Администратор может заменить этот временный текст утверждённой политикой для каждого поддерживаемого языка.',
             ],
             'bg' => [
                 'title' => 'Политика за поверителност',
-                'content' => '',
+                'content' => 'Политиката за поверителност на RateGuru се подготвя за публикуване. Администратор може да замени този временен текст с одобрената политика за всеки поддържан език.',
             ],
         ],
         'terms' => [
             'en' => [
                 'title' => 'Terms of Use',
-                'content' => '',
+                'content' => 'The RateGuru terms of use are being prepared. An administrator can replace this temporary text with the approved terms for every supported language.',
             ],
             'ru' => [
                 'title' => 'Условия использования',
-                'content' => '',
+                'content' => 'Условия использования RateGuru готовятся к публикации. Администратор может заменить этот временный текст утверждёнными условиями для каждого поддерживаемого языка.',
             ],
             'bg' => [
                 'title' => 'Условия за ползване',
-                'content' => '',
+                'content' => 'Условията за ползване на RateGuru се подготвят за публикуване. Администратор може да замени този временен текст с одобрените условия за всеки поддържан език.',
             ],
         ],
         'contact' => [
             'en' => [
                 'title' => 'Contact',
-                'content' => '',
+                'content' => 'Use the form below to contact the RateGuru administration.',
             ],
             'ru' => [
                 'title' => 'Контакты',
-                'content' => '',
+                'content' => 'Используйте форму ниже, чтобы связаться с администрацией RateGuru.',
             ],
             'bg' => [
                 'title' => 'Контакти',
-                'content' => '',
+                'content' => 'Използвайте формуляра по-долу, за да се свържете с администрацията на RateGuru.',
             ],
         ],
     ],

@@ -12,9 +12,39 @@ it('serves the public about page with its default content', function () {
         ->assertSee($page['content']);
 });
 
-it('does not publish legal and contact pages before administrator content exists', function (string $routeName) {
-    $this->get(route($routeName))->assertNotFound();
-})->with(['pages.privacy', 'pages.terms', 'pages.contact']);
+it('serves legal and contact pages with editable default content', function (string $routeName, string $pageKey) {
+    $page = config("static-pages.defaults.{$pageKey}.en");
+
+    $response = $this->get(route($routeName))
+        ->assertOk()
+        ->assertSee($page['title'])
+        ->assertSee($page['content']);
+
+    if ($pageKey === 'contact') {
+        $response->assertSee('data-testid="contact-form"', false);
+    } else {
+        $response->assertSee('data-testid="static-page"', false);
+    }
+})->with([
+    'privacy' => ['pages.privacy', 'privacy'],
+    'terms' => ['pages.terms', 'terms'],
+    'contact' => ['pages.contact', 'contact'],
+]);
+
+it('falls back to configured legal content for settings saved with the former blank defaults', function () {
+    $staticPages = config('static-pages.defaults');
+    $staticPages['privacy']['en']['content'] = '';
+    $staticPages['privacy']['ru']['content'] = '';
+    $configuredRussian = config('static-pages.defaults.privacy.ru');
+
+    ProjectSettings::factory()->create(['static_pages' => $staticPages]);
+
+    $this->withSession(['locale' => 'ru'])
+        ->get(route('pages.privacy'))
+        ->assertOk()
+        ->assertSee($configuredRussian['title'])
+        ->assertSee($configuredRussian['content']);
+});
 
 it('publishes a legal or contact page after an administrator supplies content', function (string $routeName, string $pageKey) {
     $staticPages = config('static-pages.defaults');
@@ -64,14 +94,14 @@ it('renders admin-edited static page content for the current locale', function (
         ->assertSee('Текст страницы, сохранённый администратором.');
 });
 
-it('falls back each blank or absent Russian static page field independently', function (
+it('merges each blank or absent Russian static page field with configured Russian defaults', function (
     array $russian,
     ?string $expectedTitle,
     ?string $expectedContent,
 ) {
-    $english = config('static-pages.defaults.about.en');
-    $expectedTitle ??= $english['title'];
-    $expectedContent ??= $english['content'];
+    $configuredRussian = config('static-pages.defaults.about.ru');
+    $expectedTitle ??= $configuredRussian['title'];
+    $expectedContent ??= $configuredRussian['content'];
 
     ProjectSettings::factory()->create([
         'static_pages' => [

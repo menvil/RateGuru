@@ -4,10 +4,32 @@ use App\Models\Post;
 use App\Models\User;
 
 it('places the theme switcher in the mobile navigation menu', function () {
-    $this->get(route('feed'))
-        ->assertOk()
-        ->assertSee('data-testid="mobile-nav-theme"', false)
-        ->assertSee('data-testid="desktop-header-theme"', false);
+    $html = $this->get(route('feed'))->assertOk()->getContent();
+    $layout = file_get_contents(resource_path('views/layouts/app.blade.php'));
+
+    expect($html)
+        ->toContain('data-testid="mobile-nav-theme"')
+        ->toContain('data-testid="desktop-header-theme"');
+
+    expect($layout)
+        ->toMatch('/<div class="mb-5" data-testid="mobile-nav-theme">\s*<livewire:theme\.theme-switcher layout="dropdown" \/>/s');
+});
+
+it('uses an eighty five percent mobile drawer without a fixed narrow width', function () {
+    $html = $this->get(route('feed'))->assertOk()->getContent();
+
+    expect($html)
+        ->toMatch('/<div(?=[^>]*data-testid="mobile-nav-panel")(?=[^>]*class="[^"]*w-\[85vw\][^"]*")[^>]*>/s')
+        ->not->toMatch('/<div(?=[^>]*data-testid="mobile-nav-panel")(?=[^>]*class="[^"]*w-72[^"]*")[^>]*>/s');
+});
+
+it('keeps mobile search adjacent to the authenticated header actions', function () {
+    $user = User::factory()->create();
+    $html = $this->actingAs($user)->get(route('feed'))->assertOk()->getContent();
+
+    expect($html)
+        ->toContain('data-testid="header-auth-actions"')
+        ->not->toMatch('/<div(?=[^>]*data-testid="header-auth-actions")(?=[^>]*class="[^"]*ml-auto[^"]*")[^>]*>/s');
 });
 
 it('renders a temporary mobile search row controlled by the search button', function () {

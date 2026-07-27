@@ -3,6 +3,7 @@
 use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\StaticPageController;
+use App\Http\Controllers\SubmitContactMessageController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use App\Livewire\Feed\FeedPage;
 use App\Livewire\Posts\PostShow;
@@ -26,6 +27,9 @@ Route::get('/about', [StaticPageController::class, 'about'])->name('pages.about'
 Route::get('/privacy', [StaticPageController::class, 'privacy'])->name('pages.privacy');
 Route::get('/terms', [StaticPageController::class, 'terms'])->name('pages.terms');
 Route::get('/contact', [StaticPageController::class, 'contact'])->name('pages.contact');
+Route::post('/contact', SubmitContactMessageController::class)
+    ->middleware('throttle:5,1')
+    ->name('pages.contact.submit');
 
 Route::get('/dashboard', function () {
     return redirect()->route('feed');
