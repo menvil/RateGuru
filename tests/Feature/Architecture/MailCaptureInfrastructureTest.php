@@ -541,6 +541,122 @@ it('serves both web UIs from one shared SAN certificate', function () {
         ->toContain('-d mailtrap.staging.myprojects.pp.ua');
 });
 
+/**
+ * Every fenced `bash` block in the runbook — i.e. the parts an operator copies
+ * and runs, as opposed to the prose explaining them.
+ *
+ * @return list<string>
+ */
+function mailCaptureRunbookCommands(): array
+{
+    preg_match_all(
+        '/```bash\n(.*?)```/s',
+        mailCaptureSource('runbooks/mail-capture.md'),
+        $matches,
+    );
+
+    expect($matches[1])->not->toBeEmpty('no ```bash blocks found in the runbook');
+
+    return $matches[1];
+}
+
+it('never documents a bare standalone Certbot run', function () {
+    // Nginx owns :80 on this host, so `--standalone` cannot bind. Prose may name
+    // the flag to explain why it is wrong; no runnable block may use it.
+    foreach (mailCaptureRunbookCommands() as $block) {
+        expect($block)->not->toContain('--standalone');
+    }
+
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    // Every certonly invocation must name an authenticator that coexists with a
+    // running Nginx. Parse the actual commands rather than trusting prose.
+    expect(preg_match_all('/certbot\s+certonly((?:\s*\\\\\s*\n\s*[^\n]+)+)/', $runbook, $matches))
+        ->toBeGreaterThan(0, 'no `certbot certonly` invocation found in the runbook');
+
+    foreach ($matches[1] as $invocation) {
+        expect($invocation)
+            ->toContain('--nginx')
+            ->not->toContain('--standalone')
+            ->not->toContain('--webroot');
+    }
+
+    // Where the prose does mention it, it must be a prohibition.
+    expect($runbook)->toContain('`certbot --standalone`
+**cannot** be used');
+});
+
+it('documents a reproducible no-downtime certificate bootstrap', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    // Why standalone is wrong here, stated explicitly.
+    expect($runbook)
+        ->toContain('Could not bind TCP port 80')
+        // A temporary HTTP-only vhost gives the ACME challenge a server block.
+        ->toContain('staging-mail-capture-bootstrap')
+        ->toContain('listen 80;')
+        // ...and it is torn down again, not left behind.
+        ->toContain('rm -f \\')
+        ->toContain('/etc/nginx/sites-enabled/staging-mail-capture-bootstrap');
+
+    // Nginx is validated and reloaded on both sides of the certificate request:
+    // once to activate the bootstrap vhost, once after removing it.
+    expect(substr_count($runbook, 'sudo nginx -t && sudo systemctl reload nginx'))
+        ->toBeGreaterThanOrEqual(2, 'bootstrap must validate + reload before and after certbot');
+
+    // Ordering is checked inside the runnable block, not across the whole
+    // document — the prose references these steps out of order on purpose.
+    $blocks = array_values(array_filter(
+        mailCaptureRunbookCommands(),
+        fn (string $block): bool => str_contains($block, 'certbot certonly'),
+    ));
+
+    expect($blocks)->toHaveCount(1, 'expected exactly one certificate bootstrap block');
+
+    $bootstrap = $blocks[0];
+
+    $order = [
+        'tee /etc/nginx/sites-available/staging-mail-capture-bootstrap',
+        'certbot certonly',
+        'rm -f',
+        'certbot renew --dry-run',
+        'install-mail-capture --apply',
+    ];
+
+    $previous = -1;
+
+    foreach ($order as $step) {
+        $position = strpos($bootstrap, $step);
+        expect($position)->not->toBeFalse("bootstrap step missing: {$step}");
+        expect($position)->toBeGreaterThan($previous, "bootstrap step out of order: {$step}");
+        $previous = $position;
+    }
+});
+
+it('documents renewal verification and the Nginx reload deploy hook', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    // Renewal must be proven, not assumed.
+    expect($runbook)->toContain('certbot renew --dry-run');
+
+    // The old unsubstantiated claim must not come back: `certonly` runs no
+    // installer, so renewal does not reload Nginx by itself.
+    expect($runbook)
+        ->not->toContain('`certbot renew` reloads Nginx automatically')
+        ->toContain('**Renewal does not
+reload Nginx on its own.**');
+
+    // Because the runbook states Nginx must reload, it must also install or
+    // verify the hook that makes that true.
+    expect($runbook)
+        ->toContain('/etc/letsencrypt/renewal-hooks/deploy/')
+        ->toContain('renew_deploy_hook')
+        ->toContain('reload-nginx.sh')
+        // The hook itself validates before reloading, and is executable.
+        ->toContain('systemctl reload nginx')
+        ->toContain('chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh');
+});
+
 it('protects both web UIs with the shared staging Basic Auth', function () {
     foreach (['mailpit-staging', 'mailtrap-local-staging'] as $vhost) {
         expect(mailCaptureSource('config/nginx/'.$vhost))
@@ -609,20 +725,43 @@ it('exposes no public SMTP listener anywhere in the slice', function () {
 it('points staging Laravel mail at the Mailpit loopback SMTP', function () {
     $env = mailCaptureEnvValues('templates/environment/staging.env.example');
 
-    // Exact values, including the deliberately empty credential/encryption keys.
+    // Exact values, including the deliberately empty credential/scheme keys.
     expect($env)
         ->toHaveKey('MAIL_USERNAME')
         ->toHaveKey('MAIL_PASSWORD')
-        ->toHaveKey('MAIL_ENCRYPTION');
+        // MAIL_SCHEME is the key config/mail.php reads; MAIL_ENCRYPTION is a
+        // legacy name Laravel no longer consults, so it must not linger here.
+        ->toHaveKey('MAIL_SCHEME')
+        ->not->toHaveKey('MAIL_ENCRYPTION');
 
     expect($env['MAIL_MAILER'])->toBe('smtp');
     expect($env['MAIL_HOST'])->toBe('127.0.0.1');
     expect($env['MAIL_PORT'])->toBe('1025');
     expect($env['MAIL_USERNAME'])->toBe('');
     expect($env['MAIL_PASSWORD'])->toBe('');
-    expect($env['MAIL_ENCRYPTION'])->toBe('');
+    // Empty, so the transport stays plain `smtp://` for Mailpit's loopback.
+    expect($env['MAIL_SCHEME'])->toBe('');
     expect($env['MAIL_FROM_ADDRESS'])->toBe('noreply@staging.invalid');
     expect($env['MAIL_FROM_NAME'])->toBe('"${APP_NAME}"');
+});
+
+it('wires staging mail to the env key config/mail.php actually reads', function () {
+    // Guards the rename at its source: if config/mail.php ever goes back to
+    // MAIL_ENCRYPTION, the staging template must follow, not silently rot.
+    expect(File::get(base_path('config/mail.php')))
+        ->toContain("'scheme' => env('MAIL_SCHEME')")
+        ->not->toContain('MAIL_ENCRYPTION');
+
+    // No mail-capture-owned file may reference the dead key.
+    foreach ([
+        'templates/environment/staging.env.example',
+        'templates/environment/production.env.example',
+        'runbooks/mail-capture.md',
+        'config/mail-capture/mailpit.env',
+    ] as $path) {
+        expect(str_contains(mailCaptureSource($path), 'MAIL_ENCRYPTION='))
+            ->toBeFalse("dead MAIL_ENCRYPTION key still set in {$path}");
+    }
 });
 
 it('leaves the production mail configuration unchanged', function () {
@@ -633,13 +772,23 @@ it('leaves the production mail configuration unchanged', function () {
     expect($env['MAIL_FROM_ADDRESS'])->toBe('');
     expect($env['MAIL_FROM_NAME'])->toBe('');
 
-    // No staging SMTP wiring leaked into the production template.
+    // No staging SMTP wiring leaked into the production template — neither the
+    // loopback transport keys nor the scheme key staging now sets.
     expect($env)
         ->not->toHaveKey('MAIL_HOST')
         ->not->toHaveKey('MAIL_PORT')
         ->not->toHaveKey('MAIL_USERNAME')
         ->not->toHaveKey('MAIL_PASSWORD')
+        ->not->toHaveKey('MAIL_SCHEME')
         ->not->toHaveKey('MAIL_ENCRYPTION');
+
+    // Production must not point at Mailpit/Mailtrap in any form.
+    $raw = mailCaptureSource('templates/environment/production.env.example');
+
+    foreach (['127.0.0.1', '1025', '3535', 'mailpit', 'mailtrap', 'staging.invalid'] as $needle) {
+        expect(str_contains($raw, $needle))
+            ->toBeFalse("staging mail capture leaked into production: {$needle}");
+    }
 });
 
 it('dispatches --check to a root-free code path', function () {
@@ -1094,12 +1243,144 @@ it('runs installer --check with stubbed commands and mutates nothing', function 
     }
 });
 
+it('marks the mail-capture phase completed and the next phase current', function () {
+    $roadmap = mailCaptureSource('ROADMAP.md');
+
+    // Status table: phase 3 is done, phase 4 has taken over as the current one.
+    expect($roadmap)
+        ->toMatch('/^\|\s*3\s*\|\s*Staging mail capture\s*\|\s*✅ completed\s*\|$/m')
+        ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m')
+        // Section headings must agree with the table.
+        ->toContain('## 3. Staging mail capture — completed')
+        ->toContain('## 4. Multi-target production model — current');
+
+    // Exactly one phase is current at a time.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+
+    // No stale "current"/"planned" wording left on either phase.
+    expect($roadmap)
+        ->not->toContain('## 3. Staging mail capture — current')
+        ->not->toContain('## 4. Multi-target production model — planned');
+});
+
+it('states the correct Mailtrap Local listeners in the roadmap', function () {
+    $roadmap = mailCaptureSource('ROADMAP.md');
+
+    // SMTP moved to 127.0.0.2; HTTP/API deliberately stayed on 127.0.0.1.
+    expect($roadmap)
+        ->toContain('`127.0.0.2:3535` SMTP')
+        ->toContain('`127.0.0.1:3550` HTTP/API')
+        // Mailpit's own listeners are unaffected by the Mailtrap workaround.
+        ->toContain('`127.0.0.1:1025` SMTP')
+        ->toContain('`127.0.0.1:8025`');
+});
+
+it('never claims Mailtrap Local SMTP listens on 127.0.0.1 anywhere in infrastructure', function () {
+    // `127.0.0.1:3535` may only survive where the runbook explains the broken
+    // upstream behavior we work around — never as a claim about what we run.
+    $offenders = [];
+
+    foreach (File::allFiles(base_path('infrastructure')) as $file) {
+        $relative = str_replace('\\', '/', $file->getRelativePathname());
+
+        foreach (preg_split('/\R/', File::get($file->getPathname())) as $number => $line) {
+            if (! str_contains($line, '127.0.0.1:3535')) {
+                continue;
+            }
+
+            $offenders[] = $relative.':'.($number + 1).': '.trim($line);
+        }
+    }
+
+    // Outside the runbook there is no legitimate mention at all.
+    foreach ($offenders as $offender) {
+        expect($offender)->toStartWith(
+            'runbooks/mail-capture.md:',
+            "stale 127.0.0.1:3535 claim outside the runbook explanation: {$offender}",
+        );
+    }
+
+    // Inside the runbook, only two phrasings may carry the stale address: the
+    // failure-mode explanation and the troubleshooting contrast. Both are
+    // matched on whitespace-normalized text, because the first wraps across
+    // lines — a per-line check would reject its own continuation.
+    $allowed = [
+        'expands a `--smtp-listen 127.0.0.1:3535` bind into **both** '
+            .'IPv4 `127.0.0.1:3535` and IPv6 `[::1]:3535`',
+        '`127.0.0.2:3535` (not `127.0.0.1:3535`)',
+    ];
+
+    $normalized = preg_replace('/\s+/', ' ', mailCaptureSource('runbooks/mail-capture.md'));
+
+    // Both explanations must still be there — the address may not simply vanish.
+    foreach ($allowed as $phrase) {
+        expect(str_contains($normalized, $phrase))
+            ->toBeTrue("runbook lost its workaround explanation: {$phrase}");
+    }
+
+    // With exactly those phrases removed, no mention may remain anywhere else in
+    // the runbook: any other prose naming the stale address is a stale claim.
+    expect(str_contains(str_replace($allowed, '', $normalized), '127.0.0.1:3535'))
+        ->toBeFalse('runbook mentions 127.0.0.1:3535 outside the two allowed explanations');
+});
+
+it('explains the Mailtrap Local IPv6 loopback workaround in the runbook', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    expect($runbook)
+        ->toContain('### Why Mailtrap Local SMTP binds 127.0.0.2')
+        // The reason: 0.2.0 expands an IPv4 loopback bind onto [::1].
+        ->toContain('Mailtrap Local 0.2.0')
+        ->toContain('[::1]:3535')
+        ->toContain('bind: cannot assign requested address')
+        // ...and the resolution, without enabling IPv6 anywhere.
+        ->toContain('distinct IPv4 loopback address')
+        ->toContain('IPv6 stays disabled.');
+});
+
+it('documents the split loopback addresses in the runbook security model', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    expect(preg_match('/## Security model\n(.*?)(?=\n## )/s', $runbook, $matches))
+        ->toBe(1, 'could not locate the Security model section in the runbook');
+
+    $security = $matches[1];
+
+    // Every listener is named with its actual address, so the section cannot
+    // drift from the units.
+    expect($security)
+        ->toContain('`127.0.0.1:1025`')
+        ->toContain('`127.0.0.1:8025`')
+        ->toContain('`127.0.0.2:3535`')
+        ->toContain('`127.0.0.1:3550`')
+        // The 127.0.0.2 exception is called out as deliberate, not incidental.
+        ->toContain('`127.0.0.2`**, and that difference is intentional')
+        // ...and is justified as no less private than 127.0.0.1.
+        ->toContain('`127.0.0.0/8`')
+        ->toContain('no less private than')
+        ->toContain('routable off-host');
+});
+
+it('accepts a wildcard DNS record for the mail-capture hostnames', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    // DNS may come from per-host records or an existing wildcard; the runbook
+    // must not demand explicit records that already exist by wildcard.
+    expect($runbook)
+        ->toContain('*.staging.myprojects.pp.ua')
+        ->toContain('wildcard')
+        ->toContain('`A`/`AAAA` records')
+        // Wording is normalized so a re-wrap of the paragraph cannot break it.
+        ->and(preg_replace('/\s+/', ' ', $runbook))
+        ->toContain('Resolution may come from explicit `A`/`AAAA` records **or** from an existing wildcard record')
+        ->toContain('no per-host records need to be created when it is in place');
+});
+
 it('documents the recovery drill distinctions in the roadmap', function () {
     $roadmap = mailCaptureSource('ROADMAP.md');
 
     expect($roadmap)
         ->toContain('Staging mail capture')
-        ->toContain('current')
         ->toContain('Backup creation')
         ->toContain('Restore-test')
         ->toContain('Clean-server recovery rehearsal')
