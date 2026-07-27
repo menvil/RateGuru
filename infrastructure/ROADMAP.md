@@ -59,16 +59,21 @@ Generalize the single-target deploy model to multiple production targets
 
 Slices, in order. Only the first has landed; the phase stays **current**.
 
-1. **Deployment target registry — in progress.** Non-secret JSON registry of
+1. **Deployment target registry — completed.** Non-secret JSON registry of
    deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy
-   read-only `target_*` helpers in `common`. Declares the model only: no
-   operational script consumes it, and nothing is installed on the VPS. See
+   read-only `target_*` helpers in `common`. Declared the model only: no
+   operational script consumed it, and nothing was installed on the VPS. See
    `runbooks/deployment-targets.md`.
-2. Deploy path — `deploy`, `rollback`, `health-check`, `status`, `cleanup`.
-3. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
-4. Perimeter — workflows, sudoers, server wrappers.
-5. Install and validate the registry on the staging VPS.
-6. Remove the `--environment` interface, only after `staging-main` parity is
+2. **Read-only target operations — in progress.** `health-check` and `status`
+   accept `--target TARGET` alongside `--environment`, gated to
+   `lifecycle=active` targets via `require_active_target` — `tits-guru` stays
+   rejected. `--environment` keeps its exact prior behaviour; nothing is
+   installed on the VPS by this slice either.
+3. Deploy path — `deploy`, `rollback`, `cleanup`.
+4. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
+5. Perimeter — workflows, sudoers, server wrappers.
+6. Install and validate the registry on the staging VPS.
+7. Remove the `--environment` interface, only after `staging-main` parity is
    proven end to end.
 
 ## 5. Infrastructure installer and clean-VPS bootstrap — planned

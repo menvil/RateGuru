@@ -2,15 +2,51 @@
 
 set -Eeuo pipefail
 
-source /home/www/rateguru/bin/common
+# RATEGURU_COMMON_FILE is for tests and controlled tooling only. Production
+# never sets it, so this resolves to the exact same installed path as before.
+# shellcheck disable=SC1090
+source "${RATEGURU_COMMON_FILE:-/home/www/rateguru/bin/common}"
 
+usage() {
+    cat <<'USAGE'
+Usage:
+  health-check --target TARGET
+  health-check --environment staging|production
+USAGE
+}
+
+TARGET_ID=""
 ENVIRONMENT=""
+TARGET_SEEN=false
+ENVIRONMENT_SEEN=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
+        --target)
+            if [[ "${TARGET_SEEN}" == true ]]; then
+                fail "--target given more than once"
+            fi
+
+            [[ $# -ge 2 ]] || fail "--target requires a value"
+
+            TARGET_ID="$2"
+            TARGET_SEEN=true
             shift 2
+            ;;
+        --environment)
+            if [[ "${ENVIRONMENT_SEEN}" == true ]]; then
+                fail "--environment given more than once"
+            fi
+
+            [[ $# -ge 2 ]] || fail "--environment requires a value"
+
+            ENVIRONMENT="$2"
+            ENVIRONMENT_SEEN=true
+            shift 2
+            ;;
+        --help|-h)
+            usage
+            exit 0
             ;;
         *)
             fail "unknown argument: $1"
@@ -18,13 +54,36 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -n "${ENVIRONMENT}" ]] \
-    || fail "--environment is required"
+if [[ "${TARGET_SEEN}" == true ]] && [[ "${ENVIRONMENT_SEEN}" == true ]]; then
+    fail "--target and --environment cannot be combined"
+fi
 
-validate_environment "${ENVIRONMENT}"
+if [[ "${TARGET_SEEN}" != true ]] && [[ "${ENVIRONMENT_SEEN}" != true ]]; then
+    fail "exactly one of --target or --environment is required"
+fi
 
-BASE_URL="$(environment_url "${ENVIRONMENT}")"
-HOST_HEADER="$(environment_host_header "${ENVIRONMENT}")"
+# require_active_target validates the target ID, the whole registry, that the
+# target exists, and that it is lifecycle=active — all before anything below
+# builds a URL or calls curl. A planned target (e.g. tits-guru today) or an
+# unknown one is rejected here, never reaching the network.
+if [[ "${TARGET_SEEN}" == true ]]; then
+    [[ -n "${TARGET_ID}" ]] || fail "--target requires a non-empty value"
+
+    require_active_target "${TARGET_ID}"
+
+    BASE_URL="$(target_health_url "${TARGET_ID}")"
+    HOST_HEADER="$(target_health_host_header "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+else
+    [[ -n "${ENVIRONMENT}" ]] || fail "--environment requires a non-empty value"
+
+    validate_environment "${ENVIRONMENT}"
+
+    BASE_URL="$(environment_url "${ENVIRONMENT}")"
+    HOST_HEADER="$(environment_host_header "${ENVIRONMENT}")"
+    LABEL="${ENVIRONMENT}"
+fi
+
 HEALTH_URL="${BASE_URL%/}/up"
 
 ATTEMPTS=10
@@ -43,12 +102,12 @@ for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
     )"
 
     if [[ "${HTTP_STATUS}" == "200" ]]; then
-        log "${ENVIRONMENT} health check passed: ${HEALTH_URL}"
+        log "${LABEL} health check passed: ${HEALTH_URL}"
         exit 0
     fi
 
-    log "${ENVIRONMENT} health check attempt ${attempt}/${ATTEMPTS} failed with HTTP ${HTTP_STATUS:-000}"
+    log "${LABEL} health check attempt ${attempt}/${ATTEMPTS} failed with HTTP ${HTTP_STATUS:-000}"
     sleep "${DELAY_SECONDS}"
 done
 
-fail "${ENVIRONMENT} health check failed: ${HEALTH_URL}"
+fail "${LABEL} health check failed: ${HEALTH_URL}"

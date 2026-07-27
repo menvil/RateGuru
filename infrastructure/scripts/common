@@ -2,7 +2,12 @@
 
 set -Eeuo pipefail
 
-CONFIG_FILE="/home/www/rateguru/config/deployment.conf"
+# RATEGURU_DEPLOYMENT_CONF_FILE is for tests and controlled tooling only — the
+# same override scripts/targets already honours when it parses this file
+# without sourcing it. Production never sets it, so the resolved path and every
+# check below are unchanged on a real host.
+CONFIG_FILE_DEFAULT="/home/www/rateguru/config/deployment.conf"
+CONFIG_FILE="${RATEGURU_DEPLOYMENT_CONF_FILE:-${CONFIG_FILE_DEFAULT}}"
 
 if [[ ! -r "${CONFIG_FILE}" ]]; then
     echo "ERROR: deployment configuration is unavailable: ${CONFIG_FILE}" >&2
@@ -14,16 +19,21 @@ if [[ ! -f "${CONFIG_FILE}" ]] || [[ -L "${CONFIG_FILE}" ]]; then
     exit 1
 fi
 
-if [[ "$(stat -c '%u:%g' "${CONFIG_FILE}")" != "0:0" ]]; then
-    echo "ERROR: deployment configuration must be owned by root:root: ${CONFIG_FILE}" >&2
-    exit 1
-fi
+# Ownership and mode are only demanded of the installed default, exactly like
+# the target registry's own usability check — an explicit test fixture works
+# without root.
+if [[ "${CONFIG_FILE}" == "${CONFIG_FILE_DEFAULT}" ]]; then
+    if [[ "$(stat -c '%u:%g' "${CONFIG_FILE}")" != "0:0" ]]; then
+        echo "ERROR: deployment configuration must be owned by root:root: ${CONFIG_FILE}" >&2
+        exit 1
+    fi
 
-CONFIG_MODE="$(stat -c '%a' "${CONFIG_FILE}")"
+    CONFIG_MODE="$(stat -c '%a' "${CONFIG_FILE}")"
 
-if (( (8#${CONFIG_MODE} & 8#022) != 0 )); then
-    echo "ERROR: deployment configuration must not be group- or other-writable: ${CONFIG_FILE}" >&2
-    exit 1
+    if (( (8#${CONFIG_MODE} & 8#022) != 0 )); then
+        echo "ERROR: deployment configuration must not be group- or other-writable: ${CONFIG_FILE}" >&2
+        exit 1
+    fi
 fi
 
 # shellcheck disable=SC1090
@@ -444,4 +454,22 @@ target_supervisor_program()       { _target_property "${1-}" '.supervisor.progra
 target_queue_name()               { _target_property "${1-}" '.supervisor.queue' string; }
 target_scheduler_name()           { _target_property "${1-}" '.scheduler.name' string; }
 target_nginx_site_name()          { _target_property "${1-}" '.nginx.site_name' string; }
+
+# Phase 4 slice 2: the single gate operational commands use before acting on a
+# target. target_lifecycle already validates the target ID, validates the
+# whole registry, and confirms the target exists (failing "unknown target: …"
+# otherwise) — so this only adds the final check: the target must be
+# lifecycle=active. A planned or disabled target must never be read further,
+# so this must run before any URL is built, curl is called, or an application
+# path is touched.
+require_active_target() {
+    local target_id="${1-}"
+
+    local lifecycle
+    lifecycle="$(target_lifecycle "${target_id}")"
+
+    if [[ "${lifecycle}" != "active" ]]; then
+        fail "target ${target_id} has lifecycle=${lifecycle}, not active"
+    fi
+}
 # --- deployment target registry (end) ---

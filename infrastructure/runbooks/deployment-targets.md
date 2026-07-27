@@ -282,9 +282,53 @@ additionally requires the file to be a regular file, not a symlink, owned
 `deployment.conf` already gets. A symlink is refused everywhere, because it lets
 the validated path and the read path diverge.
 
-## Compatibility with the current --environment interface
+## Read-only target-aware operations (slice 2)
 
-**Nothing about `--environment` changes in this slice.**
+`health-check` and `status` now accept exactly one selector:
+
+```bash
+health-check --target staging-main
+health-check --environment staging
+
+status --target staging-main
+status --environment staging
+```
+
+Both commands still support `--environment staging|production` with **no
+change to that path's behaviour** — same functions, same output, same exit
+codes. `--target` and `--environment` cannot be combined, exactly one is
+required, and `--help` documents both forms.
+
+### Only active targets may be operated on
+
+Every target-mode entry point calls `require_active_target TARGET` before
+doing anything else: it validates the target ID, validates the whole registry,
+confirms the target exists, and confirms `lifecycle == active` — all before a
+URL is built, `curl` runs, or an application path is touched. `staging-main` is
+the only target with `lifecycle: active`; `tits-guru` stays `planned` and is
+rejected by both commands with a message naming its lifecycle. This is a
+promise, not an implementation detail: `targets validate` continues to reject
+`lifecycle: active` on any target other than `staging-main` (see
+[Validation](#validation) above), so a target cannot become operable by
+mistake — flipping it requires a reviewed registry change.
+
+### No VPS change, and tits-guru is still not deployable
+
+This slice changes only `infrastructure/scripts/common`, `health-check` and
+`status` in this repository. It does not install anything on the VPS — the
+current deploy workflow still runs `health-check --environment staging`
+exactly as before, unaffected by any of this. `tits-guru` has no directories,
+users, database, socket, queue worker, cron entry, or Nginx site; rejecting it
+at `lifecycle=planned` is exactly what keeps a *declared* target from being
+mistaken for a *deployable* one.
+
+### What is deliberately still legacy-only
+
+`deploy`, `rollback`, `cleanup`, and the backup family are untouched in this
+slice — they still accept only `--environment`. See the migration sequence
+below.
+
+## Compatibility with the current --environment interface
 
 `validate_environment`, `environment_root`, `environment_runtime_user`,
 `environment_code_group`, `environment_deploy_user`,
@@ -293,11 +337,14 @@ the validated path and the read path diverge.
 operational script, sudoers rule, server wrapper and GitHub Actions workflow
 continues to call them unchanged.
 
-The new `target_*` helpers live alongside them and **read the registry only when
-one of them is actually called**. Sourcing `common` does not touch the registry.
-This is what makes the slice safe to merge before the registry is installed: the
-scripts currently on the VPS gain the functions but never invoke them, so
-nothing can fail on a host where the registry is still absent.
+The `target_*` helpers **read the registry only when one of them is actually
+called**. Sourcing `common` does not touch the registry. This is what makes
+each slice safe to merge before the registry is installed: the scripts
+currently on the VPS gain the functions but do not have to invoke them, so
+nothing can fail on a host where the registry is still absent — proven for
+slice 2 specifically by running `health-check --environment staging` and
+`status --environment staging` with the registry file missing or malformed and
+confirming both still succeed.
 
 `--environment` is removed only at the end of the sequence below, and only once
 `staging-main` has demonstrated parity through the registry.
@@ -305,20 +352,28 @@ nothing can fail on a host where the registry is still absent.
 ## Migration sequence
 
 1. **Registry foundation** — the registry, validation CLI, lazy `target_*`
-   helpers, docs and tests. *(this slice)*
-2. **Deploy path** — `deploy`, `rollback`, `health-check`, `status`, `cleanup`
-   accept `--target` alongside `--environment`.
-3. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
+   helpers, docs and tests. *(completed)*
+2. **Read-only target operations** — `health-check` and `status` accept
+   `--target` alongside `--environment`, gated to `lifecycle=active` targets
+   only. *(completed — this is the section above)*
+3. **Deploy path** — `deploy`, `rollback`, `cleanup` accept `--target`.
+4. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
    `offsite-retention`, `restore-test`, `offsite-restore-test`, preserving the
    existing `staging` backup namespace so no existing local or B2 path moves.
-4. **Perimeter** — GitHub Actions workflows, sudoers rules, server wrappers.
-5. **Install** — place and validate the registry on the staging VPS.
-6. **Remove compatibility** — drop `--environment` only after `staging-main`
+5. **Perimeter** — GitHub Actions workflows, sudoers rules, server wrappers.
+6. **Install** — place and validate the registry on the staging VPS.
+7. **Remove compatibility** — drop `--environment` only after `staging-main`
    parity is proven end to end.
 
 Each step is independently reviewable and revertible. `staging-main` deliberately
-mirrors current staging exactly, so parity in step 6 is a comparison against
-committed values rather than a judgement call.
+mirrors current staging exactly, so parity in the last step is a comparison
+against committed values rather than a judgement call.
+
+Read-only operations (health-check, status) were split from mutating ones
+(deploy, rollback, cleanup, backup) deliberately: a target-aware read never
+risks the running host, so it is the safer half of "deploy path" to land
+first, ahead of anything that writes to a target's filesystem, database, or
+service state.
 
 ## Adding a target
 

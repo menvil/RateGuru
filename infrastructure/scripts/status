@@ -2,18 +2,54 @@
 
 set -Eeuo pipefail
 
-source /home/www/rateguru/bin/common
+# RATEGURU_COMMON_FILE is for tests and controlled tooling only. Production
+# never sets it, so this resolves to the exact same installed path as before.
+# shellcheck disable=SC1090
+source "${RATEGURU_COMMON_FILE:-/home/www/rateguru/bin/common}"
 
+# RATEGURU_HEALTH_CHECK_CLI is for tests only, mirroring the RATEGURU_*_CLI
+# convention already used in common for the targets validator.
+HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_CLI:-/home/www/rateguru/bin/health-check}"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  status --target TARGET
+  status --environment staging|production
+USAGE
+}
+
+TARGET_ID=""
 ENVIRONMENT=""
+TARGET_SEEN=false
+ENVIRONMENT_SEEN=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --target)
+            if [[ "${TARGET_SEEN}" == true ]]; then
+                fail "--target given more than once"
+            fi
+
+            [[ $# -ge 2 ]] || fail "--target requires a value"
+
+            TARGET_ID="$2"
+            TARGET_SEEN=true
+            shift 2
+            ;;
         --environment)
-            ENVIRONMENT="${2:-}"
+            if [[ "${ENVIRONMENT_SEEN}" == true ]]; then
+                fail "--environment given more than once"
+            fi
+
+            [[ $# -ge 2 ]] || fail "--environment requires a value"
+
+            ENVIRONMENT="$2"
+            ENVIRONMENT_SEEN=true
             shift 2
             ;;
         --help|-h)
-            echo "Usage: status --environment staging|production"
+            usage
             exit 0
             ;;
         *)
@@ -22,15 +58,40 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -n "${ENVIRONMENT}" ]] \
-    || fail "--environment is required"
+if [[ "${TARGET_SEEN}" == true ]] && [[ "${ENVIRONMENT_SEEN}" == true ]]; then
+    fail "--target and --environment cannot be combined"
+fi
 
-validate_environment "${ENVIRONMENT}"
+if [[ "${TARGET_SEEN}" != true ]] && [[ "${ENVIRONMENT_SEEN}" != true ]]; then
+    fail "exactly one of --target or --environment is required"
+fi
 
-ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
-CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
-PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
-HISTORY_FILE="${ENVIRONMENT_ROOT}/deployments/history.jsonl"
+# require_active_target validates the target ID, the whole registry, that the
+# target exists, and that it is lifecycle=active — all before ROOT is computed
+# below and any application path is inspected. A planned target (e.g.
+# tits-guru today), a disabled one, or an unknown ID is rejected here, before
+# any symlink is resolved or history file is read.
+if [[ "${TARGET_SEEN}" == true ]]; then
+    [[ -n "${TARGET_ID}" ]] || fail "--target requires a non-empty value"
+
+    require_active_target "${TARGET_ID}"
+
+    ROOT="$(target_root "${TARGET_ID}")"
+    LIFECYCLE="$(target_lifecycle "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
+else
+    [[ -n "${ENVIRONMENT}" ]] || fail "--environment requires a non-empty value"
+
+    validate_environment "${ENVIRONMENT}"
+
+    ROOT="$(environment_root "${ENVIRONMENT}")"
+    HEALTH_CHECK_ARGS=(--environment "${ENVIRONMENT}")
+fi
+
+CURRENT_LINK="${ROOT}/current"
+PREVIOUS_LINK="${ROOT}/previous"
+HISTORY_FILE="${ROOT}/deployments/history.jsonl"
 
 print_link() {
     local label="$1"
@@ -53,7 +114,15 @@ print_link() {
 echo "========================================"
 echo "RateGuru deployment status"
 echo "========================================"
-printf '%-12s %s\n' "Environment:" "${ENVIRONMENT}"
+
+if [[ "${TARGET_SEEN}" == true ]]; then
+    printf '%-12s %s\n' "Target:" "${TARGET_ID}"
+    printf '%-12s %s\n' "Lifecycle:" "${LIFECYCLE}"
+    printf '%-12s %s\n' "Environment class:" "${ENVIRONMENT_CLASS}"
+else
+    printf '%-12s %s\n' "Environment:" "${ENVIRONMENT}"
+fi
+
 printf '%-12s %s\n' "Checked at:" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 echo
@@ -84,9 +153,7 @@ echo
 echo "Health"
 echo "----------------------------------------"
 
-if /home/www/rateguru/bin/health-check \
-    --environment "${ENVIRONMENT}"
-then
+if "${HEALTH_CHECK_BIN}" "${HEALTH_CHECK_ARGS[@]}"; then
     echo "Status: healthy"
 else
     echo "Status: unhealthy"
