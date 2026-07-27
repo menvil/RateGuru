@@ -2,7 +2,26 @@
 
 set -Eeuo pipefail
 
-CONFIG_FILE="/home/www/rateguru/config/deployment.conf"
+# RATEGURU_DEPLOYMENT_CONF_FILE is only honored alongside
+# RATEGURU_ALLOW_TEST_OVERRIDES=true — a stray environment variable surviving
+# in a real root shell (a leftover export, a shared profile) can never
+# silently redirect this privileged `source` at an attacker- or
+# operator-controlled file. This is a plain inline condition rather than a
+# call to a shared function: no function this file defines exists yet at this
+# point in its own execution (function definitions run in order, same as
+# anything else in a sourced file), so there is nothing to call. The identical
+# check is reused, as an actual function, further down for
+# RATEGURU_TARGET_REGISTRY_FILE and RATEGURU_TARGETS_CLI, where that ordering
+# problem does not apply.
+CONFIG_FILE_DEFAULT="/home/www/rateguru/config/deployment.conf"
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_DEPLOYMENT_CONF_FILE:-}" ]]
+then
+    CONFIG_FILE="${RATEGURU_DEPLOYMENT_CONF_FILE}"
+else
+    CONFIG_FILE="${CONFIG_FILE_DEFAULT}"
+fi
 
 if [[ ! -r "${CONFIG_FILE}" ]]; then
     echo "ERROR: deployment configuration is unavailable: ${CONFIG_FILE}" >&2
@@ -14,16 +33,21 @@ if [[ ! -f "${CONFIG_FILE}" ]] || [[ -L "${CONFIG_FILE}" ]]; then
     exit 1
 fi
 
-if [[ "$(stat -c '%u:%g' "${CONFIG_FILE}")" != "0:0" ]]; then
-    echo "ERROR: deployment configuration must be owned by root:root: ${CONFIG_FILE}" >&2
-    exit 1
-fi
+# Ownership and mode are only demanded of the installed default, exactly like
+# the target registry's own usability check — an explicit test fixture works
+# without root.
+if [[ "${CONFIG_FILE}" == "${CONFIG_FILE_DEFAULT}" ]]; then
+    if [[ "$(stat -c '%u:%g' "${CONFIG_FILE}")" != "0:0" ]]; then
+        echo "ERROR: deployment configuration must be owned by root:root: ${CONFIG_FILE}" >&2
+        exit 1
+    fi
 
-CONFIG_MODE="$(stat -c '%a' "${CONFIG_FILE}")"
+    CONFIG_MODE="$(stat -c '%a' "${CONFIG_FILE}")"
 
-if (( (8#${CONFIG_MODE} & 8#022) != 0 )); then
-    echo "ERROR: deployment configuration must not be group- or other-writable: ${CONFIG_FILE}" >&2
-    exit 1
+    if (( (8#${CONFIG_MODE} & 8#022) != 0 )); then
+        echo "ERROR: deployment configuration must not be group- or other-writable: ${CONFIG_FILE}" >&2
+        exit 1
+    fi
 fi
 
 # shellcheck disable=SC1090
@@ -199,17 +223,40 @@ environment_incoming_artifacts() {
 TARGET_REGISTRY_DEFAULT_FILE="/home/www/rateguru/config/deployment-targets.json"
 TARGET_REGISTRY_SCHEMA_VERSION=1
 
+# Gates every RATEGURU_*_FILE / RATEGURU_*_CLI override below that could
+# redirect a privileged script at an attacker- or operator-controlled file —
+# the identical plain condition guards RATEGURU_DEPLOYMENT_CONF_FILE near the
+# top of this file, before this block starts. Defined as a real function here
+# (rather than inlined, as that one is) because it is called from multiple
+# places below, and — unlike the top-of-file check — it has somewhere earlier
+# in this same execution to have already been defined.
+#
+# This function lives inside the extractable block (between the begin/end
+# markers) rather than at the top of the file, because tests exercise this
+# block in isolation by extracting exactly the text between those markers —
+# see tests/Feature/Architecture/DeploymentTargetRegistryTest.php's
+# targetHelperHarness(). A definition outside the markers would not be part of
+# what gets extracted, and target_registry_file()/target_registry_validator()
+# below would fail to find it when tested that way.
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
 # One resolution contract, identical to scripts/targets (which layers --file on
 # top as the most specific source):
-#   1. RATEGURU_TARGET_REGISTRY_FILE — tests and controlled tooling
-#   2. TARGET_REGISTRY_FILE — set by the deployment.conf sourced above
+#   1. RATEGURU_TARGET_REGISTRY_FILE — tests and controlled tooling, and only
+#      when RATEGURU_ALLOW_TEST_OVERRIDES=true
+#   2. TARGET_REGISTRY_FILE — set by the deployment.conf sourced above; no test
+#      flag required, since honoring it requires deployment.conf to already
+#      have loaded (from its own root-owned installed path, or from a fixture
+#      that already required the same flag to be read at all)
 #   3. TARGET_REGISTRY_DEFAULT_FILE
 #
 # `common` already sourced deployment.conf, so step 2 is a plain variable here.
 # The CLI reaches the same value by parsing that file, because deployment.conf
 # assigns without `export` and the value would not survive into a child process.
 target_registry_file() {
-    if [[ -n "${RATEGURU_TARGET_REGISTRY_FILE:-}" ]]; then
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_TARGET_REGISTRY_FILE:-}" ]]; then
         printf '%s\n' "${RATEGURU_TARGET_REGISTRY_FILE}"
 
         return 0
@@ -287,7 +334,7 @@ target_registry_assert_usable() {
 # Locate the registry validator. It ships beside this file, so an installed
 # common at /home/www/rateguru/bin/common finds /home/www/rateguru/bin/targets.
 target_registry_validator() {
-    if [[ -n "${RATEGURU_TARGETS_CLI:-}" ]]; then
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_TARGETS_CLI:-}" ]]; then
         printf '%s\n' "${RATEGURU_TARGETS_CLI}"
 
         return 0
@@ -444,4 +491,116 @@ target_supervisor_program()       { _target_property "${1-}" '.supervisor.progra
 target_queue_name()               { _target_property "${1-}" '.supervisor.queue' string; }
 target_scheduler_name()           { _target_property "${1-}" '.scheduler.name' string; }
 target_nginx_site_name()          { _target_property "${1-}" '.nginx.site_name' string; }
+
+# Phase 4 slice 2: the single gate operational commands use before acting on a
+# target. target_lifecycle already validates the target ID, validates the
+# whole registry, and confirms the target exists (failing "unknown target: …"
+# otherwise) — so this only adds the final check: the target must be
+# lifecycle=active. A planned or disabled target must never be read further,
+# so this must run before any URL is built, curl is called, or an application
+# path is touched.
+#
+# validate_target_id / target_registry_assert_usable / target_registry_assert_valid
+# are called directly here — not through target_lifecycle's own $(...) command
+# substitution below — because a command substitution forks a subshell, and
+# target_registry_assert_valid's cache (_TARGET_REGISTRY_VALIDATED_FILE) is a
+# plain shell variable: setting it inside a subshell has no effect once that
+# subshell exits. Running the three checks directly, in this function's own
+# (the caller's) shell, means the cache is actually set here — in the process
+# health-check or status is running as — so target_lifecycle two lines down,
+# and every target_* call the caller makes afterward, inherit an
+# already-matching cache and skip re-running the external validator. Without
+# this, every target_* accessor call would re-invoke the validator from
+# scratch, once each, silently defeating the "once per process" design.
+require_active_target() {
+    local target_id="${1-}"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    local lifecycle
+    lifecycle="$(target_lifecycle "${target_id}")"
+
+    if [[ "${lifecycle}" != "active" ]]; then
+        fail "target ${target_id} has lifecycle=${lifecycle}, not active"
+    fi
+}
+
+# Shared --target/--environment selector parsing for target-aware operational
+# commands (health-check, status). Runs in the caller's own shell — never a
+# subshell — so it sets TARGET_ID, ENVIRONMENT, TARGET_SEEN and
+# ENVIRONMENT_SEEN directly in the caller's scope rather than returning them.
+#
+# Call as: parse_selector_args "$0" "$@"  (or an explicit program name in
+# place of "$0", since callers invoke this via `bash script`, not `./script`).
+#
+# Enforces: exactly one of --target/--environment; the two together fail;
+# duplicate --target or duplicate --environment fails; a selector given with no
+# value, or an explicitly empty value, fails; an unrecognized argument fails;
+# --help prints both forms and exits 0. It does not perform target/environment
+# *semantic* validation (require_active_target, validate_environment) — that
+# stays with the caller, since what happens with a validated selector differs
+# per command.
+parse_selector_args() {
+    local program_name="$1"
+    shift
+
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                [[ $# -ge 2 ]] || fail "--target requires a value"
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                if [[ "${ENVIRONMENT_SEEN}" == true ]]; then
+                    fail "--environment given more than once"
+                fi
+
+                [[ $# -ge 2 ]] || fail "--environment requires a value"
+
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                cat <<USAGE
+Usage:
+  ${program_name} --target TARGET
+  ${program_name} --environment staging|production
+USAGE
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${TARGET_SEEN}" == true ]] && [[ "${ENVIRONMENT_SEEN}" == true ]]; then
+        fail "--target and --environment cannot be combined"
+    fi
+
+    if [[ "${TARGET_SEEN}" != true ]] && [[ "${ENVIRONMENT_SEEN}" != true ]]; then
+        fail "exactly one of --target or --environment is required"
+    fi
+
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        [[ -n "${TARGET_ID}" ]] || fail "--target requires a non-empty value"
+    else
+        [[ -n "${ENVIRONMENT}" ]] || fail "--environment requires a non-empty value"
+    fi
+}
 # --- deployment target registry (end) ---

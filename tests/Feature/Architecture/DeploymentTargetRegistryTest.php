@@ -157,6 +157,14 @@ function runTargetHelper(string $snippet, ?string $registryFile = null, ?string 
 
     $command = '';
 
+    // RATEGURU_TARGET_REGISTRY_FILE and RATEGURU_TARGETS_CLI are only honored
+    // alongside RATEGURU_ALLOW_TEST_OVERRIDES=true (a stray environment
+    // variable in a real root shell must never silently redirect a privileged
+    // script), so any test that sets either must set this too.
+    if ($registryFile !== null || $validator !== null) {
+        $command .= 'RATEGURU_ALLOW_TEST_OVERRIDES=true ';
+    }
+
     if ($registryFile !== null) {
         $command .= 'RATEGURU_TARGET_REGISTRY_FILE='.escapeshellarg($registryFile).' ';
     }
@@ -1292,9 +1300,13 @@ it('leaves the --environment interface untouched', function () {
         ->toContain('PRODUCTION_ROOT=');
 });
 
-it('converts no operational script to --target in this slice', function () {
+it('converts no mutating operational script to --target yet', function () {
+    // health-check and status became target-aware in Phase 4 slice 2 — see
+    // TargetAwareOperationsTest.php for their behavioral coverage. Every
+    // script that writes to a target's filesystem, database or service state
+    // is still --environment-only until its own migration slice.
     $operational = [
-        'deploy', 'rollback', 'health-check', 'status', 'cleanup',
+        'deploy', 'rollback', 'cleanup',
         'backup', 'backup-cycle', 'offsite-backup', 'offsite-retention',
         'restore-test', 'offsite-restore-test',
     ];
@@ -1352,13 +1364,14 @@ it('changes no runtime configuration in this slice', function () {
     }
 });
 
-it('records the registry as the first Phase 4 slice without completing the phase', function () {
+it('records the registry as a completed Phase 4 slice without completing the phase', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
         ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m')
         ->toContain('## 4. Multi-target production model — current')
-        ->toContain('Deployment target registry — in progress')
+        // The registry slice itself is done; later slices in the phase are not.
+        ->toContain('Deployment target registry — completed')
         ->toContain('runbooks/deployment-targets.md')
         // Phase 4 must not be marked done.
         ->not->toContain('## 4. Multi-target production model — completed')

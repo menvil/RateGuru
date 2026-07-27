@@ -2,35 +2,59 @@
 
 set -Eeuo pipefail
 
-source /home/www/rateguru/bin/common
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this script
+# at an attacker- or operator-controlled file to source. This is a plain
+# inline condition, not a call to common's rateguru_test_overrides_allowed():
+# common has not been sourced yet at this point, so no function it defines
+# exists to call. Production never sets either variable, so this resolves to
+# the exact same installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
 
-ENVIRONMENT=""
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
-            shift 2
-            ;;
-        --help|-h)
-            echo "Usage: status --environment staging|production"
-            exit 0
-            ;;
-        *)
-            fail "unknown argument: $1"
-            ;;
-    esac
-done
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
 
-[[ -n "${ENVIRONMENT}" ]] \
-    || fail "--environment is required"
+# Unlike RATEGURU_COMMON_FILE above, this runs after common is sourced, so it
+# is gated by the same rateguru_test_overrides_allowed() check common's own
+# deployment.conf loading uses — a stray environment variable in a real root
+# shell can never silently redirect which health-check binary runs.
+if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_HEALTH_CHECK_CLI:-}" ]]; then
+    HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_CLI}"
+else
+    HEALTH_CHECK_BIN="/home/www/rateguru/bin/health-check"
+fi
 
-validate_environment "${ENVIRONMENT}"
+parse_selector_args status "$@"
 
-ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
-CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
-PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
-HISTORY_FILE="${ENVIRONMENT_ROOT}/deployments/history.jsonl"
+# require_active_target validates the target ID, the whole registry, that the
+# target exists, and that it is lifecycle=active — all before ROOT is computed
+# below and any application path is inspected. A planned target (e.g.
+# tits-guru today), a disabled one, or an unknown ID is rejected here, before
+# any symlink is resolved or history file is read.
+if [[ "${TARGET_SEEN}" == true ]]; then
+    require_active_target "${TARGET_ID}"
+
+    ROOT="$(target_root "${TARGET_ID}")"
+    LIFECYCLE="$(target_lifecycle "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
+else
+    validate_environment "${ENVIRONMENT}"
+
+    ROOT="$(environment_root "${ENVIRONMENT}")"
+    HEALTH_CHECK_ARGS=(--environment "${ENVIRONMENT}")
+fi
+
+CURRENT_LINK="${ROOT}/current"
+PREVIOUS_LINK="${ROOT}/previous"
+HISTORY_FILE="${ROOT}/deployments/history.jsonl"
 
 print_link() {
     local label="$1"
@@ -53,7 +77,15 @@ print_link() {
 echo "========================================"
 echo "RateGuru deployment status"
 echo "========================================"
-printf '%-12s %s\n' "Environment:" "${ENVIRONMENT}"
+
+if [[ "${TARGET_SEEN}" == true ]]; then
+    printf '%-12s %s\n' "Target:" "${TARGET_ID}"
+    printf '%-12s %s\n' "Lifecycle:" "${LIFECYCLE}"
+    printf '%-12s %s\n' "Environment class:" "${ENVIRONMENT_CLASS}"
+else
+    printf '%-12s %s\n' "Environment:" "${ENVIRONMENT}"
+fi
+
 printf '%-12s %s\n' "Checked at:" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 echo
@@ -84,9 +116,7 @@ echo
 echo "Health"
 echo "----------------------------------------"
 
-if /home/www/rateguru/bin/health-check \
-    --environment "${ENVIRONMENT}"
-then
+if "${HEALTH_CHECK_BIN}" "${HEALTH_CHECK_ARGS[@]}"; then
     echo "Status: healthy"
 else
     echo "Status: unhealthy"
