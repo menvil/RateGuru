@@ -67,6 +67,240 @@ function mailCaptureDirectiveValues(string $path, string $key): array
     return $values;
 }
 
+/**
+ * Extract one of the installer's marked, sourceable blocks so the behavioural
+ * tests run the shipped code itself instead of a copy of it.
+ */
+function mailCaptureBlock(string $marker): string
+{
+    $quoted = preg_quote($marker, '/');
+    $pattern = '/^# --- '.$quoted.' \(begin\) ---$\R(.*?)^# --- '.$quoted.' \(end\) ---$/ms';
+
+    expect(preg_match($pattern, mailCaptureSource('scripts/install-mail-capture'), $matches))
+        ->toBe(1, "could not locate the '{$marker}' block in scripts/install-mail-capture");
+
+    return $matches[1];
+}
+
+/**
+ * Create a throwaway workspace holding command stubs (systemctl, ss, curl,
+ * nginx, journalctl) plus the state directory that drives them.
+ *
+ * @return array{root:string, bin:string, state:string}
+ */
+function mailCaptureStubWorkspace(): array
+{
+    $root = sys_get_temp_dir().'/mail-capture-runtime-'.uniqid();
+    $bin = $root.'/bin';
+    $state = $root.'/state';
+
+    mkdir($bin, 0o700, true);
+    mkdir($state, 0o700, true);
+
+    // systemctl: every answer comes from a plain file in $STUB_STATE_DIR, and
+    // every state-changing verb writes those files back, so a stubbed rollback
+    // really does move the recorded runtime state.
+    $systemctl = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+state_dir="${STUB_STATE_DIR}"
+printf '%s\n' "systemctl $*" >>"${state_dir}/calls"
+read_state() { cat "${state_dir}/$1" 2>/dev/null || printf '%s' "$2"; }
+
+cmd="${1:-}"
+shift || true
+
+unit=""
+for arg in "$@"; do
+    case "${arg}" in
+        --*) ;;
+        *) [[ -n "${unit}" ]] || unit="${arg}" ;;
+    esac
+done
+
+case "${cmd}" in
+    show)
+        prop=""
+        for arg in "$@"; do
+            case "${arg}" in --property=*) prop="${arg#--property=}" ;; esac
+        done
+        case "${prop}" in
+            ActiveState) read_state "${unit}.active" inactive ;;
+            SubState) read_state "${unit}.sub" dead ;;
+            Result) read_state "${unit}.result" success ;;
+            ExecMainStatus) read_state "${unit}.exec_status" 0 ;;
+            NRestarts)
+                count="$(read_state "${unit}.nrestarts" 0)"
+                # A ".nrestarts_step" marker makes the counter climb on every
+                # read: that is a service restarting under the installer.
+                if [[ -f "${state_dir}/${unit}.nrestarts_step" ]]; then
+                    printf '%s' "$((count + 1))" >"${state_dir}/${unit}.nrestarts"
+                fi
+                printf '%s' "${count}"
+                ;;
+            *) printf '' ;;
+        esac
+        printf '\n'
+        ;;
+    is-enabled)
+        current="$(read_state "${unit}.enabled" not-found)"
+        printf '%s\n' "${current}"
+        [[ "${current}" == enabled || "${current}" == enabled-runtime ]] || exit 1
+        ;;
+    is-active)
+        [[ "$(read_state "${unit}.active" inactive)" == active ]] || exit 3
+        ;;
+    enable)
+        [[ ! -f "${state_dir}/fail_enable_${unit}" ]] || exit 1
+        printf 'enabled' >"${state_dir}/${unit}.enabled"
+        ;;
+    disable)
+        [[ ! -f "${state_dir}/fail_disable_${unit}" ]] || exit 1
+        printf 'disabled' >"${state_dir}/${unit}.enabled"
+        ;;
+    mask)
+        printf 'masked' >"${state_dir}/${unit}.enabled"
+        ;;
+    restart|start)
+        if [[ -f "${state_dir}/fail_restart_${unit}" ]]; then
+            printf 'failed' >"${state_dir}/${unit}.active"
+            printf 'failed' >"${state_dir}/${unit}.sub"
+            exit 1
+        fi
+        printf 'active' >"${state_dir}/${unit}.active"
+        printf 'running' >"${state_dir}/${unit}.sub"
+        ;;
+    stop)
+        [[ ! -f "${state_dir}/fail_stop_${unit}" ]] || exit 1
+        printf 'inactive' >"${state_dir}/${unit}.active"
+        printf 'dead' >"${state_dir}/${unit}.sub"
+        ;;
+    reload)
+        [[ ! -f "${state_dir}/fail_reload_${unit}" ]] || exit 1
+        ;;
+    *) ;;
+esac
+exit 0
+SH;
+
+    // ss: one LISTEN row per "host:port" recorded in $STUB_STATE_DIR/listeners.
+    $ss = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+while read -r hostport; do
+    [[ -n "${hostport}" ]] || continue
+    printf 'LISTEN 0 4096 %s 0.0.0.0:*\n' "${hostport}"
+done <"${STUB_STATE_DIR}/listeners"
+exit 0
+SH;
+
+    // curl: only the URLs recorded in $STUB_STATE_DIR/apis answer.
+    $curl = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+url=""
+for arg in "$@"; do
+    case "${arg}" in http*) url="${arg}" ;; esac
+done
+grep -Fxq "${url}" "${STUB_STATE_DIR}/apis" 2>/dev/null || exit 22
+exit 0
+SH;
+
+    $nginx = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "nginx $*" >>"${STUB_STATE_DIR}/calls"
+if [[ -f "${STUB_STATE_DIR}/nginx_invalid" ]]; then
+    printf 'nginx: configuration file test failed\n' >&2
+    exit 1
+fi
+printf 'nginx: configuration file test is successful\n'
+exit 0
+SH;
+
+    $stubs = [
+        'systemctl' => $systemctl,
+        'ss' => $ss,
+        'curl' => $curl,
+        'nginx' => $nginx,
+        'journalctl' => "#!/usr/bin/env bash\nexit 0\n",
+    ];
+
+    foreach ($stubs as $name => $body) {
+        file_put_contents($bin.'/'.$name, rtrim($body, "\n")."\n");
+        chmod($bin.'/'.$name, 0o755);
+    }
+
+    foreach (['calls', 'listeners', 'apis'] as $file) {
+        file_put_contents($state.'/'.$file, '');
+    }
+
+    return ['root' => $root, 'bin' => $bin, 'state' => $state];
+}
+
+/**
+ * Record the state of two enabled, active, serving mail-capture services.
+ */
+function mailCaptureHealthyState(string $state): void
+{
+    foreach (['staging-mailtrap-local.service', 'staging-mailpit.service'] as $unit) {
+        file_put_contents($state.'/'.$unit.'.active', 'active');
+        file_put_contents($state.'/'.$unit.'.sub', 'running');
+        file_put_contents($state.'/'.$unit.'.enabled', 'enabled');
+        file_put_contents($state.'/'.$unit.'.nrestarts', '0');
+    }
+
+    file_put_contents(
+        $state.'/listeners',
+        "127.0.0.2:3535\n127.0.0.1:3550\n127.0.0.1:1025\n127.0.0.1:8025\n",
+    );
+    file_put_contents(
+        $state.'/apis',
+        "http://127.0.0.1:3550/api/v1/version\nhttp://127.0.0.1:8025/api/v1/info\n",
+    );
+}
+
+/**
+ * Run a harness script (installer block + scenario) against the stubs.
+ *
+ * @param  array<string, string>  $env
+ * @return array{exit:int, output:string}
+ */
+function mailCaptureRunHarness(array $workspace, string $script, array $env = []): array
+{
+    $file = $workspace['root'].'/harness.sh';
+    file_put_contents($file, $script);
+
+    $exports = array_merge([
+        'STUB_STATE_DIR' => $workspace['state'],
+        'PATH' => $workspace['bin'].':'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        // Deterministic stubs: the bounded waits only need to be non-zero.
+        'MAIL_CAPTURE_RUNTIME_WAIT' => '1',
+        'MAIL_CAPTURE_STABILITY_WAIT' => '1',
+    ], $env);
+
+    $prefix = '';
+    foreach ($exports as $name => $value) {
+        $prefix .= $name.'='.escapeshellarg($value).' ';
+    }
+
+    $output = [];
+    $exit = 0;
+    exec($prefix.'bash '.escapeshellarg($file).' 2>&1', $output, $exit);
+
+    return ['exit' => $exit, 'output' => implode("\n", $output)];
+}
+
+/**
+ * Minimal `log`/`fail` so an extracted block can run standalone.
+ */
+function mailCaptureHarnessPreamble(): string
+{
+    return "set -uo pipefail\n"
+        ."log()  { printf '[log] %s\\n' \"\$*\"; }\n"
+        ."fail() { printf '[ERR] %s\\n' \"\$*\" >&2; exit 1; }\n";
+}
+
 it('ships every required mail-capture file', function () {
     $required = [
         'ROADMAP.md',
@@ -483,6 +717,253 @@ it('cannot report apply success while a service is activating or restart-looping
         ->toContain('wait_listener')
         ->toContain('wait_http_api')
         ->toContain('127.0.0.2:3535');
+});
+
+it('commits the apply only after runtime health has passed', function () {
+    $installer = mailCaptureSource('scripts/install-mail-capture');
+
+    // The whole point of the transaction is that activation and runtime health
+    // — the most likely failure point — are still covered by rollback. So the
+    // commit flag must be raised after the gate, never after `nginx -t`.
+    $commitPos = strpos($installer, "\n    APPLY_COMMITTED=true");
+    $gatePos = strrpos($installer, "\n    verify_runtime_health");
+    $restartPos = strpos($installer, 'systemctl restart staging-mailtrap-local.service');
+
+    expect($commitPos)->not->toBeFalse('run_apply never commits the apply');
+    expect($gatePos)->not->toBeFalse('run_apply never calls verify_runtime_health');
+    expect($restartPos)->not->toBeFalse();
+    expect($gatePos)->toBeGreaterThan($restartPos, 'runtime health runs before the services are restarted');
+    expect($commitPos)->toBeGreaterThan($gatePos, 'the apply is committed before runtime health is verified');
+
+    // Rollback is armed, and the pre-apply runtime state snapshotted, before
+    // the first change; the trap is disarmed only after the commit.
+    $trapPos = strpos($installer, 'trap on_apply_error ERR EXIT');
+    $snapshotPos = strpos($installer, "\n    capture_service_states\n");
+    $firstChangePos = strpos($installer, '    create_user "${USER_MAILPIT}"');
+
+    expect($snapshotPos)->not->toBeFalse('run_apply never snapshots the pre-apply service state');
+    expect($snapshotPos)->toBeGreaterThan($trapPos, 'the state snapshot runs before rollback is armed');
+    expect($snapshotPos)->toBeLessThan($firstChangePos, 'the state snapshot runs after the first change');
+    expect($commitPos)->toBeLessThan(strrpos($installer, 'trap - ERR EXIT'));
+
+    // Rollback restores runtime state, not just files.
+    expect($installer)
+        ->toContain('systemctl daemon-reload')
+        ->toContain('restore_runtime_state')
+        ->toContain('restore_service_enablement')
+        ->toContain('restore_service_activation')
+        ->toContain('restore_nginx_runtime')
+        ->toContain('rollback INCOMPLETE');
+});
+
+it('treats enabling services for boot as fatal, never best-effort', function () {
+    $installer = mailCaptureSource('scripts/install-mail-capture');
+
+    // A service that cannot be enabled survives this run but disappears on the
+    // next reboot, so its failure must not be swallowed.
+    expect($installer)
+        ->not->toMatch('/systemctl enable staging-[^\n]*\|\|\s*true/')
+        ->not->toMatch('/systemctl enable staging-[^\n]*2>&1\s*$/m')
+        ->toContain('fail "could not enable staging-mailtrap-local.service for boot"')
+        ->toContain('fail "could not enable staging-mailpit.service for boot"');
+
+    // ...and the health gate independently requires both to be enabled.
+    expect($installer)
+        ->toContain('systemctl is-enabled --quiet')
+        ->toContain('is not enabled for boot');
+});
+
+it('requires a stability window before calling a service healthy', function () {
+    $installer = mailCaptureSource('scripts/install-mail-capture');
+
+    expect($installer)
+        ->toContain('assert_service_stable')
+        ->toContain('RUNTIME_STABILITY_WAIT')
+        // NRestarts now drives the decision, not just the diagnostics dump.
+        ->toContain('service_restart_count')
+        ->toContain('(( after > before ))')
+        ->toContain('it is in a restart loop');
+
+    // The stability window cannot be disabled by a stray environment variable.
+    expect($installer)
+        ->toMatch('/\[\[ "\$\{RUNTIME_STABILITY_WAIT\}" =~ \^\[1-9\]\[0-9\]\*\$ \]\] \|\| RUNTIME_STABILITY_WAIT=\d+/')
+        ->toMatch('/\[\[ "\$\{RUNTIME_WAIT\}" =~ \^\[1-9\]\[0-9\]\*\$ \]\] \|\| RUNTIME_WAIT=\d+/');
+});
+
+it('passes the runtime health gate only for enabled, stably active services', function (
+    callable $scenario,
+    int $expectedExit,
+    ?string $expectedMessage,
+) {
+    $workspace = mailCaptureStubWorkspace();
+
+    try {
+        mailCaptureHealthyState($workspace['state']);
+        $scenario($workspace['state']);
+
+        $result = mailCaptureRunHarness($workspace, mailCaptureHarnessPreamble()
+            .mailCaptureBlock('runtime health')
+            ."\nverify_runtime_health\n");
+
+        expect($result['exit'])->toBe($expectedExit, "unexpected exit status:\n".$result['output']);
+
+        if ($expectedMessage !== null) {
+            expect($result['output'])->toContain($expectedMessage);
+        }
+    } finally {
+        exec('rm -rf '.escapeshellarg($workspace['root']));
+    }
+})->with([
+    'healthy, enabled and active' => [
+        fn (string $state) => null,
+        0,
+        'runtime health verified for both services',
+    ],
+    'activating (auto-restart)' => [
+        function (string $state) {
+            file_put_contents($state.'/staging-mailtrap-local.service.active', 'activating');
+            file_put_contents($state.'/staging-mailtrap-local.service.sub', 'auto-restart');
+        },
+        1,
+        'did not reach a stable active state',
+    ],
+    'failed' => [
+        function (string $state) {
+            file_put_contents($state.'/staging-mailpit.service.active', 'failed');
+            file_put_contents($state.'/staging-mailpit.service.sub', 'failed');
+        },
+        1,
+        'did not reach a stable active state',
+    ],
+    'active but disabled' => [
+        fn (string $state) => file_put_contents(
+            $state.'/staging-mailtrap-local.service.enabled',
+            'disabled',
+        ),
+        1,
+        'is not enabled for boot',
+    ],
+    'restarting during the stability window' => [
+        // NRestarts climbs between the two reads: a slow restart loop that was
+        // briefly active and serving.
+        fn (string $state) => touch($state.'/staging-mailtrap-local.service.nrestarts_step'),
+        1,
+        'it is in a restart loop',
+    ],
+    'missing listener' => [
+        fn (string $state) => file_put_contents(
+            $state.'/listeners',
+            "127.0.0.1:3550\n127.0.0.1:1025\n127.0.0.1:8025\n",
+        ),
+        1,
+        'is not listening on 127.0.0.2:3535',
+    ],
+    'silent HTTP API' => [
+        fn (string $state) => file_put_contents(
+            $state.'/apis',
+            "http://127.0.0.1:3550/api/v1/version\n",
+        ),
+        1,
+        'did not respond within',
+    ],
+]);
+
+it('restores files and runtime state when the apply fails', function () {
+    $workspace = mailCaptureStubWorkspace();
+    $state = $workspace['state'];
+
+    try {
+        $etc = $workspace['root'].'/etc';
+        $backup = $workspace['root'].'/backup';
+        mkdir($etc, 0o700, true);
+        mkdir($backup.$etc, 0o700, true);
+
+        // One replaced file (backed up) and one brand-new file.
+        file_put_contents($backup.$etc.'/unit.service', "previous\n");
+        file_put_contents($etc.'/unit.service', "installed\n");
+        file_put_contents($etc.'/fresh.conf', "installed\n");
+
+        // Runtime "now": the failed apply left both services running the new
+        // configuration, both enabled; nginx is up.
+        mailCaptureHealthyState($state);
+        file_put_contents($state.'/nginx.active', 'active');
+
+        $script = mailCaptureHarnessPreamble()
+            .mailCaptureBlock('runtime health')
+            .mailCaptureBlock('rollback')
+            ."\nBACKUP_DIR=".escapeshellarg($backup)."\n"
+            ."CHANGED_UNIT=true\n"
+            ."CHANGED_NGINX=true\n"
+            .'ROLLBACK_RESTORE=('.escapeshellarg($etc.'/unit.service').")\n"
+            .'ROLLBACK_REMOVE=('.escapeshellarg($etc.'/fresh.conf').")\n"
+            // Before the apply the mirror ran and was enabled; Mailpit was
+            // stopped and disabled.
+            ."SERVICE_STATE_BEFORE=('staging-mailtrap-local.service|active|enabled' "
+            ."'staging-mailpit.service|inactive|disabled')\n"
+            ."rollback\n";
+
+        $result = mailCaptureRunHarness($workspace, $script);
+
+        expect($result['exit'])->toBe(0, "rollback reported failure:\n".$result['output']);
+
+        // 1. Files: the replaced file is back, the new one is gone.
+        expect(file_get_contents($etc.'/unit.service'))->toBe("previous\n");
+        expect(file_exists($etc.'/fresh.conf'))->toBeFalse();
+
+        // 2. systemd re-read the restored units, so the old configuration is
+        //    loaded rather than merely present on disk.
+        $calls = file_get_contents($state.'/calls');
+        expect($calls)->toContain('systemctl daemon-reload');
+
+        // 3. Boot and running state are back to the pre-apply values.
+        expect(file_get_contents($state.'/staging-mailtrap-local.service.enabled'))->toBe('enabled');
+        expect(file_get_contents($state.'/staging-mailtrap-local.service.active'))->toBe('active');
+        expect(file_get_contents($state.'/staging-mailpit.service.enabled'))->toBe('disabled');
+        expect(file_get_contents($state.'/staging-mailpit.service.active'))->toBe('inactive');
+
+        // 4. Nginx was re-validated and reloaded with the restored files.
+        expect($calls)
+            ->toContain('nginx -t')
+            ->toContain('systemctl reload nginx');
+
+        expect($result['output'])->toContain('files and runtime state restored');
+    } finally {
+        exec('rm -rf '.escapeshellarg($workspace['root']));
+    }
+});
+
+it('reports an incomplete rollback instead of claiming success', function () {
+    $workspace = mailCaptureStubWorkspace();
+    $state = $workspace['state'];
+
+    try {
+        mailCaptureHealthyState($state);
+        file_put_contents($state.'/nginx.active', 'active');
+        // The previously running mirror refuses to come back up.
+        touch($state.'/fail_restart_staging-mailtrap-local.service');
+
+        $script = mailCaptureHarnessPreamble()
+            .mailCaptureBlock('runtime health')
+            .mailCaptureBlock('rollback')
+            ."\nBACKUP_DIR=".escapeshellarg($workspace['root'].'/backup')."\n"
+            ."CHANGED_UNIT=true\n"
+            ."CHANGED_NGINX=false\n"
+            ."ROLLBACK_RESTORE=()\n"
+            ."ROLLBACK_REMOVE=()\n"
+            ."SERVICE_STATE_BEFORE=('staging-mailtrap-local.service|active|enabled')\n"
+            ."rollback\n";
+
+        $result = mailCaptureRunHarness($workspace, $script);
+
+        expect($result['exit'])->toBe(1, "rollback claimed success:\n".$result['output']);
+        expect($result['output'])
+            ->toContain('could not return staging-mailtrap-local.service to its previous active state')
+            ->toContain('rollback INCOMPLETE')
+            ->toContain('diagnostics: staging-mailtrap-local.service')
+            ->not->toContain('files and runtime state restored');
+    } finally {
+        exec('rm -rf '.escapeshellarg($workspace['root']));
+    }
 });
 
 it('reports exact endpoints, restart-loop state and unfiltered journal in status', function () {

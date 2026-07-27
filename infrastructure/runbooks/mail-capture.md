@@ -90,10 +90,16 @@ delivery is unaffected (see the guarantees above).
 
 ## DNS and TLS prerequisites
 
-Two DNS records must point at the staging host before requesting certificates:
+Both names must resolve to the staging VPS before requesting certificates:
 
 - `mailpit.staging.myprojects.pp.ua`
 - `mailtrap.staging.myprojects.pp.ua`
+
+Resolution may come from explicit `A`/`AAAA` records **or** from an existing
+wildcard record — `*.staging.myprojects.pp.ua` already covers both names, so no
+per-host records need to be created when it is in place. Confirm with
+`dig +short <name>` rather than assuming; Certbot only needs the names to
+resolve to this host.
 
 Both hostnames are one operational service, so they share **one** Certbot SAN
 certificate under the lineage name `staging-mail-capture` — not two independent
@@ -151,16 +157,48 @@ What `--apply` does:
 7. installs the systemd units and Nginx vhosts (backing up any replaced file
    under `/var/backups/staging-mail-capture/<timestamp>/`);
 8. runs `systemd-analyze verify` and `nginx -t`;
-9. `daemon-reload`s only when a unit changed and restarts only changed
-   services (mirror first, then Mailpit);
-10. verifies **runtime health** before reporting success — each service must
-    reach a stable `active` state and expose its listeners (`127.0.0.1:1025`,
-    `127.0.0.1:8025`, `127.0.0.2:3535`, `127.0.0.1:3550`) and HTTP APIs within a
-    bounded wait. A unit that is failed, inactive or stuck `activating
-    (auto-restart)` fails the apply (non-zero) with `systemctl status`,
+9. `daemon-reload`s only when a unit changed, **enables both services for boot**
+   and restarts only changed services (mirror first, then Mailpit). Enabling is
+   not best-effort: a service that cannot be enabled fails the apply, because it
+   would otherwise survive the run and disappear on the next reboot;
+10. verifies **runtime health** before reporting success. Each service must be
+    - `enabled` (present at boot),
+    - stably `active`, with its listeners (`127.0.0.1:1025`, `127.0.0.1:8025`,
+      `127.0.0.2:3535`, `127.0.0.1:3550`) and HTTP APIs answering within a
+      bounded wait, and
+    - still active, with an unchanged `NRestarts` and a responding API after a
+      short stability window — a slow restart loop can be `active` and serving
+      for a moment, so a single sample is not proof.
+
+    A unit that is disabled, failed, inactive, stuck `activating (auto-restart)`
+    or restart-looping fails the apply (non-zero) with `systemctl status`,
     `ActiveState`/`SubState`/`Result`/`ExecMainStatus`/`NRestarts`, and the
     recent unfiltered journal;
-11. rolls the installed files back if apply fails before commit.
+11. commits the apply **only after step 10 passes for both services**.
+
+### Rollback contract
+
+The apply is transactional through runtime verification. Until step 11 the
+change is uncommitted, so **any** failure — download, checksum, unit syntax,
+`nginx -t`, `enable`, `restart`, listeners, HTTP API or the stability window —
+triggers a rollback that restores both disk *and* runtime state:
+
+- replaced binaries, configs, units and Nginx files are restored from
+  `/var/backups/staging-mail-capture/<timestamp>/`, and files this run created
+  are removed;
+- `systemctl daemon-reload` runs when units were restored, so systemd loads the
+  restored units instead of keeping the new ones in memory;
+- each service's original `enabled`/`disabled` state is restored;
+- each service's original `active`/`inactive` state is restored, using the
+  restored unit and configuration;
+- the restored Nginx configuration is re-validated with `nginx -t` and reloaded
+  when Nginx is running;
+- the original non-zero exit status is preserved.
+
+If restoration itself is incomplete, the installer prints
+`rollback INCOMPLETE` plus per-service diagnostics and still exits non-zero — it
+never claims a rollback succeeded when the running state was not recovered. The
+backup directory is left in place for manual recovery.
 
 Installed layout:
 
@@ -370,6 +408,15 @@ ever introduced, add `/var/lib/staging-mail-capture` to its exclude list.
   raw journal.
 - **`nginx -t` fails during apply:** the installer stops before activating and
   rolls back; fix DNS/cert paths and re-run `--apply`.
+- **Apply failed during activation or runtime health:** the change was never
+  committed, so files *and* service state were restored (see the rollback
+  contract above) — the host is back on the previous configuration. Fix the
+  reported cause and re-run `--apply`. If the log says `rollback INCOMPLETE`,
+  restoration itself did not finish: inspect the per-service diagnostics and the
+  backup directory named in the log before re-running.
+- **Service is running but disabled:** apply now fails on this, because the
+  service would vanish on the next reboot. Re-run `--apply`, or
+  `systemctl enable --now <unit>` and confirm with `systemctl is-enabled`.
 - **`systemd-analyze verify` warnings:** ensure the binaries are installed at
   `/usr/local/bin/` and the state directories exist (the installer creates
   them).

@@ -15,7 +15,12 @@
 #     are downloaded (never "latest").
 #   * Never modifies the Laravel production environment.
 #   * Idempotent: re-running restarts only what actually changed.
-#   * On apply failure, previously installed files are rolled back.
+#   * Apply is transactional through runtime verification: the change is not
+#     committed until both services are enabled, active and serving. On any
+#     failure up to and including runtime health — download, checksum, unit
+#     syntax, nginx -t, enable, restart, listeners, HTTP API, stability — the
+#     previously installed files AND the previous service state (enabled and
+#     active) are restored, and Nginx is re-validated and reloaded.
 
 set -Eeuo pipefail
 umask 022
@@ -285,6 +290,9 @@ BACKUP_DIR=""
 STAGING_DIRS=()
 ROLLBACK_RESTORE=()   # files that existed before and were backed up
 ROLLBACK_REMOVE=()    # files that did not exist before (remove on rollback)
+
+# The apply is committed only once BOTH services have passed every runtime
+# health check. Until then any failure restores files *and* runtime state.
 APPLY_COMMITTED=false
 
 # Change flags — drive daemon-reload and restart-only-changed.
@@ -342,31 +350,6 @@ ensure_symlink() {
     CHANGED_NGINX=true
 }
 
-rollback() {
-    log "rolling back installed files"
-
-    local dst
-    for dst in "${ROLLBACK_REMOVE[@]:-}"; do
-        [[ -n "${dst}" ]] || continue
-        rm -f "${dst}"
-    done
-
-    for dst in "${ROLLBACK_RESTORE[@]:-}"; do
-        [[ -n "${dst}" ]] || continue
-        local backup_path="${BACKUP_DIR}${dst}"
-        if [[ -e "${backup_path}" || -L "${backup_path}" ]]; then
-            rm -rf "${dst}"
-            cp -a "${backup_path}" "${dst}"
-        fi
-    done
-
-    if [[ "${CHANGED_UNIT}" == true ]]; then
-        systemctl daemon-reload || true
-    fi
-
-    log "rollback complete; backups remain in ${BACKUP_DIR}"
-}
-
 cleanup_staging() {
     local dir
     for dir in "${STAGING_DIRS[@]:-}"; do
@@ -379,7 +362,8 @@ on_apply_error() {
     trap - ERR EXIT
     log "apply failed (exit ${code})"
     if [[ "${APPLY_COMMITTED}" == false ]]; then
-        rollback
+        # Failure of the rollback itself must not mask the original status.
+        rollback || log "ERROR: rollback did not fully succeed (diagnostics above)"
     fi
     cleanup_staging
     exit "${code}"
@@ -401,25 +385,60 @@ create_user() {
 }
 
 # --- Runtime health verification (apply mode) ------------------------------
+#
+# Everything between the begin/end markers is a self-contained block: it needs
+# only `log` and `fail` from above, so the behavioural tests can source the
+# shipped code and run it against stubbed systemctl/ss/curl instead of
+# re-implementing a copy of it.
 
-RUNTIME_WAIT=30   # seconds to wait for a service to become stably healthy
+# --- runtime health (begin) ---
+
+# Bounded waits. The MAIL_CAPTURE_* overrides are a test seam for shortening
+# the windows; any value that is not a positive integer falls back to the
+# default, so a stray environment variable can never disable the gate.
+RUNTIME_WAIT="${MAIL_CAPTURE_RUNTIME_WAIT:-30}"          # become healthy
+RUNTIME_STABILITY_WAIT="${MAIL_CAPTURE_STABILITY_WAIT:-4}" # stay healthy
+[[ "${RUNTIME_WAIT}" =~ ^[1-9][0-9]*$ ]] || RUNTIME_WAIT=30
+[[ "${RUNTIME_STABILITY_WAIT}" =~ ^[1-9][0-9]*$ ]] || RUNTIME_STABILITY_WAIT=4
 
 service_property() {
     # service_property <unit> <property>
     systemctl show "$1" --property="$2" --value 2>/dev/null || true
 }
 
+service_is_enabled() {
+    # service_is_enabled <unit>: true only when the unit starts at boot. A
+    # service that is active but disabled disappears on the next reboot, so it
+    # must never pass the health gate.
+    systemctl is-enabled --quiet "$1" >/dev/null 2>&1
+}
+
+service_restart_count() {
+    # service_restart_count <unit>: NRestarts as a number (0 when unknown).
+    local count
+    count="$(service_property "$1" NRestarts)"
+    [[ "${count}" =~ ^[0-9]+$ ]] || count=0
+    printf '%s\n' "${count}"
+}
+
+service_is_running() {
+    # service_is_running <unit>: active, and not mid-(re)start.
+    local state sub
+    state="$(service_property "$1" ActiveState)"
+    sub="$(service_property "$1" SubState)"
+    [[ "${state}" == "active" && ( "${sub}" == "running" || "${sub}" == "exited" ) ]]
+}
+
 wait_service_active() {
     # wait_service_active <unit> <timeout>: succeed only on a stable active
     # state; fail fast when the unit is failed, and fail on timeout when it is
     # stuck activating (auto-restart loop) or inactive.
-    local unit="$1" timeout="$2" waited=0 state sub
+    local unit="$1" timeout="$2" waited=0 state
     while (( waited < timeout )); do
-        state="$(service_property "${unit}" ActiveState)"
-        sub="$(service_property "${unit}" SubState)"
-        if [[ "${state}" == "active" && ( "${sub}" == "running" || "${sub}" == "exited" ) ]]; then
+        if service_is_running "${unit}"; then
             return 0
         fi
+        state="$(service_property "${unit}" ActiveState)"
         if [[ "${state}" == "failed" ]]; then
             return 1
         fi
@@ -431,10 +450,13 @@ wait_service_active() {
 
 wait_listener() {
     # wait_listener <host> <port> <timeout>: wait for a loopback TCP listener.
-    local host="$1" port="$2" timeout="$3" waited=0
+    # The listener list is captured first and matched separately: under
+    # `set -o pipefail` a `ss | grep -q` pipeline reports failure whenever grep
+    # short-circuits on a match and ss is killed by SIGPIPE.
+    local host="$1" port="$2" timeout="$3" waited=0 listeners
     while (( waited < timeout )); do
-        if ss -ltnH "sport = :${port}" 2>/dev/null \
-            | grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)"; then
+        listeners="$(ss -ltnH "sport = :${port}" 2>/dev/null || true)"
+        if grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)" <<<"${listeners}"; then
             return 0
         fi
         sleep 1
@@ -443,11 +465,16 @@ wait_listener() {
     return 1
 }
 
+check_http_api() {
+    # check_http_api <url>: single request, no retries.
+    curl -fsS --noproxy '*' --max-time 5 "$1" >/dev/null 2>&1
+}
+
 wait_http_api() {
     # wait_http_api <url> <timeout>
     local url="$1" timeout="$2" waited=0
     while (( waited < timeout )); do
-        curl -fsS --noproxy '*' --max-time 5 "${url}" >/dev/null 2>&1 && return 0
+        check_http_api "${url}" && return 0
         sleep 1
         (( waited += 1 ))
     done
@@ -471,11 +498,52 @@ dump_service_diagnostics() {
     fi
 }
 
+assert_service_stable() {
+    # assert_service_stable <unit> <api-url>: a slow restart loop can be active
+    # and serving for a moment, so re-check after a stability window. The
+    # service must still be running, must NOT have restarted in between, and
+    # must still answer its API.
+    local unit="$1" api="$2" before after
+
+    before="$(service_restart_count "${unit}")"
+    sleep "${RUNTIME_STABILITY_WAIT}"
+
+    if ! service_is_running "${unit}"; then
+        log "ERROR: ${unit} did not stay active for ${RUNTIME_STABILITY_WAIT}s" \
+            "(ActiveState=$(service_property "${unit}" ActiveState)," \
+            "SubState=$(service_property "${unit}" SubState))"
+        return 1
+    fi
+
+    after="$(service_restart_count "${unit}")"
+    if (( after > before )); then
+        log "ERROR: ${unit} restarted during the ${RUNTIME_STABILITY_WAIT}s stability window" \
+            "(NRestarts ${before} -> ${after}); it is in a restart loop"
+        return 1
+    fi
+
+    if ! check_http_api "${api}"; then
+        log "ERROR: ${unit} API ${api} stopped responding during the stability window"
+        return 1
+    fi
+
+    return 0
+}
+
 ensure_service_healthy() {
     # ensure_service_healthy <unit> <api-url> <host:port>...
     local unit="$1" api="$2"
     shift 2
-    local hostport host port
+    local hostport host port enabled_state
+
+    # Boot persistence first: active-but-disabled survives until the next
+    # reboot and nothing else in this gate would notice.
+    if ! service_is_enabled "${unit}"; then
+        enabled_state="$(systemctl is-enabled "${unit}" 2>&1 || true)"
+        log "ERROR: ${unit} is not enabled for boot (is-enabled: ${enabled_state:-unknown})"
+        dump_service_diagnostics "${unit}"
+        return 1
+    fi
 
     if ! wait_service_active "${unit}" "${RUNTIME_WAIT}"; then
         log "ERROR: ${unit} did not reach a stable active state within ${RUNTIME_WAIT}s"
@@ -499,13 +567,20 @@ ensure_service_healthy() {
         return 1
     fi
 
+    if ! assert_service_stable "${unit}" "${api}"; then
+        dump_service_diagnostics "${unit}"
+        return 1
+    fi
+
+    log "${unit} is enabled, stably active and serving ${api}"
     return 0
 }
 
 verify_runtime_health() {
-    # Prove both services are actually up before reporting success. Mailtrap
-    # Local is checked first (Mailpit relays to it), then Mailpit. Either being
-    # failed / inactive / stuck activating / missing a listener fails the apply.
+    # Prove both services are actually up before the apply is committed.
+    # Mailtrap Local is checked first (Mailpit relays to it), then Mailpit.
+    # Disabled / failed / inactive / stuck activating / restart-looping /
+    # missing a listener / silent API all fail the apply.
     log "verifying services are healthy at runtime"
     local failed=false
 
@@ -521,7 +596,184 @@ verify_runtime_health() {
 
     [[ "${failed}" == false ]] \
         || fail "mail-capture services are not healthy after apply (see diagnostics above)"
+
+    log "runtime health verified for both services"
 }
+# --- runtime health (end) ---
+
+# --- Rollback: files AND runtime state --------------------------------------
+#
+# Restoring files is not enough: systemd keeps the previously loaded units and
+# the running processes, so a rollback that only touches disk leaves the broken
+# configuration in memory (or the services down). This block therefore also
+# reloads systemd, restores each service's boot and running state, and
+# re-validates/reloads Nginx.
+#
+# Self-contained apart from `log` and the runtime-health helpers above, so the
+# behavioural tests can source both blocks and exercise the shipped code.
+
+# --- rollback (begin) ---
+
+MAIL_UNITS=("staging-mailtrap-local.service" "staging-mailpit.service")
+
+# Pre-apply runtime snapshot: "<unit>|<active|inactive>|<is-enabled output>".
+SERVICE_STATE_BEFORE=()
+
+capture_service_states() {
+    # Snapshot both services BEFORE anything is touched, so a failed activation
+    # can be undone completely rather than only on disk.
+    SERVICE_STATE_BEFORE=()
+
+    local unit active enabled
+    for unit in "${MAIL_UNITS[@]}"; do
+        active=inactive
+        systemctl is-active --quiet "${unit}" >/dev/null 2>&1 && active=active
+
+        enabled="$(systemctl is-enabled "${unit}" 2>/dev/null || true)"
+        [[ -n "${enabled}" ]] || enabled="unknown"
+
+        SERVICE_STATE_BEFORE+=("${unit}|${active}|${enabled}")
+        log "pre-apply state: ${unit} (active=${active}, enabled=${enabled})"
+    done
+}
+
+restore_service_enablement() {
+    # restore_service_enablement <unit> <recorded is-enabled output>
+    local unit="$1" enabled="$2"
+
+    case "${enabled}" in
+        enabled|enabled-runtime)
+            systemctl enable "${unit}" >/dev/null 2>&1
+            ;;
+        disabled)
+            systemctl disable "${unit}" >/dev/null 2>&1
+            ;;
+        masked|masked-runtime)
+            systemctl mask "${unit}" >/dev/null 2>&1
+            ;;
+        *)
+            # static / indirect / generated / not-found / unknown: there is no
+            # prior enablement that enable|disable|mask could restore.
+            return 0
+            ;;
+    esac
+}
+
+restore_service_activation() {
+    # restore_service_activation <unit> <active|inactive>: put the service back
+    # into its pre-apply running state using the RESTORED unit and config, and
+    # confirm it actually got there.
+    local unit="$1" want="$2"
+
+    if [[ "${want}" == active ]]; then
+        systemctl restart "${unit}" >/dev/null 2>&1 || true
+        systemctl is-active --quiet "${unit}" >/dev/null 2>&1
+    else
+        systemctl stop "${unit}" >/dev/null 2>&1 || true
+        ! systemctl is-active --quiet "${unit}" >/dev/null 2>&1
+    fi
+}
+
+restore_runtime_state() {
+    # Re-apply every recorded boot/running state. Returns non-zero if any part
+    # of the runtime could not be restored.
+    local entry unit rest active enabled status=0
+
+    for entry in "${SERVICE_STATE_BEFORE[@]:-}"; do
+        [[ -n "${entry}" ]] || continue
+        unit="${entry%%|*}"
+        rest="${entry#*|}"
+        active="${rest%%|*}"
+        enabled="${rest#*|}"
+
+        if ! restore_service_enablement "${unit}" "${enabled}"; then
+            log "ERROR: rollback could not restore the boot state (${enabled}) of ${unit}"
+            status=1
+        fi
+
+        if ! restore_service_activation "${unit}" "${active}"; then
+            log "ERROR: rollback could not return ${unit} to its previous ${active} state"
+            status=1
+        fi
+    done
+
+    return "${status}"
+}
+
+restore_nginx_runtime() {
+    # Only meaningful when this run replaced Nginx files.
+    [[ "${CHANGED_NGINX}" == true ]] || return 0
+
+    log "validating restored nginx configuration"
+    if ! nginx -t >/dev/null 2>&1; then
+        log "ERROR: restored nginx configuration is invalid; nginx was NOT reloaded"
+        nginx -t 2>&1 | tail -n 20 || true
+        return 1
+    fi
+
+    if ! systemctl is-active --quiet nginx >/dev/null 2>&1; then
+        log "nginx is not running; the restored configuration applies on next start"
+        return 0
+    fi
+
+    log "reloading nginx with the restored configuration"
+    if ! systemctl reload nginx; then
+        log "ERROR: nginx reload failed during rollback"
+        return 1
+    fi
+
+    return 0
+}
+
+rollback() {
+    log "rolling back installed files and runtime state"
+
+    local status=0 dst backup_path
+
+    for dst in "${ROLLBACK_REMOVE[@]:-}"; do
+        [[ -n "${dst}" ]] || continue
+        rm -f "${dst}" || { log "ERROR: could not remove ${dst}"; status=1; }
+    done
+
+    for dst in "${ROLLBACK_RESTORE[@]:-}"; do
+        [[ -n "${dst}" ]] || continue
+        backup_path="${BACKUP_DIR}${dst}"
+        if [[ -e "${backup_path}" || -L "${backup_path}" ]]; then
+            rm -rf "${dst}"
+            cp -a "${backup_path}" "${dst}" \
+                || { log "ERROR: could not restore ${dst} from ${backup_path}"; status=1; }
+        else
+            log "ERROR: no backup found for ${dst}; it was left as installed"
+            status=1
+        fi
+    done
+
+    # Files on disk mean nothing until systemd re-reads them and the services
+    # are put back the way they were.
+    if [[ "${CHANGED_UNIT}" == true ]]; then
+        log "reloading systemd after restoring units"
+        systemctl daemon-reload \
+            || { log "ERROR: systemctl daemon-reload failed during rollback"; status=1; }
+    fi
+
+    restore_runtime_state || status=1
+    restore_nginx_runtime || status=1
+
+    if (( status != 0 )); then
+        log "ERROR: rollback INCOMPLETE — files were restored but the running state was not"
+        local entry
+        for entry in "${SERVICE_STATE_BEFORE[@]:-}"; do
+            [[ -n "${entry}" ]] || continue
+            dump_service_diagnostics "${entry%%|*}"
+        done
+        log "manual intervention required; backups remain in ${BACKUP_DIR}"
+        return 1
+    fi
+
+    log "rollback complete: files and runtime state restored; backups remain in ${BACKUP_DIR}"
+    return 0
+}
+# --- rollback (end) ---
 
 # --- Modes ------------------------------------------------------------------
 
@@ -567,6 +819,10 @@ run_apply() {
     log "backups for this run: ${BACKUP_DIR}"
 
     trap on_apply_error ERR EXIT
+
+    # 0. Snapshot the runtime state before anything changes, so rollback can
+    #    restore boot/running state and not just files.
+    capture_service_states
 
     # 1. Users (idempotent).
     create_user "${USER_MAILPIT}" "${STATE_MAILPIT}"
@@ -654,18 +910,25 @@ run_apply() {
     log "validating nginx configuration"
     nginx -t
 
-    # From here the on-disk state is consistent; do not auto-rollback files.
-    APPLY_COMMITTED=true
+    # NOTE: the apply is NOT committed here. Activation and runtime health are
+    # the most likely place to fail, which is exactly what the transaction
+    # exists for, so APPLY_COMMITTED stays false until step 14.
 
     CHANGED_MAILPIT_SVC=false
     CHANGED_MAILTRAP_SVC=false
     { [[ "${CHANGED_MAILPIT_BIN}" == true ]] || [[ "${mailpit_env_changed}" == true ]] || [[ "${mailpit_relay_changed}" == true ]] || [[ "${mailpit_unit_changed}" == true ]]; } && CHANGED_MAILPIT_SVC=true
     { [[ "${CHANGED_MAILTRAP_BIN}" == true ]] || [[ "${mailtrap_yml_changed}" == true ]] || [[ "${mailtrap_unit_changed}" == true ]]; } && CHANGED_MAILTRAP_SVC=true
 
-    # 11. Enable services (idempotent) and restart only changed ones. Start the
-    #     mirror first so Mailpit can relay to it immediately.
-    systemctl enable staging-mailtrap-local.service >/dev/null 2>&1 || true
-    systemctl enable staging-mailpit.service >/dev/null 2>&1 || true
+    # 11. Enable services for boot (idempotent) and restart only changed ones.
+    #     Start the mirror first so Mailpit can relay to it immediately.
+    #     Enabling is NOT best-effort: a service that cannot be enabled would
+    #     survive this run but vanish on the next reboot, so failing here fails
+    #     the apply and rolls back.
+    log "enabling services for boot"
+    systemctl enable staging-mailtrap-local.service \
+        || fail "could not enable staging-mailtrap-local.service for boot"
+    systemctl enable staging-mailpit.service \
+        || fail "could not enable staging-mailpit.service for boot"
 
     if [[ "${CHANGED_MAILTRAP_SVC}" == true ]] || ! systemctl is-active --quiet staging-mailtrap-local.service; then
         log "restarting staging-mailtrap-local.service"
@@ -683,10 +946,16 @@ run_apply() {
     fi
 
     # 13. Verify both services are actually healthy at runtime. This is what
-    #     stops the installer from reporting success while a unit is stuck in
-    #     "activating (auto-restart)" — it fails (non-zero) with diagnostics
-    #     instead. Runs before the success banner is ever printed.
+    #     stops the installer from reporting success while a unit is disabled,
+    #     stuck in "activating (auto-restart)" or silently restart-looping — it
+    #     fails (non-zero) with diagnostics instead, and because the apply is
+    #     still uncommitted the ERR trap restores the previous files and
+    #     runtime state. Runs before the success banner is ever printed.
     verify_runtime_health
+
+    # 14. Both services are enabled, stably active and serving: only now is the
+    #     change committed and rollback disarmed.
+    APPLY_COMMITTED=true
 
     trap - ERR EXIT
     cleanup_staging
