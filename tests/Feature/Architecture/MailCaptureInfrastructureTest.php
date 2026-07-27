@@ -759,8 +759,8 @@ it('wires staging mail to the env key config/mail.php actually reads', function 
         'runbooks/mail-capture.md',
         'config/mail-capture/mailpit.env',
     ] as $path) {
-        expect(mailCaptureSource($path))
-            ->not->toContain('MAIL_ENCRYPTION=', "dead MAIL_ENCRYPTION key still set in {$path}");
+        expect(str_contains(mailCaptureSource($path), 'MAIL_ENCRYPTION='))
+            ->toBeFalse("dead MAIL_ENCRYPTION key still set in {$path}");
     }
 });
 
@@ -786,7 +786,8 @@ it('leaves the production mail configuration unchanged', function () {
     $raw = mailCaptureSource('templates/environment/production.env.example');
 
     foreach (['127.0.0.1', '1025', '3535', 'mailpit', 'mailtrap', 'staging.invalid'] as $needle) {
-        expect($raw)->not->toContain($needle, "staging mail capture leaked into production: {$needle}");
+        expect(str_contains($raw, $needle))
+            ->toBeFalse("staging mail capture leaked into production: {$needle}");
     }
 });
 
@@ -1291,8 +1292,7 @@ it('never claims Mailtrap Local SMTP listens on 127.0.0.1 anywhere in infrastruc
         }
     }
 
-    // The only allowed mentions are the runbook's failure-mode explanation and
-    // the troubleshooting "not 127.0.0.1:3535" contrast.
+    // Outside the runbook there is no legitimate mention at all.
     foreach ($offenders as $offender) {
         expect($offender)->toStartWith(
             'runbooks/mail-capture.md:',
@@ -1300,12 +1300,28 @@ it('never claims Mailtrap Local SMTP listens on 127.0.0.1 anywhere in infrastruc
         );
     }
 
-    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+    // Inside the runbook, only two phrasings may carry the stale address: the
+    // failure-mode explanation and the troubleshooting contrast. Both are
+    // matched on whitespace-normalized text, because the first wraps across
+    // lines — a per-line check would reject its own continuation.
+    $allowed = [
+        'expands a `--smtp-listen 127.0.0.1:3535` bind into **both** '
+            .'IPv4 `127.0.0.1:3535` and IPv6 `[::1]:3535`',
+        '`127.0.0.2:3535` (not `127.0.0.1:3535`)',
+    ];
 
-    // Those mentions must stay attached to the workaround narrative.
-    expect($runbook)
-        ->toContain('expands a `--smtp-listen 127.0.0.1:3535` bind into **both**')
-        ->toContain('`127.0.0.2:3535` (not `127.0.0.1:3535`)');
+    $normalized = preg_replace('/\s+/', ' ', mailCaptureSource('runbooks/mail-capture.md'));
+
+    // Both explanations must still be there — the address may not simply vanish.
+    foreach ($allowed as $phrase) {
+        expect(str_contains($normalized, $phrase))
+            ->toBeTrue("runbook lost its workaround explanation: {$phrase}");
+    }
+
+    // With exactly those phrases removed, no mention may remain anywhere else in
+    // the runbook: any other prose naming the stale address is a stale claim.
+    expect(str_contains(str_replace($allowed, '', $normalized), '127.0.0.1:3535'))
+        ->toBeFalse('runbook mentions 127.0.0.1:3535 outside the two allowed explanations');
 });
 
 it('explains the Mailtrap Local IPv6 loopback workaround in the runbook', function () {

@@ -462,7 +462,8 @@ ever introduced, add `/var/lib/staging-mail-capture` to its exclude list.
 
 ## Security model
 
-- **Loopback only.** Every SMTP/HTTP listener binds the IPv4 loopback range
+- **Loopback only.** Every listener belonging to this slice — Mailpit's and
+  Mailtrap Local's, SMTP and HTTP/API alike — binds the IPv4 loopback range
   `127.0.0.0/8`. Both of Mailpit's listeners and Mailtrap Local's HTTP/API
   listener use `127.0.0.1`; **only Mailtrap Local's SMTP listener uses
   `127.0.0.2`**, and that difference is intentional (see
