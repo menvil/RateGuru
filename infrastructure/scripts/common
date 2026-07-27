@@ -182,3 +182,266 @@ environment_incoming_artifacts() {
             ;;
     esac
 }
+
+# --- deployment target registry (begin) ---
+#
+# Phase 4 slice 1: read-only accessors over the non-secret target registry.
+#
+# Nothing below runs at source time. The registry is read only when a target_*
+# helper is actually called, so scripts installed before the registry exists —
+# every operational script today — keep working untouched. Sourcing common must
+# never fail merely because the registry is absent.
+#
+# The registry is data, never code: it is parsed with jq and never sourced,
+# eval'd or substituted into a shell command. Target IDs reach jq through --arg
+# only, never by string concatenation into a jq program.
+
+TARGET_REGISTRY_DEFAULT_FILE="/home/www/rateguru/config/deployment-targets.json"
+TARGET_REGISTRY_SCHEMA_VERSION=1
+
+# One resolution contract, identical to scripts/targets (which layers --file on
+# top as the most specific source):
+#   1. RATEGURU_TARGET_REGISTRY_FILE — tests and controlled tooling
+#   2. TARGET_REGISTRY_FILE — set by the deployment.conf sourced above
+#   3. TARGET_REGISTRY_DEFAULT_FILE
+#
+# `common` already sourced deployment.conf, so step 2 is a plain variable here.
+# The CLI reaches the same value by parsing that file, because deployment.conf
+# assigns without `export` and the value would not survive into a child process.
+target_registry_file() {
+    if [[ -n "${RATEGURU_TARGET_REGISTRY_FILE:-}" ]]; then
+        printf '%s\n' "${RATEGURU_TARGET_REGISTRY_FILE}"
+
+        return 0
+    fi
+
+    if [[ -n "${TARGET_REGISTRY_FILE:-}" ]]; then
+        printf '%s\n' "${TARGET_REGISTRY_FILE}"
+
+        return 0
+    fi
+
+    printf '%s\n' "${TARGET_REGISTRY_DEFAULT_FILE}"
+}
+
+validate_target_id() {
+    local target_id="${1-}"
+
+    if [[ ! "${target_id}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]]; then
+        fail "invalid target ID: ${target_id}"
+    fi
+}
+
+# Readable regular file, real JSON, schema we understand. When the registry is
+# the installed runtime default we additionally demand root ownership and no
+# group/other write, matching how deployment.conf is already protected. An
+# explicitly pointed-at file (tests, repository checks) skips the ownership
+# demand but is still never allowed to be a symlink.
+target_registry_assert_usable() {
+    local registry_file
+    registry_file="$(target_registry_file)"
+
+    if [[ -L "${registry_file}" ]]; then
+        fail "target registry must not be a symlink: ${registry_file}"
+    fi
+
+    if [[ ! -e "${registry_file}" ]]; then
+        fail "target registry is unavailable: ${registry_file}"
+    fi
+
+    if [[ ! -f "${registry_file}" ]]; then
+        fail "target registry must be a regular file: ${registry_file}"
+    fi
+
+    if [[ ! -r "${registry_file}" ]]; then
+        fail "target registry is not readable: ${registry_file}"
+    fi
+
+    if [[ "${registry_file}" == "${TARGET_REGISTRY_DEFAULT_FILE}" ]]; then
+        if [[ "$(stat -c '%u:%g' "${registry_file}")" != "0:0" ]]; then
+            fail "target registry must be owned by root:root: ${registry_file}"
+        fi
+
+        local registry_mode
+        registry_mode="$(stat -c '%a' "${registry_file}")"
+
+        if (( (8#${registry_mode} & 8#022) != 0 )); then
+            fail "target registry must not be group- or other-writable: ${registry_file}"
+        fi
+    fi
+
+    if ! jq -e 'type == "object"' "${registry_file}" >/dev/null 2>&1; then
+        fail "target registry is not valid JSON: ${registry_file}"
+    fi
+
+    if ! jq -e --argjson expected "${TARGET_REGISTRY_SCHEMA_VERSION}" \
+        '.schema_version == $expected' "${registry_file}" >/dev/null 2>&1
+    then
+        local found
+        found="$(jq -r '.schema_version // "missing"' "${registry_file}" 2>/dev/null || printf 'unreadable')"
+
+        fail "unsupported target registry schema_version: ${found} (expected ${TARGET_REGISTRY_SCHEMA_VERSION})"
+    fi
+}
+
+# Locate the registry validator. It ships beside this file, so an installed
+# common at /home/www/rateguru/bin/common finds /home/www/rateguru/bin/targets.
+target_registry_validator() {
+    if [[ -n "${RATEGURU_TARGETS_CLI:-}" ]]; then
+        printf '%s\n' "${RATEGURU_TARGETS_CLI}"
+
+        return 0
+    fi
+
+    # BASH_SOURCE is unset when this block is evaluated outside a sourced file
+    # (bash -c, tests), and `set -u` would abort on a bare reference.
+    local own_source="${BASH_SOURCE[0]:-}"
+
+    if [[ -n "${own_source}" ]]; then
+        local own_dir
+        own_dir="$(cd -- "$(dirname -- "${own_source}")" 2>/dev/null && pwd)" || own_dir=""
+
+        if [[ -n "${own_dir}" ]] && [[ -x "${own_dir}/targets" ]]; then
+            printf '%s\n' "${own_dir}/targets"
+
+            return 0
+        fi
+    fi
+
+    printf '%s\n' "/home/www/rateguru/bin/targets"
+}
+
+# Full registry validation — schema, required properties, semantics and
+# cross-target collisions — run at most once per shell process.
+#
+# Without this, a helper would happily return one property while the rest of the
+# same target was missing or malformed. Reading application_root must not
+# succeed on a target whose database name or socket is invalid, because the
+# caller will use both.
+#
+# The result is cached against the resolved path, so a script reading a dozen
+# properties pays for validation once rather than a dozen times.
+_TARGET_REGISTRY_VALIDATED_FILE=""
+
+target_registry_assert_valid() {
+    local registry_file
+    registry_file="$(target_registry_file)"
+
+    if [[ "${_TARGET_REGISTRY_VALIDATED_FILE}" == "${registry_file}" ]]; then
+        return 0
+    fi
+
+    local validator
+    validator="$(target_registry_validator)"
+
+    if [[ ! -x "${validator}" ]]; then
+        fail "target registry validator is unavailable: ${validator}"
+    fi
+
+    local output
+    if ! output="$("${validator}" validate --file "${registry_file}" 2>&1)"; then
+        fail "target registry failed validation: ${registry_file}"$'\n'"${output}"
+    fi
+
+    _TARGET_REGISTRY_VALIDATED_FILE="${registry_file}"
+}
+
+# Internal: presence lookup that assumes validate_target_id and
+# target_registry_assert_usable have already run. Callers that have done both
+# use this instead of target_exists, so the registry is not re-stat'ed and its
+# schema not re-checked once per property access.
+_target_present() {
+    local target_id="$1"
+    local registry_file="$2"
+
+    jq -e --arg id "${target_id}" \
+        '(.targets | type == "object") and (.targets | has($id))' \
+        "${registry_file}" >/dev/null 2>&1
+}
+
+target_exists() {
+    local target_id="${1-}"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    _target_present "${target_id}" "$(target_registry_file)"
+}
+
+# Whole normalized target object, key-sorted so output is deterministic.
+target_get() {
+    local target_id="${1-}"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    local registry_file
+    registry_file="$(target_registry_file)"
+
+    if ! _target_present "${target_id}" "${registry_file}"; then
+        fail "unknown target: ${target_id}"
+    fi
+
+    jq -S -e --arg id "${target_id}" '.targets[$id]' "${registry_file}" \
+        || fail "unable to read target: ${target_id}"
+}
+
+# Internal: fetch one property by jq path, refusing null/empty results so a
+# missing or mistyped field is an error rather than a silent empty string.
+_target_property() {
+    local target_id="$1"
+    local jq_path="$2"
+    local expected_type="$3"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
+
+    local registry_file
+    registry_file="$(target_registry_file)"
+
+    if ! _target_present "${target_id}" "${registry_file}"; then
+        fail "unknown target: ${target_id}"
+    fi
+
+    local value
+    if ! value="$(jq -e -r --arg id "${target_id}" \
+        "(.targets[\$id] | ${jq_path}) as \$v
+         | if (\$v | type) != \"${expected_type}\" then error(\"type\") else \$v end" \
+        "${registry_file}" 2>/dev/null)"
+    then
+        fail "target ${target_id} is missing a valid ${jq_path} (expected ${expected_type})"
+    fi
+
+    if [[ "${expected_type}" == "string" ]] && [[ -z "${value}" ]]; then
+        fail "target ${target_id} has an empty ${jq_path}"
+    fi
+
+    printf '%s\n' "${value}"
+}
+
+target_lifecycle()                { _target_property "${1-}" '.lifecycle' string; }
+target_environment_class()        { _target_property "${1-}" '.environment_class' string; }
+target_root()                     { _target_property "${1-}" '.application_root' string; }
+target_runtime_user()             { _target_property "${1-}" '.runtime_user' string; }
+target_runtime_group()            { _target_property "${1-}" '.runtime_group' string; }
+target_deploy_user()              { _target_property "${1-}" '.deploy_user' string; }
+target_code_group()               { _target_property "${1-}" '.code_group' string; }
+target_incoming_artifacts()       { _target_property "${1-}" '.incoming_artifacts' string; }
+target_release_retention()        { _target_property "${1-}" '.release_retention' number; }
+target_database_name()            { _target_property "${1-}" '.database.name' string; }
+target_database_role()            { _target_property "${1-}" '.database.application_role' string; }
+target_health_url()               { _target_property "${1-}" '.health.url' string; }
+target_health_host_header()       { _target_property "${1-}" '.health.host_header' string; }
+target_backup_namespace()         { _target_property "${1-}" '.backup.namespace' string; }
+target_local_backup_retention()   { _target_property "${1-}" '.backup.local_retention_days' number; }
+target_offsite_backup_retention() { _target_property "${1-}" '.backup.offsite_retention_days' number; }
+target_php_fpm_pool()             { _target_property "${1-}" '.php_fpm.pool' string; }
+target_php_fpm_socket()           { _target_property "${1-}" '.php_fpm.socket' string; }
+target_supervisor_program()       { _target_property "${1-}" '.supervisor.program' string; }
+target_queue_name()               { _target_property "${1-}" '.supervisor.queue' string; }
+target_scheduler_name()           { _target_property "${1-}" '.scheduler.name' string; }
+target_nginx_site_name()          { _target_property "${1-}" '.nginx.site_name' string; }
+# --- deployment target registry (end) ---

@@ -1,0 +1,772 @@
+#!/usr/bin/env bash
+#
+# Deployment target registry: validation and read-only inspection.
+#
+# The registry (infrastructure/config/deployment-targets.json, installed at
+# /home/www/rateguru/config/deployment-targets.json) is committed, non-secret
+# data describing every independently deployable application instance.
+#
+# This script is deliberately standalone: it does NOT source `common`, because
+# `common` requires an installed /home/www/rateguru/config/deployment.conf and
+# this script must run in the repository during CI where no such file exists.
+#
+# The registry is data, never code. It is read with jq only — never sourced,
+# never eval'd, never substituted into a shell command. Target IDs reach jq
+# through --arg, never by concatenation into a jq program.
+#
+# Usage:
+#   targets validate [--file PATH]
+#   targets list     [--file PATH]
+#   targets show --target TARGET [--file PATH]
+
+set -Eeuo pipefail
+
+REGISTRY_DEFAULT_FILE="/home/www/rateguru/config/deployment-targets.json"
+DEPLOYMENT_CONF_FILE="${RATEGURU_DEPLOYMENT_CONF_FILE:-/home/www/rateguru/config/deployment.conf}"
+SCHEMA_VERSION=1
+
+# Only this target may currently be active. Every other target must stay
+# planned or disabled until its slice of Phase 4 lands.
+ACTIVE_ALLOWLIST="staging-main"
+
+# Property names anywhere in the registry that would indicate a secret leaked
+# into committed, world-readable data.
+SECRET_NAME_PATTERN='password|passwd|secret|token|private_key|privatekey|credential|credentials|dsn|api_key|apikey|access_key|accesskey'
+
+# Values that must be unique across targets: a collision would make two targets
+# silently share state, a socket, a backup path, an account or a service unit.
+#
+# Each entry is "<jq path>|<label>". The jq path must not itself contain '|',
+# so array fields use the `[]?` form rather than a pipe.
+COLLISION_FIELDS=(
+    '.application_root|application_root'
+    '.incoming_artifacts|incoming artifacts directory'
+    '.runtime_user|runtime user'
+    '.runtime_group|runtime group'
+    '.deploy_user|deploy user'
+    '.code_group|code group'
+    '.database.name|database name'
+    '.database.application_role|database application role'
+    '.health.host_header|health host header'
+    '.backup.namespace|backup namespace'
+    '.php_fpm.pool|PHP-FPM pool'
+    '.php_fpm.socket|PHP-FPM socket'
+    '.supervisor.program|Supervisor program'
+    '.supervisor.queue|queue name'
+    '.scheduler.name|scheduler name'
+    '.nginx.site_name|Nginx site name'
+    '.nginx.internal_hostname|Nginx internal hostname'
+    # Flattened across targets: two targets claiming the same public hostname
+    # would collide in Nginx and in certificate issuance.
+    '.public_hostnames[]?|public hostname'
+)
+
+REQUIRED_STRINGS=(
+    .id
+    .lifecycle
+    .environment_class
+    .application_root
+    .runtime_user
+    .runtime_group
+    .deploy_user
+    .code_group
+    .incoming_artifacts
+    .database.name
+    .database.application_role
+    .health.url
+    .health.host_header
+    .backup.namespace
+    .php_fpm.pool
+    .php_fpm.socket
+    .supervisor.program
+    .supervisor.queue
+    .scheduler.name
+    .nginx.site_name
+    .nginx.internal_hostname
+    .environment_template
+)
+
+REQUIRED_POSITIVE_INTEGERS=(
+    .release_retention
+    .backup.local_retention_days
+    .backup.offsite_retention_days
+)
+
+ERROR_COUNT=0
+
+log() {
+    printf '%s\n' "$*"
+}
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+# Record a validation problem without aborting, so one run reports every
+# problem rather than only the first.
+problem() {
+    printf 'INVALID: %s\n' "$*" >&2
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+}
+
+usage() {
+    cat >&2 <<'USAGE'
+Usage:
+  targets validate [--file PATH]
+  targets list     [--file PATH]
+  targets show --target TARGET [--file PATH]
+USAGE
+    exit 1
+}
+
+# --- argument parsing -------------------------------------------------------
+
+COMMAND=""
+REGISTRY_FILE=""
+TARGET_ID=""
+FILE_SEEN=false
+TARGET_SEEN=false
+
+if [[ $# -eq 0 ]]; then
+    usage
+fi
+
+case "${1}" in
+    validate|list|show)
+        COMMAND="${1}"
+        shift
+        ;;
+    -h|--help)
+        usage
+        ;;
+    *)
+        printf 'ERROR: unknown command: %s\n' "${1}" >&2
+        usage
+        ;;
+esac
+
+while [[ $# -gt 0 ]]; do
+    case "${1}" in
+        --file)
+            if [[ "${FILE_SEEN}" == true ]]; then
+                fail "--file given more than once"
+            fi
+
+            [[ $# -ge 2 ]] || fail "--file requires a value"
+
+            REGISTRY_FILE="${2}"
+            FILE_SEEN=true
+            shift 2
+            ;;
+        --target)
+            if [[ "${TARGET_SEEN}" == true ]]; then
+                fail "--target given more than once"
+            fi
+
+            [[ $# -ge 2 ]] || fail "--target requires a value"
+
+            TARGET_ID="${2}"
+            TARGET_SEEN=true
+            shift 2
+            ;;
+        *)
+            fail "unknown argument: ${1}"
+            ;;
+    esac
+done
+
+if [[ "${COMMAND}" == "show" ]] && [[ "${TARGET_SEEN}" != true ]]; then
+    fail "show requires --target"
+fi
+
+if [[ "${COMMAND}" != "show" ]] && [[ "${TARGET_SEEN}" == true ]]; then
+    fail "--target is only valid for show"
+fi
+
+# TARGET_REGISTRY_FILE normally lives in the installed deployment.conf. `common`
+# sees it because it sources that file; this CLI deliberately does not, so it
+# reads the value out of the file instead. Relying on the variable being
+# exported by the parent shell would not work: deployment.conf assigns without
+# `export`, so the value never reaches a child process.
+#
+# The file is parsed, never sourced or eval'd, and only when it passes the same
+# ownership checks `common` already applies to it. Anything unsafe is ignored
+# rather than trusted, which degrades to the default path.
+deployment_conf_registry_file() {
+    local conf="${DEPLOYMENT_CONF_FILE}"
+
+    [[ -e "${conf}" ]] || return 1
+    [[ ! -L "${conf}" ]] || return 1
+    [[ -f "${conf}" ]] || return 1
+    [[ -r "${conf}" ]] || return 1
+
+    # Ownership is only demanded of the installed path, so a test fixture
+    # pointed at by RATEGURU_DEPLOYMENT_CONF_FILE works without root.
+    if [[ "${conf}" == "/home/www/rateguru/config/deployment.conf" ]]; then
+        [[ "$(stat -c '%u:%g' "${conf}")" == "0:0" ]] || return 1
+
+        local mode
+        mode="$(stat -c '%a' "${conf}")"
+
+        (( (8#${mode} & 8#022) == 0 )) || return 1
+    fi
+
+    local value
+    value="$(
+        sed -n 's/^[[:space:]]*TARGET_REGISTRY_FILE[[:space:]]*=[[:space:]]*//p' "${conf}" \
+            | tail -n 1
+    )"
+
+    # Strip one layer of surrounding quotes; reject anything still containing
+    # shell metacharacters rather than trying to interpret it.
+    value="${value%\"}"; value="${value#\"}"
+    value="${value%\'}"; value="${value#\'}"
+
+    [[ -n "${value}" ]] || return 1
+    [[ "${value}" != *['$`;&|<>()']* ]] || return 1
+
+    printf '%s\n' "${value}"
+}
+
+# One resolution contract, identical to `common`, with --file layered on top as
+# the most specific source:
+#   1. --file            (CLI only; an explicitly empty value is rejected)
+#   2. RATEGURU_TARGET_REGISTRY_FILE
+#   3. TARGET_REGISTRY_FILE  (environment, else parsed from deployment.conf)
+#   4. REGISTRY_DEFAULT_FILE
+if [[ "${FILE_SEEN}" == true ]]; then
+    [[ -n "${REGISTRY_FILE}" ]] || fail "--file requires a non-empty value"
+elif [[ -n "${RATEGURU_TARGET_REGISTRY_FILE:-}" ]]; then
+    REGISTRY_FILE="${RATEGURU_TARGET_REGISTRY_FILE}"
+elif [[ -n "${TARGET_REGISTRY_FILE:-}" ]]; then
+    REGISTRY_FILE="${TARGET_REGISTRY_FILE}"
+elif REGISTRY_FILE="$(deployment_conf_registry_file)"; then
+    :
+else
+    REGISTRY_FILE="${REGISTRY_DEFAULT_FILE}"
+fi
+
+# --- file-level checks ------------------------------------------------------
+
+# A symlink is rejected everywhere: it lets the validated path and the read path
+# diverge. Ownership/mode are only demanded for the installed runtime default,
+# so repository validation works without root.
+assert_registry_file() {
+    if [[ -L "${REGISTRY_FILE}" ]]; then
+        fail "target registry must not be a symlink: ${REGISTRY_FILE}"
+    fi
+
+    if [[ ! -e "${REGISTRY_FILE}" ]]; then
+        fail "target registry is unavailable: ${REGISTRY_FILE}"
+    fi
+
+    if [[ ! -f "${REGISTRY_FILE}" ]]; then
+        fail "target registry must be a regular file: ${REGISTRY_FILE}"
+    fi
+
+    if [[ ! -r "${REGISTRY_FILE}" ]]; then
+        fail "target registry is not readable: ${REGISTRY_FILE}"
+    fi
+
+    if [[ "${REGISTRY_FILE}" == "${REGISTRY_DEFAULT_FILE}" ]]; then
+        if [[ "$(stat -c '%u:%g' "${REGISTRY_FILE}")" != "0:0" ]]; then
+            fail "target registry must be owned by root:root: ${REGISTRY_FILE}"
+        fi
+
+        local mode
+        mode="$(stat -c '%a' "${REGISTRY_FILE}")"
+
+        if (( (8#${mode} & 8#020) != 0 )); then
+            fail "target registry must not be group-writable: ${REGISTRY_FILE}"
+        fi
+
+        if (( (8#${mode} & 8#002) != 0 )); then
+            fail "target registry must not be world-writable: ${REGISTRY_FILE}"
+        fi
+    fi
+
+    if ! jq -e 'type == "object"' "${REGISTRY_FILE}" >/dev/null 2>&1; then
+        fail "target registry is not valid JSON: ${REGISTRY_FILE}"
+    fi
+}
+
+assert_schema_version() {
+    if ! jq -e --argjson expected "${SCHEMA_VERSION}" \
+        '(.schema_version | type) == "number"
+         and (.schema_version == ($expected | floor))
+         and (.schema_version == $expected)' \
+        "${REGISTRY_FILE}" >/dev/null 2>&1
+    then
+        local found
+        found="$(jq -r '.schema_version // "missing"' "${REGISTRY_FILE}" 2>/dev/null || printf 'unreadable')"
+
+        fail "unsupported target registry schema_version: ${found} (expected ${SCHEMA_VERSION})"
+    fi
+}
+
+registry_target_ids() {
+    jq -r '.targets | keys_unsorted[]' "${REGISTRY_FILE}"
+}
+
+# Read one property for one target. Prints nothing and returns non-zero when
+# absent or null, so callers can distinguish "missing" from "empty".
+target_property() {
+    local target_id="$1"
+    local jq_path="$2"
+
+    jq -e -r --arg id "${target_id}" \
+        "(.targets[\$id] | ${jq_path}) // empty" \
+        "${REGISTRY_FILE}" 2>/dev/null
+}
+
+# --- value validators -------------------------------------------------------
+
+is_absolute_normalized_path() {
+    local path="$1"
+
+    [[ "${path}" == /* ]] || return 1
+    [[ "${path}" != *//* ]] || return 1
+    [[ "${path}" != */ ]] || return 1
+    [[ "${path}" != *"/./"* ]] && [[ "${path}" != */. ]] || return 1
+    [[ "${path}" != *"/../"* ]] && [[ "${path}" != */.. ]] || return 1
+    [[ "${path}" != *".."* ]] || return 1
+
+    return 0
+}
+
+is_safe_postgres_identifier() {
+    [[ "$1" =~ ^[a-z_][a-z0-9_]{0,62}$ ]]
+}
+
+# Linux account names: portable charset, must not start with a digit or dash,
+# and must fit the 32-byte utmp limit.
+is_safe_account_name() {
+    local name="$1"
+
+    [[ "${#name}" -le 32 ]] || return 1
+    [[ "${name}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+}
+
+is_plain_hostname() {
+    local hostname="$1"
+
+    [[ -n "${hostname}" ]] || return 1
+    [[ "${hostname}" != *[[:space:]]* ]] || return 1
+    [[ "${hostname}" != *"://"* ]] || return 1
+    [[ "${hostname}" != */* ]] || return 1
+    [[ "${hostname}" != *:* ]] || return 1
+    [[ "${hostname}" != *"*"* ]] || return 1
+    [[ "${hostname}" != .* ]] && [[ "${hostname}" != *. ]] || return 1
+    [[ "${hostname}" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || return 1
+    [[ "${hostname}" != *..* ]] || return 1
+
+    return 0
+}
+
+is_positive_integer() {
+    [[ "$1" =~ ^[1-9][0-9]*$ ]]
+}
+
+# --- schema validation ------------------------------------------------------
+
+validate_secret_free() {
+    local offenders
+    offenders="$(jq -r --arg pattern "${SECRET_NAME_PATTERN}" '
+        [ paths as $p
+          | $p[-1]
+          | select(type == "string")
+          | select(test($pattern; "i"))
+        ]
+        | unique
+        | .[]
+    ' "${REGISTRY_FILE}" 2>/dev/null || true)"
+
+    if [[ -n "${offenders}" ]]; then
+        local name
+        while IFS= read -r name; do
+            [[ -n "${name}" ]] || continue
+            problem "registry contains a secret-like property name: ${name}"
+        done <<< "${offenders}"
+    fi
+}
+
+validate_structure() {
+    if ! jq -e '(.targets | type) == "object"' "${REGISTRY_FILE}" >/dev/null 2>&1; then
+        problem "targets must be an object"
+
+        return
+    fi
+
+    if ! jq -e '(.targets | length) > 0' "${REGISTRY_FILE}" >/dev/null 2>&1; then
+        problem "targets must not be empty"
+    fi
+}
+
+validate_target() {
+    local target_id="$1"
+
+    if [[ ! "${target_id}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]]; then
+        problem "invalid target ID: ${target_id}"
+
+        return
+    fi
+
+    local declared_id
+    if ! declared_id="$(target_property "${target_id}" '.id')"; then
+        problem "${target_id}: missing id"
+    elif [[ "${declared_id}" != "${target_id}" ]]; then
+        problem "${target_id}: id property is ${declared_id}, must match its object key"
+    fi
+
+    local path
+    for path in "${REQUIRED_STRINGS[@]}"; do
+        local value
+        if ! value="$(jq -e -r --arg id "${target_id}" \
+            "(.targets[\$id] | ${path}) as \$v
+             | if (\$v | type) != \"string\" then error(\"type\") else \$v end" \
+            "${REGISTRY_FILE}" 2>/dev/null)"
+        then
+            problem "${target_id}: ${path} is missing, null or not a string"
+
+            continue
+        fi
+
+        if [[ -z "${value}" ]]; then
+            problem "${target_id}: ${path} must not be empty"
+        fi
+    done
+
+    for path in "${REQUIRED_POSITIVE_INTEGERS[@]}"; do
+        local value
+        if ! value="$(jq -e -r --arg id "${target_id}" \
+            "(.targets[\$id] | ${path}) as \$v
+             | if (\$v | type) != \"number\" then error(\"type\")
+               elif (\$v != (\$v | floor)) then error(\"float\")
+               else \$v end" \
+            "${REGISTRY_FILE}" 2>/dev/null)"
+        then
+            problem "${target_id}: ${path} is missing, null or not an integer"
+
+            continue
+        fi
+
+        if ! is_positive_integer "${value}"; then
+            problem "${target_id}: ${path} must be a positive integer, got ${value}"
+        fi
+    done
+
+    validate_target_enums "${target_id}"
+    validate_target_paths "${target_id}"
+    validate_target_accounts "${target_id}"
+    validate_target_network "${target_id}"
+}
+
+validate_target_enums() {
+    local target_id="$1"
+
+    local lifecycle
+    lifecycle="$(target_property "${target_id}" '.lifecycle' || printf '')"
+
+    case "${lifecycle}" in
+        active|planned|disabled)
+            ;;
+        *)
+            problem "${target_id}: lifecycle must be active, planned or disabled, got '${lifecycle}'"
+            ;;
+    esac
+
+    # Only the proven staging target may be active in this slice. A planned or
+    # disabled target must never be mistaken for something deployable.
+    if [[ "${lifecycle}" == "active" ]] && [[ "${target_id}" != "${ACTIVE_ALLOWLIST}" ]]; then
+        problem "${target_id}: lifecycle=active is currently allowed only for ${ACTIVE_ALLOWLIST}"
+    fi
+
+    local environment_class
+    environment_class="$(target_property "${target_id}" '.environment_class' || printf '')"
+
+    case "${environment_class}" in
+        staging|production)
+            ;;
+        *)
+            problem "${target_id}: environment_class must be staging or production, got '${environment_class}'"
+            ;;
+    esac
+}
+
+validate_target_paths() {
+    local target_id="$1"
+
+    local application_root incoming socket
+    application_root="$(target_property "${target_id}" '.application_root' || printf '')"
+    incoming="$(target_property "${target_id}" '.incoming_artifacts' || printf '')"
+    socket="$(target_property "${target_id}" '.php_fpm.socket' || printf '')"
+
+    if [[ -n "${application_root}" ]]; then
+        if ! is_absolute_normalized_path "${application_root}"; then
+            problem "${target_id}: application_root must be an absolute normalized path without '..': ${application_root}"
+        elif [[ "${application_root}" != /home/www/rateguru/* ]]; then
+            problem "${target_id}: application_root must live below /home/www/rateguru: ${application_root}"
+        fi
+    fi
+
+    if [[ -n "${incoming}" ]]; then
+        if ! is_absolute_normalized_path "${incoming}"; then
+            problem "${target_id}: incoming_artifacts must be an absolute normalized path without '..': ${incoming}"
+        elif [[ "${incoming}" != /home/* ]]; then
+            problem "${target_id}: incoming_artifacts must live below /home: ${incoming}"
+        fi
+    fi
+
+    if [[ -n "${socket}" ]]; then
+        if ! is_absolute_normalized_path "${socket}"; then
+            problem "${target_id}: php_fpm.socket must be an absolute normalized path without '..': ${socket}"
+        else
+            if [[ "${socket}" != /run/php/* ]]; then
+                problem "${target_id}: php_fpm.socket must live below /run/php: ${socket}"
+            fi
+
+            if [[ "${socket}" != *.sock ]]; then
+                problem "${target_id}: php_fpm.socket must end with .sock: ${socket}"
+            fi
+        fi
+    fi
+
+    local template
+    template="$(target_property "${target_id}" '.environment_template' || printf '')"
+
+    if [[ -n "${template}" ]]; then
+        if [[ "${template}" == /* ]]; then
+            problem "${target_id}: environment_template must be repository-relative: ${template}"
+        elif [[ "${template}" == *".."* ]]; then
+            problem "${target_id}: environment_template must not contain '..': ${template}"
+        elif [[ "${template}" != infrastructure/templates/environment/* ]]; then
+            problem "${target_id}: environment_template must live under infrastructure/templates/environment/: ${template}"
+        fi
+    fi
+}
+
+validate_target_accounts() {
+    local target_id="$1"
+
+    local field
+    for field in runtime_user runtime_group deploy_user code_group; do
+        local value
+        value="$(target_property "${target_id}" ".${field}" || printf '')"
+
+        if [[ -n "${value}" ]] && ! is_safe_account_name "${value}"; then
+            problem "${target_id}: ${field} is not a safe Linux account name (<=32 chars): ${value}"
+        fi
+    done
+
+    # The code group owns release files and is shared with the deploy user and
+    # www-data. Collapsing it into the runtime user's own group would hand the
+    # runtime user ownership of the code it executes, which is precisely the
+    # separation the staging model exists to maintain.
+    local runtime_user runtime_group code_group
+    runtime_user="$(target_property "${target_id}" '.runtime_user' || printf '')"
+    runtime_group="$(target_property "${target_id}" '.runtime_group' || printf '')"
+    code_group="$(target_property "${target_id}" '.code_group' || printf '')"
+
+    if [[ -n "${code_group}" ]]; then
+        if [[ "${code_group}" == "${runtime_group}" ]]; then
+            problem "${target_id}: code_group must differ from runtime_group (both '${code_group}')"
+        fi
+
+        if [[ "${code_group}" == "${runtime_user}" ]]; then
+            problem "${target_id}: code_group must not be the runtime user's own group ('${code_group}')"
+        fi
+    fi
+
+    local database_name database_role
+    database_name="$(target_property "${target_id}" '.database.name' || printf '')"
+    database_role="$(target_property "${target_id}" '.database.application_role' || printf '')"
+
+    if [[ -n "${database_name}" ]] && ! is_safe_postgres_identifier "${database_name}"; then
+        problem "${target_id}: database.name is not a safe PostgreSQL identifier: ${database_name}"
+    fi
+
+    if [[ -n "${database_role}" ]] && ! is_safe_postgres_identifier "${database_role}"; then
+        problem "${target_id}: database.application_role is not a safe PostgreSQL identifier: ${database_role}"
+    fi
+}
+
+validate_target_network() {
+    local target_id="$1"
+
+    local health_url
+    health_url="$(target_property "${target_id}" '.health.url' || printf '')"
+
+    if [[ "${health_url}" != "http://127.0.0.1/" ]]; then
+        problem "${target_id}: health.url must be http://127.0.0.1/ (health checks go through the loopback vhost), got '${health_url}'"
+    fi
+
+    local hostname
+    for hostname in \
+        "$(target_property "${target_id}" '.health.host_header' || printf '')" \
+        "$(target_property "${target_id}" '.nginx.internal_hostname' || printf '')"
+    do
+        if [[ -n "${hostname}" ]] && ! is_plain_hostname "${hostname}"; then
+            problem "${target_id}: '${hostname}' is not a bare hostname (no scheme, path, port, wildcard or whitespace)"
+        fi
+    done
+
+    if ! jq -e --arg id "${target_id}" \
+        '(.targets[$id].public_hostnames | type) == "array"' \
+        "${REGISTRY_FILE}" >/dev/null 2>&1
+    then
+        problem "${target_id}: public_hostnames must be an array"
+
+        return
+    fi
+
+    local count
+    count="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames | length' "${REGISTRY_FILE}")"
+
+    if (( count < 1 )); then
+        problem "${target_id}: public_hostnames must contain at least one hostname"
+
+        return
+    fi
+
+    # Every element must be a non-empty string *before* any hostname check.
+    # Without this, `tostring` would turn 123/true/null into "123"/"true"/"null",
+    # each of which satisfies the bare-hostname pattern.
+    if ! jq -e --arg id "${target_id}" \
+        'all(.targets[$id].public_hostnames[]; type == "string" and length > 0)' \
+        "${REGISTRY_FILE}" >/dev/null 2>&1
+    then
+        local offending
+        offending="$(jq -r --arg id "${target_id}" '
+            [ .targets[$id].public_hostnames[]
+              | select((type != "string") or (length == 0))
+              | "\(type):\(tojson)"
+            ] | join(", ")
+        ' "${REGISTRY_FILE}" 2>/dev/null || printf 'unreadable')"
+
+        problem "${target_id}: every public hostname must be a non-empty string (offending: ${offending})"
+
+        return
+    fi
+
+    local unique_count
+    unique_count="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames | unique | length' "${REGISTRY_FILE}")"
+
+    if [[ "${unique_count}" != "${count}" ]]; then
+        problem "${target_id}: public_hostnames contains duplicates"
+    fi
+
+    # Safe to read as raw strings now that every element is known to be one.
+    local entries
+    entries="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames[]' "${REGISTRY_FILE}")"
+
+    while IFS= read -r hostname; do
+        [[ -n "${hostname}" ]] || continue
+
+        if ! is_plain_hostname "${hostname}"; then
+            problem "${target_id}: public hostname '${hostname}' is not a bare hostname"
+        fi
+    done <<< "${entries}"
+}
+
+validate_collisions() {
+    local entry
+    for entry in "${COLLISION_FIELDS[@]}"; do
+        local jq_path="${entry%%|*}"
+        local label="${entry#*|}"
+
+        local duplicates
+        duplicates="$(jq -r "
+            [ .targets[] | ${jq_path} | select(type == \"string\") ]
+            | group_by(.)
+            | map(select(length > 1) | .[0])
+            | .[]
+        " "${REGISTRY_FILE}" 2>/dev/null || true)"
+
+        local value
+        while IFS= read -r value; do
+            [[ -n "${value}" ]] || continue
+            problem "duplicate ${label} across targets: ${value}"
+        done <<< "${duplicates}"
+    done
+}
+
+# --- commands ---------------------------------------------------------------
+
+# The single validation path. Every command runs this before producing output,
+# so `list` and `show` can never present a registry that `validate` rejects —
+# reading a target whose socket, retention or database name is invalid is just
+# as wrong as validating it.
+#
+# All diagnostics go to stderr, so a command's normal output stays clean and a
+# failing run emits none of it.
+assert_registry_valid() {
+    assert_registry_file
+    assert_schema_version
+    validate_secret_free
+    validate_structure
+
+    if (( ERROR_COUNT == 0 )); then
+        local target_id
+        while IFS= read -r target_id; do
+            [[ -n "${target_id}" ]] || continue
+            validate_target "${target_id}"
+        done < <(registry_target_ids)
+
+        validate_collisions
+    fi
+
+    if (( ERROR_COUNT > 0 )); then
+        printf 'ERROR: target registry is invalid (%d problem(s)): %s\n' \
+            "${ERROR_COUNT}" "${REGISTRY_FILE}" >&2
+
+        exit 1
+    fi
+}
+
+command_validate() {
+    assert_registry_valid
+
+    log "target registry is valid: ${REGISTRY_FILE}"
+}
+
+command_list() {
+    assert_registry_valid
+
+    # Sorted by target ID so output is stable regardless of file key order.
+    jq -r '
+        .targets
+        | to_entries
+        | sort_by(.key)[]
+        | [.key, (.value.lifecycle // "?"), (.value.environment_class // "?")]
+        | @tsv
+    ' "${REGISTRY_FILE}"
+}
+
+command_show() {
+    assert_registry_valid
+
+    if [[ ! "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]]; then
+        fail "invalid target ID: ${TARGET_ID}"
+    fi
+
+    if ! jq -e --arg id "${TARGET_ID}" '.targets | has($id)' \
+        "${REGISTRY_FILE}" >/dev/null 2>&1
+    then
+        fail "unknown target: ${TARGET_ID}"
+    fi
+
+    jq -S --arg id "${TARGET_ID}" '.targets[$id]' "${REGISTRY_FILE}"
+}
+
+case "${COMMAND}" in
+    validate)
+        command_validate
+        ;;
+    list)
+        command_list
+        ;;
+    show)
+        command_show
+        ;;
+esac

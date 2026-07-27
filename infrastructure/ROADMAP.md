@@ -57,6 +57,20 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
+Slices, in order. Only the first has landed; the phase stays **current**.
+
+1. **Deployment target registry — in progress.** Non-secret JSON registry of
+   deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy
+   read-only `target_*` helpers in `common`. Declares the model only: no
+   operational script consumes it, and nothing is installed on the VPS. See
+   `runbooks/deployment-targets.md`.
+2. Deploy path — `deploy`, `rollback`, `health-check`, `status`, `cleanup`.
+3. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
+4. Perimeter — workflows, sudoers, server wrappers.
+5. Install and validate the registry on the staging VPS.
+6. Remove the `--environment` interface, only after `staging-main` parity is
+   proven end to end.
+
 ## 5. Infrastructure installer and clean-VPS bootstrap — planned
 
 One-shot bootstrap of a clean VPS from committed infrastructure: base packages,

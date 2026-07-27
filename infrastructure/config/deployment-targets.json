@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "targets": {
+    "staging-main": {
+      "id": "staging-main",
+      "lifecycle": "active",
+      "environment_class": "staging",
+      "application_root": "/home/www/rateguru/staging",
+      "runtime_user": "rateguru-staging",
+      "runtime_group": "rateguru-staging",
+      "deploy_user": "deploy-rateguru-staging",
+      "code_group": "rateguru-staging-code",
+      "incoming_artifacts": "/home/deploy-rateguru-staging/incoming",
+      "release_retention": 5,
+      "database": {
+        "name": "rateguru_staging",
+        "application_role": "rateguru_staging_app"
+      },
+      "health": {
+        "url": "http://127.0.0.1/",
+        "host_header": "rateguru-staging.internal"
+      },
+      "public_hostnames": [
+        "rateguru.staging.myprojects.pp.ua"
+      ],
+      "backup": {
+        "namespace": "staging",
+        "local_retention_days": 14,
+        "offsite_retention_days": 30
+      },
+      "php_fpm": {
+        "pool": "rateguru-staging",
+        "socket": "/run/php/rateguru-staging.sock"
+      },
+      "supervisor": {
+        "program": "rateguru-staging-queue",
+        "queue": "rateguru-staging"
+      },
+      "scheduler": {
+        "name": "rateguru-staging-scheduler"
+      },
+      "nginx": {
+        "site_name": "rateguru-staging",
+        "internal_hostname": "rateguru-staging.internal"
+      },
+      "environment_template": "infrastructure/templates/environment/staging.env.example"
+    },
+    "tits-guru": {
+      "id": "tits-guru",
+      "lifecycle": "planned",
+      "environment_class": "production",
+      "application_root": "/home/www/rateguru/production/tits-guru",
+      "runtime_user": "rateguru-tits-guru",
+      "runtime_group": "rateguru-tits-guru",
+      "deploy_user": "deploy-rateguru-tits-guru",
+      "code_group": "rateguru-tits-guru-code",
+      "incoming_artifacts": "/home/deploy-rateguru-tits-guru/incoming",
+      "release_retention": 10,
+      "database": {
+        "name": "rateguru_tits_guru",
+        "application_role": "rateguru_tits_guru_app"
+      },
+      "health": {
+        "url": "http://127.0.0.1/",
+        "host_header": "tits-guru.internal"
+      },
+      "public_hostnames": [
+        "tits.guru"
+      ],
+      "backup": {
+        "namespace": "tits-guru",
+        "local_retention_days": 30,
+        "offsite_retention_days": 90
+      },
+      "php_fpm": {
+        "pool": "rateguru-tits-guru",
+        "socket": "/run/php/rateguru-tits-guru.sock"
+      },
+      "supervisor": {
+        "program": "rateguru-tits-guru-queue",
+        "queue": "rateguru-tits-guru"
+      },
+      "scheduler": {
+        "name": "rateguru-tits-guru-scheduler"
+      },
+      "nginx": {
+        "site_name": "rateguru-tits-guru",
+        "internal_hostname": "tits-guru.internal"
+      },
+      "environment_template": "infrastructure/templates/environment/tits-guru.env.example"
+    }
+  }
+}
