@@ -30,10 +30,10 @@ listener.
               │   SQLite /var/lib/.../mailpit     │
               └───────────────┬───────────────────┘
              stores local copy│ then best-effort relay-all
-                              ▼  SMTP 127.0.0.1:3535
+                              ▼  SMTP 127.0.0.2:3535
               ┌───────────────────────────────────┐
               │ Mailtrap Local (mirror)           │
-              │   SMTP  127.0.0.1:3535            │
+              │   SMTP  127.0.0.2:3535            │
               │   HTTP  127.0.0.1:3550            │
               │   SQLite /var/lib/.../mailtrap-local │
               └───────────────────────────────────┘
@@ -46,7 +46,7 @@ Guarantees:
 - **Mailtrap Local receives a best-effort mirrored copy** via Mailpit
   relay-all: `mailpit.env` enables the toggle (`MP_SMTP_RELAY_ALL=true`) and
   points at `mailpit-relay.yml`, which defines the loopback target
-  (`host: 127.0.0.1`, `port: 3535`, `auth: none`).
+  (`host: 127.0.0.2`, `port: 3535`, `auth: none`).
 - **A Mailtrap Local failure never fails Laravel SMTP delivery.** The relay
   config sets `forward-smtp-errors: false`, so a relay error is logged to
   journald but is **not** returned to the upstream SMTP client.
@@ -54,12 +54,52 @@ Guarantees:
   `Wants=` (not `Requires=`) for `staging-mailtrap-local.service`.
 - Mailtrap Local is independent and never depends on Mailpit.
 
+### Why Mailtrap Local SMTP binds 127.0.0.2
+
+Mailtrap Local 0.2.0 expands a `--smtp-listen 127.0.0.1:3535` bind into **both**
+IPv4 `127.0.0.1:3535` and IPv6 `[::1]:3535`. On a host without IPv6 loopback the
+service then fails to start:
+
+```
+listen [::1]:3535: bind: cannot assign requested address
+```
+
+and systemd drops it into a `activating (auto-restart)` loop. This was confirmed
+on the first real VPS install.
+
+Binding a **distinct IPv4 loopback address** sidesteps the IPv6 expansion
+without enabling IPv6 anywhere. Mailtrap Local's SMTP listener therefore binds
+`127.0.0.2:3535`, confirmed working on the VPS:
+
+```
+SMTP listening addrs=[127.0.0.2:3535]
+HTTP listening addr=127.0.0.1:3550
+```
+
+- **SMTP:** `127.0.0.2:3535` (Mailpit's relay dials this exact address).
+- **HTTP/API:** `127.0.0.1:3550` (unchanged; Nginx proxies to it).
+
+`127.0.0.1` and `127.0.0.2` are both inside the IPv4 loopback range
+`127.0.0.0/8`; neither is routable off-host and **must never** be publicly
+exposed. IPv6 stays disabled. Mailpit's own listeners are unchanged
+(`127.0.0.1:1025` SMTP, `127.0.0.1:8025` HTTP).
+
+Mailtrap Local remains a **non-critical, best-effort mirror**: if it is stopped
+or crash-looping, Mailpit still captures and stores every message and Laravel
+delivery is unaffected (see the guarantees above).
+
 ## DNS and TLS prerequisites
 
-Two DNS records must point at the staging host before requesting certificates:
+Both names must resolve to the staging VPS before requesting certificates:
 
 - `mailpit.staging.myprojects.pp.ua`
 - `mailtrap.staging.myprojects.pp.ua`
+
+Resolution may come from explicit `A`/`AAAA` records **or** from an existing
+wildcard record — `*.staging.myprojects.pp.ua` already covers both names, so no
+per-host records need to be created when it is in place. Confirm with
+`dig +short <name>` rather than assuming; Certbot only needs the names to
+resolve to this host.
 
 Both hostnames are one operational service, so they share **one** Certbot SAN
 certificate under the lineage name `staging-mail-capture` — not two independent
@@ -117,9 +157,48 @@ What `--apply` does:
 7. installs the systemd units and Nginx vhosts (backing up any replaced file
    under `/var/backups/staging-mail-capture/<timestamp>/`);
 8. runs `systemd-analyze verify` and `nginx -t`;
-9. `daemon-reload`s only when a unit changed and restarts only changed
-   services (mirror first, then Mailpit);
-10. rolls the installed files back if apply fails before commit.
+9. `daemon-reload`s only when a unit changed, **enables both services for boot**
+   and restarts only changed services (mirror first, then Mailpit). Enabling is
+   not best-effort: a service that cannot be enabled fails the apply, because it
+   would otherwise survive the run and disappear on the next reboot;
+10. verifies **runtime health** before reporting success. Each service must be
+    - `enabled` (present at boot),
+    - stably `active`, with its listeners (`127.0.0.1:1025`, `127.0.0.1:8025`,
+      `127.0.0.2:3535`, `127.0.0.1:3550`) and HTTP APIs answering within a
+      bounded wait, and
+    - still active, with an unchanged `NRestarts` and a responding API after a
+      short stability window — a slow restart loop can be `active` and serving
+      for a moment, so a single sample is not proof.
+
+    A unit that is disabled, failed, inactive, stuck `activating (auto-restart)`
+    or restart-looping fails the apply (non-zero) with `systemctl status`,
+    `ActiveState`/`SubState`/`Result`/`ExecMainStatus`/`NRestarts`, and the
+    recent unfiltered journal;
+11. commits the apply **only after step 10 passes for both services**.
+
+### Rollback contract
+
+The apply is transactional through runtime verification. Until step 11 the
+change is uncommitted, so **any** failure — download, checksum, unit syntax,
+`nginx -t`, `enable`, `restart`, listeners, HTTP API or the stability window —
+triggers a rollback that restores both disk *and* runtime state:
+
+- replaced binaries, configs, units and Nginx files are restored from
+  `/var/backups/staging-mail-capture/<timestamp>/`, and files this run created
+  are removed;
+- `systemctl daemon-reload` runs when units were restored, so systemd loads the
+  restored units instead of keeping the new ones in memory;
+- each service's original `enabled`/`disabled` state is restored;
+- each service's original `active`/`inactive` state is restored, using the
+  restored unit and configuration;
+- the restored Nginx configuration is re-validated with `nginx -t` and reloaded
+  when Nginx is running;
+- the original non-zero exit status is preserved.
+
+If restoration itself is incomplete, the installer prints
+`rollback INCOMPLETE` plus per-service diagnostics and still exits non-zero — it
+never claims a rollback succeeded when the running state was not recovered. The
+backup directory is left in place for manual recovery.
 
 Installed layout:
 
@@ -291,8 +370,10 @@ ever introduced, add `/var/lib/staging-mail-capture` to its exclude list.
 
 ## Security model
 
-- **Loopback only.** Every SMTP/HTTP listener binds `127.0.0.1` (1025, 8025,
-  3535, 3550). Nginx is the only public surface, on 443 (and 80 → 443).
+- **Loopback only.** Every SMTP/HTTP listener binds the IPv4 loopback range
+  `127.0.0.0/8`: `127.0.0.1:1025`, `127.0.0.1:8025`, `127.0.0.2:3535` (see
+  above), `127.0.0.1:3550`. None is routable off-host. Nginx is the only public
+  surface, on 443 (and 80 → 443).
 - **Basic Auth + TLS** on both web UIs, reusing the existing staging password
   file `/etc/nginx/rateguru-staging.htpasswd` and Certbot certificates.
 - **No public SMTP.** Ports 1025/3535/8025/3550 are never exposed by Nginx and
@@ -314,10 +395,28 @@ ever introduced, add `/var/lib/staging-mail-capture` to its exclude list.
   staging `.env`, `systemctl is-active staging-mailpit.service`, and
   `status-mail-capture` listener output.
 - **Mirror empty but Mailpit has the message:** Mailtrap Local is down or
-  relay failed — check `journalctl -u staging-mailpit.service -p err`. This is
-  expected to be non-fatal; Mailpit keeps the canonical copy.
+  relay failed — check `journalctl -u staging-mailpit.service` (unfiltered; the
+  relay error may be logged below `err` priority). This is expected to be
+  non-fatal; Mailpit keeps the canonical copy.
+- **Mailtrap Local stuck in `activating (auto-restart)`:** almost always the
+  IPv6 `[::1]:3535` bind failure described above. Confirm the unit binds
+  `127.0.0.2:3535` (not `127.0.0.1:3535`) and look for `bind: cannot assign
+  requested address` in `journalctl -u staging-mailtrap-local.service` (do not
+  add `-p err`; the line is recorded below `err`). `install-mail-capture
+  --apply` now fails with these diagnostics instead of reporting success while a
+  service is restart-looping; `status-mail-capture` shows `NRestarts` and the
+  raw journal.
 - **`nginx -t` fails during apply:** the installer stops before activating and
   rolls back; fix DNS/cert paths and re-run `--apply`.
+- **Apply failed during activation or runtime health:** the change was never
+  committed, so files *and* service state were restored (see the rollback
+  contract above) — the host is back on the previous configuration. Fix the
+  reported cause and re-run `--apply`. If the log says `rollback INCOMPLETE`,
+  restoration itself did not finish: inspect the per-service diagnostics and the
+  backup directory named in the log before re-running.
+- **Service is running but disabled:** apply now fails on this, because the
+  service would vanish on the next reboot. Re-run `--apply`, or
+  `systemctl enable --now <unit>` and confirm with `systemctl is-enabled`.
 - **`systemd-analyze verify` warnings:** ensure the binaries are installed at
   `/usr/local/bin/` and the state directories exist (the installer creates
   them).

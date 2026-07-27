@@ -27,26 +27,34 @@ section() {
 
 kv() { printf '%-22s %s\n' "$1" "$2"; }
 
+prop() {
+    # prop <unit> <property>
+    systemctl show "$1" --property="$2" --value 2>/dev/null || true
+}
+
 svc_line() {
-    # svc_line <label> <unit>
+    # svc_line <label> <unit>: active/enabled plus the restart-loop properties
+    # (ActiveState, SubState, Result, ExecMainStatus, NRestarts) that reveal a
+    # unit stuck in "activating (auto-restart)".
     local label="$1" unit="$2" active enabled
     active="$(systemctl is-active "${unit}" 2>/dev/null || true)"
     enabled="$(systemctl is-enabled "${unit}" 2>/dev/null || true)"
     kv "${label}:" "active=${active:-unknown} enabled=${enabled:-unknown}"
+    kv "" "ActiveState=$(prop "${unit}" ActiveState) SubState=$(prop "${unit}" SubState) Result=$(prop "${unit}" Result) ExecMainStatus=$(prop "${unit}" ExecMainStatus) NRestarts=$(prop "${unit}" NRestarts)"
 }
 
 listener_line() {
-    # listener_line <label> <port>
-    local label="$1" port="$2" status="down"
+    # listener_line <label> <host> <port>: report the exact loopback endpoint.
+    local label="$1" host="$2" port="$3" status="down"
     if command -v ss >/dev/null 2>&1; then
-        if ss -ltnH "sport = :${port}" 2>/dev/null | grep -qE "(127\.0\.0\.1|\[::1\]):${port}\b"; then
+        if ss -ltnH "sport = :${port}" 2>/dev/null | grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)"; then
             status="listening (loopback)"
         fi
-    elif (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+    elif (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; then
         exec 3>&- 3<&-
         status="listening"
     fi
-    kv "${label} (:${port}):" "${status}"
+    kv "${label}:" "${host}:${port} ${status}"
 }
 
 api_summary() {
@@ -85,10 +93,10 @@ svc_line "Mailpit (canonical)" "staging-mailpit.service"
 svc_line "Mailtrap Local (mirror)" "staging-mailtrap-local.service"
 
 section "Loopback listeners"
-listener_line "Mailpit SMTP" "1025"
-listener_line "Mailpit HTTP/API" "8025"
-listener_line "Mailtrap SMTP" "3535"
-listener_line "Mailtrap HTTP/API" "3550"
+listener_line "Mailpit SMTP" "127.0.0.1" "1025"
+listener_line "Mailpit HTTP/API" "127.0.0.1" "8025"
+listener_line "Mailtrap SMTP" "127.0.0.2" "3535"
+listener_line "Mailtrap HTTP/API" "127.0.0.1" "3550"
 
 section "Persistent storage"
 for dir in "${STATE_MAILPIT}" "${STATE_MAILTRAP}"; do
@@ -121,13 +129,18 @@ section "Nginx configuration"
 [[ -f "${NGINX_MAILPIT}" ]]  && kv "Mailpit vhost:"  "present" || kv "Mailpit vhost:"  "absent"
 [[ -f "${NGINX_MAILTRAP}" ]] && kv "Mailtrap vhost:" "present" || kv "Mailtrap vhost:" "absent"
 
-section "Recent journald errors"
+section "Recent service journal (unfiltered)"
+# No priority filter on purpose. Mailtrap Local logs application errors to
+# stderr, which journald records at warning — a `-p err` filter would hide the
+# lines that actually diagnose a restart loop (level=ERROR, "bind: cannot assign
+# requested address", "Main process exited", "Failed with result", "Scheduled
+# restart job"), so we show the raw recent journal instead.
 if command -v journalctl >/dev/null 2>&1; then
-    journalctl \
-        -u staging-mailpit.service \
-        -u staging-mailtrap-local.service \
-        -p err --no-pager --since '-24h' 2>/dev/null \
-        | tail -n 20 || echo "no recent errors"
+    for unit in staging-mailpit.service staging-mailtrap-local.service; do
+        kv "${unit}:" ""
+        journalctl -u "${unit}" --no-pager --since '-1h' 2>/dev/null \
+            | tail -n 20 || true
+    done
 else
     echo "journalctl not available"
 fi

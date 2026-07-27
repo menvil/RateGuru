@@ -14,8 +14,13 @@ Type=simple
 User=staging-mailtrap-local
 Group=staging-mailtrap-local
 # Loopback-only listeners and an explicit SQLite path inside the state dir.
+# SMTP binds 127.0.0.2 (not 127.0.0.1): Mailtrap Local 0.2.0 expands a
+# 127.0.0.1 SMTP bind into both 127.0.0.1 and [::1], and on hosts without IPv6
+# loopback that fails with "bind: cannot assign requested address". A distinct
+# IPv4 loopback address avoids the IPv6 expansion without enabling IPv6. The
+# HTTP/API listener stays on 127.0.0.1. Both are loopback-only; see the runbook.
 ExecStart=/usr/local/bin/staging-mailtrap-local \
-    --smtp-listen 127.0.0.1:3535 \
+    --smtp-listen 127.0.0.2:3535 \
     --http-listen 127.0.0.1:3550 \
     --db /var/lib/staging-mail-capture/mailtrap-local/mailtrap-local.sqlite3
 # Non-secret storage config (max_messages) and per-user state locations.
