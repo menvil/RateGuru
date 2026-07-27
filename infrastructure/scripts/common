@@ -426,6 +426,7 @@ target_lifecycle()                { _target_property "${1-}" '.lifecycle' string
 target_environment_class()        { _target_property "${1-}" '.environment_class' string; }
 target_root()                     { _target_property "${1-}" '.application_root' string; }
 target_runtime_user()             { _target_property "${1-}" '.runtime_user' string; }
+target_runtime_group()            { _target_property "${1-}" '.runtime_group' string; }
 target_deploy_user()              { _target_property "${1-}" '.deploy_user' string; }
 target_code_group()               { _target_property "${1-}" '.code_group' string; }
 target_incoming_artifacts()       { _target_property "${1-}" '.incoming_artifacts' string; }

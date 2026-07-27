@@ -7,6 +7,7 @@
       "environment_class": "staging",
       "application_root": "/home/www/rateguru/staging",
       "runtime_user": "rateguru-staging",
+      "runtime_group": "rateguru-staging",
       "deploy_user": "deploy-rateguru-staging",
       "code_group": "rateguru-staging-code",
       "incoming_artifacts": "/home/deploy-rateguru-staging/incoming",
@@ -50,8 +51,9 @@
       "environment_class": "production",
       "application_root": "/home/www/rateguru/production/tits-guru",
       "runtime_user": "rateguru-tits-guru",
+      "runtime_group": "rateguru-tits-guru",
       "deploy_user": "deploy-rateguru-tits-guru",
-      "code_group": "rateguru-tits-guru",
+      "code_group": "rateguru-tits-guru-code",
       "incoming_artifacts": "/home/deploy-rateguru-tits-guru/incoming",
       "release_retention": 10,
       "database": {

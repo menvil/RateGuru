@@ -174,6 +174,7 @@ it('mirrors current staging infrastructure exactly in staging-main', function ()
         'environment_class' => 'staging',
         'application_root' => '/home/www/rateguru/staging',
         'runtime_user' => 'rateguru-staging',
+        'runtime_group' => 'rateguru-staging',
         'deploy_user' => 'deploy-rateguru-staging',
         'code_group' => 'rateguru-staging-code',
         'incoming_artifacts' => '/home/deploy-rateguru-staging/incoming',
@@ -306,8 +307,9 @@ it('declares tits-guru completely but leaves it planned', function () {
         'environment_class' => 'production',
         'application_root' => '/home/www/rateguru/production/tits-guru',
         'runtime_user' => 'rateguru-tits-guru',
+        'runtime_group' => 'rateguru-tits-guru',
         'deploy_user' => 'deploy-rateguru-tits-guru',
-        'code_group' => 'rateguru-tits-guru',
+        'code_group' => 'rateguru-tits-guru-code',
         'incoming_artifacts' => '/home/deploy-rateguru-tits-guru/incoming',
         'release_retention' => 10,
         'environment_template' => 'infrastructure/templates/environment/tits-guru.env.example',
@@ -345,7 +347,7 @@ it('declares tits-guru completely but leaves it planned', function () {
     // than under-specified.
     expect(array_keys($target))->toContain(
         'id', 'lifecycle', 'environment_class', 'application_root', 'runtime_user',
-        'deploy_user', 'code_group', 'incoming_artifacts', 'release_retention',
+        'runtime_group', 'deploy_user', 'code_group', 'incoming_artifacts', 'release_retention',
         'database', 'health', 'public_hostnames', 'backup', 'php_fpm',
         'supervisor', 'scheduler', 'nginx', 'environment_template',
     );
@@ -506,7 +508,7 @@ it('rejects unsupported schema versions', function () {
 
 it('rejects missing, null and wrong-typed required properties', function () {
     $paths = [
-        '.runtime_user', '.deploy_user', '.code_group', '.application_root',
+        '.runtime_user', '.runtime_group', '.deploy_user', '.code_group', '.application_root',
         '.incoming_artifacts', '.lifecycle', '.environment_class',
         '.database.name', '.database.application_role',
         '.health.url', '.health.host_header',
@@ -581,6 +583,36 @@ it('rejects invalid hostnames and non-loopback health URLs', function () {
     foreach ($cases as $mutation) {
         [$exit] = validateMutatedRegistry($mutation);
         expect($exit)->not->toBe(0, "should have rejected: {$mutation}");
+    }
+});
+
+it('keeps the runtime group and the code group as separate roles', function () {
+    $targets = json_decode(File::get(targetRegistryPath()), true, 512, JSON_THROW_ON_ERROR)['targets'];
+
+    foreach ($targets as $id => $target) {
+        // runtime_group matching runtime_user is the normal Linux convention
+        // for a primary group.
+        expect($target['runtime_group'])->toBe($target['runtime_user'], "{$id}: runtime_group should be the runtime user's own group");
+
+        // code_group must be a distinct shared group. Collapsing it into the
+        // runtime user's group would give the runtime user ownership of the
+        // code it executes.
+        expect($target['code_group'])
+            ->not->toBe($target['runtime_group'], "{$id}: code_group must differ from runtime_group")
+            ->not->toBe($target['runtime_user'], "{$id}: code_group must not be the runtime user's own group")
+            ->toEndWith('-code', "{$id}: code_group should follow the -code convention");
+    }
+
+    // The validator enforces it, not just the committed data.
+    foreach ([
+        'code_group == runtime_group' => '.targets["tits-guru"].code_group = .targets["tits-guru"].runtime_group',
+        'code_group == runtime_user' => '.targets["tits-guru"].code_group = .targets["tits-guru"].runtime_user',
+        'missing runtime_group' => 'del(.targets["staging-main"].runtime_group)',
+        'duplicate runtime_group' => '.targets["tits-guru"].runtime_group = .targets["staging-main"].runtime_group',
+        'unsafe runtime_group' => '.targets["staging-main"].runtime_group = "BAD GROUP"',
+    ] as $label => $mutation) {
+        [$exit] = validateMutatedRegistry($mutation);
+        expect($exit)->not->toBe(0, "should have rejected: {$label}");
     }
 });
 
@@ -851,6 +883,7 @@ it('rejects collision-sensitive values shared between targets', function () {
         '.application_root',
         '.incoming_artifacts',
         '.runtime_user',
+        '.runtime_group',
         '.deploy_user',
         '.code_group',
         '.database.name',
@@ -976,6 +1009,7 @@ it('reads target values through the common helpers', function () {
         'target_environment_class staging-main' => 'staging',
         'target_root staging-main' => '/home/www/rateguru/staging',
         'target_runtime_user staging-main' => 'rateguru-staging',
+        'target_runtime_group staging-main' => 'rateguru-staging',
         'target_deploy_user staging-main' => 'deploy-rateguru-staging',
         'target_code_group staging-main' => 'rateguru-staging-code',
         'target_incoming_artifacts staging-main' => '/home/deploy-rateguru-staging/incoming',

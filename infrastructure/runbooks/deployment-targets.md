@@ -173,7 +173,7 @@ Beyond per-field rules, validation rejects collisions across targets on every
 value where sharing would be actively unsafe:
 
 - `application_root`, `incoming_artifacts`;
-- `runtime_user`, `deploy_user`, `code_group`;
+- `runtime_user`, `runtime_group`, `deploy_user`, `code_group`;
 - `database.name`, `database.application_role`;
 - `health.host_header`;
 - `backup.namespace`;
@@ -205,6 +205,21 @@ Note that `rateguru-staging` and `rateguru-staging-code` are two distinct
 groups with distinct jobs: the first is the runtime user's own group, the
 second is the shared group that owns release files and includes the deploy user
 and `www-data`. Do not collapse them.
+
+Every target follows the same four-account contract, and the registry records
+each part separately so the two group roles can never be conflated:
+
+| Field | Role | staging-main | tits-guru |
+|-------|------|--------------|-----------|
+| `runtime_user` | runs PHP-FPM and the queue worker | `rateguru-staging` | `rateguru-tits-guru` |
+| `runtime_group` | that user's own group | `rateguru-staging` | `rateguru-tits-guru` |
+| `deploy_user` | owns release files, receives artifacts | `deploy-rateguru-staging` | `deploy-rateguru-tits-guru` |
+| `code_group` | shared group owning release files | `rateguru-staging-code` | `rateguru-tits-guru-code` |
+
+`runtime_group` matching `runtime_user` is the normal Linux convention for a
+user's primary group. `code_group` must always be a distinct `-code` group:
+making it the runtime user's own group would give the runtime user ownership of
+its own code, which is exactly the separation the staging model exists to keep.
 
 Re-run this on the VPS before a target is used for a real deployment, and after
 any change to users or groups:

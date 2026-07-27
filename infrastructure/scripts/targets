@@ -42,6 +42,7 @@ COLLISION_FIELDS=(
     '.application_root|application_root'
     '.incoming_artifacts|incoming artifacts directory'
     '.runtime_user|runtime user'
+    '.runtime_group|runtime group'
     '.deploy_user|deploy user'
     '.code_group|code group'
     '.database.name|database name'
@@ -66,6 +67,7 @@ REQUIRED_STRINGS=(
     .environment_class
     .application_root
     .runtime_user
+    .runtime_group
     .deploy_user
     .code_group
     .incoming_artifacts
@@ -548,7 +550,7 @@ validate_target_accounts() {
     local target_id="$1"
 
     local field
-    for field in runtime_user deploy_user code_group; do
+    for field in runtime_user runtime_group deploy_user code_group; do
         local value
         value="$(target_property "${target_id}" ".${field}" || printf '')"
 
@@ -556,6 +558,25 @@ validate_target_accounts() {
             problem "${target_id}: ${field} is not a safe Linux account name (<=32 chars): ${value}"
         fi
     done
+
+    # The code group owns release files and is shared with the deploy user and
+    # www-data. Collapsing it into the runtime user's own group would hand the
+    # runtime user ownership of the code it executes, which is precisely the
+    # separation the staging model exists to maintain.
+    local runtime_user runtime_group code_group
+    runtime_user="$(target_property "${target_id}" '.runtime_user' || printf '')"
+    runtime_group="$(target_property "${target_id}" '.runtime_group' || printf '')"
+    code_group="$(target_property "${target_id}" '.code_group' || printf '')"
+
+    if [[ -n "${code_group}" ]]; then
+        if [[ "${code_group}" == "${runtime_group}" ]]; then
+            problem "${target_id}: code_group must differ from runtime_group (both '${code_group}')"
+        fi
+
+        if [[ "${code_group}" == "${runtime_user}" ]]; then
+            problem "${target_id}: code_group must not be the runtime user's own group ('${code_group}')"
+        fi
+    fi
 
     local database_name database_role
     database_name="$(target_property "${target_id}" '.database.name' || printf '')"
