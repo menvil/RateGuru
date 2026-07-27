@@ -193,15 +193,17 @@ validate_config() {
     grep -Eq "^MP_SMTP_RELAY_CONFIG=${YML_MAILPIT_RELAY//./\\.}$" "${mailpit_env}" \
         || fail "mailpit.env does not reference the relay config ${YML_MAILPIT_RELAY}"
 
+    # Mailtrap Local SMTP binds the 127.0.0.2 IPv4 loopback address (avoids the
+    # 0.2.0 IPv6 [::1] expansion), so the relay TARGET must dial 127.0.0.2 too.
     local mailpit_relay="${CONFIG_DIR}/mailpit-relay.yml"
-    grep -Eq '^host:[[:space:]]*127\.0\.0\.1$' "${mailpit_relay}" \
-        || fail "mailpit-relay.yml relay host is not loopback 127.0.0.1"
+    grep -Eq '^host:[[:space:]]*127\.0\.0\.2$' "${mailpit_relay}" \
+        || fail "mailpit-relay.yml relay host is not loopback 127.0.0.2"
     grep -Eq '^port:[[:space:]]*3535$' "${mailpit_relay}" \
         || fail "mailpit-relay.yml relay port is not 3535"
 
     local mailtrap_unit="${SYSTEMD_SRC}/staging-mailtrap-local.service"
-    grep -Eq -- '--smtp-listen 127\.0\.0\.1:3535' "${mailtrap_unit}" \
-        || fail "mailtrap-local unit does not bind SMTP to loopback 127.0.0.1:3535"
+    grep -Eq -- '--smtp-listen 127\.0\.0\.2:3535' "${mailtrap_unit}" \
+        || fail "mailtrap-local unit does not bind SMTP to loopback 127.0.0.2:3535"
     grep -Eq -- '--http-listen 127\.0\.0\.1:3550' "${mailtrap_unit}" \
         || fail "mailtrap-local unit does not bind HTTP/API to loopback 127.0.0.1:3550"
 
@@ -398,6 +400,129 @@ create_user() {
         "${name}"
 }
 
+# --- Runtime health verification (apply mode) ------------------------------
+
+RUNTIME_WAIT=30   # seconds to wait for a service to become stably healthy
+
+service_property() {
+    # service_property <unit> <property>
+    systemctl show "$1" --property="$2" --value 2>/dev/null || true
+}
+
+wait_service_active() {
+    # wait_service_active <unit> <timeout>: succeed only on a stable active
+    # state; fail fast when the unit is failed, and fail on timeout when it is
+    # stuck activating (auto-restart loop) or inactive.
+    local unit="$1" timeout="$2" waited=0 state sub
+    while (( waited < timeout )); do
+        state="$(service_property "${unit}" ActiveState)"
+        sub="$(service_property "${unit}" SubState)"
+        if [[ "${state}" == "active" && ( "${sub}" == "running" || "${sub}" == "exited" ) ]]; then
+            return 0
+        fi
+        if [[ "${state}" == "failed" ]]; then
+            return 1
+        fi
+        sleep 1
+        (( waited += 1 ))
+    done
+    return 1
+}
+
+wait_listener() {
+    # wait_listener <host> <port> <timeout>: wait for a loopback TCP listener.
+    local host="$1" port="$2" timeout="$3" waited=0
+    while (( waited < timeout )); do
+        if ss -ltnH "sport = :${port}" 2>/dev/null \
+            | grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)"; then
+            return 0
+        fi
+        sleep 1
+        (( waited += 1 ))
+    done
+    return 1
+}
+
+wait_http_api() {
+    # wait_http_api <url> <timeout>
+    local url="$1" timeout="$2" waited=0
+    while (( waited < timeout )); do
+        curl -fsS --noproxy '*' --max-time 5 "${url}" >/dev/null 2>&1 && return 0
+        sleep 1
+        (( waited += 1 ))
+    done
+    return 1
+}
+
+dump_service_diagnostics() {
+    # dump_service_diagnostics <unit>: full status + restart-loop properties +
+    # recent UNFILTERED application journal (never hide bind/exec/restart lines).
+    local unit="$1"
+    log "diagnostics: ${unit}"
+    systemctl status "${unit}" --no-pager --full 2>&1 | tail -n 30 || true
+    log "  ActiveState=$(service_property "${unit}" ActiveState)" \
+        "SubState=$(service_property "${unit}" SubState)" \
+        "Result=$(service_property "${unit}" Result)" \
+        "ExecMainStatus=$(service_property "${unit}" ExecMainStatus)" \
+        "NRestarts=$(service_property "${unit}" NRestarts)"
+    if command -v journalctl >/dev/null 2>&1; then
+        log "  recent journal for ${unit}:"
+        journalctl -u "${unit}" --no-pager --since '-2min' 2>&1 | tail -n 40 || true
+    fi
+}
+
+ensure_service_healthy() {
+    # ensure_service_healthy <unit> <api-url> <host:port>...
+    local unit="$1" api="$2"
+    shift 2
+    local hostport host port
+
+    if ! wait_service_active "${unit}" "${RUNTIME_WAIT}"; then
+        log "ERROR: ${unit} did not reach a stable active state within ${RUNTIME_WAIT}s"
+        dump_service_diagnostics "${unit}"
+        return 1
+    fi
+
+    for hostport in "$@"; do
+        host="${hostport%:*}"
+        port="${hostport##*:}"
+        if ! wait_listener "${host}" "${port}" "${RUNTIME_WAIT}"; then
+            log "ERROR: ${unit} is not listening on ${hostport}"
+            dump_service_diagnostics "${unit}"
+            return 1
+        fi
+    done
+
+    if ! wait_http_api "${api}" "${RUNTIME_WAIT}"; then
+        log "ERROR: ${unit} API ${api} did not respond within ${RUNTIME_WAIT}s"
+        dump_service_diagnostics "${unit}"
+        return 1
+    fi
+
+    return 0
+}
+
+verify_runtime_health() {
+    # Prove both services are actually up before reporting success. Mailtrap
+    # Local is checked first (Mailpit relays to it), then Mailpit. Either being
+    # failed / inactive / stuck activating / missing a listener fails the apply.
+    log "verifying services are healthy at runtime"
+    local failed=false
+
+    ensure_service_healthy "staging-mailtrap-local.service" \
+        "http://127.0.0.1:3550/api/v1/version" \
+        "127.0.0.2:3535" "127.0.0.1:3550" \
+        || failed=true
+
+    ensure_service_healthy "staging-mailpit.service" \
+        "http://127.0.0.1:8025/api/v1/info" \
+        "127.0.0.1:1025" "127.0.0.1:8025" \
+        || failed=true
+
+    [[ "${failed}" == false ]] \
+        || fail "mail-capture services are not healthy after apply (see diagnostics above)"
+}
+
 # --- Modes ------------------------------------------------------------------
 
 run_check() {
@@ -430,7 +555,9 @@ run_apply() {
     validate_config "${arch}"
     validate_checksums "${arch}"
 
-    for tool in tar sha256sum install useradd systemctl nginx; do
+    # curl + ss are also required: apply verifies runtime health (listeners and
+    # HTTP APIs) before it can report success.
+    for tool in tar sha256sum install useradd systemctl nginx curl ss; do
         command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
     done
 
@@ -554,6 +681,12 @@ run_apply() {
         log "reloading nginx"
         systemctl reload nginx
     fi
+
+    # 13. Verify both services are actually healthy at runtime. This is what
+    #     stops the installer from reporting success while a unit is stuck in
+    #     "activating (auto-restart)" — it fails (non-zero) with diagnostics
+    #     instead. Runs before the success banner is ever printed.
+    verify_runtime_health
 
     trap - ERR EXIT
     cleanup_staging

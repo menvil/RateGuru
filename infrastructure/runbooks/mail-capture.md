@@ -30,10 +30,10 @@ listener.
               │   SQLite /var/lib/.../mailpit     │
               └───────────────┬───────────────────┘
              stores local copy│ then best-effort relay-all
-                              ▼  SMTP 127.0.0.1:3535
+                              ▼  SMTP 127.0.0.2:3535
               ┌───────────────────────────────────┐
               │ Mailtrap Local (mirror)           │
-              │   SMTP  127.0.0.1:3535            │
+              │   SMTP  127.0.0.2:3535            │
               │   HTTP  127.0.0.1:3550            │
               │   SQLite /var/lib/.../mailtrap-local │
               └───────────────────────────────────┘
@@ -46,13 +46,47 @@ Guarantees:
 - **Mailtrap Local receives a best-effort mirrored copy** via Mailpit
   relay-all: `mailpit.env` enables the toggle (`MP_SMTP_RELAY_ALL=true`) and
   points at `mailpit-relay.yml`, which defines the loopback target
-  (`host: 127.0.0.1`, `port: 3535`, `auth: none`).
+  (`host: 127.0.0.2`, `port: 3535`, `auth: none`).
 - **A Mailtrap Local failure never fails Laravel SMTP delivery.** The relay
   config sets `forward-smtp-errors: false`, so a relay error is logged to
   journald but is **not** returned to the upstream SMTP client.
 - **A Mailtrap Local failure never stops Mailpit.** The systemd unit uses
   `Wants=` (not `Requires=`) for `staging-mailtrap-local.service`.
 - Mailtrap Local is independent and never depends on Mailpit.
+
+### Why Mailtrap Local SMTP binds 127.0.0.2
+
+Mailtrap Local 0.2.0 expands a `--smtp-listen 127.0.0.1:3535` bind into **both**
+IPv4 `127.0.0.1:3535` and IPv6 `[::1]:3535`. On a host without IPv6 loopback the
+service then fails to start:
+
+```
+listen [::1]:3535: bind: cannot assign requested address
+```
+
+and systemd drops it into a `activating (auto-restart)` loop. This was confirmed
+on the first real VPS install.
+
+Binding a **distinct IPv4 loopback address** sidesteps the IPv6 expansion
+without enabling IPv6 anywhere. Mailtrap Local's SMTP listener therefore binds
+`127.0.0.2:3535`, confirmed working on the VPS:
+
+```
+SMTP listening addrs=[127.0.0.2:3535]
+HTTP listening addr=127.0.0.1:3550
+```
+
+- **SMTP:** `127.0.0.2:3535` (Mailpit's relay dials this exact address).
+- **HTTP/API:** `127.0.0.1:3550` (unchanged; Nginx proxies to it).
+
+`127.0.0.1` and `127.0.0.2` are both inside the IPv4 loopback range
+`127.0.0.0/8`; neither is routable off-host and **must never** be publicly
+exposed. IPv6 stays disabled. Mailpit's own listeners are unchanged
+(`127.0.0.1:1025` SMTP, `127.0.0.1:8025` HTTP).
+
+Mailtrap Local remains a **non-critical, best-effort mirror**: if it is stopped
+or crash-looping, Mailpit still captures and stores every message and Laravel
+delivery is unaffected (see the guarantees above).
 
 ## DNS and TLS prerequisites
 
@@ -119,7 +153,14 @@ What `--apply` does:
 8. runs `systemd-analyze verify` and `nginx -t`;
 9. `daemon-reload`s only when a unit changed and restarts only changed
    services (mirror first, then Mailpit);
-10. rolls the installed files back if apply fails before commit.
+10. verifies **runtime health** before reporting success — each service must
+    reach a stable `active` state and expose its listeners (`127.0.0.1:1025`,
+    `127.0.0.1:8025`, `127.0.0.2:3535`, `127.0.0.1:3550`) and HTTP APIs within a
+    bounded wait. A unit that is failed, inactive or stuck `activating
+    (auto-restart)` fails the apply (non-zero) with `systemctl status`,
+    `ActiveState`/`SubState`/`Result`/`ExecMainStatus`/`NRestarts`, and the
+    recent unfiltered journal;
+11. rolls the installed files back if apply fails before commit.
 
 Installed layout:
 
@@ -291,8 +332,10 @@ ever introduced, add `/var/lib/staging-mail-capture` to its exclude list.
 
 ## Security model
 
-- **Loopback only.** Every SMTP/HTTP listener binds `127.0.0.1` (1025, 8025,
-  3535, 3550). Nginx is the only public surface, on 443 (and 80 → 443).
+- **Loopback only.** Every SMTP/HTTP listener binds the IPv4 loopback range
+  `127.0.0.0/8`: `127.0.0.1:1025`, `127.0.0.1:8025`, `127.0.0.2:3535` (see
+  above), `127.0.0.1:3550`. None is routable off-host. Nginx is the only public
+  surface, on 443 (and 80 → 443).
 - **Basic Auth + TLS** on both web UIs, reusing the existing staging password
   file `/etc/nginx/rateguru-staging.htpasswd` and Certbot certificates.
 - **No public SMTP.** Ports 1025/3535/8025/3550 are never exposed by Nginx and
@@ -314,8 +357,17 @@ ever introduced, add `/var/lib/staging-mail-capture` to its exclude list.
   staging `.env`, `systemctl is-active staging-mailpit.service`, and
   `status-mail-capture` listener output.
 - **Mirror empty but Mailpit has the message:** Mailtrap Local is down or
-  relay failed — check `journalctl -u staging-mailpit.service -p err`. This is
-  expected to be non-fatal; Mailpit keeps the canonical copy.
+  relay failed — check `journalctl -u staging-mailpit.service` (unfiltered; the
+  relay error may be logged below `err` priority). This is expected to be
+  non-fatal; Mailpit keeps the canonical copy.
+- **Mailtrap Local stuck in `activating (auto-restart)`:** almost always the
+  IPv6 `[::1]:3535` bind failure described above. Confirm the unit binds
+  `127.0.0.2:3535` (not `127.0.0.1:3535`) and look for `bind: cannot assign
+  requested address` in `journalctl -u staging-mailtrap-local.service` (do not
+  add `-p err`; the line is recorded below `err`). `install-mail-capture
+  --apply` now fails with these diagnostics instead of reporting success while a
+  service is restart-looping; `status-mail-capture` shows `NRestarts` and the
+  raw journal.
 - **`nginx -t` fails during apply:** the installer stops before activating and
   rolls back; fix DNS/cert paths and re-run `--apply`.
 - **`systemd-analyze verify` warnings:** ensure the binaries are installed at

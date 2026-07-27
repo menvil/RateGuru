@@ -132,9 +132,62 @@ it('binds every capture listener to loopback only', function () {
         ->toContain('MP_UI_BIND_ADDR=127.0.0.1:8025')
         ->not->toContain('0.0.0.0')
         ->and($mailtrapUnit)
-        ->toContain('--smtp-listen 127.0.0.1:3535')
+        // SMTP binds 127.0.0.2 to dodge Mailtrap Local 0.2.0's IPv6 [::1]
+        // expansion; HTTP/API stays on 127.0.0.1.
+        ->toContain('--smtp-listen 127.0.0.2:3535')
         ->toContain('--http-listen 127.0.0.1:3550')
+        ->not->toContain('--smtp-listen 127.0.0.1:3535')
         ->not->toContain('0.0.0.0');
+});
+
+it('binds Mailtrap Local SMTP to 127.0.0.2 and HTTP to 127.0.0.1', function () {
+    // The IPv4/IPv6 expansion workaround: SMTP on 127.0.0.2, HTTP/API on
+    // 127.0.0.1 — asserted as two distinct loopback hosts.
+    $unit = mailCaptureSource('config/systemd/staging-mailtrap-local.service');
+
+    expect($unit)
+        ->toMatch('/--smtp-listen\s+127\.0\.0\.2:3535\b/')
+        ->toMatch('/--http-listen\s+127\.0\.0\.1:3550\b/')
+        // IPv6 is never enabled: no listener flag binds a bracketed IPv6 address
+        // (the explanatory comment may mention [::1], but no `--*-listen` does).
+        ->not->toMatch('/--smtp-listen\s+\[::/')
+        ->not->toMatch('/--http-listen\s+\[::/');
+});
+
+it('keeps every capture listener inside the IPv4 loopback range', function () {
+    // Collect every host:port the slice binds or dials, and prove each host is
+    // in 127.0.0.0/8 — never a routable or wildcard address.
+    $endpoints = [
+        // mailpit.env bind addresses.
+        ...(function () {
+            $env = mailCaptureEnvValues('config/mail-capture/mailpit.env');
+
+            return [$env['MP_SMTP_BIND_ADDR'], $env['MP_UI_BIND_ADDR']];
+        })(),
+        // Mailtrap Local unit listeners.
+        '127.0.0.2:3535',
+        '127.0.0.1:3550',
+        // Mailpit relay target.
+        (function () {
+            $relay = Yaml::parse(mailCaptureSource('config/mail-capture/mailpit-relay.yml'));
+
+            return $relay['host'].':'.$relay['port'];
+        })(),
+    ];
+
+    foreach ($endpoints as $endpoint) {
+        [$host] = explode(':', $endpoint, 2);
+        expect($host)->toMatch('/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/', "non-loopback host: {$endpoint}");
+    }
+
+    // Belt-and-braces: nothing binds the IPv4 wildcard, and no listener flag
+    // binds an IPv6 address (comments may reference [::1]; binds never do).
+    foreach (['config/systemd/staging-mailtrap-local.service', 'config/mail-capture/mailpit-relay.yml', 'config/mail-capture/mailpit.env'] as $path) {
+        expect(mailCaptureSource($path))->not->toContain('0.0.0.0');
+    }
+
+    expect(mailCaptureSource('config/systemd/staging-mailtrap-local.service'))
+        ->not->toMatch('/-listen\s+\[::/');
 });
 
 it('configures a best-effort relay-all mirror to Mailtrap Local', function () {
@@ -152,7 +205,9 @@ it('configures a best-effort relay-all mirror to Mailtrap Local', function () {
     // top-level relay schema, with failures logged rather than forwarded.
     $relay = Yaml::parse(mailCaptureSource('config/mail-capture/mailpit-relay.yml'));
 
-    expect($relay['host'])->toBe('127.0.0.1');
+    // The relay must dial Mailtrap Local's 127.0.0.2 SMTP listener (not
+    // 127.0.0.1), matching the IPv6-expansion workaround in the unit.
+    expect($relay['host'])->toBe('127.0.0.2');
     expect($relay['port'])->toBe(3535);
     expect($relay['auth'])->toBe('none');
     // forward-smtp-errors must stay false so a mirror outage never fails delivery.
@@ -295,6 +350,28 @@ it('never exposes an SMTP or raw capture port publicly through Nginx', function 
     }
 });
 
+it('exposes no public SMTP listener anywhere in the slice', function () {
+    // Every SMTP bind is a loopback address: Mailpit on 127.0.0.1:1025, Mailtrap
+    // Local on 127.0.0.2:3535, and the relay only dials that loopback target.
+    $mailpitEnv = mailCaptureEnvValues('config/mail-capture/mailpit.env');
+    expect($mailpitEnv['MP_SMTP_BIND_ADDR'])->toBe('127.0.0.1:1025');
+
+    expect(mailCaptureSource('config/systemd/staging-mailtrap-local.service'))
+        ->toContain('--smtp-listen 127.0.0.2:3535')
+        ->not->toContain('0.0.0.0');
+
+    // Nginx only ever proxies the HTTP UIs (8025 / 3550); no SMTP port is
+    // proxied or listened on by either vhost.
+    foreach (['mailpit-staging', 'mailtrap-local-staging'] as $vhost) {
+        $source = mailCaptureSource('config/nginx/'.$vhost);
+        foreach (['1025', '3535'] as $smtpPort) {
+            expect($source)
+                ->not->toContain(':'.$smtpPort)
+                ->not->toContain('listen '.$smtpPort);
+        }
+    }
+});
+
 it('points staging Laravel mail at the Mailpit loopback SMTP', function () {
     $env = mailCaptureEnvValues('templates/environment/staging.env.example');
 
@@ -365,6 +442,94 @@ it('installs every artefact under environment-owned names', function () {
     expect($installer)
         ->toContain('UNIT_MAILPIT="${UNIT_DIR}/staging-mailpit.service"')
         ->toContain('UNIT_MAILTRAP="${UNIT_DIR}/staging-mailtrap-local.service"');
+});
+
+it('cannot report apply success while a service is activating or restart-looping', function () {
+    $installer = mailCaptureSource('scripts/install-mail-capture');
+
+    // Runtime health is verified before the success banner is ever printed.
+    $applyPos = strpos($installer, 'log "apply complete"');
+    $verifyPos = strpos($installer, 'verify_runtime_health');
+    expect($verifyPos)->not->toBeFalse('installer never calls verify_runtime_health');
+    expect($applyPos)->not->toBeFalse();
+    // The (last) call site precedes the success log.
+    expect(strrpos($installer, 'verify_runtime_health'))->toBeLessThan($applyPos);
+
+    // Only a stable active/running (or exited) state passes; failed fails fast
+    // and everything else (activating auto-restart, inactive) times out to a
+    // failure. The gate must fail the apply, not just warn.
+    expect($installer)
+        ->toContain('wait_service_active')
+        ->toContain('state="$(service_property "${unit}" ActiveState)"')
+        ->toContain('"${state}" == "active"')
+        ->toMatch('/"\$\{state\}"\s*==\s*"failed"/')
+        ->toContain('fail "mail-capture services are not healthy after apply');
+
+    // On failure it must dump status + restart-loop properties + UNFILTERED
+    // recent journal (no priority filter that would hide bind/restart lines).
+    expect($installer)
+        ->toContain('systemctl status')
+        ->toContain('ActiveState=')
+        ->toContain('SubState=')
+        ->toContain('Result=')
+        ->toContain('ExecMainStatus=')
+        ->toContain('NRestarts=')
+        ->toContain('journalctl -u')
+        ->not->toMatch('/journalctl[^\n]* -p /');
+
+    // It also checks the real listeners and HTTP APIs, including the 127.0.0.2
+    // Mailtrap SMTP endpoint.
+    expect($installer)
+        ->toContain('wait_listener')
+        ->toContain('wait_http_api')
+        ->toContain('127.0.0.2:3535');
+});
+
+it('reports exact endpoints, restart-loop state and unfiltered journal in status', function () {
+    $status = mailCaptureSource('scripts/status-mail-capture');
+
+    // Exact endpoints, including the 127.0.0.2 Mailtrap SMTP host.
+    expect($status)
+        ->toContain('listener_line "Mailpit SMTP" "127.0.0.1" "1025"')
+        ->toContain('listener_line "Mailpit HTTP/API" "127.0.0.1" "8025"')
+        ->toContain('listener_line "Mailtrap SMTP" "127.0.0.2" "3535"')
+        ->toContain('listener_line "Mailtrap HTTP/API" "127.0.0.1" "3550"');
+
+    // Restart-loop diagnostics surfaced for both services.
+    expect($status)
+        ->toContain('ActiveState=')
+        ->toContain('SubState=')
+        ->toContain('Result=')
+        ->toContain('NRestarts=');
+
+    // The journal must be unfiltered: the journalctl invocation carries no `-p`
+    // priority filter that would hide the level=ERROR bind/restart lines. (The
+    // explanatory comment may name `-p err`; the actual command must not use it.)
+    expect($status)
+        ->toContain("journalctl -u \"\${unit}\" --no-pager --since '-1h'")
+        ->not->toMatch('/journalctl[^\n]* -p /');
+});
+
+it('uses distinct Mailtrap SMTP and HTTP hosts in the verifier', function () {
+    $verify = mailCaptureSource('scripts/verify-mail-capture');
+
+    expect($verify)
+        ->toContain('MAILTRAP_SMTP_HOST="127.0.0.2"')
+        ->toContain('MAILTRAP_HTTP_HOST="127.0.0.1"')
+        ->toContain('MAILPIT_SMTP_HOST="127.0.0.1"')
+        ->toContain('MAILPIT_HTTP_HOST="127.0.0.1"')
+        // The old single-host variables must be gone.
+        ->not->toContain('MAILTRAP_HOST=')
+        ->not->toContain('MAILPIT_HOST=');
+
+    // SMTP submission targets the SMTP host, and the mirror API targets the
+    // HTTP host — the two must not be conflated.
+    expect($verify)
+        ->toContain('smtp_send "${MAILPIT_SMTP_HOST}"')
+        ->toContain('MAILTRAP_API="http://${MAILTRAP_HTTP_HOST}:${MAILTRAP_HTTP_PORT}"')
+        // After restarting the mirror it waits for a stable active state before
+        // asserting mirroring resumes.
+        ->toContain('wait_service_active "staging-mailtrap-local.service"');
 });
 
 it('keeps project-scoped names out of the shared staging slice', function () {

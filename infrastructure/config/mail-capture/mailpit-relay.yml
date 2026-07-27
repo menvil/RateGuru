@@ -12,8 +12,11 @@
 # The keys are top-level, matching Mailpit's SMTPRelayConfig schema as parsed
 # by --smtp-relay-config / MP_SMTP_RELAY_CONFIG.
 
-# Mirror target: the Mailtrap Local SMTP listener on loopback.
-host: 127.0.0.1
+# Mirror target: the Mailtrap Local SMTP listener on loopback. It binds the
+# 127.0.0.2 IPv4 loopback address (Mailtrap Local 0.2.0 would otherwise expand a
+# 127.0.0.1 bind onto [::1] and fail on hosts without IPv6 loopback), so the
+# relay must dial 127.0.0.2, not 127.0.0.1. Still loopback-only; see the runbook.
+host: 127.0.0.2
 port: 3535
 
 # Private loopback target: no authentication, no TLS.

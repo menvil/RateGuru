@@ -18,15 +18,20 @@
 
 set -Eeuo pipefail
 
-MAILPIT_HOST="127.0.0.1"
+# SMTP and HTTP hosts are tracked independently. Mailtrap Local's SMTP listener
+# binds 127.0.0.2 (avoiding the 0.2.0 IPv6 [::1] expansion) while its HTTP/API
+# listener stays on 127.0.0.1, so the two must not be assumed equal.
+MAILPIT_SMTP_HOST="127.0.0.1"
+MAILPIT_HTTP_HOST="127.0.0.1"
 MAILPIT_SMTP_PORT="1025"
 MAILPIT_HTTP_PORT="8025"
-MAILTRAP_HOST="127.0.0.1"
+MAILTRAP_SMTP_HOST="127.0.0.2"
+MAILTRAP_HTTP_HOST="127.0.0.1"
 MAILTRAP_SMTP_PORT="3535"
 MAILTRAP_HTTP_PORT="3550"
 
-MAILPIT_API="http://${MAILPIT_HOST}:${MAILPIT_HTTP_PORT}"
-MAILTRAP_API="http://${MAILTRAP_HOST}:${MAILTRAP_HTTP_PORT}"
+MAILPIT_API="http://${MAILPIT_HTTP_HOST}:${MAILPIT_HTTP_PORT}"
+MAILTRAP_API="http://${MAILTRAP_HTTP_HOST}:${MAILTRAP_HTTP_PORT}"
 
 POLL_TIMEOUT="20"
 
@@ -137,14 +142,30 @@ wait_for_api() {
 }
 
 check_listener() {
-    # check_listener <host> <port>
+    # check_listener <host> <port>: confirm a TCP listener on exactly host:port
+    # (host is a loopback address, 127.0.0.1 or 127.0.0.2).
     local host="$1" port="$2"
     if command -v ss >/dev/null 2>&1; then
         ss -ltnH "sport = :${port}" 2>/dev/null \
-            | grep -qE "(127\.0\.0\.1|\[::1\]):${port}\b" && return 0
+            | grep -qE "[[:space:]]${host//./\\.}:${port}([[:space:]]|$)" && return 0
         return 1
     fi
     (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null && { exec 3>&- 3<&-; return 0; }
+    return 1
+}
+
+wait_service_active() {
+    # wait_service_active <unit> <timeout>: wait for a stable active/running
+    # state; fail fast if the unit lands in failed.
+    local unit="$1" timeout="$2" waited=0 state sub
+    while (( waited < timeout )); do
+        state="$(systemctl show "${unit}" --property=ActiveState --value 2>/dev/null || true)"
+        sub="$(systemctl show "${unit}" --property=SubState --value 2>/dev/null || true)"
+        [[ "${state}" == "active" && "${sub}" == "running" ]] && return 0
+        [[ "${state}" == "failed" ]] && return 1
+        sleep 1
+        (( waited += 1 ))
+    done
     return 1
 }
 
@@ -175,15 +196,16 @@ systemctl is-active --quiet staging-mailtrap-local.service \
     || fail "staging-mailtrap-local.service is not active"
 ok "staging-mailtrap-local.service is active"
 
-# 2. Four loopback listeners.
-check_listener "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" || fail "Mailpit SMTP ${MAILPIT_SMTP_PORT} not listening on loopback"
-ok "Mailpit SMTP listening on ${MAILPIT_HOST}:${MAILPIT_SMTP_PORT}"
-check_listener "${MAILPIT_HOST}" "${MAILPIT_HTTP_PORT}" || fail "Mailpit HTTP ${MAILPIT_HTTP_PORT} not listening on loopback"
-ok "Mailpit HTTP listening on ${MAILPIT_HOST}:${MAILPIT_HTTP_PORT}"
-check_listener "${MAILTRAP_HOST}" "${MAILTRAP_SMTP_PORT}" || fail "Mailtrap SMTP ${MAILTRAP_SMTP_PORT} not listening on loopback"
-ok "Mailtrap Local SMTP listening on ${MAILTRAP_HOST}:${MAILTRAP_SMTP_PORT}"
-check_listener "${MAILTRAP_HOST}" "${MAILTRAP_HTTP_PORT}" || fail "Mailtrap HTTP ${MAILTRAP_HTTP_PORT} not listening on loopback"
-ok "Mailtrap Local HTTP listening on ${MAILTRAP_HOST}:${MAILTRAP_HTTP_PORT}"
+# 2. Four exact loopback listeners: 127.0.0.1:1025, 127.0.0.1:8025,
+#    127.0.0.2:3535, 127.0.0.1:3550.
+check_listener "${MAILPIT_SMTP_HOST}" "${MAILPIT_SMTP_PORT}" || fail "Mailpit SMTP not listening on ${MAILPIT_SMTP_HOST}:${MAILPIT_SMTP_PORT}"
+ok "Mailpit SMTP listening on ${MAILPIT_SMTP_HOST}:${MAILPIT_SMTP_PORT}"
+check_listener "${MAILPIT_HTTP_HOST}" "${MAILPIT_HTTP_PORT}" || fail "Mailpit HTTP not listening on ${MAILPIT_HTTP_HOST}:${MAILPIT_HTTP_PORT}"
+ok "Mailpit HTTP listening on ${MAILPIT_HTTP_HOST}:${MAILPIT_HTTP_PORT}"
+check_listener "${MAILTRAP_SMTP_HOST}" "${MAILTRAP_SMTP_PORT}" || fail "Mailtrap SMTP not listening on ${MAILTRAP_SMTP_HOST}:${MAILTRAP_SMTP_PORT}"
+ok "Mailtrap Local SMTP listening on ${MAILTRAP_SMTP_HOST}:${MAILTRAP_SMTP_PORT}"
+check_listener "${MAILTRAP_HTTP_HOST}" "${MAILTRAP_HTTP_PORT}" || fail "Mailtrap HTTP not listening on ${MAILTRAP_HTTP_HOST}:${MAILTRAP_HTTP_PORT}"
+ok "Mailtrap Local HTTP listening on ${MAILTRAP_HTTP_HOST}:${MAILTRAP_HTTP_PORT}"
 
 # 3. Mailpit API.
 wait_for_api "${MAILPIT_API}/api/v1/info" "${POLL_TIMEOUT}" || fail "Mailpit API is unavailable"
@@ -196,7 +218,7 @@ ok "Mailtrap Local API is available"
 # 5-7. Submit a message and confirm canonical + mirrored copies.
 TOKEN_MIRROR="$(new_token)"
 TOKENS+=("${TOKEN_MIRROR}")
-smtp_send "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" "mail-capture-verify@staging.invalid" "verify@staging.invalid" "${TOKEN_MIRROR}" \
+smtp_send "${MAILPIT_SMTP_HOST}" "${MAILPIT_SMTP_PORT}" "mail-capture-verify@staging.invalid" "verify@staging.invalid" "${TOKEN_MIRROR}" \
     || fail "SMTP submission to Mailpit failed"
 ok "SMTP message accepted by Mailpit (${TOKEN_MIRROR})"
 
@@ -218,7 +240,7 @@ systemctl is-active --quiet staging-mailpit.service \
 
 TOKEN_SOLO="$(new_token)"
 TOKENS+=("${TOKEN_SOLO}")
-smtp_send "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" "mail-capture-verify@staging.invalid" "verify@staging.invalid" "${TOKEN_SOLO}" \
+smtp_send "${MAILPIT_SMTP_HOST}" "${MAILPIT_SMTP_PORT}" "mail-capture-verify@staging.invalid" "verify@staging.invalid" "${TOKEN_SOLO}" \
     || fail "Mailpit rejected SMTP while Mailtrap Local was down"
 poll_present "${MAILPIT_API}" "${TOKEN_SOLO}" "${POLL_TIMEOUT}" \
     || fail "Mailpit did not store ${TOKEN_SOLO} while Mailtrap Local was down"
@@ -228,12 +250,15 @@ ok "Mailpit still accepts and stores mail while Mailtrap Local is stopped"
 log "restarting Mailtrap Local to test mirror resume"
 systemctl start staging-mailtrap-local.service
 MAILTRAP_STOPPED=false
+wait_service_active "staging-mailtrap-local.service" "${POLL_TIMEOUT}" \
+    || fail "Mailtrap Local did not become stably active after restart"
+ok "Mailtrap Local is stably active after restart"
 wait_for_api "${MAILTRAP_API}/api/v1/version" "${POLL_TIMEOUT}" \
     || fail "Mailtrap Local API did not come back after restart"
 
 TOKEN_RESUME="$(new_token)"
 TOKENS+=("${TOKEN_RESUME}")
-smtp_send "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" "mail-capture-verify@staging.invalid" "verify@staging.invalid" "${TOKEN_RESUME}" \
+smtp_send "${MAILPIT_SMTP_HOST}" "${MAILPIT_SMTP_PORT}" "mail-capture-verify@staging.invalid" "verify@staging.invalid" "${TOKEN_RESUME}" \
     || fail "SMTP submission after mirror restart failed"
 poll_present "${MAILPIT_API}" "${TOKEN_RESUME}" "${POLL_TIMEOUT}" \
     || fail "canonical copy of ${TOKEN_RESUME} missing after mirror restart"
