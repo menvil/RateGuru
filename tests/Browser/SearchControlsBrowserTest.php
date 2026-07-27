@@ -97,3 +97,49 @@ it('keeps authenticated desktop header actions aligned to the right', function (
         ->and($geometry['userMenuLeft'])->toBeGreaterThan($geometry['searchRight'])
         ->and($geometry['userMenuRight'])->toBeGreaterThanOrEqual($geometry['viewport'] - 36);
 });
+
+it('keeps mobile search beside authenticated actions and opens an eighty five percent menu', function () {
+    User::factory()->create([
+        'email' => 'mobile-header@rateguru.test',
+    ]);
+
+    $page = visit(route('login'))
+        ->type('[data-testid="login-email"]', 'mobile-header@rateguru.test')
+        ->type('[data-testid="login-password"]', 'password')
+        ->click('[data-testid="login-submit"]')
+        ->resize(844, 390)
+        ->wait(0.2);
+
+    $headerGap = $page->script(<<<'JS'
+        (() => {
+            const search = document.querySelector('[data-testid="mobile-search-trigger"]').getBoundingClientRect();
+            const actions = document.querySelector('[data-testid="header-auth-actions"]').getBoundingClientRect();
+
+            return Math.round(actions.left - search.right);
+        })()
+    JS);
+
+    expect($headerGap)->toBeGreaterThanOrEqual(0)
+        ->and($headerGap)->toBeLessThanOrEqual(8);
+
+    $page
+        ->resize(390, 844)
+        ->click('[data-testid="mobile-nav-trigger"]')
+        ->assertVisible('[data-testid="mobile-nav-panel"]')
+        ->assertVisible('[data-testid="mobile-nav-theme"] [data-testid="theme-option-system"]')
+        ->assertVisible('[data-testid="mobile-nav-theme"] [data-testid="theme-option-light"]')
+        ->assertVisible('[data-testid="mobile-nav-theme"] [data-testid="theme-option-dark"]');
+
+    $drawerGeometry = $page->script(<<<'JS'
+        (() => {
+            const drawer = document.querySelector('[data-testid="mobile-nav-panel"]').getBoundingClientRect();
+
+            return {
+                width: Math.round(drawer.width),
+                expected: Math.round(window.innerWidth * 0.85),
+            };
+        })()
+    JS);
+
+    expect(abs($drawerGeometry['width'] - $drawerGeometry['expected']))->toBeLessThanOrEqual(1);
+});

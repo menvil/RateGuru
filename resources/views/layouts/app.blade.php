@@ -71,7 +71,8 @@
                             x-data="{ open: false }"
                             @keydown.escape.window="open = false"
                             @post-uploaded.window="open = false"
-                            class="ml-auto flex shrink-0 items-center justify-end gap-2 lg:ml-0 lg:gap-3 lg:justify-self-end"
+                            class="flex shrink-0 items-center justify-end gap-2 lg:gap-3 lg:justify-self-end"
+                            data-testid="header-auth-actions"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
                             <x-ui.button
@@ -175,7 +176,10 @@
                             @endif
                         </div>
                     @else
-                        <div class="ml-auto flex shrink-0 items-center justify-end gap-2 lg:ml-0 lg:justify-self-end">
+                        <div
+                            class="flex shrink-0 items-center justify-end gap-2 lg:justify-self-end"
+                            data-testid="header-guest-actions"
+                        >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
                                 <x-ui.button
                                     data-testid="guest-upload-button"
@@ -264,7 +268,8 @@
                 ></div>
 
                 <div
-                    class="fixed inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-rg-border bg-rg-sidebar px-4 py-4"
+                    class="fixed inset-y-0 left-0 flex w-[85vw] flex-col overflow-y-auto border-r border-rg-border bg-rg-sidebar px-4 py-4"
+                    data-testid="mobile-nav-panel"
                     x-transition:enter="transition ease-out duration-200"
                     x-transition:enter-start="-translate-x-full"
                     x-transition:enter-end="translate-x-0"
@@ -305,11 +310,7 @@
                         data-testid="mobile-nav-search"
                     />
 
-                    <div
-                        class="mb-5 rounded-rgCard border border-rg-border bg-rg-card p-3"
-                        data-testid="mobile-nav-theme"
-                    >
-                        <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('ui.theme') }}</p>
+                    <div class="mb-5" data-testid="mobile-nav-theme">
                         <livewire:theme.theme-switcher layout="dropdown" />
                     </div>
 
