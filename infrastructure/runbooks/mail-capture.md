@@ -371,9 +371,23 @@ ever introduced, add `/var/lib/staging-mail-capture` to its exclude list.
 ## Security model
 
 - **Loopback only.** Every SMTP/HTTP listener binds the IPv4 loopback range
-  `127.0.0.0/8`: `127.0.0.1:1025`, `127.0.0.1:8025`, `127.0.0.2:3535` (see
-  above), `127.0.0.1:3550`. None is routable off-host. Nginx is the only public
-  surface, on 443 (and 80 → 443).
+  `127.0.0.0/8`. Both of Mailpit's listeners and Mailtrap Local's HTTP/API
+  listener use `127.0.0.1`; **only Mailtrap Local's SMTP listener uses
+  `127.0.0.2`**, and that difference is intentional (see
+  [Why Mailtrap Local SMTP binds 127.0.0.2](#why-mailtrap-local-smtp-binds-127002)
+  — Mailtrap Local 0.2.0 would otherwise expand a `127.0.0.1` SMTP bind onto
+  `[::1]` and fail on a host without IPv6 loopback):
+
+  | Service | Listener | Address |
+  |---------|----------|---------|
+  | Mailpit | SMTP | `127.0.0.1:1025` |
+  | Mailpit | HTTP/API | `127.0.0.1:8025` |
+  | Mailtrap Local | SMTP | `127.0.0.2:3535` |
+  | Mailtrap Local | HTTP/API | `127.0.0.1:3550` |
+
+  `127.0.0.2` is no less private than `127.0.0.1`: both are inside
+  `127.0.0.0/8`, so neither is routable off-host and neither may ever be
+  publicly exposed. Nginx is the only public surface, on 443 (and 80 → 443).
 - **Basic Auth + TLS** on both web UIs, reusing the existing staging password
   file `/etc/nginx/rateguru-staging.htpasswd` and Certbot certificates.
 - **No public SMTP.** Ports 1025/3535/8025/3550 are never exposed by Nginx and

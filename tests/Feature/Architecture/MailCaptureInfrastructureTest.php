@@ -1094,12 +1094,129 @@ it('runs installer --check with stubbed commands and mutates nothing', function 
     }
 });
 
+it('marks the mail-capture phase completed and the next phase current', function () {
+    $roadmap = mailCaptureSource('ROADMAP.md');
+
+    // Status table: phase 3 is done, phase 4 has taken over as the current one.
+    expect($roadmap)
+        ->toMatch('/^\|\s*3\s*\|\s*Staging mail capture\s*\|\s*✅ completed\s*\|$/m')
+        ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m')
+        // Section headings must agree with the table.
+        ->toContain('## 3. Staging mail capture — completed')
+        ->toContain('## 4. Multi-target production model — current');
+
+    // Exactly one phase is current at a time.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+
+    // No stale "current"/"planned" wording left on either phase.
+    expect($roadmap)
+        ->not->toContain('## 3. Staging mail capture — current')
+        ->not->toContain('## 4. Multi-target production model — planned');
+});
+
+it('states the correct Mailtrap Local listeners in the roadmap', function () {
+    $roadmap = mailCaptureSource('ROADMAP.md');
+
+    // SMTP moved to 127.0.0.2; HTTP/API deliberately stayed on 127.0.0.1.
+    expect($roadmap)
+        ->toContain('`127.0.0.2:3535` SMTP')
+        ->toContain('`127.0.0.1:3550` HTTP/API')
+        // Mailpit's own listeners are unaffected by the Mailtrap workaround.
+        ->toContain('`127.0.0.1:1025` SMTP')
+        ->toContain('`127.0.0.1:8025`');
+});
+
+it('never claims Mailtrap Local SMTP listens on 127.0.0.1 anywhere in infrastructure', function () {
+    // `127.0.0.1:3535` may only survive where the runbook explains the broken
+    // upstream behavior we work around — never as a claim about what we run.
+    $offenders = [];
+
+    foreach (File::allFiles(base_path('infrastructure')) as $file) {
+        $relative = str_replace('\\', '/', $file->getRelativePathname());
+
+        foreach (preg_split('/\R/', File::get($file->getPathname())) as $number => $line) {
+            if (! str_contains($line, '127.0.0.1:3535')) {
+                continue;
+            }
+
+            $offenders[] = $relative.':'.($number + 1).': '.trim($line);
+        }
+    }
+
+    // The only allowed mentions are the runbook's failure-mode explanation and
+    // the troubleshooting "not 127.0.0.1:3535" contrast.
+    foreach ($offenders as $offender) {
+        expect($offender)->toStartWith(
+            'runbooks/mail-capture.md:',
+            "stale 127.0.0.1:3535 claim outside the runbook explanation: {$offender}",
+        );
+    }
+
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    // Those mentions must stay attached to the workaround narrative.
+    expect($runbook)
+        ->toContain('expands a `--smtp-listen 127.0.0.1:3535` bind into **both**')
+        ->toContain('`127.0.0.2:3535` (not `127.0.0.1:3535`)');
+});
+
+it('explains the Mailtrap Local IPv6 loopback workaround in the runbook', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    expect($runbook)
+        ->toContain('### Why Mailtrap Local SMTP binds 127.0.0.2')
+        // The reason: 0.2.0 expands an IPv4 loopback bind onto [::1].
+        ->toContain('Mailtrap Local 0.2.0')
+        ->toContain('[::1]:3535')
+        ->toContain('bind: cannot assign requested address')
+        // ...and the resolution, without enabling IPv6 anywhere.
+        ->toContain('distinct IPv4 loopback address')
+        ->toContain('IPv6 stays disabled.');
+});
+
+it('documents the split loopback addresses in the runbook security model', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    expect(preg_match('/## Security model\n(.*?)(?=\n## )/s', $runbook, $matches))
+        ->toBe(1, 'could not locate the Security model section in the runbook');
+
+    $security = $matches[1];
+
+    // Every listener is named with its actual address, so the section cannot
+    // drift from the units.
+    expect($security)
+        ->toContain('`127.0.0.1:1025`')
+        ->toContain('`127.0.0.1:8025`')
+        ->toContain('`127.0.0.2:3535`')
+        ->toContain('`127.0.0.1:3550`')
+        // The 127.0.0.2 exception is called out as deliberate, not incidental.
+        ->toContain('`127.0.0.2`**, and that difference is intentional')
+        // ...and is justified as no less private than 127.0.0.1.
+        ->toContain('`127.0.0.0/8`')
+        ->toContain('no less private than')
+        ->toContain('routable off-host');
+});
+
+it('accepts a wildcard DNS record for the mail-capture hostnames', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    // DNS may come from per-host records or an existing wildcard; the runbook
+    // must not demand explicit records that already exist by wildcard.
+    expect($runbook)
+        ->toContain('*.staging.myprojects.pp.ua')
+        ->toContain('wildcard')
+        ->toContain('`A`/`AAAA` records')
+        // Wording is normalized so a re-wrap of the paragraph cannot break it.
+        ->and(preg_replace('/\s+/', ' ', $runbook))
+        ->toContain('Resolution may come from explicit `A`/`AAAA` records **or** from an existing wildcard record')
+        ->toContain('no per-host records need to be created when it is in place');
+});
+
 it('documents the recovery drill distinctions in the roadmap', function () {
     $roadmap = mailCaptureSource('ROADMAP.md');
 
     expect($roadmap)
         ->toContain('Staging mail capture')
-        ->toContain('current')
         ->toContain('Backup creation')
         ->toContain('Restore-test')
         ->toContain('Clean-server recovery rehearsal')

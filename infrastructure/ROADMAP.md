@@ -8,8 +8,8 @@ not reorganize unrelated infrastructure.
 |---|-------|--------|
 | 1 | VPS / deployment / backup foundation | ✅ completed |
 | 2 | Versioned infrastructure baseline | ✅ completed |
-| 3 | Staging mail capture | 🚧 current |
-| 4 | Multi-target production model | ⏳ planned |
+| 3 | Staging mail capture | ✅ completed |
+| 4 | Multi-target production model | 🚧 current |
 | 5 | Infrastructure installer and clean-VPS bootstrap | ⏳ planned |
 | 6 | Sentry observability activation | ⏳ planned |
 | 7 | Recovery and release rehearsal | ⏳ planned |
@@ -28,7 +28,7 @@ Single-VPS staging with atomic release deploys, rollback, local + offsite
 Supervisor queue workers, cron, environment templates, and runbooks — all
 non-secret and committed.
 
-## 3. Staging mail capture — current
+## 3. Staging mail capture — completed
 
 Loopback-only mail capture owned by the shared staging environment, not by
 RateGuru: it is published on `mailpit.staging.myprojects.pp.ua` /
@@ -39,8 +39,11 @@ repository until a second project exists.
 
 - **Mailpit** — canonical SMTP capture (`127.0.0.1:1025` SMTP, `127.0.0.1:8025`
   HTTP/API), persistent SQLite, 14-day / 5000-message retention.
-- **Mailtrap Local** — secondary experimental mirror (`127.0.0.1:3535` SMTP,
-  `127.0.0.1:3550` HTTP/API), persistent SQLite, 5000-message cap.
+- **Mailtrap Local** — secondary experimental mirror (`127.0.0.2:3535` SMTP,
+  `127.0.0.1:3550` HTTP/API), persistent SQLite, 5000-message cap. The SMTP
+  listener binds `127.0.0.2` on purpose — Mailtrap Local 0.2.0 expands a
+  `127.0.0.1` SMTP bind onto `[::1]` and fails on hosts without IPv6 loopback;
+  both addresses are inside `127.0.0.0/8`.
 - Mailpit **relay-all** best-effort mirrors every captured message to Mailtrap
   Local; a mirror failure never blocks Laravel SMTP delivery and never stops
   Mailpit.
@@ -49,7 +52,7 @@ repository until a second project exists.
 
 See `runbooks/mail-capture.md`.
 
-## 4. Multi-target production model — planned
+## 4. Multi-target production model — current
 
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).

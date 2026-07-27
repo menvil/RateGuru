@@ -124,15 +124,28 @@ it('normalizes release permissions while preserving the executable bit', functio
 
     $root = sys_get_temp_dir().'/deploy-perms-'.uniqid();
 
+    // Fixture => expected mode after normalization. Covers each exec bit
+    // independently (owner/group/other), because `-perm /111` means *any* of
+    // them, and both common non-executable modes.
+    $executable = [
+        'bin/install-mail-capture' => 0o755,   // typical Git-executable script
+        'bin/owner-exec-only' => 0o700,        // exec bit only for the owner
+        'group-exec-only' => 0o010,            // exec bit only for the group
+        'other-exec-only' => 0o001,            // exec bit only for others
+    ];
+
+    $nonExecutable = [
+        'config.php' => 0o644,
+        'bin/readme.md' => 0o600,
+    ];
+
     try {
-        // A directory, a Git-executable script, and two non-executable files.
         mkdir($root.'/bin', 0o700, true);
-        file_put_contents($root.'/bin/install-mail-capture', "#!/usr/bin/env bash\n");
-        chmod($root.'/bin/install-mail-capture', 0o755);
-        file_put_contents($root.'/config.php', "<?php\n");
-        chmod($root.'/config.php', 0o644);
-        file_put_contents($root.'/bin/readme.md', "notes\n");
-        chmod($root.'/bin/readme.md', 0o600);
+
+        foreach ($executable + $nonExecutable as $path => $mode) {
+            file_put_contents($root.'/'.$path, "fixture\n");
+            chmod($root.'/'.$path, $mode);
+        }
 
         $script = 'set -euo pipefail'."\n"
             .'TEMP_RELEASE_ROOT='.escapeshellarg($root)."\n"
@@ -143,21 +156,27 @@ it('normalizes release permissions while preserving the executable bit', functio
         exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
         expect($exit)->toBe(0, "normalization block failed:\n".implode("\n", $output));
 
-        $mode = fn (string $path): int => fileperms($path) & 0o777;
+        clearstatcache();
 
-        // 1. executable file stays executable; 2. plain files lose exec;
-        // 3. directories stay traversable; 4. no world bits anywhere.
-        expect($mode($root.'/bin/install-mail-capture'))->toBe(0o750);
-        expect($mode($root.'/config.php'))->toBe(0o640);
-        expect($mode($root.'/bin/readme.md'))->toBe(0o640);
-        expect($mode($root.'/bin'))->toBe(0o750);
+        $mode = fn (string $path): int => fileperms($root.'/'.$path) & 0o777;
 
-        foreach ([
-            $root.'/bin',
-            $root.'/bin/install-mail-capture',
-            $root.'/config.php',
-            $root.'/bin/readme.md',
-        ] as $path) {
+        // 1. anything carrying an executable bit ends up 0750 — still runnable.
+        foreach (array_keys($executable) as $path) {
+            expect($mode($path))->toBe(0o750, "executable bit lost on {$path}");
+        }
+
+        // 2. plain files end up 0640 — readable, never executable.
+        foreach (array_keys($nonExecutable) as $path) {
+            expect($mode($path))->toBe(0o640, "wrong mode on {$path}");
+            expect($mode($path) & 0o111)->toBe(0, "exec bit granted to {$path}");
+        }
+
+        // 3. directories stay traversable at 0750.
+        expect($mode('bin'))->toBe(0o750);
+        expect($mode(''))->toBe(0o750);
+
+        // 4. no world bits anywhere, on any entry.
+        foreach ([...array_keys($executable), ...array_keys($nonExecutable), 'bin', ''] as $path) {
             expect($mode($path) & 0o007)->toBe(0, "world bits set on {$path}");
         }
     } finally {

@@ -13,8 +13,11 @@
 # local sink and must not forward mail anywhere or hold credentials.
 #
 # Listener addresses and the SQLite path are passed as explicit command-line
-# flags in the systemd unit (loopback 127.0.0.1:3535 / 127.0.0.1:3550), so they
-# do not need to be repeated here.
+# flags in the systemd unit (loopback 127.0.0.2:3535 SMTP / 127.0.0.1:3550
+# HTTP/API), so they do not need to be repeated here. SMTP binds 127.0.0.2, not
+# 127.0.0.1: Mailtrap Local 0.2.0 expands a 127.0.0.1 SMTP bind onto [::1] and
+# fails on hosts without IPv6 loopback. Both are inside 127.0.0.0/8; see the
+# runbook.
 
 storage:
   # Retention cap: keep at most 5000 messages; the oldest are evicted past it.
