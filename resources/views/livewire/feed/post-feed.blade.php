@@ -13,16 +13,22 @@
                 <x-ui.empty-state
                     :title="__('ui.feed.following_empty_title')"
                     :description="__('ui.feed.following_empty_description')"
+                    class="-mx-2 w-[calc(100%+1rem)] rounded-none sm:mx-0 sm:w-full sm:rounded-rgCard"
+                    data-testid="feed-empty-state"
                 />
             @elseif(filled($search))
                 <x-ui.empty-state
                     :title="__('ui.feed.no_results_title')"
                     :description="__('ui.feed.no_results_description', ['search' => $search])"
+                    class="-mx-2 w-[calc(100%+1rem)] rounded-none sm:mx-0 sm:w-full sm:rounded-rgCard"
+                    data-testid="feed-empty-state"
                 />
             @else
                 <x-ui.empty-state
                     :title="__('ui.feed.no_posts_title')"
                     :description="__('ui.feed.no_posts_description')"
+                    class="-mx-2 w-[calc(100%+1rem)] rounded-none sm:mx-0 sm:w-full sm:rounded-rgCard"
+                    data-testid="feed-empty-state"
                 />
             @endif
         @else

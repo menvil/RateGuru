@@ -17,12 +17,18 @@
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
-        <div class="min-h-screen" x-data="{ mobileNavOpen: false, mobileSearchOpen: false }">
+        @php
+            $searchClearUrl = route('feed', request()->except(['search', 'page']));
+        @endphp
+        <div
+            class="min-h-screen"
+            x-data="{ mobileNavOpen: false, mobileSearchOpen: @js(filled(request('search'))) }"
+        >
             {{-- z-[60]: must sit above the post-detail overlay (z-50), or the header's own
                  dropdowns (user menu, notifications, search suggestions) open invisibly
                  behind the open panel — they cannot escape the header's stacking context. --}}
             <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-testid="app-header">
-                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4 md:gap-4 md:px-5 md:grid md:grid-cols-[auto_1fr_minmax(0,480px)_auto] lg:grid-cols-[1fr_minmax(0,480px)_auto]">
+                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4 lg:grid lg:grid-cols-[1fr_minmax(0,480px)_auto] lg:gap-4 lg:px-5">
                     <button
                         type="button"
                         class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
@@ -42,7 +48,7 @@
                         method="GET"
                         data-testid="app-header-search"
                         x-data
-                        class="relative hidden w-full max-w-[520px] justify-self-center md:block"
+                        class="relative hidden w-full max-w-[520px] justify-self-center lg:block"
                     >
                         <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
                         <input
@@ -53,14 +59,26 @@
                             placeholder="{{ __('ui.feed.search_placeholder') }}"
                             x-on:input.debounce.450ms="if ($el.value.length === 0 || $el.value.length >= 3) $el.form.requestSubmit()"
                             x-on:search="$el.form.requestSubmit()"
-                            class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-3 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
+                            class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-10 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
                         >
+                        @if(filled(request('search')))
+                            <a
+                                href="{{ $searchClearUrl }}"
+                                data-testid="desktop-search-clear"
+                                aria-label="{{ __('ui.feed.clear_search') }}"
+                                title="{{ __('ui.feed.clear_search') }}"
+                                class="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-rgSm text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                            >
+                                <x-ui.icon name="x" class="size-4" />
+                            </a>
+                        @endif
                     </form>
 
                     <button
                         type="button"
-                        class="ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent md:hidden"
+                        class="ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
                         aria-label="{{ __('ui.feed.search_label') }}"
+                        aria-controls="mobile-search-row"
                         data-testid="mobile-search-trigger"
                         x-on:click="mobileSearchOpen = ! mobileSearchOpen"
                         x-bind:aria-expanded="mobileSearchOpen"
@@ -73,7 +91,7 @@
                             x-data="{ open: false }"
                             @keydown.escape.window="open = false"
                             @post-uploaded.window="open = false"
-                            class="ml-auto flex shrink-0 items-center justify-end gap-2 md:ml-0 md:gap-3 md:justify-self-end"
+                            class="ml-auto flex shrink-0 items-center justify-end gap-2 lg:ml-0 lg:gap-3 lg:justify-self-end"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
                             <x-ui.button
@@ -88,7 +106,7 @@
 
                             <livewire:notifications.notification-bell />
 
-                            <div class="hidden md:block">
+                            <div class="hidden lg:block">
                                 <x-locale-switcher />
                             </div>
 
@@ -129,12 +147,12 @@
                                     class="absolute right-0 z-50 mt-2 w-52 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
                                     style="display: none;"
                                 >
-                                    <div class="px-3 py-2">
+                                    <div class="hidden px-3 py-2 lg:block">
                                         <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('ui.theme') }}</p>
                                         <livewire:theme.theme-switcher layout="dropdown" />
                                     </div>
 
-                                    <div class="my-1 border-t border-rg-border"></div>
+                                    <div class="my-1 hidden border-t border-rg-border lg:block"></div>
 
                                     <a
                                         href="{{ $profileHref }}"
@@ -177,7 +195,19 @@
                             @endif
                         </div>
                     @else
-                        <div class="ml-auto flex shrink-0 items-center justify-end gap-2 md:ml-0 md:justify-self-end">
+                        <div class="ml-auto flex shrink-0 items-center justify-end gap-2 lg:ml-0 lg:justify-self-end">
+                            @if($projectSettings->featureFlag('allow_user_uploads'))
+                                <x-ui.button
+                                    data-testid="guest-upload-button"
+                                    x-on:click="$dispatch('toast', { message: {{ \Illuminate\Support\Js::from(__('ui.upload.sign_up_required')) }} })"
+                                    elevated
+                                    aria-label="{{ $projectSettings->uploadCtaLabel() }}"
+                                >
+                                    <x-ui.icon name="upload" class="size-4" />
+                                    <span class="hidden lg:inline">{{ $projectSettings->uploadCtaLabel() }}</span>
+                                </x-ui.button>
+                            @endif
+
                             @if (Route::has('register'))
                                 <a
                                     href="{{ route('register') }}"
@@ -196,11 +226,13 @@
                                 {{ __('ui.nav.log_in') }}
                             </a>
 
-                            <div class="hidden md:block">
+                            <div class="hidden lg:block">
                                 <x-locale-switcher />
                             </div>
 
-                            <livewire:theme.theme-switcher />
+                            <div class="hidden lg:block" data-testid="desktop-header-theme">
+                                <livewire:theme.theme-switcher />
+                            </div>
                         </div>
                     @endauth
                 </div>
@@ -210,21 +242,37 @@
                     x-cloak
                     x-show="mobileSearchOpen"
                     x-on:keydown.escape.window="mobileSearchOpen = false"
-                    class="border-t border-rg-border px-4 py-2 md:hidden"
+                    class="border-t border-rg-border px-3 py-2 sm:px-4 lg:hidden"
+                    id="mobile-search-row"
                     data-testid="mobile-search-row"
                 >
-                    <form action="{{ route('feed') }}" method="GET" class="relative">
-                        <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
-                        <input
-                            type="search"
-                            name="search"
-                            value="{{ request('search') }}"
-                            aria-label="{{ __('ui.feed.search_label') }}"
-                            placeholder="{{ __('ui.feed.search_placeholder') }}"
-                            x-effect="if (mobileSearchOpen) setTimeout(() => $el.focus(), 60)"
-                            x-on:search="$el.form.requestSubmit()"
-                            class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-3 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
-                        >
+                    <form action="{{ route('feed') }}" method="GET" class="flex items-center gap-2">
+                        <div class="relative min-w-0 flex-1">
+                            <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
+                            <input
+                                type="search"
+                                name="search"
+                                value="{{ request('search') }}"
+                                aria-label="{{ __('ui.feed.search_label') }}"
+                                placeholder="{{ __('ui.feed.search_placeholder') }}"
+                                x-effect="if (mobileSearchOpen) setTimeout(() => $el.focus(), 60)"
+                                class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-10 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
+                            >
+                            @if(filled(request('search')))
+                                <a
+                                    href="{{ $searchClearUrl }}"
+                                    data-testid="mobile-search-clear"
+                                    aria-label="{{ __('ui.feed.clear_search') }}"
+                                    title="{{ __('ui.feed.clear_search') }}"
+                                    class="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-rgSm text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                                >
+                                    <x-ui.icon name="x" class="size-4" />
+                                </a>
+                            @endif
+                        </div>
+                        <x-ui.button type="submit" size="lg" data-testid="mobile-search-submit">
+                            {{ __('ui.feed.search_button') }}
+                        </x-ui.button>
                     </form>
                 </div>
             </header>
@@ -284,17 +332,40 @@
                         </div>
                     </div>
 
-                    <form action="{{ route('feed') }}" method="GET" class="relative mb-5" data-testid="mobile-nav-search">
-                        <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
-                        <input
-                            type="search"
-                            name="search"
-                            value="{{ request('search') }}"
-                            aria-label="{{ __('ui.feed.search_label') }}"
-                            placeholder="{{ __('ui.feed.search_placeholder') }}"
-                            class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-3 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
-                        >
+                    <form action="{{ route('feed') }}" method="GET" class="mb-4 flex items-center gap-2" data-testid="mobile-nav-search">
+                        <div class="relative min-w-0 flex-1">
+                            <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
+                            <input
+                                type="search"
+                                name="search"
+                                value="{{ request('search') }}"
+                                aria-label="{{ __('ui.feed.search_label') }}"
+                                placeholder="{{ __('ui.feed.search_placeholder') }}"
+                                class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-10 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
+                            >
+                            @if(filled(request('search')))
+                                <a
+                                    href="{{ $searchClearUrl }}"
+                                    aria-label="{{ __('ui.feed.clear_search') }}"
+                                    title="{{ __('ui.feed.clear_search') }}"
+                                    class="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-rgSm text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                                >
+                                    <x-ui.icon name="x" class="size-4" />
+                                </a>
+                            @endif
+                        </div>
+                        <x-ui.button type="submit" size="lg">
+                            {{ __('ui.feed.search_button') }}
+                        </x-ui.button>
                     </form>
+
+                    <div
+                        class="mb-5 rounded-rgCard border border-rg-border bg-rg-card p-3"
+                        data-testid="mobile-nav-theme"
+                    >
+                        <p class="mb-2 text-xs font-medium text-rg-muted">{{ __('ui.theme') }}</p>
+                        <livewire:theme.theme-switcher layout="dropdown" />
+                    </div>
 
                     @include('layouts.partials.app-sidebar-content')
                 </div>
@@ -361,7 +432,10 @@
                         </section>
                     @endisset
 
-                    <main class="{{ $isFeedRoute ? 'px-4 py-6 sm:px-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8' }}">
+                    <main
+                        class="{{ $isFeedRoute ? 'px-2 py-4 sm:px-6 sm:py-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8' }}"
+                        data-testid="app-main"
+                    >
                         {{ $slot ?? '' }}
                         @yield('content')
                     </main>

@@ -36,6 +36,13 @@ final class PostVoting extends Component
             return;
         }
 
+        if (! auth()->check()) {
+            $this->error = __('ui.voting.sign_in_to_vote');
+            $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
+
+            return;
+        }
+
         $post = $this->post;
 
         if ($post === null) {
@@ -44,7 +51,7 @@ final class PostVoting extends Component
             return;
         }
 
-        if (auth()->check() && (int) $post->user_id === (int) auth()->id()) {
+        if ((int) $post->user_id === (int) auth()->id()) {
             return;
         }
 
@@ -94,7 +101,7 @@ final class PostVoting extends Component
             'currentVote' => $currentVote,
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
-            'votingDisabled' => ! auth()->check() || $isOwnPost,
+            'votingDisabled' => $post === null || $isOwnPost,
             'score' => (int) $post?->score,
         ]);
     }

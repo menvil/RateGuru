@@ -46,16 +46,23 @@ class ProjectSettingsManager
             return $this->resolved;
         }
 
+        $defaults = array_merge(self::DEFAULTS, [
+            'static_pages' => config('static-pages.defaults', []),
+        ]);
         $row = ProjectSettings::find(1);
 
         $data = $row
-            ? array_merge(self::DEFAULTS, $row->toArray(), [
+            ? array_merge($defaults, $row->toArray(), [
                 'feature_flags' => array_merge(
                     self::DEFAULTS['feature_flags'],
                     $row->feature_flags ?? []
                 ),
+                'static_pages' => array_replace_recursive(
+                    $defaults['static_pages'],
+                    $row->static_pages ?? [],
+                ),
             ])
-            : self::DEFAULTS;
+            : $defaults;
 
         return $this->resolved = new ResolvedProjectSettings($data);
     }

@@ -9,6 +9,8 @@ return [
         'categories_heading' => 'CATEGORIES',
         'search_placeholder' => 'Search tags, users, posts...',
         'search_label' => 'Search tags, users, posts',
+        'search_button' => 'Search',
+        'clear_search' => 'Clear search',
         'no_posts_title' => 'No posts yet',
         'no_posts_description' => 'Published posts will appear here.',
         'users_heading' => 'Users',
@@ -167,6 +169,7 @@ return [
         'submitting' => 'Uploading...',
         'success_pending' => 'Your post has been submitted and will appear after moderation.',
         'error_generic' => 'Something went wrong while creating your post.',
+        'sign_up_required' => 'Create an account or sign in to upload a post.',
     ],
     'a11y' => [
         'switch_language' => 'Switch language',

@@ -55,13 +55,19 @@ class RatingVoting extends Component
     ): void {
         $this->error = '';
 
+        if (! auth()->check()) {
+            $this->error = __('ui.voting.sign_in_to_vote');
+
+            return;
+        }
+
         if ($this->post === null) {
             $this->error = 'This post is no longer available.';
 
             return;
         }
 
-        if (auth()->check() && (int) $this->post->user_id === (int) auth()->id()) {
+        if ((int) $this->post->user_id === (int) auth()->id()) {
             return;
         }
 
@@ -114,7 +120,7 @@ class RatingVoting extends Component
             'group' => $group,
             'isOwnPost' => $isOwnPost,
             'selectedOptionId' => $selectedOptionId,
-            'votingDisabled' => $this->post === null || ! auth()->check() || $isOwnPost,
+            'votingDisabled' => $this->post === null || $isOwnPost,
         ]);
     }
 }

@@ -8,6 +8,8 @@ return [
         'object_labels' => 'Object Labels',
         'defaults' => 'Defaults',
         'feature_flags' => 'Feature Flags',
+        'static_pages' => 'Static pages',
+        'static_pages_description' => 'Edit the public page title and placeholder content for every supported language.',
         'preset_status_title' => 'Installation preset',
         'preset_status_description' => 'Presets are applied once from the server with php artisan rateguru:setup.',
         'preset_status_label' => 'Status',
@@ -39,6 +41,14 @@ return [
         'allow_user_uploads' => 'Allow user uploads',
         'allow_guest_viewing' => 'Allow guest viewing',
         'label' => 'Label',
+        'title' => 'Title',
+        'content' => 'Content',
+    ],
+    'static_pages' => [
+        'about' => 'About',
+        'privacy' => 'Privacy',
+        'terms' => 'Terms',
+        'contact' => 'Contact',
     ],
     'options' => [
         'theme' => [

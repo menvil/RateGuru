@@ -54,8 +54,13 @@ class ProjectSettingsPage extends Page
     public function mount(): void
     {
         $settings = ProjectSettings::find(1);
+        $data = $settings ? $settings->toArray() : [];
+        $data['static_pages'] = array_replace_recursive(
+            config('static-pages.defaults', []),
+            $data['static_pages'] ?? [],
+        );
 
-        $this->form->fill($settings ? $settings->toArray() : []);
+        $this->form->fill($data);
     }
 
     public function form(Schema $form): Schema
@@ -177,6 +182,19 @@ class ProjectSettingsPage extends Page
                             )),
                     ])
                     ->collapsible(),
+
+                Section::make(__('admin.project_settings.static_pages'))
+                    ->description(__('admin.project_settings.static_pages_description'))
+                    ->schema([
+                        Tabs::make('StaticPages')
+                            ->tabs(array_map(
+                                fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
+                                    ->schema($this->staticPageSections($locale)),
+                                array_keys(config('locales.supported', [])),
+                                config('locales.supported', []),
+                            )),
+                    ])
+                    ->collapsible(),
             ])
             ->statePath('data');
     }
@@ -196,5 +214,25 @@ class ProjectSettingsPage extends Page
     private function presetStatus(): string
     {
         return app(ProjectPresetStatusService::class)->display();
+    }
+
+    /** @return array<int, Section> */
+    private function staticPageSections(string $locale): array
+    {
+        return array_map(
+            fn (string $pageKey): Section => Section::make(__('admin.static_pages.'.$pageKey))
+                ->schema([
+                    TextInput::make("static_pages.{$pageKey}.{$locale}.title")
+                        ->label(__('admin.fields.title'))
+                        ->required()
+                        ->maxLength(160),
+                    Textarea::make("static_pages.{$pageKey}.{$locale}.content")
+                        ->label(__('admin.fields.content'))
+                        ->required()
+                        ->rows(6)
+                        ->maxLength(20000),
+                ]),
+            array_keys(config('static-pages.defaults', [])),
+        );
     }
 }

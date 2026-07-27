@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\StaticPageController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use App\Livewire\Feed\FeedPage;
 use App\Livewire\Posts\PostShow;
@@ -20,6 +21,11 @@ Route::get('/', FeedPage::class)->name('feed');
 Route::get('/posts/{post}', PostShow::class)->name('posts.show');
 
 Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
+
+Route::get('/about', [StaticPageController::class, 'about'])->name('pages.about');
+Route::get('/privacy', [StaticPageController::class, 'privacy'])->name('pages.privacy');
+Route::get('/terms', [StaticPageController::class, 'terms'])->name('pages.terms');
+Route::get('/contact', [StaticPageController::class, 'contact'])->name('pages.contact');
 
 Route::get('/dashboard', function () {
     return redirect()->route('feed');

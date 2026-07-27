@@ -64,7 +64,7 @@ it('does not allow guests to vote through rating voting', function () {
 
     Livewire::test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
         ->call('vote', $option->id)
-        ->assertSet('error', 'Guests cannot vote on rating options.')
+        ->assertSet('error', 'Sign in to vote.')
         ->assertSee('Sign in to vote.');
 
     expect(RatingVote::query()->count())->toBe(0);

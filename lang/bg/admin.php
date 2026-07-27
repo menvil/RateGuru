@@ -8,6 +8,8 @@ return [
         'object_labels' => 'Етикети на обектите',
         'defaults' => 'Настройки по подразбиране',
         'feature_flags' => 'Функционални флагове',
+        'static_pages' => 'Статични страници',
+        'static_pages_description' => 'Редактирайте заглавието и съдържанието на публичните страници за всеки поддържан език.',
         'preset_status_title' => 'Инсталационна предустановка',
         'preset_status_description' => 'Предустановката се прилага веднъж на сървъра с php artisan rateguru:setup.',
         'preset_status_label' => 'Статус',
@@ -39,6 +41,14 @@ return [
         'allow_user_uploads' => 'Разреши качване от потребители',
         'allow_guest_viewing' => 'Разреши преглед от гости',
         'label' => 'Етикет',
+        'title' => 'Заглавие',
+        'content' => 'Съдържание',
+    ],
+    'static_pages' => [
+        'about' => 'За проекта',
+        'privacy' => 'Поверителност',
+        'terms' => 'Условия',
+        'contact' => 'Контакти',
     ],
     'options' => [
         'theme' => [
