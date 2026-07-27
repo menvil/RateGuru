@@ -541,6 +541,122 @@ it('serves both web UIs from one shared SAN certificate', function () {
         ->toContain('-d mailtrap.staging.myprojects.pp.ua');
 });
 
+/**
+ * Every fenced `bash` block in the runbook — i.e. the parts an operator copies
+ * and runs, as opposed to the prose explaining them.
+ *
+ * @return list<string>
+ */
+function mailCaptureRunbookCommands(): array
+{
+    preg_match_all(
+        '/```bash\n(.*?)```/s',
+        mailCaptureSource('runbooks/mail-capture.md'),
+        $matches,
+    );
+
+    expect($matches[1])->not->toBeEmpty('no ```bash blocks found in the runbook');
+
+    return $matches[1];
+}
+
+it('never documents a bare standalone Certbot run', function () {
+    // Nginx owns :80 on this host, so `--standalone` cannot bind. Prose may name
+    // the flag to explain why it is wrong; no runnable block may use it.
+    foreach (mailCaptureRunbookCommands() as $block) {
+        expect($block)->not->toContain('--standalone');
+    }
+
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    // Every certonly invocation must name an authenticator that coexists with a
+    // running Nginx. Parse the actual commands rather than trusting prose.
+    expect(preg_match_all('/certbot\s+certonly((?:\s*\\\\\s*\n\s*[^\n]+)+)/', $runbook, $matches))
+        ->toBeGreaterThan(0, 'no `certbot certonly` invocation found in the runbook');
+
+    foreach ($matches[1] as $invocation) {
+        expect($invocation)
+            ->toContain('--nginx')
+            ->not->toContain('--standalone')
+            ->not->toContain('--webroot');
+    }
+
+    // Where the prose does mention it, it must be a prohibition.
+    expect($runbook)->toContain('`certbot --standalone`
+**cannot** be used');
+});
+
+it('documents a reproducible no-downtime certificate bootstrap', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    // Why standalone is wrong here, stated explicitly.
+    expect($runbook)
+        ->toContain('Could not bind TCP port 80')
+        // A temporary HTTP-only vhost gives the ACME challenge a server block.
+        ->toContain('staging-mail-capture-bootstrap')
+        ->toContain('listen 80;')
+        // ...and it is torn down again, not left behind.
+        ->toContain('rm -f \\')
+        ->toContain('/etc/nginx/sites-enabled/staging-mail-capture-bootstrap');
+
+    // Nginx is validated and reloaded on both sides of the certificate request:
+    // once to activate the bootstrap vhost, once after removing it.
+    expect(substr_count($runbook, 'sudo nginx -t && sudo systemctl reload nginx'))
+        ->toBeGreaterThanOrEqual(2, 'bootstrap must validate + reload before and after certbot');
+
+    // Ordering is checked inside the runnable block, not across the whole
+    // document — the prose references these steps out of order on purpose.
+    $blocks = array_values(array_filter(
+        mailCaptureRunbookCommands(),
+        fn (string $block): bool => str_contains($block, 'certbot certonly'),
+    ));
+
+    expect($blocks)->toHaveCount(1, 'expected exactly one certificate bootstrap block');
+
+    $bootstrap = $blocks[0];
+
+    $order = [
+        'tee /etc/nginx/sites-available/staging-mail-capture-bootstrap',
+        'certbot certonly',
+        'rm -f',
+        'certbot renew --dry-run',
+        'install-mail-capture --apply',
+    ];
+
+    $previous = -1;
+
+    foreach ($order as $step) {
+        $position = strpos($bootstrap, $step);
+        expect($position)->not->toBeFalse("bootstrap step missing: {$step}");
+        expect($position)->toBeGreaterThan($previous, "bootstrap step out of order: {$step}");
+        $previous = $position;
+    }
+});
+
+it('documents renewal verification and the Nginx reload deploy hook', function () {
+    $runbook = mailCaptureSource('runbooks/mail-capture.md');
+
+    // Renewal must be proven, not assumed.
+    expect($runbook)->toContain('certbot renew --dry-run');
+
+    // The old unsubstantiated claim must not come back: `certonly` runs no
+    // installer, so renewal does not reload Nginx by itself.
+    expect($runbook)
+        ->not->toContain('`certbot renew` reloads Nginx automatically')
+        ->toContain('**Renewal does not
+reload Nginx on its own.**');
+
+    // Because the runbook states Nginx must reload, it must also install or
+    // verify the hook that makes that true.
+    expect($runbook)
+        ->toContain('/etc/letsencrypt/renewal-hooks/deploy/')
+        ->toContain('renew_deploy_hook')
+        ->toContain('reload-nginx.sh')
+        // The hook itself validates before reloading, and is executable.
+        ->toContain('systemctl reload nginx')
+        ->toContain('chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh');
+});
+
 it('protects both web UIs with the shared staging Basic Auth', function () {
     foreach (['mailpit-staging', 'mailtrap-local-staging'] as $vhost) {
         expect(mailCaptureSource('config/nginx/'.$vhost))
@@ -609,20 +725,43 @@ it('exposes no public SMTP listener anywhere in the slice', function () {
 it('points staging Laravel mail at the Mailpit loopback SMTP', function () {
     $env = mailCaptureEnvValues('templates/environment/staging.env.example');
 
-    // Exact values, including the deliberately empty credential/encryption keys.
+    // Exact values, including the deliberately empty credential/scheme keys.
     expect($env)
         ->toHaveKey('MAIL_USERNAME')
         ->toHaveKey('MAIL_PASSWORD')
-        ->toHaveKey('MAIL_ENCRYPTION');
+        // MAIL_SCHEME is the key config/mail.php reads; MAIL_ENCRYPTION is a
+        // legacy name Laravel no longer consults, so it must not linger here.
+        ->toHaveKey('MAIL_SCHEME')
+        ->not->toHaveKey('MAIL_ENCRYPTION');
 
     expect($env['MAIL_MAILER'])->toBe('smtp');
     expect($env['MAIL_HOST'])->toBe('127.0.0.1');
     expect($env['MAIL_PORT'])->toBe('1025');
     expect($env['MAIL_USERNAME'])->toBe('');
     expect($env['MAIL_PASSWORD'])->toBe('');
-    expect($env['MAIL_ENCRYPTION'])->toBe('');
+    // Empty, so the transport stays plain `smtp://` for Mailpit's loopback.
+    expect($env['MAIL_SCHEME'])->toBe('');
     expect($env['MAIL_FROM_ADDRESS'])->toBe('noreply@staging.invalid');
     expect($env['MAIL_FROM_NAME'])->toBe('"${APP_NAME}"');
+});
+
+it('wires staging mail to the env key config/mail.php actually reads', function () {
+    // Guards the rename at its source: if config/mail.php ever goes back to
+    // MAIL_ENCRYPTION, the staging template must follow, not silently rot.
+    expect(File::get(base_path('config/mail.php')))
+        ->toContain("'scheme' => env('MAIL_SCHEME')")
+        ->not->toContain('MAIL_ENCRYPTION');
+
+    // No mail-capture-owned file may reference the dead key.
+    foreach ([
+        'templates/environment/staging.env.example',
+        'templates/environment/production.env.example',
+        'runbooks/mail-capture.md',
+        'config/mail-capture/mailpit.env',
+    ] as $path) {
+        expect(mailCaptureSource($path))
+            ->not->toContain('MAIL_ENCRYPTION=', "dead MAIL_ENCRYPTION key still set in {$path}");
+    }
 });
 
 it('leaves the production mail configuration unchanged', function () {
@@ -633,13 +772,22 @@ it('leaves the production mail configuration unchanged', function () {
     expect($env['MAIL_FROM_ADDRESS'])->toBe('');
     expect($env['MAIL_FROM_NAME'])->toBe('');
 
-    // No staging SMTP wiring leaked into the production template.
+    // No staging SMTP wiring leaked into the production template — neither the
+    // loopback transport keys nor the scheme key staging now sets.
     expect($env)
         ->not->toHaveKey('MAIL_HOST')
         ->not->toHaveKey('MAIL_PORT')
         ->not->toHaveKey('MAIL_USERNAME')
         ->not->toHaveKey('MAIL_PASSWORD')
+        ->not->toHaveKey('MAIL_SCHEME')
         ->not->toHaveKey('MAIL_ENCRYPTION');
+
+    // Production must not point at Mailpit/Mailtrap in any form.
+    $raw = mailCaptureSource('templates/environment/production.env.example');
+
+    foreach (['127.0.0.1', '1025', '3535', 'mailpit', 'mailtrap', 'staging.invalid'] as $needle) {
+        expect($raw)->not->toContain($needle, "staging mail capture leaked into production: {$needle}");
+    }
 });
 
 it('dispatches --check to a root-free code path', function () {

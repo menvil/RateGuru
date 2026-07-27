@@ -108,16 +108,64 @@ certificate directories. Both committed vhosts are HTTPS-only and reference
 the certificate must exist **before** `install-mail-capture --apply` runs
 `nginx -t` (otherwise the config test fails and apply rolls back).
 
-Provision the certificate first, then apply:
+### Obtaining the certificate (no downtime)
+
+Nginx already runs on this host and holds port 80, so `certbot --standalone`
+**cannot** be used: it needs to bind :80 itself and fails with
+`Could not bind TCP port 80`. Stopping Nginx to free the port would take the
+primary staging site down for the duration.
+
+Use the `--nginx` authenticator instead. It needs a `server` block matching each
+name to place the ACME challenge in, and the committed vhosts cannot serve that
+role — they are HTTPS-only and reference a certificate that does not exist yet,
+so `nginx -t` would fail. Bootstrap with a temporary HTTP-only vhost, obtain the
+certificate, then remove it.
 
 ```bash
-# Obtain the cert before the HTTPS vhosts are active (standalone briefly binds :80).
+# 1. Temporary HTTP-only vhost so the ACME challenge has somewhere to land.
+sudo tee /etc/nginx/sites-available/staging-mail-capture-bootstrap >/dev/null <<'EOF'
+# TEMPORARY: exists only to obtain the staging-mail-capture certificate.
+# Removed immediately afterwards; the committed HTTPS vhosts replace it.
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name mailpit.staging.myprojects.pp.ua mailtrap.staging.myprojects.pp.ua;
+
+    location / {
+        return 404;
+    }
+}
+EOF
+
+sudo ln -sfn \
+    /etc/nginx/sites-available/staging-mail-capture-bootstrap \
+    /etc/nginx/sites-enabled/staging-mail-capture-bootstrap
+
+# 2. Validate and reload before asking Certbot for anything.
+sudo nginx -t && sudo systemctl reload nginx
+
+# 3. One SAN certificate covering both names.
 sudo certbot certonly \
-    --standalone \
+    --nginx \
     --cert-name staging-mail-capture \
     -d mailpit.staging.myprojects.pp.ua \
     -d mailtrap.staging.myprojects.pp.ua
 
+# 4. Remove the bootstrap vhost — it has served its purpose.
+sudo rm -f \
+    /etc/nginx/sites-enabled/staging-mail-capture-bootstrap \
+    /etc/nginx/sites-available/staging-mail-capture-bootstrap
+
+# 5. Validate and reload again, so the removal is actually in effect.
+sudo nginx -t && sudo systemctl reload nginx
+
+# 6. Prove renewal works before walking away. This validates the renewal path
+#    only — see the deploy-hook section below, then re-run it to also exercise
+#    the Nginx reload.
+sudo certbot renew --dry-run
+
+# 7. Now the committed HTTPS vhosts can pass `nginx -t`.
 sudo infrastructure/scripts/install-mail-capture --apply
 ```
 
@@ -125,11 +173,49 @@ sudo infrastructure/scripts/install-mail-capture --apply
 regardless of which hostname is listed first and across later `-d` changes.
 
 `options-ssl-nginx.conf` and `ssl-dhparams.pem` are provided by the existing
-Certbot install (same as the primary staging vhost). Renewals are handled by
-the existing Certbot timer; `certbot renew` reloads Nginx automatically. Both
-hosts reuse the existing staging password file
-`/etc/nginx/rateguru-staging.htpasswd` for Basic Auth, so no new password file
-and no new credentials are required.
+Certbot install (same as the primary staging vhost). Both hosts reuse the
+existing staging password file `/etc/nginx/rateguru-staging.htpasswd` for Basic
+Auth, so no new password file and no new credentials are required.
+
+### Renewal reloads Nginx only via a deploy hook
+
+Renewal itself is handled by the existing Certbot timer. **Renewal does not
+reload Nginx on its own.** `certonly` runs the `--nginx` *authenticator* but no
+*installer*, so after a successful renewal the files under
+`/etc/letsencrypt/live/staging-mail-capture/` are new while the running Nginx
+still holds the old certificate in memory — and keeps serving it until it is
+reloaded. Left unhandled, the site serves an expired certificate roughly 30 days
+after the renewal that was supposed to fix it.
+
+A deploy hook closes that gap. Check whether one is already installed (the
+primary staging certificate may have set one up):
+
+```bash
+ls -l /etc/letsencrypt/renewal-hooks/deploy/
+grep -r renew_deploy_hook /etc/letsencrypt/renewal/
+```
+
+If nothing reloads Nginx there, install a host-wide hook. It runs after **any**
+successful renewal, so one file covers this lineage and every other certificate
+on the host:
+
+```bash
+sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh >/dev/null <<'EOF'
+#!/bin/sh
+# Certbot deploy hook: runs only after a certificate was actually renewed.
+# Without this, Nginx keeps serving the previous certificate until it is
+# reloaded by hand.
+set -eu
+systemctl is-active --quiet nginx || exit 0
+nginx -t
+systemctl reload nginx
+EOF
+
+sudo chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+```
+
+`certbot renew --dry-run` exercises the renewal path *and* the deploy hook, so
+run it after installing the hook and confirm the reload is reported.
 
 ## Installation
 
@@ -228,10 +314,16 @@ MAIL_HOST=127.0.0.1
 MAIL_PORT=1025
 MAIL_USERNAME=
 MAIL_PASSWORD=
-MAIL_ENCRYPTION=
+MAIL_SCHEME=
 MAIL_FROM_ADDRESS=noreply@staging.invalid
 MAIL_FROM_NAME="${APP_NAME}"
 ```
+
+`MAIL_SCHEME` — not `MAIL_ENCRYPTION` — is the key `config/mail.php` actually
+reads (`'scheme' => env('MAIL_SCHEME')`). `MAIL_ENCRYPTION` is a legacy name
+that Laravel no longer consults, so setting it has no effect. It is left empty
+here on purpose: Mailpit's loopback listener speaks plain SMTP, and an empty
+value keeps the transport on `smtp://` rather than forcing `smtps://`.
 
 Production mail settings are intentionally left unchanged.
 
