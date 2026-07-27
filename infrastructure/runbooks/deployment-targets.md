@@ -58,23 +58,41 @@ make the instance an explicit argument.
 The runtime path is **documented, not created**. This slice installs nothing on
 the VPS.
 
-The two consumers resolve the path differently, because only one of them has
-`deployment.conf` available.
+Both consumers honour the same sources in the same order. They differ only in
+*how* they reach `TARGET_REGISTRY_FILE`, and the CLI adds `--file` on top.
 
-`common` — sources `deployment.conf`, so it can honour a setting from there:
+`common` — sources `deployment.conf`, so the setting is already a shell
+variable by the time a helper runs:
 
 1. `RATEGURU_TARGET_REGISTRY_FILE` — tests and controlled tooling;
-2. `TARGET_REGISTRY_FILE` from `deployment.conf`, when set;
+2. `TARGET_REGISTRY_FILE`, loaded from `deployment.conf`;
 3. `/home/www/rateguru/config/deployment-targets.json`.
 
-`scripts/targets` — deliberately does **not** source `common` or
-`deployment.conf` (it must run in the repository during CI, where no
-`deployment.conf` exists), so `TARGET_REGISTRY_FILE` is not consulted at all:
+`scripts/targets` — does not source `common` or `deployment.conf`, because it
+must run in the repository during CI where no `deployment.conf` exists. It
+still honours `TARGET_REGISTRY_FILE`, reading it from the file when it is not
+already in the environment:
 
 1. `--file PATH`, when given — an explicit empty value is rejected, never
    silently replaced by a fallback;
 2. `RATEGURU_TARGET_REGISTRY_FILE`;
-3. `/home/www/rateguru/config/deployment-targets.json`.
+3. `TARGET_REGISTRY_FILE` exported in the environment;
+4. `TARGET_REGISTRY_FILE` parsed out of `deployment.conf`;
+5. `/home/www/rateguru/config/deployment-targets.json`.
+
+Levels 3 and 4 exist together because `deployment.conf` assigns **without**
+`export`. A parent shell that sourced it does not pass the value to a child
+process, so relying on the environment alone would leave the CLI reading a
+different registry than `common` — on the same host, at the same moment.
+
+The CLI **never sources or evaluates `deployment.conf`.** It reads a single
+assignment with `sed`, strips one layer of surrounding quotes, and rejects any
+value still containing shell metacharacters (`$`, backtick, `;`, `&`, `|`, `<`,
+`>`, parentheses). The file is only consulted at all when it passes the same
+safety checks `common` applies to it: a regular file, not a symlink, and — at
+the installed path — owned `root:root` and not group- or other-writable.
+Anything that fails those checks is ignored and resolution falls through to the
+default path, rather than being trusted.
 
 ### Registry versus deployment.conf
 

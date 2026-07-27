@@ -41,6 +41,39 @@ function runTargetsCli(array $arguments): array
 }
 
 /**
+ * Run the `targets` CLI with stdout and stderr captured separately.
+ *
+ * Needed where the distinction matters: a failing command must emit nothing on
+ * stdout, so a caller piping `list` or `show` never receives partial data.
+ *
+ * @param  list<string>  $arguments
+ * @return array{0: int, 1: array{stdout: string, stderr: string}}
+ */
+function runTargetsCliStreams(array $arguments): array
+{
+    $command = escapeshellarg(targetsCli());
+
+    foreach ($arguments as $argument) {
+        $command .= ' '.escapeshellarg($argument);
+    }
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $process = proc_open($command, $descriptors, $pipes);
+
+    expect($process)->not->toBeFalse('could not start the targets CLI');
+
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    $exit = proc_close($process);
+
+    return [$exit, ['stdout' => $stdout, 'stderr' => $stderr]];
+}
+
+/**
  * Write a mutated copy of the committed registry and return its path.
  *
  * The mutation is a jq program applied to the real file, so every negative case
@@ -398,6 +431,67 @@ it('shows exactly one normalized target', function () {
     $sorted = $keys;
     sort($sorted);
     expect($keys)->toBe($sorted);
+});
+
+it('refuses to list or show an invalid registry', function () {
+    // list and show once checked only the file and schema version, so they
+    // returned data for a registry validate rejected. Reading a target whose
+    // socket or retention is invalid is as wrong as validating it.
+    $cases = [
+        'missing database.name' => 'del(.targets["staging-main"].database.name)',
+        'invalid PHP-FPM socket' => '.targets["staging-main"].php_fpm.socket = "/tmp/elsewhere.sock"',
+        'socket without .sock' => '.targets["staging-main"].php_fpm.socket = "/run/php/pool.txt"',
+        'negative retention' => '.targets["staging-main"].release_retention = -1',
+        'fractional retention' => '.targets["staging-main"].release_retention = 1.5',
+        'overlapping public hostname' => '.targets["tits-guru"].public_hostnames = ["tits.guru", "rateguru.staging.myprojects.pp.ua"]',
+        'secret-like property name' => '.targets["staging-main"].db_password = "x"',
+        'collapsed code group' => '.targets["tits-guru"].code_group = .targets["tits-guru"].runtime_group',
+        'unsafe application_root' => '.targets["staging-main"].application_root = "/opt/elsewhere"',
+    ];
+
+    foreach ($cases as $label => $mutation) {
+        $path = buildMutatedRegistry($mutation);
+
+        try {
+            // validate is the reference behaviour.
+            [$validateExit] = runTargetsCli(['validate', '--file', $path]);
+            expect($validateExit)->not->toBe(0, "validate should reject: {$label}");
+
+            // list and show must agree with it, and emit nothing on stdout.
+            [$listExit, $listOutput] = runTargetsCliStreams(['list', '--file', $path]);
+            expect($listExit)->not->toBe(0, "list should reject: {$label}");
+            expect($listOutput['stdout'])->toBe('', "list must print nothing for an invalid registry: {$label}");
+            expect($listOutput['stderr'])->not->toBe('', "list should explain the rejection: {$label}");
+
+            [$showExit, $showOutput] = runTargetsCliStreams(['show', '--target', 'staging-main', '--file', $path]);
+            expect($showExit)->not->toBe(0, "show should reject: {$label}");
+            expect($showOutput['stdout'])->toBe('', "show must print nothing for an invalid registry: {$label}");
+            expect($showOutput['stderr'])->not->toBe('', "show should explain the rejection: {$label}");
+        } finally {
+            @unlink($path);
+        }
+    }
+});
+
+it('keeps normal output clean on a valid registry', function () {
+    // The shared validation path must not leak its own chatter into list/show.
+    [$listExit, $list] = runTargetsCliStreams(['list', '--file', targetRegistryPath()]);
+    expect($listExit)->toBe(0, $list['stderr']);
+    expect($list['stdout'])->toBe(
+        "staging-main\tactive\tstaging\n"
+        ."tits-guru\tplanned\tproduction\n"
+    );
+    expect($list['stdout'])->not->toContain('registry is valid');
+
+    [$showExit, $show] = runTargetsCliStreams(['show', '--target', 'staging-main', '--file', targetRegistryPath()]);
+    expect($showExit)->toBe(0, $show['stderr']);
+    expect(json_decode($show['stdout'], true, 512, JSON_THROW_ON_ERROR)['id'])->toBe('staging-main');
+    expect($show['stdout'])->not->toContain('registry is valid');
+
+    // Only validate announces success.
+    [$validateExit, $validate] = runTargetsCliStreams(['validate', '--file', targetRegistryPath()]);
+    expect($validateExit)->toBe(0);
+    expect($validate['stdout'])->toContain('target registry is valid');
 });
 
 it('rejects malformed CLI invocations', function () {
@@ -1320,6 +1414,93 @@ it('documents the registry model in a runbook', function () {
         expect($position)->toBeGreaterThan($previous, "migration step out of order: {$step}");
         $previous = $position;
     }
+});
+
+it('documents the registry resolution contract the code actually implements', function () {
+    $runbook = File::get(base_path('infrastructure/runbooks/deployment-targets.md'));
+    $cli = File::get(targetsCli());
+    $common = File::get(base_path('infrastructure/scripts/common'));
+
+    // GUARD: the runbook previously claimed the CLI ignored TARGET_REGISTRY_FILE
+    // and deployment.conf. That became false once the CLI learned to parse the
+    // file, and the stale claim survived a review round. These assertions make
+    // the claim un-reintroducible.
+    $normalized = preg_replace('/\s+/', ' ', $runbook);
+
+    foreach ([
+        'TARGET_REGISTRY_FILE` is not consulted at all',
+        'is not consulted at all',
+        'does not consult TARGET_REGISTRY_FILE',
+        'ignores TARGET_REGISTRY_FILE',
+        'ignores deployment.conf',
+    ] as $staleClaim) {
+        expect(str_contains($normalized, $staleClaim))
+            ->toBeFalse("runbook reintroduced a stale claim: {$staleClaim}");
+    }
+
+    // Both consumers are documented, each level present and in order.
+    foreach ([
+        '`RATEGURU_TARGET_REGISTRY_FILE`',
+        '`TARGET_REGISTRY_FILE`, loaded from `deployment.conf`',
+        '`--file PATH`, when given',
+        '`TARGET_REGISTRY_FILE` exported in the environment',
+        '`TARGET_REGISTRY_FILE` parsed out of `deployment.conf`',
+        '/home/www/rateguru/config/deployment-targets.json',
+    ] as $level) {
+        expect(str_contains($normalized, preg_replace('/\s+/', ' ', $level)))
+            ->toBeTrue("runbook is missing a resolution level: {$level}");
+    }
+
+    // The safety properties the CLI actually implements are stated.
+    expect($normalized)
+        ->toContain('never sources or evaluates `deployment.conf`.')
+        ->toContain('rejects any value still containing shell metacharacters')
+        ->toContain('assigns **without** `export`');
+
+    // ...and the code backs each of them up.
+    expect($cli)
+        ->toContain('deployment_conf_registry_file')
+        ->toContain('TARGET_REGISTRY_FILE')
+        // Parsed, never sourced or eval'd.
+        ->toContain("sed -n 's/^[[:space:]]*TARGET_REGISTRY_FILE")
+        ->not->toMatch('/^\s*(source|\.)\s+.*DEPLOYMENT_CONF_FILE/m')
+        ->not->toMatch('/^\s*eval\s/m');
+
+    // The documented order matches the implemented order: --file, then the
+    // override, then the environment, then the parsed file.
+    // Anchored to column 0: the same condition also guards duplicate --file
+    // during argument parsing, nested and indented.
+    expect(preg_match(
+        '/^if \[\[ "\$\{FILE_SEEN\}" == true \]\]; then$(.*?)^fi$/ms',
+        $cli,
+        $selection,
+    ))->toBe(1, 'could not locate the registry selection block in scripts/targets');
+
+    $previous = -1;
+
+    foreach ([
+        'FILE_SEEN',
+        'RATEGURU_TARGET_REGISTRY_FILE',
+        'TARGET_REGISTRY_FILE',
+        'deployment_conf_registry_file',
+        'REGISTRY_DEFAULT_FILE',
+    ] as $step) {
+        $position = strpos($selection[1], $step);
+        // FILE_SEEN is the `if` itself, so it may be absent from the body.
+        if ($position === false && $step === 'FILE_SEEN') {
+            continue;
+        }
+
+        expect($position)->not->toBeFalse("selection step missing: {$step}");
+        expect($position)->toBeGreaterThan($previous, "selection step out of order: {$step}");
+        $previous = $position;
+    }
+
+    // `common` documents and implements the same first three levels.
+    expect($common)
+        ->toContain('RATEGURU_TARGET_REGISTRY_FILE')
+        ->toContain('TARGET_REGISTRY_FILE')
+        ->toContain('TARGET_REGISTRY_DEFAULT_FILE');
 });
 
 it('documents how to verify runtime parity against the VPS', function () {

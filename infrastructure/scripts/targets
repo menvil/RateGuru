@@ -693,7 +693,14 @@ validate_collisions() {
 
 # --- commands ---------------------------------------------------------------
 
-command_validate() {
+# The single validation path. Every command runs this before producing output,
+# so `list` and `show` can never present a registry that `validate` rejects —
+# reading a target whose socket, retention or database name is invalid is just
+# as wrong as validating it.
+#
+# All diagnostics go to stderr, so a command's normal output stays clean and a
+# failing run emits none of it.
+assert_registry_valid() {
     assert_registry_file
     assert_schema_version
     validate_secret_free
@@ -715,13 +722,16 @@ command_validate() {
 
         exit 1
     fi
+}
+
+command_validate() {
+    assert_registry_valid
 
     log "target registry is valid: ${REGISTRY_FILE}"
 }
 
 command_list() {
-    assert_registry_file
-    assert_schema_version
+    assert_registry_valid
 
     # Sorted by target ID so output is stable regardless of file key order.
     jq -r '
@@ -734,8 +744,7 @@ command_list() {
 }
 
 command_show() {
-    assert_registry_file
-    assert_schema_version
+    assert_registry_valid
 
     if [[ ! "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]]; then
         fail "invalid target ID: ${TARGET_ID}"
