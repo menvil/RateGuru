@@ -118,7 +118,7 @@ function targetHelperHarness(): string
  *
  * @return array{0: int, 1: string}
  */
-function runTargetHelper(string $snippet, ?string $registryFile = null): array
+function runTargetHelper(string $snippet, ?string $registryFile = null, ?string $validator = null): array
 {
     $script = targetHelperHarness().$snippet;
 
@@ -126,6 +126,13 @@ function runTargetHelper(string $snippet, ?string $registryFile = null): array
 
     if ($registryFile !== null) {
         $command .= 'RATEGURU_TARGET_REGISTRY_FILE='.escapeshellarg($registryFile).' ';
+    }
+
+    // Helpers run the full validator on first use. Tests that only exercise
+    // path resolution or the cheap file checks leave this unset, which points
+    // the helper at the real CLI beside `common`.
+    if ($validator !== null) {
+        $command .= 'RATEGURU_TARGETS_CLI='.escapeshellarg($validator).' ';
     }
 
     $command .= 'bash -c '.escapeshellarg($script);
@@ -168,7 +175,7 @@ it('mirrors current staging infrastructure exactly in staging-main', function ()
         'application_root' => '/home/www/rateguru/staging',
         'runtime_user' => 'rateguru-staging',
         'deploy_user' => 'deploy-rateguru-staging',
-        'code_group' => 'rateguru-staging',
+        'code_group' => 'rateguru-staging-code',
         'incoming_artifacts' => '/home/deploy-rateguru-staging/incoming',
         'release_retention' => 5,
         'environment_template' => 'infrastructure/templates/environment/staging.env.example',
@@ -213,6 +220,19 @@ it('mirrors current staging infrastructure exactly in staging-main', function ()
 });
 
 it('derives staging-main from the committed infrastructure sources', function () {
+    // SCOPE: this proves the registry agrees with the committed configuration
+    // in this repository. It does NOT prove the registry agrees with the
+    // running staging VPS — nothing in CI can reach that host.
+    //
+    // The two can drift: STAGING_CODE_GROUP in deployment.conf.example was
+    // `rateguru-staging` while the installed /home/www/rateguru/config/
+    // deployment.conf on the VPS said `rateguru-staging-code`, and release
+    // files were group-owned by the latter. Repository parity was green
+    // throughout, because both sides of this comparison were wrong together.
+    //
+    // Runtime parity is a manual step, documented in
+    // runbooks/deployment-targets.md under "Verifying runtime parity", and must
+    // be re-run on the VPS before the target is used for a real deployment.
     $target = json_decode(File::get(targetRegistryPath()), true, 512, JSON_THROW_ON_ERROR)['targets']['staging-main'];
 
     $source = fn (string $path): string => File::get(base_path('infrastructure/'.$path));
@@ -564,6 +584,197 @@ it('rejects invalid hostnames and non-loopback health URLs', function () {
     }
 });
 
+it('requires every public hostname to be a non-empty string', function () {
+    // `tostring` used to run before validation, so 123/true/null became
+    // "123"/"true"/"null" — each of which satisfies the bare-hostname pattern.
+    foreach ([
+        '[123]',
+        '[true]',
+        '[false]',
+        '[null]',
+        '[{}]',
+        '[[]]',
+        '[""]',
+        '["ok.example", 123]',
+        '[123, "ok.example"]',
+        '["ok.example", null]',
+    ] as $value) {
+        [$exit, $output] = validateMutatedRegistry(
+            ".targets[\"staging-main\"].public_hostnames = {$value}",
+        );
+
+        expect($exit)->not->toBe(0, "should have rejected public_hostnames = {$value}");
+        expect($output)->toContain('public');
+    }
+
+    // A well-formed array of strings still passes.
+    [$exit] = validateMutatedRegistry(
+        '.targets["staging-main"].public_hostnames = ["one.example", "two.example"]',
+    );
+    expect($exit)->toBe(0, 'a valid list of hostname strings must be accepted');
+});
+
+it('resolves the registry path identically in common and the CLI', function () {
+    $registry = targetRegistryPath();
+    $scratch = sys_get_temp_dir().'/registry-resolution-'.uniqid();
+    mkdir($scratch);
+
+    $viaConf = $scratch.'/from-conf.json';
+    copy($registry, $viaConf);
+
+    // deployment.conf assigns without `export`, so the CLI cannot rely on the
+    // variable reaching it through the environment — it must read the file.
+    $conf = $scratch.'/deployment.conf';
+    file_put_contents($conf, "PHP_BIN=/usr/bin/php8.5\nTARGET_REGISTRY_FILE=\"{$viaConf}\"\n");
+
+    $override = $scratch.'/override.json';
+    copy($registry, $override);
+
+    $cli = targetsCli();
+
+    // Level 3: TARGET_REGISTRY_FILE parsed out of deployment.conf.
+    exec(
+        'RATEGURU_DEPLOYMENT_CONF_FILE='.escapeshellarg($conf).' '
+        .escapeshellarg($cli).' list 2>&1',
+        $confOutput,
+        $confExit,
+    );
+    expect($confExit)->toBe(0, implode("\n", $confOutput));
+    expect(implode("\n", $confOutput))->toContain('staging-main');
+
+    // Level 2 beats level 3.
+    exec(
+        'RATEGURU_DEPLOYMENT_CONF_FILE='.escapeshellarg($conf).' '
+        .'RATEGURU_TARGET_REGISTRY_FILE='.escapeshellarg($override).' '
+        .escapeshellarg($cli).' validate 2>&1',
+        $overrideOutput,
+        $overrideExit,
+    );
+    expect($overrideExit)->toBe(0, implode("\n", $overrideOutput));
+    expect(implode("\n", $overrideOutput))->toContain($override);
+
+    // Level 1 (--file) beats everything.
+    exec(
+        'RATEGURU_DEPLOYMENT_CONF_FILE='.escapeshellarg($conf).' '
+        .'RATEGURU_TARGET_REGISTRY_FILE='.escapeshellarg($override).' '
+        .escapeshellarg($cli).' validate --file '.escapeshellarg($registry).' 2>&1',
+        $fileOutput,
+        $fileExit,
+    );
+    expect($fileExit)->toBe(0, implode("\n", $fileOutput));
+    expect(implode("\n", $fileOutput))->toContain($registry);
+
+    // Level 4: nothing set at all falls through to the installed default.
+    $absentConf = $scratch.'/no-such.conf';
+    exec(
+        'RATEGURU_DEPLOYMENT_CONF_FILE='.escapeshellarg($absentConf).' '
+        .escapeshellarg($cli).' validate 2>&1',
+        $defaultOutput,
+        $defaultExit,
+    );
+    expect($defaultExit)->not->toBe(0);
+    expect(implode("\n", $defaultOutput))
+        ->toContain('/home/www/rateguru/config/deployment-targets.json');
+
+    // A value carrying shell metacharacters is ignored rather than interpreted.
+    $unsafeConf = $scratch.'/unsafe.conf';
+    file_put_contents($unsafeConf, "TARGET_REGISTRY_FILE=\"/tmp/x;touch {$scratch}/pwned\"\n");
+    exec(
+        'RATEGURU_DEPLOYMENT_CONF_FILE='.escapeshellarg($unsafeConf).' '
+        .escapeshellarg($cli).' validate 2>&1',
+        $unsafeOutput,
+        $unsafeExit,
+    );
+    expect($unsafeExit)->not->toBe(0);
+    expect(file_exists($scratch.'/pwned'))->toBeFalse('deployment.conf value must never be executed');
+    expect(implode("\n", $unsafeOutput))
+        ->toContain('/home/www/rateguru/config/deployment-targets.json');
+
+    // `common` documents and implements the same contract.
+    [$exit, $output] = runTargetHelper('target_registry_file', $override);
+    expect($exit)->toBe(0);
+    expect($output)->toBe($override);
+
+    $script = targetHelperHarness().'target_registry_file';
+    exec('TARGET_REGISTRY_FILE='.escapeshellarg($viaConf).' bash -c '.escapeshellarg($script).' 2>&1', $commonConf, $commonExit);
+    expect($commonExit)->toBe(0);
+    expect(implode("\n", $commonConf))->toBe($viaConf);
+
+    exec('rm -rf '.escapeshellarg($scratch));
+});
+
+it('validates the whole target before returning any helper value', function () {
+    // Reading application_root must not succeed on a target whose other
+    // required properties are missing or invalid — the caller will use those
+    // too. Each mutation leaves application_root itself untouched.
+    $cases = [
+        'missing database.name' => 'del(.targets["staging-main"].database.name)',
+        'null runtime_user' => '.targets["staging-main"].runtime_user = null',
+        'negative retention' => '.targets["staging-main"].release_retention = -1',
+        'fractional retention' => '.targets["staging-main"].release_retention = 2.5',
+        'invalid PHP-FPM socket' => '.targets["staging-main"].php_fpm.socket = "/tmp/bad.sock"',
+        'empty PHP-FPM socket' => '.targets["staging-main"].php_fpm.socket = ""',
+        'missing lifecycle' => 'del(.targets["staging-main"].lifecycle)',
+        'unsafe runtime_user' => '.targets["staging-main"].runtime_user = "BAD USER"',
+        'non-string public hostname' => '.targets["staging-main"].public_hostnames = [123]',
+    ];
+
+    foreach ($cases as $label => $mutation) {
+        $path = buildMutatedRegistry($mutation);
+
+        [$exit, $output] = runTargetHelper('target_root staging-main', $path, targetsCli());
+        expect($exit)->not->toBe(0, "target_root should have failed: {$label}\n{$output}");
+        expect($output)->toContain('validation');
+
+        @unlink($path);
+    }
+
+    // The untouched registry still returns the value.
+    [$exit, $output] = runTargetHelper('target_root staging-main', targetRegistryPath(), targetsCli());
+    expect($exit)->toBe(0, $output);
+    expect($output)->toBe('/home/www/rateguru/staging');
+});
+
+it('runs the full validator only once per shell process', function () {
+    $scratch = sys_get_temp_dir().'/validator-cache-'.uniqid();
+    mkdir($scratch);
+
+    $log = $scratch.'/calls.log';
+    $stub = $scratch.'/counting-targets';
+
+    // Counts invocations, then delegates to the real validator.
+    file_put_contents($stub, "#!/usr/bin/env bash\n"
+        .'echo call >> '.escapeshellarg($log)."\n"
+        .'exec '.escapeshellarg(targetsCli())." \"\$@\"\n");
+    chmod($stub, 0o755);
+    touch($log);
+
+    $snippet = 'for f in target_root target_runtime_user target_database_name '
+        .'target_php_fpm_socket target_queue_name target_backup_namespace; do '
+        ."\$f staging-main >/dev/null; done\n"
+        ."target_get staging-main >/dev/null\n"
+        .'target_exists staging-main';
+
+    [$exit, $output] = runTargetHelper($snippet, targetRegistryPath(), $stub);
+    expect($exit)->toBe(0, $output);
+
+    $calls = substr_count(file_get_contents($log), "call\n");
+    expect($calls)->toBe(1, "eight helper calls should validate once, ran {$calls} times");
+
+    exec('rm -rf '.escapeshellarg($scratch));
+});
+
+it('fails helpers when the validator itself is unavailable', function () {
+    [$exit, $output] = runTargetHelper(
+        'target_root staging-main',
+        targetRegistryPath(),
+        sys_get_temp_dir().'/no-such-validator-'.uniqid(),
+    );
+
+    expect($exit)->not->toBe(0, 'a missing validator must not be silently skipped');
+    expect($output)->toContain('validator is unavailable');
+});
+
 it('rejects unsafe database identifiers and account names', function () {
     $cases = [
         '.targets["staging-main"].database.name = "bad-name"',
@@ -766,7 +977,7 @@ it('reads target values through the common helpers', function () {
         'target_root staging-main' => '/home/www/rateguru/staging',
         'target_runtime_user staging-main' => 'rateguru-staging',
         'target_deploy_user staging-main' => 'deploy-rateguru-staging',
-        'target_code_group staging-main' => 'rateguru-staging',
+        'target_code_group staging-main' => 'rateguru-staging-code',
         'target_incoming_artifacts staging-main' => '/home/deploy-rateguru-staging/incoming',
         'target_release_retention staging-main' => '5',
         'target_database_name staging-main' => 'rateguru_staging',
@@ -787,7 +998,7 @@ it('reads target values through the common helpers', function () {
     ];
 
     foreach ($expected as $call => $value) {
-        [$exit, $output] = runTargetHelper($call, targetRegistryPath());
+        [$exit, $output] = runTargetHelper($call, targetRegistryPath(), targetsCli());
 
         expect($exit)->toBe(0, "{$call} failed:\n{$output}");
         expect($output)->toBe($value, "{$call} returned the wrong value");
@@ -826,12 +1037,12 @@ it('fails clearly in every target helper error mode', function () {
     @unlink($link);
 
     // Unknown target and malformed IDs.
-    [$exit, $output] = runTargetHelper('target_root ghost', $registry);
+    [$exit, $output] = runTargetHelper('target_root ghost', $registry, targetsCli());
     expect($exit)->not->toBe(0);
     expect($output)->toContain('unknown target');
 
     foreach (['Staging-Main', '../etc', 'a'] as $badId) {
-        [$exit, $output] = runTargetHelper("target_root '{$badId}'", $registry);
+        [$exit, $output] = runTargetHelper("target_root '{$badId}'", $registry, targetsCli());
         expect($exit)->not->toBe(0, "should have rejected ID: {$badId}");
         expect($output)->toContain('invalid target ID');
     }
@@ -844,7 +1055,7 @@ it('fails clearly in every target helper error mode', function () {
     ] as $mutation) {
         $path = buildMutatedRegistry($mutation);
 
-        [$exit, $output] = runTargetHelper('target_root staging-main', $path);
+        [$exit, $output] = runTargetHelper('target_root staging-main', $path, targetsCli());
         expect($exit)->not->toBe(0, "should have failed for: {$mutation}");
         expect($output)->toContain('application_root');
 
@@ -1054,7 +1265,12 @@ it('documents the registry model in a runbook', function () {
         ->toContain('Compatibility with the current --environment interface')
         ->toContain('Migration sequence');
 
-    // The migration sequence is documented in order.
+    // Ordering is checked inside the migration section only — words like
+    // "Install" legitimately appear earlier in the runtime-parity prose.
+    expect(preg_match('/## Migration sequence\n(.*?)(?=\n## )/s', $contents, $sectionMatch))
+        ->toBe(1, 'could not locate the Migration sequence section');
+
+    $section = $sectionMatch[1];
     $previous = -1;
 
     foreach ([
@@ -1065,9 +1281,26 @@ it('documents the registry model in a runbook', function () {
         'Install',
         'Remove compatibility',
     ] as $step) {
-        $position = strpos($contents, $step);
+        $position = strpos($section, $step);
         expect($position)->not->toBeFalse("missing migration step: {$step}");
         expect($position)->toBeGreaterThan($previous, "migration step out of order: {$step}");
         $previous = $position;
     }
+});
+
+it('documents how to verify runtime parity against the VPS', function () {
+    $contents = File::get(base_path('infrastructure/runbooks/deployment-targets.md'));
+
+    expect($contents)
+        ->toContain('Verifying runtime parity')
+        // States plainly that repository tests are not evidence about the host.
+        ->toContain('They cannot prove it agrees with the **running VPS**')
+        // Names the real drift that motivated the section.
+        ->toContain('rateguru-staging-code')
+        ->toContain('two distinct
+groups')
+        // The concrete commands an operator runs.
+        ->toContain('/home/www/rateguru/config/deployment.conf')
+        ->toContain('stat -Lc')
+        ->toContain('getent group rateguru-staging-code');
 });

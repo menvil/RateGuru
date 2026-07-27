@@ -189,6 +189,55 @@ and jobs; sharing an incoming directory would let one target's artifact be
 deployed to the other; sharing a public hostname would collide in Nginx and in
 certificate issuance.
 
+### Verifying runtime parity
+
+Repository tests prove the registry agrees with the **committed** configuration
+in this repository. They cannot prove it agrees with the **running VPS** —
+nothing in CI can reach that host.
+
+The two do drift. `STAGING_CODE_GROUP` in `deployment.conf.example` read
+`rateguru-staging` while the installed `/home/www/rateguru/config/
+deployment.conf` said `rateguru-staging-code`, and release files were group
+owned by the latter. Repository parity was green throughout, because both sides
+of the comparison were wrong together.
+
+Note that `rateguru-staging` and `rateguru-staging-code` are two distinct
+groups with distinct jobs: the first is the runtime user's own group, the
+second is the shared group that owns release files and includes the deploy user
+and `www-data`. Do not collapse them.
+
+Re-run this on the VPS before a target is used for a real deployment, and after
+any change to users or groups:
+
+```bash
+echo "Installed deployment.conf:"
+grep -E '^STAGING_(RUNTIME_USER|CODE_GROUP|DEPLOY_USER)=' \
+    /home/www/rateguru/config/deployment.conf
+
+echo
+echo "Current release ownership:"
+stat -Lc '%U:%G %a %n' \
+    /home/www/rateguru/staging/current \
+    /home/www/rateguru/staging/current/artisan
+
+echo
+echo "Groups:"
+getent group rateguru-staging
+getent group rateguru-staging-code
+```
+
+Compare the output against `staging-main` in the registry:
+
+| Registry field | Must match |
+|----------------|------------|
+| `runtime_user` | `STAGING_RUNTIME_USER`, and the pool's `user =` |
+| `deploy_user` | `STAGING_DEPLOY_USER`, and the owner of the current release |
+| `code_group` | `STAGING_CODE_GROUP`, and the group of the current release |
+
+Any mismatch means the registry describes a host that does not exist. Fix the
+registry and `deployment.conf.example` together — a green test suite is not
+evidence here.
+
 ### Repository versus runtime checks
 
 Validating the committed file requires no special ownership — CI runs as an

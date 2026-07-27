@@ -8,7 +8,7 @@
       "application_root": "/home/www/rateguru/staging",
       "runtime_user": "rateguru-staging",
       "deploy_user": "deploy-rateguru-staging",
-      "code_group": "rateguru-staging",
+      "code_group": "rateguru-staging-code",
       "incoming_artifacts": "/home/deploy-rateguru-staging/incoming",
       "release_retention": 5,
       "database": {

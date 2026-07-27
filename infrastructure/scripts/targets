@@ -22,6 +22,7 @@
 set -Eeuo pipefail
 
 REGISTRY_DEFAULT_FILE="/home/www/rateguru/config/deployment-targets.json"
+DEPLOYMENT_CONF_FILE="${RATEGURU_DEPLOYMENT_CONF_FILE:-/home/www/rateguru/config/deployment.conf}"
 SCHEMA_VERSION=1
 
 # Only this target may currently be active. Every other target must stay
@@ -181,12 +182,67 @@ if [[ "${COMMAND}" != "show" ]] && [[ "${TARGET_SEEN}" == true ]]; then
     fail "--target is only valid for show"
 fi
 
-# An explicitly given --file must be honoured as given. Falling back when it is
-# empty would silently validate a different file than the caller named.
+# TARGET_REGISTRY_FILE normally lives in the installed deployment.conf. `common`
+# sees it because it sources that file; this CLI deliberately does not, so it
+# reads the value out of the file instead. Relying on the variable being
+# exported by the parent shell would not work: deployment.conf assigns without
+# `export`, so the value never reaches a child process.
+#
+# The file is parsed, never sourced or eval'd, and only when it passes the same
+# ownership checks `common` already applies to it. Anything unsafe is ignored
+# rather than trusted, which degrades to the default path.
+deployment_conf_registry_file() {
+    local conf="${DEPLOYMENT_CONF_FILE}"
+
+    [[ -e "${conf}" ]] || return 1
+    [[ ! -L "${conf}" ]] || return 1
+    [[ -f "${conf}" ]] || return 1
+    [[ -r "${conf}" ]] || return 1
+
+    # Ownership is only demanded of the installed path, so a test fixture
+    # pointed at by RATEGURU_DEPLOYMENT_CONF_FILE works without root.
+    if [[ "${conf}" == "/home/www/rateguru/config/deployment.conf" ]]; then
+        [[ "$(stat -c '%u:%g' "${conf}")" == "0:0" ]] || return 1
+
+        local mode
+        mode="$(stat -c '%a' "${conf}")"
+
+        (( (8#${mode} & 8#022) == 0 )) || return 1
+    fi
+
+    local value
+    value="$(
+        sed -n 's/^[[:space:]]*TARGET_REGISTRY_FILE[[:space:]]*=[[:space:]]*//p' "${conf}" \
+            | tail -n 1
+    )"
+
+    # Strip one layer of surrounding quotes; reject anything still containing
+    # shell metacharacters rather than trying to interpret it.
+    value="${value%\"}"; value="${value#\"}"
+    value="${value%\'}"; value="${value#\'}"
+
+    [[ -n "${value}" ]] || return 1
+    [[ "${value}" != *['$`;&|<>()']* ]] || return 1
+
+    printf '%s\n' "${value}"
+}
+
+# One resolution contract, identical to `common`, with --file layered on top as
+# the most specific source:
+#   1. --file            (CLI only; an explicitly empty value is rejected)
+#   2. RATEGURU_TARGET_REGISTRY_FILE
+#   3. TARGET_REGISTRY_FILE  (environment, else parsed from deployment.conf)
+#   4. REGISTRY_DEFAULT_FILE
 if [[ "${FILE_SEEN}" == true ]]; then
     [[ -n "${REGISTRY_FILE}" ]] || fail "--file requires a non-empty value"
+elif [[ -n "${RATEGURU_TARGET_REGISTRY_FILE:-}" ]]; then
+    REGISTRY_FILE="${RATEGURU_TARGET_REGISTRY_FILE}"
+elif [[ -n "${TARGET_REGISTRY_FILE:-}" ]]; then
+    REGISTRY_FILE="${TARGET_REGISTRY_FILE}"
+elif REGISTRY_FILE="$(deployment_conf_registry_file)"; then
+    :
 else
-    REGISTRY_FILE="${RATEGURU_TARGET_REGISTRY_FILE:-${REGISTRY_DEFAULT_FILE}}"
+    REGISTRY_FILE="${REGISTRY_DEFAULT_FILE}"
 fi
 
 # --- file-level checks ------------------------------------------------------
@@ -552,6 +608,26 @@ validate_target_network() {
         return
     fi
 
+    # Every element must be a non-empty string *before* any hostname check.
+    # Without this, `tostring` would turn 123/true/null into "123"/"true"/"null",
+    # each of which satisfies the bare-hostname pattern.
+    if ! jq -e --arg id "${target_id}" \
+        'all(.targets[$id].public_hostnames[]; type == "string" and length > 0)' \
+        "${REGISTRY_FILE}" >/dev/null 2>&1
+    then
+        local offending
+        offending="$(jq -r --arg id "${target_id}" '
+            [ .targets[$id].public_hostnames[]
+              | select((type != "string") or (length == 0))
+              | "\(type):\(tojson)"
+            ] | join(", ")
+        ' "${REGISTRY_FILE}" 2>/dev/null || printf 'unreadable')"
+
+        problem "${target_id}: every public hostname must be a non-empty string (offending: ${offending})"
+
+        return
+    fi
+
     local unique_count
     unique_count="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames | unique | length' "${REGISTRY_FILE}")"
 
@@ -559,8 +635,9 @@ validate_target_network() {
         problem "${target_id}: public_hostnames contains duplicates"
     fi
 
+    # Safe to read as raw strings now that every element is known to be one.
     local entries
-    entries="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames[] | tostring' "${REGISTRY_FILE}")"
+    entries="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames[]' "${REGISTRY_FILE}")"
 
     while IFS= read -r hostname; do
         [[ -n "${hostname}" ]] || continue

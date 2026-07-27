@@ -8,7 +8,11 @@ PHP_FPM_SERVICE=php8.5-fpm
 
 STAGING_ROOT=/home/www/rateguru/staging
 STAGING_RUNTIME_USER=rateguru-staging
-STAGING_CODE_GROUP=rateguru-staging
+# Distinct from the runtime user's own group: rateguru-staging is the runtime
+# group, rateguru-staging-code is the shared group that owns release files
+# (members include the deploy user and www-data). Confirmed against the
+# installed deployment.conf and current release ownership on the staging VPS.
+STAGING_CODE_GROUP=rateguru-staging-code
 STAGING_DEPLOY_USER=deploy-rateguru-staging
 STAGING_INCOMING_ARTIFACTS=/home/deploy-rateguru-staging/incoming
 STAGING_RELEASE_RETENTION=5
