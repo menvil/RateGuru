@@ -4,6 +4,8 @@ use App\Livewire\Feed\FeedPage;
 use App\Livewire\Feed\PostDrawer;
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 it('keeps the desktop split column but mounts a full-width mobile overlay when split mode is enabled', function () {
@@ -19,6 +21,30 @@ it('keeps the desktop split column but mounts a full-width mobile overlay when s
         ->call('selectPost', $post->id)
         ->assertSee('data-testid="post-detail-column"', false)
         ->assertSee('hidden min-w-0 lg:block', false);
+});
+
+it('keeps selected post detail queries bounded in split mode', function () {
+    ProjectSettings::factory()->create([
+        'feature_flags' => ['post_detail_overlay_mode' => false],
+    ]);
+    $post = Post::factory()->published()->create();
+    $detailQueries = 0;
+
+    DB::listen(function (QueryExecuted $query) use (&$detailQueries): void {
+        if (str_contains($query->sql, '"posts"."id" = ?')
+            || str_contains($query->sql, '`posts`.`id` = ?')) {
+            $detailQueries++;
+        }
+    });
+
+    Livewire::test(FeedPage::class, ['search' => 'no matching feed result'])
+        ->dispatch('select-post', postId: $post->id)
+        ->assertSet('selectedPostId', $post->id);
+
+    $feedView = file_get_contents(resource_path('views/livewire/feed/feed-page.blade.php'));
+
+    expect($detailQueries)->toBeLessThanOrEqual(2)
+        ->and(substr_count($feedView, 'wire:lazy'))->toBe(2);
 });
 
 it('renders the mobile-only post drawer full width through the landscape breakpoint', function () {

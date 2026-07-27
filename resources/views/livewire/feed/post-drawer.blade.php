@@ -108,7 +108,7 @@
                 'pointer-events-none translate-x-full shadow-none' => ! $isOpen,
             ])
         >
-            @if(! $mobileOnly || $post)
+            @if(! $mobileOnly || $post || $postId)
                 @include('livewire.feed.post-drawer-content')
             @endif
         </aside>

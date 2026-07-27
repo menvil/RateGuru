@@ -161,6 +161,16 @@
                             <x-ui.input id="ui-kit-error-input" name="error_input" value="Missing rating context" error />
                         </div>
 
+                        <x-ui.search-form
+                            action="#"
+                            value="sample search"
+                            clear-url="#"
+                            clear-test-id="ui-kit-search-clear"
+                            submit-test-id="ui-kit-search-submit"
+                            show-submit
+                            class="flex items-center gap-2"
+                        />
+
                         <div class="space-y-2">
                             <label for="ui-kit-form-description" class="text-sm font-medium text-rg-text">Description</label>
                             <x-ui.textarea id="ui-kit-form-description" name="form_description" rows="4" placeholder="Describe taste, texture, and plating." />

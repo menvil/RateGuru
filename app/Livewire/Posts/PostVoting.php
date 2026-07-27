@@ -36,7 +36,9 @@ final class PostVoting extends Component
             return;
         }
 
-        if (! auth()->check()) {
+        $user = auth()->user();
+
+        if ($user === null) {
             $this->error = __('ui.voting.sign_in_to_vote');
             $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
 
@@ -51,7 +53,7 @@ final class PostVoting extends Component
             return;
         }
 
-        if ((int) $post->user_id === (int) auth()->id()) {
+        if (! $user->can('vote', $post)) {
             return;
         }
 
@@ -64,7 +66,7 @@ final class PostVoting extends Component
         $voteToApply = $voteType;
 
         try {
-            $votePostAction->handle(auth()->user(), $post, $voteToApply);
+            $votePostAction->handle($user, $post, $voteToApply);
         } catch (CannotVoteException $e) {
             $this->error = $e->getMessage();
             $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
@@ -94,14 +96,15 @@ final class PostVoting extends Component
             $currentVote = $this->currentVoteFor($post)?->value;
         }
 
-        $isOwnPost = $post !== null && auth()->check() && (int) $post->user_id === (int) auth()->id();
+        $user = auth()->user();
+        $canVote = $post !== null && ($user === null || $user->can('vote', $post));
 
         return view('livewire.posts.post-voting', [
             'post' => $post,
             'currentVote' => $currentVote,
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
-            'votingDisabled' => $post === null || $isOwnPost,
+            'votingDisabled' => ! $canVote,
             'score' => (int) $post?->score,
         ]);
     }

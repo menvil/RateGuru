@@ -34,11 +34,14 @@ final class StaticPageController extends Controller
     private function show(string $pageKey): View
     {
         $settings = $this->settings->current();
+        $page = $settings->staticPage($pageKey);
+
+        abort_unless(filled($page['title']) && filled($page['content']), 404);
 
         return view('pages.static', [
             'pageKey' => $pageKey,
             'siteName' => $settings->siteName(),
-            ...$settings->staticPage($pageKey),
+            ...$page,
         ]);
     }
 }

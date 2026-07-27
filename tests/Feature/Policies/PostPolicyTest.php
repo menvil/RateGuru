@@ -18,6 +18,7 @@ it('has expected post policy methods', function () {
     expect(method_exists($policy, 'delete'))->toBeTrue();
     expect(method_exists($policy, 'deleteFromFeed'))->toBeTrue();
     expect(method_exists($policy, 'report'))->toBeTrue();
+    expect(method_exists($policy, 'vote'))->toBeTrue();
 });
 
 it('allows active users to create posts through the post policy', function () {
@@ -127,6 +128,20 @@ it('does not allow users to report their own post', function () {
     $post = Post::factory()->for($user)->published()->create();
 
     expect($user->can('report', $post))->toBeFalse();
+});
+
+it('allows users to vote on another users post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    expect($user->can('vote', $post))->toBeTrue();
+});
+
+it('does not allow users to vote on their own post', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->for($user)->published()->create();
+
+    expect($user->can('vote', $post))->toBeFalse();
 });
 
 it('allows moderator to hide published post', function () {

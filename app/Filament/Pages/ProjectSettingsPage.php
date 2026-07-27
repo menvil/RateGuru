@@ -224,11 +224,9 @@ class ProjectSettingsPage extends Page
                 ->schema([
                     TextInput::make("static_pages.{$pageKey}.{$locale}.title")
                         ->label(__('admin.fields.title'))
-                        ->required()
                         ->maxLength(160),
                     Textarea::make("static_pages.{$pageKey}.{$locale}.content")
                         ->label(__('admin.fields.content'))
-                        ->required()
                         ->rows(6)
                         ->maxLength(20000),
                 ]),

@@ -2,16 +2,34 @@
 
 use App\Models\ProjectSettings;
 
-it('serves every public static page with its default placeholder', function (string $routeName, string $pageKey) {
-    $page = config("static-pages.defaults.{$pageKey}.en");
+it('serves the public about page with its default content', function () {
+    $page = config('static-pages.defaults.about.en');
 
-    $this->get(route($routeName))
+    $this->get(route('pages.about'))
         ->assertOk()
         ->assertSee('data-testid="static-page"', false)
         ->assertSee($page['title'])
         ->assertSee($page['content']);
+});
+
+it('does not publish legal and contact pages before administrator content exists', function (string $routeName) {
+    $this->get(route($routeName))->assertNotFound();
+})->with(['pages.privacy', 'pages.terms', 'pages.contact']);
+
+it('publishes a legal or contact page after an administrator supplies content', function (string $routeName, string $pageKey) {
+    $staticPages = config('static-pages.defaults');
+    $staticPages[$pageKey]['en'] = [
+        'title' => 'Administrator-managed title',
+        'content' => 'Administrator-managed content.',
+    ];
+
+    ProjectSettings::factory()->create(['static_pages' => $staticPages]);
+
+    $this->get(route($routeName))
+        ->assertOk()
+        ->assertSee('Administrator-managed title')
+        ->assertSee('Administrator-managed content.');
 })->with([
-    'about' => ['pages.about', 'about'],
     'privacy' => ['pages.privacy', 'privacy'],
     'terms' => ['pages.terms', 'terms'],
     'contact' => ['pages.contact', 'contact'],
@@ -45,6 +63,51 @@ it('renders admin-edited static page content for the current locale', function (
         ->assertSee('О проекте после редактирования')
         ->assertSee('Текст страницы, сохранённый администратором.');
 });
+
+it('falls back each blank or absent Russian static page field independently', function (
+    array $russian,
+    ?string $expectedTitle,
+    ?string $expectedContent,
+) {
+    $english = config('static-pages.defaults.about.en');
+    $expectedTitle ??= $english['title'];
+    $expectedContent ??= $english['content'];
+
+    ProjectSettings::factory()->create([
+        'static_pages' => [
+            'about' => [
+                'ru' => $russian,
+            ],
+        ],
+    ]);
+
+    $this->withSession(['locale' => 'ru'])
+        ->get(route('pages.about'))
+        ->assertOk()
+        ->assertSee($expectedTitle)
+        ->assertSee($expectedContent);
+})->with([
+    'missing content' => [
+        ['title' => 'Русский заголовок'],
+        'Русский заголовок',
+        null,
+    ],
+    'blank content' => [
+        ['title' => 'Другой русский заголовок', 'content' => '  '],
+        'Другой русский заголовок',
+        null,
+    ],
+    'missing title' => [
+        ['content' => 'Русское содержание'],
+        null,
+        'Русское содержание',
+    ],
+    'blank title' => [
+        ['title' => '', 'content' => 'Другое русское содержание'],
+        null,
+        'Другое русское содержание',
+    ],
+]);
 
 it('links the sidebar footer to every static page', function () {
     $this->get(route('feed'))

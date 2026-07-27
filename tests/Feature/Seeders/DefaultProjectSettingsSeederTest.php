@@ -11,6 +11,7 @@ it('seeds default project settings', function () {
     expect($settings)->not->toBeNull();
     expect($settings->site_name)->toBe('RateGuru');
     expect($settings->active_preset_key)->toBe('generic');
+    expect($settings->static_pages)->toBe(config('static-pages.defaults'));
 });
 
 it('seeds default project settings idempotently', function () {
@@ -31,4 +32,24 @@ it('does not overwrite an installation preset', function () {
 
     expect(ProjectSettings::firstOrFail()->site_name)->toBe('NatureGuru')
         ->and(ProjectSettings::firstOrFail()->active_preset_key)->toBe('nature');
+});
+
+it('preserves administrator edited static pages on subsequent seed runs', function () {
+    $staticPages = config('static-pages.defaults');
+    $staticPages['about']['en'] = [
+        'title' => 'Administrator title',
+        'content' => 'Administrator content',
+    ];
+
+    ProjectSettings::factory()->create([
+        'site_name' => 'Existing site name',
+        'static_pages' => $staticPages,
+    ]);
+
+    $this->seed(DefaultProjectSettingsSeeder::class);
+
+    $settings = ProjectSettings::firstOrFail();
+
+    expect($settings->site_name)->toBe('RateGuru')
+        ->and($settings->static_pages)->toBe($staticPages);
 });

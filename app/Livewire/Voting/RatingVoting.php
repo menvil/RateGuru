@@ -55,7 +55,9 @@ class RatingVoting extends Component
     ): void {
         $this->error = '';
 
-        if (! auth()->check()) {
+        $user = auth()->user();
+
+        if ($user === null) {
             $this->error = __('ui.voting.sign_in_to_vote');
 
             return;
@@ -67,7 +69,7 @@ class RatingVoting extends Component
             return;
         }
 
-        if ((int) $this->post->user_id === (int) auth()->id()) {
+        if (! $user->can('vote', $this->post)) {
             return;
         }
 
@@ -81,7 +83,7 @@ class RatingVoting extends Component
         }
 
         try {
-            $voteRatingOption->handle(auth()->user(), $this->post, $option);
+            $voteRatingOption->handle($user, $this->post, $option);
         } catch (CannotVoteForRatingOptionException $e) {
             $this->error = $e->getMessage();
 
@@ -98,9 +100,9 @@ class RatingVoting extends Component
     ): View {
         $group = $configuration->activeGroupByKey($this->groupKey);
         $selectedOptionId = $this->hasPreloadedState ? $this->preloadedSelectedOptionId : null;
-        $isOwnPost = $this->post !== null
-            && auth()->check()
-            && (int) $this->post->user_id === (int) auth()->id();
+        $user = auth()->user();
+        $canVote = $this->post !== null && ($user === null || $user->can('vote', $this->post));
+        $isOwnPost = $this->post !== null && $user !== null && ! $canVote;
         $distribution = $this->hasPreloadedState
             ? $this->preloadedDistribution
             : ($group === null || $this->post === null
@@ -120,7 +122,7 @@ class RatingVoting extends Component
             'group' => $group,
             'isOwnPost' => $isOwnPost,
             'selectedOptionId' => $selectedOptionId,
-            'votingDisabled' => $this->post === null || $isOwnPost,
+            'votingDisabled' => ! $canVote,
         ]);
     }
 }

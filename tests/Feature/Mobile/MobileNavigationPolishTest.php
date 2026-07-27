@@ -70,7 +70,9 @@ it('uses smaller mobile feed gutters and a full-width empty state', function () 
         ->toContain('data-testid="app-main"')
         ->toContain('px-2 py-4 sm:px-6 sm:py-6')
         ->toContain('data-testid="feed-empty-state"')
-        ->toContain('-mx-2 w-[calc(100%+1rem)]');
+        ->toContain('-mx-2 w-[calc(100%+1rem)]')
+        ->toContain('rounded-none!')
+        ->toContain('sm:rounded-rgCard!');
 });
 
 it('keeps post cards inside the smaller mobile feed gutters', function () {

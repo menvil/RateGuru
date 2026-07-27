@@ -88,6 +88,11 @@ final class PostDrawer extends Component
         $this->dispatch('clear-selected-post');
     }
 
+    public function placeholder(): View
+    {
+        return view('livewire.feed.post-drawer-placeholder');
+    }
+
     public function render(
         RatingConfigurationManager $configuration,
         PublishedPostDetailsQuery $publishedPostDetails,

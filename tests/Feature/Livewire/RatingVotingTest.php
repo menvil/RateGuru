@@ -78,6 +78,28 @@ it('renders nothing for a missing or inactive rating group', function (string $g
     ])->assertDontSee('data-testid="rating-voting-', false);
 })->with(['missing', 'inactive']);
 
+it('disables rating voting on an own post and blocks the action consistently', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->for($owner)->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'type']);
+    $option = RatingOption::factory()->for($group, 'group')->create();
+
+    $component = Livewire::actingAs($owner)
+        ->test(RatingVoting::class, [
+            'post' => $post,
+            'groupKey' => 'type',
+        ]);
+
+    expect($component->html())
+        ->toMatch('/<button(?=[^>]*data-testid="rating-option-'.$post->id.'-'.$option->id.'")[^>]*\sdisabled(?:\s|=|>)/');
+
+    $component
+        ->call('vote', $option->id)
+        ->assertSet('error', '');
+
+    $this->assertDatabaseCount('rating_votes', 0);
+});
+
 it('renders binary rating distribution after the current user votes', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

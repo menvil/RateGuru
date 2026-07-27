@@ -19,43 +19,43 @@ return [
         'privacy' => [
             'en' => [
                 'title' => 'Privacy Policy',
-                'content' => 'This is a placeholder for the RateGuru privacy policy. An administrator can replace it with the complete policy for every supported language.',
+                'content' => '',
             ],
             'ru' => [
                 'title' => 'Политика конфиденциальности',
-                'content' => 'Это заглушка политики конфиденциальности RateGuru. Администратор может заменить её полной версией для каждого поддерживаемого языка.',
+                'content' => '',
             ],
             'bg' => [
                 'title' => 'Политика за поверителност',
-                'content' => 'Това е временно съдържание за политиката за поверителност на RateGuru. Администратор може да го замени с пълната политика за всеки поддържан език.',
+                'content' => '',
             ],
         ],
         'terms' => [
             'en' => [
                 'title' => 'Terms of Use',
-                'content' => 'This is a placeholder for the RateGuru terms of use. An administrator can replace it with the complete terms for every supported language.',
+                'content' => '',
             ],
             'ru' => [
                 'title' => 'Условия использования',
-                'content' => 'Это заглушка условий использования RateGuru. Администратор может заменить её полной версией для каждого поддерживаемого языка.',
+                'content' => '',
             ],
             'bg' => [
                 'title' => 'Условия за ползване',
-                'content' => 'Това е временно съдържание за условията за ползване на RateGuru. Администратор може да го замени с пълните условия за всеки поддържан език.',
+                'content' => '',
             ],
         ],
         'contact' => [
             'en' => [
                 'title' => 'Contact',
-                'content' => 'Contact information will be published here soon. An administrator can replace this placeholder for every supported language.',
+                'content' => '',
             ],
             'ru' => [
                 'title' => 'Контакты',
-                'content' => 'Здесь скоро появится контактная информация. Администратор может заменить эту заглушку для каждого поддерживаемого языка.',
+                'content' => '',
             ],
             'bg' => [
                 'title' => 'Контакти',
-                'content' => 'Тук скоро ще бъде публикувана информация за контакт. Администратор може да замени това временно съдържание за всеки поддържан език.',
+                'content' => '',
             ],
         ],
     ],

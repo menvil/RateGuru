@@ -214,6 +214,8 @@ it('asks a guest to sign in only after a vote attempt', function () {
 
     Livewire::test(PostVoting::class, ['postId' => $post->id])
         ->assertDontSee('Sign in to vote.')
+        ->assertSee('wire:click.stop="vote(\'up\')"', false)
+        ->assertSee('wire:click.stop="vote(\'down\')"', false)
         ->call('vote', VoteType::Up->value)
         ->assertSet('error', 'Sign in to vote.')
         ->assertSee('Sign in to vote.')

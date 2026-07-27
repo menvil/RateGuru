@@ -43,36 +43,16 @@
                         <x-brand-wordmark class="block truncate" />
                     </a>
 
-                    <form
-                        action="{{ route('feed') }}"
-                        method="GET"
+                    <x-ui.search-form
+                        :action="route('feed')"
+                        :value="request('search')"
+                        :clear-url="$searchClearUrl"
+                        clear-test-id="desktop-search-clear"
+                        auto-submit
                         data-testid="app-header-search"
                         x-data
                         class="relative hidden w-full max-w-[520px] justify-self-center lg:block"
-                    >
-                        <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
-                        <input
-                            type="search"
-                            name="search"
-                            value="{{ request('search') }}"
-                            aria-label="{{ __('ui.feed.search_label') }}"
-                            placeholder="{{ __('ui.feed.search_placeholder') }}"
-                            x-on:input.debounce.450ms="if ($el.value.length === 0 || $el.value.length >= 3) $el.form.requestSubmit()"
-                            x-on:search="$el.form.requestSubmit()"
-                            class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-10 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
-                        >
-                        @if(filled(request('search')))
-                            <a
-                                href="{{ $searchClearUrl }}"
-                                data-testid="desktop-search-clear"
-                                aria-label="{{ __('ui.feed.clear_search') }}"
-                                title="{{ __('ui.feed.clear_search') }}"
-                                class="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-rgSm text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                            >
-                                <x-ui.icon name="x" class="size-4" />
-                            </a>
-                        @endif
-                    </form>
+                    />
 
                     <button
                         type="button"
@@ -246,34 +226,16 @@
                     id="mobile-search-row"
                     data-testid="mobile-search-row"
                 >
-                    <form action="{{ route('feed') }}" method="GET" class="flex items-center gap-2">
-                        <div class="relative min-w-0 flex-1">
-                            <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
-                            <input
-                                type="search"
-                                name="search"
-                                value="{{ request('search') }}"
-                                aria-label="{{ __('ui.feed.search_label') }}"
-                                placeholder="{{ __('ui.feed.search_placeholder') }}"
-                                x-effect="if (mobileSearchOpen) setTimeout(() => $el.focus(), 60)"
-                                class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-10 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
-                            >
-                            @if(filled(request('search')))
-                                <a
-                                    href="{{ $searchClearUrl }}"
-                                    data-testid="mobile-search-clear"
-                                    aria-label="{{ __('ui.feed.clear_search') }}"
-                                    title="{{ __('ui.feed.clear_search') }}"
-                                    class="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-rgSm text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                                >
-                                    <x-ui.icon name="x" class="size-4" />
-                                </a>
-                            @endif
-                        </div>
-                        <x-ui.button type="submit" size="lg" data-testid="mobile-search-submit">
-                            {{ __('ui.feed.search_button') }}
-                        </x-ui.button>
-                    </form>
+                    <x-ui.search-form
+                        :action="route('feed')"
+                        :value="request('search')"
+                        :clear-url="$searchClearUrl"
+                        clear-test-id="mobile-search-clear"
+                        submit-test-id="mobile-search-submit"
+                        show-submit
+                        focus-when-open
+                        class="flex items-center gap-2"
+                    />
                 </div>
             </header>
 
@@ -332,32 +294,16 @@
                         </div>
                     </div>
 
-                    <form action="{{ route('feed') }}" method="GET" class="mb-4 flex items-center gap-2" data-testid="mobile-nav-search">
-                        <div class="relative min-w-0 flex-1">
-                            <x-ui.icon name="search" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rg-muted" />
-                            <input
-                                type="search"
-                                name="search"
-                                value="{{ request('search') }}"
-                                aria-label="{{ __('ui.feed.search_label') }}"
-                                placeholder="{{ __('ui.feed.search_placeholder') }}"
-                                class="rg-search-input h-10 w-full rounded-rgControl border border-rg-border bg-rg-card py-0 pl-10 pr-10 text-[13.5px] text-rg-text placeholder:text-rg-muted focus-visible:border-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25"
-                            >
-                            @if(filled(request('search')))
-                                <a
-                                    href="{{ $searchClearUrl }}"
-                                    aria-label="{{ __('ui.feed.clear_search') }}"
-                                    title="{{ __('ui.feed.clear_search') }}"
-                                    class="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-rgSm text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                                >
-                                    <x-ui.icon name="x" class="size-4" />
-                                </a>
-                            @endif
-                        </div>
-                        <x-ui.button type="submit" size="lg">
-                            {{ __('ui.feed.search_button') }}
-                        </x-ui.button>
-                    </form>
+                    <x-ui.search-form
+                        :action="route('feed')"
+                        :value="request('search')"
+                        :clear-url="$searchClearUrl"
+                        clear-test-id="mobile-nav-search-clear"
+                        submit-test-id="mobile-nav-search-submit"
+                        show-submit
+                        class="mb-4 flex items-center gap-2"
+                        data-testid="mobile-nav-search"
+                    />
 
                     <div
                         class="mb-5 rounded-rgCard border border-rg-border bg-rg-card p-3"
