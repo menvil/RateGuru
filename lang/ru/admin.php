@@ -8,6 +8,8 @@ return [
         'object_labels' => 'Метки объектов',
         'defaults' => 'Настройки по умолчанию',
         'feature_flags' => 'Функциональные флаги',
+        'static_pages' => 'Статические страницы',
+        'static_pages_description' => 'Редактирование заголовка и текста публичных страниц для каждого поддерживаемого языка.',
         'preset_status_title' => 'Установочный пресет',
         'preset_status_description' => 'Пресет применяется один раз на сервере командой php artisan rateguru:setup.',
         'preset_status_label' => 'Статус',
@@ -39,6 +41,14 @@ return [
         'allow_user_uploads' => 'Разрешить загрузки пользователям',
         'allow_guest_viewing' => 'Разрешить просмотр гостям',
         'label' => 'Метка',
+        'title' => 'Заголовок',
+        'content' => 'Содержимое',
+    ],
+    'static_pages' => [
+        'about' => 'О проекте',
+        'privacy' => 'Конфиденциальность',
+        'terms' => 'Условия',
+        'contact' => 'Контакты',
     ],
     'options' => [
         'theme' => [

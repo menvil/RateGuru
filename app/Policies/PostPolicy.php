@@ -60,6 +60,11 @@ class PostPolicy
             && (int) $post->user_id !== (int) $user->id;
     }
 
+    public function vote(User $user, Post $post): bool
+    {
+        return (int) $post->user_id !== (int) $user->id;
+    }
+
     private function canModerate(User $user): bool
     {
         return $user->isModerator() || $user->isAdmin();

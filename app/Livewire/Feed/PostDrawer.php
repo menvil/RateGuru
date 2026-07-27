@@ -26,6 +26,10 @@ final class PostDrawer extends Component
     // Only meaningful when $asOverlay is true.
     public bool $isOpen = false;
 
+    // Split mode keeps its inline detail column on desktop, but uses this
+    // dedicated overlay below the desktop breakpoint.
+    public bool $mobileOnly = false;
+
     // Vote events are handled by the nested post-voting / rating-voting
     // components, which self-update in place. The drawer intentionally does
     // not re-render on votes so the card does not reload.
@@ -51,6 +55,7 @@ final class PostDrawer extends Component
     public function closeOverlay(): void
     {
         $this->isOpen = false;
+        $this->postId = null;
     }
 
     public function deleteSelectedPost(DeletePostAction $deletePostAction): void
@@ -81,6 +86,11 @@ final class PostDrawer extends Component
         $this->postId = null;
         $this->deleteError = null;
         $this->dispatch('clear-selected-post');
+    }
+
+    public function placeholder(): View
+    {
+        return view('livewire.feed.post-drawer-placeholder');
     }
 
     public function render(

@@ -46,16 +46,23 @@ class ProjectSettingsManager
             return $this->resolved;
         }
 
+        $defaults = array_merge(self::DEFAULTS, [
+            'static_pages' => config('static-pages.defaults', []),
+        ]);
         $row = ProjectSettings::find(1);
 
         $data = $row
-            ? array_merge(self::DEFAULTS, $row->toArray(), [
+            ? array_merge($defaults, $row->toArray(), [
                 'feature_flags' => array_merge(
                     self::DEFAULTS['feature_flags'],
                     $row->feature_flags ?? []
                 ),
+                'static_pages' => $this->mergeStaticPages(
+                    $defaults['static_pages'],
+                    $row->static_pages ?? [],
+                ),
             ])
-            : self::DEFAULTS;
+            : $defaults;
 
         return $this->resolved = new ResolvedProjectSettings($data);
     }
@@ -68,5 +75,30 @@ class ProjectSettingsManager
     public function flush(): void
     {
         $this->resolved = null;
+    }
+
+    /**
+     * Keep default pages and locales, but preserve missing localized fields so
+     * ResolvedProjectSettings can fall them back to English independently.
+     *
+     * @param  array<string, mixed>  $defaults
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function mergeStaticPages(array $defaults, array $overrides): array
+    {
+        foreach ($overrides as $pageKey => $locales) {
+            if (! is_array($locales) || ! isset($defaults[$pageKey])) {
+                continue;
+            }
+
+            foreach ($locales as $locale => $localized) {
+                if (is_array($localized)) {
+                    $defaults[$pageKey][$locale] = $localized;
+                }
+            }
+        }
+
+        return $defaults;
     }
 }

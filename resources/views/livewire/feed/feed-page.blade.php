@@ -16,6 +16,8 @@
     data-screenshot="feed-page"
     x-data="{
         scrollToSelectedPost(postId) {
+            if (window.innerWidth < 1024) return;
+
             this.$nextTick(() => {
                 setTimeout(() => {
                     // Two nested rAFs: first lets Livewire update the DOM, second waits for layout recalc
@@ -25,14 +27,6 @@
 
                             if (detail) {
                                 detail.scrollTo({ top: 0, behavior: 'auto' });
-                            }
-
-                            if (window.innerWidth < 1024) {
-                                if (detail) {
-                                    const top = detail.getBoundingClientRect().top + window.scrollY - 80;
-                                    window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
-                                }
-                                return;
                             }
 
                             const feed = this.$refs.feedScroll;
@@ -47,6 +41,8 @@
             });
         },
         scrollToDetailTarget(target) {
+            if (window.innerWidth < 1024) return;
+
             if (!target) {
                 return;
             }
@@ -125,13 +121,23 @@
             <aside
                 x-ref="detailScroll"
                 data-testid="post-detail-column"
-                class="min-w-0 pt-5 lg:sticky lg:top-[80px] lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:pl-5 lg:pr-5 lg:pt-0"
+                class="hidden min-w-0 lg:block lg:sticky lg:top-[80px] lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:pl-5 lg:pr-5"
             >
                 <livewire:feed.post-drawer
                     :post-id="$selectedPostId"
                     :key="'detail-'.$selectedPostId"
+                    wire:lazy
                 />
             </aside>
         @endif
     </div>
+
+    @unless($overlayMode)
+        <livewire:feed.post-drawer
+            :key="'mobile-split-mode-post-overlay'"
+            :as-overlay="true"
+            :mobile-only="true"
+            wire:lazy
+        />
+    @endunless
 </div>

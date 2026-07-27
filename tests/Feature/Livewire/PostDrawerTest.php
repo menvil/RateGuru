@@ -118,6 +118,22 @@ it('renders not found state for pending post', function () {
         ->assertDontSee('Pending Hidden');
 });
 
+it('renders not found state for an unpublished mobile-only selected post', function () {
+    $post = Post::factory()->pending()->create([
+        'title' => 'Unpublished Mobile Post',
+    ]);
+
+    Livewire::test(PostDrawer::class, [
+        'asOverlay' => true,
+        'mobileOnly' => true,
+    ])
+        ->dispatch('select-post', postId: $post->id)
+        ->assertSet('postId', $post->id)
+        ->assertSee('Post not found')
+        ->assertSee('This post is unavailable')
+        ->assertDontSee('Unpublished Mobile Post');
+});
+
 it('has drawer loading state markup', function () {
     Livewire::test(PostDrawer::class)
         ->assertSee('data-testid="post-drawer-loading"', false)

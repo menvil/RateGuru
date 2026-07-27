@@ -95,9 +95,7 @@
         </div>
     @endif
 
-    @if($guest && ! $voted)
-        <p class="text-xs text-rg-muted">{{ __('ui.voting.sign_in_to_vote') }}</p>
-    @elseif($error !== '')
+    @if($error !== '')
         <p class="text-xs text-rg-danger">{{ $error }}</p>
     @endif
 </div>

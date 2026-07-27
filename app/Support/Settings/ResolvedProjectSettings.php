@@ -68,6 +68,26 @@ class ResolvedProjectSettings
         );
     }
 
+    /** @return array{title: string, content: string} */
+    public function staticPage(string $pageKey): array
+    {
+        $page = $this->data['static_pages'][$pageKey] ?? null;
+
+        if (! is_array($page)) {
+            throw new \InvalidArgumentException("Unknown static page [{$pageKey}].");
+        }
+
+        $locale = app()->getLocale();
+        $fallbackLocale = config('locales.fallback', 'en');
+        $localized = is_array($page[$locale] ?? null) ? $page[$locale] : [];
+        $fallback = is_array($page[$fallbackLocale] ?? null) ? $page[$fallbackLocale] : [];
+
+        return [
+            'title' => $this->localizedStaticPageValue($localized, $fallback, 'title'),
+            'content' => $this->localizedStaticPageValue($localized, $fallback, 'content'),
+        ];
+    }
+
     public function defaultLocale(): string
     {
         return $this->data['default_locale'];
@@ -91,5 +111,22 @@ class ResolvedProjectSettings
     public function featureFlag(string $key, bool $default = true): bool
     {
         return (bool) ($this->data['feature_flags'][$key] ?? $default);
+    }
+
+    /**
+     * @param  array<string, mixed>  $localized
+     * @param  array<string, mixed>  $fallback
+     */
+    private function localizedStaticPageValue(array $localized, array $fallback, string $key): string
+    {
+        $value = $localized[$key] ?? null;
+
+        if (is_string($value) && trim($value) !== '') {
+            return $value;
+        }
+
+        $fallbackValue = $fallback[$key] ?? '';
+
+        return is_string($fallbackValue) ? $fallbackValue : '';
     }
 }

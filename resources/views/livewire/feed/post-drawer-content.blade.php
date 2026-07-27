@@ -11,7 +11,7 @@
             x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false, imageOpen: false, menuId: $id('post-drawer-menu') }"
             x-on:keydown.escape.window="menuOpen = false"
             x-on:dropdown-opened.window="if ($event.detail !== menuId) menuOpen = false"
-            class="relative rounded-rgCard border border-rg-border bg-rg-card p-5"
+            class="relative rounded-rgCard border border-rg-border bg-rg-card p-3 sm:p-4 lg:p-5"
         >
             <button
                 type="button"
@@ -213,7 +213,7 @@
         </article>
 
         @if($activeRatingGroups->isNotEmpty())
-        <section data-testid="post-detail-results" class="mt-4 min-w-0 space-y-5 rounded-rgCard border border-rg-border bg-rg-card p-4 sm:p-5">
+        <section data-testid="post-detail-results" class="mt-4 min-w-0 space-y-5 rounded-rgCard border border-rg-border bg-rg-card p-3 sm:p-4 lg:p-5">
             @foreach($activeRatingGroups as $ratingGroup)
                 <div class="{{ $loop->first ? '' : 'border-t border-rg-border pt-4' }}" wire:click.stop wire:keydown.stop>
                     <livewire:voting.rating-voting

@@ -35,7 +35,7 @@ final class VoteRatingOptionAction
             throw CannotVoteForRatingOptionException::becausePostIsNotPublic();
         }
 
-        if ((int) $post->user_id === (int) $user->id) {
+        if (! $user->can('vote', $post)) {
             throw CannotVoteForRatingOptionException::becauseOwnPost();
         }
 

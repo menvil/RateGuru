@@ -20,6 +20,7 @@ class ProjectSettingsFactory extends Factory
             'object_plural_name' => 'posts',
             'upload_cta_label' => 'Upload post',
             'feed_title' => 'Latest posts',
+            'static_pages' => config('static-pages.defaults'),
             'default_locale' => 'en',
             'default_theme' => 'system',
             'default_sort' => 'hot',

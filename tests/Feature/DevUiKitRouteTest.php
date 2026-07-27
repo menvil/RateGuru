@@ -63,6 +63,7 @@ it('renders form controls in the dev ui kit', function () {
         ->assertOk()
         ->assertSee('Post title')
         ->assertSee('Description')
+        ->assertSee('data-ui="search-form"', false)
         ->assertSee('Validation error example')
         ->assertSee('Disabled input');
 });

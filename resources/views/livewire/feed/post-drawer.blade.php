@@ -1,4 +1,14 @@
 @inject('projectSettings', \App\Support\Settings\ProjectSettingsManager::class)
+<div
+    @if($asOverlay)
+        data-testid="{{ $mobileOnly ? 'mobile-post-detail-overlay' : 'post-detail-overlay-host' }}"
+        x-data="{ returnFocusEl: null }"
+        @class([
+            'pointer-events-none fixed inset-x-0 top-[60px] bottom-0 z-50',
+            'lg:hidden' => $mobileOnly,
+        ])
+    @endif
+>
 @if($asOverlay)
 {{-- The <aside> is always mounted (not gated by @if($isOpen)) and its open/closed
      state is expressed purely as a class driven by $isOpen. This is deliberate: when
@@ -15,11 +25,6 @@
      for it the same as it would for any other class swap — no JS timing tricks needed.
      `inert` plus pointer-events-none keep it non-interactive and untabbable while
      closed. --}}
-<div
-    data-testid="post-detail-overlay-host"
-    x-data="{ returnFocusEl: null }"
-    class="pointer-events-none fixed inset-x-0 top-[60px] bottom-0 z-50"
->
     <div class="relative mx-auto h-full w-full max-w-[1440px] overflow-hidden">
         <aside
             x-data
@@ -33,11 +38,13 @@
                  the transition its own clean start; the morph then re-renders the same
                  open-state classes as a no-op. --}}
             x-on:select-post.window="
+                if (@js($mobileOnly) && window.innerWidth >= 1024) return;
                 $el.classList.remove('translate-x-full', 'pointer-events-none', 'shadow-none');
                 $el.classList.add('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover');
                 $el.removeAttribute('inert');
             "
             x-on:post-selected.window="
+                if (@js($mobileOnly) && window.innerWidth >= 1024) return;
                 document.documentElement.classList.add('overflow-hidden');
                 returnFocusEl = document.activeElement;
                 $nextTick(() => $el.focus());
@@ -55,6 +62,10 @@
                 });
             "
             x-on:request-close-overlay.window="
+                if (@js($mobileOnly) && window.innerWidth >= 1024) return;
+                $el.classList.remove('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover');
+                $el.classList.add('translate-x-full', 'pointer-events-none', 'shadow-none');
+                $el.setAttribute('inert', '');
                 document.documentElement.classList.remove('overflow-hidden');
                 $wire.closeOverlay();
                 $dispatch('clear-selected-post');
@@ -66,6 +77,9 @@
                  scroll lock stuck, because request-close-overlay (the only other place that
                  removed 'overflow-hidden') never fired. --}}
             x-on:clear-selected-post.window="
+                $el.classList.remove('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover');
+                $el.classList.add('translate-x-full', 'pointer-events-none', 'shadow-none');
+                $el.setAttribute('inert', '');
                 document.documentElement.classList.remove('overflow-hidden');
                 returnFocusEl?.focus();
             "
@@ -84,7 +98,8 @@
                 {{-- transition-[translate,...]: Tailwind v4's translate-x-* utilities set the
                      native CSS `translate` property (not `transform`), so `translate` is what
                      must be listed in transition-property for the slide to animate. --}}
-                'absolute right-0 top-0 bottom-0 w-full overflow-y-auto border-l border-rg-border bg-rg-card px-4 py-5 transition-[translate,box-shadow] duration-200 ease-out motion-reduce:transition-none sm:px-6 md:w-[min(70vw,1008px)] focus:outline-none',
+                'absolute right-0 top-0 bottom-0 w-full overflow-y-auto border-l border-rg-border bg-rg-card px-2 py-3 transition-[translate,box-shadow] duration-200 ease-out motion-reduce:transition-none sm:px-4 sm:py-5 lg:px-6 focus:outline-none',
+                'lg:w-[min(70vw,1008px)]' => ! $mobileOnly,
                 'pointer-events-auto translate-x-0 shadow-rgPopover' => $isOpen,
                 {{-- shadow-none while closed: the panel parks with its left edge flush against
                      the site's right border, so a persistent shadow's blur would bleed left into
@@ -93,10 +108,12 @@
                 'pointer-events-none translate-x-full shadow-none' => ! $isOpen,
             ])
         >
-            @include('livewire.feed.post-drawer-content')
+            @if(! $mobileOnly || $post || $postId)
+                @include('livewire.feed.post-drawer-content')
+            @endif
         </aside>
     </div>
-</div>
 @else
     @include('livewire.feed.post-drawer-content')
 @endif
+</div>

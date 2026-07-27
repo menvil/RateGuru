@@ -7,7 +7,7 @@ use App\Models\RatingOption;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('renders rating options for guests without vote submission controls', function () {
+it('renders rating options for guests without a proactive sign in message', function () {
     $post = Post::factory()->published()->create();
     $group = RatingGroup::factory()->create(['key' => 'type']);
     $option = RatingOption::factory()->for($group, 'group')->create();
@@ -17,9 +17,8 @@ it('renders rating options for guests without vote submission controls', functio
         'groupKey' => 'type',
     ])
         ->assertSee($option->label)
-        ->assertSee('Sign in to vote.')
-        ->assertSee('disabled', false)
-        ->assertDontSee('wire:click=', false);
+        ->assertDontSee('Sign in to vote.')
+        ->assertSee('wire:click="vote('.$option->id.')"', false);
 });
 
 it('renders unselected options for authenticated users without a vote', function () {
