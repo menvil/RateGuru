@@ -255,16 +255,13 @@ verify_staged_candidates() {
         || fail "staged status --target staging-main failed"
     log "  staged status --target staging-main: OK"
 
-    # trap - ERR EXIT runs first *inside the forked subshell* (everything
-    # inside $(...) executes there), disarming only that subshell's inherited
-    # copy of the apply/verify trap before the deliberately-failing command
-    # runs. Without it, this expected failure would fire on_apply_error
-    # inside the subshell — which, once files are installed, rolls back the
-    # whole install right here while the outer script still reports success.
-    # The caller's own trap (armed in the real process, not a subshell) is
-    # untouched and still guards every genuine failure.
+    # This command is *expected* to fail. The trap armed by perform_apply is
+    # still inherited into this subshell (see the MAIN_BASHPID comment on
+    # on_apply_error), but that handler now recognizes it isn't running in
+    # the main process and exits quietly without side effects, so this
+    # expected failure is captured exactly like any other.
     local planned_output
-    if planned_output="$(trap - ERR EXIT; "${override_env[@]}" bash "${staged_health_check}" --target tits-guru 2>&1)"; then
+    if planned_output="$("${override_env[@]}" bash "${staged_health_check}" --target tits-guru 2>&1)"; then
         fail "staged health-check --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
     fi
     grep -q 'lifecycle=planned' <<<"${planned_output}" \
@@ -309,27 +306,52 @@ record_target() {
     fi
 }
 
-install_regular_file_transactional() {
-    # install_regular_file_transactional <src> <dst> <owner> <group> <mode>
+reject_unsafe_existing_destination() {
+    # reject_unsafe_existing_destination <dst>
     #
-    # Refuses an existing destination symlink outright rather than following
-    # or silently replacing it. Stages into a temp file in the SAME directory
-    # as the destination (so the final rename is on the same filesystem, hence
-    # atomic), sets final ownership/mode on the staged file, then renames it
-    # into place — the destination is never observable in a partially-written
-    # state.
-    local src="$1" dst="$2" owner="$3" group="$4" mode="$5"
+    # Whatever is already at <dst> must be either absent (first-ever install)
+    # or a plain regular file — this installer's own previous copy, or
+    # whatever legacy file preceded it. A symlink, directory, FIFO, socket or
+    # device is refused outright rather than followed, entered or replaced.
+    # Runs before record_target, so a rejected destination is never backed up
+    # and never touched.
+    local dst="$1"
 
     if [[ -L "${dst}" ]]; then
         fail "refusing to install over an existing symlink: ${dst}"
     fi
 
+    if [[ -e "${dst}" ]] && [[ ! -f "${dst}" ]]; then
+        fail "refusing to install over an existing non-regular-file destination: ${dst}"
+    fi
+}
+
+install_regular_file_transactional() {
+    # install_regular_file_transactional <src> <dst> <owner> <group> <mode>
+    #
+    # Stages into a same-directory, mktemp-created temp file (so the final
+    # rename is on the same filesystem, hence atomic, and the temp name is
+    # never predictable), sets final ownership/mode on the staged file, then
+    # renames it into place — the destination is never observable in a
+    # partially-written state. The temp file is removed if either staging
+    # step fails, never left behind for a human to clean up.
+    local src="$1" dst="$2" owner="$3" group="$4" mode="$5"
+
+    reject_unsafe_existing_destination "${dst}"
     record_target "${dst}"
 
     local tmp
-    tmp="${dst}.tmp.$$"
-    install -o "${owner}" -g "${group}" -m "${mode}" "${src}" "${tmp}"
-    mv -f "${tmp}" "${dst}"
+    tmp="$(mktemp "${dst}.XXXXXX")"
+
+    if ! install -o "${owner}" -g "${group}" -m "${mode}" "${src}" "${tmp}"; then
+        rm -f "${tmp}"
+        fail "failed to stage ${dst} for install (writing the temporary file failed)"
+    fi
+
+    if ! mv -f "${tmp}" "${dst}"; then
+        rm -f "${tmp}"
+        fail "failed to rename the staged file into place: ${dst}"
+    fi
 }
 
 verify_installed_regular_file() {
@@ -506,13 +528,13 @@ verify_status_parity() {
 }
 
 verify_planned_target_rejected() {
-    # See the matching comment in verify_staged_candidates: trap - ERR EXIT
-    # runs inside the forked subshell, before the deliberately-failing
-    # command, so this expected rejection can never be mistaken for the
-    # fatal kind and trigger a rollback of files this function is only
-    # verifying, not installing.
+    # See the matching comment in verify_staged_candidates and on_apply_error:
+    # this expected failure is safe to run inside a plain command
+    # substitution — the main-process-only guard on the active trap handler
+    # (on_apply_error during apply, on_verify_error during --verify) means it
+    # can never be mistaken for a fatal one from inside the subshell.
     local planned_output
-    if planned_output="$(trap - ERR EXIT; no_overrides_env "${DST_HEALTH_CHECK}" --target tits-guru 2>&1)"; then
+    if planned_output="$(no_overrides_env "${DST_HEALTH_CHECK}" --target tits-guru 2>&1)"; then
         fail "installed health-check --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
     fi
     grep -q 'lifecycle=planned' <<<"${planned_output}" \
@@ -551,6 +573,39 @@ run_check() {
     log "check passed: source files, host tooling and registry are valid"
 }
 
+# The two directories every one of the five destinations lives under. This
+# installer owns exactly five *files* — it never creates, chowns or chmods
+# either directory. Both must already exist, safely, before --apply is
+# allowed to do anything else; a missing or unsafe directory aborts here,
+# before the backup directory is created or any destination is touched.
+validate_destination_directory() {
+    local dir="$1"
+
+    [[ -e "${dir}" ]] || fail "destination directory is missing: ${dir} (this installer never creates it)"
+    [[ ! -L "${dir}" ]] || fail "destination directory must not be a symlink: ${dir}"
+    [[ -d "${dir}" ]] || fail "destination path must be a directory: ${dir}"
+
+    local owner
+    owner="$(stat -c '%u:%g' "${dir}")"
+    [[ "${owner}" == "${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}" ]] \
+        || fail "destination directory must be owned by root:root, is ${owner}: ${dir}"
+
+    local mode
+    mode="$(stat -c '%a' "${dir}")"
+    if (( (8#${mode} & 8#022) != 0 )); then
+        fail "destination directory must not be group- or other-writable (mode ${mode}): ${dir}"
+    fi
+
+    [[ -w "${dir}" ]] || fail "destination directory is not writable, cannot install into it: ${dir}"
+    [[ -x "${dir}" ]] || fail "destination directory is not searchable (missing execute bit): ${dir}"
+}
+
+validate_destination_directories() {
+    validate_destination_directory "${DST_CONFIG_ROOT}"
+    validate_destination_directory "${DST_BIN_ROOT}"
+    log "destination directories exist, are root-owned, non-writable-by-others directories (unchanged by this installer)"
+}
+
 validate_installed_deployment_conf() {
     [[ -e "${DEPLOYMENT_CONF}" ]] || fail "installed deployment.conf is missing: ${DEPLOYMENT_CONF}"
     [[ ! -L "${DEPLOYMENT_CONF}" ]] || fail "installed deployment.conf must not be a symlink: ${DEPLOYMENT_CONF}"
@@ -579,9 +634,29 @@ verify_legacy_staging_health() {
 APPLY_COMMITTED=false
 STAGE_DIR=""
 
+# set -E means every ERR/EXIT trap armed below is inherited by every $(...)
+# command substitution's subshell for as long as it stays armed — including
+# ones whose command can genuinely, unexpectedly fail (not just the
+# deliberately-failing tits-guru checks). Without this guard, an ordinary
+# failure inside any command substitution after files are installed would
+# run rollback twice: once prematurely inside that subshell, and once more
+# when the real failure reaches this same trap in the main process. Recording
+# the main process's BASHPID before arming the trap, and comparing against it
+# here, makes every invocation of this handler outside the main process a
+# silent, side-effect-free `exit` — the main process's own copy of this trap
+# still fires for the real failure and does the actual work exactly once.
+# This is deliberately generic: no individual command substitution needs its
+# own `trap - ERR EXIT`.
+MAIN_BASHPID=""
+
 on_apply_error() {
     local code=$?
     trap - ERR EXIT
+
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
     log "apply failed (exit ${code})"
 
     if [[ "${APPLY_COMMITTED}" == false ]] && [[ -n "${BACKUP_DIR}" ]]; then
@@ -614,15 +689,29 @@ run_apply() {
 # this through run_apply, so require_root is still enforced on every real
 # invocation.
 perform_apply() {
+    # Reset every piece of per-run transactional state up front. In
+    # production this function only ever runs once per process, but it must
+    # not depend on that: a second direct call in the same shell (as tests
+    # do) would otherwise inherit BACKUP_DIR, ROLLBACK_RESTORE/REMOVE and
+    # APPLY_COMMITTED left over from a prior run — at best stale, at worst
+    # causing a later failure to "roll back" files a previous, already-
+    # committed run legitimately installed.
+    BACKUP_DIR=""
+    ROLLBACK_RESTORE=()
+    ROLLBACK_REMOVE=()
+    APPLY_COMMITTED=false
+
     log "mode: apply"
 
     run_source_validation
     validate_installed_deployment_conf
+    validate_destination_directories
     verify_legacy_staging_health
 
     # The ERR/EXIT trap is armed from here on, so stage_dir is cleaned up (and,
     # once BACKUP_DIR exists below, any already-touched destination is rolled
     # back) on every exit path from this point forward — success or failure.
+    MAIN_BASHPID="${BASHPID}"
     trap on_apply_error ERR EXIT
 
     STAGE_DIR="$(mktemp -d)"
@@ -638,8 +727,6 @@ perform_apply() {
     install -d -m 0700 "${BACKUP_ROOT}"
     install -d -m 0700 "${BACKUP_DIR}"
     log "backups for this run: ${BACKUP_DIR}"
-
-    install -d -o "${INSTALL_OWNER}" -g "${INSTALL_GROUP}" -m 0755 "${DST_CONFIG_ROOT}" "${DST_BIN_ROOT}"
 
     # Dependency-safe order: the registry before anything that reads it, the
     # targets validator before common (which invokes it), common before the
@@ -669,6 +756,15 @@ perform_apply() {
 on_verify_error() {
     local code=$?
     trap - ERR EXIT
+
+    # See the comment above on_apply_error: the same subshell-inheritance
+    # hazard applies here, so the same main-process-only guard applies too —
+    # otherwise a genuine failure could print the final FAIL banner once from
+    # a subshell and once more from the main process.
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
     log "--- final result ---"
     log "FAIL: verification did not pass (see the error above)"
     exit "${code}"
@@ -683,6 +779,7 @@ run_verify() {
 perform_verify() {
     log "mode: verify (no changes, no backup)"
 
+    MAIN_BASHPID="${BASHPID}"
     trap on_verify_error ERR EXIT
 
     log "--- source validation ---"

@@ -119,19 +119,23 @@ function installOpsHarnessPreamble(): string
  */
 function installOpsExec(string $scriptPath, array $env): array
 {
-    $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    // fd 2 is redirected onto fd 1 at the descriptor level (not read via a
+    // second pipe) so there is only ever one stream to drain: reading all of
+    // stdout, then separately reading all of stderr, deadlocks if the child
+    // fills the stderr pipe's OS buffer while nobody is reading it yet —
+    // exactly the failure mode a harness that logs a lot (or one day gains
+    // -x tracing) could hit.
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
     $process = proc_open(['bash', $scriptPath], $descriptors, $pipes, null, $env);
 
     expect($process)->not->toBeFalse('could not start harness process');
 
-    $stdout = stream_get_contents($pipes[1]);
-    $stderr = stream_get_contents($pipes[2]);
+    $output = stream_get_contents($pipes[1]);
     fclose($pipes[1]);
-    fclose($pipes[2]);
 
     $exit = proc_close($process);
 
-    return [$exit, $stdout.$stderr];
+    return [$exit, $output];
 }
 
 /**
@@ -200,10 +204,29 @@ function installOpsRunCoreHarness(string $scratch, string $driverCode): array
     $harnessPath = $scratch.'/core-harness.sh';
     file_put_contents($harnessPath, $script);
 
+    // $scratch/bin first: lets a test shadow a single coreutil (e.g. a stub
+    // `mv` that always fails) without touching anything else on PATH.
     return installOpsExec($harnessPath, [
-        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
         'HOME' => getenv('HOME') ?: '/tmp',
     ]);
+}
+
+/**
+ * Snapshot a directory's ownership and mode, for asserting it is byte-for-
+ * byte unchanged (this installer only ever validates its two destination
+ * directories, never mutates them) across an apply, a failed apply, or a
+ * rollback.
+ *
+ * @return array{0: int, 1: int, 2: int}
+ */
+function installOpsStatDir(string $dir): array
+{
+    clearstatcache(true, $dir);
+    $stat = stat($dir);
+    expect($stat)->not->toBeFalse("could not stat directory: {$dir}");
+
+    return [$stat['uid'], $stat['gid'], $stat['mode'] & 0o7777];
 }
 
 /**
@@ -342,9 +365,16 @@ SH;
  * integration test: real registry/targets/common (targets is fully
  * standalone; common is never sourced by the stub health-check/status, only
  * bash -n'd), self-contained stub health-check/status as the *candidates*.
- * INSTALL_OWNER/GROUP are derived from the deployment.conf fixture's actual
- * on-disk ownership, never assumed, so this is correct regardless of
- * platform-specific directory setgid inheritance.
+ *
+ * INSTALL_OWNER/GROUP are the current process's own euid/egid, explicitly
+ * applied (chown/chgrp — always permitted onto one's own identity, even
+ * without root) to deployment.conf *and* the dst-config/dst-bin directories
+ * this installer now only validates, never creates. Explicit, not inferred
+ * from whatever a platform's directory-creation defaults happen to produce
+ * (macOS's /tmp setgid inheritance can otherwise give a scratch directory a
+ * different group than the file created inside it) — this is what makes
+ * validate_destination_directories's ownership check pass deterministically
+ * on every platform this suite runs on.
  *
  * @return array<string, string>
  */
@@ -353,12 +383,20 @@ function installOpsBaseVars(string $scratch, ?string $healthCheckStub = null, ?s
     installOpsWriteExecutable($scratch.'/src/health-check', $healthCheckStub ?? installOpsHealthCheckStub());
     installOpsWriteExecutable($scratch.'/src/status', $statusStub ?? installOpsStatusStub());
 
+    $ownerId = (string) getmyuid();
+    $groupId = (string) getmygid();
+
     $confPath = $scratch.'/dst-config/deployment.conf';
     file_put_contents($confPath, "# scratch deployment.conf fixture\nSTAGING_ROOT=/tmp/unused\n");
     chmod($confPath, 0o640);
-    $stat = stat($confPath);
-    $ownerId = (string) $stat['uid'];
-    $groupId = (string) $stat['gid'];
+    chown($confPath, (int) $ownerId);
+    chgrp($confPath, (int) $groupId);
+
+    foreach ([$scratch.'/dst-config', $scratch.'/dst-bin'] as $dir) {
+        chmod($dir, 0o755);
+        chown($dir, (int) $ownerId);
+        chgrp($dir, (int) $groupId);
+    }
 
     return [
         'SRC_REGISTRY' => base_path('infrastructure/config/deployment-targets.json'),
@@ -421,6 +459,15 @@ it('keeps every destination a fixed, hardcoded constant — never env- or CLI-ov
     // appear is a fallback to an environment variable (":-"/":+") or a read
     // of anything RATEGURU_*-shaped.
     foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS'] as $name) {
+        // preg_match alone only proves "at least one match" — it stops at
+        // the first hit, so a second, later (and possibly unsafe)
+        // assignment to the same name — the one bash would actually use at
+        // runtime — would go unnoticed. preg_match_all against a broader
+        // pattern (any assignment, not just the safe literal shape) counts
+        // every occurrence and requires exactly one.
+        preg_match_all('/^'.preg_quote($name, '/').'=.*$/m', $source, $allAssignments);
+        expect($allAssignments[0])->toHaveCount(1, "{$name} must be assigned exactly once");
+
         expect(preg_match('/^'.preg_quote($name, '/').'="[^\n]*"$/m', $source, $matches))
             ->toBe(1, "{$name} must be assigned exactly once as a double-quoted literal");
 
@@ -546,6 +593,14 @@ it('--check succeeds read-only against the real repository, with no root require
 });
 
 it('--apply requires root', function () {
+    // If the test runner itself is root (some CI containers run as root by
+    // default), require_root would succeed instead of failing, and --apply
+    // would proceed into the real flow against /home/www/rateguru instead of
+    // stopping at the gate this test exists to prove.
+    if (getmyuid() === 0) {
+        test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
+    }
+
     [$exit, $output] = installOpsRunScript(['--apply']);
 
     expect($exit)->not->toBe(0);
@@ -553,6 +608,10 @@ it('--apply requires root', function () {
 });
 
 it('--verify requires root', function () {
+    if (getmyuid() === 0) {
+        test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
+    }
+
     [$exit, $output] = installOpsRunScript(['--verify']);
 
     expect($exit)->not->toBe(0);
@@ -573,8 +632,8 @@ it('installs a new file with the exact requested owner, group, mode and content'
         $src = $scratch.'/src-file';
         file_put_contents($src, "committed content\n");
         $dst = $scratch.'/dst-file';
-        $uid = (string) posix_geteuid();
-        $gid = (string) posix_getegid();
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
 
         [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
             install_regular_file_transactional {$src} {$dst} {$uid} {$gid} 0640
@@ -601,8 +660,8 @@ it('refuses to install over an existing destination symlink, leaving it untouche
         $dst = $scratch.'/dst-symlink';
         symlink($realTarget, $dst);
 
-        $uid = (string) posix_geteuid();
-        $gid = (string) posix_getegid();
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
 
         [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
             install_regular_file_transactional {$src} {$dst} {$uid} {$gid} 0640
@@ -623,8 +682,8 @@ it('verify_installed_regular_file catches ownership, mode, group-writability and
     try {
         $src = $scratch.'/src-file';
         file_put_contents($src, "reference content\n");
-        $uid = (string) posix_geteuid();
-        $gid = (string) posix_getegid();
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
 
         // Ownership mismatch: a bogus expected uid the file was never given.
         $dst1 = $scratch.'/dst-owner';
@@ -679,8 +738,8 @@ it('rollback restores the previous content of a pre-existing destination', funct
         $dst = $scratch.'/dst-file';
         file_put_contents($dst, "OLD PREVIOUS CONTENT\n");
         chmod($dst, 0o640);
-        $uid = (string) posix_geteuid();
-        $gid = (string) posix_getegid();
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
 
         [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
             BACKUP_DIR="{$scratch}/backups/run1"
@@ -706,8 +765,8 @@ it('rollback removes a destination that did not exist before this run', function
         $src = $scratch.'/src-file';
         file_put_contents($src, "brand new content\n");
         $dst = $scratch.'/dst-file';
-        $uid = (string) posix_geteuid();
-        $gid = (string) posix_getegid();
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
 
         expect(file_exists($dst))->toBeFalse();
 
@@ -736,8 +795,8 @@ it('rollback reports incomplete, without masking the original failure, when a ba
         file_put_contents($src, "new content\n");
         $dst = $scratch.'/dst-file';
         file_put_contents($dst, "OLD PREVIOUS CONTENT\n");
-        $uid = (string) posix_geteuid();
-        $gid = (string) posix_getegid();
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
 
         [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
             BACKUP_DIR="{$scratch}/backups/run1"
@@ -862,77 +921,6 @@ it('verify_planned_target_rejected fails when the rejection happens for the wron
     }
 });
 
-it('verify_planned_target_rejected does not roll back already-installed files when it runs under the apply trap', function () {
-    // Regression test: trap on_apply_error ERR EXIT is inherited into every
-    // $(...) command substitution's subshell. The tits-guru check is
-    // *deliberately* expected to fail — without `trap - ERR EXIT` running
-    // first inside that subshell (see the comment at both call sites in the
-    // real script), that expected failure fires on_apply_error *inside the
-    // subshell*, silently rolling back a real installation while the outer
-    // script still reports success. This must call the *real*
-    // rollback_installed_files (not a no-op stand-in) against a backup whose
-    // content is deliberately different from what's currently installed —
-    // only that way does a spurious rollback become observable at all.
-    $scratch = installOpsScratchDir();
-
-    try {
-        $vars = installOpsBaseVars($scratch);
-
-        // Simulate perform_apply's exact conditions: the candidate is already
-        // installed at DST_HEALTH_CHECK, with a *different* backup on record
-        // (standing in for "whatever preceded this install"), and the real
-        // apply trap armed.
-        $installedContent = installOpsHealthCheckStub();
-        file_put_contents($vars['DST_HEALTH_CHECK'], $installedContent);
-        chmod($vars['DST_HEALTH_CHECK'], 0o755);
-        $backupDir = $scratch.'/backups/pre-existing-run';
-        mkdir($backupDir.dirname($vars['DST_HEALTH_CHECK']), 0o700, true);
-        $backupContent = "PRE-EXISTING-BACKUP-MARKER (must never appear after a correct call)\n";
-        file_put_contents($backupDir.$vars['DST_HEALTH_CHECK'], $backupContent);
-
-        $script = installOpsHarnessPreamble()
-            .installOpsBlock('installer core')."\n"
-            .installOpsBlock('runtime verification')."\n";
-
-        foreach ($vars as $name => $value) {
-            $script .= $name.'='.escapeshellarg($value)."\n";
-        }
-
-        $script .= <<<BASH
-            APPLY_COMMITTED=false
-            BACKUP_DIR={$backupDir}
-            ROLLBACK_RESTORE=({$vars['DST_HEALTH_CHECK']})
-            ROLLBACK_REMOVE=()
-            on_apply_error() {
-                local code=\$?
-                trap - ERR EXIT
-                rollback_installed_files || true
-                printf 'ON_APPLY_ERROR_FIRED code=%s\\n' "\${code}" >&2
-                exit "\${code}"
-            }
-            trap on_apply_error ERR EXIT
-            verify_planned_target_rejected
-            trap - ERR EXIT
-            printf 'SURVIVED_WITHOUT_ROLLBACK\\n'
-
-            BASH;
-
-        $harnessPath = $scratch.'/trap-regression-harness.sh';
-        file_put_contents($harnessPath, $script);
-        [$exit, $output] = installOpsExec($harnessPath, [
-            'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
-            'HOME' => getenv('HOME') ?: '/tmp',
-        ]);
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('SURVIVED_WITHOUT_ROLLBACK');
-        expect($output)->not->toContain('ON_APPLY_ERROR_FIRED');
-        expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($installedContent);
-    } finally {
-        installOpsCleanup($scratch);
-    }
-});
-
 // =============================================================================
 // Full perform_apply / perform_verify integration: the whole functions
 // section sourced with SRC_*/DST_*/BACKUP_ROOT/INSTALL_* reassigned to
@@ -946,6 +934,9 @@ it('a successful apply installs all five files with correct ownership, mode and 
     try {
         $vars = installOpsBaseVars($scratch);
         installOpsPlaceHealthyLegacyHealthCheck($vars);
+
+        $configDirBefore = installOpsStatDir($vars['DST_CONFIG_ROOT']);
+        $binDirBefore = installOpsStatDir($vars['DST_BIN_ROOT']);
 
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
 
@@ -968,6 +959,12 @@ it('a successful apply installs all five files with correct ownership, mode and 
 
         $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
         expect($backups)->not->toBeEmpty('apply must create a timestamped backup directory');
+
+        // The two containing directories are validated, never mutated — a
+        // successful apply must leave their ownership and mode exactly as
+        // they were found.
+        expect(installOpsStatDir($vars['DST_CONFIG_ROOT']))->toBe($configDirBefore);
+        expect(installOpsStatDir($vars['DST_BIN_ROOT']))->toBe($binDirBefore);
     } finally {
         installOpsCleanup($scratch);
     }
@@ -1047,6 +1044,8 @@ it('a failing legacy preflight check changes no destination file', function () {
             $sentinels[$key] = "OLD SENTINEL: {$key}\n";
             file_put_contents($vars[$key], $sentinels[$key]);
         }
+        $configDirBefore = installOpsStatDir($vars['DST_CONFIG_ROOT']);
+        $binDirBefore = installOpsStatDir($vars['DST_BIN_ROOT']);
 
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
 
@@ -1060,6 +1059,9 @@ it('a failing legacy preflight check changes no destination file', function () {
 
         $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
         expect($backups)->toBeEmpty('no backup directory should be created before the legacy preflight passes');
+
+        expect(installOpsStatDir($vars['DST_CONFIG_ROOT']))->toBe($configDirBefore);
+        expect(installOpsStatDir($vars['DST_BIN_ROOT']))->toBe($binDirBefore);
     } finally {
         installOpsCleanup($scratch);
     }
@@ -1126,6 +1128,8 @@ it('a post-install runtime-parity failure rolls back every touched destination: 
         }
         expect(file_exists($vars['DST_STATUS']))->toBeFalse();
         $healthCheckBefore = file_get_contents($vars['DST_HEALTH_CHECK']);
+        $configDirBefore = installOpsStatDir($vars['DST_CONFIG_ROOT']);
+        $binDirBefore = installOpsStatDir($vars['DST_BIN_ROOT']);
 
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
 
@@ -1139,6 +1143,9 @@ it('a post-install runtime-parity failure rolls back every touched destination: 
         }
         expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore, 'health-check must be restored to its previous content');
         expect(file_exists($vars['DST_STATUS']))->toBeFalse('status must be removed — it did not exist before this run');
+
+        expect(installOpsStatDir($vars['DST_CONFIG_ROOT']))->toBe($configDirBefore, 'a rollback must leave the containing directory exactly as found');
+        expect(installOpsStatDir($vars['DST_BIN_ROOT']))->toBe($binDirBefore, 'a rollback must leave the containing directory exactly as found');
     } finally {
         installOpsCleanup($scratch);
     }
@@ -1165,6 +1172,415 @@ it('a successful apply never creates, contacts, or provisions anything for tits-
         foreach ($scratchFiles as $path) {
             expect($path)->not->toContain('tits-guru', "no tits-guru path should exist under the scratch install tree: {$path}");
         }
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The two destination directories are validated, never mutated: no
+// install -d against DST_CONFIG_ROOT/DST_BIN_ROOT exists anywhere in the
+// script, and --apply refuses to proceed — before creating a backup or
+// touching any destination — when either directory is missing or unsafe.
+// =============================================================================
+
+it('never creates, chowns or chmods either destination directory', function () {
+    $source = installOpsSource();
+
+    // install -d is the only command capable of creating or chmod/chowning a
+    // directory in this script. It legitimately targets BACKUP_ROOT/
+    // BACKUP_DIR and the per-file backup mirror directories under
+    // record_target — this installer fully owns and manages its own backup
+    // tree, which is a different thing from the two directories it only
+    // ever reads. It must never target DST_CONFIG_ROOT or DST_BIN_ROOT.
+    foreach (preg_split('/\R/', $source) as $line) {
+        if (! str_contains($line, 'install -d')) {
+            continue;
+        }
+
+        expect($line)->not->toContain('DST_CONFIG_ROOT')
+            ->not->toContain('DST_BIN_ROOT');
+    }
+});
+
+it('apply fails and changes nothing when a destination directory is missing', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+
+        // validate_destination_directories runs before verify_legacy_staging_
+        // health, so this aborts before that check is ever reached — no
+        // healthy legacy health-check needs to be in place for this test.
+        rmdir($vars['DST_BIN_ROOT']);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('destination directory is missing');
+        expect($output)->toContain($vars['DST_BIN_ROOT']);
+
+        $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
+        expect($backups)->toBeEmpty();
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('apply fails and changes nothing when a destination directory is a symlink', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $realDir = $scratch.'/real-bin-elsewhere';
+        rename($vars['DST_BIN_ROOT'], $realDir);
+        symlink($realDir, $vars['DST_BIN_ROOT']);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('destination directory must not be a symlink');
+        expect(is_link($vars['DST_BIN_ROOT']))->toBeTrue('the symlink itself must be left in place');
+
+        $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
+        expect($backups)->toBeEmpty();
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('rejects a destination directory not owned by the expected owner', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        // The directory's real on-disk owner is unchanged; only the expected
+        // owner this call checks against is wrong — directly exercises the
+        // comparison itself without needing a second real user account.
+        // Called directly (not through perform_apply) because
+        // validate_installed_deployment_conf also compares against
+        // INSTALL_OWNER_ID and runs first — mismatching it globally would
+        // trip that check instead of the one this test targets.
+        $vars['INSTALL_OWNER_ID'] = '999999';
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_destination_directories');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('destination directory must be owned by root:root');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('apply fails and changes nothing when a destination directory is group-writable', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        chmod($vars['DST_CONFIG_ROOT'], 0o775);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('destination directory must not be group- or other-writable');
+
+        $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
+        expect($backups)->toBeEmpty();
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Generic subshell-safe ERR/EXIT handling: set -E means every trap armed by
+// perform_apply/perform_verify is inherited by every $(...) subshell, not
+// just the two deliberately-failing tits-guru checks. on_apply_error/
+// on_verify_error record the main process's BASHPID before the trap is
+// armed and compare against it on every invocation, so a genuine failure
+// inside *any* command substitution is handled exactly once, by the main
+// process, regardless of which command substitution it happens to be.
+// =============================================================================
+
+it('a genuine failure inside an ordinary command substitution after installation rolls back exactly once, preserves the exit code, and prints no duplicate handler output', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        // verify_status_parity's target_body/legacy_body assignments
+        // ("target_body=\"$(status_body_after_header ...)\"") are *not*
+        // protected by an `if`/`||` at their call site, unlike the
+        // deliberately-failing tits-guru checks — a bare, unprotected
+        // command substitution is exactly the shape that still double-fires
+        // an inherited ERR/EXIT trap (once inside its subshell, once more in
+        // the main process) without the generic BASHPID guard. A stub `sed`
+        // that always fails forces status_body_after_header's own pipeline
+        // to fail via `pipefail`, without needing any conditional wiring —
+        // neither the committed real scripts nor the stub health-check/
+        // status ever call sed themselves (both `targets` calls in this
+        // flow always pass --file), so this is safe for the whole run.
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyLegacyHealthCheck($vars);
+        installOpsWriteExecutable($scratch.'/bin/sed', "#!/usr/bin/env bash\n"
+            ."printf 'stub sed: forced failure (test)\\n' >&2\n"
+            ."exit 1\n");
+
+        $oldContent = [
+            'DST_REGISTRY' => "OLD registry\n",
+            'DST_TARGETS' => "OLD targets\n",
+            'DST_COMMON' => "OLD common\n",
+        ];
+        foreach ($oldContent as $key => $content) {
+            file_put_contents($vars[$key], $content);
+        }
+        expect(file_exists($vars['DST_STATUS']))->toBeFalse();
+        $healthCheckBefore = file_get_contents($vars['DST_HEALTH_CHECK']);
+
+        // log()'s own text is *not* a reliable signal on its own: when the
+        // trap fires inside the failing substitution's subshell, that
+        // subshell's stdout — including whatever log() prints — is the very
+        // thing being captured into target_body, so a duplicate invocation
+        // there is invisible in $output, not merely quiet. Redefining log()
+        // to *also* append to a real file sidesteps that: unlike a
+        // captured $(...)'s stdout, a file append is a genuine, global
+        // filesystem effect no matter which process (subshell or main)
+        // performs it, so counting lines in it reliably proves how many
+        // times on_apply_error's real body actually ran.
+        $logFile = $scratch.'/log-invocations.txt';
+        $driver = "log() {\n"
+            ."    printf '[%s] %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$*\"\n"
+            .'    printf \'%s\n\' "$*" >> '.escapeshellarg($logFile)."\n"
+            ."}\n"
+            .'perform_apply';
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, $driver);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('files installed; verifying before committing');
+        expect($output)->toContain('stub sed: forced failure (test)');
+
+        $logInvocations = file_exists($logFile) ? file_get_contents($logFile) : '';
+        expect(substr_count($logInvocations, 'apply failed (exit'))->toBe(1, 'on_apply_error\'s real body must run exactly once, from the main process');
+        expect(substr_count($logInvocations, 'rollback complete: previous files restored'))->toBe(1);
+
+        foreach ($oldContent as $key => $content) {
+            expect(file_get_contents($vars[$key]))->toBe($content, "{$key} must be restored to its previous content");
+        }
+        expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore);
+        expect(file_exists($vars['DST_STATUS']))->toBeFalse('status must be removed — it did not exist before this run');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('a genuine failure inside an ordinary command substitution during --verify prints no duplicate final-result handler', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyLegacyHealthCheck($vars);
+
+        [$applyExit, $applyOut] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0, $applyOut);
+
+        // See the matching apply-mode regression test above: target_body/
+        // legacy_body's substitutions are unprotected, and a stub `sed`
+        // forces status_body_after_header's own pipeline to fail via
+        // pipefail — an ordinary, not tits-guru-related, failure, introduced
+        // only now, after a genuinely successful apply already installed
+        // everything correctly.
+        installOpsWriteExecutable($scratch.'/bin/sed', "#!/usr/bin/env bash\n"
+            ."printf 'stub sed: forced failure (test)\\n' >&2\n"
+            ."exit 1\n");
+
+        // Same reasoning as the apply-mode test above: log()'s file append
+        // is immune to the subshell-stdout-swallowing that makes a
+        // duplicate invisible in $output.
+        $logFile = $scratch.'/log-invocations.txt';
+        $driver = "log() {\n"
+            ."    printf '[%s] %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$*\"\n"
+            .'    printf \'%s\n\' "$*" >> '.escapeshellarg($logFile)."\n"
+            ."}\n"
+            .'perform_verify';
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, $driver);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('stub sed: forced failure (test)');
+
+        $logInvocations = file_exists($logFile) ? file_get_contents($logFile) : '';
+        expect(substr_count($logInvocations, '--- final result ---'))->toBe(1, 'on_verify_error\'s real body must run exactly once, from the main process');
+        expect(substr_count($logInvocations, 'FAIL: verification did not pass'))->toBe(1);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// install_regular_file_transactional rejects every non-regular existing
+// destination (not just symlinks), and stages into a same-directory,
+// mktemp-created temporary file that is always removed on failure.
+// =============================================================================
+
+it('allows installation when the destination is absent', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $src = $scratch.'/src-file';
+        file_put_contents($src, "brand new content\n");
+        $dst = $scratch.'/dst-file';
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
+
+        expect(file_exists($dst))->toBeFalse();
+
+        [$exit, $output] = installOpsRunCoreHarness($scratch, "install_regular_file_transactional {$src} {$dst} {$uid} {$gid} 0640");
+
+        expect($exit)->toBe(0, $output);
+        expect(file_get_contents($dst))->toBe("brand new content\n");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('allows installation over an existing plain regular file, backing up its previous content', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $src = $scratch.'/src-file';
+        file_put_contents($src, "new content\n");
+        $dst = $scratch.'/dst-file';
+        file_put_contents($dst, "old content\n");
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
+
+        [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
+            BACKUP_DIR="{$scratch}/backups/run1"
+            install -d -m 0700 "\${BACKUP_DIR}"
+            install_regular_file_transactional {$src} {$dst} {$uid} {$gid} 0640
+            BASH);
+
+        expect($exit)->toBe(0, $output);
+        expect(file_get_contents($dst))->toBe("new content\n");
+        expect(file_get_contents("{$scratch}/backups/run1{$dst}"))->toBe("old content\n");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('rejects an existing directory at the destination, leaving it untouched with no backup recorded', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $src = $scratch.'/src-file';
+        file_put_contents($src, "new content\n");
+        $dst = $scratch.'/dst-dir';
+        mkdir($dst.'/inside', 0o755, true);
+        file_put_contents($dst.'/inside/marker', "must survive\n");
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
+
+        [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
+            BACKUP_DIR="{$scratch}/backups/run1"
+            install -d -m 0700 "\${BACKUP_DIR}"
+            install_regular_file_transactional {$src} {$dst} {$uid} {$gid} 0640
+            BASH);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('refusing to install over an existing non-regular-file destination');
+        expect(is_dir($dst))->toBeTrue('the directory itself must be left in place');
+        expect(file_get_contents($dst.'/inside/marker'))->toBe("must survive\n");
+        expect(file_exists("{$scratch}/backups/run1{$dst}"))->toBeFalse('a rejected destination must never be backed up');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('rejects an existing FIFO at the destination, leaving it untouched with no backup recorded', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $src = $scratch.'/src-file';
+        file_put_contents($src, "new content\n");
+        $dst = $scratch.'/dst-fifo';
+
+        $mkfifoOutput = [];
+        $mkfifoExit = 0;
+        exec('mkfifo '.escapeshellarg($dst).' 2>&1', $mkfifoOutput, $mkfifoExit);
+
+        if ($mkfifoExit !== 0) {
+            test()->markTestSkipped('mkfifo is not available on this host');
+        }
+
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
+
+        [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
+            BACKUP_DIR="{$scratch}/backups/run1"
+            install -d -m 0700 "\${BACKUP_DIR}"
+            install_regular_file_transactional {$src} {$dst} {$uid} {$gid} 0640
+            BASH);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('refusing to install over an existing non-regular-file destination');
+        expect(filetype($dst))->toBe('fifo');
+        expect(file_exists("{$scratch}/backups/run1{$dst}"))->toBeFalse('a rejected destination must never be backed up');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('removes the temporary file and leaves the destination untouched when install fails to stage it', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $src = $scratch.'/src-file';
+        file_put_contents($src, "new content\n");
+        $dst = $scratch.'/dst-file';
+        $gid = (string) getmygid();
+
+        // A nonexistent owner name is a reliable, portable way to make
+        // `install` itself fail without touching the filesystem or needing
+        // root — no such user exists on any CI or dev machine.
+        [$exit, $output] = installOpsRunCoreHarness(
+            $scratch,
+            "install_regular_file_transactional {$src} {$dst} install-ops-test-nonexistent-user {$gid} 0640",
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('failed to stage');
+        expect(file_exists($dst))->toBeFalse('destination must not exist after a failed install');
+
+        $leftovers = glob($dst.'.*');
+        expect($leftovers)->toBeEmpty('no temporary file should remain after a failed install');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('removes the temporary file and leaves the destination untouched when the rename into place fails', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $src = $scratch.'/src-file';
+        file_put_contents($src, "new content\n");
+        $dst = $scratch.'/dst-file';
+        $uid = (string) getmyuid();
+        $gid = (string) getmygid();
+
+        // A stub `mv` that always fails, placed first in PATH — `install`
+        // still succeeds in writing the temporary file, so this isolates the
+        // rename step specifically.
+        installOpsWriteExecutable($scratch.'/bin/mv', "#!/usr/bin/env bash\n"
+            ."printf 'stub mv: forced failure (test)\\n' >&2\n"
+            ."exit 1\n");
+
+        [$exit, $output] = installOpsRunCoreHarness($scratch, "install_regular_file_transactional {$src} {$dst} {$uid} {$gid} 0640");
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('failed to rename the staged file into place');
+        expect(file_exists($dst))->toBeFalse('destination must not exist after a failed rename');
+
+        $leftovers = glob($dst.'.*');
+        expect($leftovers)->toBeEmpty('no temporary file should remain after a failed rename');
     } finally {
         installOpsCleanup($scratch);
     }

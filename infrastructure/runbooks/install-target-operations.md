@@ -25,6 +25,18 @@ configurable by environment variable or CLI argument, on purpose. This
 installer's entire job is putting these five files in these five places with
 these exact permissions. Nothing else.
 
+### The two destination directories must already exist
+
+`/home/www/rateguru/config` and `/home/www/rateguru/bin` are **not** owned by
+this installer, and it never creates, `chown`s or `chmod`s either one — only
+the five files inside them. `--apply` validates both directories before it
+creates a backup or changes anything: each must exist, be a real directory
+(not a symlink), owned by `root:root`, and not group- or other-writable.
+`--apply` refuses to proceed — before touching anything — if either
+directory is missing or fails any of those checks. Provisioning those two
+directories (ownership, mode, and everything else about the host they live
+on) belongs to a VPS bootstrap step outside this installer's scope.
+
 **Not touched, by this or any other change in this slice:**
 
 - `/home/www/rateguru/config/deployment.conf` — the target helpers already
@@ -93,13 +105,17 @@ sudo infrastructure/scripts/install-target-operations --apply
    validated (regular file, not a symlink, root-owned, not group- or
    other-writable) — this installer depends on that file's protection without
    ever touching its contents.
-2. The **currently installed** legacy staging health check is proven to work
+2. Both destination directories are validated — exist, are real directories,
+   not symlinks, `root:root`-owned, not group- or other-writable (see
+   [above](#the-two-destination-directories-must-already-exist)) — before a
+   backup directory is created or a single destination file changes.
+3. The **currently installed** legacy staging health check is proven to work
    — `health-check --environment staging`, with every `RATEGURU_*` test
    override explicitly unset — before a single destination file changes. If
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-3. The five source files are copied into a private, root-only temporary
+4. The five source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract from slice 2, and **only** here — to prove the candidate
    set is internally consistent before anything real is touched: `targets
@@ -107,18 +123,22 @@ sudo infrastructure/scripts/install-target-operations --apply
    `health-check --target staging-main`, `status --environment staging`,
    `status --target staging-main`, and that `health-check --target tits-guru`
    still correctly fails with `lifecycle=planned`.
-4. A timestamped backup directory is created (see below), and each
+5. A timestamped backup directory is created (see below), and each
    destination is installed in dependency order — registry, `targets`,
-   `common`, `health-check`, `status` — via stage-in-place-then-atomic-rename,
-   never a direct overwrite. An existing destination that is already a
-   symlink is refused outright, never followed or silently replaced.
-5. The installed result is verified: exact ownership, exact mode, byte-for-byte
+   `common`, `health-check`, `status` — via stage-in-place-then-atomic-rename
+   into a same-directory, `mktemp`-created temporary file, never a direct
+   overwrite and never a predictable temporary path. An existing destination
+   that is anything other than absent or a plain regular file — a symlink,
+   directory, FIFO, socket or device — is refused outright, never followed,
+   entered or silently replaced; a rejected destination is left untouched and
+   is never backed up.
+6. The installed result is verified: exact ownership, exact mode, byte-for-byte
    content match against the committed source, `bash -n`, and
    `targets validate`/`targets list` against the installed registry.
-6. Runtime parity is verified against the real host, with **every**
+7. Runtime parity is verified against the real host, with **every**
    `RATEGURU_*` override explicitly unset (`env -u ...`) — see
    [Runtime parity](#runtime-parity-checks) below.
-7. Only once every one of the above passes is the change committed. Before
+8. Only once every one of the above passes is the change committed. Before
    that point, any failure rolls back every file this run touched — see
    [Rollback](#rollback) below.
 
@@ -155,7 +175,14 @@ line — `--verify` never claims success after a step it didn't actually pass.
 | `targets`, `common`, `health-check`, `status` | `root:root` | `0755` | executable scripts |
 
 None of the five may be group- or world-writable, and none may be a symlink —
-enforced both when installing and when verifying.
+enforced both when installing and when verifying. Existing destinations must
+also be a plain regular file or absent — a directory, FIFO, socket or device
+is refused the same way a symlink is.
+
+The two containing directories, `/home/www/rateguru/config` and
+`/home/www/rateguru/bin`, must be `root:root`, `0755` or stricter, and are
+only ever read by this installer — never created, `chown`ed or `chmod`ed. See
+[The two destination directories must already exist](#the-two-destination-directories-must-already-exist).
 
 ## Backup location
 
@@ -274,6 +301,11 @@ sudo infrastructure/scripts/install-target-operations --verify
 
 ## Troubleshooting
 
+- **`--apply` refuses immediately with a destination-directory error**:
+  `/home/www/rateguru/config` or `/home/www/rateguru/bin` is missing, isn't a
+  real directory, isn't `root:root`, or is group- or other-writable. Fix the
+  directory itself on the host — this installer will not create, `chown` or
+  `chmod` either one for you.
 - **`--apply` refuses immediately with a legacy health check failure**: staging
   is already unhealthy before this install touched anything. Fix that first —
   `install-target-operations` will not proceed while it can't tell whether a
