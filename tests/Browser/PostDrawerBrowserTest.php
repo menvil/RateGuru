@@ -11,6 +11,6 @@ it('opens post drawer from feed post card', function () {
         ->assertSee('Browser Drawer Test Post')
         ->click('[data-testid="post-card"]')
         ->waitForText('Browser Drawer Test Post')
-        ->assertVisible('[data-testid="post-drawer"]')
-        ->assertSeeIn('[data-testid="post-drawer-title"]', 'Browser Drawer Test Post');
+        ->assertVisible('[data-testid="post-detail-column"] [data-testid="post-drawer"]')
+        ->assertSeeIn('[data-testid="post-detail-column"] [data-testid="post-drawer-title"]', 'Browser Drawer Test Post');
 });
