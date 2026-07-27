@@ -2,25 +2,22 @@
 
 set -Eeuo pipefail
 
-# Gates every RATEGURU_*_FILE / RATEGURU_*_CLI override that could redirect a
-# privileged script at an attacker- or operator-controlled file
-# (RATEGURU_DEPLOYMENT_CONF_FILE below; RATEGURU_HEALTH_CHECK_CLI in status).
-# Without this ALSO being explicitly true, those specific overrides are
-# ignored outright and the script resolves to its hardcoded production path —
-# a stray environment variable surviving in a real root shell (a leftover
-# export, a shared profile) can never silently redirect it. Tests set this
-# alongside the override itself, in the same command line.
-#
-# Defined here, ahead of everything else, so it is available before CONFIG_FILE
-# is resolved a few lines down — function definitions are inert until called,
-# so this has no effect on its own.
-rateguru_test_overrides_allowed() {
-    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
-}
-
+# RATEGURU_DEPLOYMENT_CONF_FILE is only honored alongside
+# RATEGURU_ALLOW_TEST_OVERRIDES=true — a stray environment variable surviving
+# in a real root shell (a leftover export, a shared profile) can never
+# silently redirect this privileged `source` at an attacker- or
+# operator-controlled file. This is a plain inline condition rather than a
+# call to a shared function: no function this file defines exists yet at this
+# point in its own execution (function definitions run in order, same as
+# anything else in a sourced file), so there is nothing to call. The identical
+# check is reused, as an actual function, further down for
+# RATEGURU_TARGET_REGISTRY_FILE and RATEGURU_TARGETS_CLI, where that ordering
+# problem does not apply.
 CONFIG_FILE_DEFAULT="/home/www/rateguru/config/deployment.conf"
 
-if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_DEPLOYMENT_CONF_FILE:-}" ]]; then
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_DEPLOYMENT_CONF_FILE:-}" ]]
+then
     CONFIG_FILE="${RATEGURU_DEPLOYMENT_CONF_FILE}"
 else
     CONFIG_FILE="${CONFIG_FILE_DEFAULT}"
@@ -226,17 +223,40 @@ environment_incoming_artifacts() {
 TARGET_REGISTRY_DEFAULT_FILE="/home/www/rateguru/config/deployment-targets.json"
 TARGET_REGISTRY_SCHEMA_VERSION=1
 
+# Gates every RATEGURU_*_FILE / RATEGURU_*_CLI override below that could
+# redirect a privileged script at an attacker- or operator-controlled file —
+# the identical plain condition guards RATEGURU_DEPLOYMENT_CONF_FILE near the
+# top of this file, before this block starts. Defined as a real function here
+# (rather than inlined, as that one is) because it is called from multiple
+# places below, and — unlike the top-of-file check — it has somewhere earlier
+# in this same execution to have already been defined.
+#
+# This function lives inside the extractable block (between the begin/end
+# markers) rather than at the top of the file, because tests exercise this
+# block in isolation by extracting exactly the text between those markers —
+# see tests/Feature/Architecture/DeploymentTargetRegistryTest.php's
+# targetHelperHarness(). A definition outside the markers would not be part of
+# what gets extracted, and target_registry_file()/target_registry_validator()
+# below would fail to find it when tested that way.
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
 # One resolution contract, identical to scripts/targets (which layers --file on
 # top as the most specific source):
-#   1. RATEGURU_TARGET_REGISTRY_FILE — tests and controlled tooling
-#   2. TARGET_REGISTRY_FILE — set by the deployment.conf sourced above
+#   1. RATEGURU_TARGET_REGISTRY_FILE — tests and controlled tooling, and only
+#      when RATEGURU_ALLOW_TEST_OVERRIDES=true
+#   2. TARGET_REGISTRY_FILE — set by the deployment.conf sourced above; no test
+#      flag required, since honoring it requires deployment.conf to already
+#      have loaded (from its own root-owned installed path, or from a fixture
+#      that already required the same flag to be read at all)
 #   3. TARGET_REGISTRY_DEFAULT_FILE
 #
 # `common` already sourced deployment.conf, so step 2 is a plain variable here.
 # The CLI reaches the same value by parsing that file, because deployment.conf
 # assigns without `export` and the value would not survive into a child process.
 target_registry_file() {
-    if [[ -n "${RATEGURU_TARGET_REGISTRY_FILE:-}" ]]; then
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_TARGET_REGISTRY_FILE:-}" ]]; then
         printf '%s\n' "${RATEGURU_TARGET_REGISTRY_FILE}"
 
         return 0
@@ -314,7 +334,7 @@ target_registry_assert_usable() {
 # Locate the registry validator. It ships beside this file, so an installed
 # common at /home/www/rateguru/bin/common finds /home/www/rateguru/bin/targets.
 target_registry_validator() {
-    if [[ -n "${RATEGURU_TARGETS_CLI:-}" ]]; then
+    if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_TARGETS_CLI:-}" ]]; then
         printf '%s\n' "${RATEGURU_TARGETS_CLI}"
 
         return 0
@@ -479,8 +499,25 @@ target_nginx_site_name()          { _target_property "${1-}" '.nginx.site_name' 
 # lifecycle=active. A planned or disabled target must never be read further,
 # so this must run before any URL is built, curl is called, or an application
 # path is touched.
+#
+# validate_target_id / target_registry_assert_usable / target_registry_assert_valid
+# are called directly here — not through target_lifecycle's own $(...) command
+# substitution below — because a command substitution forks a subshell, and
+# target_registry_assert_valid's cache (_TARGET_REGISTRY_VALIDATED_FILE) is a
+# plain shell variable: setting it inside a subshell has no effect once that
+# subshell exits. Running the three checks directly, in this function's own
+# (the caller's) shell, means the cache is actually set here — in the process
+# health-check or status is running as — so target_lifecycle two lines down,
+# and every target_* call the caller makes afterward, inherit an
+# already-matching cache and skip re-running the external validator. Without
+# this, every target_* accessor call would re-invoke the validator from
+# scratch, once each, silently defeating the "once per process" design.
 require_active_target() {
     local target_id="${1-}"
+
+    validate_target_id "${target_id}"
+    target_registry_assert_usable
+    target_registry_assert_valid
 
     local lifecycle
     lifecycle="$(target_lifecycle "${target_id}")"

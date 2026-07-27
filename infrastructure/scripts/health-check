@@ -2,10 +2,24 @@
 
 set -Eeuo pipefail
 
-# RATEGURU_COMMON_FILE is for tests and controlled tooling only. Production
-# never sets it, so this resolves to the exact same installed path as before.
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this script
+# at an attacker- or operator-controlled file to source. This is a plain
+# inline condition, not a call to common's rateguru_test_overrides_allowed():
+# common has not been sourced yet at this point, so no function it defines
+# exists to call. Production never sets either variable, so this resolves to
+# the exact same installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
 # shellcheck disable=SC1090
-source "${RATEGURU_COMMON_FILE:-/home/www/rateguru/bin/common}"
+source "${COMMON_FILE}"
 
 parse_selector_args health-check "$@"
 

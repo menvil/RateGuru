@@ -137,6 +137,50 @@ function targetOpsFakeHealthCheck(string $scratchDir, string $logFile, int $exit
 }
 
 /**
+ * A recording stub for RATEGURU_TARGETS_CLI: logs its invocation, then
+ * delegates to the real targets CLI, so a caller that genuinely reaches this
+ * (gate on) still gets correct validate/list/show behaviour, not just a
+ * recorded call.
+ */
+function targetOpsFakeTargetsCli(string $scratchDir, string $logFile): string
+{
+    $path = $scratchDir.'/bin/fake-targets';
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'echo "$*" >> '.escapeshellarg($logFile)."\n"
+        .'exec '.escapeshellarg(targetOpsTargetsCli())." \"\$@\"\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * A "malicious" common fixture: fully self-contained (defines its own
+ * fail/log/parse_selector_args/environment_*), so it never needs a real
+ * deployment.conf, and records a marker every time it is sourced. Used to
+ * prove RATEGURU_COMMON_FILE is never sourced without the opt-in flag — with
+ * the flag, health-check runs to completion entirely on this fixture's fake
+ * environment_url/environment_host_header, proving genuine sourcing rather
+ * than a coincidental side effect.
+ */
+function targetOpsMaliciousCommon(string $scratchDir, string $markerLog): string
+{
+    $path = $scratchDir.'/malicious-common';
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'echo "MALICIOUS_COMMON_SOURCED" >> '.escapeshellarg($markerLog)."\n"
+        .'fail() { printf "[ERR] %s\n" "$*" >&2; exit 1; }'."\n"
+        .'log() { printf "[log] %s\n" "$*"; }'."\n"
+        // Minimal stand-in: the real one is far more thorough, but this test
+        // only ever calls `--environment staging` against this fixture.
+        .'parse_selector_args() { TARGET_ID=""; ENVIRONMENT="staging"; TARGET_SEEN=false; ENVIRONMENT_SEEN=true; }'."\n"
+        .'validate_environment() { :; }'."\n"
+        .'environment_url() { echo "http://127.0.0.1/"; }'."\n"
+        .'environment_host_header() { echo "marker-fixture.internal"; }'."\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
  * Run a script (health-check or status) as a real subprocess with the given
  * CLI arguments and RATEGURU_* environment overrides layered on top of a
  * curl-intercepting PATH.
@@ -855,13 +899,254 @@ it('lets malformed registry JSON break target mode without breaking legacy stagi
 
 // --- test overrides require an explicit opt-in gate -------------------------
 
-it('ignores RATEGURU_DEPLOYMENT_CONF_FILE unless RATEGURU_ALLOW_TEST_OVERRIDES is also true', function () {
-    // A stray RATEGURU_DEPLOYMENT_CONF_FILE surviving in a real root shell
-    // (a leftover export, a shared profile) must never silently redirect
-    // common at an attacker- or operator-controlled file. Without the gate,
-    // common must fall through to its hardcoded production path — which does
-    // not exist here, so the script fails exactly as it would with no
-    // override at all, not with whatever the (ignored) fixture contains.
+it('ignores RATEGURU_COMMON_FILE without the opt-in flag, and sources it with the flag', function () {
+    // A stray RATEGURU_COMMON_FILE surviving in a real root shell (a leftover
+    // export, a shared profile) must never silently redirect a privileged
+    // script at an attacker- or operator-controlled file to source. The fixture
+    // is fully self-contained (defines its own fail/log/parse_selector_args/
+    // environment_*), so this proves sourcing specifically — with the gate on,
+    // health-check runs to completion entirely on the fixture's fake
+    // environment_url/environment_host_header, which only happens if it was
+    // genuinely sourced, not coincidentally.
+    $scratch = targetOpsScratchDir();
+
+    try {
+        $markerLog = $scratch.'/marker.log';
+        touch($markerLog);
+        $maliciousCommon = targetOpsMaliciousCommon($scratch, $markerLog);
+
+        $curlLog = $scratch.'/curl.log';
+        touch($curlLog);
+        targetOpsFakeCurl($scratch, $curlLog);
+
+        [$deniedExit, $deniedOutput] = targetOpsRun(
+            targetOpsHealthCheckScript(),
+            ['--environment', 'staging'],
+            [
+                // Deliberately no RATEGURU_ALLOW_TEST_OVERRIDES here.
+                'RATEGURU_COMMON_FILE' => $maliciousCommon,
+                'CURL_LOG' => $curlLog,
+            ],
+            $scratch,
+        );
+
+        expect($deniedExit)->not->toBe(0);
+        expect(trim(File::get($markerLog)))->toBe('', 'the fixture common must never be sourced without the gate');
+        expect($deniedOutput)->not->toContain('marker-fixture.internal');
+        expect(trim(File::get($curlLog)))->toBe('', 'must fail before ever reaching curl');
+
+        [$grantedExit, $grantedOutput] = targetOpsRun(
+            targetOpsHealthCheckScript(),
+            ['--environment', 'staging'],
+            [
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_COMMON_FILE' => $maliciousCommon,
+                'CURL_LOG' => $curlLog,
+            ],
+            $scratch,
+        );
+
+        expect($grantedExit)->toBe(0, $grantedOutput);
+        expect(trim(File::get($markerLog)))->toBe('MALICIOUS_COMMON_SOURCED');
+        expect(File::get($curlLog))->toContain('Host: marker-fixture.internal');
+    } finally {
+        targetOpsCleanup($scratch);
+    }
+});
+
+it('ignores RATEGURU_DEPLOYMENT_CONF_FILE, RATEGURU_TARGET_REGISTRY_FILE, RATEGURU_TARGETS_CLI and RATEGURU_HEALTH_CHECK_CLI without the opt-in flag, and honors all of them with it', function () {
+    // rateguru_test_overrides_allowed() is one function backed by one
+    // environment variable, called at every gated site — there is no way to
+    // honor one of these four overrides while denying another, by design (only
+    // RATEGURU_COMMON_FILE, covered by the previous test, is gated differently,
+    // since it is read before that function — or common itself — exists).
+    // Recording stubs for both CLI overrides prove the unapproved executable is
+    // never invoked in the denied run, and is invoked exactly once each in the
+    // granted run.
+    $scratch = targetOpsScratchDir();
+
+    try {
+        $targetsLog = $scratch.'/targets.log';
+        $hcLog = $scratch.'/hc.log';
+        touch($targetsLog);
+        touch($hcLog);
+
+        $fakeTargets = targetOpsFakeTargetsCli($scratch, $targetsLog);
+        $fakeHealthCheck = targetOpsFakeHealthCheck($scratch, $hcLog);
+
+        $deniedEnv = [
+            'RATEGURU_COMMON_FILE' => targetOpsCommonFile(),
+            // Deliberately no RATEGURU_ALLOW_TEST_OVERRIDES here.
+            'RATEGURU_DEPLOYMENT_CONF_FILE' => targetOpsDeploymentConfPath(),
+            'RATEGURU_TARGET_REGISTRY_FILE' => targetOpsRegistryPath(),
+            'RATEGURU_TARGETS_CLI' => $fakeTargets,
+            'RATEGURU_HEALTH_CHECK_CLI' => $fakeHealthCheck,
+        ];
+
+        [$deniedExit, $deniedOutput] = targetOpsRun(
+            targetOpsStatusScript(),
+            ['--environment', 'staging'],
+            $deniedEnv,
+            $scratch,
+        );
+
+        // RATEGURU_COMMON_FILE is denied here too — no gate is set anywhere in
+        // this run — so the observable failure is common itself being
+        // unreachable at its hardcoded path, before deployment.conf, the
+        // registry, or either CLI stub ever come into play.
+        expect($deniedExit)->not->toBe(0);
+        expect($deniedOutput)->toContain('/home/www/rateguru/bin/common');
+        expect(trim(File::get($targetsLog)))->toBe('', 'the fake targets CLI must never run without the gate');
+        expect(trim(File::get($hcLog)))->toBe('', 'the fake health-check must never run without the gate');
+
+        $grantedEnv = array_merge($deniedEnv, ['RATEGURU_ALLOW_TEST_OVERRIDES' => 'true']);
+
+        [$grantedExit, $grantedOutput] = targetOpsRun(
+            targetOpsStatusScript(),
+            ['--target', 'staging-main'],
+            $grantedEnv,
+            $scratch,
+        );
+
+        expect($grantedExit)->toBe(0, $grantedOutput);
+        // status's own process (require_active_target + target_root +
+        // target_lifecycle + target_environment_class) validates once, via
+        // the fake targets CLI, proving RATEGURU_TARGETS_CLI was honored.
+        expect(trim(File::get($targetsLog)))->not->toBe('', 'the fake targets CLI should have run with the gate on');
+        // The fake health-check was invoked with the delegated selector,
+        // proving RATEGURU_HEALTH_CHECK_CLI was honored too.
+        expect(trim(File::get($hcLog)))->toBe('--target staging-main');
+    } finally {
+        targetOpsCleanup($scratch);
+    }
+});
+
+// --- registry validation runs at most once per shell process ---------------
+
+/**
+ * A validator stub that records which process invoked it (its PPID — the
+ * calling shell's own PID, not this wrapper's own transient one) each time it
+ * runs, then delegates to the real targets CLI. Counting entries proves how
+ * many times the external validator actually ran; counting distinct PPIDs
+ * proves how many separate processes each contributed those calls.
+ */
+function targetOpsCountingTargetsCli(string $scratchDir, string $logFile): string
+{
+    $path = $scratchDir.'/bin/counting-targets';
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'echo "$PPID" >> '.escapeshellarg($logFile)."\n"
+        .'exec '.escapeshellarg(targetOpsTargetsCli())." \"\$@\"\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+it('validates the registry exactly once per health-check process', function () {
+    $scratch = targetOpsScratchDir();
+
+    try {
+        $counterLog = $scratch.'/counter.log';
+        touch($counterLog);
+        $countingTargets = targetOpsCountingTargetsCli($scratch, $counterLog);
+
+        $curlLog = $scratch.'/curl.log';
+        touch($curlLog);
+        targetOpsFakeCurl($scratch, $curlLog);
+
+        [$exit, $output] = targetOpsRun(
+            targetOpsHealthCheckScript(),
+            ['--target', 'staging-main'],
+            targetOpsBaseEnv(['RATEGURU_TARGETS_CLI' => $countingTargets, 'CURL_LOG' => $curlLog]),
+            $scratch,
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect(trim(File::get($counterLog)))->not->toBe('');
+        expect(substr_count(File::get($counterLog), "\n"))->toBe(1, 'the external validator must run exactly once per process');
+    } finally {
+        targetOpsCleanup($scratch);
+    }
+});
+
+it('resolves every target property in status without repeatedly validating', function () {
+    // status reads target_root, target_lifecycle and target_environment_class
+    // on top of require_active_target's own check — four target_* calls in
+    // one process. Without the fix, target_lifecycle's use of $(...) command
+    // substitution inside require_active_target discarded the validation
+    // cache the moment that subshell exited, so every one of those four calls
+    // independently re-ran the external validator.
+    $scratch = targetOpsScratchDir();
+
+    try {
+        $counterLog = $scratch.'/counter.log';
+        touch($counterLog);
+        $countingTargets = targetOpsCountingTargetsCli($scratch, $counterLog);
+
+        $hcLog = $scratch.'/hc.log';
+        touch($hcLog);
+
+        [$exit, $output] = targetOpsRun(
+            targetOpsStatusScript(),
+            ['--target', 'staging-main'],
+            targetOpsBaseEnv([
+                'RATEGURU_TARGETS_CLI' => $countingTargets,
+                // A no-op stub, deliberately not the real health-check, so
+                // this test isolates status's own process from the delegated
+                // one (covered separately below).
+                'RATEGURU_HEALTH_CHECK_CLI' => targetOpsFakeHealthCheck($scratch, $hcLog),
+            ]),
+            $scratch,
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect(substr_count(File::get($counterLog), "\n"))->toBe(1, 'status\'s own process must validate exactly once, not once per target_* call');
+    } finally {
+        targetOpsCleanup($scratch);
+    }
+});
+
+it('lets the delegated health-check validate once in its own separate process', function () {
+    // status delegates to a real, separate health-check process here (not a
+    // stub), and both share the same counting validator and log file. Two log
+    // entries, from two distinct PPIDs, is the only outcome consistent with
+    // "each process validates exactly once" — one entry from either process,
+    // or two entries sharing one PPID, would both indicate a caching bug.
+    $scratch = targetOpsScratchDir();
+
+    try {
+        $counterLog = $scratch.'/counter.log';
+        touch($counterLog);
+        $countingTargets = targetOpsCountingTargetsCli($scratch, $counterLog);
+
+        $curlLog = $scratch.'/curl.log';
+        touch($curlLog);
+        targetOpsFakeCurl($scratch, $curlLog);
+
+        [$exit, $output] = targetOpsRun(
+            targetOpsStatusScript(),
+            ['--target', 'staging-main'],
+            targetOpsBaseEnv([
+                'RATEGURU_TARGETS_CLI' => $countingTargets,
+                'RATEGURU_HEALTH_CHECK_CLI' => targetOpsHealthCheckScript(),
+                'CURL_LOG' => $curlLog,
+            ]),
+            $scratch,
+        );
+
+        expect($exit)->toBe(0, $output);
+
+        $entries = array_values(array_filter(explode("\n", trim(File::get($counterLog)))));
+        expect($entries)->toHaveCount(2, 'expected one validation from status and one from the delegated health-check');
+        expect(array_unique($entries))->toHaveCount(2, 'the two validations must come from two distinct processes, not one process validating twice');
+    } finally {
+        targetOpsCleanup($scratch);
+    }
+});
+
+it('still validates exactly once, and fails before curl or any path access, for planned, disabled and unknown targets', function () {
+    // The caching fix must not change *when* rejection happens relative to
+    // curl or filesystem access (already proven elsewhere) — only that the
+    // validation work behind it happens once, not zero or multiple times.
     $scratch = targetOpsScratchDir();
 
     try {
@@ -869,78 +1154,49 @@ it('ignores RATEGURU_DEPLOYMENT_CONF_FILE unless RATEGURU_ALLOW_TEST_OVERRIDES i
         touch($curlLog);
         targetOpsFakeCurl($scratch, $curlLog);
 
-        [$exit, $output] = targetOpsRun(
+        $cases = [
+            'planned target' => 'tits-guru',
+            'unknown target' => 'ghost-target',
+        ];
+
+        foreach ($cases as $label => $targetId) {
+            $counterLog = $scratch.'/counter-'.md5($targetId).'.log';
+            touch($counterLog);
+            $countingTargets = targetOpsCountingTargetsCli($scratch, $counterLog);
+
+            [$exit] = targetOpsRun(
+                targetOpsHealthCheckScript(),
+                ['--target', $targetId],
+                targetOpsBaseEnv(['RATEGURU_TARGETS_CLI' => $countingTargets, 'CURL_LOG' => $curlLog]),
+                $scratch,
+            );
+
+            expect($exit)->not->toBe(0, $label);
+            expect(trim(File::get($curlLog)))->toBe('', "curl must never run for a {$label}");
+            expect(substr_count(File::get($counterLog), "\n"))->toBe(1, "the validator should still run exactly once for a {$label}, not zero or repeatedly");
+        }
+
+        // Disabled needs its own registry fixture — reuse the one already
+        // built for the earlier lifecycle-safety tests.
+        $registry = targetOpsRegistryWithDisabledTarget($scratch);
+        $counterLog = $scratch.'/counter-disabled.log';
+        touch($counterLog);
+        $countingTargets = targetOpsCountingTargetsCli($scratch, $counterLog);
+
+        [$exit] = targetOpsRun(
             targetOpsHealthCheckScript(),
-            ['--environment', 'staging'],
-            [
-                // Deliberately no RATEGURU_ALLOW_TEST_OVERRIDES here.
-                'RATEGURU_COMMON_FILE' => targetOpsCommonFile(),
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => targetOpsDeploymentConfPath(),
+            ['--target', 'disabled-test'],
+            targetOpsBaseEnv([
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registry,
+                'RATEGURU_TARGETS_CLI' => $countingTargets,
                 'CURL_LOG' => $curlLog,
-            ],
+            ]),
             $scratch,
         );
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('/home/www/rateguru/config/deployment.conf');
-        expect(trim(File::get($curlLog)))->toBe('', 'must fail before ever reaching curl');
-
-        // The exact same override, gate included, succeeds — proving the
-        // failure above was the gate, not a broken fixture.
-        [$gatedExit, $gatedOutput] = targetOpsRun(
-            targetOpsHealthCheckScript(),
-            ['--environment', 'staging'],
-            targetOpsBaseEnv(['CURL_LOG' => $curlLog]),
-            $scratch,
-        );
-        expect($gatedExit)->toBe(0, $gatedOutput);
-    } finally {
-        targetOpsCleanup($scratch);
-    }
-});
-
-it('ignores RATEGURU_HEALTH_CHECK_CLI in status unless the same gate is set', function () {
-    // rateguru_test_overrides_allowed() is one function backed by one
-    // environment variable, called at both gated sites (common's own
-    // deployment.conf loading, and this one in status) — there is no way to
-    // honor one override while denying the other, by design. So the
-    // observable proof here is necessarily the same first checkpoint as the
-    // deployment.conf test above (common refuses to source), reached via
-    // status this time rather than health-check directly — confirming status
-    // does not resolve or cache HEALTH_CHECK_BIN before that gate fires, and
-    // that the fake health-check is never reached.
-    $scratch = targetOpsScratchDir();
-
-    try {
-        $hcLog = $scratch.'/hc.log';
-        touch($hcLog);
-        $fakeHealthCheck = targetOpsFakeHealthCheck($scratch, $hcLog);
-
-        [$exit, $output] = targetOpsRun(
-            targetOpsStatusScript(),
-            ['--environment', 'staging'],
-            [
-                // Deliberately no RATEGURU_ALLOW_TEST_OVERRIDES here.
-                'RATEGURU_COMMON_FILE' => targetOpsCommonFile(),
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => targetOpsDeploymentConfPath(),
-                'RATEGURU_HEALTH_CHECK_CLI' => $fakeHealthCheck,
-            ],
-            $scratch,
-        );
-
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('/home/www/rateguru/config/deployment.conf');
-        expect(trim(File::get($hcLog)))->toBe('', 'the fake health-check must never run without the gate');
-
-        // The exact same overrides, gate included, reach and use the fake.
-        [$gatedExit, $gatedOutput] = targetOpsRun(
-            targetOpsStatusScript(),
-            ['--environment', 'staging'],
-            targetOpsBaseEnv(['RATEGURU_HEALTH_CHECK_CLI' => $fakeHealthCheck]),
-            $scratch,
-        );
-        expect($gatedExit)->toBe(0, $gatedOutput);
-        expect(trim(File::get($hcLog)))->toBe('--environment staging');
+        expect(trim(File::get($curlLog)))->toBe('', 'curl must never run for a disabled target');
+        expect(substr_count(File::get($counterLog), "\n"))->toBe(1, 'the validator should still run exactly once for a disabled target');
     } finally {
         targetOpsCleanup($scratch);
     }

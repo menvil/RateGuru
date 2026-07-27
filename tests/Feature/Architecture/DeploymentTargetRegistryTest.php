@@ -157,6 +157,14 @@ function runTargetHelper(string $snippet, ?string $registryFile = null, ?string 
 
     $command = '';
 
+    // RATEGURU_TARGET_REGISTRY_FILE and RATEGURU_TARGETS_CLI are only honored
+    // alongside RATEGURU_ALLOW_TEST_OVERRIDES=true (a stray environment
+    // variable in a real root shell must never silently redirect a privileged
+    // script), so any test that sets either must set this too.
+    if ($registryFile !== null || $validator !== null) {
+        $command .= 'RATEGURU_ALLOW_TEST_OVERRIDES=true ';
+    }
+
     if ($registryFile !== null) {
         $command .= 'RATEGURU_TARGET_REGISTRY_FILE='.escapeshellarg($registryFile).' ';
     }
