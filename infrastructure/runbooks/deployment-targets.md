@@ -282,7 +282,7 @@ additionally requires the file to be a regular file, not a symlink, owned
 `deployment.conf` already gets. A symlink is refused everywhere, because it lets
 the validated path and the read path diverge.
 
-## Read-only target-aware operations (slice 2)
+## Read-only target-aware operations (slice 2, completed)
 
 `health-check` and `status` now accept exactly one selector:
 
@@ -312,21 +312,46 @@ promise, not an implementation detail: `targets validate` continues to reject
 [Validation](#validation) above), so a target cannot become operable by
 mistake — flipping it requires a reviewed registry change.
 
-### No VPS change, and tits-guru is still not deployable
+### tits-guru is still not deployable
 
-This slice changes only `infrastructure/scripts/common`, `health-check` and
-`status` in this repository. It does not install anything on the VPS — the
-current deploy workflow still runs `health-check --environment staging`
-exactly as before, unaffected by any of this. `tits-guru` has no directories,
-users, database, socket, queue worker, cron entry, or Nginx site; rejecting it
-at `lifecycle=planned` is exactly what keeps a *declared* target from being
-mistaken for a *deployable* one.
+`tits-guru` has no directories, users, database, socket, queue worker, cron
+entry, or Nginx site; rejecting it at `lifecycle=planned` is exactly what keeps
+a *declared* target from being mistaken for a *deployable* one. That stays
+true across every slice below, installed or not.
 
 ### What is deliberately still legacy-only
 
-`deploy`, `rollback`, `cleanup`, and the backup family are untouched in this
-slice — they still accept only `--environment`. See the migration sequence
-below.
+`deploy`, `rollback`, `cleanup`, and the backup family are untouched by this
+slice or the next — they still accept only `--environment`. See the migration
+sequence below.
+
+## Installing on the VPS (slice 2b)
+
+Slice 2 changed only files in this repository — nothing was installed on the
+VPS, and the current deploy workflow kept running
+`health-check --environment staging` exactly as before, unaffected. This slice
+adds `infrastructure/scripts/install-target-operations`, which installs
+**only** the read-only subset onto the real host: the registry and the four
+read-only scripts (`targets`, `common`, `health-check`, `status`) — nothing
+that writes to a target's filesystem, database, or running service state.
+
+Full detail — modes, ownership/mode requirements, backup and rollback
+behaviour, manual recovery, expected server commands — is in
+[`install-target-operations.md`](install-target-operations.md). In short:
+
+- `--check` validates the committed source files and host tooling; read-only,
+  no root, safe anywhere;
+- `--apply` verifies a staged candidate copy, installs transactionally, then
+  verifies the installed result against the real host — with every
+  `RATEGURU_*` test override explicitly unset — before committing; any
+  failure after files start changing rolls everything back automatically;
+- `--verify` re-runs the installed-file and runtime-parity checks against
+  whatever is currently installed, with no changes and no backup.
+
+Installing this tooling does not provision `tits-guru` and does not touch
+`deploy`, `rollback`, `cleanup`, any backup script, workflows, sudoers, or
+server wrappers — see the two subsections above, which hold regardless of
+whether this slice has run on the VPS yet.
 
 ## Compatibility with the current --environment interface
 
@@ -355,13 +380,17 @@ confirming both still succeed.
    helpers, docs and tests. *(completed)*
 2. **Read-only target operations** — `health-check` and `status` accept
    `--target` alongside `--environment`, gated to `lifecycle=active` targets
-   only. *(in progress — this is the section above)*
-3. **Deploy path** — `deploy`, `rollback`, `cleanup` accept `--target`.
-4. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
+   only. *(completed — see the section above)*
+3. **Install and verify read-only operations** — a transactional installer
+   places the registry and the four read-only scripts on the staging VPS and
+   proves runtime parity against the real host. *(in progress — see
+   [Installing on the VPS](#installing-on-the-vps-slice-2b) above and
+   [`install-target-operations.md`](install-target-operations.md))*
+4. **Deploy path** — `deploy`, `rollback`, `cleanup` accept `--target`.
+5. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
    `offsite-retention`, `restore-test`, `offsite-restore-test`, preserving the
    existing `staging` backup namespace so no existing local or B2 path moves.
-5. **Perimeter** — GitHub Actions workflows, sudoers rules, server wrappers.
-6. **Install** — place and validate the registry on the staging VPS.
+6. **Perimeter** — GitHub Actions workflows, sudoers rules, server wrappers.
 7. **Remove compatibility** — drop `--environment` only after `staging-main`
    parity is proven end to end.
 

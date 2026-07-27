@@ -57,23 +57,30 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first is completed and the second is in progress; the
-phase stays **current**.
+Slices, in order. The first two are completed and the third is in progress;
+the phase stays **current**.
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
    deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy
    read-only `target_*` helpers in `common`. Declared the model only: no
    operational script consumed it, and nothing was installed on the VPS. See
    `runbooks/deployment-targets.md`.
-2. **Read-only target operations — in progress.** `health-check` and `status`
+2. **Read-only target operations — completed.** `health-check` and `status`
    accept `--target TARGET` alongside `--environment`, gated to
    `lifecycle=active` targets via `require_active_target` — `tits-guru` stays
-   rejected. `--environment` keeps its exact prior behaviour; nothing is
+   rejected. `--environment` keeps its exact prior behaviour; nothing was
    installed on the VPS by this slice either.
-3. Deploy path — `deploy`, `rollback`, `cleanup`.
-4. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
-5. Perimeter — workflows, sudoers, server wrappers.
-6. Install and validate the registry on the staging VPS.
+3. **Install and verify read-only operations — in progress.**
+   `infrastructure/scripts/install-target-operations` installs only the
+   registry and the four read-only scripts onto the staging VPS —
+   transactional, with a staged pre-install check, automatic rollback on any
+   failure, and runtime-parity verification against the real host with every
+   test override explicitly unset. `deploy`/`rollback`/`cleanup`/backup stay
+   untouched and legacy-only; `tits-guru` stays unprovisioned. See
+   `runbooks/install-target-operations.md`.
+4. Deploy path — `deploy`, `rollback`, `cleanup`.
+5. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
+6. Perimeter — workflows, sudoers, server wrappers.
 7. Remove the `--environment` interface, only after `staging-main` parity is
    proven end to end.
 
