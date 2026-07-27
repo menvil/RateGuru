@@ -80,7 +80,15 @@ class ResolvedProjectSettings
         $locale = app()->getLocale();
         $fallbackLocale = config('locales.fallback', 'en');
         $localized = is_array($page[$locale] ?? null) ? $page[$locale] : [];
-        $fallback = is_array($page[$fallbackLocale] ?? null) ? $page[$fallbackLocale] : [];
+        $storedFallback = is_array($page[$fallbackLocale] ?? null) ? $page[$fallbackLocale] : [];
+        $configuredPage = config("static-pages.defaults.{$pageKey}", []);
+        $configuredFallback = is_array($configuredPage[$fallbackLocale] ?? null)
+            ? $configuredPage[$fallbackLocale]
+            : [];
+        $fallback = [
+            'title' => $this->localizedStaticPageValue($storedFallback, $configuredFallback, 'title'),
+            'content' => $this->localizedStaticPageValue($storedFallback, $configuredFallback, 'content'),
+        ];
 
         return [
             'title' => $this->localizedStaticPageValue($localized, $fallback, 'title'),

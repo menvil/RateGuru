@@ -12,9 +12,37 @@ it('serves the public about page with its default content', function () {
         ->assertSee($page['content']);
 });
 
-it('does not publish legal and contact pages before administrator content exists', function (string $routeName) {
-    $this->get(route($routeName))->assertNotFound();
-})->with(['pages.privacy', 'pages.terms', 'pages.contact']);
+it('serves legal and contact pages with editable default content', function (string $routeName, string $pageKey) {
+    $page = config("static-pages.defaults.{$pageKey}.en");
+
+    $response = $this->get(route($routeName))
+        ->assertOk()
+        ->assertSee($page['title'])
+        ->assertSee($page['content']);
+
+    if ($pageKey === 'contact') {
+        $response->assertSee('data-testid="contact-form"', false);
+    } else {
+        $response->assertSee('data-testid="static-page"', false);
+    }
+})->with([
+    'privacy' => ['pages.privacy', 'privacy'],
+    'terms' => ['pages.terms', 'terms'],
+    'contact' => ['pages.contact', 'contact'],
+]);
+
+it('falls back to configured legal content for settings saved with the former blank defaults', function () {
+    $staticPages = config('static-pages.defaults');
+    $staticPages['privacy']['en']['content'] = '';
+    $staticPages['privacy']['ru']['content'] = '';
+
+    ProjectSettings::factory()->create(['static_pages' => $staticPages]);
+
+    $this->withSession(['locale' => 'ru'])
+        ->get(route('pages.privacy'))
+        ->assertOk()
+        ->assertSee(config('static-pages.defaults.privacy.en.content'));
+});
 
 it('publishes a legal or contact page after an administrator supplies content', function (string $routeName, string $pageKey) {
     $staticPages = config('static-pages.defaults');

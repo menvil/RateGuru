@@ -99,7 +99,7 @@
                      native CSS `translate` property (not `transform`), so `translate` is what
                      must be listed in transition-property for the slide to animate. --}}
                 'absolute right-0 top-0 bottom-0 w-full overflow-y-auto border-l border-rg-border bg-rg-card px-2 py-3 transition-[translate,box-shadow] duration-200 ease-out motion-reduce:transition-none sm:px-4 sm:py-5 lg:px-6 focus:outline-none',
-                'lg:w-[min(70vw,1008px)]' => ! $mobileOnly,
+                'rg-desktop-post-detail-overlay' => ! $mobileOnly,
                 'pointer-events-auto translate-x-0 shadow-rgPopover' => $isOpen,
                 {{-- shadow-none while closed: the panel parks with its left edge flush against
                      the site's right border, so a persistent shadow's blur would bleed left into

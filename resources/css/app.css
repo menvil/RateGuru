@@ -25,6 +25,17 @@
     display: block;
 }
 @media (min-width: 1024px) {
+    .rg-app-header-layout {
+        display: grid;
+        grid-template-columns: 1fr minmax(0, 480px) auto;
+        gap: 1rem;
+        padding-inline: 1.25rem;
+    }
+
+    .rg-desktop-post-detail-overlay {
+        width: min(70vw, 1008px);
+    }
+
     .rg-feed-split-grid {
         display: grid;
         grid-template-columns: 2fr 3fr;

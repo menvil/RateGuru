@@ -28,7 +28,7 @@
                  dropdowns (user menu, notifications, search suggestions) open invisibly
                  behind the open panel — they cannot escape the header's stacking context. --}}
             <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-testid="app-header">
-                <div class="mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4 lg:grid lg:grid-cols-[1fr_minmax(0,480px)_auto] lg:gap-4 lg:px-5">
+                <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4">
                     <button
                         type="button"
                         class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"

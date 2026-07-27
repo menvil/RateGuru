@@ -42,6 +42,14 @@ return [
         'profile' => 'Profile',
         'log_out' => 'Log out',
     ],
+    'contact' => [
+        'name' => 'Name',
+        'email' => 'Email',
+        'subject' => 'Subject',
+        'message' => 'Message',
+        'submit' => 'Send message',
+        'sent' => 'Your message has been sent to the administration.',
+    ],
     'post' => [
         'upload' => 'Upload post',
         'title' => 'Title',

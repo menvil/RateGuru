@@ -75,7 +75,7 @@ it('keeps the configured global overlay full width until desktop', function () {
     expect($html)
         ->toContain('data-testid="post-detail-overlay-host"')
         ->toContain('w-full')
-        ->toContain('lg:w-[min(70vw,1008px)]')
+        ->toContain('rg-desktop-post-detail-overlay')
         ->not->toContain('md:w-[min(70vw,1008px)]');
 });
 
