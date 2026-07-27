@@ -79,6 +79,8 @@ it('deploys manually selected refs to staging', function () {
         ->toContain('release_id="${release_version}-${timestamp}-${short_sha}"')
         ->toContain('--arg source_sha "${source_sha}"')
         ->toContain('sha256sum "${artifact_name}"')
-        ->toContain('retention-days: 14')
+        // Staging artifacts are consumed by the deploy job in the same run;
+        // they are kept only briefly for manual re-download afterwards.
+        ->toContain('retention-days: 3')
         ->toContain('release-id: ${{ needs.build.outputs.release-id }}');
 });
