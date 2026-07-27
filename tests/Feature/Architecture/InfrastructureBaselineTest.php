@@ -90,6 +90,81 @@ it('keeps deployment failure recovery active until terminal history is written',
         ->and(substr_count($deploy, 'trap - EXIT'))->toBe(1);
 });
 
+it('normalizes release permissions while preserving the executable bit', function () {
+    $deploy = infrastructureSource('scripts/deploy');
+
+    // Extract the real normalization block from the script and run it against a
+    // fixture, so this proves the shipped code's behavior, not a copy of it.
+    expect(preg_match(
+        '/# --- normalize release permissions \(begin\) ---\n(.*?)\n# --- normalize release permissions \(end\) ---/s',
+        $deploy,
+        $matches,
+    ))->toBe(1, 'could not locate the release permission normalization block in scripts/deploy');
+
+    $block = $matches[1];
+
+    // Structural guard (always runs, even where execution is skipped below):
+    // the release-extraction step must key on the executable bit and never
+    // blanket-chmod every file, so it must not force world modes.
+    expect($block)
+        ->toContain('-perm /111 \\'."\n".'    -exec chmod 0750 {} +')
+        ->toContain('! -perm /111 \\'."\n".'    -exec chmod 0640 {} +')
+        // Every `-type f` in the block is guarded by a `-perm` clause; a
+        // `-type f` leading straight into `-exec` would be the old blanket step.
+        ->not->toMatch('/-type f\s*\\\\\n\s*-exec/')
+        ->not->toContain('chmod 0777');
+
+    // The block uses GNU find's `-perm /MODE` (the deploy target is Linux).
+    // Skip execution where the host find lacks it (e.g. BSD find on macOS);
+    // Linux CI still exercises the real behavior.
+    exec('find '.escapeshellarg(sys_get_temp_dir()).' -maxdepth 0 -perm /111 >/dev/null 2>&1', $probe, $probeExit);
+    if ($probeExit !== 0) {
+        test()->markTestSkipped('host find does not support `-perm /111` (GNU find only)');
+    }
+
+    $root = sys_get_temp_dir().'/deploy-perms-'.uniqid();
+
+    try {
+        // A directory, a Git-executable script, and two non-executable files.
+        mkdir($root.'/bin', 0o700, true);
+        file_put_contents($root.'/bin/install-mail-capture', "#!/usr/bin/env bash\n");
+        chmod($root.'/bin/install-mail-capture', 0o755);
+        file_put_contents($root.'/config.php', "<?php\n");
+        chmod($root.'/config.php', 0o644);
+        file_put_contents($root.'/bin/readme.md', "notes\n");
+        chmod($root.'/bin/readme.md', 0o600);
+
+        $script = 'set -euo pipefail'."\n"
+            .'TEMP_RELEASE_ROOT='.escapeshellarg($root)."\n"
+            .$block;
+
+        $output = [];
+        $exit = 0;
+        exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
+        expect($exit)->toBe(0, "normalization block failed:\n".implode("\n", $output));
+
+        $mode = fn (string $path): int => fileperms($path) & 0o777;
+
+        // 1. executable file stays executable; 2. plain files lose exec;
+        // 3. directories stay traversable; 4. no world bits anywhere.
+        expect($mode($root.'/bin/install-mail-capture'))->toBe(0o750);
+        expect($mode($root.'/config.php'))->toBe(0o640);
+        expect($mode($root.'/bin/readme.md'))->toBe(0o640);
+        expect($mode($root.'/bin'))->toBe(0o750);
+
+        foreach ([
+            $root.'/bin',
+            $root.'/bin/install-mail-capture',
+            $root.'/config.php',
+            $root.'/bin/readme.md',
+        ] as $path) {
+            expect($mode($path) & 0o007)->toBe(0, "world bits set on {$path}");
+        }
+    } finally {
+        exec('rm -rf '.escapeshellarg($root));
+    }
+});
+
 it('documents immutable offsite upload recovery', function () {
     expect(infrastructureSource('runbooks/backups.md'))
         ->toContain('offsite-backup')

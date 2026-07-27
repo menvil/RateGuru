@@ -334,13 +334,26 @@ chown -R \
     "${DEPLOY_ACCOUNT}:${CODE_GROUP}" \
     "${TEMP_RELEASE_ROOT}"
 
+# Normalize modes without discarding the executable bit. Files Git tracked as
+# executable (installer/verify/status scripts, and any future ones) are extracted
+# with their exec bit intact and must stay runnable; every other regular file is
+# normalized to non-executable. Ownership was already normalized by chown -R
+# above; we never widen beyond group access (no world read/write/execute).
+# --- normalize release permissions (begin) ---
 find "${TEMP_RELEASE_ROOT}" \
     -type d \
     -exec chmod 0750 {} +
 
 find "${TEMP_RELEASE_ROOT}" \
     -type f \
+    -perm /111 \
+    -exec chmod 0750 {} +
+
+find "${TEMP_RELEASE_ROOT}" \
+    -type f \
+    ! -perm /111 \
     -exec chmod 0640 {} +
+# --- normalize release permissions (end) ---
 
 if [[ "${RUN_MIGRATIONS}" == true ]] \
     && [[ ! -f "${TEMP_RELEASE_ROOT}/artisan" ]]
