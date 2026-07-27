@@ -33,19 +33,30 @@ ACTIVE_ALLOWLIST="staging-main"
 SECRET_NAME_PATTERN='password|passwd|secret|token|private_key|privatekey|credential|credentials|dsn|api_key|apikey|access_key|accesskey'
 
 # Values that must be unique across targets: a collision would make two targets
-# silently share state, a socket, a backup path or a service unit.
+# silently share state, a socket, a backup path, an account or a service unit.
+#
+# Each entry is "<jq path>|<label>". The jq path must not itself contain '|',
+# so array fields use the `[]?` form rather than a pipe.
 COLLISION_FIELDS=(
     '.application_root|application_root'
+    '.incoming_artifacts|incoming artifacts directory'
+    '.runtime_user|runtime user'
+    '.deploy_user|deploy user'
+    '.code_group|code group'
     '.database.name|database name'
+    '.database.application_role|database application role'
     '.health.host_header|health host header'
     '.backup.namespace|backup namespace'
+    '.php_fpm.pool|PHP-FPM pool'
     '.php_fpm.socket|PHP-FPM socket'
     '.supervisor.program|Supervisor program'
     '.supervisor.queue|queue name'
     '.scheduler.name|scheduler name'
     '.nginx.site_name|Nginx site name'
-    '.runtime_user|runtime user'
-    '.deploy_user|deploy user'
+    '.nginx.internal_hostname|Nginx internal hostname'
+    # Flattened across targets: two targets claiming the same public hostname
+    # would collide in Nginx and in certificate issuance.
+    '.public_hostnames[]?|public hostname'
 )
 
 REQUIRED_STRINGS=(
@@ -170,7 +181,11 @@ if [[ "${COMMAND}" != "show" ]] && [[ "${TARGET_SEEN}" == true ]]; then
     fail "--target is only valid for show"
 fi
 
-if [[ -z "${REGISTRY_FILE}" ]]; then
+# An explicitly given --file must be honoured as given. Falling back when it is
+# empty would silently validate a different file than the caller named.
+if [[ "${FILE_SEEN}" == true ]]; then
+    [[ -n "${REGISTRY_FILE}" ]] || fail "--file requires a non-empty value"
+else
     REGISTRY_FILE="${RATEGURU_TARGET_REGISTRY_FILE:-${REGISTRY_DEFAULT_FILE}}"
 fi
 

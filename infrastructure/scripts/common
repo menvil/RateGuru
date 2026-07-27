@@ -277,18 +277,26 @@ target_registry_assert_usable() {
     fi
 }
 
+# Internal: presence lookup that assumes validate_target_id and
+# target_registry_assert_usable have already run. Callers that have done both
+# use this instead of target_exists, so the registry is not re-stat'ed and its
+# schema not re-checked once per property access.
+_target_present() {
+    local target_id="$1"
+    local registry_file="$2"
+
+    jq -e --arg id "${target_id}" \
+        '(.targets | type == "object") and (.targets | has($id))' \
+        "${registry_file}" >/dev/null 2>&1
+}
+
 target_exists() {
     local target_id="${1-}"
 
     validate_target_id "${target_id}"
     target_registry_assert_usable
 
-    local registry_file
-    registry_file="$(target_registry_file)"
-
-    jq -e --arg id "${target_id}" \
-        '(.targets | type == "object") and (.targets | has($id))' \
-        "${registry_file}" >/dev/null 2>&1
+    _target_present "${target_id}" "$(target_registry_file)"
 }
 
 # Whole normalized target object, key-sorted so output is deterministic.
@@ -301,7 +309,7 @@ target_get() {
     local registry_file
     registry_file="$(target_registry_file)"
 
-    if ! target_exists "${target_id}"; then
+    if ! _target_present "${target_id}" "${registry_file}"; then
         fail "unknown target: ${target_id}"
     fi
 
@@ -322,7 +330,7 @@ _target_property() {
     local registry_file
     registry_file="$(target_registry_file)"
 
-    if ! target_exists "${target_id}"; then
+    if ! _target_present "${target_id}" "${registry_file}"; then
         fail "unknown target: ${target_id}"
     fi
 

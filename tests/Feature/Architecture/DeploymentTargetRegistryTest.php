@@ -41,15 +41,19 @@ function runTargetsCli(array $arguments): array
 }
 
 /**
- * Write a mutated copy of the committed registry and validate it.
+ * Write a mutated copy of the committed registry and return its path.
  *
  * The mutation is a jq program applied to the real file, so every negative case
  * starts from a registry that is otherwise valid — proving the specific rule
  * under test is what rejects it.
  *
- * @return array{0: int, 1: string}
+ * The jq exit code is asserted: a failed mutation would otherwise leave an
+ * empty file behind and every "rejected" assertion would pass for the wrong
+ * reason.
+ *
+ * Caller owns the returned path and should unlink it.
  */
-function validateMutatedRegistry(string $jqProgram): array
+function buildMutatedRegistry(string $jqProgram): string
 {
     $path = sys_get_temp_dir().'/target-registry-'.uniqid().'.json';
 
@@ -61,7 +65,24 @@ function validateMutatedRegistry(string $jqProgram): array
     );
 
     exec($build.' 2>&1', $buildOutput, $buildExit);
-    expect($buildExit)->toBe(0, "could not build mutated registry:\n".implode("\n", $buildOutput));
+
+    expect($buildExit)->toBe(
+        0,
+        "could not build mutated registry with [{$jqProgram}]:\n".implode("\n", $buildOutput),
+    );
+    expect(filesize($path))->toBeGreaterThan(0, "mutation produced an empty registry: {$jqProgram}");
+
+    return $path;
+}
+
+/**
+ * Build a mutated registry and run `targets validate` against it.
+ *
+ * @return array{0: int, 1: string}
+ */
+function validateMutatedRegistry(string $jqProgram): array
+{
+    $path = buildMutatedRegistry($jqProgram);
 
     try {
         return runTargetsCli(['validate', '--file', $path]);
@@ -617,16 +638,21 @@ it('rejects an empty or non-object targets map', function () {
 it('rejects collision-sensitive values shared between targets', function () {
     $fields = [
         '.application_root',
+        '.incoming_artifacts',
         '.runtime_user',
         '.deploy_user',
+        '.code_group',
         '.database.name',
+        '.database.application_role',
         '.health.host_header',
         '.backup.namespace',
+        '.php_fpm.pool',
         '.php_fpm.socket',
         '.supervisor.program',
         '.supervisor.queue',
         '.scheduler.name',
         '.nginx.site_name',
+        '.nginx.internal_hostname',
     ];
 
     foreach ($fields as $field) {
@@ -636,6 +662,32 @@ it('rejects collision-sensitive values shared between targets', function () {
         expect($exit)->not->toBe(0, "should have rejected duplicate {$field}");
         expect($output)->toContain('duplicate');
     }
+
+    // The enumeration above must stay in step with the script's own list, so a
+    // field added there without a test here is caught.
+    $script = File::get(targetsCli());
+
+    expect(preg_match('/COLLISION_FIELDS=\((.*?)\n\)/s', $script, $matches))
+        ->toBe(1, 'could not locate COLLISION_FIELDS in scripts/targets');
+
+    preg_match_all("/^\s*'([^|]+)\|/m", $matches[1], $declared);
+
+    // public_hostnames is covered separately below because it is an array.
+    expect(array_values(array_diff($declared[1], [...$fields, '.public_hostnames[]?'])))
+        ->toBe([], 'a collision field is declared in scripts/targets but untested here');
+});
+
+it('rejects a single overlapping public hostname between targets', function () {
+    // Element-wise, not whole-array: tits-guru keeps its own hostname and adds
+    // one of staging-main's, which must still collide.
+    [$exit, $output] = validateMutatedRegistry(
+        '.targets["tits-guru"].public_hostnames = ["tits.guru", "rateguru.staging.myprojects.pp.ua"]',
+    );
+
+    expect($exit)->not->toBe(0, 'an overlapping public hostname must be rejected');
+    expect($output)
+        ->toContain('duplicate')
+        ->toContain('rateguru.staging.myprojects.pp.ua');
 });
 
 it('rejects secret-like property names at any depth', function () {
@@ -658,6 +710,33 @@ it('rejects secret-like property names at any depth', function () {
 
         expect($exit)->not->toBe(0, "should have rejected: {$mutation}");
         expect($output)->toContain('secret-like');
+    }
+});
+
+it('matches secret-like names as substrings, deliberately', function () {
+    // The guard is intentionally conservative: it substring-matches, so names
+    // that merely embed a secret word are rejected too.
+    //
+    // The alternative — matching whole underscore-separated segments — would
+    // accept `tokens_per_day`, but it would also start accepting `secretkey`
+    // and `passwordhash`, which are unambiguously secret names. A false
+    // positive here costs one rename; a false negative commits a credential to
+    // a world-readable file. This test pins that choice so a future loosening
+    // is a deliberate decision rather than an accident.
+    foreach (['tokens_per_day', 'dsn_disabled', 'credentials_owner_note'] as $name) {
+        [$exit, $output] = validateMutatedRegistry(".targets[\"staging-main\"].{$name} = 1");
+
+        expect($exit)->not->toBe(0, "conservative guard should still reject: {$name}");
+        expect($output)->toContain('secret-like');
+    }
+
+    // Names with no secret substring at all pass cleanly, so the guard is not
+    // simply rejecting every added property.
+    foreach (['daily_rate_limit', 'owner_note', 'telemetry_enabled'] as $name) {
+        [$exit, $output] = validateMutatedRegistry(".targets[\"staging-main\"].{$name} = 1");
+
+        expect($exit)->toBe(0, "benign property name should be accepted: {$name}\n{$output}");
+        expect($output)->not->toContain('secret-like');
     }
 });
 
@@ -732,14 +811,11 @@ it('fails clearly in every target helper error mode', function () {
     @unlink($malformed);
 
     // Unsupported schema version.
-    [$exit, $output] = runTargetHelper('target_root staging-main', (function () {
-        $path = sys_get_temp_dir().'/v9-'.uniqid().'.json';
-        exec('jq '.escapeshellarg('.schema_version = 9').' '.escapeshellarg(targetRegistryPath()).' > '.escapeshellarg($path));
-
-        return $path;
-    })());
+    $unsupported = buildMutatedRegistry('.schema_version = 9');
+    [$exit, $output] = runTargetHelper('target_root staging-main', $unsupported);
     expect($exit)->not->toBe(0);
     expect($output)->toContain('schema_version');
+    @unlink($unsupported);
 
     // Symlink.
     $link = sys_get_temp_dir().'/link-'.uniqid().'.json';
@@ -766,8 +842,7 @@ it('fails clearly in every target helper error mode', function () {
         '.targets["staging-main"].application_root = null',
         '.targets["staging-main"].application_root = 42',
     ] as $mutation) {
-        $path = sys_get_temp_dir().'/mut-'.uniqid().'.json';
-        exec('jq '.escapeshellarg($mutation).' '.escapeshellarg($registry).' > '.escapeshellarg($path));
+        $path = buildMutatedRegistry($mutation);
 
         [$exit, $output] = runTargetHelper('target_root staging-main', $path);
         expect($exit)->not->toBe(0, "should have failed for: {$mutation}");

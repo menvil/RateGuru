@@ -58,10 +58,22 @@ make the instance an explicit argument.
 The runtime path is **documented, not created**. This slice installs nothing on
 the VPS.
 
-Resolution order used by both `common` and `scripts/targets`:
+The two consumers resolve the path differently, because only one of them has
+`deployment.conf` available.
+
+`common` — sources `deployment.conf`, so it can honour a setting from there:
 
 1. `RATEGURU_TARGET_REGISTRY_FILE` — tests and controlled tooling;
 2. `TARGET_REGISTRY_FILE` from `deployment.conf`, when set;
+3. `/home/www/rateguru/config/deployment-targets.json`.
+
+`scripts/targets` — deliberately does **not** source `common` or
+`deployment.conf` (it must run in the repository during CI, where no
+`deployment.conf` exists), so `TARGET_REGISTRY_FILE` is not consulted at all:
+
+1. `--file PATH`, when given — an explicit empty value is rejected, never
+   silently replaced by a fallback;
+2. `RATEGURU_TARGET_REGISTRY_FILE`;
 3. `/home/www/rateguru/config/deployment-targets.json`.
 
 ### Registry versus deployment.conf
@@ -157,11 +169,25 @@ infrastructure/scripts/targets show --target staging-main --file infrastructure/
 `validate` reports every problem it finds, not just the first, and exits
 non-zero if any remain.
 
-Beyond per-field rules, validation rejects collisions across targets on values
-where sharing would be actively unsafe: application root, database name, health
-Host header, backup namespace, PHP-FPM socket, Supervisor program, queue name,
-scheduler name, Nginx site name, and both runtime and deploy users. Two targets
-sharing a socket or a queue name would silently cross-serve traffic and jobs.
+Beyond per-field rules, validation rejects collisions across targets on every
+value where sharing would be actively unsafe:
+
+- `application_root`, `incoming_artifacts`;
+- `runtime_user`, `deploy_user`, `code_group`;
+- `database.name`, `database.application_role`;
+- `health.host_header`;
+- `backup.namespace`;
+- `php_fpm.pool`, `php_fpm.socket`;
+- `supervisor.program`, `supervisor.queue`;
+- `scheduler.name`;
+- `nginx.site_name`, `nginx.internal_hostname`;
+- `public_hostnames`, compared element-wise across all targets rather than
+  whole-array, so a single overlapping hostname is caught.
+
+Two targets sharing a socket or a queue name would silently cross-serve traffic
+and jobs; sharing an incoming directory would let one target's artifact be
+deployed to the other; sharing a public hostname would collide in Nginx and in
+certificate issuance.
 
 ### Repository versus runtime checks
 
