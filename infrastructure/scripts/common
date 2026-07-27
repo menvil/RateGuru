@@ -284,10 +284,6 @@ target_registry_assert_usable() {
     fi
 }
 
-# Internal: presence lookup that assumes validate_target_id and
-# target_registry_assert_usable have already run. Callers that have done both
-# use this instead of target_exists, so the registry is not re-stat'ed and its
-# schema not re-checked once per property access.
 # Locate the registry validator. It ships beside this file, so an installed
 # common at /home/www/rateguru/bin/common finds /home/www/rateguru/bin/targets.
 target_registry_validator() {
@@ -350,6 +346,10 @@ target_registry_assert_valid() {
     _TARGET_REGISTRY_VALIDATED_FILE="${registry_file}"
 }
 
+# Internal: presence lookup that assumes validate_target_id and
+# target_registry_assert_usable have already run. Callers that have done both
+# use this instead of target_exists, so the registry is not re-stat'ed and its
+# schema not re-checked once per property access.
 _target_present() {
     local target_id="$1"
     local registry_file="$2"
