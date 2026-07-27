@@ -2,12 +2,29 @@
 
 set -Eeuo pipefail
 
-# RATEGURU_DEPLOYMENT_CONF_FILE is for tests and controlled tooling only — the
-# same override scripts/targets already honours when it parses this file
-# without sourcing it. Production never sets it, so the resolved path and every
-# check below are unchanged on a real host.
+# Gates every RATEGURU_*_FILE / RATEGURU_*_CLI override that could redirect a
+# privileged script at an attacker- or operator-controlled file
+# (RATEGURU_DEPLOYMENT_CONF_FILE below; RATEGURU_HEALTH_CHECK_CLI in status).
+# Without this ALSO being explicitly true, those specific overrides are
+# ignored outright and the script resolves to its hardcoded production path —
+# a stray environment variable surviving in a real root shell (a leftover
+# export, a shared profile) can never silently redirect it. Tests set this
+# alongside the override itself, in the same command line.
+#
+# Defined here, ahead of everything else, so it is available before CONFIG_FILE
+# is resolved a few lines down — function definitions are inert until called,
+# so this has no effect on its own.
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
 CONFIG_FILE_DEFAULT="/home/www/rateguru/config/deployment.conf"
-CONFIG_FILE="${RATEGURU_DEPLOYMENT_CONF_FILE:-${CONFIG_FILE_DEFAULT}}"
+
+if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_DEPLOYMENT_CONF_FILE:-}" ]]; then
+    CONFIG_FILE="${RATEGURU_DEPLOYMENT_CONF_FILE}"
+else
+    CONFIG_FILE="${CONFIG_FILE_DEFAULT}"
+fi
 
 if [[ ! -r "${CONFIG_FILE}" ]]; then
     echo "ERROR: deployment configuration is unavailable: ${CONFIG_FILE}" >&2
@@ -470,6 +487,83 @@ require_active_target() {
 
     if [[ "${lifecycle}" != "active" ]]; then
         fail "target ${target_id} has lifecycle=${lifecycle}, not active"
+    fi
+}
+
+# Shared --target/--environment selector parsing for target-aware operational
+# commands (health-check, status). Runs in the caller's own shell — never a
+# subshell — so it sets TARGET_ID, ENVIRONMENT, TARGET_SEEN and
+# ENVIRONMENT_SEEN directly in the caller's scope rather than returning them.
+#
+# Call as: parse_selector_args "$0" "$@"  (or an explicit program name in
+# place of "$0", since callers invoke this via `bash script`, not `./script`).
+#
+# Enforces: exactly one of --target/--environment; the two together fail;
+# duplicate --target or duplicate --environment fails; a selector given with no
+# value, or an explicitly empty value, fails; an unrecognized argument fails;
+# --help prints both forms and exits 0. It does not perform target/environment
+# *semantic* validation (require_active_target, validate_environment) — that
+# stays with the caller, since what happens with a validated selector differs
+# per command.
+parse_selector_args() {
+    local program_name="$1"
+    shift
+
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                [[ $# -ge 2 ]] || fail "--target requires a value"
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                if [[ "${ENVIRONMENT_SEEN}" == true ]]; then
+                    fail "--environment given more than once"
+                fi
+
+                [[ $# -ge 2 ]] || fail "--environment requires a value"
+
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                cat <<USAGE
+Usage:
+  ${program_name} --target TARGET
+  ${program_name} --environment staging|production
+USAGE
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${TARGET_SEEN}" == true ]] && [[ "${ENVIRONMENT_SEEN}" == true ]]; then
+        fail "--target and --environment cannot be combined"
+    fi
+
+    if [[ "${TARGET_SEEN}" != true ]] && [[ "${ENVIRONMENT_SEEN}" != true ]]; then
+        fail "exactly one of --target or --environment is required"
+    fi
+
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        [[ -n "${TARGET_ID}" ]] || fail "--target requires a non-empty value"
+    else
+        [[ -n "${ENVIRONMENT}" ]] || fail "--environment requires a non-empty value"
     fi
 }
 # --- deployment target registry (end) ---

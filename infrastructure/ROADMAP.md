@@ -57,7 +57,8 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. Only the first has landed; the phase stays **current**.
+Slices, in order. The first is completed and the second is in progress; the
+phase stays **current**.
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
    deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy

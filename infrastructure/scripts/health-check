@@ -7,76 +7,19 @@ set -Eeuo pipefail
 # shellcheck disable=SC1090
 source "${RATEGURU_COMMON_FILE:-/home/www/rateguru/bin/common}"
 
-usage() {
-    cat <<'USAGE'
-Usage:
-  health-check --target TARGET
-  health-check --environment staging|production
-USAGE
-}
-
-TARGET_ID=""
-ENVIRONMENT=""
-TARGET_SEEN=false
-ENVIRONMENT_SEEN=false
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --target)
-            if [[ "${TARGET_SEEN}" == true ]]; then
-                fail "--target given more than once"
-            fi
-
-            [[ $# -ge 2 ]] || fail "--target requires a value"
-
-            TARGET_ID="$2"
-            TARGET_SEEN=true
-            shift 2
-            ;;
-        --environment)
-            if [[ "${ENVIRONMENT_SEEN}" == true ]]; then
-                fail "--environment given more than once"
-            fi
-
-            [[ $# -ge 2 ]] || fail "--environment requires a value"
-
-            ENVIRONMENT="$2"
-            ENVIRONMENT_SEEN=true
-            shift 2
-            ;;
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        *)
-            fail "unknown argument: $1"
-            ;;
-    esac
-done
-
-if [[ "${TARGET_SEEN}" == true ]] && [[ "${ENVIRONMENT_SEEN}" == true ]]; then
-    fail "--target and --environment cannot be combined"
-fi
-
-if [[ "${TARGET_SEEN}" != true ]] && [[ "${ENVIRONMENT_SEEN}" != true ]]; then
-    fail "exactly one of --target or --environment is required"
-fi
+parse_selector_args health-check "$@"
 
 # require_active_target validates the target ID, the whole registry, that the
 # target exists, and that it is lifecycle=active — all before anything below
 # builds a URL or calls curl. A planned target (e.g. tits-guru today) or an
 # unknown one is rejected here, never reaching the network.
 if [[ "${TARGET_SEEN}" == true ]]; then
-    [[ -n "${TARGET_ID}" ]] || fail "--target requires a non-empty value"
-
     require_active_target "${TARGET_ID}"
 
     BASE_URL="$(target_health_url "${TARGET_ID}")"
     HOST_HEADER="$(target_health_host_header "${TARGET_ID}")"
     LABEL="${TARGET_ID}"
 else
-    [[ -n "${ENVIRONMENT}" ]] || fail "--environment requires a non-empty value"
-
     validate_environment "${ENVIRONMENT}"
 
     BASE_URL="$(environment_url "${ENVIRONMENT}")"

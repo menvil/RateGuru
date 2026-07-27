@@ -55,9 +55,14 @@ function targetOpsDeploymentConfPath(): string
  */
 function targetOpsScratchDir(): string
 {
-    $dir = sys_get_temp_dir().'/target-ops-'.uniqid();
-    mkdir($dir, 0o755, true);
-    mkdir($dir.'/bin', 0o755, true);
+    // uniqid() alone is timestamp-based and can collide under parallel test
+    // workers (this suite runs via `php artisan test --parallel`) if two
+    // processes call it in the same microsecond. more_entropy plus the PID
+    // makes a collision practically impossible without adding a dependency.
+    $dir = sys_get_temp_dir().'/target-ops-'.uniqid('', true).'-'.getmypid();
+
+    expect(@mkdir($dir, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}");
+    expect(@mkdir($dir.'/bin', 0o755, true))->toBeTrue("could not create scratch bin directory: {$dir}/bin");
 
     return $dir;
 }
@@ -65,6 +70,37 @@ function targetOpsScratchDir(): string
 function targetOpsCleanup(string $dir): void
 {
     exec('rm -rf '.escapeshellarg($dir));
+}
+
+/**
+ * `git show origin/develop:<path>`, with the exit code checked explicitly —
+ * shell_exec() alone cannot distinguish "content" from "git's error message,
+ * merged from stderr, about content that was never actually read" the way an
+ * exit code can. stdout and stderr are captured separately via proc_open so
+ * git's own diagnostics never contaminate the byte-for-byte comparison this
+ * is used for.
+ *
+ * @return array{0: bool, 1: string, 2: string} [ok, stdout, stderr]
+ */
+function targetOpsDevelopContent(string $path): array
+{
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $process = proc_open(
+        'git show origin/develop:'.escapeshellarg($path),
+        $descriptors,
+        $pipes,
+    );
+
+    expect($process)->not->toBeFalse('could not start git show');
+
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    $exit = proc_close($process);
+
+    return [$exit === 0, $stdout, $stderr];
 }
 
 /**
@@ -143,6 +179,11 @@ function targetOpsBaseEnv(array $overrides = []): array
 {
     return array_merge([
         'RATEGURU_COMMON_FILE' => targetOpsCommonFile(),
+        // Required alongside RATEGURU_DEPLOYMENT_CONF_FILE and
+        // RATEGURU_HEALTH_CHECK_CLI below — common ignores both unless this is
+        // also explicitly true, so a stray environment variable in a real root
+        // shell can never silently redirect a privileged script.
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_DEPLOYMENT_CONF_FILE' => targetOpsDeploymentConfPath(),
         'RATEGURU_TARGET_REGISTRY_FILE' => targetOpsRegistryPath(),
         'RATEGURU_TARGETS_CLI' => targetOpsTargetsCli(),
@@ -812,6 +853,99 @@ it('lets malformed registry JSON break target mode without breaking legacy stagi
     }
 });
 
+// --- test overrides require an explicit opt-in gate -------------------------
+
+it('ignores RATEGURU_DEPLOYMENT_CONF_FILE unless RATEGURU_ALLOW_TEST_OVERRIDES is also true', function () {
+    // A stray RATEGURU_DEPLOYMENT_CONF_FILE surviving in a real root shell
+    // (a leftover export, a shared profile) must never silently redirect
+    // common at an attacker- or operator-controlled file. Without the gate,
+    // common must fall through to its hardcoded production path — which does
+    // not exist here, so the script fails exactly as it would with no
+    // override at all, not with whatever the (ignored) fixture contains.
+    $scratch = targetOpsScratchDir();
+
+    try {
+        $curlLog = $scratch.'/curl.log';
+        touch($curlLog);
+        targetOpsFakeCurl($scratch, $curlLog);
+
+        [$exit, $output] = targetOpsRun(
+            targetOpsHealthCheckScript(),
+            ['--environment', 'staging'],
+            [
+                // Deliberately no RATEGURU_ALLOW_TEST_OVERRIDES here.
+                'RATEGURU_COMMON_FILE' => targetOpsCommonFile(),
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => targetOpsDeploymentConfPath(),
+                'CURL_LOG' => $curlLog,
+            ],
+            $scratch,
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('/home/www/rateguru/config/deployment.conf');
+        expect(trim(File::get($curlLog)))->toBe('', 'must fail before ever reaching curl');
+
+        // The exact same override, gate included, succeeds — proving the
+        // failure above was the gate, not a broken fixture.
+        [$gatedExit, $gatedOutput] = targetOpsRun(
+            targetOpsHealthCheckScript(),
+            ['--environment', 'staging'],
+            targetOpsBaseEnv(['CURL_LOG' => $curlLog]),
+            $scratch,
+        );
+        expect($gatedExit)->toBe(0, $gatedOutput);
+    } finally {
+        targetOpsCleanup($scratch);
+    }
+});
+
+it('ignores RATEGURU_HEALTH_CHECK_CLI in status unless the same gate is set', function () {
+    // rateguru_test_overrides_allowed() is one function backed by one
+    // environment variable, called at both gated sites (common's own
+    // deployment.conf loading, and this one in status) — there is no way to
+    // honor one override while denying the other, by design. So the
+    // observable proof here is necessarily the same first checkpoint as the
+    // deployment.conf test above (common refuses to source), reached via
+    // status this time rather than health-check directly — confirming status
+    // does not resolve or cache HEALTH_CHECK_BIN before that gate fires, and
+    // that the fake health-check is never reached.
+    $scratch = targetOpsScratchDir();
+
+    try {
+        $hcLog = $scratch.'/hc.log';
+        touch($hcLog);
+        $fakeHealthCheck = targetOpsFakeHealthCheck($scratch, $hcLog);
+
+        [$exit, $output] = targetOpsRun(
+            targetOpsStatusScript(),
+            ['--environment', 'staging'],
+            [
+                // Deliberately no RATEGURU_ALLOW_TEST_OVERRIDES here.
+                'RATEGURU_COMMON_FILE' => targetOpsCommonFile(),
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => targetOpsDeploymentConfPath(),
+                'RATEGURU_HEALTH_CHECK_CLI' => $fakeHealthCheck,
+            ],
+            $scratch,
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('/home/www/rateguru/config/deployment.conf');
+        expect(trim(File::get($hcLog)))->toBe('', 'the fake health-check must never run without the gate');
+
+        // The exact same overrides, gate included, reach and use the fake.
+        [$gatedExit, $gatedOutput] = targetOpsRun(
+            targetOpsStatusScript(),
+            ['--environment', 'staging'],
+            targetOpsBaseEnv(['RATEGURU_HEALTH_CHECK_CLI' => $fakeHealthCheck]),
+            $scratch,
+        );
+        expect($gatedExit)->toBe(0, $gatedOutput);
+        expect(trim(File::get($hcLog)))->toBe('--environment staging');
+    } finally {
+        targetOpsCleanup($scratch);
+    }
+});
+
 // --- lazy loading and no eval/dynamic jq ------------------------------------
 
 it('still does not read the registry merely by sourcing common', function () {
@@ -821,9 +955,10 @@ it('still does not read the registry merely by sourcing common', function () {
         $missingRegistry = $scratch.'/does-not-exist.json';
 
         $script = 'set -Eeuo pipefail'."\n"
+            .'RATEGURU_ALLOW_TEST_OVERRIDES=true'."\n"
             .'RATEGURU_DEPLOYMENT_CONF_FILE='.escapeshellarg(targetOpsDeploymentConfPath())."\n"
             .'RATEGURU_TARGET_REGISTRY_FILE='.escapeshellarg($missingRegistry)."\n"
-            .'export RATEGURU_DEPLOYMENT_CONF_FILE RATEGURU_TARGET_REGISTRY_FILE'."\n"
+            .'export RATEGURU_ALLOW_TEST_OVERRIDES RATEGURU_DEPLOYMENT_CONF_FILE RATEGURU_TARGET_REGISTRY_FILE'."\n"
             .'# shellcheck disable=SC1090'."\n"
             .'source '.escapeshellarg(targetOpsCommonFile())."\n"
             .'echo sourced-ok'."\n"
@@ -925,10 +1060,13 @@ it('documents the read-only target operations added in slice 2', function () {
         ->toContain('tits-guru')
         // Explicit statement that nothing was installed and deploy is unaffected.
         ->toContain('does not install anything on the VPS')
-        ->toContain('health-check --environment staging')
-        // Legacy support is stated explicitly.
-        ->toContain('with **no
-change to that path\'s behaviour**');
+        ->toContain('health-check --environment staging');
+
+    // Legacy support is stated explicitly. Whitespace-normalized so a markdown
+    // re-wrap of the paragraph (a different line-break position) cannot break
+    // this assertion the way it has before in this codebase.
+    $normalized = preg_replace('/\s+/', ' ', $runbook);
+    expect($normalized)->toContain("with **no change to that path's behaviour**");
 });
 
 // --- lifecycle=active allowlist untouched by this slice ---------------------
@@ -985,10 +1123,9 @@ it('leaves every other operational script and workflow byte-identical to develop
         $full = base_path($path);
         expect(File::exists($full))->toBeTrue("expected file to exist: {$path}");
 
-        // shell_exec captures raw bytes; exec()'s line-array form would strip
-        // and reconstruct newlines, risking a false mismatch.
-        $developContent = shell_exec('git show origin/develop:'.escapeshellarg($path).' 2>&1');
-        expect($developContent)->not->toBeNull("could not read {$path} from origin/develop");
+        [$ok, $developContent, $stderr] = targetOpsDevelopContent($path);
+
+        expect($ok)->toBeTrue("origin/develop is unavailable for {$path}: could not resolve it with git show ({$stderr})");
 
         expect(File::get($full))->toBe(
             $developContent,

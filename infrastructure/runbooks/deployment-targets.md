@@ -355,7 +355,7 @@ confirming both still succeed.
    helpers, docs and tests. *(completed)*
 2. **Read-only target operations** — `health-check` and `status` accept
    `--target` alongside `--environment`, gated to `lifecycle=active` targets
-   only. *(completed — this is the section above)*
+   only. *(in progress — this is the section above)*
 3. **Deploy path** — `deploy`, `rollback`, `cleanup` accept `--target`.
 4. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
    `offsite-retention`, `restore-test`, `offsite-restore-test`, preserving the

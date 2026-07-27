@@ -2,69 +2,27 @@
 
 set -Eeuo pipefail
 
-# RATEGURU_COMMON_FILE is for tests and controlled tooling only. Production
-# never sets it, so this resolves to the exact same installed path as before.
+# RATEGURU_COMMON_FILE cannot be gated the way RATEGURU_HEALTH_CHECK_CLI is
+# below: gating it would require calling a function defined inside common,
+# before common has been sourced. Whoever controls which file gets sourced
+# here already controls what this script does, gate or no gate — the same
+# trust boundary as controlling which health-check binary is on disk at
+# /home/www/rateguru/bin/health-check. Production never sets it, so this
+# resolves to the exact same installed path as before.
 # shellcheck disable=SC1090
 source "${RATEGURU_COMMON_FILE:-/home/www/rateguru/bin/common}"
 
-# RATEGURU_HEALTH_CHECK_CLI is for tests only, mirroring the RATEGURU_*_CLI
-# convention already used in common for the targets validator.
-HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_CLI:-/home/www/rateguru/bin/health-check}"
-
-usage() {
-    cat <<'USAGE'
-Usage:
-  status --target TARGET
-  status --environment staging|production
-USAGE
-}
-
-TARGET_ID=""
-ENVIRONMENT=""
-TARGET_SEEN=false
-ENVIRONMENT_SEEN=false
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --target)
-            if [[ "${TARGET_SEEN}" == true ]]; then
-                fail "--target given more than once"
-            fi
-
-            [[ $# -ge 2 ]] || fail "--target requires a value"
-
-            TARGET_ID="$2"
-            TARGET_SEEN=true
-            shift 2
-            ;;
-        --environment)
-            if [[ "${ENVIRONMENT_SEEN}" == true ]]; then
-                fail "--environment given more than once"
-            fi
-
-            [[ $# -ge 2 ]] || fail "--environment requires a value"
-
-            ENVIRONMENT="$2"
-            ENVIRONMENT_SEEN=true
-            shift 2
-            ;;
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        *)
-            fail "unknown argument: $1"
-            ;;
-    esac
-done
-
-if [[ "${TARGET_SEEN}" == true ]] && [[ "${ENVIRONMENT_SEEN}" == true ]]; then
-    fail "--target and --environment cannot be combined"
+# Unlike RATEGURU_COMMON_FILE above, this runs after common is sourced, so it
+# is gated by the same rateguru_test_overrides_allowed() check common's own
+# deployment.conf loading uses — a stray environment variable in a real root
+# shell can never silently redirect which health-check binary runs.
+if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_HEALTH_CHECK_CLI:-}" ]]; then
+    HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_CLI}"
+else
+    HEALTH_CHECK_BIN="/home/www/rateguru/bin/health-check"
 fi
 
-if [[ "${TARGET_SEEN}" != true ]] && [[ "${ENVIRONMENT_SEEN}" != true ]]; then
-    fail "exactly one of --target or --environment is required"
-fi
+parse_selector_args status "$@"
 
 # require_active_target validates the target ID, the whole registry, that the
 # target exists, and that it is lifecycle=active — all before ROOT is computed
@@ -72,8 +30,6 @@ fi
 # tits-guru today), a disabled one, or an unknown ID is rejected here, before
 # any symlink is resolved or history file is read.
 if [[ "${TARGET_SEEN}" == true ]]; then
-    [[ -n "${TARGET_ID}" ]] || fail "--target requires a non-empty value"
-
     require_active_target "${TARGET_ID}"
 
     ROOT="$(target_root "${TARGET_ID}")"
@@ -81,8 +37,6 @@ if [[ "${TARGET_SEEN}" == true ]]; then
     ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
     HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
 else
-    [[ -n "${ENVIRONMENT}" ]] || fail "--environment requires a non-empty value"
-
     validate_environment "${ENVIRONMENT}"
 
     ROOT="$(environment_root "${ENVIRONMENT}")"
