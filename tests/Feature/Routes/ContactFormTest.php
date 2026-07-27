@@ -10,6 +10,9 @@ it('queues a contact message to active administrators', function () {
     $admin = User::factory()->admin()->create([
         'email' => 'admin@example.test',
     ]);
+    $inactiveAdmin = User::factory()->admin()->banned()->create([
+        'email' => 'inactive-admin@example.test',
+    ]);
     $regularUser = User::factory()->create([
         'email' => 'member@example.test',
     ]);
@@ -23,8 +26,9 @@ it('queues a contact message to active administrators', function () {
         ->assertRedirect(route('pages.contact'))
         ->assertSessionHas('contact_status', __('ui.contact.sent'));
 
-    Mail::assertQueued(ContactMessageMail::class, function (ContactMessageMail $mail) use ($admin, $regularUser): bool {
+    Mail::assertQueued(ContactMessageMail::class, function (ContactMessageMail $mail) use ($admin, $inactiveAdmin, $regularUser): bool {
         return $mail->hasTo($admin->email)
+            && ! $mail->hasTo($inactiveAdmin->email)
             && ! $mail->hasTo($regularUser->email)
             && $mail->hasReplyTo('jane@example.test', 'Jane Visitor')
             && $mail->senderName === 'Jane Visitor'
