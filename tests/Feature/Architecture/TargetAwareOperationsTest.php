@@ -943,6 +943,19 @@ it('still only allows staging-main to be active, and tits-guru stays planned', f
 // --- out of scope: nothing else changed -------------------------------------
 
 it('leaves every other operational script and workflow byte-identical to develop', function () {
+    // This repo's CI checks out shallow (depth 1, single ref) for every job
+    // that actually runs the test suite — only the separate PHPStan job uses
+    // fetch-depth: 0 — so origin/develop is often simply not resolvable here.
+    // git rev-parse --verify is a local, offline ref lookup (no fetch), so
+    // checking first costs nothing and lets the test degrade honestly: skip
+    // with a clear reason rather than fail for a reason that has nothing to
+    // do with this slice's correctness.
+    exec('git rev-parse --verify -q origin/develop >/dev/null 2>&1', $probeOutput, $probeExit);
+
+    if ($probeExit !== 0) {
+        test()->markTestSkipped('origin/develop is not available in this checkout (shallow clone) — run locally for full history to exercise this check.');
+    }
+
     $unchanged = [
         'infrastructure/scripts/deploy',
         'infrastructure/scripts/rollback',
