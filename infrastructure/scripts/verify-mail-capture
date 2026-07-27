@@ -67,7 +67,7 @@ smtp_send() {
     exec 3<>"/dev/tcp/${host}/${port}" 2>/dev/null || return 1
 
     _smtp_expect 3 2 || { exec 3>&- 3<&-; return 1; }
-    printf 'EHLO rateguru-verify\r\n' >&3
+    printf 'EHLO staging-verify\r\n' >&3
     _smtp_expect 3 2 || { exec 3>&- 3<&-; return 1; }
     printf 'MAIL FROM:<%s>\r\n' "${from}" >&3
     _smtp_expect 3 2 || { exec 3>&- 3<&-; return 1; }
@@ -78,9 +78,9 @@ smtp_send() {
     printf 'From: %s\r\n' "${from}" >&3
     printf 'To: %s\r\n' "${to}" >&3
     printf 'Subject: %s\r\n' "${token}" >&3
-    printf 'X-RateGuru-Verify: %s\r\n' "${token}" >&3
+    printf 'X-Staging-Mail-Capture-Verify: %s\r\n' "${token}" >&3
     printf '\r\n' >&3
-    printf 'RateGuru mail-capture verification message %s\r\n' "${token}" >&3
+    printf 'Staging mail-capture verification message %s\r\n' "${token}" >&3
     printf '.\r\n' >&3
     _smtp_expect 3 2 || { exec 3>&- 3<&-; return 1; }
     printf 'QUIT\r\n' >&3
@@ -90,7 +90,7 @@ smtp_send() {
 }
 
 new_token() {
-    printf 'rgverify%s%s\n' "$(date -u '+%Y%m%d%H%M%S')" "${RANDOM}${RANDOM}"
+    printf 'mcverify%s%s\n' "$(date -u '+%Y%m%d%H%M%S')" "${RANDOM}${RANDOM}"
 }
 
 # --- API helpers ------------------------------------------------------------
@@ -156,8 +156,8 @@ cleanup() {
         delete_by_token "${MAILTRAP_API}" "${token}" "id" "ids"
     done
     if [[ "${MAILTRAP_STOPPED}" == true ]]; then
-        log "restoring rateguru-mailtrap-local.service"
-        systemctl start rateguru-mailtrap-local.service >/dev/null 2>&1 || true
+        log "restoring staging-mailtrap-local.service"
+        systemctl start staging-mailtrap-local.service >/dev/null 2>&1 || true
     fi
 }
 trap cleanup EXIT
@@ -165,15 +165,15 @@ trap cleanup EXIT
 # --- Verification -----------------------------------------------------------
 
 require_root
-log "verifying RateGuru staging mail capture"
+log "verifying staging mail capture"
 
 # 1. systemd services.
-systemctl is-active --quiet rateguru-mailpit.service \
-    || fail "rateguru-mailpit.service is not active"
-ok "rateguru-mailpit.service is active"
-systemctl is-active --quiet rateguru-mailtrap-local.service \
-    || fail "rateguru-mailtrap-local.service is not active"
-ok "rateguru-mailtrap-local.service is active"
+systemctl is-active --quiet staging-mailpit.service \
+    || fail "staging-mailpit.service is not active"
+ok "staging-mailpit.service is active"
+systemctl is-active --quiet staging-mailtrap-local.service \
+    || fail "staging-mailtrap-local.service is not active"
+ok "staging-mailtrap-local.service is active"
 
 # 2. Four loopback listeners.
 check_listener "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" || fail "Mailpit SMTP ${MAILPIT_SMTP_PORT} not listening on loopback"
@@ -196,7 +196,7 @@ ok "Mailtrap Local API is available"
 # 5-7. Submit a message and confirm canonical + mirrored copies.
 TOKEN_MIRROR="$(new_token)"
 TOKENS+=("${TOKEN_MIRROR}")
-smtp_send "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" "verify@rateguru.staging" "verify@staging.invalid" "${TOKEN_MIRROR}" \
+smtp_send "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" "mail-capture-verify@staging.invalid" "verify@staging.invalid" "${TOKEN_MIRROR}" \
     || fail "SMTP submission to Mailpit failed"
 ok "SMTP message accepted by Mailpit (${TOKEN_MIRROR})"
 
@@ -210,15 +210,15 @@ ok "mirrored copy appears in Mailtrap Local"
 
 # 8. Mailpit keeps working while the mirror is stopped.
 log "stopping Mailtrap Local to test Mailpit independence"
-systemctl stop rateguru-mailtrap-local.service
+systemctl stop staging-mailtrap-local.service
 MAILTRAP_STOPPED=true
 
-systemctl is-active --quiet rateguru-mailpit.service \
+systemctl is-active --quiet staging-mailpit.service \
     || fail "Mailpit stopped when Mailtrap Local was stopped"
 
 TOKEN_SOLO="$(new_token)"
 TOKENS+=("${TOKEN_SOLO}")
-smtp_send "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" "verify@rateguru.staging" "verify@staging.invalid" "${TOKEN_SOLO}" \
+smtp_send "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" "mail-capture-verify@staging.invalid" "verify@staging.invalid" "${TOKEN_SOLO}" \
     || fail "Mailpit rejected SMTP while Mailtrap Local was down"
 poll_present "${MAILPIT_API}" "${TOKEN_SOLO}" "${POLL_TIMEOUT}" \
     || fail "Mailpit did not store ${TOKEN_SOLO} while Mailtrap Local was down"
@@ -226,14 +226,14 @@ ok "Mailpit still accepts and stores mail while Mailtrap Local is stopped"
 
 # 9. Restart the mirror and confirm mirroring resumes.
 log "restarting Mailtrap Local to test mirror resume"
-systemctl start rateguru-mailtrap-local.service
+systemctl start staging-mailtrap-local.service
 MAILTRAP_STOPPED=false
 wait_for_api "${MAILTRAP_API}/api/v1/version" "${POLL_TIMEOUT}" \
     || fail "Mailtrap Local API did not come back after restart"
 
 TOKEN_RESUME="$(new_token)"
 TOKENS+=("${TOKEN_RESUME}")
-smtp_send "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" "verify@rateguru.staging" "verify@staging.invalid" "${TOKEN_RESUME}" \
+smtp_send "${MAILPIT_HOST}" "${MAILPIT_SMTP_PORT}" "mail-capture-verify@staging.invalid" "verify@staging.invalid" "${TOKEN_RESUME}" \
     || fail "SMTP submission after mirror restart failed"
 poll_present "${MAILPIT_API}" "${TOKEN_RESUME}" "${POLL_TIMEOUT}" \
     || fail "canonical copy of ${TOKEN_RESUME} missing after mirror restart"

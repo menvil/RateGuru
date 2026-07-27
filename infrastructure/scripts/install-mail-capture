@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install-mail-capture — install/verify the RateGuru staging mail-capture slice.
+# install-mail-capture — install/verify the shared staging mail-capture slice.
 #
 # Modes:
 #   --check   Validate committed configuration, pinned versions, checksums and
@@ -30,28 +30,28 @@ SYSTEMD_SRC="${REPO_ROOT}/infrastructure/config/systemd"
 NGINX_SRC="${REPO_ROOT}/infrastructure/config/nginx"
 
 # Installed target locations.
-BIN_MAILPIT="/usr/local/bin/rateguru-mailpit"
-BIN_MAILTRAP="/usr/local/bin/rateguru-mailtrap-local"
-ETC_DIR="/etc/rateguru/mail-capture"
+BIN_MAILPIT="/usr/local/bin/staging-mailpit"
+BIN_MAILTRAP="/usr/local/bin/staging-mailtrap-local"
+ETC_DIR="/etc/staging-mail-capture"
 ENV_MAILPIT="${ETC_DIR}/mailpit.env"
 YML_MAILPIT_RELAY="${ETC_DIR}/mailpit-relay.yml"
 YML_MAILTRAP="${ETC_DIR}/mailtrap-local.yml"
 VERSIONS_DST="${ETC_DIR}/versions.env"
 UNIT_DIR="/etc/systemd/system"
-UNIT_MAILPIT="${UNIT_DIR}/rateguru-mailpit.service"
-UNIT_MAILTRAP="${UNIT_DIR}/rateguru-mailtrap-local.service"
+UNIT_MAILPIT="${UNIT_DIR}/staging-mailpit.service"
+UNIT_MAILTRAP="${UNIT_DIR}/staging-mailtrap-local.service"
 NGINX_AVAILABLE="/etc/nginx/sites-available"
 NGINX_ENABLED="/etc/nginx/sites-enabled"
-NGINX_MAILPIT_NAME="rateguru-mailpit-staging"
-NGINX_MAILTRAP_NAME="rateguru-mailtrap-local-staging"
+NGINX_MAILPIT_NAME="mailpit-staging"
+NGINX_MAILTRAP_NAME="mailtrap-local-staging"
 
-STATE_ROOT="/var/lib/rateguru-mail-capture"
+STATE_ROOT="/var/lib/staging-mail-capture"
 STATE_MAILPIT="${STATE_ROOT}/mailpit"
 STATE_MAILTRAP="${STATE_ROOT}/mailtrap-local"
-BACKUP_ROOT="/var/backups/rateguru-mail-capture"
+BACKUP_ROOT="/var/backups/staging-mail-capture"
 
-USER_MAILPIT="rateguru-mailpit"
-USER_MAILTRAP="rateguru-mailtrap-local"
+USER_MAILPIT="staging-mailpit"
+USER_MAILTRAP="staging-mailtrap-local"
 
 # --- Logging ----------------------------------------------------------------
 
@@ -170,8 +170,8 @@ validate_config() {
         "${CONFIG_DIR}/mailpit.env"
         "${CONFIG_DIR}/mailpit-relay.yml"
         "${CONFIG_DIR}/mailtrap-local.yml"
-        "${SYSTEMD_SRC}/rateguru-mailpit.service"
-        "${SYSTEMD_SRC}/rateguru-mailtrap-local.service"
+        "${SYSTEMD_SRC}/staging-mailpit.service"
+        "${SYSTEMD_SRC}/staging-mailtrap-local.service"
         "${NGINX_SRC}/${NGINX_MAILPIT_NAME}"
         "${NGINX_SRC}/${NGINX_MAILTRAP_NAME}"
     )
@@ -199,7 +199,7 @@ validate_config() {
     grep -Eq '^port:[[:space:]]*3535$' "${mailpit_relay}" \
         || fail "mailpit-relay.yml relay port is not 3535"
 
-    local mailtrap_unit="${SYSTEMD_SRC}/rateguru-mailtrap-local.service"
+    local mailtrap_unit="${SYSTEMD_SRC}/staging-mailtrap-local.service"
     grep -Eq -- '--smtp-listen 127\.0\.0\.1:3535' "${mailtrap_unit}" \
         || fail "mailtrap-local unit does not bind SMTP to loopback 127.0.0.1:3535"
     grep -Eq -- '--http-listen 127\.0\.0\.1:3550' "${mailtrap_unit}" \
@@ -476,8 +476,8 @@ run_apply() {
     files_differ "${stage_dir}/mailtrap-local" "${BIN_MAILTRAP}" && CHANGED_MAILTRAP_BIN=true
 
     local mailpit_unit_changed=false mailtrap_unit_changed=false
-    files_differ "${SYSTEMD_SRC}/rateguru-mailpit.service" "${UNIT_MAILPIT}" && mailpit_unit_changed=true
-    files_differ "${SYSTEMD_SRC}/rateguru-mailtrap-local.service" "${UNIT_MAILTRAP}" && mailtrap_unit_changed=true
+    files_differ "${SYSTEMD_SRC}/staging-mailpit.service" "${UNIT_MAILPIT}" && mailpit_unit_changed=true
+    files_differ "${SYSTEMD_SRC}/staging-mailtrap-local.service" "${UNIT_MAILTRAP}" && mailtrap_unit_changed=true
 
     local mailpit_env_changed=false mailpit_relay_changed=false mailtrap_yml_changed=false
     files_differ "${CONFIG_DIR}/mailpit.env" "${ENV_MAILPIT}" && mailpit_env_changed=true
@@ -500,11 +500,11 @@ run_apply() {
 
     # 7. Install systemd units.
     if [[ "${mailpit_unit_changed}" == true ]]; then
-        install_file "${SYSTEMD_SRC}/rateguru-mailpit.service" "${UNIT_MAILPIT}" 0644
+        install_file "${SYSTEMD_SRC}/staging-mailpit.service" "${UNIT_MAILPIT}" 0644
         CHANGED_UNIT=true
     fi
     if [[ "${mailtrap_unit_changed}" == true ]]; then
-        install_file "${SYSTEMD_SRC}/rateguru-mailtrap-local.service" "${UNIT_MAILTRAP}" 0644
+        install_file "${SYSTEMD_SRC}/staging-mailtrap-local.service" "${UNIT_MAILTRAP}" 0644
         CHANGED_UNIT=true
     fi
 
@@ -537,16 +537,16 @@ run_apply() {
 
     # 11. Enable services (idempotent) and restart only changed ones. Start the
     #     mirror first so Mailpit can relay to it immediately.
-    systemctl enable rateguru-mailtrap-local.service >/dev/null 2>&1 || true
-    systemctl enable rateguru-mailpit.service >/dev/null 2>&1 || true
+    systemctl enable staging-mailtrap-local.service >/dev/null 2>&1 || true
+    systemctl enable staging-mailpit.service >/dev/null 2>&1 || true
 
-    if [[ "${CHANGED_MAILTRAP_SVC}" == true ]] || ! systemctl is-active --quiet rateguru-mailtrap-local.service; then
-        log "restarting rateguru-mailtrap-local.service"
-        systemctl restart rateguru-mailtrap-local.service
+    if [[ "${CHANGED_MAILTRAP_SVC}" == true ]] || ! systemctl is-active --quiet staging-mailtrap-local.service; then
+        log "restarting staging-mailtrap-local.service"
+        systemctl restart staging-mailtrap-local.service
     fi
-    if [[ "${CHANGED_MAILPIT_SVC}" == true ]] || ! systemctl is-active --quiet rateguru-mailpit.service; then
-        log "restarting rateguru-mailpit.service"
-        systemctl restart rateguru-mailpit.service
+    if [[ "${CHANGED_MAILPIT_SVC}" == true ]] || ! systemctl is-active --quiet staging-mailpit.service; then
+        log "restarting staging-mailpit.service"
+        systemctl restart staging-mailpit.service
     fi
 
     # 12. Reload Nginx if its configuration changed.
@@ -559,8 +559,8 @@ run_apply() {
     cleanup_staging
 
     log "apply complete"
-    log "  mailpit     : $(systemctl is-active rateguru-mailpit.service 2>/dev/null || echo unknown)"
-    log "  mailtrap    : $(systemctl is-active rateguru-mailtrap-local.service 2>/dev/null || echo unknown)"
+    log "  mailpit     : $(systemctl is-active staging-mailpit.service 2>/dev/null || echo unknown)"
+    log "  mailtrap    : $(systemctl is-active staging-mailtrap-local.service 2>/dev/null || echo unknown)"
     log "  backups     : ${BACKUP_DIR}"
     log "Run 'verify-mail-capture' to confirm capture and mirroring."
 }

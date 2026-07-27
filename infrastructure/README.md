@@ -2,11 +2,17 @@
 
 Project-specific infrastructure for RateGuru.
 
+One slice is an exception: the staging mail capture is owned by the shared
+staging environment rather than by RateGuru (its hostnames, systemd units,
+system users and state directories are named `staging-*`). It is committed here
+because this repository is the temporary source of truth for staging
+infrastructure, and moves out once a second project exists.
+
 ## Contents
 
 - deployment and rollback scripts;
 - local and offsite backup scripts;
-- staging mail capture (Mailpit + Mailtrap Local) — see
+- shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
 - Nginx configuration;
 - PHP-FPM pools;

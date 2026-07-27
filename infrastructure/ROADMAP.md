@@ -30,7 +30,12 @@ non-secret and committed.
 
 ## 3. Staging mail capture — current
 
-Loopback-only staging mail capture:
+Loopback-only mail capture owned by the shared staging environment, not by
+RateGuru: it is published on `mailpit.staging.myprojects.pp.ua` /
+`mailtrap.staging.myprojects.pp.ua` and installed as `staging-mailpit` /
+`staging-mailtrap-local` (units, system users, `/etc/staging-mail-capture`,
+`/var/lib/staging-mail-capture`). The committed source of truth stays in this
+repository until a second project exists.
 
 - **Mailpit** — canonical SMTP capture (`127.0.0.1:1025` SMTP, `127.0.0.1:8025`
   HTTP/API), persistent SQLite, 14-day / 5000-message retention.

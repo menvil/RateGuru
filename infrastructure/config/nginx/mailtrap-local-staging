@@ -1,4 +1,4 @@
-# RateGuru staging — Mailtrap Local web UI + API reverse proxy.
+# Shared staging — Mailtrap Local web UI + API reverse proxy.
 #
 # Publishes ONLY the loopback Mailtrap Local HTTP endpoint (127.0.0.1:3550)
 # over HTTPS with Basic Auth. The SMTP port (3535) and the raw HTTP/API port
@@ -16,7 +16,7 @@ server {
     listen 80;
     listen [::]:80;
 
-    server_name mailtrap.rateguru.staging.myprojects.pp.ua;
+    server_name mailtrap.staging.myprojects.pp.ua;
 
     return 301 https://$host$request_uri;
 }
@@ -26,19 +26,22 @@ server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
 
-    server_name mailtrap.rateguru.staging.myprojects.pp.ua;
+    server_name mailtrap.staging.myprojects.pp.ua;
 
-    auth_basic "RateGuru staging mail capture";
+    auth_basic "Staging mail capture";
+    # Reuses the existing staging password file; no new credentials are added.
     auth_basic_user_file /etc/nginx/rateguru-staging.htpasswd;
 
-    access_log /var/log/nginx/rateguru-mailtrap-local-staging-access.log;
-    error_log /var/log/nginx/rateguru-mailtrap-local-staging-error.log;
+    access_log /var/log/nginx/mailtrap-local-staging-access.log;
+    error_log /var/log/nginx/mailtrap-local-staging-error.log;
 
     client_max_body_size 32m;
 
-    # Certbot-managed certificate (same layout as the primary staging vhost).
-    ssl_certificate /etc/letsencrypt/live/mailtrap.rateguru.staging.myprojects.pp.ua/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/mailtrap.rateguru.staging.myprojects.pp.ua/privkey.pem;
+    # Certbot-managed SAN certificate shared with the Mailpit vhost: both
+    # hostnames are one operational service, so they share one lineage
+    # (certbot --cert-name staging-mail-capture).
+    ssl_certificate /etc/letsencrypt/live/staging-mail-capture/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/staging-mail-capture/privkey.pem;
 
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;

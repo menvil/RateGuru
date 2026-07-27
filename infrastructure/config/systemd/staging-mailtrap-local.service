@@ -1,6 +1,8 @@
 [Unit]
-Description=RateGuru staging Mailtrap Local (secondary mail-capture mirror)
+Description=Staging Mailtrap Local (secondary mail-capture mirror)
 Documentation=https://github.com/mailtrap/mailtrap-local
+# The runbook ships from the RateGuru repository, which is the temporary source
+# of truth for shared staging infrastructure.
 Documentation=file:/home/www/rateguru/runbooks/mail-capture.md
 # This service is independent: it must never depend on Mailpit. Mailpit
 # relays a best-effort mirror to it, not the other way around.
@@ -9,26 +11,26 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=rateguru-mailtrap-local
-Group=rateguru-mailtrap-local
+User=staging-mailtrap-local
+Group=staging-mailtrap-local
 # Loopback-only listeners and an explicit SQLite path inside the state dir.
-ExecStart=/usr/local/bin/rateguru-mailtrap-local \
+ExecStart=/usr/local/bin/staging-mailtrap-local \
     --smtp-listen 127.0.0.1:3535 \
     --http-listen 127.0.0.1:3550 \
-    --db /var/lib/rateguru-mail-capture/mailtrap-local/mailtrap-local.sqlite3
+    --db /var/lib/staging-mail-capture/mailtrap-local/mailtrap-local.sqlite3
 # Non-secret storage config (max_messages) and per-user state locations.
-Environment=HOME=/var/lib/rateguru-mail-capture/mailtrap-local
-Environment=XDG_CONFIG_HOME=/var/lib/rateguru-mail-capture/mailtrap-local
-Environment=MAILTRAP_LOCAL_CONFIG=/etc/rateguru/mail-capture/mailtrap-local.yml
-Environment=MAILTRAP_LOCAL_SECRET_KEY_FILE=/var/lib/rateguru-mail-capture/mailtrap-local/secret.key
-WorkingDirectory=/var/lib/rateguru-mail-capture/mailtrap-local
+Environment=HOME=/var/lib/staging-mail-capture/mailtrap-local
+Environment=XDG_CONFIG_HOME=/var/lib/staging-mail-capture/mailtrap-local
+Environment=MAILTRAP_LOCAL_CONFIG=/etc/staging-mail-capture/mailtrap-local.yml
+Environment=MAILTRAP_LOCAL_SECRET_KEY_FILE=/var/lib/staging-mail-capture/mailtrap-local/secret.key
+WorkingDirectory=/var/lib/staging-mail-capture/mailtrap-local
 Restart=on-failure
 RestartSec=2
 
 # Logs go to journald (Mailtrap Local logs to stderr).
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=rateguru-mailtrap-local
+SyslogIdentifier=staging-mailtrap-local
 
 # --- Hardening -------------------------------------------------------------
 NoNewPrivileges=true
@@ -54,7 +56,7 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 UMask=0077
 # The persistent SQLite directory is the only writable location.
-ReadWritePaths=/var/lib/rateguru-mail-capture/mailtrap-local
+ReadWritePaths=/var/lib/staging-mail-capture/mailtrap-local
 
 [Install]
 WantedBy=multi-user.target
