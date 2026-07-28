@@ -78,6 +78,15 @@ the phase stays **current**.
    test override explicitly unset. `deploy`/`rollback`/`cleanup`/backup stay
    untouched and legacy-only; `tits-guru` stays unprovisioned. See
    `runbooks/install-target-operations.md`.
+
+   **Staging infrastructure defect fixes found during the first real VPS
+   install**, both scoped to the existing `staging-main` target and not part
+   of the slice progression above: a systemic executable-bit regression under
+   `infrastructure/scripts/`, and `infrastructure/scripts/install-public-storage-access`,
+   which grants `www-data` narrowly-scoped POSIX ACL traversal
+   (`user:www-data:--x`) into a target's `shared`/`shared/storage`
+   directories, fixing an HTTP 403 on every uploaded image. See
+   `runbooks/public-storage-access.md`.
 4. Deploy path — `deploy`, `rollback`, `cleanup`.
 5. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
 6. Perimeter — workflows, sudoers, server wrappers.

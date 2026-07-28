@@ -69,6 +69,7 @@ it('keeps every infrastructure CLI script executable and common non-executable i
         'infrastructure/scripts/deploy',
         'infrastructure/scripts/health-check',
         'infrastructure/scripts/install-mail-capture',
+        'infrastructure/scripts/install-public-storage-access',
         'infrastructure/scripts/install-target-operations',
         'infrastructure/scripts/offsite-backup',
         'infrastructure/scripts/offsite-restore-test',

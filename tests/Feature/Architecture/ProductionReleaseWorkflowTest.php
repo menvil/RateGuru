@@ -126,7 +126,7 @@ it('fails the production artifact build closed when a required infrastructure CL
     $root = sys_get_temp_dir().'/release-exec-check-'.uniqid('', true);
     $cliNames = [
         'backup', 'backup-cycle', 'cleanup', 'deploy', 'health-check',
-        'install-mail-capture', 'install-target-operations', 'offsite-backup',
+        'install-mail-capture', 'install-public-storage-access', 'install-target-operations', 'offsite-backup',
         'offsite-restore-test', 'offsite-retention', 'restore-test', 'rollback',
         'status', 'status-mail-capture', 'targets', 'verify-mail-capture',
     ];

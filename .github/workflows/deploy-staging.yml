@@ -203,6 +203,7 @@ jobs:
             deploy
             health-check
             install-mail-capture
+            install-public-storage-access
             install-target-operations
             offsite-backup
             offsite-restore-test
