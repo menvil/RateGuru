@@ -1291,14 +1291,15 @@ it('keeps legacy production on rateguru-production.internal, never tits-guru', f
 
 // --- roadmap and runbook -----------------------------------------------------
 
-it('records slices 1 and 2 completed, slice 3 in progress, without completing Phase 4', function () {
+it('records slices 1-3 completed, slice 4 (cleanup) current, without completing Phase 4', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
         ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m')
         ->toContain('Deployment target registry — completed')
         ->toContain('Read-only target operations — completed')
-        ->toContain('Install and verify read-only operations — in progress')
+        ->toContain('Install and verify read-only operations — completed')
+        ->toContain('Target-aware cleanup — current')
         ->not->toContain('## 4. Multi-target production model — completed')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m');
 
@@ -1354,7 +1355,8 @@ it('leaves every other operational script and workflow byte-identical to develop
 
     $unchanged = [
         'infrastructure/scripts/rollback',
-        'infrastructure/scripts/cleanup',
+        // infrastructure/scripts/cleanup graduated in Phase 4 slice 4 — it is
+        // no longer --environment-only, so it is deliberately absent here.
         'infrastructure/scripts/backup',
         'infrastructure/scripts/backup-cycle',
         'infrastructure/scripts/restore-test',
@@ -1394,9 +1396,11 @@ it('leaves every other operational script and workflow byte-identical to develop
     }
 });
 
-it('does not add --target to any operational script outside health-check and status', function () {
+it('does not add --target to any operational script outside health-check, status and cleanup', function () {
+    // cleanup is Phase 4 slice 4's own subject and is deliberately excluded
+    // here — see CleanupTest.php for its target-awareness coverage.
     $mustNotChange = [
-        'deploy', 'rollback', 'cleanup', 'backup', 'backup-cycle',
+        'deploy', 'rollback', 'backup', 'backup-cycle',
         'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test',
     ];
 

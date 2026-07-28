@@ -1301,12 +1301,13 @@ it('leaves the --environment interface untouched', function () {
 });
 
 it('converts no mutating operational script to --target yet', function () {
-    // health-check and status became target-aware in Phase 4 slice 2 — see
-    // TargetAwareOperationsTest.php for their behavioral coverage. Every
-    // script that writes to a target's filesystem, database or service state
-    // is still --environment-only until its own migration slice.
+    // health-check and status became target-aware in Phase 4 slice 2, and
+    // cleanup in slice 4 — see TargetAwareOperationsTest.php and
+    // CleanupTest.php for their behavioral coverage. Every other script that
+    // writes to a target's filesystem, database or service state is still
+    // --environment-only until its own migration slice.
     $operational = [
-        'deploy', 'rollback', 'cleanup',
+        'deploy', 'rollback',
         'backup', 'backup-cycle', 'offsite-backup', 'offsite-retention',
         'restore-test', 'offsite-restore-test',
     ];
@@ -1418,7 +1419,9 @@ it('documents the registry model in a runbook', function () {
         'Registry foundation',
         'Read-only target operations',
         'Install and verify read-only operations',
-        'Deploy path',
+        'Target-aware cleanup',
+        'Target-aware deploy',
+        'Target-aware rollback',
         'Backup path',
         'Perimeter',
         'Remove compatibility',

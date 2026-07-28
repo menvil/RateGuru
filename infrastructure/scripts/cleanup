@@ -2,116 +2,297 @@
 
 set -Eeuo pipefail
 
-# shellcheck disable=SC1091
-source /home/www/rateguru/bin/common
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this script
+# at an attacker- or operator-controlled file to source. This is a plain
+# inline condition, not a call to common's rateguru_test_overrides_allowed():
+# common has not been sourced yet at this point, so no function it defines
+# exists to call. Production never sets either variable, so this resolves to
+# the exact same installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
 
-require_root
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
 
-ENVIRONMENT=""
-KEEP=""
-APPLY=false
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Phase 4 slice 4: pinned-releases is non-secret, per-target operational data
+# that only this script ever writes, and only while holding the exclusive
+# deployment lock. No script in this repository has ever chown'd it (nor
+# deployments/history.jsonl, nor the deployment lock file) — all three have
+# only ever gotten their ownership from the invoking process's identity,
+# which happens to be root in production because
+# infrastructure/config/sudoers/rateguru-deploy invokes cleanup only as
+# `(root)`. That worked, but was never asserted, checked or documented
+# anywhere. This makes it explicit, matching the one ownership contract that
+# already IS enforced elsewhere in this codebase: deployment.conf and the
+# target registry are both root:root 0640 (see common's own
+# target_registry_assert_usable and the CONFIG_FILE check above it). A
+# pre-existing pinned-releases file is never touched — see
+# ensure_pinned_file_exists below.
+PINNED_FILE_OWNER="root"
+PINNED_FILE_GROUP="root"
+PINNED_FILE_MODE="0640"
+
+declare -A PROTECTED_RELEASES=()
+declare -A PINNED_RELEASES=()
+declare -A RELEASE_STATUSES=()
+DELETE_CANDIDATES=()
 
 usage() {
     cat <<'USAGE'
 Usage:
+  cleanup --environment staging|production [--keep NUMBER] [--dry-run|--apply]
+  cleanup --target TARGET_ID             [--keep NUMBER] [--dry-run|--apply]
 
-  cleanup \
-    --environment staging|production \
-    [--keep NUMBER] \
-    [--apply]
-
-Without --apply, cleanup performs a dry run.
+Without --apply or --dry-run, cleanup performs a dry run — this is the
+existing default; --dry-run is a readable alias for it. --apply is required
+to actually delete anything.
 USAGE
 }
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
-            shift 2
-            ;;
-        --keep)
-            KEEP="${2:-}"
-            shift 2
-            ;;
-        --apply)
-            APPLY=true
-            shift
-            ;;
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        *)
-            fail "unknown argument: $1"
-            ;;
-    esac
-done
+# Everything below, down to (not including) the dispatch at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# the dispatch calls it. This is what lets tests source this whole section
+# standalone (from `set -Eeuo pipefail` above down to just before
+# `parse_cleanup_args "$@"`), reassign PINNED_FILE_OWNER/PINNED_FILE_GROUP to
+# their own uid/gid, and call perform_apply() directly — bypassing
+# require_root — the same technique already established for
+# infrastructure/scripts/install-target-operations
+# (installOpsFunctionsSection() in its test suite).
 
-[[ -n "${ENVIRONMENT}" ]] \
-    || fail "--environment is required"
+# --- selector and execution-mode parsing ------------------------------------
+#
+# cleanup cannot reuse common's parse_selector_args directly — it has extra
+# flags (--keep, --dry-run, --apply) that function does not know about — so
+# it runs its own loop for every flag, then calls common's
+# assert_selector_state for the exact same mutual-exclusion /
+# exactly-one-required / non-empty validation health-check and status already
+# get from parse_selector_args.
+parse_cleanup_args() {
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+    KEEP=""
+    KEEP_SEEN=false
+    APPLY=false
+    EXECUTION_MODE=""
 
-validate_environment "${ENVIRONMENT}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                [[ $# -ge 2 ]] || fail "--target requires a value"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
+                [[ $# -ge 2 ]] || fail "--environment requires a value"
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --keep)
+                [[ "${KEEP_SEEN}" != true ]] || fail "--keep given more than once"
+                [[ $# -ge 2 ]] || fail "--keep requires a value"
+                KEEP="$2"
+                KEEP_SEEN=true
+                shift 2
+                ;;
+            --dry-run)
+                case "${EXECUTION_MODE}" in
+                    dry-run) fail "--dry-run given more than once" ;;
+                    apply)   fail "--dry-run and --apply cannot be combined" ;;
+                esac
+                EXECUTION_MODE="dry-run"
+                APPLY=false
+                shift
+                ;;
+            --apply)
+                case "${EXECUTION_MODE}" in
+                    apply)   fail "--apply given more than once" ;;
+                    dry-run) fail "--dry-run and --apply cannot be combined" ;;
+                esac
+                EXECUTION_MODE="apply"
+                APPLY=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
 
-case "${ENVIRONMENT}" in
-    staging)
-        DEFAULT_KEEP="${STAGING_RELEASE_RETENTION}"
-        ;;
-    production)
-        DEFAULT_KEEP="${PRODUCTION_RELEASE_RETENTION}"
-        ;;
-esac
-
-if [[ -z "${KEEP}" ]]; then
-    KEEP="${DEFAULT_KEEP}"
-fi
-
-if [[ ! "${KEEP}" =~ ^[0-9]+$ ]]; then
-    fail "--keep must be a non-negative integer"
-fi
-
-ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
-RELEASES_ROOT="${ENVIRONMENT_ROOT}/releases"
-HISTORY_FILE="${ENVIRONMENT_ROOT}/deployments/history.jsonl"
-PINNED_FILE="${ENVIRONMENT_ROOT}/deployments/pinned-releases"
-
-acquire_deployment_lock "${ENVIRONMENT_ROOT}"
-
-touch "${PINNED_FILE}"
-chmod 0640 "${PINNED_FILE}"
-
-declare -A PROTECTED_RELEASES=()
-declare -A RELEASE_STATUSES=()
-
-protect_symlink_release() {
-    local link_path="$1"
-
-    if [[ -L "${link_path}" ]]; then
-        local resolved_path
-        local release_id
-
-        resolved_path="$(readlink -f "${link_path}")"
-        release_id="$(basename "${resolved_path}")"
-
-        PROTECTED_RELEASES["${release_id}"]=1
-    fi
+    assert_selector_state
 }
 
-protect_symlink_release "${ENVIRONMENT_ROOT}/current"
-protect_symlink_release "${ENVIRONMENT_ROOT}/previous"
+# --- target resolution (mirrors health-check/status) ------------------------
 
-while IFS= read -r pinned_release; do
-    pinned_release="$(
-        printf '%s' "${pinned_release}" \
-            | sed -E 's/[[:space:]]*#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//'
-    )"
+resolve_target() {
+    local default_keep
 
-    [[ -n "${pinned_release}" ]] || continue
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        # require_active_target validates the target ID, the whole registry,
+        # that the target exists, and that it is lifecycle=active — all
+        # before TARGET_ROOT is computed below or any filesystem path,
+        # lock, find, stat, touch, chmod, rm or history access happens. A
+        # planned target (e.g. tits-guru today) or an unknown one is
+        # rejected here.
+        require_active_target "${TARGET_ID}"
 
-    PROTECTED_RELEASES["${pinned_release}"]=1
-done < "${PINNED_FILE}"
+        TARGET_ROOT="$(target_root "${TARGET_ID}")"
+        # The registry's own per-target release_retention field, not a value
+        # derived from environment_class. deployment-targets.md is explicit
+        # that whatever differs per instance belongs in the registry —
+        # release_retention is one of its required fields precisely so two
+        # targets sharing an environment_class (e.g. two production targets)
+        # can retain a different number of releases. staging-main and
+        # tits-guru currently carry the same numbers as
+        # STAGING_RELEASE_RETENTION/PRODUCTION_RELEASE_RETENTION, which is
+        # why legacy/target parity holds for the real, committed registry —
+        # but that is the registry agreeing with deployment.conf today, not
+        # a rule this script enforces.
+        default_keep="$(target_release_retention "${TARGET_ID}")"
+        LABEL="${TARGET_ID}"
+    else
+        validate_environment "${ENVIRONMENT}"
 
-if [[ -f "${HISTORY_FILE}" ]]; then
+        TARGET_ROOT="$(environment_root "${ENVIRONMENT}")"
+        default_keep="$(environment_release_retention "${ENVIRONMENT}")"
+        LABEL="${ENVIRONMENT}"
+    fi
+
+    RELEASES_ROOT="${TARGET_ROOT}/releases"
+    HISTORY_FILE="${TARGET_ROOT}/deployments/history.jsonl"
+    PINNED_FILE="${TARGET_ROOT}/deployments/pinned-releases"
+    CURRENT_LINK="${TARGET_ROOT}/current"
+    PREVIOUS_LINK="${TARGET_ROOT}/previous"
+
+    if [[ "${KEEP_SEEN}" != true ]]; then
+        KEEP="${default_keep}"
+    fi
+
+    [[ "${KEEP}" =~ ^[0-9]+$ ]] || fail "--keep must be a non-negative integer"
+}
+
+# --- filesystem safety: target-tree structural validation -------------------
+#
+# Read-only. Runs identically for dry-run and apply, before either mode scans
+# or deletes anything.
+
+# Absent is fine (current/previous are optional). Present-but-unsafe fails
+# closed: not a symlink, escapes the releases root, or resolves to a name
+# that isn't a real release ID all abort here rather than silently computing
+# a bogus protected release. A safe link additionally protects the release it
+# resolves to.
+protect_pointer_link() {
+    local link_path="$1"
+    local label="$2"
+
+    if [[ ! -e "${link_path}" ]] && [[ ! -L "${link_path}" ]]; then
+        return 0
+    fi
+
+    [[ -L "${link_path}" ]] \
+        || fail "${label} must be a symlink: ${link_path}"
+
+    local resolved
+    resolved="$(readlink -f "${link_path}")"
+
+    [[ -n "${resolved}" ]] \
+        || fail "unable to resolve ${label} symlink: ${link_path}"
+
+    [[ "$(dirname "${resolved}")" == "${CANONICAL_RELEASES_ROOT}" ]] \
+        || fail "${label} does not resolve to a direct child of the releases root: ${link_path}"
+
+    local release_id
+    release_id="$(basename "${resolved}")"
+
+    [[ "${release_id}" =~ ${RELEASE_ID_REGEX} ]] \
+        || fail "${label} resolves to a release ID that does not match the expected pattern: ${release_id}"
+
+    PROTECTED_RELEASES["${release_id}"]=1
+}
+
+validate_target_tree() {
+    [[ -e "${TARGET_ROOT}" ]] \
+        || fail "target root does not exist: ${TARGET_ROOT}"
+    [[ ! -L "${TARGET_ROOT}" ]] \
+        || fail "target root must not be a symlink: ${TARGET_ROOT}"
+    [[ -d "${TARGET_ROOT}" ]] \
+        || fail "target root must be a real directory: ${TARGET_ROOT}"
+
+    [[ -e "${RELEASES_ROOT}" ]] \
+        || fail "releases root does not exist: ${RELEASES_ROOT}"
+    [[ ! -L "${RELEASES_ROOT}" ]] \
+        || fail "releases root must not be a symlink: ${RELEASES_ROOT}"
+    [[ -d "${RELEASES_ROOT}" ]] \
+        || fail "releases root must be a real directory: ${RELEASES_ROOT}"
+
+    local deployments_dir="${TARGET_ROOT}/deployments"
+    [[ -e "${deployments_dir}" ]] \
+        || fail "deployments directory does not exist: ${deployments_dir}"
+    [[ ! -L "${deployments_dir}" ]] \
+        || fail "deployments directory must not be a symlink: ${deployments_dir}"
+    [[ -d "${deployments_dir}" ]] \
+        || fail "deployments must be a real directory: ${deployments_dir}"
+
+    CANONICAL_RELEASES_ROOT="$(readlink -f "${RELEASES_ROOT}")"
+
+    protect_pointer_link "${CURRENT_LINK}" "current"
+    protect_pointer_link "${PREVIOUS_LINK}" "previous"
+}
+
+# --- candidate computation ---------------------------------------------------
+
+# A missing pinned-releases file is treated as empty in both modes. Dry-run
+# never creates it; apply only creates it (see ensure_pinned_file_exists)
+# after the lock, before this is called.
+#
+# Rebuilds PINNED_RELEASES from scratch on every call, matching
+# read_release_statuses's own reset convention, rather than accumulating into
+# PROTECTED_RELEASES — compute_candidates (and so this function) can run more
+# than once per process (see perform_apply, which recomputes after the lock,
+# and its own test coverage), and PROTECTED_RELEASES also carries the
+# current/previous protections validate_target_tree already established
+# before compute_candidates ever runs. Kept in a separate array so resetting
+# this function's own contribution can never wipe those out.
+read_pinned_releases() {
+    PINNED_RELEASES=()
+
+    [[ -f "${PINNED_FILE}" ]] || return 0
+
+    local pinned_release
+    while IFS= read -r pinned_release; do
+        pinned_release="$(
+            printf '%s' "${pinned_release}" \
+                | sed -E 's/[[:space:]]*#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//'
+        )"
+
+        [[ -n "${pinned_release}" ]] || continue
+
+        PINNED_RELEASES["${pinned_release}"]=1
+    done < "${PINNED_FILE}"
+}
+
+read_release_statuses() {
+    RELEASE_STATUSES=()
+
+    [[ -f "${HISTORY_FILE}" ]] || return 0
+
+    local release status
     while IFS=$'\t' read -r release status; do
         [[ -n "${release}" ]] || continue
         RELEASE_STATUSES["${release}"]="${status}"
@@ -122,78 +303,208 @@ if [[ -f "${HISTORY_FILE}" ]]; then
             | @tsv
         ' "${HISTORY_FILE}"
     )
-fi
+}
 
-mapfile -t RELEASES < <(
-    find "${RELEASES_ROOT}" \
-        -mindepth 1 \
-        -maxdepth 1 \
-        -type d \
-        -printf '%T@\t%f\n' \
-    | sort -nr \
-    | cut -f2-
-)
+# Every deletion candidate must resolve canonically under RELEASES_ROOT —
+# never a string-prefix check. Called once when a candidate is first selected
+# (compute_candidates) and again immediately before deletion (perform_apply);
+# the second call is the "revalidate immediately before deletion" step.
+validate_release_candidate() {
+    local release_id="$1"
+    local release_path="${RELEASES_ROOT}/${release_id}"
 
-SUCCESSFUL_RELEASE_COUNT=0
-DELETE_COUNT=0
+    [[ "${release_id}" =~ ${RELEASE_ID_REGEX} ]] \
+        || fail "refusing to delete: invalid release ID: ${release_id}"
 
-for release_id in "${RELEASES[@]}"; do
-    if [[ ! "${release_id}" =~ ${RELEASE_ID_REGEX} ]]; then
-        log "SKIP unknown directory: ${release_id}"
-        continue
-    fi
+    [[ ! -L "${release_path}" ]] \
+        || fail "refusing to delete a symlink: ${release_id}"
 
-    release_path="${RELEASES_ROOT}/${release_id}"
-    release_status="${RELEASE_STATUSES[${release_id}]:-unknown}"
+    [[ -d "${release_path}" ]] \
+        || fail "refusing to delete: not a real directory: ${release_id}"
 
-    if [[ -n "${PROTECTED_RELEASES[${release_id}]:-}" ]]; then
-        log "KEEP protected: ${release_id}"
-        continue
-    fi
+    local canonical
+    canonical="$(readlink -f "${release_path}")"
 
-    case "${release_status}" in
-        success)
-            SUCCESSFUL_RELEASE_COUNT=$((SUCCESSFUL_RELEASE_COUNT + 1))
+    [[ "${canonical}" != "${CANONICAL_RELEASES_ROOT}" ]] \
+        || fail "refusing to delete the releases root itself"
 
-            if (( SUCCESSFUL_RELEASE_COUNT <= KEEP )); then
-                log "KEEP retained successful release: ${release_id}"
-                continue
-            fi
-            ;;
-        failed-health-check)
-            log "DELETE candidate failed release: ${release_id}"
-            ;;
-        *)
-            log "KEEP unknown/untracked release: ${release_id}"
+    [[ "$(dirname "${canonical}")" == "${CANONICAL_RELEASES_ROOT}" ]] \
+        || fail "refusing to delete: escapes the releases root: ${release_id}"
+
+    [[ "$(basename "${canonical}")" == "${release_id}" ]] \
+        || fail "refusing to delete: canonical name mismatch: ${release_id}"
+
+    [[ -z "${PROTECTED_RELEASES[${release_id}]:-}" ]] \
+        || fail "refusing to delete a protected release: ${release_id}"
+
+    [[ -z "${PINNED_RELEASES[${release_id}]:-}" ]] \
+        || fail "refusing to delete a pinned release: ${release_id}"
+}
+
+# Scans RELEASES_ROOT and classifies every entry, populating DELETE_CANDIDATES
+# in deterministic (newest-mtime-first, then name) order. Shared by dry-run
+# and apply — apply's own call to this function is the *only* one that runs
+# after the deployment lock is acquired (see perform_apply), so the candidate
+# set is never computed before the lock and reused stale.
+compute_candidates() {
+    DELETE_CANDIDATES=()
+
+    read_pinned_releases
+    read_release_statuses
+
+    # %T@ (mtime) sorts first so `cut` can drop it after ordering; %y is the
+    # find type letter ('d' for a real directory, 'l' for a symlink — a
+    # release-looking symlink is never invisible the way a bare `-type d`
+    # scan would make it, it is explicitly classified and rejected below).
+    local entries
+    entries="$(
+        find "${RELEASES_ROOT}" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -printf '%T@\t%y\t%f\n' \
+        | sort -t $'\t' -k1,1nr -k3,3 \
+        | cut -f2-
+    )"
+
+    local successful_count=0
+    local entry_type release_id release_status
+
+    while IFS=$'\t' read -r entry_type release_id; do
+        [[ -n "${release_id}" ]] || continue
+
+        if [[ ! "${release_id}" =~ ${RELEASE_ID_REGEX} ]]; then
+            log "SKIP unknown directory: ${release_id}"
             continue
-            ;;
-    esac
+        fi
 
-    DELETE_COUNT=$((DELETE_COUNT + 1))
+        # Fail closed rather than silently skip: a release-looking name that
+        # is not a real directory (a symlink, or anything else) is exactly
+        # the kind of spoofed entry canonical containment validation exists
+        # to catch — never treated as merely "another unknown object".
+        if [[ "${entry_type}" != d ]]; then
+            fail "refusing to continue: release-looking entry '${release_id}' is not a real directory (type=${entry_type})"
+        fi
 
-    if [[ "${APPLY}" == true ]]; then
-        case "${release_path}" in
-            "${RELEASES_ROOT}"/v*)
-                rm -rf -- "${release_path}"
-                log "DELETED ${release_id}"
+        release_status="${RELEASE_STATUSES[${release_id}]:-unknown}"
 
-                append_history \
-                    "${ENVIRONMENT_ROOT}" \
-                    "release-cleaned" \
-                    "${release_id}" \
-                    "success"
+        if [[ -n "${PROTECTED_RELEASES[${release_id}]:-}" ]] || [[ -n "${PINNED_RELEASES[${release_id}]:-}" ]]; then
+            log "KEEP protected: ${release_id}"
+            continue
+        fi
+
+        case "${release_status}" in
+            success)
+                successful_count=$((successful_count + 1))
+
+                if (( successful_count <= KEEP )); then
+                    log "KEEP retained successful release: ${release_id}"
+                    continue
+                fi
+                ;;
+            failed-health-check)
+                log "DELETE candidate failed release: ${release_id}"
                 ;;
             *)
-                fail "refusing to delete unsafe path: ${release_path}"
+                log "KEEP unknown/untracked release: ${release_id}"
+                continue
                 ;;
         esac
-    else
-        log "DRY RUN would delete: ${release_id}"
+
+        validate_release_candidate "${release_id}"
+
+        DELETE_CANDIDATES+=("${release_id}")
+    done <<< "${entries}"
+}
+
+# --- pinned-releases ownership -----------------------------------------------
+
+# Only ever called from perform_apply, after the deployment lock is held, and
+# only when the file is confirmed absent — a pre-existing pinned-releases
+# file (valid or not) is never touched by this script. `install` sets
+# content, owner, group and mode together in one call, matching the same
+# primitive infrastructure/scripts/install-target-operations already uses for
+# its own installed files; the mktemp+atomic-rename dance that installer uses
+# is unnecessary here because the deployment lock already excludes every
+# other concurrent deploy/rollback/cleanup process, and this only ever runs
+# against a path just confirmed not to exist.
+ensure_pinned_file_exists() {
+    if [[ -e "${PINNED_FILE}" ]]; then
+        return 0
     fi
-done
+
+    install \
+        -o "${PINNED_FILE_OWNER}" \
+        -g "${PINNED_FILE_GROUP}" \
+        -m "${PINNED_FILE_MODE}" \
+        /dev/null \
+        "${PINNED_FILE}"
+}
+
+# --- dry-run: genuinely side-effect free -------------------------------------
+#
+# No lock, no root requirement, no write of any kind — see compute_candidates
+# and read_pinned_releases above for how a missing pinned-releases file is
+# handled without creating it.
+
+run_dry_run() {
+    compute_candidates
+
+    local release_id
+    for release_id in "${DELETE_CANDIDATES[@]}"; do
+        log "DRY RUN would delete: ${release_id}"
+    done
+
+    log "${LABEL} cleanup dry run finished; ${#DELETE_CANDIDATES[@]} release(s) would be deleted"
+}
+
+# --- apply: locked, recomputed, deletes --------------------------------------
+
+perform_apply() {
+    acquire_deployment_lock "${TARGET_ROOT}"
+
+    ensure_pinned_file_exists
+
+    # The only candidate computation in the apply path — never reused from a
+    # pre-lock pass, so nothing can go stale between when candidates were
+    # decided and when the lock was actually acquired.
+    compute_candidates
+
+    local release_id release_path
+    for release_id in "${DELETE_CANDIDATES[@]}"; do
+        validate_release_candidate "${release_id}"
+
+        release_path="${RELEASES_ROOT}/${release_id}"
+
+        rm -rf -- "${release_path}"
+
+        [[ ! -e "${release_path}" ]] \
+            || fail "release directory still exists after deletion: ${release_id}"
+
+        log "DELETED ${release_id}"
+
+        append_history \
+            "${TARGET_ROOT}" \
+            "release-cleaned" \
+            "${release_id}" \
+            "success"
+    done
+
+    log "${LABEL} cleanup finished; deleted ${#DELETE_CANDIDATES[@]} release(s)"
+}
+
+run_apply() {
+    require_root
+    perform_apply
+}
+
+# --- dispatch ----------------------------------------------------------
+
+parse_cleanup_args "$@"
+resolve_target
+validate_target_tree
 
 if [[ "${APPLY}" == true ]]; then
-    log "cleanup finished; deleted ${DELETE_COUNT} release(s)"
+    run_apply
 else
-    log "cleanup dry run finished; ${DELETE_COUNT} release(s) would be deleted"
+    run_dry_run
 fi
