@@ -1291,7 +1291,7 @@ it('keeps legacy production on rateguru-production.internal, never tits-guru', f
 
 // --- roadmap and runbook -----------------------------------------------------
 
-it('records slices 1-3 completed, slice 4 (cleanup) current, without completing Phase 4', function () {
+it('records slices 1-4 completed, slice 5 (deploy) current, without completing Phase 4', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
@@ -1299,7 +1299,8 @@ it('records slices 1-3 completed, slice 4 (cleanup) current, without completing 
         ->toContain('Deployment target registry — completed')
         ->toContain('Read-only target operations — completed')
         ->toContain('Install and verify read-only operations — completed')
-        ->toContain('Target-aware cleanup — current')
+        ->toContain('Target-aware cleanup — completed')
+        ->toContain('Target-aware deploy — current')
         ->not->toContain('## 4. Multi-target production model — completed')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m');
 
@@ -1396,11 +1397,12 @@ it('leaves every other operational script and workflow byte-identical to develop
     }
 });
 
-it('does not add --target to any operational script outside health-check, status and cleanup', function () {
-    // cleanup is Phase 4 slice 4's own subject and is deliberately excluded
-    // here — see CleanupTest.php for its target-awareness coverage.
+it('does not add --target to any operational script outside health-check, status, cleanup and deploy', function () {
+    // cleanup (Phase 4 slice 4) and deploy (Phase 4 slice 5) are each their
+    // own slice's subject and are deliberately excluded here — see
+    // CleanupTest.php and DeployTest.php for their target-awareness coverage.
     $mustNotChange = [
-        'deploy', 'rollback', 'backup', 'backup-cycle',
+        'rollback', 'backup', 'backup-cycle',
         'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test',
     ];
 

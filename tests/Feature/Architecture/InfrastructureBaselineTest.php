@@ -110,7 +110,7 @@ it('normalizes release permissions while preserving the executable bit', functio
     // Extract the real normalization block from the script and run it against a
     // fixture, so this proves the shipped code's behavior, not a copy of it.
     expect(preg_match(
-        '/# --- normalize release permissions \(begin\) ---\n(.*?)\n# --- normalize release permissions \(end\) ---/s',
+        '/# --- normalize release permissions \(begin\) ---\n(.*?)\n\s*# --- normalize release permissions \(end\) ---/s',
         $deploy,
         $matches,
     ))->toBe(1, 'could not locate the release permission normalization block in scripts/deploy');
@@ -121,8 +121,8 @@ it('normalizes release permissions while preserving the executable bit', functio
     // the release-extraction step must key on the executable bit and never
     // blanket-chmod every file, so it must not force world modes.
     expect($block)
-        ->toContain('-perm /111 \\'."\n".'    -exec chmod 0750 {} +')
-        ->toContain('! -perm /111 \\'."\n".'    -exec chmod 0640 {} +')
+        ->toContain('-perm /111 \\'."\n".'        -exec chmod 0750 {} +')
+        ->toContain('! -perm /111 \\'."\n".'        -exec chmod 0640 {} +')
         // Every `-type f` in the block is guarded by a `-perm` clause; a
         // `-type f` leading straight into `-exec` would be the old blanket step.
         ->not->toMatch('/-type f\s*\\\\\n\s*-exec/')

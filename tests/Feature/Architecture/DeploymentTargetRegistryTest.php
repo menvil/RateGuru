@@ -1301,13 +1301,13 @@ it('leaves the --environment interface untouched', function () {
 });
 
 it('converts no mutating operational script to --target yet', function () {
-    // health-check and status became target-aware in Phase 4 slice 2, and
-    // cleanup in slice 4 — see TargetAwareOperationsTest.php and
-    // CleanupTest.php for their behavioral coverage. Every other script that
-    // writes to a target's filesystem, database or service state is still
-    // --environment-only until its own migration slice.
+    // health-check and status became target-aware in Phase 4 slice 2, cleanup
+    // in slice 4, and deploy in slice 5 — see TargetAwareOperationsTest.php,
+    // CleanupTest.php and DeployTest.php for their behavioral coverage. Every
+    // other script that writes to a target's filesystem, database or service
+    // state is still --environment-only until its own migration slice.
     $operational = [
-        'deploy', 'rollback',
+        'rollback',
         'backup', 'backup-cycle', 'offsite-backup', 'offsite-retention',
         'restore-test', 'offsite-restore-test',
     ];

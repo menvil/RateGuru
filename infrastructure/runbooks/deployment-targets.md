@@ -321,10 +321,10 @@ true across every slice below, installed or not.
 
 ### What is deliberately still legacy-only
 
-`deploy`, `rollback`, and the backup family are untouched by this slice or the
-next — they still accept only `--environment`. `cleanup` graduated to
-target-awareness in slice 4; see
-[Target-aware cleanup](#target-aware-cleanup-slice-4-current) below and the
+`rollback` and the backup family are untouched so far — they still accept
+only `--environment`. `cleanup` graduated to target-awareness in slice 4 and
+`deploy` in slice 5; see [Target-aware cleanup](#target-aware-cleanup-slice-4-completed)
+and [Target-aware deploy](#target-aware-deploy-slice-5-current) below, and the
 migration sequence.
 
 ## Installing on the VPS (slice 2b)
@@ -354,11 +354,11 @@ behaviour, manual recovery, expected server commands — is in
   whatever is currently installed, with no changes and no backup.
 
 Installing this tooling does not provision `tits-guru` and does not touch
-`deploy`, `rollback`, any backup script, workflows, sudoers, or server
-wrappers — see the two subsections above, which hold regardless of whether
-this slice has run on the VPS yet.
+`rollback`, any backup script, workflows, sudoers, or server wrappers — see
+the two subsections above, which hold regardless of whether this slice has
+run on the VPS yet.
 
-## Target-aware cleanup (slice 4, current)
+## Target-aware cleanup (slice 4, completed)
 
 `cleanup` now accepts the same selector contract as `health-check` and
 `status`:
@@ -439,6 +439,98 @@ enforced for `deployment.conf` and the target registry — via a single
 pre-existing `pinned-releases` file, valid or not, is never touched — content,
 mode, and mtime all survive a `cleanup --apply` run byte-for-byte.
 
+**Accepted on the real staging VPS:** `install-target-operations
+--check`/`--apply`/`--verify` all passed against the six-file installer;
+`cleanup --environment staging --dry-run` and
+`cleanup --target staging-main --dry-run` selected the identical candidate
+release set; `cleanup --target tits-guru --dry-run` was rejected with
+`lifecycle=planned`.
+
+## Target-aware deploy (slice 5, current)
+
+`deploy` now accepts the same selector contract as `health-check`, `status`
+and `cleanup`, with the exact same operational flags either way:
+
+```bash
+deploy --target staging-main --release RELEASE_ID --artifact PATH [--checksum PATH] [--migrate]
+deploy --environment staging --release RELEASE_ID --artifact PATH [--checksum PATH] [--migrate]
+```
+
+`--target` and `--environment` remain mutually exclusive, exactly one is
+required, an empty value or a duplicate flag is rejected, and `--help`
+documents both forms.
+
+### Root authorization still runs first, unconditionally
+
+Unlike `cleanup`, `deploy` runs privileged filesystem operations (writing
+release directories, changing ownership, switching the `current` symlink) on
+every invocation, not only under `--apply`. Its root-first contract is
+therefore preserved **exactly**: `require_root` is still the first
+substantive action, before any argument parsing. Only after root
+authorization succeeds does `require_active_target` run — immediately,
+before artifact/checksum canonicalization, the artifact-existence check, the
+incoming directory, the target filesystem root, the deployment lock, or any
+mutation. So the full ordering for `--target` is: root authorization →
+`lifecycle=planned` rejection → (only if active) artifact/filesystem
+validation. `tits-guru` is rejected at the lifecycle gate before any artifact
+path is ever touched, exactly like `health-check`, `status` and `cleanup`.
+
+### One shared deployment pipeline
+
+Selector resolution (`resolve_target`) populates the same set of variables —
+application root, runtime user, deploy user, code group, incoming-artifacts
+directory, canonical public hostname (a new `target_primary_public_hostname`
+accessor, following the existing fail-closed `_target_property` contract —
+no new registry field), and the health-check selector to use after the
+switch — from either the registry (`target_*` helpers) or `deployment.conf`
+(`environment_*` helpers), depending on which selector was given. Everything
+after resolution — checksum verification, unsafe-path rejection, the
+disk-space check, extraction, symlinks, ownership/permission normalization,
+`verify-required-clis`, Laravel cache preparation, optional migrations,
+`rateguru:sharing:verify`, the atomic `current` switch, PHP-FPM reload,
+health-check, automatic recovery of `current`/`previous` on failure,
+deployment history, and queue restart — is one single pipeline, unchanged
+from before this slice, with no second target-specific code path.
+
+### Preserved exactly
+
+Every existing protection carries over unchanged: root-only execution,
+release ID validation, artifact/checksum containment within the
+selector-specific incoming directory, SHA-256 verification, unsafe tar path
+rejection, the disk-space check, the shared deployment lock (the same one
+`cleanup`/`rollback` use), immutable release directories, the temporary
+extraction directory, `.env`/`storage`/`public/storage` symlinks,
+ownership/permission normalization, `verify-required-clis`, Laravel cache
+preparation, optional migrations, `rateguru:sharing:verify`, the atomic
+`current` switch, PHP-FPM reload, health-check, automatic recovery of
+`current`/`previous` after a failure, failed/success deployment history,
+queue restart, and deletion of a failed release directory after successful
+recovery.
+
+### Installed by install-target-operations (seven files, not six)
+
+`install-target-operations` now manages `deploy` alongside the six files
+slice 4 left it with. Consistent with `deploy` never being safe to run for
+real during an install/verify pass (no artifact exists to deploy, and doing
+so would mutate the real staging target), the installer only ever proves
+`deploy --help` succeeds and `deploy --target tits-guru` (given a
+deliberately unusable release/artifact combination) fails with
+`lifecycle=planned` — both staged, before anything is installed, and again
+against the installed binary during `--apply`'s post-install check and every
+`--verify` run. See
+[`install-target-operations.md`](install-target-operations.md) for the full
+seven-file contract.
+
+### What is deliberately still legacy-only
+
+The GitHub Actions deploy workflow, its `/usr/local/sbin` wrapper, and
+sudoers keep calling `deploy --environment staging` — this slice does not
+touch workflows, sudoers, or server wrappers. Migrating that perimeter to
+`--target staging-main` is a separate future slice (see the migration
+sequence below). `rollback` and the backup family remain `--environment`-only
+until their own slices. `tits-guru` remains `lifecycle=planned` and
+undeployable — installing this tooling does not provision it.
+
 ## Compatibility with the current --environment interface
 
 `validate_environment`, `environment_root`, `environment_runtime_user`,
@@ -475,9 +567,13 @@ confirming both still succeed.
    [`install-target-operations.md`](install-target-operations.md))*
 4. **Target-aware cleanup** — `cleanup` accepts `--target` alongside
    `--environment`, dry-run is genuinely side-effect free, and the installer
-   now manages it transactionally too. *(current — see
-   [Target-aware cleanup](#target-aware-cleanup-slice-4-current) above)*
-5. **Target-aware deploy** — `deploy` accepts `--target`.
+   now manages it transactionally too. *(completed and accepted on the real
+   staging VPS — see
+   [Target-aware cleanup](#target-aware-cleanup-slice-4-completed) above)*
+5. **Target-aware deploy** — `deploy` accepts `--target`, preserving its
+   root-first contract and every existing protection unchanged; the installer
+   now manages it too. *(current — see
+   [Target-aware deploy](#target-aware-deploy-slice-5-current) above)*
 6. **Target-aware rollback** — `rollback` accepts `--target`.
 7. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
    `offsite-retention`, `restore-test`, `offsite-restore-test`, preserving the

@@ -2,16 +2,50 @@
 
 set -Eeuo pipefail
 
-# shellcheck disable=SC1091
-source /home/www/rateguru/bin/common
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this script
+# at an attacker- or operator-controlled file to source. This is a plain
+# inline condition, not a call to common's rateguru_test_overrides_allowed():
+# common has not been sourced yet at this point, so no function it defines
+# exists to call. Production never sets either variable, so this resolves to
+# the exact same installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
 
-require_root
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
 
-ENVIRONMENT=""
-RELEASE_ID=""
-ARTIFACT=""
-CHECKSUM_FILE=""
-RUN_MIGRATIONS=false
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Phase 4 slice 5: gated test overrides for the two external binaries deploy
+# invokes by absolute path, mirroring status's own RATEGURU_HEALTH_CHECK_CLI/
+# HEALTH_CHECK_BIN pattern exactly (unlike PHP_BIN/PHP_FPM_SERVICE, which
+# already come from deployment.conf, these two were previously hardcoded
+# literals with no test seam at all). Production values are unchanged; this
+# exists purely so tests can run deploy's real pipeline end to end against
+# self-contained stub health-check/verify-required-clis binaries instead of
+# the real installed ones. Gated the same way every other RATEGURU_* override
+# is: a stray environment variable in a real root shell can never silently
+# redirect either binary without the explicit opt-in flag.
+HEALTH_CHECK_BIN_DEFAULT="/home/www/rateguru/bin/health-check"
+VERIFY_REQUIRED_CLIS_BIN_DEFAULT="/home/www/rateguru/bin/verify-required-clis"
+
+HEALTH_CHECK_BIN="${HEALTH_CHECK_BIN_DEFAULT}"
+VERIFY_REQUIRED_CLIS_BIN="${VERIFY_REQUIRED_CLIS_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_HEALTH_CHECK_BIN:-}" ]]; then
+        HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_VERIFY_REQUIRED_CLIS_BIN:-}" ]]; then
+        VERIFY_REQUIRED_CLIS_BIN="${RATEGURU_VERIFY_REQUIRED_CLIS_BIN}"
+    fi
+fi
 
 usage() {
     cat <<'USAGE'
@@ -23,118 +57,139 @@ Usage:
     --artifact /path/to/release.tar.gz \
     [--checksum /path/to/release.tar.gz.sha256] \
     [--migrate]
+
+  deploy \
+    --target TARGET_ID \
+    --release v1.4.0-20260717-151500-a81d7f2 \
+    --artifact /path/to/release.tar.gz \
+    [--checksum /path/to/release.tar.gz.sha256] \
+    [--migrate]
 USAGE
 }
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
-            shift 2
-            ;;
-        --release)
-            RELEASE_ID="${2:-}"
-            shift 2
-            ;;
-        --artifact)
-            ARTIFACT="${2:-}"
-            shift 2
-            ;;
-        --checksum)
-            CHECKSUM_FILE="${2:-}"
-            shift 2
-            ;;
-        --migrate)
-            RUN_MIGRATIONS=true
-            shift
-            ;;
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        *)
-            fail "unknown argument: $1"
-            ;;
-    esac
-done
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called. This is what lets tests source this whole section standalone
+# (BASH_SOURCE[0] != $0 when sourced, so the guard never calls main on its
+# own), call parse_deploy_args/resolve_target/perform_deploy directly for
+# parsing- and resolution-only coverage, or call main explicitly for tests
+# that legitimately need the full root-gated flow — the same technique
+# already established for infrastructure/scripts/install-target-operations
+# and infrastructure/scripts/cleanup, adapted here as a source guard instead
+# of a thin run_*() wrapper specifically so require_root can stay the very
+# first thing a real invocation does, unchanged from today.
 
-[[ -n "${ENVIRONMENT}" ]] \
-    || fail "--environment is required"
+# --- selector and deployment-flag parsing ------------------------------------
+#
+# deploy cannot reuse common's parse_selector_args directly — it has extra
+# flags (--release, --artifact, --checksum, --migrate) that function doesn't
+# know about — so it runs its own loop for --target/--environment plus those,
+# then calls assert_selector_state for the exact same mutual-exclusion /
+# exactly-one-required / non-empty validation health-check/status/cleanup
+# already get. --release/--artifact/--checksum/--migrate keep their exact
+# prior behavior (a missing value silently defaults to empty via "${2:-}",
+# caught afterward by the existing --release/--artifact presence checks) —
+# only --target/--environment get the stricter "requires a value"/"given more
+# than once" checks, matching the other target-aware scripts.
+parse_deploy_args() {
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+    RELEASE_ID=""
+    ARTIFACT=""
+    CHECKSUM_FILE=""
+    RUN_MIGRATIONS=false
 
-[[ -n "${RELEASE_ID}" ]] \
-    || fail "--release is required"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                [[ $# -ge 2 ]] || fail "--target requires a value"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
+                [[ $# -ge 2 ]] || fail "--environment requires a value"
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --release)
+                RELEASE_ID="${2:-}"
+                shift 2
+                ;;
+            --artifact)
+                ARTIFACT="${2:-}"
+                shift 2
+                ;;
+            --checksum)
+                CHECKSUM_FILE="${2:-}"
+                shift 2
+                ;;
+            --migrate)
+                RUN_MIGRATIONS=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
 
-[[ -n "${ARTIFACT}" ]] \
-    || fail "--artifact is required"
+    assert_selector_state
 
-validate_environment "${ENVIRONMENT}"
-validate_release_id "${RELEASE_ID}"
+    [[ -n "${RELEASE_ID}" ]] \
+        || fail "--release is required"
 
-ARTIFACT="$(readlink -f "${ARTIFACT}")"
+    [[ -n "${ARTIFACT}" ]] \
+        || fail "--artifact is required"
+}
 
-[[ -f "${ARTIFACT}" ]] \
-    || fail "artifact does not exist: ${ARTIFACT}"
+# --- target resolution (mirrors health-check/status/cleanup) -----------------
 
-if [[ -z "${CHECKSUM_FILE}" ]]; then
-    CHECKSUM_FILE="${ARTIFACT}.sha256"
-fi
+resolve_target() {
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        # require_active_target validates the target ID, the whole registry,
+        # that the target exists, and that it is lifecycle=active — all
+        # before artifact/checksum canonicalization, the target filesystem
+        # root, the deployment lock, or any mutation. main() already called
+        # require_root before this function runs, so the full ordering for
+        # --target is: root authorization -> lifecycle=planned rejection ->
+        # (only if active) artifact/filesystem validation.
+        require_active_target "${TARGET_ID}"
 
-CHECKSUM_FILE="$(readlink -f "${CHECKSUM_FILE}")"
+        ENVIRONMENT_ROOT="$(target_root "${TARGET_ID}")"
+        RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+        CODE_GROUP="$(target_code_group "${TARGET_ID}")"
+        DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
+        PUBLIC_HOSTNAME="$(target_primary_public_hostname "${TARGET_ID}")"
+        INCOMING_ROOT="$(readlink -f "$(target_incoming_artifacts "${TARGET_ID}")")"
+        LABEL="${TARGET_ID}"
+        HEALTH_SELECTOR=(--target "${TARGET_ID}")
+    else
+        validate_environment "${ENVIRONMENT}"
 
-[[ -f "${CHECKSUM_FILE}" ]] \
-    || fail "checksum file does not exist: ${CHECKSUM_FILE}"
+        ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
+        RUNTIME_USER="$(environment_runtime_user "${ENVIRONMENT}")"
+        CODE_GROUP="$(environment_code_group "${ENVIRONMENT}")"
+        DEPLOY_ACCOUNT="$(environment_deploy_user "${ENVIRONMENT}")"
+        PUBLIC_HOSTNAME="$(environment_public_hostname "${ENVIRONMENT}")"
+        INCOMING_ROOT="$(readlink -f "$(environment_incoming_artifacts "${ENVIRONMENT}")")"
+        LABEL="${ENVIRONMENT}"
+        HEALTH_SELECTOR=(--environment "${ENVIRONMENT}")
+    fi
+}
 
-ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
-RUNTIME_USER="$(environment_runtime_user "${ENVIRONMENT}")"
-CODE_GROUP="$(environment_code_group "${ENVIRONMENT}")"
-DEPLOY_ACCOUNT="$(environment_deploy_user "${ENVIRONMENT}")"
-PUBLIC_HOSTNAME="$(environment_public_hostname "${ENVIRONMENT}")"
-INCOMING_ROOT="$(readlink -f "$(environment_incoming_artifacts "${ENVIRONMENT}")")"
-
-case "${ARTIFACT}" in
-    "${INCOMING_ROOT}"/*)
-        ;;
-    *)
-        fail "artifact must be located inside ${INCOMING_ROOT}"
-        ;;
-esac
-
-case "${CHECKSUM_FILE}" in
-    "${INCOMING_ROOT}"/*)
-        ;;
-    *)
-        fail "checksum must be located inside ${INCOMING_ROOT}"
-        ;;
-esac
-
-RELEASES_ROOT="${ENVIRONMENT_ROOT}/releases"
-RELEASE_ROOT="${RELEASES_ROOT}/${RELEASE_ID}"
-TEMP_RELEASE_ROOT="${RELEASES_ROOT}/.${RELEASE_ID}.tmp-$$"
-
-CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
-PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
-
-acquire_deployment_lock "${ENVIRONMENT_ROOT}"
-
-ORIGINAL_CURRENT_PRESENT=false
-ORIGINAL_CURRENT_PATH=""
-ORIGINAL_PREVIOUS_PRESENT=false
-ORIGINAL_PREVIOUS_PATH=""
-
-if [[ -L "${CURRENT_LINK}" ]]; then
-    ORIGINAL_CURRENT_PRESENT=true
-    ORIGINAL_CURRENT_PATH="$(readlink -f "${CURRENT_LINK}")"
-fi
-
-if [[ -L "${PREVIOUS_LINK}" ]]; then
-    ORIGINAL_PREVIOUS_PRESENT=true
-    ORIGINAL_PREVIOUS_PATH="$(readlink -f "${PREVIOUS_LINK}")"
-fi
-
-DEPLOYMENT_STARTED=false
-TERMINAL_HISTORY_WRITTEN=false
-CURRENT_SWITCHED=false
-FAILURE_STATUS="failed"
+# --- deployment recovery (unchanged internals; process-global trap, not
+# function-scoped, so moving the call site that arms it into perform_deploy
+# below changes nothing about when or how it fires) ---------------------------
 
 restore_link_state() {
     local link_path="$1"
@@ -235,303 +290,393 @@ handle_deployment_exit() {
     exit "${exit_code}"
 }
 
-trap handle_deployment_exit EXIT
+# --- deployment pipeline: one shared code path for both selectors -----------
 
-[[ ! -e "${RELEASE_ROOT}" ]] \
-    || fail "release already exists: ${RELEASE_ROOT}"
+perform_deploy() {
+    validate_release_id "${RELEASE_ID}"
 
-log "verifying artifact checksum"
+    ARTIFACT="$(readlink -f "${ARTIFACT}")"
 
-(
-    cd "$(dirname "${ARTIFACT}")"
+    [[ -f "${ARTIFACT}" ]] \
+        || fail "artifact does not exist: ${ARTIFACT}"
 
-    sha256sum \
-        --check \
-        "$(basename "${CHECKSUM_FILE}")"
-)
-
-log "validating artifact paths"
-
-if tar -tzf "${ARTIFACT}" \
-    | grep -Eq '(^/|(^|/)\.\.(/|$))'
-then
-    fail "artifact contains an unsafe path"
-fi
-
-AVAILABLE_KB="$(
-    df --output=avail "${RELEASES_ROOT}" \
-        | tail -1 \
-        | tr -d ' '
-)"
-
-ARTIFACT_KB="$(
-    du -k "${ARTIFACT}" \
-        | awk '{ print $1 }'
-)"
-
-REQUIRED_KB="$((ARTIFACT_KB * 5 + 102400))"
-
-if (( AVAILABLE_KB < REQUIRED_KB )); then
-    fail "insufficient disk space for release extraction"
-fi
-
-append_history \
-    "${ENVIRONMENT_ROOT}" \
-    "deployment-started" \
-    "${RELEASE_ID}" \
-    "running"
-
-DEPLOYMENT_STARTED=true
-
-log "extracting ${RELEASE_ID}"
-
-install \
-    -d \
-    -o "${DEPLOY_ACCOUNT}" \
-    -g "${CODE_GROUP}" \
-    -m 0750 \
-    "${TEMP_RELEASE_ROOT}"
-
-tar \
-    -xzf "${ARTIFACT}" \
-    --no-same-owner \
-    --no-same-permissions \
-    -C "${TEMP_RELEASE_ROOT}"
-
-[[ -f "${TEMP_RELEASE_ROOT}/public/index.php" ]] \
-    || fail "artifact does not contain public/index.php"
-
-if [[ -e "${TEMP_RELEASE_ROOT}/.env" ]] \
-    || [[ -L "${TEMP_RELEASE_ROOT}/.env" ]]
-then
-    rm -f "${TEMP_RELEASE_ROOT}/.env"
-fi
-
-if [[ -e "${TEMP_RELEASE_ROOT}/storage" ]] \
-    || [[ -L "${TEMP_RELEASE_ROOT}/storage" ]]
-then
-    rm -rf "${TEMP_RELEASE_ROOT}/storage"
-fi
-
-ln -s \
-    "${ENVIRONMENT_ROOT}/shared/.env" \
-    "${TEMP_RELEASE_ROOT}/.env"
-
-ln -s \
-    "${ENVIRONMENT_ROOT}/shared/storage" \
-    "${TEMP_RELEASE_ROOT}/storage"
-
-if [[ -e "${TEMP_RELEASE_ROOT}/public/storage" ]] \
-    || [[ -L "${TEMP_RELEASE_ROOT}/public/storage" ]]
-then
-    rm -rf "${TEMP_RELEASE_ROOT}/public/storage"
-fi
-
-ln -s \
-    "${ENVIRONMENT_ROOT}/shared/storage/app/public" \
-    "${TEMP_RELEASE_ROOT}/public/storage"
-
-chown -R \
-    "${DEPLOY_ACCOUNT}:${CODE_GROUP}" \
-    "${TEMP_RELEASE_ROOT}"
-
-# Normalize modes without discarding the executable bit. Files Git tracked as
-# executable (installer/verify/status scripts, and any future ones) are extracted
-# with their exec bit intact and must stay runnable; every other regular file is
-# normalized to non-executable. Ownership was already normalized by chown -R
-# above; we never widen beyond group access (no world read/write/execute).
-# --- normalize release permissions (begin) ---
-find "${TEMP_RELEASE_ROOT}" \
-    -type d \
-    -exec chmod 0750 {} +
-
-find "${TEMP_RELEASE_ROOT}" \
-    -type f \
-    -perm /111 \
-    -exec chmod 0750 {} +
-
-find "${TEMP_RELEASE_ROOT}" \
-    -type f \
-    ! -perm /111 \
-    -exec chmod 0640 {} +
-# --- normalize release permissions (end) ---
-
-# Proves what this deploy script itself actually produces for the installed,
-# server-side copy of every infrastructure CLI, immediately after the
-# normalization above ran — not merely what the GitHub Actions artifact-build
-# workflows verified before upload. The two checks are independent: an
-# artifact CLI can arrive executable and still lose that bit here if this
-# normalization logic regresses on the server, or if the manifest itself goes
-# missing from a release. verify-required-clis fails closed and never
-# chmod's around a violation — a wrong mode here means the release is
-# genuinely broken, not something to paper over silently, so this fails
-# before current is ever switched. Shared with both artifact-build workflows
-# (deploy-staging.yml, release.yml) rather than reimplemented here, so the
-# one algorithm can't drift between the three call sites.
-# --- verify infrastructure CLI executable bits (begin) ---
-/home/www/rateguru/bin/verify-required-clis --release-root "${TEMP_RELEASE_ROOT}"
-# --- verify infrastructure CLI executable bits (end) ---
-
-if [[ "${RUN_MIGRATIONS}" == true ]] \
-    && [[ ! -f "${TEMP_RELEASE_ROOT}/artisan" ]]
-then
-    fail "--migrate was requested, but artifact does not contain artisan"
-fi
-
-# Move to the final immutable path before generating Laravel caches.
-# Laravel configuration may contain absolute application/storage paths.
-mv \
-    "${TEMP_RELEASE_ROOT}" \
-    "${RELEASE_ROOT}"
-
-if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
-    log "preparing Laravel release"
-
-    SHARED_STORAGE="${ENVIRONMENT_ROOT}/shared/storage"
-
-    install \
-        -d \
-        -o "${RUNTIME_USER}" \
-        -g "${RUNTIME_USER}" \
-        -m 2770 \
-        "${SHARED_STORAGE}/framework/cache/data" \
-        "${SHARED_STORAGE}/framework/sessions" \
-        "${SHARED_STORAGE}/framework/views" \
-        "${SHARED_STORAGE}/logs"
-
-    chown -R \
-        "${RUNTIME_USER}:${RUNTIME_USER}" \
-        "${SHARED_STORAGE}/framework" \
-        "${SHARED_STORAGE}/logs"
-
-    find \
-        "${SHARED_STORAGE}/framework" \
-        "${SHARED_STORAGE}/logs" \
-        -type d \
-        -exec chmod 2770 {} +
-
-    find \
-        "${SHARED_STORAGE}/framework" \
-        "${SHARED_STORAGE}/logs" \
-        -type f \
-        -exec chmod 0660 {} +
-
-    install \
-        -d \
-        -o "${RUNTIME_USER}" \
-        -g www-data \
-        -m 2710 \
-        "${SHARED_STORAGE}/app"
-
-    install \
-        -d \
-        -o "${RUNTIME_USER}" \
-        -g www-data \
-        -m 2750 \
-        "${SHARED_STORAGE}/app/public"
-
-    install \
-        -d \
-        -o "${RUNTIME_USER}" \
-        -g "${RUNTIME_USER}" \
-        -m 0770 \
-        "${RELEASE_ROOT}/bootstrap/cache"
-
-    rm -f \
-        "${RELEASE_ROOT}/bootstrap/cache/config.php" \
-        "${RELEASE_ROOT}/bootstrap/cache/events.php" \
-        "${RELEASE_ROOT}/bootstrap/cache/routes-"*.php
-
-    if ! (
-        cd "${RELEASE_ROOT}"
-
-        runuser \
-            -u "${RUNTIME_USER}" \
-            -- "${PHP_BIN}" artisan config:cache
-
-        runuser \
-            -u "${RUNTIME_USER}" \
-            -- "${PHP_BIN}" artisan rateguru:sharing:verify \
-                --expected-host="${PUBLIC_HOSTNAME}"
-
-        runuser \
-            -u "${RUNTIME_USER}" \
-            -- "${PHP_BIN}" artisan view:cache
-
-        if [[ "${RUN_MIGRATIONS}" == true ]]; then
-            log "running database migrations"
-
-            runuser \
-                -u "${RUNTIME_USER}" \
-                -- "${PHP_BIN}" artisan migrate --force
-        fi
-    ); then
-        FAILURE_STATUS="failed-preparation"
-        fail "Laravel release preparation failed"
+    if [[ -z "${CHECKSUM_FILE}" ]]; then
+        CHECKSUM_FILE="${ARTIFACT}.sha256"
     fi
+
+    CHECKSUM_FILE="$(readlink -f "${CHECKSUM_FILE}")"
+
+    [[ -f "${CHECKSUM_FILE}" ]] \
+        || fail "checksum file does not exist: ${CHECKSUM_FILE}"
+
+    case "${ARTIFACT}" in
+        "${INCOMING_ROOT}"/*)
+            ;;
+        *)
+            fail "artifact must be located inside ${INCOMING_ROOT}"
+            ;;
+    esac
+
+    case "${CHECKSUM_FILE}" in
+        "${INCOMING_ROOT}"/*)
+            ;;
+        *)
+            fail "checksum must be located inside ${INCOMING_ROOT}"
+            ;;
+    esac
+
+    RELEASES_ROOT="${ENVIRONMENT_ROOT}/releases"
+    RELEASE_ROOT="${RELEASES_ROOT}/${RELEASE_ID}"
+    TEMP_RELEASE_ROOT="${RELEASES_ROOT}/.${RELEASE_ID}.tmp-$$"
+
+    CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
+    PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
+
+    acquire_deployment_lock "${ENVIRONMENT_ROOT}"
+
+    ORIGINAL_CURRENT_PRESENT=false
+    ORIGINAL_CURRENT_PATH=""
+    ORIGINAL_PREVIOUS_PRESENT=false
+    ORIGINAL_PREVIOUS_PATH=""
+
+    if [[ -L "${CURRENT_LINK}" ]]; then
+        ORIGINAL_CURRENT_PRESENT=true
+        ORIGINAL_CURRENT_PATH="$(readlink -f "${CURRENT_LINK}")"
+    fi
+
+    if [[ -L "${PREVIOUS_LINK}" ]]; then
+        ORIGINAL_PREVIOUS_PRESENT=true
+        ORIGINAL_PREVIOUS_PATH="$(readlink -f "${PREVIOUS_LINK}")"
+    fi
+
+    DEPLOYMENT_STARTED=false
+    TERMINAL_HISTORY_WRITTEN=false
+    CURRENT_SWITCHED=false
+    FAILURE_STATUS="failed"
+
+    trap handle_deployment_exit EXIT
+
+    [[ ! -e "${RELEASE_ROOT}" ]] \
+        || fail "release already exists: ${RELEASE_ROOT}"
+
+    log "verifying artifact checksum"
+
+    (
+        cd "$(dirname "${ARTIFACT}")"
+
+        sha256sum \
+            --check \
+            "$(basename "${CHECKSUM_FILE}")"
+    )
+
+    log "validating artifact paths"
+
+    if tar -tzf "${ARTIFACT}" \
+        | grep -Eq '(^/|(^|/)\.\.(/|$))'
+    then
+        fail "artifact contains an unsafe path"
+    fi
+
+    AVAILABLE_KB="$(
+        df --output=avail "${RELEASES_ROOT}" \
+            | tail -1 \
+            | tr -d ' '
+    )"
+
+    ARTIFACT_KB="$(
+        du -k "${ARTIFACT}" \
+            | awk '{ print $1 }'
+    )"
+
+    REQUIRED_KB="$((ARTIFACT_KB * 5 + 102400))"
+
+    if (( AVAILABLE_KB < REQUIRED_KB )); then
+        fail "insufficient disk space for release extraction"
+    fi
+
+    append_history \
+        "${ENVIRONMENT_ROOT}" \
+        "deployment-started" \
+        "${RELEASE_ID}" \
+        "running"
+
+    DEPLOYMENT_STARTED=true
+
+    log "extracting ${RELEASE_ID}"
+
+    install \
+        -d \
+        -o "${DEPLOY_ACCOUNT}" \
+        -g "${CODE_GROUP}" \
+        -m 0750 \
+        "${TEMP_RELEASE_ROOT}"
+
+    tar \
+        -xzf "${ARTIFACT}" \
+        --no-same-owner \
+        --no-same-permissions \
+        -C "${TEMP_RELEASE_ROOT}"
+
+    [[ -f "${TEMP_RELEASE_ROOT}/public/index.php" ]] \
+        || fail "artifact does not contain public/index.php"
+
+    if [[ -e "${TEMP_RELEASE_ROOT}/.env" ]] \
+        || [[ -L "${TEMP_RELEASE_ROOT}/.env" ]]
+    then
+        rm -f "${TEMP_RELEASE_ROOT}/.env"
+    fi
+
+    if [[ -e "${TEMP_RELEASE_ROOT}/storage" ]] \
+        || [[ -L "${TEMP_RELEASE_ROOT}/storage" ]]
+    then
+        rm -rf "${TEMP_RELEASE_ROOT}/storage"
+    fi
+
+    ln -s \
+        "${ENVIRONMENT_ROOT}/shared/.env" \
+        "${TEMP_RELEASE_ROOT}/.env"
+
+    ln -s \
+        "${ENVIRONMENT_ROOT}/shared/storage" \
+        "${TEMP_RELEASE_ROOT}/storage"
+
+    if [[ -e "${TEMP_RELEASE_ROOT}/public/storage" ]] \
+        || [[ -L "${TEMP_RELEASE_ROOT}/public/storage" ]]
+    then
+        rm -rf "${TEMP_RELEASE_ROOT}/public/storage"
+    fi
+
+    ln -s \
+        "${ENVIRONMENT_ROOT}/shared/storage/app/public" \
+        "${TEMP_RELEASE_ROOT}/public/storage"
 
     chown -R \
         "${DEPLOY_ACCOUNT}:${CODE_GROUP}" \
-        "${RELEASE_ROOT}/bootstrap/cache"
+        "${TEMP_RELEASE_ROOT}"
 
-    find "${RELEASE_ROOT}/bootstrap/cache" \
+    # Normalize modes without discarding the executable bit. Files Git tracked as
+    # executable (installer/verify/status scripts, and any future ones) are extracted
+    # with their exec bit intact and must stay runnable; every other regular file is
+    # normalized to non-executable. Ownership was already normalized by chown -R
+    # above; we never widen beyond group access (no world read/write/execute).
+    # --- normalize release permissions (begin) ---
+    find "${TEMP_RELEASE_ROOT}" \
         -type d \
         -exec chmod 0750 {} +
 
-    find "${RELEASE_ROOT}/bootstrap/cache" \
+    find "${TEMP_RELEASE_ROOT}" \
         -type f \
+        -perm /111 \
+        -exec chmod 0750 {} +
+
+    find "${TEMP_RELEASE_ROOT}" \
+        -type f \
+        ! -perm /111 \
         -exec chmod 0640 {} +
-fi
+    # --- normalize release permissions (end) ---
 
-log "switching current symlink"
+    # Proves what this deploy script itself actually produces for the installed,
+    # server-side copy of every infrastructure CLI, immediately after the
+    # normalization above ran — not merely what the GitHub Actions artifact-build
+    # workflows verified before upload. The two checks are independent: an
+    # artifact CLI can arrive executable and still lose that bit here if this
+    # normalization logic regresses on the server, or if the manifest itself goes
+    # missing from a release. verify-required-clis fails closed and never
+    # chmod's around a violation — a wrong mode here means the release is
+    # genuinely broken, not something to paper over silently, so this fails
+    # before current is ever switched. Shared with both artifact-build workflows
+    # (deploy-staging.yml, release.yml) rather than reimplemented here, so the
+    # one algorithm can't drift between the three call sites.
+    # --- verify infrastructure CLI executable bits (begin) ---
+    "${VERIFY_REQUIRED_CLIS_BIN}" --release-root "${TEMP_RELEASE_ROOT}"
+    # --- verify infrastructure CLI executable bits (end) ---
 
-ln -sfn \
-    "${RELEASE_ROOT}" \
-    "${CURRENT_LINK}.new"
+    if [[ "${RUN_MIGRATIONS}" == true ]] \
+        && [[ ! -f "${TEMP_RELEASE_ROOT}/artisan" ]]
+    then
+        fail "--migrate was requested, but artifact does not contain artisan"
+    fi
 
-mv -Tf \
-    "${CURRENT_LINK}.new" \
-    "${CURRENT_LINK}"
+    # Move to the final immutable path before generating Laravel caches.
+    # Laravel configuration may contain absolute application/storage paths.
+    mv \
+        "${TEMP_RELEASE_ROOT}" \
+        "${RELEASE_ROOT}"
 
-CURRENT_SWITCHED=true
+    if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
+        log "preparing Laravel release"
 
-systemctl reload "${PHP_FPM_SERVICE}"
+        SHARED_STORAGE="${ENVIRONMENT_ROOT}/shared/storage"
 
-if ! /home/www/rateguru/bin/health-check \
-    --environment "${ENVIRONMENT}"
-then
-    FAILURE_STATUS="failed-health-check"
-    fail "deployment health check failed"
-fi
+        install \
+            -d \
+            -o "${RUNTIME_USER}" \
+            -g "${RUNTIME_USER}" \
+            -m 2770 \
+            "${SHARED_STORAGE}/framework/cache/data" \
+            "${SHARED_STORAGE}/framework/sessions" \
+            "${SHARED_STORAGE}/framework/views" \
+            "${SHARED_STORAGE}/logs"
 
-if [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
-    && [[ -d "${ORIGINAL_CURRENT_PATH}" ]]
-then
+        chown -R \
+            "${RUNTIME_USER}:${RUNTIME_USER}" \
+            "${SHARED_STORAGE}/framework" \
+            "${SHARED_STORAGE}/logs"
+
+        find \
+            "${SHARED_STORAGE}/framework" \
+            "${SHARED_STORAGE}/logs" \
+            -type d \
+            -exec chmod 2770 {} +
+
+        find \
+            "${SHARED_STORAGE}/framework" \
+            "${SHARED_STORAGE}/logs" \
+            -type f \
+            -exec chmod 0660 {} +
+
+        install \
+            -d \
+            -o "${RUNTIME_USER}" \
+            -g www-data \
+            -m 2710 \
+            "${SHARED_STORAGE}/app"
+
+        install \
+            -d \
+            -o "${RUNTIME_USER}" \
+            -g www-data \
+            -m 2750 \
+            "${SHARED_STORAGE}/app/public"
+
+        install \
+            -d \
+            -o "${RUNTIME_USER}" \
+            -g "${RUNTIME_USER}" \
+            -m 0770 \
+            "${RELEASE_ROOT}/bootstrap/cache"
+
+        rm -f \
+            "${RELEASE_ROOT}/bootstrap/cache/config.php" \
+            "${RELEASE_ROOT}/bootstrap/cache/events.php" \
+            "${RELEASE_ROOT}/bootstrap/cache/routes-"*.php
+
+        if ! (
+            cd "${RELEASE_ROOT}"
+
+            runuser \
+                -u "${RUNTIME_USER}" \
+                -- "${PHP_BIN}" artisan config:cache
+
+            runuser \
+                -u "${RUNTIME_USER}" \
+                -- "${PHP_BIN}" artisan rateguru:sharing:verify \
+                    --expected-host="${PUBLIC_HOSTNAME}"
+
+            runuser \
+                -u "${RUNTIME_USER}" \
+                -- "${PHP_BIN}" artisan view:cache
+
+            if [[ "${RUN_MIGRATIONS}" == true ]]; then
+                log "running database migrations"
+
+                runuser \
+                    -u "${RUNTIME_USER}" \
+                    -- "${PHP_BIN}" artisan migrate --force
+            fi
+        ); then
+            FAILURE_STATUS="failed-preparation"
+            fail "Laravel release preparation failed"
+        fi
+
+        chown -R \
+            "${DEPLOY_ACCOUNT}:${CODE_GROUP}" \
+            "${RELEASE_ROOT}/bootstrap/cache"
+
+        find "${RELEASE_ROOT}/bootstrap/cache" \
+            -type d \
+            -exec chmod 0750 {} +
+
+        find "${RELEASE_ROOT}/bootstrap/cache" \
+            -type f \
+            -exec chmod 0640 {} +
+    fi
+
+    log "switching current symlink"
+
     ln -sfn \
-        "${ORIGINAL_CURRENT_PATH}" \
-        "${PREVIOUS_LINK}.new"
+        "${RELEASE_ROOT}" \
+        "${CURRENT_LINK}.new"
 
     mv -Tf \
-        "${PREVIOUS_LINK}.new" \
-        "${PREVIOUS_LINK}"
+        "${CURRENT_LINK}.new" \
+        "${CURRENT_LINK}"
+
+    CURRENT_SWITCHED=true
+
+    systemctl reload "${PHP_FPM_SERVICE}"
+
+    if ! "${HEALTH_CHECK_BIN}" \
+        "${HEALTH_SELECTOR[@]}"
+    then
+        FAILURE_STATUS="failed-health-check"
+        fail "deployment health check failed"
+    fi
+
+    if [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
+        && [[ -d "${ORIGINAL_CURRENT_PATH}" ]]
+    then
+        ln -sfn \
+            "${ORIGINAL_CURRENT_PATH}" \
+            "${PREVIOUS_LINK}.new"
+
+        mv -Tf \
+            "${PREVIOUS_LINK}.new" \
+            "${PREVIOUS_LINK}"
+    fi
+
+    if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
+        (
+            cd "${RELEASE_ROOT}"
+
+            runuser \
+                -u "${RUNTIME_USER}" \
+                -- "${PHP_BIN}" artisan queue:restart
+        ) || log "WARNING: queue restart command failed"
+    fi
+
+    log "${LABEL} deployed successfully: ${RELEASE_ID}"
+
+    append_history \
+        "${ENVIRONMENT_ROOT}" \
+        "deployment-finished" \
+        "${RELEASE_ID}" \
+        "success"
+
+    TERMINAL_HISTORY_WRITTEN=true
+}
+
+# --- dispatch -----------------------------------------------------------
+
+# require_root stays the first substantive action of a real invocation,
+# unchanged from before this slice — this is the production root-only
+# contract, and it is not weakened by anything above: parse_deploy_args,
+# resolve_target and perform_deploy are all inert definitions until main
+# calls them, in this exact order.
+main() {
+    require_root
+    parse_deploy_args "$@"
+    resolve_target
+    perform_deploy
+}
+
+# A real invocation (`bash deploy ...` or `./deploy ...`) always has
+# BASH_SOURCE[0] == $0, so main runs immediately here, exactly as today.
+# Tests source this file instead — BASH_SOURCE[0] != $0 in that case, so main
+# never auto-runs — then call parse_deploy_args/resolve_target/perform_deploy
+# directly (bypassing require_root, for parsing/resolution-only coverage) or
+# call main explicitly (for coverage that legitimately needs the real
+# root-gated flow).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
 fi
-
-if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
-    (
-        cd "${RELEASE_ROOT}"
-
-        runuser \
-            -u "${RUNTIME_USER}" \
-            -- "${PHP_BIN}" artisan queue:restart
-    ) || log "WARNING: queue restart command failed"
-fi
-
-log "${ENVIRONMENT} deployed successfully: ${RELEASE_ID}"
-
-append_history \
-    "${ENVIRONMENT_ROOT}" \
-    "deployment-finished" \
-    "${RELEASE_ID}" \
-    "success"
-
-TERMINAL_HISTORY_WRITTEN=true
