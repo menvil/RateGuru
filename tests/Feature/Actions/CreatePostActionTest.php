@@ -95,6 +95,8 @@ it('attaches tags to created post', function () {
 });
 
 it('calls image storage when image is provided', function () {
+    Bus::fake([ProcessUploadedImageJob::class]);
+
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg');
 
@@ -139,6 +141,8 @@ it('allows created post to have null thumbnail url', function () {
 });
 
 it('stores null thumbnail url when image storage returns no thumbnail', function () {
+    Bus::fake([ProcessUploadedImageJob::class]);
+
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg');
 

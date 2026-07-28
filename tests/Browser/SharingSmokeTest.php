@@ -25,15 +25,23 @@ it('renders platform share links on post show page', function () {
         ->assertPresent('[data-testid="share-email"]');
 });
 
-it('all platform share buttons open new tab via window.open', function () {
+it('all platform share buttons expose provider urls in their href', function () {
     $post = Post::factory()->published()->create();
 
-    $providers = ['share-facebook', 'share-x', 'share-telegram', 'share-whatsapp', 'share-reddit', 'share-email'];
+    $providers = [
+        'share-facebook' => 'facebook.com',
+        'share-x' => 'twitter.com/intent/tweet',
+        'share-telegram' => 't.me/share/url',
+        'share-whatsapp' => 'wa.me',
+        'share-reddit' => 'reddit.com/submit',
+        'share-pinterest' => 'pinterest.com/pin/create/button',
+        'share-email' => 'mailto:',
+    ];
 
     $page = visit(route('posts.show', $post));
 
-    foreach ($providers as $testid) {
-        $page->assertAttributeContains("[data-testid=\"{$testid}\"]", '@click.prevent', 'window.open');
+    foreach ($providers as $testid => $providerUrl) {
+        $page->assertAttributeContains("[data-testid=\"{$testid}\"]", 'href', $providerUrl);
     }
 });
 

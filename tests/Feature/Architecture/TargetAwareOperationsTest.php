@@ -1353,7 +1353,6 @@ it('leaves every other operational script and workflow byte-identical to develop
     }
 
     $unchanged = [
-        'infrastructure/scripts/deploy',
         'infrastructure/scripts/rollback',
         'infrastructure/scripts/cleanup',
         'infrastructure/scripts/backup',

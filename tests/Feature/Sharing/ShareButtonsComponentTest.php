@@ -33,7 +33,7 @@ it('renders social provider links', function () {
     expect($view)->toContain('data-testid="share-email"');
 });
 
-it('hides pinterest when post has no image', function () {
+it('shows pinterest with the fallback social image when post has no image', function () {
     $post = Post::factory()->published()->create([
         'image_path' => null,
         'image_url' => null,
@@ -43,7 +43,9 @@ it('hides pinterest when post has no image', function () {
         'post' => $post,
     ]);
 
-    expect($view)->not->toContain('data-testid="share-pinterest"');
+    expect($view)
+        ->toContain('data-testid="share-pinterest"')
+        ->toContain('rateguru-post-placeholder.png');
 });
 
 it('shows pinterest when post has image', function () {

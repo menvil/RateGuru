@@ -53,7 +53,9 @@ it('deploys manually selected refs to staging', function () {
         ->and(data_get($deploySteps->get('Deploy to staging'), 'uses'))
         ->toBe('./.github/actions/deploy-rateguru')
         ->and(data_get($deploySteps->get('Deploy to staging'), 'with.run-migrations'))
-        ->toBe('${{ needs.resolve.outputs.run_migrations }}');
+        ->toBe('${{ needs.resolve.outputs.run_migrations }}')
+        ->and($deploySteps->has('Verify social preview as external crawler'))
+        ->toBeFalse();
 
     expect(data_get($buildSteps->get('Checkout requested ref'), 'with.persist-credentials'))
         ->toBeFalse()
