@@ -44,6 +44,7 @@ umask 022
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
 
+SRC_SELF="${SCRIPT_DIR}/install-target-operations"
 SRC_REGISTRY="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
 SRC_TARGETS="${REPO_ROOT}/infrastructure/scripts/targets"
 SRC_COMMON="${REPO_ROOT}/infrastructure/scripts/common"
@@ -173,6 +174,23 @@ validate_source_files() {
     log "all five source files are present regular files"
 }
 
+# Catches the exact regression that made this installer unusable after a bad
+# artifact build: every file under infrastructure/scripts arriving at mode
+# 0640. validate_source_registry below invokes the targets CLI *directly*
+# (deliberately never wrapped in `bash ...` — see the comment there), so a
+# missing executable bit on it, or on this installer's other CLI dependencies,
+# must fail here, by name, before that happens — the alternative is a bare
+# "Permission denied" with no indication of which file or why. common is a
+# sourced library, never executed directly, so it is exempt here;
+# validate_source_files already requires it to be a readable regular file.
+validate_source_executable_modes() {
+    local path
+    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}"; do
+        [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
+    done
+    log "install-target-operations, targets, health-check and status are all executable"
+}
+
 validate_source_syntax() {
     local path
     for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}"; do
@@ -201,6 +219,7 @@ validate_source_registry() {
 
 run_source_validation() {
     validate_source_files
+    validate_source_executable_modes
     validate_source_syntax
     validate_source_registry
     check_required_tools

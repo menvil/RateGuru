@@ -186,6 +186,19 @@ jobs:
             ./ \
             "${package_root}/"
 
+          # Fail closed if a required infrastructure CLI lost its executable
+          # bit somewhere before this point (a wrong Git blob mode is the only
+          # way that happens — rsync --archive and the tar step below both
+          # preserve whatever mode is already on disk). deploy's own
+          # permission normalization can only preserve an existing executable
+          # bit, never invent one, so a bad artifact here would reach staging
+          # unusable exactly the way install-target-operations and targets
+          # were. This must never be "fixed" with a chmod here: that would
+          # hide the wrong repository metadata instead of catching it.
+          # --- verify infrastructure CLI executable bits (begin) ---
+          infrastructure/scripts/verify-required-clis --release-root "${package_root}"
+          # --- verify infrastructure CLI executable bits (end) ---
+
           jq \
             --null-input \
             --arg project "rateguru" \

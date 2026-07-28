@@ -69,7 +69,19 @@ it('deploys manually selected refs to staging', function () {
     expect(data_get($buildSteps->get('Build release archive'), 'env.SOURCE_REF'))
         ->toBe('${{ needs.resolve.outputs.source_ref }}')
         ->and(data_get($buildSteps->get('Build release archive'), 'run'))
-        ->not->toContain('${{');
+        ->not->toContain('${{')
+        // The executable-bit check must run after rsync stages package_root
+        // and before tar freezes it into the archive — too late once the
+        // release.json write also happens, but this only needs "after rsync,
+        // before tar", so asserting it appears before `tar \` is sufficient.
+        ->toContain('infrastructure/scripts/verify-required-clis')
+        ->toContain('# --- verify infrastructure CLI executable bits (begin) ---');
+
+    $releaseRun = data_get($buildSteps->get('Build release archive'), 'run');
+    expect(mb_strpos($releaseRun, 'rsync \\'))
+        ->toBeLessThan(mb_strpos($releaseRun, '# --- verify infrastructure CLI executable bits (begin) ---'))
+        ->and(mb_strpos($releaseRun, '# --- verify infrastructure CLI executable bits (end) ---'))
+        ->toBeLessThan(mb_strpos($releaseRun, 'tar \\'));
 
     expect($source)
         ->not->toMatch('/^  workflow_run:/m')
@@ -85,4 +97,46 @@ it('deploys manually selected refs to staging', function () {
         // they are kept only briefly for manual re-download afterwards.
         ->toContain('retention-days: 3')
         ->toContain('release-id: ${{ needs.build.outputs.release-id }}');
+});
+
+it('delegates the staging artifact build\'s CLI executable-bit check to the shared verify-required-clis, and fails closed when a CLI is not executable', function () {
+    // Proves the workflow step is exactly a delegating call to the real,
+    // shared infrastructure/scripts/verify-required-clis — the same
+    // algorithm deploy itself uses — never a reimplementation, then runs
+    // that exact extracted line end to end against a scratch package_root.
+    $path = base_path('.github/workflows/deploy-staging.yml');
+    $workflow = Yaml::parse(File::get($path));
+    $run = data_get(collect(data_get($workflow, 'jobs.build.steps'))->keyBy('name')->get('Build release archive'), 'run');
+
+    expect(preg_match(
+        '/# --- verify infrastructure CLI executable bits \(begin\) ---\n(.*?)\n\s*# --- verify infrastructure CLI executable bits \(end\) ---/s',
+        $run,
+        $matches,
+    ))->toBe(1, 'could not locate the executable-bit verification block in deploy-staging.yml');
+
+    $delegatingLine = trim($matches[1]);
+    expect($delegatingLine)->toBe('infrastructure/scripts/verify-required-clis --release-root "${package_root}"');
+
+    $root = releaseCliFixture(requiredCliManifestNames());
+
+    try {
+        $script = 'set -Eeuo pipefail'."\n".'cd '.escapeshellarg(base_path())."\n".'package_root='.escapeshellarg($root)."\n".$delegatingLine;
+
+        $output = [];
+        $exit = 0;
+        exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
+        expect($exit)->toBe(0, "verification rejected a correctly-built package:\n".implode("\n", $output));
+        expect(implode("\n", $output))->toContain('verified: every required infrastructure CLI retains its executable mode after release normalization');
+
+        // Now regress exactly one file, matching the real incident.
+        chmod($root.'/infrastructure/scripts/targets', 0o640);
+
+        $output = [];
+        $exit = 0;
+        exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
+        expect($exit)->not->toBe(0);
+        expect(implode("\n", $output))->toContain('required CLI lost executable mode after extraction: targets');
+    } finally {
+        exec('rm -rf '.escapeshellarg($root));
+    }
 });

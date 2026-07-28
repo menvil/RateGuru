@@ -356,6 +356,22 @@ find "${TEMP_RELEASE_ROOT}" \
     -exec chmod 0640 {} +
 # --- normalize release permissions (end) ---
 
+# Proves what this deploy script itself actually produces for the installed,
+# server-side copy of every infrastructure CLI, immediately after the
+# normalization above ran — not merely what the GitHub Actions artifact-build
+# workflows verified before upload. The two checks are independent: an
+# artifact CLI can arrive executable and still lose that bit here if this
+# normalization logic regresses on the server, or if the manifest itself goes
+# missing from a release. verify-required-clis fails closed and never
+# chmod's around a violation — a wrong mode here means the release is
+# genuinely broken, not something to paper over silently, so this fails
+# before current is ever switched. Shared with both artifact-build workflows
+# (deploy-staging.yml, release.yml) rather than reimplemented here, so the
+# one algorithm can't drift between the three call sites.
+# --- verify infrastructure CLI executable bits (begin) ---
+/home/www/rateguru/bin/verify-required-clis --release-root "${TEMP_RELEASE_ROOT}"
+# --- verify infrastructure CLI executable bits (end) ---
+
 if [[ "${RUN_MIGRATIONS}" == true ]] \
     && [[ ! -f "${TEMP_RELEASE_ROOT}/artisan" ]]
 then

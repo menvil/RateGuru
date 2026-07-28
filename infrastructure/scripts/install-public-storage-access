@@ -1,0 +1,811 @@
+#!/usr/bin/env bash
+#
+# install-public-storage-access — grant Nginx (www-data) narrowly scoped
+# execute-only traversal into a target's shared storage, using POSIX ACLs.
+#
+# Real problem this fixes: Laravel stores uploads under
+#   TARGET_ROOT/shared/storage/app/public/...
+# with files correctly owned rateguru-<target>:www-data, mode 0644 — readable
+# by www-data via group membership. But the two containing directories,
+#   TARGET_ROOT/shared
+#   TARGET_ROOT/shared/storage
+# are mode 2770, group rateguru-<target> (not www-data), so Nginx cannot even
+# traverse into them: `stat()` on the file fails with EACCES on a parent
+# directory, not because the file itself is wrong. See
+# runbooks/public-storage-access.md for the full incident writeup.
+#
+# The fix is exactly two ACL entries, nothing else:
+#   setfacl -m u:www-data:--x TARGET_ROOT/shared
+#   setfacl -m u:www-data:--x TARGET_ROOT/shared/storage
+# Execute-only: traversal, never listing, never read, never write. No chmod,
+# chown or chgrp of either directory; no group-membership change for
+# www-data; no change to any other directory under shared/.
+#
+# Modes (all three require root — --check and --verify use runuser to test
+# access as the target's runtime user and as www-data, which an unprivileged
+# caller cannot do regardless of documentation):
+#   --check   Validate target/filesystem/tool preconditions and report the
+#             current ACL state. Requires root; strictly read-only, makes NO
+#             changes.
+#   --apply   Grant the two ACL entries, transactionally: stages nothing to
+#             install (there is nothing to install), but backs up the exact
+#             prior ACL state first and rolls back automatically if any
+#             post-change verification fails.
+#   --verify  Re-run every verification against whatever is currently
+#             installed. Makes NO changes.
+#
+# Every path this script touches is derived from the target registry via
+# infrastructure/scripts/common — never from a command-line argument or an
+# unapproved environment variable. Only lifecycle=active targets may be
+# touched; tits-guru (lifecycle=planned) is rejected before any filesystem or
+# ACL access, the same way health-check and status already reject it.
+
+set -Eeuo pipefail
+umask 022
+
+# --- Fixed identities and locations (not overridable) -----------------------
+
+WEB_USER="www-data"
+
+# Computed once, as a named constant, rather than checking ${BASH_SOURCE[0]}
+# inline at the point of use: this whole file can then be sourced from a
+# different path (as tests do, to call perform_apply()/perform_verify()
+# directly) with SELF_PATH reassigned to the real script, the same technique
+# install-target-operations uses for its own SRC_SELF.
+SELF_PATH="${BASH_SOURCE[0]}"
+
+BACKUP_ROOT="/var/backups/rateguru-public-storage-access"
+
+# Exhaustive: every external command this script actually invokes (excluding
+# bash builtins like printf/test/read), not just the "unusual" ones — a tool
+# missing here would otherwise pass this gate and fail later with a raw
+# "command not found" instead of this script's own clear message.
+REQUIRED_TOOLS=(setfacl getfacl stat namei readlink runuser curl mktemp install find od cmp tr head sleep cat rm ls date chmod grep)
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell can
+# never silently redirect this script at an attacker- or operator-controlled
+# file to source. Identical gated pattern to health-check/status/
+# install-target-operations. Production never sets either variable, so this
+# always resolves to the real installed common.
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# --- Argument parsing --------------------------------------------------
+
+MODE=""
+MODE_SEEN=false
+TARGET_ID=""
+TARGET_SEEN=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-public-storage-access --check   --target TARGET
+  install-public-storage-access --apply   --target TARGET
+  install-public-storage-access --verify  --target TARGET
+  install-public-storage-access --help
+
+  All three modes require root (--check and --verify use runuser to test
+  access as the runtime user and as www-data).
+
+  --check   Validate target, tools and filesystem preconditions, and report
+            the current ACL state. Requires root; strictly read-only, makes
+            no changes.
+  --apply   Grant www-data execute-only traversal on the target's shared
+            storage directories. Transactional: backs up the exact prior ACL
+            state first and rolls back automatically if verification fails.
+  --verify  Re-verify the currently installed ACL state and public-storage
+            reachability. Makes no changes.
+USAGE
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "only one mode may be given (already have --${MODE})"
+                fi
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "--target given more than once"
+                fi
+
+                [[ $# -ge 2 ]] || { usage >&2; fail "--target requires a value"; }
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${MODE_SEEN}" == true ]] || { usage >&2; fail "exactly one of --check, --apply or --verify is required"; }
+    [[ "${TARGET_SEEN}" == true ]] || { usage >&2; fail "--target is required"; }
+    [[ -n "${TARGET_ID}" ]] || { usage >&2; fail "--target requires a non-empty value"; }
+}
+
+# --- Required tools ----------------------------------------------------
+
+check_required_tools() {
+    local tool
+    for tool in "${REQUIRED_TOOLS[@]}"; do
+        if ! command -v "${tool}" >/dev/null 2>&1; then
+            case "${tool}" in
+                setfacl|getfacl)
+                    fail "required tool not found: ${tool} (install the 'acl' Ubuntu package — see runbooks/public-storage-access.md)"
+                    ;;
+                *)
+                    fail "required tool not found: ${tool}"
+                    ;;
+            esac
+        fi
+    done
+    log "required host tools present: ${REQUIRED_TOOLS[*]}"
+}
+
+# --- Target contract: registry-derived, never from user input ---------------
+#
+# TARGET_ROOT/SHARED_ROOT/STORAGE_ROOT/etc. below are derived exclusively from
+# require_active_target + the target_* accessors in common — never read from
+# a --target-adjacent flag, never assembled from raw user input. A planned
+# target (tits-guru today) is rejected by require_active_target itself, by
+# name, before any of these variables are even assigned — so no filesystem or
+# ACL call downstream can ever run against it.
+
+TARGET_ROOT=""
+RUNTIME_USER=""
+SHARED_ROOT=""
+STORAGE_ROOT=""
+APP_STORAGE=""
+PUBLIC_STORAGE=""
+PUBLIC_LINK=""
+
+derive_target_paths() {
+    require_active_target "${TARGET_ID}"
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+
+    SHARED_ROOT="${TARGET_ROOT}/shared"
+    STORAGE_ROOT="${SHARED_ROOT}/storage"
+    APP_STORAGE="${STORAGE_ROOT}/app"
+    PUBLIC_STORAGE="${APP_STORAGE}/public"
+    PUBLIC_LINK="${TARGET_ROOT}/current/public/storage"
+
+    log "target ${TARGET_ID}: root=${TARGET_ROOT} runtime_user=${RUNTIME_USER}"
+}
+
+# --- Structural validation (--check and --apply preflight; read-only) -------
+
+validate_self_executable() {
+    [[ -x "${SELF_PATH}" ]] \
+        || fail "install-public-storage-access is not executable: ${SELF_PATH}"
+}
+
+validate_required_path() {
+    # validate_required_path <path> <label>: exists, not a symlink, is a dir.
+    local path="$1" label="$2"
+
+    [[ -e "${path}" ]] || fail "${label} is missing: ${path}"
+    [[ ! -L "${path}" ]] || fail "${label} must not be a symlink: ${path}"
+    [[ -d "${path}" ]] || fail "${label} must be a directory: ${path}"
+}
+
+validate_public_link() {
+    [[ -L "${PUBLIC_LINK}" ]] || fail "public storage link is not a symlink: ${PUBLIC_LINK}"
+
+    local resolved_link resolved_storage
+    resolved_link="$(readlink -f "${PUBLIC_LINK}")" \
+        || fail "could not resolve public storage link: ${PUBLIC_LINK}"
+    resolved_storage="$(readlink -f "${PUBLIC_STORAGE}")" \
+        || fail "could not resolve public storage directory: ${PUBLIC_STORAGE}"
+
+    [[ "${resolved_link}" == "${resolved_storage}" ]] \
+        || fail "public storage link does not resolve to public storage: ${PUBLIC_LINK} -> ${resolved_link}, expected ${resolved_storage}"
+
+    log "public storage link resolves correctly: ${PUBLIC_LINK} -> ${resolved_storage}"
+}
+
+validate_owned_by_runtime_user() {
+    local dir="$1"
+    local owner
+    owner="$(stat -c '%U' "${dir}")"
+    [[ "${owner}" == "${RUNTIME_USER}" ]] \
+        || fail "${dir} must be owned by ${RUNTIME_USER}, is ${owner}"
+}
+
+validate_not_world_writable() {
+    local dir="$1"
+    local mode
+    mode="$(stat -c '%a' "${dir}")"
+    if (( (8#${mode} & 8#002) != 0 )); then
+        fail "${dir} must not be world-writable (mode ${mode})"
+    fi
+}
+
+validate_writable_by_runtime_user() {
+    local dir="$1"
+    runuser -u "${RUNTIME_USER}" -- test -w "${dir}" \
+        || fail "${dir} is not writable by ${RUNTIME_USER}"
+}
+
+# Reports (does not enforce) whether www-data can currently reach
+# PUBLIC_STORAGE. This is legitimately false before the very first --apply —
+# check mode reports the current state, it does not require the fix to
+# already be in place.
+report_current_traversal_state() {
+    if runuser -u "${WEB_USER}" -- test -r "${PUBLIC_STORAGE}" 2>/dev/null; then
+        log "current state: www-data CAN already reach ${PUBLIC_STORAGE}"
+    else
+        log "current state: www-data CANNOT yet reach ${PUBLIC_STORAGE} (run --apply)"
+    fi
+}
+
+report_current_acl_state() {
+    local dir
+    for dir in "${SHARED_ROOT}" "${STORAGE_ROOT}"; do
+        log "current ACL on ${dir}:"
+        local line
+        while IFS= read -r line; do
+            log "  ${line}"
+        done < <(getfacl -p "${dir}" 2>/dev/null | grep -v '^#')
+    done
+}
+
+report_namei() {
+    log "full path resolution (namei -l ${PUBLIC_STORAGE}):"
+    local line
+    while IFS= read -r line; do
+        log "  ${line}"
+    done < <(namei -l "${PUBLIC_STORAGE}" 2>&1)
+}
+
+# Every structural precondition that must hold regardless of mode, before any
+# ACL is read or written. Shared between --check and --apply's preflight —
+# apply must never skip a check check already performs.
+run_structural_validation() {
+    check_required_tools
+    validate_self_executable
+
+    validate_required_path "${TARGET_ROOT}" "target root"
+    validate_required_path "${SHARED_ROOT}" "shared directory"
+    validate_required_path "${STORAGE_ROOT}" "shared storage directory"
+    validate_required_path "${APP_STORAGE}" "storage/app directory"
+    validate_required_path "${PUBLIC_STORAGE}" "storage/app/public directory"
+
+    validate_public_link
+
+    validate_owned_by_runtime_user "${SHARED_ROOT}"
+    validate_owned_by_runtime_user "${STORAGE_ROOT}"
+    validate_not_world_writable "${SHARED_ROOT}"
+    validate_not_world_writable "${STORAGE_ROOT}"
+    validate_writable_by_runtime_user "${PUBLIC_STORAGE}"
+
+    log "structural validation passed"
+}
+
+# --- Runtime verification (apply's post-change check and --verify) ---------
+
+verify_traversal() {
+    runuser -u "${WEB_USER}" -- test -x "${SHARED_ROOT}" \
+        || fail "www-data cannot traverse ${SHARED_ROOT}"
+    runuser -u "${WEB_USER}" -- test -x "${STORAGE_ROOT}" \
+        || fail "www-data cannot traverse ${STORAGE_ROOT}"
+    log "www-data execute-only traversal: OK (${SHARED_ROOT}, ${STORAGE_ROOT})"
+}
+
+# ls, not `test -r`: a directory's own read bit does not reliably predict
+# whether listing it actually succeeds (execute alone can behave differently
+# across filesystems/edge cases) — the only proof that listing is blocked is
+# an actual listing attempt failing.
+verify_no_listing() {
+    if runuser -u "${WEB_USER}" -- ls "${SHARED_ROOT}" >/dev/null 2>&1; then
+        fail "www-data must not be able to list ${SHARED_ROOT}"
+    fi
+    if runuser -u "${WEB_USER}" -- ls "${STORAGE_ROOT}" >/dev/null 2>&1; then
+        fail "www-data must not be able to list ${STORAGE_ROOT}"
+    fi
+    log "www-data directory listing: correctly denied (${SHARED_ROOT}, ${STORAGE_ROOT})"
+}
+
+verify_no_secret_access() {
+    if [[ -e "${SHARED_ROOT}/.env" ]]; then
+        if runuser -u "${WEB_USER}" -- test -r "${SHARED_ROOT}/.env"; then
+            fail "www-data must not be able to read ${SHARED_ROOT}/.env"
+        fi
+        log "www-data cannot read ${SHARED_ROOT}/.env: OK"
+    fi
+
+    local path
+    for path in "${STORAGE_ROOT}/logs" "${STORAGE_ROOT}/framework" "${STORAGE_ROOT}/app/private"; do
+        if [[ -e "${path}" ]]; then
+            if runuser -u "${WEB_USER}" -- test -r "${path}"; then
+                fail "www-data must not be able to read ${path}"
+            fi
+            log "www-data cannot read ${path}: OK"
+        fi
+    done
+
+    log "private-data isolation: OK"
+}
+
+verify_acl_precision() {
+    local dir
+    for dir in "${SHARED_ROOT}" "${STORAGE_ROOT}"; do
+        local acl_output
+        acl_output="$(getfacl -p "${dir}" 2>/dev/null)"
+
+        # An exact, whole-line match already proves the entry grants exactly
+        # --x and nothing more (r or w present, or a different permission
+        # combination, would simply not match this literal line) — no
+        # separate "does the text contain r or w" check is needed, and one
+        # would be wrong anyway: the *label* "user:" already contains an "r".
+        grep -Fxq "user:${WEB_USER}:--x" <<<"${acl_output}" \
+            || fail "${dir} is missing the exact ACL entry user:${WEB_USER}:--x"$'\n'"${acl_output}"
+    done
+    log "ACL precision: OK (user:${WEB_USER}:--x on both parent directories, nothing more)"
+}
+
+# --- Public-storage canary: proves real reachability end to end ------------
+
+CANARY_PATH=""
+
+cleanup_canary() {
+    if [[ -n "${CANARY_PATH}" ]]; then
+        rm -f "${CANARY_PATH}" 2>/dev/null || true
+        CANARY_PATH=""
+    fi
+}
+
+random_token() {
+    od -An -tx1 -N 24 /dev/urandom | tr -d ' \n'
+}
+
+http_get_status_and_body() {
+    # http_get_status_and_body <url> <host-header> <out-body-file>
+    # prints the HTTP status code on stdout.
+    local url="$1" host_header="$2" body_file="$3"
+
+    curl \
+        --silent \
+        --output "${body_file}" \
+        --write-out '%{http_code}' \
+        --max-time 5 \
+        --header "Host: ${host_header}" \
+        "${url}" \
+        2>/dev/null || true
+}
+
+verify_public_storage_canary() {
+    local token
+    token="$(random_token)"
+
+    # mktemp (never `-u`) atomically creates the file itself via
+    # O_CREAT|O_EXCL: there is no window between "pick a name" and "the file
+    # exists at that name" for a pre-existing or concurrently planted symlink
+    # to be written through instead. If the candidate name is already taken —
+    # by a regular file, a symlink, anything — mktemp refuses it and tries a
+    # different random suffix; it never follows or overwrites what's already
+    # there. mktemp always creates at mode 0600 regardless of umask (the
+    # umask 027 set here is otherwise inert for mktemp's own file, kept only
+    # as defensive hygiene for the rest of this subshell), so the intended
+    # final mode — the same world-readable 0644 a real Laravel upload gets —
+    # is restored explicitly via chmod once the file safely exists under our
+    # own ownership, with the race already closed.
+    #
+    # $1/$2 are for the *inner* bash -c shell (positional args after `_`),
+    # deliberately not expanded by this outer shell.
+    # shellcheck disable=SC2016
+    CANARY_PATH="$(
+        runuser -u "${RUNTIME_USER}" -- bash -c '
+            set -Eeuo pipefail
+            umask 027
+            path="$(mktemp "$1/canary-XXXXXXXXXXXX")"
+            chmod 644 "${path}"
+            printf "%s" "$2" > "${path}"
+            printf "%s\n" "${path}"
+        ' _ "${PUBLIC_STORAGE}" "${token}"
+    )" || fail "could not create the public-storage canary as ${RUNTIME_USER} under ${PUBLIC_STORAGE}"
+
+    [[ -n "${CANARY_PATH}" ]] \
+        || fail "runtime user did not return a canary path"
+
+    local resolved_canary resolved_public
+    resolved_canary="$(readlink -f "${CANARY_PATH}")"
+    resolved_public="$(readlink -f "${PUBLIC_STORAGE}")"
+    [[ "${resolved_canary}" == "${resolved_public}"/* ]] \
+        || fail "canary file resolved outside public storage: ${resolved_canary}"
+
+    local canary_mode
+    canary_mode="$(stat -c '%a' "${CANARY_PATH}")"
+    if (( (8#${canary_mode} & 8#002) != 0 )); then
+        fail "canary file must not be world-writable (mode ${canary_mode}): ${CANARY_PATH}"
+    fi
+
+    runuser -u "${RUNTIME_USER}" -- test -w "${CANARY_PATH}" \
+        || fail "canary file is not writable by ${RUNTIME_USER}: ${CANARY_PATH}"
+
+    log "canary created by ${RUNTIME_USER}: ${CANARY_PATH}"
+
+    runuser -u "${WEB_USER}" -- test -r "${CANARY_PATH}" \
+        || fail "www-data cannot read the public-storage canary: ${CANARY_PATH}"
+
+    log "direct www-data read of canary: OK"
+
+    local relative_path base_url host_header url body_file status body
+    relative_path="${CANARY_PATH#"${PUBLIC_STORAGE}"/}"
+    base_url="$(target_health_url "${TARGET_ID}")"
+    host_header="$(target_health_host_header "${TARGET_ID}")"
+    url="${base_url%/}/storage/${relative_path}"
+
+    body_file="$(mktemp)"
+    status="$(http_get_status_and_body "${url}" "${host_header}" "${body_file}")"
+    body="$(cat "${body_file}" 2>/dev/null || true)"
+    rm -f "${body_file}"
+
+    [[ "${status}" == "200" ]] \
+        || fail "public-storage canary request returned HTTP ${status:-000} (expected 200, no redirect): ${url}"
+
+    [[ "${body}" == "${token}" ]] \
+        || fail "public-storage canary response body did not match the token (got a Laravel error page or wrong content): ${url}"
+
+    log "internal HTTP public-media test: OK (HTTP 200, exact token match): ${url}"
+
+    cleanup_canary
+}
+
+# When PUBLIC_STORAGE already holds a real upload, prove that one is reachable
+# too — not just the synthetic canary. `find -type f` alone (no -L) matches
+# based on lstat, so a symlink is never selected here.
+verify_existing_upload_regression() {
+    local existing_file
+    existing_file="$(find "${PUBLIC_STORAGE}" -mindepth 1 -type f 2>/dev/null | head -n 1 || true)"
+
+    if [[ -z "${existing_file}" ]]; then
+        log "no existing uploads under ${PUBLIC_STORAGE} — skipping the existing-upload regression check (the canary test above is still mandatory)"
+        return 0
+    fi
+
+    runuser -u "${WEB_USER}" -- test -r "${existing_file}" \
+        || fail "www-data cannot read existing upload: ${existing_file}"
+
+    local relative_path base_url host_header url status
+    relative_path="${existing_file#"${PUBLIC_STORAGE}"/}"
+    base_url="$(target_health_url "${TARGET_ID}")"
+    host_header="$(target_health_host_header "${TARGET_ID}")"
+    url="${base_url%/}/storage/${relative_path}"
+
+    status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
+        --header "Host: ${host_header}" "${url}" 2>/dev/null || true)"
+
+    [[ "${status}" == "200" ]] \
+        || fail "existing upload request returned HTTP ${status:-000} (expected 200): ${url}"
+
+    log "existing upload regression check: OK (${relative_path})"
+}
+
+verify_titsguru_still_planned() {
+    local planned_output
+    if planned_output="$(require_active_target tits-guru 2>&1)"; then
+        fail "tits-guru unexpectedly passed require_active_target — it must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${planned_output}" \
+        || fail "tits-guru rejection failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
+    log "tits-guru: still correctly rejected (lifecycle=planned), untouched"
+}
+
+# Thin wrapper for apply's post-change check: one pass/fail outcome. perform_verify
+# below calls the same functions individually, with its own phase banners.
+verify_runtime_state() {
+    verify_traversal
+    verify_no_listing
+    verify_no_secret_access
+    verify_acl_precision
+    verify_public_storage_canary
+    verify_existing_upload_regression
+}
+
+# --- Modes ---------------------------------------------------------------
+
+run_check() {
+    # --check calls runuser to test filesystem access as the runtime user and
+    # as www-data (validate_writable_by_runtime_user, report_current_traversal_state)
+    # — an ordinary caller cannot use runuser to switch to another user, so
+    # requiring root here makes the documented root requirement accurate. It
+    # remains strictly read-only even so: no ACL, file or backup state is
+    # ever written by this mode.
+    require_root
+    perform_check
+}
+
+# Split from run_check() solely so tests can exercise this against a scratch
+# target without needing to run as root, the same reasoning perform_apply/
+# perform_verify already split from run_apply/run_verify for. Production
+# always reaches this through run_check, so require_root is still enforced
+# on every real invocation.
+perform_check() {
+    log "mode: check --target ${TARGET_ID}"
+
+    derive_target_paths
+    run_structural_validation
+
+    report_current_acl_state
+    report_current_traversal_state
+    report_namei
+
+    log "check passed: target, tools and filesystem preconditions are valid"
+}
+
+# Reuses health-check's own approach (curl the target's health URL with its
+# Host header, retrying briefly) rather than shelling out to the installed
+# health-check binary at a hardcoded path: that would make this script's own
+# preflight depend on an unrelated script's own preconditions and installed
+# location, for no benefit — the semantics that matter here are exactly
+# "can this target currently serve HTTP", which target_health_url/
+# target_health_host_header already exist to answer.
+verify_target_healthy_before_apply() {
+    local base_url host_header health_url
+    base_url="$(target_health_url "${TARGET_ID}")"
+    host_header="$(target_health_host_header "${TARGET_ID}")"
+    health_url="${base_url%/}/up"
+
+    local attempt status
+    for ((attempt = 1; attempt <= 10; attempt++)); do
+        status="$(
+            curl \
+                --silent \
+                --output /dev/null \
+                --write-out '%{http_code}' \
+                --max-time 5 \
+                --header "Host: ${host_header}" \
+                "${health_url}" \
+                2>/dev/null || true
+        )"
+
+        if [[ "${status}" == "200" ]]; then
+            log "target ${TARGET_ID} health check: OK (${health_url})"
+            return 0
+        fi
+
+        sleep 2
+    done
+
+    fail "target ${TARGET_ID} health check failed — refusing to change any ACL (HTTP ${status:-000}: ${health_url})"
+}
+
+# --- ACL backup and restore --------------------------------------------
+
+ACL_BACKUP_FILE=""
+ACL_MODIFIED=false
+
+backup_acl_state() {
+    local backup_dir="$1"
+
+    ACL_BACKUP_FILE="${backup_dir}/acl.restore"
+
+    # -p (absolute-names): do not strip the leading slash, so
+    # setfacl --restore matches these exact absolute paths later. Never -R:
+    # this backs up (and later restores) exactly SHARED_ROOT and STORAGE_ROOT,
+    # nothing beneath them.
+    getfacl -p "${SHARED_ROOT}" "${STORAGE_ROOT}" > "${ACL_BACKUP_FILE}" \
+        || fail "could not capture the current ACL state for backup"
+
+    log "ACL state backed up: ${ACL_BACKUP_FILE}"
+}
+
+restore_acl_from_backup() {
+    [[ -n "${ACL_BACKUP_FILE}" ]] && [[ -f "${ACL_BACKUP_FILE}" ]] \
+        || { log "ERROR: no ACL backup file available to restore from"; return 1; }
+
+    setfacl --restore="${ACL_BACKUP_FILE}"
+}
+
+# Rollback success means the ACL is back to *exactly* what it was before this
+# run touched anything — never "www-data can no longer traverse", which is
+# false whenever the ACL already existed before an idempotent re-apply: the
+# correct rollback target there is the pre-existing *permissive* ACL, not an
+# assumed-blocked baseline. Comparing byte-for-byte against the same
+# getfacl -p invocation backup_acl_state used is the only thing that actually
+# proves "exactly restored" rather than merely "restored to something".
+verify_restored_acl_matches_backup() {
+    local current
+    current="$(mktemp)"
+
+    getfacl -p "${SHARED_ROOT}" "${STORAGE_ROOT}" > "${current}" 2>/dev/null
+
+    if cmp -s "${ACL_BACKUP_FILE}" "${current}"; then
+        rm -f "${current}"
+        return 0
+    fi
+
+    rm -f "${current}"
+    return 1
+}
+
+# --- Transactional apply with rollback --------------------------------------
+
+APPLY_COMMITTED=false
+MAIN_BASHPID=""
+
+# Same generic subshell-safety guard as install-target-operations: set -E
+# means this trap is inherited by every $(...) subshell for as long as it
+# stays armed. Recording the main process's BASHPID before arming it, and
+# comparing on every invocation, makes a subshell's invocation a silent,
+# side-effect-free exit — only the main process ever runs the real rollback.
+on_apply_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    log "apply failed (exit ${code})"
+
+    cleanup_canary
+
+    if [[ "${APPLY_COMMITTED}" == false ]] && [[ "${ACL_MODIFIED}" == true ]]; then
+        if restore_acl_from_backup && verify_restored_acl_matches_backup; then
+            log "rollback complete: exact original ACL state restored"
+        else
+            log "ERROR: ACL rollback verification failed — manual intervention required"
+            log "backup remains at ${ACL_BACKUP_FILE} for manual restoration"
+        fi
+    fi
+
+    exit "${code}"
+}
+
+run_apply() {
+    require_root
+    perform_apply
+}
+
+# Split from run_apply() solely so tests can exercise this transactionally
+# against a scratch target, without needing to run as root. Production always
+# reaches this through run_apply, so require_root is still enforced on every
+# real invocation.
+perform_apply() {
+    # Reset every piece of per-run transactional state up front, exactly like
+    # install-target-operations' perform_apply — a second direct call in the
+    # same process (as tests do) must never inherit state from a prior run.
+    APPLY_COMMITTED=false
+    ACL_MODIFIED=false
+    ACL_BACKUP_FILE=""
+    CANARY_PATH=""
+
+    log "mode: apply --target ${TARGET_ID}"
+
+    derive_target_paths
+    run_structural_validation
+    verify_target_healthy_before_apply
+
+    # $$ guarantees a distinct directory even across two applies of the same
+    # target within the same UTC second (e.g. a scripted retry) — without it,
+    # the second run's backup would silently overwrite the first's, losing
+    # the true pre-change ACL state the first run actually needs to roll back to.
+    local backup_dir
+    backup_dir="${BACKUP_ROOT}/$(date -u '+%Y%m%dT%H%M%SZ')-$$-${TARGET_ID}"
+    install -d -m 0700 "${BACKUP_ROOT}"
+    install -d -m 0700 "${backup_dir}"
+    log "backup for this run: ${backup_dir}"
+
+    backup_acl_state "${backup_dir}"
+
+    # The ERR/EXIT trap is armed from here on: any failure past this point
+    # rolls back the ACL change automatically.
+    MAIN_BASHPID="${BASHPID}"
+    trap on_apply_error ERR EXIT
+
+    setfacl -m "u:${WEB_USER}:--x" "${SHARED_ROOT}"
+    ACL_MODIFIED=true
+    setfacl -m "u:${WEB_USER}:--x" "${STORAGE_ROOT}"
+
+    log "ACL applied: u:${WEB_USER}:--x on ${SHARED_ROOT} and ${STORAGE_ROOT}"
+
+    verify_runtime_state
+    verify_titsguru_still_planned
+
+    APPLY_COMMITTED=true
+    trap - ERR EXIT
+
+    log "apply complete"
+    log "  target       : ${TARGET_ID}"
+    log "  shared       : ${SHARED_ROOT}"
+    log "  storage      : ${STORAGE_ROOT}"
+    log "  backup       : ${backup_dir}"
+    log "Run 'install-public-storage-access --verify --target ${TARGET_ID}' at any time to re-check."
+}
+
+on_verify_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    cleanup_canary
+
+    log "--- final result ---"
+    log "FAIL: verification did not pass (see the error above)"
+    exit "${code}"
+}
+
+run_verify() {
+    require_root
+    perform_verify
+}
+
+perform_verify() {
+    CANARY_PATH=""
+
+    log "mode: verify --target ${TARGET_ID} (no changes)"
+
+    MAIN_BASHPID="${BASHPID}"
+    trap on_verify_error ERR EXIT
+
+    log "--- target validation ---"
+    derive_target_paths
+    verify_titsguru_still_planned
+
+    log "--- filesystem structure ---"
+    run_structural_validation
+
+    log "--- ACL traversal ---"
+    verify_traversal
+    verify_no_listing
+    verify_acl_precision
+
+    log "--- private-data isolation ---"
+    verify_no_secret_access
+
+    log "--- direct www-data read ---"
+    # verify_public_storage_canary covers both the direct-read and internal
+    # HTTP phases; its own log lines label which is which.
+    log "--- internal HTTP public-media test ---"
+    verify_public_storage_canary
+    verify_existing_upload_regression
+
+    trap - ERR EXIT
+    log "--- final result ---"
+    log "PASS: public storage access verified for ${TARGET_ID}"
+}
+
+parse_args "$@"
+
+case "${MODE}" in
+    check)
+        run_check
+        ;;
+    apply)
+        run_apply
+        ;;
+    verify)
+        run_verify
+        ;;
+esac
