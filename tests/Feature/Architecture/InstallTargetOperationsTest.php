@@ -320,14 +320,84 @@ SH;
 }
 
 /**
- * A self-contained fake status matching the exact literal strings
- * verify_status_parity greps for, with a "Checked at:" header
- * status_body_after_header can normalize. $body/$legacyBody let a test make
- * the two modes agree (parity) or genuinely disagree (mismatch detection).
+ * Renders one mode's realistic status body: the same Releases / Current
+ * release metadata / Health / Recent deployment history section structure
+ * status_deployment_state expects (each preceded by its own header line and
+ * a dashed separator, exactly matching the real infrastructure/scripts/status),
+ * with a literal, bash-unexpanded `${ts}` wherever a timestamp belongs — the
+ * caller's bash heredoc expands it at runtime, once per invocation, so target
+ * and legacy naturally get *different* timestamps in their Health section
+ * the same way two real, separate health-check runs would.
+ *
+ * @param  array{current: string, currentPath: string, previous: string, previousPath: string, releaseJson: string, history: string, healthy: bool}  $state
  */
-function installOpsStatusStub(string $body = "Release: v1.2.3\n", ?string $legacyBody = null): string
+function installOpsStatusBody(array $state, string $label, ?string $omitSection = null): string
 {
-    $legacyBody ??= $body;
+    $healthyText = $state['healthy'] ? 'healthy' : 'unhealthy';
+
+    $sections = [
+        'Releases' => "Releases\n----------------------------------------\n"
+            ."Current:      {$state['current']}\n"
+            ."Current path: {$state['currentPath']}\n"
+            ."Previous:     {$state['previous']}\n"
+            ."Previous path: {$state['previousPath']}\n",
+        'Current release metadata' => "Current release metadata\n----------------------------------------\n"
+            ."{$state['releaseJson']}\n",
+        'Health' => "Health\n----------------------------------------\n"
+            ."[\${ts}] {$label} health check passed: http://127.0.0.1/up\n"
+            ."Status: {$healthyText}\n",
+        'Recent deployment history' => "Recent deployment history\n----------------------------------------\n"
+            ."{$state['history']}\n",
+    ];
+
+    if ($omitSection !== null) {
+        unset($sections[$omitSection]);
+    }
+
+    return "Checked at: \${ts}\n\n".implode("\n", $sections);
+}
+
+/**
+ * A self-contained fake status producing the same realistic section
+ * structure the real status script does. Every piece of deployment state
+ * (current/previous release and path, release.json, history) defaults to
+ * the same value on both --target and --environment output — parity as it
+ * should be — and a `legacyXxx` override lets a test make exactly one piece
+ * genuinely disagree. Health always legitimately differs regardless (its own
+ * selector label plus a fresh `${ts}` each run), which is exactly the
+ * scenario status_deployment_state must ignore rather than compare.
+ */
+function installOpsStatusStub(
+    string $current = 'v1.0.0-20260101-000000-abc1234',
+    string $currentPath = '/srv/releases/v1.0.0-20260101-000000-abc1234',
+    string $previous = 'v0.9.0-20251201-000000-def5678',
+    string $previousPath = '/srv/releases/v0.9.0-20251201-000000-def5678',
+    string $releaseJson = '{"version": "v1.0.0"}',
+    string $history = '{"release": "v1.0.0"}',
+    bool $healthy = true,
+    ?string $legacyCurrent = null,
+    ?string $legacyCurrentPath = null,
+    ?string $legacyPrevious = null,
+    ?string $legacyPreviousPath = null,
+    ?string $legacyReleaseJson = null,
+    ?string $legacyHistory = null,
+    ?bool $legacyHealthy = null,
+    ?string $legacyOmitSection = null,
+): string {
+    $targetState = compact('current', 'currentPath', 'previous', 'previousPath', 'releaseJson', 'history', 'healthy');
+
+    $legacyState = [
+        'current' => $legacyCurrent ?? $current,
+        'currentPath' => $legacyCurrentPath ?? $currentPath,
+        'previous' => $legacyPrevious ?? $previous,
+        'previousPath' => $legacyPreviousPath ?? $previousPath,
+        'releaseJson' => $legacyReleaseJson ?? $releaseJson,
+        'history' => $legacyHistory ?? $history,
+        'healthy' => $legacyHealthy ?? $healthy,
+    ];
+
+    $targetBody = installOpsStatusBody($targetState, 'staging-main');
+    $legacyBody = installOpsStatusBody($legacyState, 'staging', $legacyOmitSection);
 
     return <<<SH
 #!/usr/bin/env bash
@@ -345,12 +415,20 @@ done
 ts="\$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 if [[ "\$target" == "staging-main" ]]; then
-    printf 'Target:      staging-main\\nLifecycle:   active\\nEnvironment class: staging\\nChecked at: %s\\n{$body}' "\$ts"
+    cat <<STATUS_STUB_BODY
+Target:      staging-main
+Lifecycle:   active
+Environment class: staging
+{$targetBody}
+STATUS_STUB_BODY
     exit 0
 fi
 
 if [[ "\$environment" == "staging" ]]; then
-    printf 'Environment: staging\\nChecked at: %s\\n{$legacyBody}' "\$ts"
+    cat <<STATUS_STUB_BODY
+Environment: staging
+{$legacyBody}
+STATUS_STUB_BODY
     exit 0
 fi
 
@@ -957,41 +1035,233 @@ it('no_overrides_env unsets every RATEGURU_* override regardless of what the cal
     }
 });
 
-it('status_body_after_header normalizes the timestamp and strips the mode-specific header', function () {
-    $scratch = installOpsScratchDir();
+/**
+ * Runs verify_status_parity standalone against a given status stub, the
+ * technique every test below uses: DST_STATUS points directly at the stub
+ * (there is no real installed-file layer in a runtime-verification-block-only
+ * test), so no_overrides_env "${DST_STATUS}" ... invokes it exactly the way
+ * the installed status binary would be invoked for real.
+ *
+ * @return array{0: int, 1: string}
+ */
+function installOpsRunStatusParity(string $scratch, string $statusStub): array
+{
+    $vars = installOpsBaseVars($scratch, null, $statusStub);
+    $vars['DST_STATUS'] = $vars['SRC_STATUS'];
 
-    [$exit, $output] = installOpsRunRuntimeHarness($scratch, [], <<<'BASH'
-        target="$(printf 'Target:      staging-main\nLifecycle:   active\nEnvironment class: staging\nChecked at: 2026-01-01T00:00:00Z\nRelease: v1.2.3')"
-        legacy="$(printf 'Environment: staging\nChecked at: 2026-01-01T00:00:05Z\nRelease: v1.2.3')"
-        a="$(status_body_after_header "${target}")"
-        b="$(status_body_after_header "${legacy}")"
-        [[ "${a}" == "${b}" ]] && printf 'BODIES_MATCH\n' || printf 'BODIES_DIFFER\n'
-        printf 'A:[%s]\n' "${a}"
-        BASH);
+    return installOpsRunRuntimeHarness($scratch, $vars, 'verify_status_parity');
+}
 
-    installOpsCleanup($scratch);
-
-    expect($exit)->toBe(0, $output);
-    expect($output)->toContain('BODIES_MATCH');
-    expect($output)->toContain('Checked at: NORMALIZED');
-    expect($output)->not->toContain('2026-01-01T00:00:00Z');
-});
-
-it('verify_status_parity fails with a clear message when target and legacy bodies genuinely disagree', function () {
+it('passes when target and legacy agree on deployment state, even though their Health log lines differ in timestamp and selector label', function () {
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars(
-            $scratch,
-            null,
-            installOpsStatusStub("Release: v1.2.3\n", "Release: v9.9.9-DIFFERENT\n"),
-        );
-        $vars['DST_STATUS'] = $vars['SRC_STATUS'];
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub());
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_status_parity');
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('current release, previous release, release.json and history: identical between modes');
+        // The stub's own Health section genuinely differs between the two
+        // invocations (selector label always; the log timestamp too, given
+        // two separate `date -u` calls a moment apart) — and that must not
+        // be what makes this fail.
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails when the current release differs between target and legacy', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyCurrent: 'v1.0.1-DIFFERENT'));
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('disagree beyond their headers');
+        expect($output)->toContain('target and legacy status disagree in deployment state');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails when the current release path differs between target and legacy', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyCurrentPath: '/srv/releases/DIFFERENT'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('target and legacy status disagree in deployment state');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails when the previous release differs between target and legacy', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyPrevious: 'v0.8.0-DIFFERENT'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('target and legacy status disagree in deployment state');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails when the previous release path differs between target and legacy', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyPreviousPath: '/srv/releases/DIFFERENT-PREV'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('target and legacy status disagree in deployment state');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails when release.json metadata differs between target and legacy', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyReleaseJson: '{"version": "DIFFERENT"}'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('target and legacy status disagree in deployment state');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails when deployment history differs between target and legacy', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyHistory: '{"release": "DIFFERENT"}'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('target and legacy status disagree in deployment state');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('prints a diff -u diagnostic naming the actual mismatch before failing', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyHistory: '{"release": "DIFFERENT"}'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('target vs. legacy deployment-state diff')
+            ->toContain('{"release": "v1.0.0"}')
+            ->toContain('{"release": "DIFFERENT"}');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails when the target status reports Status: unhealthy', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(healthy: false));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("target status output does not report 'Status: healthy'");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails when the legacy status reports Status: unhealthy', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyHealthy: false));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("legacy status output does not report 'Status: healthy'");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails clearly when the legacy status is missing its Releases section', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyOmitSection: 'Releases'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("0 occurrence(s) of the 'Releases' section");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails clearly when the legacy status is missing its Current release metadata section', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyOmitSection: 'Current release metadata'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("0 occurrence(s) of the 'Current release metadata' section");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails clearly when the legacy status is missing its Health section', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyOmitSection: 'Health'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("0 occurrence(s) of the 'Health' section");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails clearly when the legacy status is missing its Recent deployment history section', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyOmitSection: 'Recent deployment history'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("0 occurrence(s) of the 'Recent deployment history' section");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('still requires the selector-specific headers regardless of the corrected deployment-state comparison', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        // A target status stub that never claims to be for staging-main at
+        // all: the corrected parity logic must not have accidentally made
+        // the header assertions unreachable or redundant.
+        $brokenHeaderStub = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+if [[ "$2" == "staging-main" ]]; then
+    printf 'Target:      WRONG-TARGET\nLifecycle:   active\nEnvironment class: staging\nChecked at: 2026-01-01T00:00:00Z\n\nReleases\n----------------------------------------\nCurrent:      v1\nCurrent path: /a\nPrevious:     v0\nPrevious path: /b\n\nCurrent release metadata\n----------------------------------------\n{}\n\nHealth\n----------------------------------------\nStatus: healthy\n\nRecent deployment history\n----------------------------------------\n{}\n'
+    exit 0
+fi
+printf 'Environment: staging\nChecked at: 2026-01-01T00:00:00Z\n\nReleases\n----------------------------------------\nCurrent:      v1\nCurrent path: /a\nPrevious:     v0\nPrevious path: /b\n\nCurrent release metadata\n----------------------------------------\n{}\n\nHealth\n----------------------------------------\nStatus: healthy\n\nRecent deployment history\n----------------------------------------\n{}\n'
+exit 0
+SH;
+
+        [$exit, $output] = installOpsRunStatusParity($scratch, $brokenHeaderStub);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("target status output is missing 'Target: staging-main'");
     } finally {
         installOpsCleanup($scratch);
     }
@@ -1259,6 +1529,96 @@ it('a post-install runtime-parity failure rolls back every touched destination: 
     }
 });
 
+it('a genuine post-install status-parity mismatch rolls back every touched destination exactly once', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        // Both health checks pass; the installed status candidate genuinely
+        // disagrees with legacy on deployment history — a real parity
+        // failure caught only after installation, distinct from the
+        // health-check-failure rollback test above.
+        $vars = installOpsBaseVars($scratch, null, installOpsStatusStub(legacyHistory: '{"release": "DIFFERENT"}'));
+        installOpsPlaceHealthyLegacyHealthCheck($vars);
+        $healthCheckBefore = file_get_contents($vars['DST_HEALTH_CHECK']);
+
+        $oldContent = [
+            'DST_REGISTRY' => "OLD registry\n",
+            'DST_TARGETS' => "OLD targets\n",
+            'DST_COMMON' => "OLD common\n",
+        ];
+        foreach ($oldContent as $key => $content) {
+            file_put_contents($vars[$key], $content);
+        }
+        expect(file_exists($vars['DST_STATUS']))->toBeFalse();
+        $configDirBefore = installOpsStatDir($vars['DST_CONFIG_ROOT']);
+        $binDirBefore = installOpsStatDir($vars['DST_BIN_ROOT']);
+
+        // Same file-based invocation-counting technique as the other
+        // rollback regression tests: immune to a duplicate handler's output
+        // being swallowed inside a failing subshell's own captured stdout.
+        $logFile = $scratch.'/log-invocations.txt';
+        $driver = "log() {\n"
+            ."    printf '[%s] %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$*\"\n"
+            .'    printf \'%s\n\' "$*" >> '.escapeshellarg($logFile)."\n"
+            ."}\n"
+            .'perform_apply';
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, $driver);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('target and legacy status disagree in deployment state');
+        expect($output)->toContain('rollback complete: previous files restored');
+
+        foreach ($oldContent as $key => $content) {
+            expect(file_get_contents($vars[$key]))->toBe($content, "{$key} must be restored to its previous content");
+        }
+        expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore, 'health-check must be restored to its previous content');
+        expect(file_exists($vars['DST_STATUS']))->toBeFalse('status must be removed — it did not exist before this run');
+
+        expect(installOpsStatDir($vars['DST_CONFIG_ROOT']))->toBe($configDirBefore);
+        expect(installOpsStatDir($vars['DST_BIN_ROOT']))->toBe($binDirBefore);
+
+        $logInvocations = file_exists($logFile) ? file_get_contents($logFile) : '';
+        expect(substr_count($logInvocations, 'apply failed (exit'))->toBe(1, 'on_apply_error\'s real body must run exactly once');
+        expect(substr_count($logInvocations, 'rollback complete: previous files restored'))->toBe(1);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('--verify catches a genuine status-parity mismatch using the same corrected comparison as --apply', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        // Install successfully first with a fully consistent status stub —
+        // perform_verify must be exercised against a real, already-installed
+        // set, not a synthetic runtime-verification-block-only harness.
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyLegacyHealthCheck($vars);
+
+        [$applyExit, $applyOut] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0, $applyOut);
+
+        // Now replace the installed status (and, so verify_installed_files'
+        // own content-matches-source check keeps passing, its committed
+        // source alongside it) with one whose two modes genuinely disagree —
+        // the same corrected status_deployment_state comparison must catch
+        // this through --verify too, not just --apply.
+        $mismatchedStatusStub = installOpsStatusStub(legacyReleaseJson: '{"version": "DIFFERENT"}');
+        installOpsWriteExecutable($vars['SRC_STATUS'], $mismatchedStatusStub);
+        installOpsWriteExecutable($vars['DST_STATUS'], $mismatchedStatusStub);
+
+        [$verifyExit, $verifyOut] = installOpsRunHarness($scratch, $vars, 'perform_verify');
+
+        expect($verifyExit)->not->toBe(0);
+        expect($verifyOut)->toContain('--- status parity ---');
+        expect($verifyOut)->toContain('target and legacy status disagree in deployment state');
+        expect($verifyOut)->toContain('FAIL: verification did not pass');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
 it('a successful apply never creates, contacts, or provisions anything for tits-guru', function () {
     $scratch = installOpsScratchDir();
 
@@ -1413,22 +1773,22 @@ it('a genuine failure inside an ordinary command substitution after installation
     $scratch = installOpsScratchDir();
 
     try {
-        // verify_status_parity's target_body/legacy_body assignments
-        // ("target_body=\"$(status_body_after_header ...)\"") are *not*
+        // verify_status_parity's target_state/legacy_state assignments
+        // ("target_state=\"$(status_deployment_state ...)\"") are *not*
         // protected by an `if`/`||` at their call site, unlike the
         // deliberately-failing tits-guru checks — a bare, unprotected
         // command substitution is exactly the shape that still double-fires
         // an inherited ERR/EXIT trap (once inside its subshell, once more in
-        // the main process) without the generic BASHPID guard. A stub `sed`
-        // that always fails forces status_body_after_header's own pipeline
-        // to fail via `pipefail`, without needing any conditional wiring —
-        // neither the committed real scripts nor the stub health-check/
-        // status ever call sed themselves (both `targets` calls in this
-        // flow always pass --file), so this is safe for the whole run.
+        // the main process) without the generic BASHPID guard. A stub `awk`
+        // that always fails forces status_deployment_state's own pipeline to
+        // fail — awk is used nowhere else in this installer's own code, and
+        // neither the stub health-check/status nor a real `targets` call in
+        // this flow ever invoke it (both `targets` calls always pass
+        // --file), so this is safe for the whole run.
         $vars = installOpsBaseVars($scratch);
         installOpsPlaceHealthyLegacyHealthCheck($vars);
-        installOpsWriteExecutable($scratch.'/bin/sed', "#!/usr/bin/env bash\n"
-            ."printf 'stub sed: forced failure (test)\\n' >&2\n"
+        installOpsWriteExecutable($scratch.'/bin/awk', "#!/usr/bin/env bash\n"
+            ."printf 'stub awk: forced failure (test)\\n' >&2\n"
             ."exit 1\n");
 
         $oldContent = [
@@ -1463,7 +1823,7 @@ it('a genuine failure inside an ordinary command substitution after installation
 
         expect($exit)->toBe(1, $output);
         expect($output)->toContain('files installed; verifying before committing');
-        expect($output)->toContain('stub sed: forced failure (test)');
+        expect($output)->toContain('stub awk: forced failure (test)');
 
         $logInvocations = file_exists($logFile) ? file_get_contents($logFile) : '';
         expect(substr_count($logInvocations, 'apply failed (exit'))->toBe(1, 'on_apply_error\'s real body must run exactly once, from the main process');
@@ -1489,14 +1849,14 @@ it('a genuine failure inside an ordinary command substitution during --verify pr
         [$applyExit, $applyOut] = installOpsRunHarness($scratch, $vars, 'perform_apply');
         expect($applyExit)->toBe(0, $applyOut);
 
-        // See the matching apply-mode regression test above: target_body/
-        // legacy_body's substitutions are unprotected, and a stub `sed`
-        // forces status_body_after_header's own pipeline to fail via
-        // pipefail — an ordinary, not tits-guru-related, failure, introduced
-        // only now, after a genuinely successful apply already installed
-        // everything correctly.
-        installOpsWriteExecutable($scratch.'/bin/sed', "#!/usr/bin/env bash\n"
-            ."printf 'stub sed: forced failure (test)\\n' >&2\n"
+        // See the matching apply-mode regression test above: target_state/
+        // legacy_state's substitutions are unprotected, and a stub `awk`
+        // forces status_deployment_state's own pipeline to fail — an
+        // ordinary, not tits-guru-related, failure, introduced only now,
+        // after a genuinely successful apply already installed everything
+        // correctly.
+        installOpsWriteExecutable($scratch.'/bin/awk', "#!/usr/bin/env bash\n"
+            ."printf 'stub awk: forced failure (test)\\n' >&2\n"
             ."exit 1\n");
 
         // Same reasoning as the apply-mode test above: log()'s file append
@@ -1512,7 +1872,7 @@ it('a genuine failure inside an ordinary command substitution during --verify pr
         [$exit, $output] = installOpsRunHarness($scratch, $vars, $driver);
 
         expect($exit)->toBe(1, $output);
-        expect($output)->toContain('stub sed: forced failure (test)');
+        expect($output)->toContain('stub awk: forced failure (test)');
 
         $logInvocations = file_exists($logFile) ? file_get_contents($logFile) : '';
         expect(substr_count($logInvocations, '--- final result ---'))->toBe(1, 'on_verify_error\'s real body must run exactly once, from the main process');

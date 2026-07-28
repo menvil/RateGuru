@@ -78,7 +78,7 @@ INSTALL_GROUP="root"
 INSTALL_OWNER_ID=0
 INSTALL_GROUP_ID=0
 
-REQUIRED_TOOLS=(bash jq curl install stat cmp mv cp mktemp readlink tail env)
+REQUIRED_TOOLS=(bash jq curl install stat cmp diff mv cp mktemp readlink tail env)
 
 # --- Logging ------------------------------------------------------------
 
@@ -461,13 +461,80 @@ no_overrides_env() {
     env "${unset_args[@]}" "$@"
 }
 
-# Strips everything up to and including the first "Checked at:" line, and
-# normalizes the timestamp that follows it, so two status outputs differing
-# only by mode-specific header lines and the current second can be compared.
-status_body_after_header() {
+# Validates that exactly one of each expected section marker is present in a
+# raw status output, before anything is extracted from it. A status output
+# that is missing a whole section (a real regression, e.g. a crashed status
+# script) must never be allowed to silently compare as "identical" to another
+# equally-broken output just because both extracted bodies happen to be empty.
+assert_status_sections_present() {
+    local output="$1" label="$2"
+    local marker count
+    for marker in 'Releases' 'Current release metadata' 'Health' 'Recent deployment history'; do
+        count="$(grep -Fxc "${marker}" <<<"${output}" || true)"
+        [[ "${count}" -eq 1 ]] \
+            || fail "${label} status output has ${count} occurrence(s) of the '${marker}' section (expected exactly 1) — malformed or missing section"
+    done
+}
+
+# Extracts exactly the sections that must be identical between --target and
+# --environment status output for the same application_root: Releases through
+# Current release metadata, then Recent deployment history through the end
+# of output. The entire Health section is deliberately excluded — health-check
+# --environment staging and health-check --target staging-main are already
+# verified independently (verify_legacy_environment_health/verify_target_health),
+# and status runs health-check without suppressing its own log output, so
+# Health legitimately differs between modes: the selector label ("staging-main
+# health check passed" vs. "staging health check passed") and the log
+# timestamp both vary by design. Comparing the whole body after the header
+# used to compare this section too, producing a false parity failure on the
+# real staging VPS even though current release, previous release,
+# release.json and history were all genuinely identical.
+status_deployment_state() {
     local output="$1"
-    local body="${output#*Checked at:}"
-    printf 'Checked at:%s' "${body}" | sed -E 's/Checked at:[^\n]*/Checked at: NORMALIZED/'
+
+    awk '
+        /^Releases$/ {
+            capture = 1
+        }
+
+        /^Health$/ {
+            capture = 0
+        }
+
+        /^Recent deployment history$/ {
+            capture = 1
+        }
+
+        capture {
+            print
+        }
+    ' <<<"${output}"
+}
+
+# Prints a diff -u diagnostic between two differing canonical deployment-state
+# bodies. Called only after a mismatch is already known; never decides
+# pass/fail itself. Status output contains only release metadata and
+# deployment history (no secrets), so this is safe to log in full. The temp
+# files this creates are root-only (mktemp's default 0600) and are removed by
+# a RETURN trap regardless of how this function's caller proceeds afterward.
+log_status_state_diff() {
+    local target_state="$1" legacy_state="$2"
+    local target_file legacy_file
+    target_file="$(mktemp)"
+    legacy_file="$(mktemp)"
+    # SC2064: the paths are meant to expand now, not when the trap fires —
+    # they are local to this call and never reassigned afterward.
+    # shellcheck disable=SC2064
+    trap "rm -f '${target_file}' '${legacy_file}'" RETURN
+
+    printf '%s\n' "${target_state}" > "${target_file}"
+    printf '%s\n' "${legacy_state}" > "${legacy_file}"
+
+    log "target vs. legacy deployment-state diff (diff -u target legacy):"
+    local line
+    while IFS= read -r line; do
+        log "  ${line}"
+    done < <(diff -u "${target_file}" "${legacy_file}" || true)
 }
 
 verify_installed_files() {
@@ -533,16 +600,34 @@ verify_status_parity() {
         || fail "legacy status output is missing 'Environment: staging'"
     log "target and legacy status headers: OK"
 
-    # Everything after the header (Releases, release.json metadata, Health,
-    # history) must be identical between the two modes — same current release,
-    # same previous release, same release.json, same history file — because
-    # both resolve the identical application_root. Timestamps and the header
-    # itself differ by design and are excluded from this comparison.
-    local target_body legacy_body
-    target_body="$(status_body_after_header "${target_status}")"
-    legacy_body="$(status_body_after_header "${legacy_status}")"
-    [[ "${target_body}" == "${legacy_body}" ]] \
-        || fail "target and legacy status disagree beyond their headers (current/previous release, release.json or history mismatch)"
+    # Validated before anything else is read out of either output: a status
+    # output missing a whole section is a malformed/broken output in its own
+    # right, and deserves its own specific diagnostic naming the missing
+    # section — not a downstream symptom like a missing Status: healthy line.
+    assert_status_sections_present "${target_status}" "target"
+    assert_status_sections_present "${legacy_status}" "legacy"
+
+    grep -Fxq 'Status: healthy' <<<"${target_status}" \
+        || fail "target status output does not report 'Status: healthy'"
+    grep -Fxq 'Status: healthy' <<<"${legacy_status}" \
+        || fail "legacy status output does not report 'Status: healthy'"
+    log "target and legacy status both report Status: healthy"
+
+    # Releases, Current release metadata, and Recent deployment history must
+    # be identical between the two modes — same current release, same
+    # previous release, same release.json, same history file — because both
+    # resolve the identical application_root. Health is deliberately excluded
+    # (see status_deployment_state); its own Status: healthy line is already
+    # required above, independently, for each mode.
+    local target_state legacy_state
+    target_state="$(status_deployment_state "${target_status}")"
+    legacy_state="$(status_deployment_state "${legacy_status}")"
+
+    if [[ "${target_state}" != "${legacy_state}" ]]; then
+        log_status_state_diff "${target_state}" "${legacy_state}"
+        fail "target and legacy status disagree in deployment state (current/previous release, release.json or history mismatch)"
+    fi
+
     log "current release, previous release, release.json and history: identical between modes"
 }
 
