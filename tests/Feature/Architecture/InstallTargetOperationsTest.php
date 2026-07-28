@@ -331,7 +331,7 @@ SH;
  *
  * @param  array{current: string, currentPath: string, previous: string, previousPath: string, releaseJson: string, history: string, healthy: bool}  $state
  */
-function installOpsStatusBody(array $state, string $label, ?string $omitSection = null): string
+function installOpsStatusBody(array $state, string $label, ?string $omitSection = null, ?string $duplicateSection = null): string
 {
     $healthyText = $state['healthy'] ? 'healthy' : 'unhealthy';
 
@@ -354,7 +354,20 @@ function installOpsStatusBody(array $state, string $label, ?string $omitSection 
         unset($sections[$omitSection]);
     }
 
-    return "Checked at: \${ts}\n\n".implode("\n", $sections);
+    // Emits the named section's header line (and content) a second time
+    // immediately after the first — covering assert_status_sections_present's
+    // upper bound: a section marker appearing *twice* must fail exactly like
+    // one appearing zero times, not silently pass because "at least one" was
+    // found.
+    $rendered = [];
+    foreach ($sections as $name => $content) {
+        $rendered[] = $content;
+        if ($duplicateSection === $name) {
+            $rendered[] = $content;
+        }
+    }
+
+    return "Checked at: \${ts}\n\n".implode("\n", $rendered);
 }
 
 /**
@@ -383,6 +396,7 @@ function installOpsStatusStub(
     ?string $legacyHistory = null,
     ?bool $legacyHealthy = null,
     ?string $legacyOmitSection = null,
+    ?string $legacyDuplicateSection = null,
 ): string {
     $targetState = compact('current', 'currentPath', 'previous', 'previousPath', 'releaseJson', 'history', 'healthy');
 
@@ -397,7 +411,7 @@ function installOpsStatusStub(
     ];
 
     $targetBody = installOpsStatusBody($targetState, 'staging-main');
-    $legacyBody = installOpsStatusBody($legacyState, 'staging', $legacyOmitSection);
+    $legacyBody = installOpsStatusBody($legacyState, 'staging', $legacyOmitSection, $legacyDuplicateSection);
 
     return <<<SH
 #!/usr/bin/env bash
@@ -1235,6 +1249,19 @@ it('fails clearly when the legacy status is missing its Recent deployment histor
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain("0 occurrence(s) of the 'Recent deployment history' section");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails clearly when the legacy status has its Releases section duplicated', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        [$exit, $output] = installOpsRunStatusParity($scratch, installOpsStatusStub(legacyDuplicateSection: 'Releases'));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("2 occurrence(s) of the 'Releases' section");
     } finally {
         installOpsCleanup($scratch);
     }

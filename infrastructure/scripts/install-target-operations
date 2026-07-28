@@ -78,7 +78,7 @@ INSTALL_GROUP="root"
 INSTALL_OWNER_ID=0
 INSTALL_GROUP_ID=0
 
-REQUIRED_TOOLS=(bash jq curl install stat cmp diff mv cp mktemp readlink tail env)
+REQUIRED_TOOLS=(bash jq curl install stat cmp diff awk mv cp mktemp readlink tail env)
 
 # --- Logging ------------------------------------------------------------
 
