@@ -356,6 +356,54 @@ find "${TEMP_RELEASE_ROOT}" \
     -exec chmod 0640 {} +
 # --- normalize release permissions (end) ---
 
+# Proves what this deploy script itself actually produces for the installed,
+# server-side copy of every infrastructure CLI, immediately after the
+# normalization above ran — not merely what the GitHub Actions artifact-build
+# workflows verified before upload. The two checks are independent: an
+# artifact CLI can arrive executable and still lose that bit here if this
+# normalization logic regresses on the server, or if the manifest itself goes
+# missing from a release. Never chmod's around a violation — a wrong mode
+# here means the release is genuinely broken, not something to paper over
+# silently, so it fails before current is ever switched.
+# --- verify infrastructure CLI executable bits (begin) ---
+REQUIRED_CLI_MANIFEST="${TEMP_RELEASE_ROOT}/infrastructure/config/required-clis.txt"
+
+[[ -f "${REQUIRED_CLI_MANIFEST}" ]] \
+    || fail "release is missing required CLI manifest: infrastructure/config/required-clis.txt"
+
+REQUIRED_CLI_COUNT=0
+
+while IFS= read -r CLI_NAME; do
+    [[ -n "${CLI_NAME}" ]] || continue
+
+    REQUIRED_CLI_COUNT=$((REQUIRED_CLI_COUNT + 1))
+
+    CLI_PATH="${TEMP_RELEASE_ROOT}/infrastructure/scripts/${CLI_NAME}"
+
+    [[ -f "${CLI_PATH}" ]] \
+        || fail "release is missing required CLI: ${CLI_NAME}"
+
+    [[ -x "${CLI_PATH}" ]] \
+        || fail "required CLI lost executable mode after extraction: ${CLI_NAME}"
+done < "${REQUIRED_CLI_MANIFEST}"
+
+[[ "${REQUIRED_CLI_COUNT}" -gt 0 ]] \
+    || fail "required CLI manifest is empty: infrastructure/config/required-clis.txt"
+
+COMMON_RELEASE_PATH="${TEMP_RELEASE_ROOT}/infrastructure/scripts/common"
+
+[[ -f "${COMMON_RELEASE_PATH}" ]] \
+    || fail "release is missing infrastructure/scripts/common"
+
+[[ -r "${COMMON_RELEASE_PATH}" ]] \
+    || fail "infrastructure/scripts/common is not readable"
+
+[[ ! -x "${COMMON_RELEASE_PATH}" ]] \
+    || fail "common must remain a non-executable sourced library"
+
+log "verified: every required infrastructure CLI retains its executable mode after release normalization"
+# --- verify infrastructure CLI executable bits (end) ---
+
 if [[ "${RUN_MIGRATIONS}" == true ]] \
     && [[ ! -f "${TEMP_RELEASE_ROOT}/artisan" ]]
 then

@@ -161,3 +161,178 @@ it('carries every infrastructure script through checkout and deploy normalizatio
         exec('rm -rf '.escapeshellarg($root));
     }
 });
+
+/**
+ * Extracts deploy's own release-side CLI executable-bit guard — added
+ * because the workflow's package_root check only proves what GitHub Actions
+ * uploaded, not what the *installed, server-side* deploy script actually
+ * produces after extraction and its own permission normalization. This runs
+ * the real, shipped block, never a reimplementation of it.
+ */
+function deployCliVerificationBlock(): string
+{
+    $deploy = File::get(base_path('infrastructure/scripts/deploy'));
+
+    expect(preg_match(
+        '/# --- verify infrastructure CLI executable bits \(begin\) ---\n(.*?)\n# --- verify infrastructure CLI executable bits \(end\) ---/s',
+        $deploy,
+        $matches,
+    ))->toBe(1, 'could not locate the CLI executable-bit verification block in scripts/deploy');
+
+    return $matches[1];
+}
+
+/**
+ * A correctly normalized TEMP_RELEASE_ROOT fixture: every manifested CLI
+ * present and executable, common present, readable and non-executable, the
+ * manifest itself copied verbatim from the real committed one.
+ */
+function deployCliFixture(array $cliNames): string
+{
+    $root = sys_get_temp_dir().'/deploy-cli-exec-check-'.uniqid('', true);
+
+    mkdir($root.'/infrastructure/scripts', 0o755, true);
+    mkdir($root.'/infrastructure/config', 0o755, true);
+    copy(base_path('infrastructure/config/required-clis.txt'), $root.'/infrastructure/config/required-clis.txt');
+
+    foreach ($cliNames as $name) {
+        file_put_contents($root.'/infrastructure/scripts/'.$name, "#!/usr/bin/env bash\n");
+        chmod($root.'/infrastructure/scripts/'.$name, 0o755);
+    }
+
+    file_put_contents($root.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
+    chmod($root.'/infrastructure/scripts/common', 0o644);
+
+    return $root;
+}
+
+/**
+ * Runs the extracted block against a fixture root, standing in minimal
+ * fail()/log() definitions matching common's own (this block never sources
+ * common itself when tested in isolation, exactly like the sibling
+ * normalization-block test above).
+ *
+ * @return array{0: int, 1: string}
+ */
+function runDeployCliVerificationBlock(string $block, string $root): array
+{
+    $stubs = "fail() { echo \"ERROR: \$*\" >&2; exit 1; }\n"
+        ."log() { printf '[%s] %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$*\"; }\n";
+
+    $script = 'set -Eeuo pipefail'."\n".$stubs.'TEMP_RELEASE_ROOT='.escapeshellarg($root)."\n".$block;
+
+    $output = [];
+    $exit = 0;
+    exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
+
+    return [$exit, implode("\n", $output)];
+}
+
+it('deploy accepts a correctly normalized release and reports it verified', function () {
+    $block = deployCliVerificationBlock();
+    $root = deployCliFixture(requiredCliManifestNames());
+
+    try {
+        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+
+        expect($exit)->toBe(0, "correctly normalized release was rejected:\n{$output}");
+        expect($output)->toContain('verified: every required infrastructure CLI retains its executable mode after release normalization');
+    } finally {
+        exec('rm -rf '.escapeshellarg($root));
+    }
+});
+
+it('deploy fails closed when one required CLI is normalized to 0640, matching the real incident', function () {
+    $block = deployCliVerificationBlock();
+    $root = deployCliFixture(requiredCliManifestNames());
+
+    try {
+        chmod($root.'/infrastructure/scripts/targets', 0o640);
+
+        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('required CLI lost executable mode after extraction: targets');
+    } finally {
+        exec('rm -rf '.escapeshellarg($root));
+    }
+});
+
+it('deploy fails closed when a required CLI is missing from the release', function () {
+    $block = deployCliVerificationBlock();
+    $root = deployCliFixture(requiredCliManifestNames());
+
+    try {
+        unlink($root.'/infrastructure/scripts/targets');
+
+        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('release is missing required CLI: targets');
+    } finally {
+        exec('rm -rf '.escapeshellarg($root));
+    }
+});
+
+it('deploy fails closed when common is wrongly executable', function () {
+    $block = deployCliVerificationBlock();
+    $root = deployCliFixture(requiredCliManifestNames());
+
+    try {
+        chmod($root.'/infrastructure/scripts/common', 0o755);
+
+        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('common must remain a non-executable sourced library');
+    } finally {
+        exec('rm -rf '.escapeshellarg($root));
+    }
+});
+
+it('deploy fails closed when the required-CLI manifest is missing from the release', function () {
+    $block = deployCliVerificationBlock();
+    $root = deployCliFixture(requiredCliManifestNames());
+
+    try {
+        unlink($root.'/infrastructure/config/required-clis.txt');
+
+        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('release is missing required CLI manifest');
+    } finally {
+        exec('rm -rf '.escapeshellarg($root));
+    }
+});
+
+it('deploy fails closed when the required-CLI manifest is present but empty', function () {
+    $block = deployCliVerificationBlock();
+    $root = deployCliFixture(requiredCliManifestNames());
+
+    try {
+        file_put_contents($root.'/infrastructure/config/required-clis.txt', "\n\n");
+
+        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('required CLI manifest is empty');
+    } finally {
+        exec('rm -rf '.escapeshellarg($root));
+    }
+});
+
+it('never chmods any file inside deploy\'s own CLI executable-bit verification block', function () {
+    // This block must fail closed, never paper over a bad mode by fixing it.
+    $block = deployCliVerificationBlock();
+
+    foreach (preg_split('/\R/', $block) as $line) {
+        $trimmed = ltrim($line);
+
+        if ($trimmed === '' || str_starts_with($trimmed, '#')) {
+            continue;
+        }
+
+        expect($trimmed)->not->toMatch('/(^|[;&|]\s*)chmod\b/');
+    }
+});

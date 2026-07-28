@@ -95,15 +95,27 @@ be changed or verified. `tits-guru` (`lifecycle=planned`) is rejected before
 any filesystem or ACL access, the same as every other target-aware command
 in this repository.
 
-### `--check` — no root, no changes
+**All three modes require root.** `--check` and `--verify` both use `runuser`
+to test filesystem access as the target's runtime user and as `www-data` — an
+unprivileged caller cannot use `runuser` to switch to another user regardless
+of what the documentation says, so requiring root is what makes that
+documentation actually true rather than aspirational. `--check` remains
+strictly read-only even so: no ACL, file or backup state is ever written by
+that mode.
 
-Validates: the target is active; every required host tool is present
-(`setfacl`, `getfacl`, `stat`, `namei`, `readlink`, `runuser`, `curl`,
-`mktemp`, `install`, `find`, `od`, `grep`); `shared`, `shared/storage`,
-`shared/storage/app`, `shared/storage/app/public` exist as real directories,
-never symlinks; `current/public/storage` is a symlink that resolves exactly
-to `shared/storage/app/public`; `shared` and `shared/storage` are owned by
-the target's runtime user and are not world-writable; `shared/storage/app/public`
+### `--check` — requires root, no changes
+
+Validates: the target is active; every host tool this script actually
+invokes is present — `setfacl`, `getfacl`, `stat`, `namei`, `readlink`,
+`runuser`, `curl`, `mktemp`, `install`, `find`, `od`, `cmp`, `tr`, `head`,
+`sleep`, `cat`, `rm`, `ls`, `date`, `chmod`, `grep` — an exhaustive list, not
+just the "unusual" ones, so a host missing any of them fails here with a
+clear message instead of a raw "command not found" partway through `--apply`
+or `--verify`; `shared`, `shared/storage`, `shared/storage/app`,
+`shared/storage/app/public` exist as real directories, never symlinks;
+`current/public/storage` is a symlink that resolves exactly to
+`shared/storage/app/public`; `shared` and `shared/storage` are owned by the
+target's runtime user and are not world-writable; `shared/storage/app/public`
 is writable by the runtime user; the script itself is executable. It also
 *reports* (without altering) the current ACL and traversal state, so an
 operator can see what `--apply` would change before running it.
@@ -129,26 +141,35 @@ sudo infrastructure/scripts/install-public-storage-access --apply --target stagi
    setfacl -m u:www-data:--x /home/www/rateguru/<target>/shared/storage
    ```
 
-   No `chmod`, `chown`, `chgrp`, `usermod`, or group-membership change ever
-   runs — enforced by architecture tests that grep the script's own source
-   for the absence of those commands, not just by manual review.
+   No `chmod`, `chown`, `chgrp`, `usermod`, or group-membership change is
+   ever applied to `shared` or `shared/storage` — enforced by architecture
+   tests that grep the script's own source, not just by manual review. (The
+   disposable canary file in step 5 does get one `chmod`, restoring its
+   world-readable mode after atomic creation — see below — but that is a
+   file under `public/`, never one of the two ACL-controlled directories.)
 5. Verifies the result end to end: traversal now succeeds for `www-data`;
    directory **listing** still fails for `www-data` on both directories;
    `.env` (if present) and `logs`/`framework`/`app/private` (if present)
    remain unreadable by `www-data`; the ACL is exactly `user:www-data:--x`,
-   nothing more; a disposable random-named canary file is created by the
-   runtime user under public storage, confirmed readable by `www-data`
-   directly, then fetched over real HTTP through the target's own health
-   host/URL at `/storage/<name>` — requiring an exact HTTP 200 with a body
-   matching the random token exactly (no redirect, no Laravel error page) —
-   and is always removed afterward, success or failure; if any real upload
-   already exists under public storage, one is also spot-checked the same
-   way over HTTP; `tits-guru` is confirmed still rejected throughout.
+   nothing more; a disposable, randomly-named canary file is created and
+   written **atomically** by the runtime user — via a real `mktemp` template
+   rooted inside `public/`, never the unsafe "pick a name, then write to it"
+   pattern, so a symlink already sitting at (or planted at) the chosen name
+   can never be selected or written through — confirmed readable by
+   `www-data` directly, then fetched over real HTTP through the target's own
+   health host/URL at `/storage/<name>` — requiring an exact HTTP 200 with a
+   body matching the random token exactly (no redirect, no Laravel error
+   page) — and is always removed afterward, success or failure; if any real
+   upload already exists under public storage, one is also spot-checked the
+   same way over HTTP; `tits-guru` is confirmed still rejected throughout.
 6. Only once every one of the above passes is the change committed. Before
    that point, any failure restores the ACL from the backup taken in step 3
-   and re-confirms traversal is genuinely blocked again — automatically, via
-   a trap, without a second command — and always removes the canary file,
-   even on failure.
+   and re-confirms it **exactly** matches that backup, byte for byte — not
+   merely that `www-data` can no longer traverse, which would be the wrong
+   check whenever the ACL already existed before an idempotent re-apply (the
+   correct rollback target there is the pre-existing, permissive ACL, not an
+   assumed-blocked baseline). This happens automatically, via a trap, without
+   a second command — and always removes the canary file, even on failure.
 
 ### `--verify` — requires root, read-only
 
@@ -236,6 +257,16 @@ is new.
 - `tits-guru` (or any other `lifecycle=planned` target) can never be changed
   or verified; `require_active_target` rejects it before any filesystem or
   ACL access.
+- The verification canary is created with a real `mktemp` template, never
+  `mktemp -u` followed by a separate write — there is no window in which a
+  pre-existing or concurrently planted symlink at the chosen name could be
+  written through instead of refused.
+- A rollback is only ever reported successful once the restored ACL is
+  confirmed byte-for-byte identical to the pre-apply backup — never merely
+  because `www-data` can no longer traverse, which is the wrong signal
+  whenever the ACL already existed before an idempotent re-apply.
+- `--check`, `--apply` and `--verify` all require root; `--check` remains
+  strictly read-only regardless.
 
 ## Future: target bootstrap
 

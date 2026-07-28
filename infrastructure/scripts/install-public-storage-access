@@ -21,9 +21,12 @@
 # chown or chgrp of either directory; no group-membership change for
 # www-data; no change to any other directory under shared/.
 #
-# Modes:
+# Modes (all three require root — --check and --verify use runuser to test
+# access as the target's runtime user and as www-data, which an unprivileged
+# caller cannot do regardless of documentation):
 #   --check   Validate target/filesystem/tool preconditions and report the
-#             current ACL state. Read-only: makes NO changes.
+#             current ACL state. Requires root; strictly read-only, makes NO
+#             changes.
 #   --apply   Grant the two ACL entries, transactionally: stages nothing to
 #             install (there is nothing to install), but backs up the exact
 #             prior ACL state first and rolls back automatically if any
@@ -53,7 +56,11 @@ SELF_PATH="${BASH_SOURCE[0]}"
 
 BACKUP_ROOT="/var/backups/rateguru-public-storage-access"
 
-REQUIRED_TOOLS=(setfacl getfacl stat namei readlink runuser curl mktemp install find od grep)
+# Exhaustive: every external command this script actually invokes (excluding
+# bash builtins like printf/test/read), not just the "unusual" ones — a tool
+# missing here would otherwise pass this gate and fail later with a raw
+# "command not found" instead of this script's own clear message.
+REQUIRED_TOOLS=(setfacl getfacl stat namei readlink runuser curl mktemp install find od cmp tr head sleep cat rm ls date chmod grep)
 
 # RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
 # =true — a stray environment variable surviving in a real root shell can
@@ -87,8 +94,12 @@ Usage:
   install-public-storage-access --verify  --target TARGET
   install-public-storage-access --help
 
+  All three modes require root (--check and --verify use runuser to test
+  access as the runtime user and as www-data).
+
   --check   Validate target, tools and filesystem preconditions, and report
-            the current ACL state. Read-only, makes no changes.
+            the current ACL state. Requires root; strictly read-only, makes
+            no changes.
   --apply   Grant www-data execute-only traversal on the target's shared
             storage directories. Transactional: backs up the exact prior ACL
             state first and rolls back automatically if verification fails.
@@ -390,18 +401,38 @@ http_get_status_and_body() {
 }
 
 verify_public_storage_canary() {
-    local canary_name
-    canary_name="$(basename "$(mktemp -u "canary-XXXXXXXXXXXX")")"
-    CANARY_PATH="${PUBLIC_STORAGE}/${canary_name}"
-
     local token
     token="$(random_token)"
 
+    # mktemp (never `-u`) atomically creates the file itself via
+    # O_CREAT|O_EXCL: there is no window between "pick a name" and "the file
+    # exists at that name" for a pre-existing or concurrently planted symlink
+    # to be written through instead. If the candidate name is already taken —
+    # by a regular file, a symlink, anything — mktemp refuses it and tries a
+    # different random suffix; it never follows or overwrites what's already
+    # there. mktemp always creates at mode 0600 regardless of umask (the
+    # umask 027 set here is otherwise inert for mktemp's own file, kept only
+    # as defensive hygiene for the rest of this subshell), so the intended
+    # final mode — the same world-readable 0644 a real Laravel upload gets —
+    # is restored explicitly via chmod once the file safely exists under our
+    # own ownership, with the race already closed.
+    #
     # $1/$2 are for the *inner* bash -c shell (positional args after `_`),
     # deliberately not expanded by this outer shell.
     # shellcheck disable=SC2016
-    runuser -u "${RUNTIME_USER}" -- bash -c 'printf "%s" "$1" > "$2"' _ "${token}" "${CANARY_PATH}" \
-        || fail "could not create the public-storage canary as ${RUNTIME_USER}: ${CANARY_PATH}"
+    CANARY_PATH="$(
+        runuser -u "${RUNTIME_USER}" -- bash -c '
+            set -Eeuo pipefail
+            umask 027
+            path="$(mktemp "$1/canary-XXXXXXXXXXXX")"
+            chmod 644 "${path}"
+            printf "%s" "$2" > "${path}"
+            printf "%s\n" "${path}"
+        ' _ "${PUBLIC_STORAGE}" "${token}"
+    )" || fail "could not create the public-storage canary as ${RUNTIME_USER} under ${PUBLIC_STORAGE}"
+
+    [[ -n "${CANARY_PATH}" ]] \
+        || fail "runtime user did not return a canary path"
 
     local resolved_canary resolved_public
     resolved_canary="$(readlink -f "${CANARY_PATH}")"
@@ -501,6 +532,24 @@ verify_runtime_state() {
 # --- Modes ---------------------------------------------------------------
 
 run_check() {
+    # --check calls runuser to test filesystem access as the runtime user and
+    # as www-data (validate_writable_by_runtime_user, report_current_traversal_state)
+    # — an ordinary caller cannot use runuser to switch to another user
+    # regardless of what a doc comment might claim, so requiring root here is
+    # what makes "--check works without root" an accurate statement instead
+    # of one this mode would silently fail to live up to. It remains strictly
+    # read-only even so: no ACL, file or backup state is ever written by this
+    # mode.
+    require_root
+    perform_check
+}
+
+# Split from run_check() solely so tests can exercise this against a scratch
+# target without needing to run as root, the same reasoning perform_apply/
+# perform_verify already split from run_apply/run_verify for. Production
+# always reaches this through run_check, so require_root is still enforced
+# on every real invocation.
+perform_check() {
     log "mode: check --target ${TARGET_ID}"
 
     derive_target_paths
@@ -577,6 +626,28 @@ restore_acl_from_backup() {
     setfacl --restore="${ACL_BACKUP_FILE}"
 }
 
+# Rollback success means the ACL is back to *exactly* what it was before this
+# run touched anything — never "www-data can no longer traverse", which is
+# false whenever the ACL already existed before an idempotent re-apply: the
+# correct rollback target there is the pre-existing *permissive* ACL, not an
+# assumed-blocked baseline. Comparing byte-for-byte against the same
+# getfacl -p invocation backup_acl_state used is the only thing that actually
+# proves "exactly restored" rather than merely "restored to something".
+verify_restored_acl_matches_backup() {
+    local current
+    current="$(mktemp)"
+
+    getfacl -p "${SHARED_ROOT}" "${STORAGE_ROOT}" > "${current}" 2>/dev/null
+
+    if cmp -s "${ACL_BACKUP_FILE}" "${current}"; then
+        rm -f "${current}"
+        return 0
+    fi
+
+    rm -f "${current}"
+    return 1
+}
+
 # --- Transactional apply with rollback --------------------------------------
 
 APPLY_COMMITTED=false
@@ -600,16 +671,10 @@ on_apply_error() {
     cleanup_canary
 
     if [[ "${APPLY_COMMITTED}" == false ]] && [[ "${ACL_MODIFIED}" == true ]]; then
-        if restore_acl_from_backup; then
-            log "rollback complete: original ACL state restored"
-
-            if verify_traversal >/dev/null 2>&1; then
-                log "ERROR: www-data can still traverse after rollback — restore did not take effect"
-            else
-                log "confirmed: www-data traversal is blocked again after rollback (original state)"
-            fi
+        if restore_acl_from_backup && verify_restored_acl_matches_backup; then
+            log "rollback complete: exact original ACL state restored"
         else
-            log "ERROR: ACL rollback FAILED — manual intervention required"
+            log "ERROR: ACL rollback verification failed — manual intervention required"
             log "backup remains at ${ACL_BACKUP_FILE} for manual restoration"
         fi
     fi

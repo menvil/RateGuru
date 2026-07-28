@@ -95,25 +95,17 @@ function psaExec(string $scriptPath, array $env): array
  * contract (CLI-level tests: argument parsing, --help, require-root gate,
  * tits-guru rejection before any filesystem access).
  *
- * $isolatePath=true drops the ambient-PATH fallback entirely, leaving only
- * $scratchBin — needed by the "missing tool" test: a host that genuinely has
- * the `acl` package installed (GitHub's Ubuntu runners do) would otherwise
- * still find a *real* setfacl/getfacl further down the ambient PATH after
- * the scratch stub is deleted, defeating the simulated absence.
- *
  * @param  list<string>  $arguments
  * @param  array<string, string>  $envOverrides
  * @return array{0: int, 1: string}
  */
-function psaRunScript(array $arguments, array $envOverrides = [], ?string $scratchBin = null, bool $isolatePath = false): array
+function psaRunScript(array $arguments, array $envOverrides = [], ?string $scratchBin = null): array
 {
     $tmp = tempnam(sys_get_temp_dir(), 'psa-cli-');
     file_put_contents($tmp, 'exec '.escapeshellarg(psaScript())
         .' '.implode(' ', array_map('escapeshellarg', $arguments))."\n");
 
-    $path = $isolatePath
-        ? (string) $scratchBin
-        : ($scratchBin !== null ? $scratchBin.':' : '').(getenv('PATH') ?: '/usr/bin:/bin');
+    $path = ($scratchBin !== null ? $scratchBin.':' : '').(getenv('PATH') ?: '/usr/bin:/bin');
 
     $env = array_merge(['PATH' => $path, 'HOME' => getenv('HOME') ?: '/tmp'], $envOverrides);
 
@@ -493,7 +485,7 @@ fi
 SH;
 }
 
-it('--check succeeds against a healthy scratch target and performs no writes', function () {
+it('--check succeeds against a healthy scratch target and performs no writes (as root would)', function () {
     $scratch = psaScratchDir();
 
     try {
@@ -504,11 +496,11 @@ it('--check succeeds against a healthy scratch target and performs no writes', f
             'storage' => fileperms($target['storage']),
         ];
 
-        [$exit, $output] = psaRunScript(
-            ['--check', '--target', 'test-target'],
-            psaBaseEnv($scratch),
-            $scratch.'/bin',
-        );
+        // perform_check is exactly what run_check calls once require_root has
+        // passed — calling it directly here exercises the real no-root-
+        // required-to-be-*correct* logic without needing an actual root
+        // process; --check's own require_root gate is covered separately.
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_check', psaBaseEnv($scratch));
 
         expect($exit)->toBe(0, $output);
         expect($output)->toContain('structural validation passed')
@@ -527,6 +519,24 @@ it('--check succeeds against a healthy scratch target and performs no writes', f
 // =============================================================================
 // CLI-level: require-root gate, tits-guru rejection before any access
 // =============================================================================
+
+it('--check requires root', function () {
+    if (getmyuid() === 0) {
+        test()->markTestSkipped('this test process is running as root — the require-root gate cannot be exercised');
+    }
+
+    $scratch = psaScratchDir();
+
+    try {
+        psaBuildTarget($scratch);
+        [$exit, $output] = psaRunScript(['--check', '--target', 'test-target'], psaBaseEnv($scratch), $scratch.'/bin');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('this command must be executed as root');
+    } finally {
+        psaCleanup($scratch);
+    }
+});
 
 it('--apply requires root', function () {
     if (getmyuid() === 0) {
@@ -613,7 +623,16 @@ it('produces a clear failure when required ACL tools are missing', function () {
             symlink($resolved, $scratch.'/bin/'.$realTool);
         }
 
-        [$exit, $output] = psaRunScript(['--check', '--target', 'test-target'], psaBaseEnv($scratch), $scratch.'/bin', isolatePath: true);
+        // perform_check bypasses require_root (see the dedicated "--check
+        // requires root" test above); PATH is passed via $env, which wins
+        // over psaRunHarness's own ambient-PATH-including default, isolating
+        // it to exactly this scratch bin for the same reason as before.
+        [$exit, $output] = psaRunHarness(
+            $scratch,
+            ['TARGET_ID' => 'test-target'],
+            'perform_check',
+            array_merge(psaBaseEnv($scratch), ['PATH' => $scratch.'/bin']),
+        );
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('required tool not found: setfacl')
@@ -636,7 +655,7 @@ it('rejects a symlinked shared directory', function () {
         rename($target['shared'], $real);
         symlink($real, $target['shared']);
 
-        [$exit, $output] = psaRunScript(['--check', '--target', 'test-target'], psaBaseEnv($scratch), $scratch.'/bin');
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_check', psaBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('must not be a symlink');
@@ -654,7 +673,7 @@ it('rejects a symlinked storage directory', function () {
         rename($target['storage'], $real);
         symlink($real, $target['storage']);
 
-        [$exit, $output] = psaRunScript(['--check', '--target', 'test-target'], psaBaseEnv($scratch), $scratch.'/bin');
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_check', psaBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('must not be a symlink');
@@ -673,7 +692,7 @@ it('rejects a public storage link that does not resolve exactly to public storag
         mkdir($decoy, 0o755);
         symlink($decoy, $target['link']);
 
-        [$exit, $output] = psaRunScript(['--check', '--target', 'test-target'], psaBaseEnv($scratch), $scratch.'/bin');
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_check', psaBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('does not resolve to public storage');
@@ -687,8 +706,18 @@ it('rejects a public storage link that does not resolve exactly to public storag
 // exact ACL entries, and must never touch anything out of scope.
 // =============================================================================
 
-it('never chmods, chowns or chgrps any directory, recursively or otherwise', function () {
+it('never chmods, chowns or chgrps a directory — the sole chmod call stays scoped to the canary file', function () {
     $source = psaSource();
+
+    // Exactly one chmod call exists in the whole script: restoring the
+    // canary's mode to the same world-readable 0644 a real Laravel upload
+    // gets, since mktemp always creates at 0600 regardless of umask. The
+    // canary is a dynamically-named regular *file* under PUBLIC_STORAGE,
+    // never one of the two ACL-controlled directories or anything else —
+    // anything beyond this one exact line, or any chown/chgrp at all, is
+    // out of scope for this fix.
+    $allowedChmodLine = 'chmod 644 "${path}"';
+    $chmodLinesSeen = 0;
 
     foreach (preg_split('/\R/', $source) as $line) {
         $trimmed = ltrim($line);
@@ -698,10 +727,16 @@ it('never chmods, chowns or chgrps any directory, recursively or otherwise', fun
         }
 
         expect($trimmed)
-            ->not->toMatch('/(^|[;&|]\s*)chmod\b/')
             ->not->toMatch('/(^|[;&|]\s*)chown\b/')
             ->not->toMatch('/(^|[;&|]\s*)chgrp\b/');
+
+        if (preg_match('/(^|[;&|]\s*)chmod\b/', $trimmed) === 1) {
+            expect($trimmed)->toBe($allowedChmodLine, "unexpected chmod call: {$trimmed}");
+            $chmodLinesSeen++;
+        }
     }
+
+    expect($chmodLinesSeen)->toBe(1, 'exactly one chmod call is allowed — the canary file');
 });
 
 it('never modifies user or group membership', function () {
@@ -737,6 +772,145 @@ it('applies exactly setfacl -m u:www-data:--x, never a recursive setfacl', funct
         ->toContain('setfacl -m "u:${WEB_USER}:--x" "${STORAGE_ROOT}"')
         ->not->toMatch('/setfacl\s+(-\S+\s+)*-R\b/')
         ->not->toMatch('/getfacl\s+(-\S+\s+)*-R\b/');
+});
+
+it('never creates the canary via the unsafe mktemp -u name-then-write pattern', function () {
+    $source = psaSource();
+
+    expect($source)->not->toContain('mktemp -u');
+
+    // The safe replacement: a real (non -u) mktemp call templated *inside*
+    // PUBLIC_STORAGE — proving the correct API is used, not just that the
+    // dangerous one is absent.
+    expect($source)->toMatch('/mktemp\s+"\$1\/canary-X+"/');
+});
+
+it('a pre-existing symlink at the canary path is never selected or written through', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+
+        // Plant a symlink at a fixed name pointing at a sentinel file
+        // *outside* public storage, then fake `mktemp` to deterministically
+        // try exactly that name (real mktemp's suffix is random — this
+        // stub trades that for determinism, using `set -C`/noclobber to
+        // reproduce mktemp's core O_EXCL guarantee: refuse, never follow, an
+        // existing path — verified separately to behave exactly this way
+        // against a real symlink). If the old mktemp -u name-then-write
+        // pattern were still in place, this sentinel would end up
+        // overwritten with the canary token; the fix must instead fail
+        // cleanly, leaving the symlink and its target completely untouched.
+        $sentinelTarget = $scratch.'/attacker-sentinel.txt';
+        file_put_contents($sentinelTarget, "UNCHANGED\n");
+        symlink($sentinelTarget, $target['public'].'/canary-COLLISION');
+
+        $realMktemp = trim((string) shell_exec('command -v mktemp'));
+        expect($realMktemp)->not->toBe('', 'host is missing mktemp');
+
+        psaWriteExecutable($scratch.'/bin/mktemp', <<<SH
+#!/usr/bin/env bash
+set -uo pipefail
+
+if [[ \$# -eq 0 ]]; then
+    exec {$realMktemp}
+fi
+
+template="\$1"
+dir="\${template%/*}"
+candidate="\${dir}/canary-COLLISION"
+
+if { set -C; : > "\${candidate}"; } 2>/dev/null; then
+    printf '%s\n' "\${candidate}"
+    exit 0
+else
+    echo "mktemp: failed to create file via template '\${template}': File exists" >&2
+    exit 1
+fi
+SH);
+
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_apply', psaBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('could not create the public-storage canary');
+
+        // The symlink itself is untouched: still a symlink, still pointing
+        // at the same sentinel, whose content was never written to.
+        expect(is_link($target['public'].'/canary-COLLISION'))->toBeTrue('the pre-existing symlink must not be replaced');
+        expect(readlink($target['public'].'/canary-COLLISION'))->toBe($sentinelTarget);
+        expect(file_get_contents($sentinelTarget))->toBe("UNCHANGED\n");
+    } finally {
+        psaCleanup($scratch);
+    }
+});
+
+it('creates the canary as the target runtime user', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+
+        // The canary is removed (cleanup_canary) the moment this same HTTP
+        // request completes inside the real script, so the internal-HTTP
+        // request the script itself makes is the only window in which the
+        // file can still be inspected — recording owner+mode there, as a
+        // side channel, rather than trying to catch it from outside the
+        // running process.
+        $ownerLog = $scratch.'/canary-owner.txt';
+        $publicRootLiteral = escapeshellarg($target['public']);
+        $ownerLogLiteral = escapeshellarg($ownerLog);
+
+        psaWriteExecutable($scratch.'/bin/curl', <<<SH
+#!/usr/bin/env bash
+set -uo pipefail
+output=""
+url=""
+args=("\$@")
+for ((i = 0; i < \${#args[@]}; i++)); do
+    case "\${args[i]}" in
+        --output) output="\${args[i+1]}" ;;
+        http://*|https://*) url="\${args[i]}" ;;
+    esac
+done
+
+path="\${url#*://*/}"
+
+if [[ "\${path}" == "up" ]]; then
+    if [[ -n "\${output}" ]]; then
+        printf 'OK' > "\${output}"
+    fi
+    printf '200'
+    exit 0
+fi
+
+relative="\${path#storage/}"
+file={$publicRootLiteral}"/\${relative}"
+
+if [[ -f "\${file}" ]]; then
+    stat -c '%U:%a' "\${file}" > {$ownerLogLiteral} 2>/dev/null || true
+    if [[ -n "\${output}" ]]; then
+        cp "\${file}" "\${output}"
+    fi
+    printf '200'
+else
+    if [[ -n "\${output}" ]]; then
+        printf 'Not Found' > "\${output}"
+    fi
+    printf '404'
+fi
+SH);
+
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_apply', psaBaseEnv($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect(file_exists($ownerLog))->toBeTrue('the curl stub never observed the canary being served');
+
+        [$owner, $mode] = explode(':', trim(file_get_contents($ownerLog)));
+        expect($owner)->toBe($target['runtimeUser']);
+        expect($mode)->toBe('644');
+    } finally {
+        psaCleanup($scratch);
+    }
 });
 
 // =============================================================================
@@ -786,6 +960,34 @@ it('a successful apply grants exactly user:www-data:--x, changes no ownership/mo
         $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
         expect($backups)->not->toBeEmpty('apply must create a backup directory');
         expect(file_exists($backups[0].'/acl.restore'))->toBeTrue();
+    } finally {
+        psaCleanup($scratch);
+    }
+});
+
+it('cleanup removes only the canary, never a pre-existing regular upload', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+
+        $existingUpload = $target['public'].'/existing-photo.jpg';
+        file_put_contents($existingUpload, "REAL UPLOAD CONTENT\n");
+
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_apply', psaBaseEnv($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('existing upload regression check: OK');
+
+        // cleanup_canary only ever does `rm -f "${CANARY_PATH}"` — a single,
+        // non-recursive, non-glob removal of exactly the one path this run
+        // itself created — so a pre-existing, unrelated file must survive
+        // completely untouched.
+        expect(file_exists($existingUpload))->toBeTrue('cleanup must never remove a pre-existing upload');
+        expect(file_get_contents($existingUpload))->toBe("REAL UPLOAD CONTENT\n");
+
+        $leftoverCanaries = glob($target['public'].'/canary-*');
+        expect($leftoverCanaries)->toBeEmpty('the canary itself must still be removed');
     } finally {
         psaCleanup($scratch);
     }
@@ -884,7 +1086,7 @@ it('www-data cannot read shared/.env, logs, framework or app/private even after 
     }
 });
 
-it('a genuine post-change verification failure rolls back the ACL exactly once and preserves the exit code', function () {
+it('a genuine post-change verification failure rolls back to the original ACL-absent state exactly once and preserves the exit code', function () {
     $scratch = psaScratchDir();
 
     try {
@@ -920,8 +1122,9 @@ SH);
         expect($exit)->toBe(1, $output);
         expect($output)->toContain('apply failed');
 
-        // The ACL was genuinely applied, then rolled back: no www-data entry
-        // remains on either directory.
+        // The ACL was genuinely applied, then rolled back to *exactly* the
+        // original state — which, since this target had never been applied
+        // before, means no www-data entry remains on either directory.
         $sharedAcl = file_exists($target['shared'].'.simstate') ? file_get_contents($target['shared'].'.simstate') : '';
         $storageAcl = file_exists($target['storage'].'.simstate') ? file_get_contents($target['storage'].'.simstate') : '';
         expect($sharedAcl)->not->toContain('www-data');
@@ -936,7 +1139,66 @@ SH);
         // discovered) proves the handler's real body ran exactly once.
         $logInvocations = file_exists($logFile) ? file_get_contents($logFile) : '';
         expect(substr_count($logInvocations, 'apply failed'))->toBe(1, 'on_apply_error\'s real body must run exactly once');
-        expect(substr_count($logInvocations, 'rollback complete'))->toBe(1);
+        expect(substr_count($logInvocations, 'rollback complete: exact original ACL state restored'))->toBe(1);
+    } finally {
+        psaCleanup($scratch);
+    }
+});
+
+it('rollback after an idempotent re-apply restores the pre-existing permissive ACL, not an assumed-blocked baseline', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+
+        // Establish the ACL for real first — this run must succeed cleanly.
+        [$firstExit, $firstOut] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_apply', psaBaseEnv($scratch));
+        expect($firstExit)->toBe(0, $firstOut);
+        expect(file_get_contents($target['shared'].'.simstate'))->toBe("www-data:--x\n");
+        expect(file_get_contents($target['storage'].'.simstate'))->toBe("www-data:--x\n");
+
+        // Now force the *second*, idempotent apply's post-change
+        // verification to fail genuinely, exactly like the ACL-absent
+        // rollback test above, but starting from a target whose backed-up
+        // "original" state already grants www-data:--x.
+        psaWriteExecutable($scratch.'/bin/curl', <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+for arg in "$@"; do
+    case "${arg}" in
+        http://*|https://*) url="${arg}" ;;
+    esac
+done
+if [[ "${url#*://*/}" == "up" ]]; then
+    printf '200'
+else
+    printf '404'
+fi
+SH);
+
+        $logFile = $scratch.'/log-invocations.txt';
+        $driver = "log() {\n"
+            ."    printf '[%s] %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$*\"\n"
+            .'    printf \'%s\n\' "$*" >> '.escapeshellarg($logFile)."\n"
+            ."}\n"
+            .'perform_apply';
+
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], $driver, psaBaseEnv($scratch));
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('apply failed');
+
+        // Rollback must restore the *pre-existing permissive* ACL — the one
+        // this run's own backup actually captured — not remove it. Reporting
+        // "rollback complete" here while www-data can still traverse would
+        // have been exactly the old bug: assuming the original state always
+        // blocked access.
+        expect(file_get_contents($target['shared'].'.simstate'))->toBe("www-data:--x\n");
+        expect(file_get_contents($target['storage'].'.simstate'))->toBe("www-data:--x\n");
+
+        $logInvocations = file_exists($logFile) ? file_get_contents($logFile) : '';
+        expect(substr_count($logInvocations, 'rollback complete: exact original ACL state restored'))->toBe(1);
+        expect($logInvocations)->not->toContain('ACL rollback verification failed');
     } finally {
         psaCleanup($scratch);
     }
@@ -977,6 +1239,11 @@ it('verify performs no changes and reports FAIL exactly once when verification g
         $logInvocations = file_exists($logFile) ? file_get_contents($logFile) : '';
         expect(substr_count($logInvocations, '--- final result ---'))->toBe(1);
         expect(substr_count($logInvocations, 'FAIL: verification did not pass'))->toBe(1);
+
+        // The canary is cleaned up even when --verify itself is what fails,
+        // not just when --apply fails (covered separately).
+        $leftoverCanaries = glob($target['public'].'/canary-*');
+        expect($leftoverCanaries)->toBeEmpty('canary file must be removed even when verify fails');
     } finally {
         psaCleanup($scratch);
     }
@@ -1029,6 +1296,16 @@ it('documents backup location, rollback behaviour and manual restore in the publ
         ->toContain('/var/backups/rateguru-public-storage-access/')
         ->toContain('setfacl --restore=')
         ->toContain('Manually restoring a backup, if automatic rollback itself fails');
+});
+
+it('documents that all three modes require root, atomic canary creation and exact-match rollback in the runbook', function () {
+    $runbook = File::get(base_path('infrastructure/runbooks/public-storage-access.md'));
+
+    expect($runbook)
+        ->toContain('All three modes require root')
+        ->toContain('requires root, no changes')
+        ->toContain('never the unsafe "pick a name, then write to it"')
+        ->toContain('confirmed byte-for-byte identical to the pre-apply backup');
 });
 
 function psaStatSummary(string $path): array
