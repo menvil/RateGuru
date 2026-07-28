@@ -406,7 +406,14 @@ perform_rollback() {
     ORIGINAL_PREVIOUS_PRESENT=false
     ORIGINAL_PREVIOUS_PATH=""
 
-    if [[ -L "${PREVIOUS_LINK}" ]]; then
+    # -e alone would miss a dangling symlink (a real, unsafe case
+    # validate_pointer_release must still catch); -L alone would miss an
+    # existing plain file or directory at PREVIOUS_LINK, silently treating it
+    # as "absent" and letting the later atomic mv -Tf clobber it without ever
+    # validating what was there. Either condition routes into
+    # validate_pointer_release, whose own `-L` check is what actually rejects
+    # a non-symlink previous — mirroring cleanup's protect_pointer_link.
+    if [[ -e "${PREVIOUS_LINK}" ]] || [[ -L "${PREVIOUS_LINK}" ]]; then
         ORIGINAL_PREVIOUS_PRESENT=true
         ORIGINAL_PREVIOUS_PATH="$(validate_pointer_release "${PREVIOUS_LINK}" "previous")"
     fi
@@ -426,7 +433,15 @@ perform_rollback() {
         validate_release_directory "${TARGET_RELEASE_PATH}" "explicit"
     fi
 
-    if [[ "${ORIGINAL_CURRENT_PATH}" == "${TARGET_RELEASE_PATH}" ]]; then
+    # Compared canonically (readlink -f on both sides), not as literal
+    # strings: ORIGINAL_CURRENT_PATH is the symlink's raw, single-hop target
+    # (see validate_pointer_release), which can carry a trailing slash or a
+    # symlinked path-prefix difference from the freshly-constructed
+    # TARGET_RELEASE_PATH even when both genuinely name the same release
+    # directory. A literal-string false negative here would let the swap
+    # proceed and silently overwrite previous with what is already current,
+    # discarding a real rollback point for no actual change to current.
+    if [[ "$(readlink -f "${ORIGINAL_CURRENT_PATH}")" == "$(readlink -f "${TARGET_RELEASE_PATH}")" ]]; then
         fail "target release is already current"
     fi
 

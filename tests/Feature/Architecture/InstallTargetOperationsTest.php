@@ -1683,7 +1683,7 @@ it('verify_rollback_help fails when the installed rollback does not answer --hel
             printf 'broken rollback stub (test)\n' >&2
             exit 1
             SH;
-        $vars = installOpsBaseVars($scratch, null, null, null, null, $brokenRollback);
+        $vars = installOpsBaseVars($scratch, rollbackStub: $brokenRollback);
         $vars['DST_ROLLBACK'] = $vars['SRC_ROLLBACK'];
 
         [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_rollback_help');
@@ -1699,7 +1699,7 @@ it('verify_rollback_planned_target_rejected fails when tits-guru unexpectedly su
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch, null, null, null, null, installOpsRollbackStub(titsGuru: 'unexpected-success'));
+        $vars = installOpsBaseVars($scratch, rollbackStub: installOpsRollbackStub(titsGuru: 'unexpected-success'));
         $vars['DST_ROLLBACK'] = $vars['SRC_ROLLBACK'];
 
         [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_rollback_planned_target_rejected');
@@ -1715,7 +1715,7 @@ it('verify_rollback_planned_target_rejected fails when the rejection happens for
     $scratch = installOpsScratchDir();
 
     try {
-        $vars = installOpsBaseVars($scratch, null, null, null, null, installOpsRollbackStub(titsGuru: 'wrong-reason'));
+        $vars = installOpsBaseVars($scratch, rollbackStub: installOpsRollbackStub(titsGuru: 'wrong-reason'));
         $vars['DST_ROLLBACK'] = $vars['SRC_ROLLBACK'];
 
         [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_rollback_planned_target_rejected');

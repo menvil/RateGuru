@@ -178,14 +178,23 @@ function rollbackOpsHealthCheckStub(string $scratch, string $logFile, bool $fail
 
 /**
  * PATH-shadowed stub for systemctl — rollback never invokes runuser or php,
- * unlike deploy, so only this one stub is needed.
+ * unlike deploy, so only this one stub is needed. Defaults to a shared,
+ * scratch-wide log for tests that only ever run one rollback per scratch
+ * dir; callers that run more than one rollback against the same scratch dir
+ * (e.g. an --environment/--target parity pair) must pass a distinct
+ * $logFile per run so each run's reload count can be asserted independently
+ * rather than against a combined log. Returns the log file path used.
  */
-function rollbackOpsInstallSystemctlStub(string $scratch): void
+function rollbackOpsInstallSystemctlStub(string $scratch, ?string $logFile = null): string
 {
+    $logFile ??= $scratch.'/systemctl.log';
+
     file_put_contents($scratch.'/bin/systemctl', "#!/usr/bin/env bash\n"
-        .'echo "systemctl $*" >> '.escapeshellarg($scratch.'/systemctl.log')."\n"
+        .'echo "systemctl $*" >> '.escapeshellarg($logFile)."\n"
         ."exit 0\n");
     chmod($scratch.'/bin/systemctl', 0o755);
+
+    return $logFile;
 }
 
 /**
@@ -400,13 +409,18 @@ function rollbackOpsCurrentGroup(): string
  * using either --environment staging or --target parity-target, and either
  * --previous or an explicit --release.
  *
- * @return array{exit: int, output: string, fixture: array, healthCheckLog: string}
+ * @return array{exit: int, output: string, fixture: array, healthCheckLog: string, systemctlLog: string}
  */
 function rollbackOpsRunFullRollback(string $scratch, bool $useTarget, ?string $explicitRelease, bool $failHealthCheck = false): array
 {
     $fixture = rollbackOpsBuildFixture($scratch);
     $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
-    rollbackOpsInstallSystemctlStub($scratch);
+
+    // A run-unique log, not the shared scratch-wide default: callers that run
+    // this twice against the same $scratch (env/target parity pairs) must be
+    // able to assert each run's own reload count independently.
+    $systemctlLog = $scratch.'/systemctl-'.uniqid('', true).'.log';
+    rollbackOpsInstallSystemctlStub($scratch, $systemctlLog);
 
     $healthCheckLog = $scratch.'/health-check-'.uniqid('', true).'.log';
     touch($healthCheckLog);
@@ -439,6 +453,7 @@ function rollbackOpsRunFullRollback(string $scratch, bool $useTarget, ?string $e
         'output' => $output,
         'fixture' => $fixture,
         'healthCheckLog' => $healthCheckLog,
+        'systemctlLog' => $systemctlLog,
     ];
 }
 
@@ -819,6 +834,38 @@ it('rejects rolling back onto the release that is already current', function () 
     }
 });
 
+it('rejects rolling back onto the already-current release even when the current symlink target carries a trailing slash', function () {
+    // Regression test: the "already current" guard used to compare
+    // ORIGINAL_CURRENT_PATH and TARGET_RELEASE_PATH as literal strings.
+    // ORIGINAL_CURRENT_PATH is the symlink's raw, single-hop target — a
+    // trailing slash there is a perfectly valid way to name the same
+    // release directory, but a literal-string comparison against the
+    // freshly-constructed, slash-free TARGET_RELEASE_PATH never matched, so
+    // the guard silently let the swap proceed and would have overwritten
+    // previous with what was already current for no actual change.
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $fixture = rollbackOpsBareFixture($scratch);
+        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+
+        $releaseId = 'v1.0.0-20260101-000000-aaa1111';
+        mkdir($fixture['root'].'/releases/'.$releaseId, 0o755, true);
+        symlink($fixture['root'].'/releases/'.$releaseId.'/', $fixture['root'].'/current');
+
+        [$exit, $output] = rollbackOpsRunHarness($scratch, <<<BASH
+            parse_rollback_args --environment staging --release {$releaseId}
+            resolve_target
+            perform_rollback
+            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('target release is already current');
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
 // =============================================================================
 // Target resolution
 // =============================================================================
@@ -892,14 +939,24 @@ it('legacy mode resolves the root only from deployment.conf, never from the regi
 it('resolve_target never calls the legacy helper in target mode, and never calls the target helper in legacy mode', function () {
     $source = rollbackOpsSource();
 
-    expect(preg_match('/^resolve_target\(\) \{\n(.*?)\n\}\n/ms', $source, $matches))
-        ->toBe(1, 'could not locate resolve_target() in scripts/rollback');
+    // Anchors explicitly on the if/else/fi structure itself — not just "some
+    // text before/after the first literal 'else'" — so a change to the
+    // function's shape (the condition, an added branch, different
+    // indentation) fails this test outright instead of silently splitting at
+    // the wrong place and passing on a coincidental match.
+    expect(preg_match(
+        '/^resolve_target\(\) \{\n'
+        .'    if \[\[ "\$\{TARGET_SEEN\}" == true \]\]; then\n'
+        .'(.*?)'
+        .'    else\n'
+        .'(.*?)'
+        .'    fi\n'
+        .'\}\n/ms',
+        $source,
+        $matches,
+    ))->toBe(1, 'could not locate the expected if/else structure of resolve_target() in scripts/rollback');
 
-    $body = $matches[1];
-    $parts = explode("    else\n", $body, 2);
-    expect($parts)->toHaveCount(2, 'could not split resolve_target() into target/legacy branches');
-
-    [$targetBranch, $legacyBranch] = $parts;
+    [, $targetBranch, $legacyBranch] = $matches;
 
     expect($targetBranch)
         ->toContain('target_root')
@@ -1122,6 +1179,40 @@ it('rejects a previous release directory that is itself a symlink', function () 
     }
 });
 
+it('rejects a previous that exists as a plain file, instead of silently treating it as absent', function () {
+    // Regression test: the presence check used to be `-L` only, so an
+    // existing non-symlink at PREVIOUS_LINK (a plain file left by a bug or
+    // an operator mistake) was treated exactly like "previous does not
+    // exist" — routing past validate_pointer_release entirely and leaving
+    // it to be silently clobbered by the later atomic mv -Tf switch, with no
+    // validation ever run against it.
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $fixture = rollbackOpsBareFixture($scratch);
+        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+
+        $validCurrent = 'v1.0.0-20260101-000000-aaa1111';
+        mkdir($fixture['root'].'/releases/'.$validCurrent, 0o755, true);
+        symlink($fixture['root'].'/releases/'.$validCurrent, $fixture['root'].'/current');
+
+        file_put_contents($fixture['root'].'/previous', "not a symlink\n");
+
+        [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
+            parse_rollback_args --environment staging --previous
+            resolve_target
+            perform_rollback
+            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('previous symlink does not exist');
+        expect(file_exists($fixture['root'].'/deployments/history.jsonl'))->toBeFalse('no history may be written before path safety passes');
+        expect(file_get_contents($fixture['root'].'/previous'))->toBe("not a symlink\n", 'the pre-existing file must be left untouched, never clobbered');
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
 it('rejects a nested release path', function () {
     $scratch = rollbackOpsScratchDir();
 
@@ -1227,7 +1318,7 @@ it('rolls back identically through --environment and --target for --previous: ne
             expect($finished['status'])->toBe('success');
             expect($finished['release'])->toBe($result['fixture']['old']);
 
-            expect(trim(file_get_contents($scratch.'/systemctl.log')))->toContain('reload');
+            expect(substr_count(trim(file_get_contents($result['systemctlLog'])), 'reload'))->toBe(1, "{$label}: exactly one PHP-FPM reload for a successful, non-recovering rollback");
 
             expect(file_exists($root.'/current.new'))->toBeFalse("{$label}: temporary current symlink must be cleaned up");
             expect(file_exists($root.'/previous.new'))->toBeFalse("{$label}: temporary previous symlink must be cleaned up");
@@ -1247,13 +1338,21 @@ it('rolls back identically through --environment and --target for an explicit --
     $scratch = rollbackOpsScratchDir();
 
     try {
-        $explicitRelease = 'v1.0.2-20260103-000000-ccc3333';
+        // Read the canonical "explicit" release ID from the fixture builder
+        // itself (a throwaway peek fixture), rather than duplicating its
+        // literal value here — the ID handed to both rollback invocations
+        // below is guaranteed to match what each run's own fixture actually
+        // contains, since both come from the same rollbackOpsBuildFixture()
+        // source of truth.
+        $explicitRelease = rollbackOpsBuildFixture($scratch.'/peek')['explicit'];
 
         $envResult = rollbackOpsRunFullRollback($scratch, useTarget: false, explicitRelease: $explicitRelease);
         expect($envResult['exit'])->toBe(0, $envResult['output']);
+        expect($envResult['fixture']['explicit'])->toBe($explicitRelease);
 
         $targetResult = rollbackOpsRunFullRollback($scratch, useTarget: true, explicitRelease: $explicitRelease);
         expect($targetResult['exit'])->toBe(0, $targetResult['output']);
+        expect($targetResult['fixture']['explicit'])->toBe($explicitRelease);
 
         foreach (['env' => $envResult, 'target' => $targetResult] as $label => $result) {
             $root = $result['fixture']['root'];
@@ -1315,7 +1414,7 @@ it('recovers correctly from a failed post-switch health check in legacy mode', f
 
         // PHP-FPM reload happens once for the initial switch, once during
         // recovery.
-        expect(substr_count(trim(file_get_contents($scratch.'/systemctl.log')), 'reload'))->toBe(2);
+        expect(substr_count(trim(file_get_contents($result['systemctlLog'])), 'reload'))->toBe(2);
 
         expect(file_exists($root.'/current.new'))->toBeFalse();
         expect(file_exists($root.'/current.recovery'))->toBeFalse();
@@ -1354,7 +1453,7 @@ it('recovers correctly from a failed post-switch health check in target mode', f
         $healthCheckCalls = array_values(array_filter(explode("\n", trim(File::get($result['healthCheckLog'])))));
         expect($healthCheckCalls)->toBe(['--target parity-target', '--target parity-target']);
 
-        expect(substr_count(trim(file_get_contents($scratch.'/systemctl.log')), 'reload'))->toBe(2);
+        expect(substr_count(trim(file_get_contents($result['systemctlLog'])), 'reload'))->toBe(2);
 
         expect(file_exists($root.'/current.new'))->toBeFalse();
         expect(file_exists($root.'/current.recovery'))->toBeFalse();

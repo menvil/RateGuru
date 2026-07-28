@@ -227,15 +227,17 @@ it('restores both original links for every failed rollback switch', function () 
         ->toContain('handle_rollback_exit()')
         ->toContain('restore_original_links()')
         ->toContain('systemctl reload "${PHP_FPM_SERVICE}"')
+        ->toContain('FAILURE_STATUS="failed-health-check"')
+        ->and(substr_count($rollback, '"rollback-finished"'))->toBe(2)
+        ->and(substr_count($rollback, 'trap - EXIT'))->toBe(1)
         // Phase 4 slice 6: both the normal and recovery health-check calls go
         // through the gated HEALTH_CHECK_BIN override with the selector
         // resolved once in resolve_target (HEALTH_SELECTOR), rather than a
         // hardcoded --environment-only path — the same pattern deploy already
-        // established for its own health-check call.
-        ->toContain('"${HEALTH_CHECK_BIN}" "${HEALTH_SELECTOR[@]}"')
-        ->toContain('FAILURE_STATUS="failed-health-check"')
-        ->and(substr_count($rollback, '"rollback-finished"'))->toBe(2)
-        ->and(substr_count($rollback, 'trap - EXIT'))->toBe(1);
+        // established for its own health-check call. toContain would only
+        // prove one occurrence exists; substr_count proves both call sites
+        // (normal switch and recovery) use it.
+        ->and(substr_count($rollback, '"${HEALTH_CHECK_BIN}" "${HEALTH_SELECTOR[@]}"'))->toBe(2);
 });
 
 it('continues status output when release metadata or history is malformed', function () {
