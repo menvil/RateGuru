@@ -118,14 +118,17 @@ parse_deploy_args() {
                 shift 2
                 ;;
             --release)
+                [[ $# -ge 2 ]] || fail "--release requires a value"
                 RELEASE_ID="${2:-}"
                 shift 2
                 ;;
             --artifact)
+                [[ $# -ge 2 ]] || fail "--artifact requires a value"
                 ARTIFACT="${2:-}"
                 shift 2
                 ;;
             --checksum)
+                [[ $# -ge 2 ]] || fail "--checksum requires a value"
                 CHECKSUM_FILE="${2:-}"
                 shift 2
                 ;;

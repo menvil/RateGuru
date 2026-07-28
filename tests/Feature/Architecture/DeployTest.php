@@ -551,6 +551,48 @@ it('rejects a selector given without a value', function () {
     }
 });
 
+it('rejects --release, --artifact or --checksum given without a value, instead of failing on an uncontrolled shift', function () {
+    // Regression test: --release/--artifact/--checksum used to read "${2:-}"
+    // (always safe under set -u) and then unconditionally `shift 2`, even
+    // when no second argument existed. `shift 2` with only one positional
+    // parameter left fails under `set -e`, aborting with no message at all
+    // instead of a clear "requires a value" error — exactly the failure mode
+    // --target/--environment were already guarded against.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --environment staging --release',
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--release requires a value');
+
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --environment staging --artifact',
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--artifact requires a value');
+
+        // --checksum stays optional when omitted entirely: deploy falls back
+        // to "${ARTIFACT}.sha256" — see the end-to-end parity tests below.
+        // This only proves that *when given*, --checksum still requires a
+        // value, exactly like --release/--artifact.
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --environment staging --release RELEASE --artifact ARTIFACT --checksum',
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--checksum requires a value');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
 it('rejects an explicitly empty selector value', function () {
     $scratch = deployOpsScratchDir();
 
@@ -998,8 +1040,11 @@ it('runs the Laravel artisan command sequence with the correct --expected-host p
             expect($artisanCalls[3])->toContain('artisan migrate --force');
             expect($artisanCalls[4])->toContain('artisan queue:restart');
 
-            expect(trim(File::get($verifyCliLog)))->toContain($fixture['root'].'/releases/.'.$releaseId.'.tmp-')
-                ->or->toContain('--release-root');
+            $verifyLog = trim(File::get($verifyCliLog));
+
+            expect($verifyLog)
+                ->toContain('--release-root')
+                ->toContain($fixture['root'].'/releases/.'.$releaseId.'.tmp-');
         }
     } finally {
         deployOpsCleanup($scratch);
