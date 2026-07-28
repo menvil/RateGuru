@@ -31,8 +31,11 @@ use Illuminate\Support\Facades\File;
  * and without needing fake system accounts. systemctl, runuser, health-check
  * and verify-required-clis are PATH-shadowed or RATEGURU_*-overridden stubs;
  * `www-data`-dependent assertions (Laravel prep's shared/app ownership) are
- * skipped when no such group exists on the host (present on CI's
- * ubuntu-latest, typically absent on macOS dev machines).
+ * skipped unless this test process is itself a member of a real www-data
+ * group on the host — group *existence* alone is not sufficient, since
+ * `install -g www-data` as a non-root process requires membership, not just
+ * presence (e.g. absent entirely on macOS dev machines; present but this
+ * account not a member of it on GitHub Actions' ubuntu-latest runner).
  */
 function deployOpsScript(): string
 {
@@ -407,11 +410,30 @@ function deployOpsParityRegistry(string $scratch, array $fixture): array
     return [$registryPath, $targetsPath];
 }
 
+/**
+ * Group *existence* alone is not enough: deploy's Laravel-prep step runs
+ * `install -g www-data` as this test process, and a non-root process can
+ * only chgrp to a group it is itself a member of. The www-data system group
+ * exists on GitHub Actions' ubuntu-latest runner, but the `runner` account
+ * is not a member of it, which `getent group www-data` alone can't see —
+ * confirmed via a real CI failure ("Operation not permitted") that only a
+ * membership check catches.
+ */
 function deployOpsWwwDataAvailable(): bool
 {
     exec('getent group www-data >/dev/null 2>&1', $output, $exit);
+    if ($exit !== 0) {
+        return false;
+    }
 
-    return $exit === 0;
+    if (getmyuid() === 0) {
+        return true;
+    }
+
+    exec('id -nG', $groups);
+    $memberships = preg_split('/\s+/', trim($groups[0] ?? ''));
+
+    return in_array('www-data', $memberships, true);
 }
 
 /**
@@ -599,6 +621,129 @@ it('rejects --release, --artifact or --checksum given without a value, instead o
         );
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--checksum requires a value');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('rejects an explicitly empty value for --release, --artifact or --checksum', function () {
+    // Regression test: --release/--artifact/--checksum used to accept an
+    // explicit empty value silently — --release/--artifact only surfaced it
+    // later, as the generic "--release is required"/"--artifact is
+    // required", and --checksum '' silently fell back to the default
+    // "${ARTIFACT}.sha256" as if the flag had never been given at all.
+    // require_flag_value now rejects all three immediately, by name.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            "parse_deploy_args --environment staging --release '' --artifact /tmp/x.tar.gz",
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--release requires a non-empty value');
+
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            "parse_deploy_args --environment staging --release v1 --artifact ''",
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--artifact requires a non-empty value');
+
+        // --checksum stays optional only when omitted entirely — an
+        // explicit empty value is a caller mistake (e.g. an unset shell
+        // variable interpolated into the command line) and must fail
+        // loudly, not silently substitute a default the caller never asked
+        // for.
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            "parse_deploy_args --environment staging --release v1 --artifact /tmp/x.tar.gz --checksum ''",
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--checksum requires a non-empty value');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('rejects --release, --artifact, --checksum, --target or --environment swallowing the next flag as their value', function () {
+    // Regression test: every value-taking flag used to blindly take
+    // whatever token followed it, including another flag — e.g.
+    // `--release --migrate` set RELEASE_ID to the literal string
+    // "--migrate" and silently shifted past --migrate itself, leaving
+    // RUN_MIGRATIONS false with no error at all. require_flag_value now
+    // rejects any next-token starting with "-" by name, for every
+    // value-taking flag deploy parses (not just --release/--artifact/
+    // --checksum — --target/--environment get the identical protection).
+    $scratch = deployOpsScratchDir();
+
+    try {
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --environment staging --release --migrate --artifact /tmp/x.tar.gz',
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--release requires a value, not another option: --migrate');
+
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --environment staging --release v1 --artifact --migrate',
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--artifact requires a value, not another option: --migrate');
+
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --environment staging --release v1 --artifact /tmp/x.tar.gz --checksum --migrate',
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--checksum requires a value, not another option: --migrate');
+
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --target --migrate',
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target requires a value, not another option: --migrate');
+
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --environment --migrate',
+            deployOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--environment requires a value, not another option: --migrate');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('still parses valid values that happen to follow --migrate or precede it', function () {
+    // Preserves the ordinary case: a real value immediately followed by the
+    // standalone --migrate flag still parses both correctly — this is what
+    // the stricter require_flag_value checks above must not break.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --environment staging --release v1.0.0-20260101-000000-abc1234 --artifact /tmp/x.tar.gz --migrate'
+            .'; printf "RELEASE_ID=[%s]\nARTIFACT=[%s]\nRUN_MIGRATIONS=[%s]\n" "${RELEASE_ID}" "${ARTIFACT}" "${RUN_MIGRATIONS}"',
+            deployOpsBaseEnv($scratch),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('RELEASE_ID=[v1.0.0-20260101-000000-abc1234]')
+            ->toContain('ARTIFACT=[/tmp/x.tar.gz]')
+            ->toContain('RUN_MIGRATIONS=[true]');
     } finally {
         deployOpsCleanup($scratch);
     }
@@ -987,12 +1132,13 @@ it('deploys identically through --environment and --target: content, ownership, 
 });
 
 // =============================================================================
-// Laravel-prep command sequence (guarded: needs a real www-data group)
+// Laravel-prep command sequence (guarded: this process needs to itself be a
+// member of a real www-data group, not merely have one exist on the host)
 // =============================================================================
 
 it('runs the Laravel artisan command sequence with the correct --expected-host per selector', function () {
     if (! deployOpsWwwDataAvailable()) {
-        test()->markTestSkipped('no www-data group on this host — Laravel prep\'s shared/app ownership needs one (present on CI, typically absent on macOS)');
+        test()->markTestSkipped('no www-data group on this host, or this account is not a member of it — Laravel prep\'s shared/app ownership (install -g www-data, as this non-root test process) needs both');
     }
 
     $scratch = deployOpsScratchDir();

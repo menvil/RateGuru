@@ -86,11 +86,32 @@ USAGE
 # know about — so it runs its own loop for --target/--environment plus those,
 # then calls assert_selector_state for the exact same mutual-exclusion /
 # exactly-one-required / non-empty validation health-check/status/cleanup
-# already get. --release/--artifact/--checksum/--migrate keep their exact
-# prior behavior (a missing value silently defaults to empty via "${2:-}",
-# caught afterward by the existing --release/--artifact presence checks) —
-# only --target/--environment get the stricter "requires a value"/"given more
-# than once" checks, matching the other target-aware scripts.
+# already get. Every value-taking flag below (--target, --environment,
+# --release, --artifact, --checksum) validates its value through
+# require_flag_value before assignment or shifting, so a missing, empty, or
+# flag-shaped value (e.g. `--release --migrate`, which used to silently take
+# the literal string "--migrate" as the release ID and leave --migrate
+# itself unparsed) fails closed with a message naming the specific flag,
+# rather than surfacing later as an unrelated error or, for --checksum,
+# silently substituting a default the caller never asked for.
+
+# require_flag_value <flag-name> <remaining-arg-count> <next-token>
+#
+# <remaining-arg-count> is "$#" from the caller's while loop, taken *before*
+# any shift — i.e. it counts the flag itself plus everything after it, so
+# "at least 2" means a following token genuinely exists. <next-token> is
+# "${2-}" from the same call site (nounset-safe whether or not $2 exists).
+require_flag_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
+}
+
 parse_deploy_args() {
     TARGET_ID=""
     ENVIRONMENT=""
@@ -105,31 +126,31 @@ parse_deploy_args() {
         case "$1" in
             --target)
                 [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
-                [[ $# -ge 2 ]] || fail "--target requires a value"
+                require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
                 shift 2
                 ;;
             --environment)
                 [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                [[ $# -ge 2 ]] || fail "--environment requires a value"
+                require_flag_value "--environment" "$#" "${2-}"
                 ENVIRONMENT="$2"
                 ENVIRONMENT_SEEN=true
                 shift 2
                 ;;
             --release)
-                [[ $# -ge 2 ]] || fail "--release requires a value"
-                RELEASE_ID="${2:-}"
+                require_flag_value "--release" "$#" "${2-}"
+                RELEASE_ID="$2"
                 shift 2
                 ;;
             --artifact)
-                [[ $# -ge 2 ]] || fail "--artifact requires a value"
-                ARTIFACT="${2:-}"
+                require_flag_value "--artifact" "$#" "${2-}"
+                ARTIFACT="$2"
                 shift 2
                 ;;
             --checksum)
-                [[ $# -ge 2 ]] || fail "--checksum requires a value"
-                CHECKSUM_FILE="${2:-}"
+                require_flag_value "--checksum" "$#" "${2-}"
+                CHECKSUM_FILE="$2"
                 shift 2
                 ;;
             --migrate)
