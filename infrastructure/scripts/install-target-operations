@@ -1,0 +1,820 @@
+#!/usr/bin/env bash
+#
+# install-target-operations — install/verify the read-only target-aware
+# operational tooling (Phase 4 slice 2b).
+#
+# Modes:
+#   --check   Validate the committed source files and host tooling only.
+#             Read-only: makes NO changes to the system, requires no root.
+#   --apply   Install the target registry and the target-aware read-only
+#             scripts (targets, common, health-check, status), verify a
+#             staged copy before touching anything, install transactionally,
+#             then verify the installed result against the real host before
+#             committing.
+#   --verify  Re-run the installed-file and runtime-parity checks against
+#             whatever is currently installed. Makes NO changes, creates NO
+#             backup.
+#
+# What this installs — and does not:
+#   * Only five files: the registry and the four read-only scripts. deploy,
+#     rollback, cleanup and every backup script are untouched by this
+#     installer and remain --environment-only.
+#   * Never touches /home/www/rateguru/config/deployment.conf. The target
+#     helpers already default to the registry's installed path, so nothing
+#     there needs to change.
+#   * tits-guru is not provisioned by this or any other script: it has
+#     lifecycle=planned in the registry, and every target-aware command
+#     rejects it before touching the network or the filesystem. Installing
+#     this tooling does not make tits-guru deployable.
+#
+# Destinations are fixed, hardcoded constants — see "Locations" below. They
+# are not configurable by environment variable or CLI argument, on purpose:
+# this installer's whole job is to put these five files in these five places
+# with these exact permissions, nothing else.
+#
+# This script never sources infrastructure/scripts/common or
+# deployment.conf. It reads deployment.conf's *metadata* (ownership, mode)
+# without parsing its contents, and never reads it as shell.
+
+set -Eeuo pipefail
+umask 022
+
+# --- Locations (fixed; not overridable) -------------------------------------
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+SRC_REGISTRY="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+SRC_TARGETS="${REPO_ROOT}/infrastructure/scripts/targets"
+SRC_COMMON="${REPO_ROOT}/infrastructure/scripts/common"
+SRC_HEALTH_CHECK="${REPO_ROOT}/infrastructure/scripts/health-check"
+SRC_STATUS="${REPO_ROOT}/infrastructure/scripts/status"
+
+DST_CONFIG_ROOT="/home/www/rateguru/config"
+DST_BIN_ROOT="/home/www/rateguru/bin"
+
+DST_REGISTRY="${DST_CONFIG_ROOT}/deployment-targets.json"
+DST_TARGETS="${DST_BIN_ROOT}/targets"
+DST_COMMON="${DST_BIN_ROOT}/common"
+DST_HEALTH_CHECK="${DST_BIN_ROOT}/health-check"
+DST_STATUS="${DST_BIN_ROOT}/status"
+
+DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
+
+BACKUP_ROOT="/var/backups/rateguru-target-operations"
+
+REGISTRY_MODE="0640"
+SCRIPT_MODE="0755"
+
+# The ownership this installer enforces on every privileged file it cares
+# about: the five files it installs, and the deployment.conf it reads but
+# never writes. A named constant (not a literal "root"/0 at each call site)
+# so the whole apply/verify flow can be exercised against non-root scratch
+# paths in tests, by reassigning these alongside DST_*/SRC_*/BACKUP_ROOT —
+# production always runs with the values below.
+INSTALL_OWNER="root"
+INSTALL_GROUP="root"
+INSTALL_OWNER_ID=0
+INSTALL_GROUP_ID=0
+
+REQUIRED_TOOLS=(bash jq curl install stat cmp mv cp mktemp readlink tail env)
+
+# --- Logging ------------------------------------------------------------
+
+log() {
+    printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
+fail() {
+    printf '[%s] ERROR: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
+    exit 1
+}
+
+# --- Argument parsing ---------------------------------------------------
+
+MODE=""
+MODE_SEEN=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-target-operations --check
+  install-target-operations --apply
+  install-target-operations --verify
+  install-target-operations --help
+
+  --check   Validate committed source files and host tooling. Read-only,
+            no root required.
+  --apply   Install the registry and the read-only target-aware scripts
+            (requires root). Transactional: verifies a staged copy first,
+            then the installed result, before committing.
+  --verify  Verify the currently installed files and runtime behaviour
+            (requires root). Makes no changes.
+USAGE
+}
+
+# Sets MODE/MODE_SEEN directly in the caller's scope (this runs in the
+# caller's own shell, never a subshell — same convention as common's
+# parse_selector_args). Kept as a function, called explicitly at the bottom of
+# this file, rather than top-level loose statements: everything from here to
+# the dispatch at the end of the file is then function/constant definitions
+# only, inert until called — which is what lets the whole file be sourced
+# safely for testing (see the extraction tests).
+parse_mode_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "only one mode may be given (already have --${MODE})"
+                fi
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${MODE_SEEN}" == true ]] || { usage >&2; fail "exactly one of --check, --apply or --verify is required"; }
+}
+
+# --- Shared helpers -------------------------------------------------------
+
+require_root() {
+    [[ "${EUID}" -eq 0 ]] || fail "this command must be executed as root"
+}
+
+check_required_tools() {
+    local tool
+    for tool in "${REQUIRED_TOOLS[@]}"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+    log "required host tools present: ${REQUIRED_TOOLS[*]}"
+}
+
+# --- Source validation (side-effect free; used by --check and apply preflight)
+
+validate_source_files() {
+    local path
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}"; do
+        [[ -e "${path}" ]] || fail "missing required source file: ${path}"
+        [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
+        [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
+        [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
+    done
+    log "all five source files are present regular files"
+}
+
+validate_source_syntax() {
+    local path
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}"; do
+        bash -n "${path}" || fail "bash -n failed for source file: ${path}"
+    done
+    log "bash -n passed for all four source shell scripts"
+}
+
+validate_source_registry() {
+    jq empty "${SRC_REGISTRY}" 2>/dev/null || fail "source registry is not valid JSON: ${SRC_REGISTRY}"
+
+    "${SRC_TARGETS}" validate --file "${SRC_REGISTRY}" >/dev/null \
+        || fail "source targets CLI could not validate the committed registry"
+
+    local listing
+    listing="$("${SRC_TARGETS}" list --file "${SRC_REGISTRY}")" \
+        || fail "source targets CLI could not list the committed registry"
+
+    grep -Fxq "$(printf 'staging-main\tactive\tstaging')" <<<"${listing}" \
+        || fail "source registry does not list staging-main as active/staging"
+    grep -Fxq "$(printf 'tits-guru\tplanned\tproduction')" <<<"${listing}" \
+        || fail "source registry does not list tits-guru as planned/production"
+
+    log "source registry is valid JSON, passes its own validator, and lists the expected targets"
+}
+
+run_source_validation() {
+    validate_source_files
+    validate_source_syntax
+    validate_source_registry
+    check_required_tools
+}
+
+# --- Staged pre-install verification (apply mode only) ----------------------
+#
+# Runs the CANDIDATE files together, before anything is installed, using the
+# gated RATEGURU_* test/tooling overrides slice 2 already established. This is
+# the one place in this installer's own execution where those overrides are
+# used deliberately and explicitly — never again after this point, and never
+# for the final runtime-parity verification below, which explicitly unsets
+# every one of them.
+
+verify_staged_candidates() {
+    local stage_dir="$1"
+    local staged_registry="${stage_dir}/deployment-targets.json"
+    local staged_targets="${stage_dir}/targets"
+    local staged_common="${stage_dir}/common"
+    local staged_health_check="${stage_dir}/health-check"
+    local staged_status="${stage_dir}/status"
+
+    log "verifying staged candidates before installation"
+
+    local -a override_env=(
+        env
+        RATEGURU_ALLOW_TEST_OVERRIDES=true
+        "RATEGURU_COMMON_FILE=${staged_common}"
+        "RATEGURU_DEPLOYMENT_CONF_FILE=${DEPLOYMENT_CONF}"
+        "RATEGURU_TARGET_REGISTRY_FILE=${staged_registry}"
+        "RATEGURU_TARGETS_CLI=${staged_targets}"
+        "RATEGURU_HEALTH_CHECK_CLI=${staged_health_check}"
+    )
+
+    "${staged_targets}" validate --file "${staged_registry}" >/dev/null \
+        || fail "staged targets CLI did not validate the staged registry"
+    log "  staged targets validate: OK"
+
+    "${override_env[@]}" bash "${staged_health_check}" --environment staging >/dev/null 2>&1 \
+        || fail "staged health-check --environment staging failed"
+    log "  staged health-check --environment staging: OK"
+
+    "${override_env[@]}" bash "${staged_health_check}" --target staging-main >/dev/null 2>&1 \
+        || fail "staged health-check --target staging-main failed"
+    log "  staged health-check --target staging-main: OK"
+
+    "${override_env[@]}" bash "${staged_status}" --environment staging >/dev/null 2>&1 \
+        || fail "staged status --environment staging failed"
+    log "  staged status --environment staging: OK"
+
+    "${override_env[@]}" bash "${staged_status}" --target staging-main >/dev/null 2>&1 \
+        || fail "staged status --target staging-main failed"
+    log "  staged status --target staging-main: OK"
+
+    # This command is *expected* to fail. The trap armed by perform_apply is
+    # still inherited into this subshell (see the MAIN_BASHPID comment on
+    # on_apply_error), but that handler now recognizes it isn't running in
+    # the main process and exits quietly without side effects, so this
+    # expected failure is captured exactly like any other.
+    local planned_output
+    if planned_output="$("${override_env[@]}" bash "${staged_health_check}" --target tits-guru 2>&1)"; then
+        fail "staged health-check --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${planned_output}" \
+        || fail "staged health-check --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
+    log "  staged health-check --target tits-guru: correctly rejected (lifecycle=planned)"
+
+    log "staged candidates verified"
+}
+
+# --- Transactional install/rollback core -------------------------------
+#
+# Parameterized on source/destination/owner/group/mode rather than the fixed
+# DST_* constants above, so this block can be extracted and exercised
+# directly against scratch paths — see
+# tests/Feature/Architecture/InstallTargetOperationsTest.php. run_apply below
+# is what actually calls these with the real, hardcoded production
+# destinations; nothing here decides where those destinations are.
+
+# --- installer core (begin) ---
+
+BACKUP_DIR=""
+ROLLBACK_RESTORE=()   # destinations that existed before and were backed up
+ROLLBACK_REMOVE=()    # destinations that did not exist before install
+
+files_differ() {
+    # files_differ <src> <dst> -> true (0) if dst missing or content differs
+    local src="$1" dst="$2"
+    [[ -f "${dst}" ]] || return 0
+    ! cmp -s "${src}" "${dst}"
+}
+
+record_target() {
+    # record_target <dst>: snapshot for rollback before it is touched at all.
+    local dst="$1"
+    if [[ -e "${dst}" || -L "${dst}" ]]; then
+        local backup_path="${BACKUP_DIR}${dst}"
+        install -d -m 0700 "$(dirname "${backup_path}")"
+        cp -a "${dst}" "${backup_path}"
+        ROLLBACK_RESTORE+=("${dst}")
+    else
+        ROLLBACK_REMOVE+=("${dst}")
+    fi
+}
+
+reject_unsafe_existing_destination() {
+    # reject_unsafe_existing_destination <dst>
+    #
+    # Whatever is already at <dst> must be either absent (first-ever install)
+    # or a plain regular file — this installer's own previous copy, or
+    # whatever legacy file preceded it. A symlink, directory, FIFO, socket or
+    # device is refused outright rather than followed, entered or replaced.
+    # Runs before record_target, so a rejected destination is never backed up
+    # and never touched.
+    local dst="$1"
+
+    if [[ -L "${dst}" ]]; then
+        fail "refusing to install over an existing symlink: ${dst}"
+    fi
+
+    if [[ -e "${dst}" ]] && [[ ! -f "${dst}" ]]; then
+        fail "refusing to install over an existing non-regular-file destination: ${dst}"
+    fi
+}
+
+install_regular_file_transactional() {
+    # install_regular_file_transactional <src> <dst> <owner> <group> <mode>
+    #
+    # Stages into a same-directory, mktemp-created temp file (so the final
+    # rename is on the same filesystem, hence atomic, and the temp name is
+    # never predictable), sets final ownership/mode on the staged file, then
+    # renames it into place — the destination is never observable in a
+    # partially-written state. The temp file is removed if either staging
+    # step fails, never left behind for a human to clean up.
+    local src="$1" dst="$2" owner="$3" group="$4" mode="$5"
+
+    reject_unsafe_existing_destination "${dst}"
+    record_target "${dst}"
+
+    local tmp
+    tmp="$(mktemp "${dst}.XXXXXX")"
+
+    if ! install -o "${owner}" -g "${group}" -m "${mode}" "${src}" "${tmp}"; then
+        rm -f "${tmp}"
+        fail "failed to stage ${dst} for install (writing the temporary file failed)"
+    fi
+
+    if ! mv -f "${tmp}" "${dst}"; then
+        rm -f "${tmp}"
+        fail "failed to rename the staged file into place: ${dst}"
+    fi
+}
+
+verify_installed_regular_file() {
+    # verify_installed_regular_file <dst> <owner-id> <group-id> <mode> <src>
+    local dst="$1" owner_id="$2" group_id="$3" mode="$4" src="$5"
+
+    [[ -e "${dst}" ]] || fail "expected installed file is missing: ${dst}"
+    [[ ! -L "${dst}" ]] || fail "installed file must not be a symlink: ${dst}"
+    [[ -f "${dst}" ]] || fail "installed file must be a regular file: ${dst}"
+
+    local actual_owner
+    actual_owner="$(stat -c '%u:%g' "${dst}")"
+    [[ "${actual_owner}" == "${owner_id}:${group_id}" ]] \
+        || fail "installed file has wrong ownership: ${dst} is ${actual_owner}, expected ${owner_id}:${group_id}"
+
+    # Compared numerically, not as strings: `stat -c '%a'` never prints a
+    # leading zero (e.g. "640"), while the expected mode is conventionally
+    # written with one ("0640") — both are the same octal value.
+    local actual_mode
+    actual_mode="$(stat -c '%a' "${dst}")"
+    (( 8#${actual_mode} == 8#${mode} )) \
+        || fail "installed file has wrong mode: ${dst} is ${actual_mode}, expected ${mode}"
+
+    if (( (8#${actual_mode} & 8#022) != 0 )); then
+        fail "installed file must not be group- or other-writable: ${dst} (mode ${actual_mode})"
+    fi
+
+    cmp -s "${src}" "${dst}" \
+        || fail "installed file content differs from its committed source: ${dst}"
+}
+
+rollback_installed_files() {
+    # Restores every recorded destination from its backup, or removes it if it
+    # did not exist before this run. Returns non-zero — never masks the
+    # original failure by exiting — if any single restoration fails, so the
+    # caller can report an incomplete rollback rather than claim success.
+    local status=0 dst backup_path
+
+    for dst in "${ROLLBACK_REMOVE[@]:-}"; do
+        [[ -n "${dst}" ]] || continue
+        rm -f "${dst}" || { log "ERROR: could not remove ${dst} during rollback"; status=1; }
+    done
+
+    for dst in "${ROLLBACK_RESTORE[@]:-}"; do
+        [[ -n "${dst}" ]] || continue
+        backup_path="${BACKUP_DIR}${dst}"
+        if [[ -e "${backup_path}" || -L "${backup_path}" ]]; then
+            rm -f "${dst}"
+            cp -a "${backup_path}" "${dst}" \
+                || { log "ERROR: could not restore ${dst} from ${backup_path}"; status=1; }
+        else
+            log "ERROR: no backup found for ${dst}; it was left as installed"
+            status=1
+        fi
+    done
+
+    return "${status}"
+}
+
+# --- installer core (end) ---
+
+# --- Runtime verification helpers (extractable) -----------------------------
+#
+# Used by both apply's post-install check and --verify. Every invocation here
+# explicitly unsets the full RATEGURU_* override set, so this genuinely proves
+# what the real host would do — no test seam is active.
+
+# --- runtime verification (begin) ---
+
+RATEGURU_OVERRIDE_VARS=(
+    RATEGURU_ALLOW_TEST_OVERRIDES
+    RATEGURU_COMMON_FILE
+    RATEGURU_DEPLOYMENT_CONF_FILE
+    RATEGURU_TARGET_REGISTRY_FILE
+    RATEGURU_TARGETS_CLI
+    RATEGURU_HEALTH_CHECK_CLI
+)
+
+no_overrides_env() {
+    # Printed as an array via a nameref-free helper: callers do
+    #   "$(no_overrides_env_args)" — instead this just execs env -u... "$@" so
+    # every call site is guaranteed to unset the same fixed list.
+    local -a unset_args=()
+    local var
+    for var in "${RATEGURU_OVERRIDE_VARS[@]}"; do
+        unset_args+=(-u "${var}")
+    done
+    env "${unset_args[@]}" "$@"
+}
+
+# Strips everything up to and including the first "Checked at:" line, and
+# normalizes the timestamp that follows it, so two status outputs differing
+# only by mode-specific header lines and the current second can be compared.
+status_body_after_header() {
+    local output="$1"
+    local body="${output#*Checked at:}"
+    printf 'Checked at:%s' "${body}" | sed -E 's/Checked at:[^\n]*/Checked at: NORMALIZED/'
+}
+
+verify_installed_files() {
+    log "verifying installed files"
+
+    verify_installed_regular_file "${DST_REGISTRY}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${REGISTRY_MODE}" "${SRC_REGISTRY}"
+    verify_installed_regular_file "${DST_TARGETS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${SCRIPT_MODE}" "${SRC_TARGETS}"
+    verify_installed_regular_file "${DST_COMMON}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${SCRIPT_MODE}" "${SRC_COMMON}"
+    verify_installed_regular_file "${DST_HEALTH_CHECK}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${SCRIPT_MODE}" "${SRC_HEALTH_CHECK}"
+    verify_installed_regular_file "${DST_STATUS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${SCRIPT_MODE}" "${SRC_STATUS}"
+    log "  ownership, mode and content: OK for all five files"
+
+    local path
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}"; do
+        bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
+    done
+    log "  bash -n: OK for all four installed scripts"
+
+    "${DST_TARGETS}" validate --file "${DST_REGISTRY}" >/dev/null \
+        || fail "installed targets CLI could not validate the installed registry"
+    log "  installed targets validate: OK"
+
+    local listing
+    listing="$("${DST_TARGETS}" list --file "${DST_REGISTRY}")" \
+        || fail "installed targets CLI could not list the installed registry"
+    grep -Fxq "$(printf 'staging-main\tactive\tstaging')" <<<"${listing}" \
+        || fail "installed registry does not list staging-main as active/staging"
+    grep -Fxq "$(printf 'tits-guru\tplanned\tproduction')" <<<"${listing}" \
+        || fail "installed registry does not list tits-guru as planned/production"
+    log "  installed targets list: OK (staging-main active/staging, tits-guru planned/production)"
+
+    log "installed-file verification passed"
+}
+
+verify_legacy_environment_health() {
+    no_overrides_env "${DST_HEALTH_CHECK}" --environment staging >/dev/null \
+        || fail "installed health-check --environment staging failed"
+    log "health-check --environment staging: OK"
+}
+
+verify_target_health() {
+    no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null \
+        || fail "installed health-check --target staging-main failed"
+    log "health-check --target staging-main: OK"
+}
+
+verify_status_parity() {
+    local target_status legacy_status
+
+    target_status="$(no_overrides_env "${DST_STATUS}" --target staging-main)" \
+        || fail "installed status --target staging-main failed"
+    legacy_status="$(no_overrides_env "${DST_STATUS}" --environment staging)" \
+        || fail "installed status --environment staging failed"
+    log "status --target staging-main and status --environment staging both ran"
+
+    grep -Fq 'Target:      staging-main' <<<"${target_status}" \
+        || fail "target status output is missing 'Target: staging-main'"
+    grep -Fq 'Lifecycle:   active' <<<"${target_status}" \
+        || fail "target status output is missing 'Lifecycle: active'"
+    grep -Fq 'Environment class: staging' <<<"${target_status}" \
+        || fail "target status output is missing 'Environment class: staging'"
+    grep -Fq 'Environment: staging' <<<"${legacy_status}" \
+        || fail "legacy status output is missing 'Environment: staging'"
+    log "target and legacy status headers: OK"
+
+    # Everything after the header (Releases, release.json metadata, Health,
+    # history) must be identical between the two modes — same current release,
+    # same previous release, same release.json, same history file — because
+    # both resolve the identical application_root. Timestamps and the header
+    # itself differ by design and are excluded from this comparison.
+    local target_body legacy_body
+    target_body="$(status_body_after_header "${target_status}")"
+    legacy_body="$(status_body_after_header "${legacy_status}")"
+    [[ "${target_body}" == "${legacy_body}" ]] \
+        || fail "target and legacy status disagree beyond their headers (current/previous release, release.json or history mismatch)"
+    log "current release, previous release, release.json and history: identical between modes"
+}
+
+verify_planned_target_rejected() {
+    # See the matching comment in verify_staged_candidates and on_apply_error:
+    # this expected failure is safe to run inside a plain command
+    # substitution — the main-process-only guard on the active trap handler
+    # (on_apply_error during apply, on_verify_error during --verify) means it
+    # can never be mistaken for a fatal one from inside the subshell.
+    local planned_output
+    if planned_output="$(no_overrides_env "${DST_HEALTH_CHECK}" --target tits-guru 2>&1)"; then
+        fail "installed health-check --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${planned_output}" \
+        || fail "installed health-check --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
+    log "health-check --target tits-guru: correctly rejected (lifecycle=planned)"
+}
+
+# Thin wrapper used by apply's post-install check, which wants one pass/fail
+# outcome rather than the phase-by-phase banners --verify prints — see
+# run_verify below, which calls the same four functions individually.
+verify_runtime_parity() {
+    log "verifying runtime parity against the real host (no test overrides)"
+    verify_legacy_environment_health
+    verify_target_health
+    verify_status_parity
+    verify_planned_target_rejected
+    log "runtime parity verification passed"
+}
+
+# --- runtime verification (end) ---
+
+# --- Modes ----------------------------------------------------------------
+
+run_check() {
+    log "mode: check (read-only, no root required)"
+
+    run_source_validation
+
+    log "destinations are fixed constants:"
+    log "  ${DST_REGISTRY}"
+    log "  ${DST_TARGETS}"
+    log "  ${DST_COMMON}"
+    log "  ${DST_HEALTH_CHECK}"
+    log "  ${DST_STATUS}"
+
+    log "check passed: source files, host tooling and registry are valid"
+}
+
+# The two directories every one of the five destinations lives under. This
+# installer owns exactly five *files* — it never creates, chowns or chmods
+# either directory. Both must already exist, safely, before --apply is
+# allowed to do anything else; a missing or unsafe directory aborts here,
+# before the backup directory is created or any destination is touched.
+validate_destination_directory() {
+    local dir="$1"
+
+    [[ -e "${dir}" ]] || fail "destination directory is missing: ${dir} (this installer never creates it)"
+    [[ ! -L "${dir}" ]] || fail "destination directory must not be a symlink: ${dir}"
+    [[ -d "${dir}" ]] || fail "destination path must be a directory: ${dir}"
+
+    local owner
+    owner="$(stat -c '%u:%g' "${dir}")"
+    [[ "${owner}" == "${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}" ]] \
+        || fail "destination directory must be owned by root:root, is ${owner}: ${dir}"
+
+    local mode
+    mode="$(stat -c '%a' "${dir}")"
+    if (( (8#${mode} & 8#022) != 0 )); then
+        fail "destination directory must not be group- or other-writable (mode ${mode}): ${dir}"
+    fi
+
+    [[ -w "${dir}" ]] || fail "destination directory is not writable, cannot install into it: ${dir}"
+    [[ -x "${dir}" ]] || fail "destination directory is not searchable (missing execute bit): ${dir}"
+}
+
+validate_destination_directories() {
+    validate_destination_directory "${DST_CONFIG_ROOT}"
+    validate_destination_directory "${DST_BIN_ROOT}"
+    log "destination directories exist, are root-owned, non-writable-by-others directories (unchanged by this installer)"
+}
+
+validate_installed_deployment_conf() {
+    [[ -e "${DEPLOYMENT_CONF}" ]] || fail "installed deployment.conf is missing: ${DEPLOYMENT_CONF}"
+    [[ ! -L "${DEPLOYMENT_CONF}" ]] || fail "installed deployment.conf must not be a symlink: ${DEPLOYMENT_CONF}"
+    [[ -f "${DEPLOYMENT_CONF}" ]] || fail "installed deployment.conf must be a regular file: ${DEPLOYMENT_CONF}"
+
+    local owner
+    owner="$(stat -c '%u:%g' "${DEPLOYMENT_CONF}")"
+    [[ "${owner}" == "${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}" ]] \
+        || fail "installed deployment.conf must be owned by root:root, is ${owner}: ${DEPLOYMENT_CONF}"
+
+    local mode
+    mode="$(stat -c '%a' "${DEPLOYMENT_CONF}")"
+    if (( (8#${mode} & 8#022) != 0 )); then
+        fail "installed deployment.conf must not be group- or other-writable (mode ${mode}): ${DEPLOYMENT_CONF}"
+    fi
+
+    log "installed deployment.conf is a root-owned, non-writable-by-others regular file (unchanged by this installer)"
+}
+
+verify_legacy_staging_health() {
+    no_overrides_env "${DST_HEALTH_CHECK}" --environment staging >/dev/null \
+        || fail "currently installed legacy staging health check failed — refusing to install anything (${DST_HEALTH_CHECK} --environment staging)"
+    log "currently installed legacy staging health check: OK"
+}
+
+APPLY_COMMITTED=false
+STAGE_DIR=""
+
+# set -E means every ERR/EXIT trap armed below is inherited by every $(...)
+# command substitution's subshell for as long as it stays armed — including
+# ones whose command can genuinely, unexpectedly fail (not just the
+# deliberately-failing tits-guru checks). Without this guard, an ordinary
+# failure inside any command substitution after files are installed would
+# run rollback twice: once prematurely inside that subshell, and once more
+# when the real failure reaches this same trap in the main process. Recording
+# the main process's BASHPID before arming the trap, and comparing against it
+# here, makes every invocation of this handler outside the main process a
+# silent, side-effect-free `exit` — the main process's own copy of this trap
+# still fires for the real failure and does the actual work exactly once.
+# This is deliberately generic: no individual command substitution needs its
+# own `trap - ERR EXIT`.
+MAIN_BASHPID=""
+
+on_apply_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    log "apply failed (exit ${code})"
+
+    if [[ "${APPLY_COMMITTED}" == false ]] && [[ -n "${BACKUP_DIR}" ]]; then
+        if rollback_installed_files; then
+            log "rollback complete: previous files restored"
+            if no_overrides_env "${DST_HEALTH_CHECK}" --environment staging >/dev/null 2>&1; then
+                log "confirmed: legacy staging health check still succeeds after rollback"
+            else
+                log "ERROR: legacy staging health check FAILED even after rollback — manual intervention required"
+            fi
+        else
+            log "ERROR: rollback INCOMPLETE — some files may not have been restored"
+            log "backups remain in ${BACKUP_DIR} for manual recovery"
+        fi
+    fi
+
+    [[ -z "${STAGE_DIR}" ]] || rm -rf "${STAGE_DIR}"
+
+    exit "${code}"
+}
+
+run_apply() {
+    require_root
+    perform_apply
+}
+
+# Split from run_apply() solely so tests can exercise the transactional
+# install/rollback logic directly, against reassigned DST_*/SRC_*/BACKUP_ROOT
+# scratch paths, without needing to run as root. Production always reaches
+# this through run_apply, so require_root is still enforced on every real
+# invocation.
+perform_apply() {
+    # Reset every piece of per-run transactional state up front. In
+    # production this function only ever runs once per process, but it must
+    # not depend on that: a second direct call in the same shell (as tests
+    # do) would otherwise inherit BACKUP_DIR, ROLLBACK_RESTORE/REMOVE and
+    # APPLY_COMMITTED left over from a prior run — at best stale, at worst
+    # causing a later failure to "roll back" files a previous, already-
+    # committed run legitimately installed.
+    BACKUP_DIR=""
+    ROLLBACK_RESTORE=()
+    ROLLBACK_REMOVE=()
+    APPLY_COMMITTED=false
+
+    log "mode: apply"
+
+    run_source_validation
+    validate_installed_deployment_conf
+    validate_destination_directories
+    verify_legacy_staging_health
+
+    # The ERR/EXIT trap is armed from here on, so stage_dir is cleaned up (and,
+    # once BACKUP_DIR exists below, any already-touched destination is rolled
+    # back) on every exit path from this point forward — success or failure.
+    MAIN_BASHPID="${BASHPID}"
+    trap on_apply_error ERR EXIT
+
+    STAGE_DIR="$(mktemp -d)"
+    install -m 0700 "${SRC_REGISTRY}" "${STAGE_DIR}/deployment-targets.json"
+    install -m 0700 "${SRC_TARGETS}" "${STAGE_DIR}/targets"
+    install -m 0700 "${SRC_COMMON}" "${STAGE_DIR}/common"
+    install -m 0700 "${SRC_HEALTH_CHECK}" "${STAGE_DIR}/health-check"
+    install -m 0700 "${SRC_STATUS}" "${STAGE_DIR}/status"
+
+    verify_staged_candidates "${STAGE_DIR}"
+
+    BACKUP_DIR="${BACKUP_ROOT}/$(date -u '+%Y%m%dT%H%M%SZ')"
+    install -d -m 0700 "${BACKUP_ROOT}"
+    install -d -m 0700 "${BACKUP_DIR}"
+    log "backups for this run: ${BACKUP_DIR}"
+
+    # Dependency-safe order: the registry before anything that reads it, the
+    # targets validator before common (which invokes it), common before the
+    # two scripts that source it.
+    install_regular_file_transactional "${STAGE_DIR}/deployment-targets.json" "${DST_REGISTRY}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${REGISTRY_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/targets" "${DST_TARGETS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${SCRIPT_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/common" "${DST_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${SCRIPT_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/health-check" "${DST_HEALTH_CHECK}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${SCRIPT_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/status" "${DST_STATUS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${SCRIPT_MODE}"
+
+    log "files installed; verifying before committing"
+
+    verify_installed_files
+    verify_runtime_parity
+
+    APPLY_COMMITTED=true
+    trap - ERR EXIT
+    rm -rf "${STAGE_DIR}"
+
+    log "apply complete"
+    log "  registry     : ${DST_REGISTRY}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}"
+    log "  backups      : ${BACKUP_DIR}"
+    log "Run 'install-target-operations --verify' at any time to re-check the installed result."
+}
+
+on_verify_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    # See the comment above on_apply_error: the same subshell-inheritance
+    # hazard applies here, so the same main-process-only guard applies too —
+    # otherwise a genuine failure could print the final FAIL banner once from
+    # a subshell and once more from the main process.
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    log "--- final result ---"
+    log "FAIL: verification did not pass (see the error above)"
+    exit "${code}"
+}
+
+run_verify() {
+    require_root
+    perform_verify
+}
+
+# Split from run_verify() for the same reason as perform_apply() above.
+perform_verify() {
+    log "mode: verify (no changes, no backup)"
+
+    MAIN_BASHPID="${BASHPID}"
+    trap on_verify_error ERR EXIT
+
+    log "--- source validation ---"
+    run_source_validation
+
+    log "--- installed-file validation ---"
+    verify_installed_files
+
+    log "--- legacy staging health ---"
+    verify_legacy_environment_health
+
+    log "--- target staging health ---"
+    verify_target_health
+
+    log "--- status parity ---"
+    verify_status_parity
+
+    log "--- planned-target rejection ---"
+    verify_planned_target_rejected
+
+    trap - ERR EXIT
+    log "--- final result ---"
+    log "PASS: installed files and runtime behaviour verified"
+}
+
+parse_mode_args "$@"
+
+case "${MODE}" in
+    check)
+        run_check
+        ;;
+    apply)
+        run_apply
+        ;;
+    verify)
+        run_verify
+        ;;
+esac

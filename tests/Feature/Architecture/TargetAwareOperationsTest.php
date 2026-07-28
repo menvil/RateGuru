@@ -1291,13 +1291,14 @@ it('keeps legacy production on rateguru-production.internal, never tits-guru', f
 
 // --- roadmap and runbook -----------------------------------------------------
 
-it('records slice 2 as in progress without completing Phase 4', function () {
+it('records slices 1 and 2 completed, slice 3 in progress, without completing Phase 4', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
         ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m')
         ->toContain('Deployment target registry — completed')
-        ->toContain('Read-only target operations — in progress')
+        ->toContain('Read-only target operations — completed')
+        ->toContain('Install and verify read-only operations — in progress')
         ->not->toContain('## 4. Multi-target production model — completed')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m');
 
@@ -1308,14 +1309,15 @@ it('documents the read-only target operations added in slice 2', function () {
     $runbook = File::get(base_path('infrastructure/runbooks/deployment-targets.md'));
 
     expect($runbook)
-        ->toContain('Read-only target-aware operations (slice 2)')
+        ->toContain('Read-only target-aware operations (slice 2, completed)')
         ->toContain('health-check --target staging-main')
         ->toContain('status --target staging-main')
         ->toContain('require_active_target')
         ->toContain('Only active targets may be operated on')
         ->toContain('tits-guru')
-        // Explicit statement that nothing was installed and deploy is unaffected.
-        ->toContain('does not install anything on the VPS')
+        // Slice 2b (this PR) documents the installer separately — this
+        // section states slice 2 itself changed no VPS state.
+        ->toContain('Installing on the VPS (slice 2b)')
         ->toContain('health-check --environment staging');
 
     // Legacy support is stated explicitly. Whitespace-normalized so a markdown

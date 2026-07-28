@@ -1416,10 +1416,11 @@ it('documents the registry model in a runbook', function () {
 
     foreach ([
         'Registry foundation',
+        'Read-only target operations',
+        'Install and verify read-only operations',
         'Deploy path',
         'Backup path',
         'Perimeter',
-        'Install',
         'Remove compatibility',
     ] as $step) {
         $position = strpos($section, $step);
