@@ -57,8 +57,8 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first three are completed and accepted on the real
-staging VPS; the fourth is in progress. The phase stays **current**.
+Slices, in order. The first four are completed and accepted on the real
+staging VPS; the fifth is in progress. The phase stays **current**.
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
    deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy
@@ -96,7 +96,7 @@ staging VPS; the fourth is in progress. The phase stays **current**.
    (`user:www-data:--x`) into a target's `shared`/`shared/storage`
    directories, fixing an HTTP 403 on every uploaded image. See
    `runbooks/public-storage-access.md`.
-4. **Target-aware cleanup — current.** `cleanup` accepts `--target TARGET`
+4. **Target-aware cleanup — completed.** `cleanup` accepts `--target TARGET`
    alongside the preserved `--environment` selector, adds an explicit
    `--dry-run` alias for its existing default, and is now installed
    transactionally by `install-target-operations` (six managed files, not
@@ -109,7 +109,32 @@ staging VPS; the fourth is in progress. The phase stays **current**.
    installed `common` library from `0755` to `0644` — a sourced library,
    never a CLI, so it must never be executable. `deploy`/`rollback`/backup
    stay untouched and legacy-only.
-5. Target-aware deploy.
+
+   **Accepted on the real staging VPS:** `install-target-operations
+   --check`/`--apply`/`--verify` all passed against the six-file installer;
+   `cleanup --environment staging --dry-run` and
+   `cleanup --target staging-main --dry-run` selected the identical candidate
+   release set; `cleanup --target tits-guru --dry-run` was rejected with
+   `lifecycle=planned`.
+5. **Target-aware deploy — current.** `deploy` accepts `--target TARGET`
+   alongside the preserved `--environment` selector, with the exact same
+   `--release`/`--artifact`/`--checksum`/`--migrate` flags either way. The
+   root-first contract is unchanged — `require_root` still runs before any
+   argument parsing — and in target mode `require_active_target` runs
+   immediately after root authorization, before any artifact, checksum,
+   filesystem or lock work, so `tits-guru` stays rejected with
+   `lifecycle=planned` before touching anything. One shared deployment
+   pipeline handles both selectors past resolution; every existing
+   protection (root-only execution, release ID validation, artifact/checksum
+   containment within the selector's incoming directory, SHA-256
+   verification, unsafe tar path rejection, the shared deployment lock,
+   immutable release directories, atomic `current` switch, automatic
+   recovery on failure, deployment history) is preserved unchanged.
+   `install-target-operations` now manages seven files, not six.
+   `rollback`/backup stay untouched and legacy-only; the GitHub Actions
+   deploy workflow, its `/usr/local/sbin` wrapper, and sudoers keep calling
+   `deploy --environment staging` — migrating that perimeter to
+   `--target staging-main` is a separate future slice.
 6. Target-aware rollback.
 7. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
 8. Perimeter — workflows, sudoers, server wrappers.

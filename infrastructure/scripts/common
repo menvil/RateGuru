@@ -537,6 +537,14 @@ target_supervisor_program()       { _target_property "${1-}" '.supervisor.progra
 target_queue_name()               { _target_property "${1-}" '.supervisor.queue' string; }
 target_scheduler_name()           { _target_property "${1-}" '.scheduler.name' string; }
 target_nginx_site_name()          { _target_property "${1-}" '.nginx.site_name' string; }
+# Phase 4 slice 5: the first public_hostnames entry is the target's canonical
+# public hostname, used by deploy for `artisan rateguru:sharing:verify
+# --expected-host`. No new registry field: _target_property's existing
+# generic contract already fails closed here for free — `.public_hostnames[0]`
+# on an empty array, or on a first element that isn't a string, both yield a
+# value whose jq type isn't "string", which _target_property already turns
+# into "target X is missing a valid .public_hostnames[0] (expected string)".
+target_primary_public_hostname()  { _target_property "${1-}" '.public_hostnames[0]' string; }
 
 # Phase 4 slice 2: the single gate operational commands use before acting on a
 # target. target_lifecycle already validates the target ID, validates the

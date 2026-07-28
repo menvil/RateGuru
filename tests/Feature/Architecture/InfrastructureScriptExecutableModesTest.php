@@ -116,7 +116,7 @@ it('carries every infrastructure script through checkout and deploy normalizatio
     $deploy = File::get(base_path('infrastructure/scripts/deploy'));
 
     expect(preg_match(
-        '/# --- normalize release permissions \(begin\) ---\n(.*?)\n# --- normalize release permissions \(end\) ---/s',
+        '/# --- normalize release permissions \(begin\) ---\n(.*?)\n\s*# --- normalize release permissions \(end\) ---/s',
         $deploy,
         $matches,
     ))->toBe(1, 'could not locate the release permission normalization block in scripts/deploy');
@@ -311,14 +311,20 @@ it('deploy delegates its release-side CLI executable-bit guard to the shared ver
     $deploy = File::get(base_path('infrastructure/scripts/deploy'));
 
     expect(preg_match(
-        '/# --- verify infrastructure CLI executable bits \(begin\) ---\n(.*?)\n# --- verify infrastructure CLI executable bits \(end\) ---/s',
+        '/# --- verify infrastructure CLI executable bits \(begin\) ---\n(.*?)\n\s*# --- verify infrastructure CLI executable bits \(end\) ---/s',
         $deploy,
         $matches,
     ))->toBe(1, 'could not locate the CLI executable-bit verification block in scripts/deploy');
 
+    // Phase 4 slice 5: the hardcoded absolute path became the gated
+    // VERIFY_REQUIRED_CLIS_BIN constant (defaulting to the exact same path),
+    // so both --target and --environment deploys can be pointed at a stub in
+    // tests via RATEGURU_VERIFY_REQUIRED_CLIS_BIN — see DeployTest.php.
     expect(trim($matches[1]))->toBe(
-        '/home/www/rateguru/bin/verify-required-clis --release-root "${TEMP_RELEASE_ROOT}"',
+        '"${VERIFY_REQUIRED_CLIS_BIN}" --release-root "${TEMP_RELEASE_ROOT}"',
     );
+    expect($deploy)
+        ->toContain('VERIFY_REQUIRED_CLIS_BIN_DEFAULT="/home/www/rateguru/bin/verify-required-clis"');
 
     // Positioned after permission normalization ends and before the release
     // is moved into its final, immutable path.
