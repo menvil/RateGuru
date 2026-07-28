@@ -1331,15 +1331,17 @@ it('recovers correctly from a failed post-switch health check in target mode', f
 // Out of scope: nothing else changed
 // =============================================================================
 
-it('leaves rollback, backup scripts and workflows untouched', function () {
+it('leaves backup scripts and workflows untouched', function () {
     exec('git rev-parse --verify -q origin/develop >/dev/null 2>&1', $probeOutput, $probeExit);
 
     if ($probeExit !== 0) {
         test()->markTestSkipped('origin/develop is not available in this checkout (shallow clone) — run locally for full history to exercise this check.');
     }
 
+    // infrastructure/scripts/rollback graduated to target-awareness in Phase
+    // 4 slice 6 — it is deliberately absent here; see RollbackTest.php for
+    // its own behavioral coverage.
     $unchanged = [
-        'infrastructure/scripts/rollback',
         'infrastructure/scripts/backup',
         'infrastructure/scripts/backup-cycle',
         'infrastructure/scripts/restore-test',
@@ -1368,8 +1370,8 @@ it('leaves rollback, backup scripts and workflows untouched', function () {
     }
 });
 
-it('does not add --target to rollback or any backup script', function () {
-    foreach (['rollback', 'backup', 'backup-cycle', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test'] as $script) {
+it('does not add --target to any backup script', function () {
+    foreach (['backup', 'backup-cycle', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test'] as $script) {
         $source = File::get(base_path('infrastructure/scripts/'.$script));
 
         expect(str_contains($source, '--target'))->toBeFalse("{$script} must not accept --target in this slice");

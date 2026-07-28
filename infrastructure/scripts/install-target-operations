@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 #
 # install-target-operations — install/verify the target-aware operational
-# tooling (Phase 4 slices 2b-5).
+# tooling (Phase 4 slices 2b-6).
 #
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry and the six target-aware scripts
-#             (targets, common, health-check, status, cleanup, deploy),
-#             verify a staged copy before touching anything, install
-#             transactionally, then verify the installed result against the
-#             real host before committing.
+#   --apply   Install the target registry and the seven target-aware scripts
+#             (targets, common, health-check, status, cleanup, deploy,
+#             rollback), verify a staged copy before touching anything,
+#             install transactionally, then verify the installed result
+#             against the real host before committing.
 #   --verify  Re-run the installed-file and runtime-parity checks against
 #             whatever is currently installed. Makes NO changes, creates NO
 #             backup.
 #
 # What this installs — and does not:
-#   * Only seven files: the registry and six scripts — targets, common,
-#     health-check and status (read-only), plus cleanup (Phase 4 slice 4)
-#     and deploy (Phase 4 slice 5) — both mutating operations this installer
-#     manages, each gated behind its own lifecycle/lock/path-containment
-#     protections. rollback and every backup script are untouched by this
-#     installer and remain --environment-only.
+#   * Only eight files: the registry and seven scripts — targets, common,
+#     health-check and status (read-only), plus cleanup (Phase 4 slice 4),
+#     deploy (Phase 4 slice 5) and rollback (Phase 4 slice 6) — the mutating
+#     operations this installer manages, each gated behind its own
+#     lifecycle/lock/path-containment protections. Every backup script is
+#     untouched by this installer and remains --environment-only.
 #   * Never touches /home/www/rateguru/config/deployment.conf. The target
 #     helpers already default to the registry's installed path, so nothing
 #     there needs to change.
@@ -32,7 +32,7 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these seven files in these seven
+# this installer's whole job is to put these eight files in these eight
 # places with these exact permissions, nothing else.
 #
 # This script never sources infrastructure/scripts/common or
@@ -55,6 +55,7 @@ SRC_HEALTH_CHECK="${REPO_ROOT}/infrastructure/scripts/health-check"
 SRC_STATUS="${REPO_ROOT}/infrastructure/scripts/status"
 SRC_CLEANUP="${REPO_ROOT}/infrastructure/scripts/cleanup"
 SRC_DEPLOY="${REPO_ROOT}/infrastructure/scripts/deploy"
+SRC_ROLLBACK="${REPO_ROOT}/infrastructure/scripts/rollback"
 
 DST_CONFIG_ROOT="/home/www/rateguru/config"
 DST_BIN_ROOT="/home/www/rateguru/bin"
@@ -66,6 +67,7 @@ DST_HEALTH_CHECK="${DST_BIN_ROOT}/health-check"
 DST_STATUS="${DST_BIN_ROOT}/status"
 DST_CLEANUP="${DST_BIN_ROOT}/cleanup"
 DST_DEPLOY="${DST_BIN_ROOT}/deploy"
+DST_ROLLBACK="${DST_BIN_ROOT}/rollback"
 
 DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
 
@@ -81,7 +83,7 @@ COMMON_MODE="0644"
 CLI_MODE="0755"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the seven files it installs, and the deployment.conf it reads but
+# about: the eight files it installs, and the deployment.conf it reads but
 # never writes. A named constant (not a literal "root"/0 at each call site)
 # so the whole apply/verify flow can be exercised against non-root scratch
 # paths in tests, by reassigning these alongside DST_*/SRC_*/BACKUP_ROOT —
@@ -178,13 +180,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all seven source files are present regular files"
+    log "all eight source files are present regular files"
 }
 
 # Catches the exact regression that made this installer unusable after a bad
@@ -198,18 +200,18 @@ validate_source_files() {
 # validate_source_files already requires it to be a readable regular file.
 validate_source_executable_modes() {
     local path
-    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}"; do
+    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}"; do
         [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
     done
-    log "install-target-operations, targets, health-check, status, cleanup and deploy are all executable"
+    log "install-target-operations, targets, health-check, status, cleanup, deploy and rollback are all executable"
 }
 
 validate_source_syntax() {
     local path
-    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}"; do
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}"; do
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
-    log "bash -n passed for all six source shell scripts"
+    log "bash -n passed for all seven source shell scripts"
 }
 
 validate_source_registry() {
@@ -256,6 +258,7 @@ verify_staged_candidates() {
     local staged_status="${stage_dir}/status"
     local staged_cleanup="${stage_dir}/cleanup"
     local staged_deploy="${stage_dir}/deploy"
+    local staged_rollback="${stage_dir}/rollback"
 
     log "verifying staged candidates before installation"
 
@@ -356,6 +359,24 @@ verify_staged_candidates() {
     grep -q 'lifecycle=planned' <<<"${staged_deploy_planned_output}" \
         || fail "staged deploy --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_deploy_planned_output}"
     log "  staged deploy --target tits-guru: correctly rejected (lifecycle=planned)"
+
+    # rollback is never run for real here either — no releases exist to roll
+    # back to, and doing so would mutate the real staging target during what
+    # must stay a read-only preflight. Only --help and the tits-guru lifecycle
+    # rejection are safe to prove, mirroring deploy's own staged checks above
+    # exactly. This apply run already runs as root, so staged_rollback's own
+    # require_root passes here exactly as it would in production.
+    "${override_env[@]}" bash "${staged_rollback}" --help >/dev/null 2>&1 \
+        || fail "staged rollback --help failed"
+    log "  staged rollback --help: OK"
+
+    local staged_rollback_planned_output
+    if staged_rollback_planned_output="$("${override_env[@]}" bash "${staged_rollback}" --target tits-guru --release v0.0.0-20260101-000000-abc0000 2>&1)"; then
+        fail "staged rollback --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${staged_rollback_planned_output}" \
+        || fail "staged rollback --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_rollback_planned_output}"
+    log "  staged rollback --target tits-guru: correctly rejected (lifecycle=planned)"
 
     log "staged candidates verified"
 }
@@ -619,7 +640,8 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_STATUS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_STATUS}"
     verify_installed_regular_file "${DST_CLEANUP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_CLEANUP}"
     verify_installed_regular_file "${DST_DEPLOY}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_DEPLOY}"
-    log "  ownership, mode and content: OK for all seven files"
+    verify_installed_regular_file "${DST_ROLLBACK}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_ROLLBACK}"
+    log "  ownership, mode and content: OK for all eight files"
 
     # common is a sourced library, never a CLI — verify_installed_regular_file
     # already proved its mode is exactly COMMON_MODE (0644), which has no
@@ -631,10 +653,10 @@ verify_installed_files() {
     log "  common is not executable: OK"
 
     local path
-    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}"; do
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}"; do
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
-    log "  bash -n: OK for all six installed scripts"
+    log "  bash -n: OK for all seven installed scripts"
 
     "${DST_TARGETS}" validate --file "${DST_REGISTRY}" >/dev/null \
         || fail "installed targets CLI could not validate the installed registry"
@@ -787,9 +809,35 @@ verify_deploy_planned_target_rejected() {
     log "deploy --target tits-guru: correctly rejected (lifecycle=planned)"
 }
 
+# Phase 4 slice 6: rollback --help only — never a real rollback. This
+# installer's own --apply/--verify always run as root already, so the
+# installed rollback's own require_root passes here exactly as it would in
+# production; --help is reached and exits 0 before any selector, release or
+# filesystem work.
+verify_rollback_help() {
+    no_overrides_env "${DST_ROLLBACK}" --help >/dev/null \
+        || fail "installed rollback --help failed"
+    log "rollback --help: OK"
+}
+
+# A deliberately unusable release ID: proves the installed rollback's
+# ordering is root authorization -> lifecycle=planned rejection -> no
+# filesystem, lock or history work reached — never "current symlink does not
+# exist" or any other validation error, mirroring
+# verify_deploy_planned_target_rejected exactly.
+verify_rollback_planned_target_rejected() {
+    local planned_output
+    if planned_output="$(no_overrides_env "${DST_ROLLBACK}" --target tits-guru --release v0.0.0-20260101-000000-abc0000 2>&1)"; then
+        fail "installed rollback --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${planned_output}" \
+        || fail "installed rollback --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
+    log "rollback --target tits-guru: correctly rejected (lifecycle=planned)"
+}
+
 # Thin wrapper used by apply's post-install check, which wants one pass/fail
 # outcome rather than the phase-by-phase banners --verify prints — see
-# run_verify below, which calls the same eight functions individually.
+# run_verify below, which calls the same ten functions individually.
 verify_runtime_parity() {
     log "verifying runtime parity against the real host (no test overrides)"
     verify_legacy_environment_health
@@ -800,6 +848,8 @@ verify_runtime_parity() {
     verify_cleanup_planned_target_rejected
     verify_deploy_help
     verify_deploy_planned_target_rejected
+    verify_rollback_help
+    verify_rollback_planned_target_rejected
     log "runtime parity verification passed"
 }
 
@@ -820,12 +870,13 @@ run_check() {
     log "  ${DST_STATUS}"
     log "  ${DST_CLEANUP}"
     log "  ${DST_DEPLOY}"
+    log "  ${DST_ROLLBACK}"
 
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The two directories every one of the seven destinations lives under. This
-# installer owns exactly seven *files* — it never creates, chowns or chmods
+# The two directories every one of the eight destinations lives under. This
+# installer owns exactly eight *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -973,6 +1024,7 @@ perform_apply() {
     install -m 0700 "${SRC_STATUS}" "${STAGE_DIR}/status"
     install -m 0700 "${SRC_CLEANUP}" "${STAGE_DIR}/cleanup"
     install -m 0700 "${SRC_DEPLOY}" "${STAGE_DIR}/deploy"
+    install -m 0700 "${SRC_ROLLBACK}" "${STAGE_DIR}/rollback"
 
     verify_staged_candidates "${STAGE_DIR}"
 
@@ -991,6 +1043,7 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/status" "${DST_STATUS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/cleanup" "${DST_CLEANUP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/deploy" "${DST_DEPLOY}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/rollback" "${DST_ROLLBACK}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
 
     log "files installed; verifying before committing"
 
@@ -1003,7 +1056,7 @@ perform_apply() {
 
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
-    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}"
     log "  backups      : ${BACKUP_DIR}"
     log "Run 'install-target-operations --verify' at any time to re-check the installed result."
 }
@@ -1066,6 +1119,12 @@ perform_verify() {
 
     log "--- deploy planned-target rejection ---"
     verify_deploy_planned_target_rejected
+
+    log "--- rollback help ---"
+    verify_rollback_help
+
+    log "--- rollback planned-target rejection ---"
+    verify_rollback_planned_target_rejected
 
     trap - ERR EXIT
     log "--- final result ---"

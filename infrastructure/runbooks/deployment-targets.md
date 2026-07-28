@@ -321,10 +321,12 @@ true across every slice below, installed or not.
 
 ### What is deliberately still legacy-only
 
-`rollback` and the backup family are untouched so far — they still accept
-only `--environment`. `cleanup` graduated to target-awareness in slice 4 and
-`deploy` in slice 5; see [Target-aware cleanup](#target-aware-cleanup-slice-4-completed)
-and [Target-aware deploy](#target-aware-deploy-slice-5-current) below, and the
+The backup family is untouched so far — it still accepts only
+`--environment`. `cleanup` graduated to target-awareness in slice 4, `deploy`
+in slice 5, and `rollback` in slice 6; see
+[Target-aware cleanup](#target-aware-cleanup-slice-4-completed),
+[Target-aware deploy](#target-aware-deploy-slice-5-completed) and
+[Target-aware rollback](#target-aware-rollback-slice-6-current) below, and the
 migration sequence.
 
 ## Installing on the VPS (slice 2b)
@@ -446,7 +448,7 @@ mode, and mtime all survive a `cleanup --apply` run byte-for-byte.
 release set; `cleanup --target tits-guru --dry-run` was rejected with
 `lifecycle=planned`.
 
-## Target-aware deploy (slice 5, current)
+## Target-aware deploy (slice 5, completed)
 
 `deploy` now accepts the same selector contract as `health-check`, `status`
 and `cleanup`, with the exact same operational flags either way:
@@ -527,9 +529,108 @@ The GitHub Actions deploy workflow, its `/usr/local/sbin` wrapper, and
 sudoers keep calling `deploy --environment staging` — this slice does not
 touch workflows, sudoers, or server wrappers. Migrating that perimeter to
 `--target staging-main` is a separate future slice (see the migration
-sequence below). `rollback` and the backup family remain `--environment`-only
-until their own slices. `tits-guru` remains `lifecycle=planned` and
-undeployable — installing this tooling does not provision it.
+sequence below). The backup family remains `--environment`-only until its
+own slice. `tits-guru` remains `lifecycle=planned` and undeployable —
+installing this tooling does not provision it.
+
+**Accepted on the real staging VPS:** the seven-file
+`install-target-operations --check`/`--apply`/`--verify` all passed; the
+installed `deploy` is owned `root:root` mode `0755`;
+`deploy --target tits-guru` (given a deliberately unusable release/artifact
+combination) was rejected with `lifecycle=planned` before any artifact
+validation was reached; both `health-check --environment staging` and
+`health-check --target staging-main` passed.
+
+## Target-aware rollback (slice 6, current)
+
+`rollback` now accepts the same selector contract as `health-check`,
+`status`, `cleanup` and `deploy`:
+
+```bash
+rollback --target staging-main (--release RELEASE_ID | --previous)
+rollback --environment staging (--release RELEASE_ID | --previous)
+```
+
+`--target` and `--environment` remain mutually exclusive, exactly one is
+required, and `--help` documents both forms. Exactly one rollback
+destination is required: `--release RELEASE_ID` or `--previous` — the two
+together are rejected as an ambiguous invocation, a fail-closed correction of
+what used to be accepted (silently preferring one over the other). This
+changes no valid legacy invocation's behaviour: every existing
+`rollback --environment ... --release ...` or
+`rollback --environment ... --previous` command keeps working exactly as
+before.
+
+### Root authorization still runs first, unconditionally
+
+Like `deploy`, `rollback` runs privileged filesystem operations (switching
+the `current`/`previous` symlinks) on every invocation, not only under a
+dedicated flag. Its root-first contract is therefore preserved exactly:
+`require_root` is still the first substantive action, before any argument
+parsing. Only after root authorization succeeds does `require_active_target`
+run — immediately, before `target_root`, before the `current`/`previous`
+symlinks are read, before the releases directory or the deployment lock is
+touched, before history is written, before `systemctl` or health-check runs,
+and before any mutation. So the full ordering for `--target` is: root
+authorization → `lifecycle=planned` rejection → (only if active)
+filesystem/lock work. `tits-guru` is rejected at the lifecycle gate before
+any release path is ever touched.
+
+### One shared rollback pipeline
+
+Selector resolution (`resolve_target`) populates the same set of variables —
+the target's filesystem root and the health-check selector to use — from
+either the registry (`target_root`) or `deployment.conf`
+(`environment_root`), depending on which selector was given. Everything
+after resolution — the shared deployment lock, requiring `current` to exist,
+capturing the original `current`/`previous`, choosing the explicit release or
+`previous`, refusing a rollback onto the already-current release, history,
+the atomic `previous`/`current` switch, PHP-FPM reload, post-switch
+health-check, automatic restoration of the original `current`/`previous` on
+failure, and cleanup of temporary symlinks — is one single pipeline,
+unchanged in semantics from before this slice, with no second
+target-specific code path. Both the normal and the recovery health-check call
+use the identical selector rollback was invoked with
+(`"${HEALTH_CHECK_BIN}" "${HEALTH_SELECTOR[@]}"`), so target mode and legacy
+mode are verified identically on both paths.
+
+### Release path safety
+
+Every release path this script reads as the current release, the previous
+release, or an explicit `--release` target is validated, fail-closed, before
+any symlink is switched: it must exist, be a real directory, not be a
+symlink itself, be a direct child of the releases root, have a basename that
+passes release ID validation, and — after `readlink -f` — resolve to exactly
+itself. `current`/`previous` themselves remain ordinary symlinks, as always;
+what is refused is an unsafe *target* of that symlink — escaping the
+releases root, a nested path, a release directory that is itself a symlink,
+an invalid release ID, or a missing target — never the fact that
+`current`/`previous` are symlinks in the first place.
+
+### Installed by install-target-operations (eight files, not seven)
+
+`install-target-operations` now manages `rollback` alongside the seven files
+slice 5 left it with. Consistent with `rollback` never being safe to run for
+real during an install/verify pass (there is no throwaway release to roll
+back to on the real staging target), the installer only ever proves
+`rollback --help` succeeds and `rollback --target tits-guru` (given a
+deliberately unusable release ID) fails with `lifecycle=planned` — both
+staged, before anything is installed, and again against the installed binary
+during `--apply`'s post-install check and every `--verify` run. See
+[`install-target-operations.md`](install-target-operations.md) for the full
+eight-file contract.
+
+### What is deliberately still legacy-only
+
+The GitHub Actions deploy workflow, its `/usr/local/sbin` wrapper, and
+sudoers are untouched by this slice and keep calling `deploy --environment
+staging`. The backup family remains `--environment`-only until its own
+slice. `tits-guru` remains `lifecycle=planned` and undeployable.
+
+**Post-merge, this slice still needs real-VPS acceptance** (installing the
+eight-file bundle on the real staging VPS and re-running the same class of
+checks slices 4 and 5 already passed there) — see the migration sequence
+below.
 
 ## Compatibility with the current --environment interface
 
@@ -572,9 +673,14 @@ confirming both still succeed.
    [Target-aware cleanup](#target-aware-cleanup-slice-4-completed) above)*
 5. **Target-aware deploy** — `deploy` accepts `--target`, preserving its
    root-first contract and every existing protection unchanged; the installer
-   now manages it too. *(current — see
-   [Target-aware deploy](#target-aware-deploy-slice-5-current) above)*
-6. **Target-aware rollback** — `rollback` accepts `--target`.
+   now manages it too. *(completed and accepted on the real staging VPS —
+   see [Target-aware deploy](#target-aware-deploy-slice-5-completed) above)*
+6. **Target-aware rollback** — `rollback` accepts `--target`, preserving its
+   root-first contract, adding fail-closed release path safety, and reusing
+   the identical health-check selector on both the normal and recovery path;
+   the installer now manages it too. *(current — see
+   [Target-aware rollback](#target-aware-rollback-slice-6-current) above;
+   real-VPS acceptance is still pending)*
 7. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
    `offsite-retention`, `restore-test`, `offsite-restore-test`, preserving the
    existing `staging` backup namespace so no existing local or B2 path moves.
