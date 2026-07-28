@@ -641,8 +641,12 @@ perform_apply() {
     run_structural_validation
     verify_target_healthy_before_apply
 
+    # $$ guarantees a distinct directory even across two applies of the same
+    # target within the same UTC second (e.g. a scripted retry) — without it,
+    # the second run's backup would silently overwrite the first's, losing
+    # the true pre-change ACL state the first run actually needs to roll back to.
     local backup_dir
-    backup_dir="${BACKUP_ROOT}/$(date -u '+%Y%m%dT%H%M%SZ')-${TARGET_ID}"
+    backup_dir="${BACKUP_ROOT}/$(date -u '+%Y%m%dT%H%M%SZ')-$$-${TARGET_ID}"
     install -d -m 0700 "${BACKUP_ROOT}"
     install -d -m 0700 "${backup_dir}"
     log "backup for this run: ${backup_dir}"

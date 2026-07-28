@@ -95,17 +95,25 @@ function psaExec(string $scriptPath, array $env): array
  * contract (CLI-level tests: argument parsing, --help, require-root gate,
  * tits-guru rejection before any filesystem access).
  *
+ * $isolatePath=true drops the ambient-PATH fallback entirely, leaving only
+ * $scratchBin — needed by the "missing tool" test: a host that genuinely has
+ * the `acl` package installed (GitHub's Ubuntu runners do) would otherwise
+ * still find a *real* setfacl/getfacl further down the ambient PATH after
+ * the scratch stub is deleted, defeating the simulated absence.
+ *
  * @param  list<string>  $arguments
  * @param  array<string, string>  $envOverrides
  * @return array{0: int, 1: string}
  */
-function psaRunScript(array $arguments, array $envOverrides = [], ?string $scratchBin = null): array
+function psaRunScript(array $arguments, array $envOverrides = [], ?string $scratchBin = null, bool $isolatePath = false): array
 {
     $tmp = tempnam(sys_get_temp_dir(), 'psa-cli-');
     file_put_contents($tmp, 'exec '.escapeshellarg(psaScript())
         .' '.implode(' ', array_map('escapeshellarg', $arguments))."\n");
 
-    $path = ($scratchBin !== null ? $scratchBin.':' : '').(getenv('PATH') ?: '/usr/bin:/bin');
+    $path = $isolatePath
+        ? (string) $scratchBin
+        : ($scratchBin !== null ? $scratchBin.':' : '').(getenv('PATH') ?: '/usr/bin:/bin');
 
     $env = array_merge(['PATH' => $path, 'HOME' => getenv('HOME') ?: '/tmp'], $envOverrides);
 
@@ -597,7 +605,20 @@ it('produces a clear failure when required ACL tools are missing', function () {
         psaBuildTarget($scratch);
         unlink($scratch.'/bin/setfacl');
 
-        [$exit, $output] = psaRunScript(['--check', '--target', 'test-target'], psaBaseEnv($scratch), $scratch.'/bin');
+        // Isolate PATH to exactly this scratch bin: on a host that genuinely
+        // has the acl package installed, an ambient-PATH fallback would
+        // still find a real setfacl elsewhere and this test would pass for
+        // the wrong reason. bash and jq are the only real tools reached
+        // before check_required_tools hits the deleted setfacl entry (it is
+        // first in REQUIRED_TOOLS), so those two are the only ones symlinked
+        // in from the host.
+        foreach (['bash', 'jq'] as $realTool) {
+            $resolved = trim((string) shell_exec('command -v '.escapeshellarg($realTool)));
+            expect($resolved)->not->toBe('', "host is missing {$realTool}, needed to isolate this test's PATH");
+            symlink($resolved, $scratch.'/bin/'.$realTool);
+        }
+
+        [$exit, $output] = psaRunScript(['--check', '--target', 'test-target'], psaBaseEnv($scratch), $scratch.'/bin', isolatePath: true);
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('required tool not found: setfacl')

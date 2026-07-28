@@ -174,18 +174,22 @@ line.
 ## Backup location
 
 ```
-/var/backups/rateguru-public-storage-access/<UTC timestamp>-<target>/acl.restore
+/var/backups/rateguru-public-storage-access/<UTC timestamp>-<pid>-<target>/acl.restore
 ```
 
 One file per `--apply` run, containing the pre-change `getfacl -p` output for
-`shared` and `shared/storage`, non-recursive. Never deleted automatically —
-left for an operator to prune manually, the same convention as
-`install-target-operations`'s own backup directory.
+`shared` and `shared/storage`, non-recursive. The process ID is included
+alongside the timestamp so that two `--apply` runs against the same target
+within the same UTC second (a scripted retry, for instance) each still get
+their own backup directory rather than one silently overwriting the other's
+pre-change state. Never deleted automatically — left for an operator to
+prune manually, the same convention as `install-target-operations`'s own
+backup directory.
 
 ### Manually restoring a backup, if automatic rollback itself fails
 
 ```bash
-sudo setfacl --restore=/var/backups/rateguru-public-storage-access/<timestamp>-<target>/acl.restore
+sudo setfacl --restore=/var/backups/rateguru-public-storage-access/<timestamp>-<pid>-<target>/acl.restore
 ```
 
 Confirm with:
