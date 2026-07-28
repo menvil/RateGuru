@@ -74,7 +74,7 @@ it('deploys manually selected refs to staging', function () {
         // and before tar freezes it into the archive — too late once the
         // release.json write also happens, but this only needs "after rsync,
         // before tar", so asserting it appears before `tar \` is sufficient.
-        ->toContain('required release CLI is not executable')
+        ->toContain('infrastructure/scripts/verify-required-clis')
         ->toContain('# --- verify infrastructure CLI executable bits (begin) ---');
 
     $releaseRun = data_get($buildSteps->get('Build release archive'), 'run');
@@ -99,13 +99,11 @@ it('deploys manually selected refs to staging', function () {
         ->toContain('release-id: ${{ needs.build.outputs.release-id }}');
 });
 
-it('fails the staging artifact build closed when a required infrastructure CLI is not executable in package_root', function () {
-    // Runs the real, shipped verification block — extracted from the parsed
-    // "Build release archive" step, not a reimplementation of it — against a
-    // scratch package_root, proving it both passes a correctly-built package
-    // and fails closed (never silently chmod's around) a regressed one, the
-    // same way every file under infrastructure/scripts arrived on staging
-    // after losing its executable bit.
+it('delegates the staging artifact build\'s CLI executable-bit check to the shared verify-required-clis, and fails closed when a CLI is not executable', function () {
+    // Proves the workflow step is exactly a delegating call to the real,
+    // shared infrastructure/scripts/verify-required-clis — the same
+    // algorithm deploy itself uses — never a reimplementation, then runs
+    // that exact extracted line end to end against a scratch package_root.
     $path = base_path('.github/workflows/deploy-staging.yml');
     $workflow = Yaml::parse(File::get($path));
     $run = data_get(collect(data_get($workflow, 'jobs.build.steps'))->keyBy('name')->get('Build release archive'), 'run');
@@ -116,28 +114,19 @@ it('fails the staging artifact build closed when a required infrastructure CLI i
         $matches,
     ))->toBe(1, 'could not locate the executable-bit verification block in deploy-staging.yml');
 
-    $block = $matches[1];
+    $delegatingLine = trim($matches[1]);
+    expect($delegatingLine)->toBe('infrastructure/scripts/verify-required-clis --release-root "${package_root}"');
 
-    $root = sys_get_temp_dir().'/deploy-staging-exec-check-'.uniqid('', true);
-    $cliNames = requiredCliManifestNames();
+    $root = releaseCliFixture(requiredCliManifestNames());
 
     try {
-        mkdir($root.'/infrastructure/scripts', 0o755, true);
-        mkdir($root.'/infrastructure/config', 0o755, true);
-        copy(base_path('infrastructure/config/required-clis.txt'), $root.'/infrastructure/config/required-clis.txt');
-
-        foreach ($cliNames as $name) {
-            file_put_contents($root.'/infrastructure/scripts/'.$name, "#!/usr/bin/env bash\n");
-            chmod($root.'/infrastructure/scripts/'.$name, 0o755);
-        }
-
-        $script = 'set -Eeuo pipefail'."\n".'package_root='.escapeshellarg($root)."\n".$block;
+        $script = 'set -Eeuo pipefail'."\n".'cd '.escapeshellarg(base_path())."\n".'package_root='.escapeshellarg($root)."\n".$delegatingLine;
 
         $output = [];
         $exit = 0;
         exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
-        expect($exit)->toBe(0, "verification block rejected a correctly-built package:\n".implode("\n", $output));
-        expect(implode("\n", $output))->toContain('verified: every required infrastructure CLI is executable in the release package');
+        expect($exit)->toBe(0, "verification rejected a correctly-built package:\n".implode("\n", $output));
+        expect(implode("\n", $output))->toContain('verified: every required infrastructure CLI retains its executable mode after release normalization');
 
         // Now regress exactly one file, matching the real incident.
         chmod($root.'/infrastructure/scripts/targets', 0o640);
@@ -146,7 +135,7 @@ it('fails the staging artifact build closed when a required infrastructure CLI i
         $exit = 0;
         exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
         expect($exit)->not->toBe(0);
-        expect(implode("\n", $output))->toContain('required release CLI is not executable: infrastructure/scripts/targets');
+        expect(implode("\n", $output))->toContain('required CLI lost executable mode after extraction: targets');
     } finally {
         exec('rm -rf '.escapeshellarg($root));
     }

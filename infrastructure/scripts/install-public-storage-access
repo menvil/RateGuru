@@ -534,12 +534,10 @@ verify_runtime_state() {
 run_check() {
     # --check calls runuser to test filesystem access as the runtime user and
     # as www-data (validate_writable_by_runtime_user, report_current_traversal_state)
-    # — an ordinary caller cannot use runuser to switch to another user
-    # regardless of what a doc comment might claim, so requiring root here is
-    # what makes "--check works without root" an accurate statement instead
-    # of one this mode would silently fail to live up to. It remains strictly
-    # read-only even so: no ACL, file or backup state is ever written by this
-    # mode.
+    # — an ordinary caller cannot use runuser to switch to another user, so
+    # requiring root here makes the documented root requirement accurate. It
+    # remains strictly read-only even so: no ACL, file or backup state is
+    # ever written by this mode.
     require_root
     perform_check
 }

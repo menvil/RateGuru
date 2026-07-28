@@ -105,7 +105,7 @@ it('retains required production release script safeguards', function () {
         ->toContain("--exclude='database/database.sqlite'")
         ->toContain('sha256sum "${ARTIFACT_NAME}"')
         ->toContain('run-migrations: "true"')
-        ->toContain('required release CLI is not executable')
+        ->toContain('infrastructure/scripts/verify-required-clis')
         ->toContain('# --- verify infrastructure CLI executable bits (begin) ---');
 
     $releaseRun = data_get($this->buildSteps->get('Build release archive'), 'run');
@@ -115,10 +115,11 @@ it('retains required production release script safeguards', function () {
         ->toBeLessThan(mb_strpos($releaseRun, 'tar \\'));
 });
 
-it('fails the production artifact build closed when a required infrastructure CLI is not executable in package_root', function () {
-    // Same real-block-extraction technique as the staging workflow's
-    // equivalent test: this runs the shipped verification block itself
-    // against a scratch package_root, not a reimplementation of it.
+it('delegates the production artifact build\'s CLI executable-bit check to the shared verify-required-clis, and fails closed when a CLI is not executable', function () {
+    // Proves the workflow step is exactly a delegating call to the real,
+    // shared infrastructure/scripts/verify-required-clis — the same
+    // algorithm deploy itself uses — never a reimplementation, then runs
+    // that exact extracted line end to end against a scratch package_root.
     $run = data_get($this->buildSteps->get('Build release archive'), 'run');
 
     expect(preg_match(
@@ -127,28 +128,19 @@ it('fails the production artifact build closed when a required infrastructure CL
         $matches,
     ))->toBe(1, 'could not locate the executable-bit verification block in release.yml');
 
-    $block = $matches[1];
+    $delegatingLine = trim($matches[1]);
+    expect($delegatingLine)->toBe('infrastructure/scripts/verify-required-clis --release-root "${package_root}"');
 
-    $root = sys_get_temp_dir().'/release-exec-check-'.uniqid('', true);
-    $cliNames = requiredCliManifestNames();
+    $root = releaseCliFixture(requiredCliManifestNames());
 
     try {
-        mkdir($root.'/infrastructure/scripts', 0o755, true);
-        mkdir($root.'/infrastructure/config', 0o755, true);
-        copy(base_path('infrastructure/config/required-clis.txt'), $root.'/infrastructure/config/required-clis.txt');
-
-        foreach ($cliNames as $name) {
-            file_put_contents($root.'/infrastructure/scripts/'.$name, "#!/usr/bin/env bash\n");
-            chmod($root.'/infrastructure/scripts/'.$name, 0o755);
-        }
-
-        $script = 'set -Eeuo pipefail'."\n".'package_root='.escapeshellarg($root)."\n".$block;
+        $script = 'set -Eeuo pipefail'."\n".'cd '.escapeshellarg(base_path())."\n".'package_root='.escapeshellarg($root)."\n".$delegatingLine;
 
         $output = [];
         $exit = 0;
         exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
-        expect($exit)->toBe(0, "verification block rejected a correctly-built package:\n".implode("\n", $output));
-        expect(implode("\n", $output))->toContain('verified: every required infrastructure CLI is executable in the release package');
+        expect($exit)->toBe(0, "verification rejected a correctly-built package:\n".implode("\n", $output));
+        expect(implode("\n", $output))->toContain('verified: every required infrastructure CLI retains its executable mode after release normalization');
 
         chmod($root.'/infrastructure/scripts/health-check', 0o640);
 
@@ -156,7 +148,7 @@ it('fails the production artifact build closed when a required infrastructure CL
         $exit = 0;
         exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
         expect($exit)->not->toBe(0);
-        expect(implode("\n", $output))->toContain('required release CLI is not executable: infrastructure/scripts/health-check');
+        expect(implode("\n", $output))->toContain('required CLI lost executable mode after extraction: health-check');
     } finally {
         exec('rm -rf '.escapeshellarg($root));
     }

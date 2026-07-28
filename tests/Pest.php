@@ -63,9 +63,43 @@ function something()
  */
 function requiredCliManifestNames(): array
 {
-    $lines = preg_split('/\R/', file_get_contents(base_path('infrastructure/config/required-clis.txt')));
+    $manifestPath = base_path('infrastructure/config/required-clis.txt');
+    $contents = file_get_contents($manifestPath);
+
+    if ($contents === false) {
+        throw new RuntimeException("could not read the required-CLI manifest: {$manifestPath}");
+    }
+
+    $lines = preg_split('/\R/', $contents);
 
     return array_values(array_filter(array_map('trim', $lines), fn (string $line): bool => $line !== ''));
+}
+
+/**
+ * A correctly normalized release-tree fixture: every manifested CLI present
+ * and executable, common present, readable and non-executable, the manifest
+ * itself copied verbatim from the real committed one. Shared by
+ * InfrastructureScriptExecutableModesTest (testing verify-required-clis and
+ * deploy directly) and DeployStagingWorkflowTest/ProductionReleaseWorkflowTest
+ * (testing that each workflow correctly delegates to it).
+ */
+function releaseCliFixture(array $cliNames): string
+{
+    $root = sys_get_temp_dir().'/release-cli-exec-check-'.uniqid('', true);
+
+    mkdir($root.'/infrastructure/scripts', 0o755, true);
+    mkdir($root.'/infrastructure/config', 0o755, true);
+    copy(base_path('infrastructure/config/required-clis.txt'), $root.'/infrastructure/config/required-clis.txt');
+
+    foreach ($cliNames as $name) {
+        file_put_contents($root.'/infrastructure/scripts/'.$name, "#!/usr/bin/env bash\n");
+        chmod($root.'/infrastructure/scripts/'.$name, 0o755);
+    }
+
+    file_put_contents($root.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
+    chmod($root.'/infrastructure/scripts/common', 0o644);
+
+    return $root;
 }
 
 /**

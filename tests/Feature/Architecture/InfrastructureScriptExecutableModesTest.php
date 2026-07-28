@@ -163,77 +163,28 @@ it('carries every infrastructure script through checkout and deploy normalizatio
 });
 
 /**
- * Extracts deploy's own release-side CLI executable-bit guard — added
- * because the workflow's package_root check only proves what GitHub Actions
- * uploaded, not what the *installed, server-side* deploy script actually
- * produces after extraction and its own permission normalization. This runs
- * the real, shipped block, never a reimplementation of it.
- */
-function deployCliVerificationBlock(): string
-{
-    $deploy = File::get(base_path('infrastructure/scripts/deploy'));
-
-    expect(preg_match(
-        '/# --- verify infrastructure CLI executable bits \(begin\) ---\n(.*?)\n# --- verify infrastructure CLI executable bits \(end\) ---/s',
-        $deploy,
-        $matches,
-    ))->toBe(1, 'could not locate the CLI executable-bit verification block in scripts/deploy');
-
-    return $matches[1];
-}
-
-/**
- * A correctly normalized TEMP_RELEASE_ROOT fixture: every manifested CLI
- * present and executable, common present, readable and non-executable, the
- * manifest itself copied verbatim from the real committed one.
- */
-function deployCliFixture(array $cliNames): string
-{
-    $root = sys_get_temp_dir().'/deploy-cli-exec-check-'.uniqid('', true);
-
-    mkdir($root.'/infrastructure/scripts', 0o755, true);
-    mkdir($root.'/infrastructure/config', 0o755, true);
-    copy(base_path('infrastructure/config/required-clis.txt'), $root.'/infrastructure/config/required-clis.txt');
-
-    foreach ($cliNames as $name) {
-        file_put_contents($root.'/infrastructure/scripts/'.$name, "#!/usr/bin/env bash\n");
-        chmod($root.'/infrastructure/scripts/'.$name, 0o755);
-    }
-
-    file_put_contents($root.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
-    chmod($root.'/infrastructure/scripts/common', 0o644);
-
-    return $root;
-}
-
-/**
- * Runs the extracted block against a fixture root, standing in minimal
- * fail()/log() definitions matching common's own (this block never sources
- * common itself when tested in isolation, exactly like the sibling
- * normalization-block test above).
+ * Runs the real, shipped infrastructure/scripts/verify-required-clis — the
+ * single algorithm shared by deploy itself and both artifact-build
+ * workflows, rather than a reimplementation of it.
  *
  * @return array{0: int, 1: string}
  */
-function runDeployCliVerificationBlock(string $block, string $root): array
+function runVerifyRequiredClis(string $releaseRoot): array
 {
-    $stubs = "fail() { echo \"ERROR: \$*\" >&2; exit 1; }\n"
-        ."log() { printf '[%s] %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$*\"; }\n";
-
-    $script = 'set -Eeuo pipefail'."\n".$stubs.'TEMP_RELEASE_ROOT='.escapeshellarg($root)."\n".$block;
+    $script = base_path('infrastructure/scripts/verify-required-clis');
 
     $output = [];
     $exit = 0;
-    exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
+    exec('bash '.escapeshellarg($script).' --release-root '.escapeshellarg($releaseRoot).' 2>&1', $output, $exit);
 
     return [$exit, implode("\n", $output)];
 }
 
-it('deploy accepts a correctly normalized release and reports it verified', function () {
-    $block = deployCliVerificationBlock();
-    $root = deployCliFixture(requiredCliManifestNames());
+it('verify-required-clis accepts a correctly normalized release and reports it verified', function () {
+    $root = releaseCliFixture(requiredCliManifestNames());
 
     try {
-        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+        [$exit, $output] = runVerifyRequiredClis($root);
 
         expect($exit)->toBe(0, "correctly normalized release was rejected:\n{$output}");
         expect($output)->toContain('verified: every required infrastructure CLI retains its executable mode after release normalization');
@@ -242,14 +193,13 @@ it('deploy accepts a correctly normalized release and reports it verified', func
     }
 });
 
-it('deploy fails closed when one required CLI is normalized to 0640, matching the real incident', function () {
-    $block = deployCliVerificationBlock();
-    $root = deployCliFixture(requiredCliManifestNames());
+it('verify-required-clis fails closed when one required CLI is normalized to 0640, matching the real incident', function () {
+    $root = releaseCliFixture(requiredCliManifestNames());
 
     try {
         chmod($root.'/infrastructure/scripts/targets', 0o640);
 
-        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+        [$exit, $output] = runVerifyRequiredClis($root);
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('required CLI lost executable mode after extraction: targets');
@@ -258,14 +208,13 @@ it('deploy fails closed when one required CLI is normalized to 0640, matching th
     }
 });
 
-it('deploy fails closed when a required CLI is missing from the release', function () {
-    $block = deployCliVerificationBlock();
-    $root = deployCliFixture(requiredCliManifestNames());
+it('verify-required-clis fails closed when a required CLI is missing from the release', function () {
+    $root = releaseCliFixture(requiredCliManifestNames());
 
     try {
         unlink($root.'/infrastructure/scripts/targets');
 
-        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+        [$exit, $output] = runVerifyRequiredClis($root);
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('release is missing required CLI: targets');
@@ -274,14 +223,13 @@ it('deploy fails closed when a required CLI is missing from the release', functi
     }
 });
 
-it('deploy fails closed when common is wrongly executable', function () {
-    $block = deployCliVerificationBlock();
-    $root = deployCliFixture(requiredCliManifestNames());
+it('verify-required-clis fails closed when common is wrongly executable', function () {
+    $root = releaseCliFixture(requiredCliManifestNames());
 
     try {
         chmod($root.'/infrastructure/scripts/common', 0o755);
 
-        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+        [$exit, $output] = runVerifyRequiredClis($root);
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('common must remain a non-executable sourced library');
@@ -290,14 +238,13 @@ it('deploy fails closed when common is wrongly executable', function () {
     }
 });
 
-it('deploy fails closed when the required-CLI manifest is missing from the release', function () {
-    $block = deployCliVerificationBlock();
-    $root = deployCliFixture(requiredCliManifestNames());
+it('verify-required-clis fails closed when the required-CLI manifest is missing from the release', function () {
+    $root = releaseCliFixture(requiredCliManifestNames());
 
     try {
         unlink($root.'/infrastructure/config/required-clis.txt');
 
-        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+        [$exit, $output] = runVerifyRequiredClis($root);
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('release is missing required CLI manifest');
@@ -306,14 +253,13 @@ it('deploy fails closed when the required-CLI manifest is missing from the relea
     }
 });
 
-it('deploy fails closed when the required-CLI manifest is present but empty', function () {
-    $block = deployCliVerificationBlock();
-    $root = deployCliFixture(requiredCliManifestNames());
+it('verify-required-clis fails closed when the required-CLI manifest is present but empty', function () {
+    $root = releaseCliFixture(requiredCliManifestNames());
 
     try {
         file_put_contents($root.'/infrastructure/config/required-clis.txt', "\n\n");
 
-        [$exit, $output] = runDeployCliVerificationBlock($block, $root);
+        [$exit, $output] = runVerifyRequiredClis($root);
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('required CLI manifest is empty');
@@ -322,11 +268,35 @@ it('deploy fails closed when the required-CLI manifest is present but empty', fu
     }
 });
 
-it('never chmods any file inside deploy\'s own CLI executable-bit verification block', function () {
-    // This block must fail closed, never paper over a bad mode by fixing it.
-    $block = deployCliVerificationBlock();
+it('verify-required-clis requires --release-root and rejects malformed arguments', function () {
+    $script = base_path('infrastructure/scripts/verify-required-clis');
 
-    foreach (preg_split('/\R/', $block) as $line) {
+    [$exitMissing, $outputMissing] = [0, ''];
+    exec('bash '.escapeshellarg($script).' 2>&1', $outputMissing, $exitMissing);
+    expect($exitMissing)->not->toBe(0);
+    expect(implode("\n", $outputMissing))->toContain('--release-root is required');
+
+    [$exitDuplicate, $outputDuplicate] = [0, ''];
+    exec('bash '.escapeshellarg($script).' --release-root /tmp --release-root /tmp 2>&1', $outputDuplicate, $exitDuplicate);
+    expect($exitDuplicate)->not->toBe(0);
+    expect(implode("\n", $outputDuplicate))->toContain('--release-root given more than once');
+
+    [$exitUnknown, $outputUnknown] = [0, ''];
+    exec('bash '.escapeshellarg($script).' --bogus 2>&1', $outputUnknown, $exitUnknown);
+    expect($exitUnknown)->not->toBe(0);
+    expect(implode("\n", $outputUnknown))->toContain('unknown argument: --bogus');
+
+    [$exitHelp, $outputHelp] = [0, ''];
+    exec('bash '.escapeshellarg($script).' --help 2>&1', $outputHelp, $exitHelp);
+    expect($exitHelp)->toBe(0);
+    expect(implode("\n", $outputHelp))->toContain('Usage: verify-required-clis');
+});
+
+it('never chmods any file inside verify-required-clis', function () {
+    // This script must fail closed, never paper over a bad mode by fixing it.
+    $source = File::get(base_path('infrastructure/scripts/verify-required-clis'));
+
+    foreach (preg_split('/\R/', $source) as $line) {
         $trimmed = ltrim($line);
 
         if ($trimmed === '' || str_starts_with($trimmed, '#')) {
@@ -335,4 +305,25 @@ it('never chmods any file inside deploy\'s own CLI executable-bit verification b
 
         expect($trimmed)->not->toMatch('/(^|[;&|]\s*)chmod\b/');
     }
+});
+
+it('deploy delegates its release-side CLI executable-bit guard to the shared verify-required-clis, never reimplementing it', function () {
+    $deploy = File::get(base_path('infrastructure/scripts/deploy'));
+
+    expect(preg_match(
+        '/# --- verify infrastructure CLI executable bits \(begin\) ---\n(.*?)\n# --- verify infrastructure CLI executable bits \(end\) ---/s',
+        $deploy,
+        $matches,
+    ))->toBe(1, 'could not locate the CLI executable-bit verification block in scripts/deploy');
+
+    expect(trim($matches[1]))->toBe(
+        '/home/www/rateguru/bin/verify-required-clis --release-root "${TEMP_RELEASE_ROOT}"',
+    );
+
+    // Positioned after permission normalization ends and before the release
+    // is moved into its final, immutable path.
+    expect(mb_strpos($deploy, '# --- normalize release permissions (end) ---'))
+        ->toBeLessThan(mb_strpos($deploy, '# --- verify infrastructure CLI executable bits (begin) ---'))
+        ->and(mb_strpos($deploy, '# --- verify infrastructure CLI executable bits (end) ---'))
+        ->toBeLessThan(mb_strpos($deploy, '    "${RELEASE_ROOT}"'));
 });

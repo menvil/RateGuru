@@ -15,3 +15,4 @@ status
 status-mail-capture
 targets
 verify-mail-capture
+verify-required-clis
