@@ -40,6 +40,7 @@ PINNED_FILE_GROUP="root"
 PINNED_FILE_MODE="0640"
 
 declare -A PROTECTED_RELEASES=()
+declare -A PINNED_RELEASES=()
 declare -A RELEASE_STATUSES=()
 DELETE_CANDIDATES=()
 
@@ -248,7 +249,18 @@ validate_target_tree() {
 # A missing pinned-releases file is treated as empty in both modes. Dry-run
 # never creates it; apply only creates it (see ensure_pinned_file_exists)
 # after the lock, before this is called.
+#
+# Rebuilds PINNED_RELEASES from scratch on every call, matching
+# read_release_statuses's own reset convention, rather than accumulating into
+# PROTECTED_RELEASES — compute_candidates (and so this function) can run more
+# than once per process (see perform_apply, which recomputes after the lock,
+# and its own test coverage), and PROTECTED_RELEASES also carries the
+# current/previous protections validate_target_tree already established
+# before compute_candidates ever runs. Kept in a separate array so resetting
+# this function's own contribution can never wipe those out.
 read_pinned_releases() {
+    PINNED_RELEASES=()
+
     [[ -f "${PINNED_FILE}" ]] || return 0
 
     local pinned_release
@@ -260,7 +272,7 @@ read_pinned_releases() {
 
         [[ -n "${pinned_release}" ]] || continue
 
-        PROTECTED_RELEASES["${pinned_release}"]=1
+        PINNED_RELEASES["${pinned_release}"]=1
     done < "${PINNED_FILE}"
 }
 
@@ -313,6 +325,9 @@ validate_release_candidate() {
 
     [[ -z "${PROTECTED_RELEASES[${release_id}]:-}" ]] \
         || fail "refusing to delete a protected release: ${release_id}"
+
+    [[ -z "${PINNED_RELEASES[${release_id}]:-}" ]] \
+        || fail "refusing to delete a pinned release: ${release_id}"
 }
 
 # Scans RELEASES_ROOT and classifies every entry, populating DELETE_CANDIDATES
@@ -361,7 +376,7 @@ compute_candidates() {
 
         release_status="${RELEASE_STATUSES[${release_id}]:-unknown}"
 
-        if [[ -n "${PROTECTED_RELEASES[${release_id}]:-}" ]]; then
+        if [[ -n "${PROTECTED_RELEASES[${release_id}]:-}" ]] || [[ -n "${PINNED_RELEASES[${release_id}]:-}" ]]; then
             log "KEEP protected: ${release_id}"
             continue
         fi

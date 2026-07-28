@@ -277,6 +277,21 @@ function cleanupOpsCandidates(string $output): array
 }
 
 /**
+ * Same extraction as cleanupOpsCandidates(), but preserves the raw emission
+ * order instead of sorting — used to assert the actual deterministic
+ * (newest-mtime-first, then name) ordering compute_candidates produces,
+ * which the sorted comparison above deliberately discards.
+ *
+ * @return list<string>
+ */
+function cleanupOpsRawCandidates(string $output): array
+{
+    preg_match_all('/DRY RUN would delete: (\S+)/', $output, $matches);
+
+    return $matches[1];
+}
+
+/**
  * A registry + patched `targets` validator declaring a single, fully valid
  * `parity-target` with lifecycle=active pointing at a scratch application
  * root. The committed `targets` script hard-codes both "lifecycle=active is
@@ -953,6 +968,43 @@ it('never appends deployment history during dry-run', function () {
         expect($exit)->toBe(0, $output);
         expect(file_get_contents($root.'/deployments/history.jsonl'))->toBe($historyBefore);
         expect($historyBefore)->not->toContain('release-cleaned');
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('lists candidates newest-mtime-first, breaking ties by name, in the raw dry-run output', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        $root = cleanupOpsBuildFixture($scratch, [
+            'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
+            'v1.0.2-20260102-000000-abc1232' => 'failed-health-check',
+            'v1.0.3-20260103-000000-abc1233' => 'failed-health-check',
+            'v1.0.4-20260104-000000-abc1234' => 'failed-health-check',
+        ]);
+
+        // Force v1.0.2 and v1.0.3 to share the exact same mtime, so their
+        // relative order can only come from the name tie-break — proving it
+        // independently of mtime ordering, not just asserting a set match
+        // (cleanupOpsCandidates() sorts and would hide an ordering bug here).
+        $tiedMtime = filemtime($root.'/releases/v1.0.2-20260102-000000-abc1232');
+        touch($root.'/releases/v1.0.3-20260103-000000-abc1233', $tiedMtime);
+
+        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+
+        [$exit, $output] = cleanupOpsRunScript(
+            ['--environment', 'staging', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect(cleanupOpsRawCandidates($output))->toBe([
+            'v1.0.4-20260104-000000-abc1234',
+            'v1.0.2-20260102-000000-abc1232',
+            'v1.0.3-20260103-000000-abc1233',
+            'v1.0.1-20260101-000000-abc1231',
+        ]);
     } finally {
         cleanupOpsCleanup($scratch);
     }

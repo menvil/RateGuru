@@ -1781,6 +1781,59 @@ it('a post-install runtime-parity failure rolls back every touched destination: 
     }
 });
 
+it('a post-install cleanup dry-run parity failure rolls back every touched destination', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        // The candidate cleanup fails --environment staging --dry-run, but
+        // only once invoked as the exact final installed path — the staged
+        // copy (a different, mktemp'd path) passes, so this is a genuine
+        // post-install parity failure caught specifically by
+        // verify_cleanup_dry_run_parity, the last check in
+        // verify_runtime_parity's sequence — proving rollback still fires
+        // correctly even when every earlier check (health-check, status)
+        // already passed.
+        $vars = installOpsBaseVars($scratch);
+        $failingCleanupCandidate = installOpsCleanupStub($vars['DST_CLEANUP']);
+        installOpsWriteExecutable($vars['SRC_CLEANUP'], $failingCleanupCandidate);
+        installOpsPlaceHealthyLegacyHealthCheck($vars);
+
+        $oldContent = [
+            'DST_REGISTRY' => "OLD registry\n",
+            'DST_TARGETS' => "OLD targets\n",
+            'DST_COMMON' => "OLD common\n",
+        ];
+        foreach ($oldContent as $key => $content) {
+            file_put_contents($vars[$key], $content);
+        }
+        expect(file_exists($vars['DST_STATUS']))->toBeFalse();
+        expect(file_exists($vars['DST_CLEANUP']))->toBeFalse();
+        $healthCheckBefore = file_get_contents($vars['DST_HEALTH_CHECK']);
+        $configDirBefore = installOpsStatDir($vars['DST_CONFIG_ROOT']);
+        $binDirBefore = installOpsStatDir($vars['DST_BIN_ROOT']);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('files installed; verifying before committing');
+        expect($output)->toContain('forced staging failure (test)');
+        expect($output)->toContain('rollback complete: previous files restored');
+        expect($output)->toContain('confirmed: legacy staging health check still succeeds after rollback');
+
+        foreach ($oldContent as $key => $content) {
+            expect(file_get_contents($vars[$key]))->toBe($content, "{$key} must be restored to its previous content");
+        }
+        expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore, 'health-check must be restored to its previous content');
+        expect(file_exists($vars['DST_STATUS']))->toBeFalse('status must be removed — it did not exist before this run');
+        expect(file_exists($vars['DST_CLEANUP']))->toBeFalse('cleanup must be removed — it did not exist before this run');
+
+        expect(installOpsStatDir($vars['DST_CONFIG_ROOT']))->toBe($configDirBefore, 'a rollback must leave the containing directory exactly as found');
+        expect(installOpsStatDir($vars['DST_BIN_ROOT']))->toBe($binDirBefore, 'a rollback must leave the containing directory exactly as found');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
 it('a genuine post-install status-parity mismatch rolls back every touched destination exactly once', function () {
     $scratch = installOpsScratchDir();
 

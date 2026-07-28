@@ -99,9 +99,9 @@ Validates the six source files (exist, regular, not a symlink), runs
 runs the *committed* `targets` CLI against the *committed* registry and
 confirms it both validates and lists `staging-main` as `active`/`staging` and
 `tits-guru` as `planned`/`production`, and confirms every required host tool
-is present (`bash`, `jq`, `curl`, `install`, `stat`, `cmp`, `mv`, `cp`,
-`mktemp`, `readlink`, `tail`, `env`, `find`, `sort`, `cut`, `sed`, `rm`,
-`flock` — the last six for `cleanup`). Makes no changes anywhere. Safe to run
+is present (`bash`, `jq`, `curl`, `install`, `stat`, `cmp`, `diff`, `awk`,
+`mv`, `cp`, `mktemp`, `readlink`, `tail`, `env`, `find`, `sort`, `cut`, `sed`,
+`rm`, `flock` — the last six for `cleanup`). Makes no changes anywhere. Safe to run
 from a laptop checkout, in CI, or on the VPS before ever touching it as root.
 
 ### `--apply` — requires root, transactional
