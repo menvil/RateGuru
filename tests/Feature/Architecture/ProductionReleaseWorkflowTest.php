@@ -87,6 +87,12 @@ it('pins every external release action to a commit SHA', function () {
     }
 });
 
+it('does not gate deployments on an external social preview fixture', function () {
+    foreach ([$this->stagingSteps, $this->productionSteps] as $deploymentSteps) {
+        expect($deploymentSteps->has('Verify social preview as external crawler'))->toBeFalse();
+    }
+});
+
 it('retains required production release script safeguards', function () {
     expect($this->releaseWorkflowSource)
         ->toContain("tag_regex='^v([0-9]+)\\.([0-9]+)\\.([0-9]+)")

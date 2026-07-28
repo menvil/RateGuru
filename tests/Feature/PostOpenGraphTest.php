@@ -12,7 +12,7 @@ it('renders open graph image for post show page', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('<meta property="og:image"', false)
-        ->assertSee('https://rateguru.test/images/og/rateguru-post-placeholder.svg', false);
+        ->assertSee('https://rateguru.test/images/og/rateguru-post-placeholder.png', false);
 });
 
 it('uses post image as open graph image when available', function () {
@@ -36,7 +36,8 @@ it('renders open graph title for post show page', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('<meta property="og:title" content="Best Pasta in Sofia · RateGuru">', false);
+        ->assertSee('<meta property="og:title" content="Best Pasta in Sofia">', false)
+        ->assertSee('<meta property="og:site_name" content="RateGuru">', false);
 });
 
 it('escapes open graph title content', function () {
@@ -47,8 +48,8 @@ it('escapes open graph title content', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertDontSee('<script>alert', false)
-        ->assertSee('Pasta &quot;Special&quot; &lt;script&gt; · RateGuru', false)
-        ->assertSee('content="Pasta &quot;Special&quot; &lt;script&gt; · RateGuru"', false);
+        ->assertSee('content="Pasta &quot;Special&quot; &lt;script&gt;"', false)
+        ->assertDontSee('content="Pasta &quot;Special&quot; &lt;script&gt; · RateGuru"', false);
 });
 
 it('renders open graph description for post show page', function () {

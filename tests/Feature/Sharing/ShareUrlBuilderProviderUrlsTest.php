@@ -8,6 +8,7 @@ function providerMetadata(bool $withImage = true): ShareMetadata
 {
     return new ShareMetadata(
         title: 'My Post Title With Special & Chars',
+        shareText: 'Share this payload, not the title',
         description: 'A full description of the post.',
         url: 'https://rateguru.test/posts/42',
         imageUrl: $withImage ? 'https://rateguru.test/storage/posts/img.jpg' : null,
@@ -21,12 +22,12 @@ it('url-encodes the post url in facebook share url', function () {
     expect($url)->toContain(urlencode('https://rateguru.test/posts/42'));
 });
 
-it('x share url contains encoded url and title', function () {
+it('x share url contains encoded url and share text', function () {
     $url = app(ShareUrlBuilder::class)->build(ShareProvider::X, providerMetadata());
 
     expect($url)->toStartWith('https://twitter.com/intent/tweet');
     expect($url)->toContain('rateguru.test');
-    expect($url)->toContain('My+Post+Title');
+    expect($url)->toContain(urlencode('Share this payload, not the title'));
 });
 
 it('telegram share url contains encoded url and text', function () {
@@ -34,6 +35,7 @@ it('telegram share url contains encoded url and text', function () {
 
     expect($url)->toStartWith('https://t.me/share/url');
     expect($url)->toContain('rateguru.test');
+    expect($url)->toContain(urlencode('Share this payload, not the title'));
 });
 
 it('whatsapp share url contains encoded text and url', function () {
@@ -41,6 +43,7 @@ it('whatsapp share url contains encoded text and url', function () {
 
     expect($url)->toStartWith('https://wa.me/');
     expect($url)->toContain('rateguru.test');
+    expect($url)->toContain(urlencode('Share this payload, not the title'));
 });
 
 it('reddit share url contains encoded url and title', function () {

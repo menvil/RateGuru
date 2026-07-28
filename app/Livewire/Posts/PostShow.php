@@ -78,13 +78,16 @@ final class PostShow extends Component
     {
         $post = $this->post;
         $openGraph = app(PostOpenGraph::class);
+        $ogImage = $openGraph->image($post);
         $user = auth()->user();
 
         return view('livewire.posts.post-show', [
             'ogDescription' => $openGraph->description($post),
-            'ogImage' => $openGraph->image($post),
+            'ogImage' => $ogImage,
+            'ogLocale' => $openGraph->locale(),
+            'ogSiteName' => $openGraph->siteName(),
             'ogTitle' => $openGraph->title($post),
-            'ogHasImage' => trim((string) $post->public_image_url) !== '',
+            'pageTitle' => $openGraph->title($post).' · '.$openGraph->siteName(),
             'post' => $post,
             'activeRatingGroups' => $configuration->activeGroups(),
             'projectSettings' => $projectSettings,

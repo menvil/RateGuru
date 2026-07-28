@@ -2,7 +2,6 @@
     'provider',
     'url',
     'label',
-    'postUrl' => '#',
 ])
 
 @php
@@ -22,8 +21,7 @@
 @endphp
 
 <a
-    href="{{ $postUrl }}"
-    @click.prevent="window.open({{ \Illuminate\Support\Js::from($url) }}, '_blank', 'noopener,noreferrer')"
+    href="{{ $url }}"
     target="_blank"
     rel="noopener noreferrer"
     title="{{ $label }}"

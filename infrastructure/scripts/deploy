@@ -88,6 +88,7 @@ ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
 RUNTIME_USER="$(environment_runtime_user "${ENVIRONMENT}")"
 CODE_GROUP="$(environment_code_group "${ENVIRONMENT}")"
 DEPLOY_ACCOUNT="$(environment_deploy_user "${ENVIRONMENT}")"
+PUBLIC_HOSTNAME="$(environment_public_hostname "${ENVIRONMENT}")"
 INCOMING_ROOT="$(readlink -f "$(environment_incoming_artifacts "${ENVIRONMENT}")")"
 
 case "${ARTIFACT}" in
@@ -431,6 +432,11 @@ if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
         runuser \
             -u "${RUNTIME_USER}" \
             -- "${PHP_BIN}" artisan config:cache
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan rateguru:sharing:verify \
+                --expected-host="${PUBLIC_HOSTNAME}"
 
         runuser \
             -u "${RUNTIME_USER}" \

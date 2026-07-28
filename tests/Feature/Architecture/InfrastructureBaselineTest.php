@@ -90,6 +90,20 @@ it('keeps deployment failure recovery active until terminal history is written',
         ->and(substr_count($deploy, 'trap - EXIT'))->toBe(1);
 });
 
+it('blocks deployment when sharing urls do not match the public hostname', function () {
+    $common = infrastructureSource('scripts/common');
+    $deploy = infrastructureSource('scripts/deploy');
+
+    expect($common)
+        ->toContain('environment_public_hostname()')
+        ->toContain('"rateguru.staging.myprojects.pp.ua"')
+        ->toContain('"tits.guru"')
+        ->and($deploy)
+        ->toContain('PUBLIC_HOSTNAME="$(environment_public_hostname "${ENVIRONMENT}")"')
+        ->toContain('artisan rateguru:sharing:verify')
+        ->toContain('--expected-host="${PUBLIC_HOSTNAME}"');
+});
+
 it('normalizes release permissions while preserving the executable bit', function () {
     $deploy = infrastructureSource('scripts/deploy');
 

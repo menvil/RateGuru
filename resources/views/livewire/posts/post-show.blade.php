@@ -1,19 +1,34 @@
-@section('title', $ogTitle)
+@section('title', $pageTitle)
 
 @push('meta')
     <link rel="canonical" href="{{ canonical_post_url($post) }}">
     <meta property="og:type" content="article">
     <meta property="og:title" content="{{ $ogTitle }}">
+    <meta property="og:site_name" content="{{ $ogSiteName }}">
+    <meta property="og:locale" content="{{ $ogLocale }}">
     <meta property="og:description" content="{{ $ogDescription }}">
     <meta property="og:url" content="{{ canonical_post_url($post) }}">
-    <meta property="og:image" content="{{ $ogImage }}">
-    <meta property="og:image:secure_url" content="{{ $ogImage }}">
+    <meta property="og:image" content="{{ $ogImage->url }}">
+    @if($ogImage->secureUrl() !== null)
+        <meta property="og:image:secure_url" content="{{ $ogImage->secureUrl() }}">
+    @endif
+    @if($ogImage->mimeType !== null)
+        <meta property="og:image:type" content="{{ $ogImage->mimeType }}">
+    @endif
+    @if($ogImage->width !== null)
+        <meta property="og:image:width" content="{{ $ogImage->width }}">
+    @endif
+    @if($ogImage->height !== null)
+        <meta property="og:image:height" content="{{ $ogImage->height }}">
+    @endif
+    <meta property="og:image:alt" content="{{ $ogImage->alt }}">
     <meta name="description" content="{{ $ogDescription }}">
-    <meta name="twitter:card" content="{{ $ogHasImage ? 'summary_large_image' : 'summary' }}">
+    <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="{{ $ogTitle }}">
     <meta name="twitter:description" content="{{ $ogDescription }}">
-    <meta name="twitter:image" content="{{ $ogImage }}">
-    <meta name="twitter:image:src" content="{{ $ogImage }}">
+    <meta name="twitter:image" content="{{ $ogImage->url }}">
+    <meta name="twitter:image:src" content="{{ $ogImage->url }}">
+    <meta name="twitter:image:alt" content="{{ $ogImage->alt }}">
 @endpush
 
 <div
