@@ -453,10 +453,85 @@ SH;
 }
 
 /**
+ * A self-contained stub `cleanup`: understands --environment/--target plus
+ * --dry-run/--apply (ignored), rejects tits-guru the way the real script
+ * does by default, and prints a configurable, fixed set of "DRY RUN would
+ * delete: ..." lines per selector — defaulting to none, so both modes agree
+ * trivially unless a test deliberately gives them different sets. Mirrors
+ * installOpsHealthCheckStub()'s shape and options exactly.
+ *
+ * @param  list<string>  $envCandidates
+ * @param  ?list<string>  $targetCandidates  defaults to $envCandidates when null
+ */
+function installOpsCleanupStub(
+    ?string $failStagingAtPath = null,
+    string $titsGuru = 'reject',
+    array $envCandidates = [],
+    ?array $targetCandidates = null,
+): string {
+    $targetCandidates ??= $envCandidates;
+
+    $titsGuruClause = match ($titsGuru) {
+        'unexpected-success' => 'printf "tits-guru reachable (test stub)\n"; exit 0',
+        'wrong-reason' => 'printf "some unrelated stub failure\n" >&2; exit 1',
+        default => 'printf "ERROR: target tits-guru has lifecycle=planned, not active\n" >&2; exit 1',
+    };
+
+    $failClause = $failStagingAtPath !== null
+        ? 'if [[ "$0" == '.escapeshellarg($failStagingAtPath).' ]]; then printf "forced staging failure (test)\n" >&2; exit 1; fi'
+        : ':';
+
+    $renderCandidates = fn (array $ids): string => implode("\n", array_map(
+        fn (string $id) => "printf 'DRY RUN would delete: {$id}\\n'",
+        $ids,
+    ));
+
+    $envLines = $renderCandidates($envCandidates);
+    $targetLines = $renderCandidates($targetCandidates);
+
+    return <<<SH
+#!/usr/bin/env bash
+set -uo pipefail
+target=""
+environment=""
+while [[ \$# -gt 0 ]]; do
+    case "\$1" in
+        --target) target="\$2"; shift 2 ;;
+        --environment) environment="\$2"; shift 2 ;;
+        --dry-run|--apply) shift ;;
+        *) shift ;;
+    esac
+done
+
+if [[ "\$target" == "tits-guru" ]]; then
+    {$titsGuruClause}
+fi
+
+if [[ "\$target" == "staging-main" ]]; then
+    {$targetLines}
+    printf 'cleanup dry run finished (stub, target)\\n'
+    exit 0
+fi
+
+if [[ "\$environment" == "staging" ]]; then
+    {$failClause}
+    {$envLines}
+    printf 'cleanup dry run finished (stub, environment)\\n'
+    exit 0
+fi
+
+printf 'unrecognized selector in cleanup stub\\n' >&2
+exit 1
+
+SH;
+}
+
+/**
  * The standard scratch layout for a full perform_apply/perform_verify
  * integration test: real registry/targets/common (targets is fully
- * standalone; common is never sourced by the stub health-check/status, only
- * bash -n'd), self-contained stub health-check/status as the *candidates*.
+ * standalone; common is never sourced by the stub health-check/status/
+ * cleanup, only bash -n'd), self-contained stub health-check/status/cleanup
+ * as the *candidates*.
  *
  * INSTALL_OWNER/GROUP are the current process's own euid/egid, explicitly
  * applied (chown/chgrp — always permitted onto one's own identity, even
@@ -470,10 +545,15 @@ SH;
  *
  * @return array<string, string>
  */
-function installOpsBaseVars(string $scratch, ?string $healthCheckStub = null, ?string $statusStub = null): array
-{
+function installOpsBaseVars(
+    string $scratch,
+    ?string $healthCheckStub = null,
+    ?string $statusStub = null,
+    ?string $cleanupStub = null,
+): array {
     installOpsWriteExecutable($scratch.'/src/health-check', $healthCheckStub ?? installOpsHealthCheckStub());
     installOpsWriteExecutable($scratch.'/src/status', $statusStub ?? installOpsStatusStub());
+    installOpsWriteExecutable($scratch.'/src/cleanup', $cleanupStub ?? installOpsCleanupStub());
 
     $ownerId = (string) getmyuid();
     $groupId = (string) getmygid();
@@ -497,6 +577,7 @@ function installOpsBaseVars(string $scratch, ?string $healthCheckStub = null, ?s
         'SRC_COMMON' => base_path('infrastructure/scripts/common'),
         'SRC_HEALTH_CHECK' => $scratch.'/src/health-check',
         'SRC_STATUS' => $scratch.'/src/status',
+        'SRC_CLEANUP' => $scratch.'/src/cleanup',
         'DST_CONFIG_ROOT' => $scratch.'/dst-config',
         'DST_BIN_ROOT' => $scratch.'/dst-bin',
         'DST_REGISTRY' => $scratch.'/dst-config/deployment-targets.json',
@@ -504,10 +585,12 @@ function installOpsBaseVars(string $scratch, ?string $healthCheckStub = null, ?s
         'DST_COMMON' => $scratch.'/dst-bin/common',
         'DST_HEALTH_CHECK' => $scratch.'/dst-bin/health-check',
         'DST_STATUS' => $scratch.'/dst-bin/status',
+        'DST_CLEANUP' => $scratch.'/dst-bin/cleanup',
         'DEPLOYMENT_CONF' => $confPath,
         'BACKUP_ROOT' => $scratch.'/backups',
         'REGISTRY_MODE' => '0640',
-        'SCRIPT_MODE' => '0755',
+        'COMMON_MODE' => '0644',
+        'CLI_MODE' => '0755',
         'INSTALL_OWNER' => $ownerId,
         'INSTALL_GROUP' => $groupId,
         'INSTALL_OWNER_ID' => $ownerId,
@@ -546,12 +629,12 @@ it('passes bash -n syntax check on the installer', function () {
 it('keeps every destination a fixed, hardcoded constant — never env- or CLI-overridable', function () {
     $source = installOpsSource();
 
-    // DST_CONFIG_ROOT/DST_BIN_ROOT are plain literals; the five destination
+    // DST_CONFIG_ROOT/DST_BIN_ROOT are plain literals; the six destination
     // paths compose from those two (e.g. "${DST_CONFIG_ROOT}/..."), which is
     // fine — it's still built entirely from fixed constants. What must never
     // appear is a fallback to an environment variable (":-"/":+") or a read
     // of anything RATEGURU_*-shaped.
-    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS'] as $name) {
+    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP'] as $name) {
         // preg_match alone only proves "at least one match" — it stops at
         // the first hit, so a second, later (and possibly unsafe)
         // assignment to the same name — the one bash would actually use at
@@ -592,7 +675,7 @@ it('never sources common or deployment.conf itself', function () {
     }
 });
 
-it('documents exactly the five files it owns, and what it does not touch, in the runbook', function () {
+it('documents exactly the six files it owns, and what it does not touch, in the runbook', function () {
     $runbook = File::get(base_path('infrastructure/runbooks/install-target-operations.md'));
 
     expect($runbook)
@@ -606,11 +689,13 @@ it('documents exactly the five files it owns, and what it does not touch, in the
         ->toContain('/home/www/rateguru/bin/health-check')
         ->toContain('infrastructure/scripts/status')
         ->toContain('/home/www/rateguru/bin/status')
+        ->toContain('infrastructure/scripts/cleanup')
+        ->toContain('/home/www/rateguru/bin/cleanup')
         ->toContain('fixed, hardcoded constants')
         ->toContain('/home/www/rateguru/config/deployment.conf')
-        ->toContain('deploy`, `rollback`, `cleanup`')
+        ->toContain('deploy`, `rollback`')
         ->toContain('Why tits-guru remains planned')
-        ->toContain('Why no deploy/rollback/cleanup/backup script is changed');
+        ->toContain('Why no deploy/rollback/backup script is changed');
 });
 
 it('documents backup location, rollback behaviour and manual restore in the runbook', function () {
@@ -678,9 +763,9 @@ it('--check succeeds read-only against the real repository, with no root require
 
     expect($exit)->toBe(0, $output);
     expect($output)
-        ->toContain('all five source files are present regular files')
-        ->toContain('install-target-operations, targets, health-check and status are all executable')
-        ->toContain('bash -n passed for all four source shell scripts')
+        ->toContain('all six source files are present regular files')
+        ->toContain('install-target-operations, targets, health-check, status and cleanup are all executable')
+        ->toContain('bash -n passed for all five source shell scripts')
         ->toContain('source registry is valid JSON')
         ->toContain('required host tools present')
         ->toContain('check passed');
@@ -696,12 +781,12 @@ it('--check succeeds read-only against the real repository, with no root require
 // =============================================================================
 
 /**
- * @return array<string, string> SRC_* overrides: four executable dummy CLI
+ * @return array<string, string> SRC_* overrides: five executable dummy CLI
  *                               files plus one non-executable common.
  */
 function installOpsExecutableModeVars(string $scratch): array
 {
-    foreach (['self', 'targets', 'health-check', 'status'] as $name) {
+    foreach (['self', 'targets', 'health-check', 'status', 'cleanup'] as $name) {
         installOpsWriteExecutable("{$scratch}/{$name}", "#!/usr/bin/env bash\nexit 0\n");
     }
 
@@ -714,11 +799,12 @@ function installOpsExecutableModeVars(string $scratch): array
         'SRC_TARGETS' => "{$scratch}/targets",
         'SRC_HEALTH_CHECK' => "{$scratch}/health-check",
         'SRC_STATUS' => "{$scratch}/status",
+        'SRC_CLEANUP' => "{$scratch}/cleanup",
         'SRC_COMMON' => $commonPath,
     ];
 }
 
-it('validate_source_executable_modes passes when self, targets, health-check and status are all executable', function () {
+it('validate_source_executable_modes passes when self, targets, health-check, status and cleanup are all executable', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -727,7 +813,7 @@ it('validate_source_executable_modes passes when self, targets, health-check and
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_executable_modes');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('install-target-operations, targets, health-check and status are all executable');
+        expect($output)->toContain('install-target-operations, targets, health-check, status and cleanup are all executable');
     } finally {
         installOpsCleanup($scratch);
     }
@@ -749,7 +835,7 @@ it('validate_source_executable_modes does not require common to be executable', 
 });
 
 it('validate_source_executable_modes fails, naming the specific file, for each required CLI', function () {
-    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS'] as $key) {
+    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS', 'SRC_CLEANUP'] as $key) {
         $scratch = installOpsScratchDir();
 
         try {
@@ -1327,13 +1413,85 @@ it('verify_planned_target_rejected fails when the rejection happens for the wron
 });
 
 // =============================================================================
+// Phase 4 slice 4: verify_cleanup_dry_run_parity / verify_cleanup_planned_
+// target_rejected — the runtime-verification-block additions for cleanup.
+// =============================================================================
+
+it('verify_cleanup_dry_run_parity passes when target and legacy candidate sets match', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch, null, null, installOpsCleanupStub(envCandidates: ['v1.0.0-20260101-000000-abc1234']));
+        $vars['DST_CLEANUP'] = $vars['SRC_CLEANUP'];
+
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_cleanup_dry_run_parity');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('dry-run candidate parity: OK');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('verify_cleanup_dry_run_parity fails when target and legacy candidate sets differ', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch, null, null, installOpsCleanupStub(
+            envCandidates: ['v1.0.0-20260101-000000-abc1234'],
+            targetCandidates: ['v2.0.0-20260202-000000-def5678'],
+        ));
+        $vars['DST_CLEANUP'] = $vars['SRC_CLEANUP'];
+
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_cleanup_dry_run_parity');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('candidate parity mismatch');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('verify_cleanup_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch, null, null, installOpsCleanupStub(titsGuru: 'unexpected-success'));
+        $vars['DST_CLEANUP'] = $vars['SRC_CLEANUP'];
+
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_cleanup_planned_target_rejected');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('unexpectedly succeeded');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('verify_cleanup_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch, null, null, installOpsCleanupStub(titsGuru: 'wrong-reason'));
+        $vars['DST_CLEANUP'] = $vars['SRC_CLEANUP'];
+
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_cleanup_planned_target_rejected');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('failed for the wrong reason');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
 // Full perform_apply / perform_verify integration: the whole functions
 // section sourced with SRC_*/DST_*/BACKUP_ROOT/INSTALL_* reassigned to
 // scratch paths, self-contained stub health-check/status as the candidates,
 // the real registry/targets/common otherwise.
 // =============================================================================
 
-it('a successful apply installs all five files with correct ownership, mode and content, and creates a timestamped backup', function () {
+it('a successful apply installs all six files with correct ownership, mode and content, and creates a timestamped backup', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -1351,9 +1509,12 @@ it('a successful apply installs all five files with correct ownership, mode and 
         foreach ([
             ['DST_REGISTRY', 'SRC_REGISTRY', '0640'],
             ['DST_TARGETS', 'SRC_TARGETS', '0755'],
-            ['DST_COMMON', 'SRC_COMMON', '0755'],
+            // common is a sourced library, never a CLI — 0644, not 0755, and
+            // (checked separately below) never executable.
+            ['DST_COMMON', 'SRC_COMMON', '0644'],
             ['DST_HEALTH_CHECK', 'SRC_HEALTH_CHECK', '0755'],
             ['DST_STATUS', 'SRC_STATUS', '0755'],
+            ['DST_CLEANUP', 'SRC_CLEANUP', '0755'],
         ] as [$dstKey, $srcKey, $mode]) {
             $dst = $vars[$dstKey];
             expect(file_exists($dst))->toBeTrue("{$dstKey} must exist");
@@ -1361,6 +1522,8 @@ it('a successful apply installs all five files with correct ownership, mode and 
             expect(file_get_contents($dst))->toBe(file_get_contents($vars[$srcKey]));
             expect(substr(sprintf('%o', fileperms($dst)), -4))->toBe($mode);
         }
+
+        expect(is_executable($vars['DST_COMMON']))->toBeFalse('installed common must not be executable');
 
         $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
         expect($backups)->not->toBeEmpty('apply must create a timestamped backup directory');
@@ -1370,6 +1533,66 @@ it('a successful apply installs all five files with correct ownership, mode and 
         // they were found.
         expect(installOpsStatDir($vars['DST_CONFIG_ROOT']))->toBe($configDirBefore);
         expect(installOpsStatDir($vars['DST_BIN_ROOT']))->toBe($binDirBefore);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// common's corrected 0755 -> 0644 mode: a regression test for the real
+// existing-state upgrade (an already-installed, executable common from
+// before this fix), and for rollback restoring that exact prior 0755 state
+// when a later step fails.
+// =============================================================================
+
+it('upgrades a pre-existing executable (0755) common to 0644, and runtime parity still passes', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyLegacyHealthCheck($vars);
+
+        // Simulates the real state this fix corrects: common installed
+        // executable, the contract before this MR.
+        installOpsWriteExecutable($vars['DST_COMMON'], "#!/usr/bin/env bash\nOLD COMMON CONTENT (0755)\n");
+        expect(is_executable($vars['DST_COMMON']))->toBeTrue('fixture setup: common must start executable');
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('apply complete');
+
+        clearstatcache(true, $vars['DST_COMMON']);
+        expect(substr(sprintf('%o', fileperms($vars['DST_COMMON'])), -4))->toBe('0644');
+        expect(is_executable($vars['DST_COMMON']))->toBeFalse('common must no longer be executable after apply');
+        expect(file_get_contents($vars['DST_COMMON']))->toBe(file_get_contents($vars['SRC_COMMON']));
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('rolls back common to its exact previous 0755 mode and content when a later verification step fails', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        // A genuine post-install status-parity mismatch, forcing rollback
+        // after common has already been re-installed at 0644.
+        $vars = installOpsBaseVars($scratch, null, installOpsStatusStub(legacyHistory: '{"release": "DIFFERENT"}'));
+        installOpsPlaceHealthyLegacyHealthCheck($vars);
+
+        $oldCommonContent = "#!/usr/bin/env bash\nOLD COMMON CONTENT (0755)\n";
+        installOpsWriteExecutable($vars['DST_COMMON'], $oldCommonContent);
+        expect(is_executable($vars['DST_COMMON']))->toBeTrue('fixture setup: common must start executable at 0755');
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('rollback complete: previous files restored');
+
+        clearstatcache(true, $vars['DST_COMMON']);
+        expect(file_get_contents($vars['DST_COMMON']))->toBe($oldCommonContent, 'common content must be restored exactly');
+        expect(substr(sprintf('%o', fileperms($vars['DST_COMMON'])), -4))->toBe('0755', 'common mode must be restored to its exact previous 0755');
+        expect(is_executable($vars['DST_COMMON']))->toBeTrue('common must be restored to executable, matching its pre-existing state');
     } finally {
         installOpsCleanup($scratch);
     }
@@ -1389,7 +1612,7 @@ it('apply is idempotent: running it again succeeds and leaves the same correct f
         expect($exit2)->toBe(0, $out2);
         expect($out2)->toContain('apply complete');
 
-        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS'] as $key) {
+        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP'] as $key) {
             expect(file_exists($vars[$key]))->toBeTrue();
         }
 
@@ -1411,7 +1634,7 @@ it('verify passes against a successfully installed set and makes no filesystem c
         expect($applyExit)->toBe(0, $applyOut);
 
         $before = [];
-        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS'] as $key) {
+        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP'] as $key) {
             clearstatcache(true, $vars[$key]);
             $before[$key] = [filemtime($vars[$key]), md5_file($vars[$key])];
         }
@@ -1422,7 +1645,7 @@ it('verify passes against a successfully installed set and makes no filesystem c
         expect($verifyExit)->toBe(0, $verifyOut);
         expect($verifyOut)->toContain('PASS: installed files and runtime behaviour verified');
 
-        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS'] as $key) {
+        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP'] as $key) {
             clearstatcache(true, $vars[$key]);
             expect([filemtime($vars[$key]), md5_file($vars[$key])])->toBe($before[$key], "{$key} must be unchanged by --verify");
         }
@@ -1445,7 +1668,7 @@ it('a failing legacy preflight check changes no destination file', function () {
         installOpsWriteExecutable($vars['DST_HEALTH_CHECK'], "#!/usr/bin/env bash\nexit 1\n");
 
         $sentinels = [];
-        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_STATUS'] as $key) {
+        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_STATUS', 'DST_CLEANUP'] as $key) {
             $sentinels[$key] = "OLD SENTINEL: {$key}\n";
             file_put_contents($vars[$key], $sentinels[$key]);
         }
@@ -1488,7 +1711,7 @@ it('a failing staged candidate check changes no destination file', function () {
         installOpsPlaceHealthyLegacyHealthCheck($vars);
 
         $sentinels = [];
-        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_STATUS'] as $key) {
+        foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_STATUS', 'DST_CLEANUP'] as $key) {
             $sentinels[$key] = "OLD SENTINEL: {$key}\n";
             file_put_contents($vars[$key], $sentinels[$key]);
         }
@@ -1521,8 +1744,8 @@ it('a post-install runtime-parity failure rolls back every touched destination: 
         installOpsWriteExecutable($vars['SRC_HEALTH_CHECK'], $failingCandidate);
         installOpsPlaceHealthyLegacyHealthCheck($vars);
 
-        // registry/targets/common pre-exist (restore path); status does not
-        // (remove path).
+        // registry/targets/common pre-exist (restore path); status and
+        // cleanup do not (remove path).
         $oldContent = [
             'DST_REGISTRY' => "OLD registry\n",
             'DST_TARGETS' => "OLD targets\n",
@@ -1532,6 +1755,7 @@ it('a post-install runtime-parity failure rolls back every touched destination: 
             file_put_contents($vars[$key], $content);
         }
         expect(file_exists($vars['DST_STATUS']))->toBeFalse();
+        expect(file_exists($vars['DST_CLEANUP']))->toBeFalse();
         $healthCheckBefore = file_get_contents($vars['DST_HEALTH_CHECK']);
         $configDirBefore = installOpsStatDir($vars['DST_CONFIG_ROOT']);
         $binDirBefore = installOpsStatDir($vars['DST_BIN_ROOT']);
@@ -1548,6 +1772,7 @@ it('a post-install runtime-parity failure rolls back every touched destination: 
         }
         expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore, 'health-check must be restored to its previous content');
         expect(file_exists($vars['DST_STATUS']))->toBeFalse('status must be removed — it did not exist before this run');
+        expect(file_exists($vars['DST_CLEANUP']))->toBeFalse('cleanup must be removed — it did not exist before this run');
 
         expect(installOpsStatDir($vars['DST_CONFIG_ROOT']))->toBe($configDirBefore, 'a rollback must leave the containing directory exactly as found');
         expect(installOpsStatDir($vars['DST_BIN_ROOT']))->toBe($binDirBefore, 'a rollback must leave the containing directory exactly as found');
@@ -1577,6 +1802,7 @@ it('a genuine post-install status-parity mismatch rolls back every touched desti
             file_put_contents($vars[$key], $content);
         }
         expect(file_exists($vars['DST_STATUS']))->toBeFalse();
+        expect(file_exists($vars['DST_CLEANUP']))->toBeFalse();
         $configDirBefore = installOpsStatDir($vars['DST_CONFIG_ROOT']);
         $binDirBefore = installOpsStatDir($vars['DST_BIN_ROOT']);
 
@@ -1601,6 +1827,7 @@ it('a genuine post-install status-parity mismatch rolls back every touched desti
         }
         expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore, 'health-check must be restored to its previous content');
         expect(file_exists($vars['DST_STATUS']))->toBeFalse('status must be removed — it did not exist before this run');
+        expect(file_exists($vars['DST_CLEANUP']))->toBeFalse('cleanup must be removed — it did not exist before this run');
 
         expect(installOpsStatDir($vars['DST_CONFIG_ROOT']))->toBe($configDirBefore);
         expect(installOpsStatDir($vars['DST_BIN_ROOT']))->toBe($binDirBefore);
@@ -1827,6 +2054,7 @@ it('a genuine failure inside an ordinary command substitution after installation
             file_put_contents($vars[$key], $content);
         }
         expect(file_exists($vars['DST_STATUS']))->toBeFalse();
+        expect(file_exists($vars['DST_CLEANUP']))->toBeFalse();
         $healthCheckBefore = file_get_contents($vars['DST_HEALTH_CHECK']);
 
         // log()'s own text is *not* a reliable signal on its own: when the
@@ -1861,6 +2089,7 @@ it('a genuine failure inside an ordinary command substitution after installation
         }
         expect(file_get_contents($vars['DST_HEALTH_CHECK']))->toBe($healthCheckBefore);
         expect(file_exists($vars['DST_STATUS']))->toBeFalse('status must be removed — it did not exist before this run');
+        expect(file_exists($vars['DST_CLEANUP']))->toBeFalse('cleanup must be removed — it did not exist before this run');
     } finally {
         installOpsCleanup($scratch);
     }

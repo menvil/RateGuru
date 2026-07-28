@@ -321,19 +321,24 @@ true across every slice below, installed or not.
 
 ### What is deliberately still legacy-only
 
-`deploy`, `rollback`, `cleanup`, and the backup family are untouched by this
-slice or the next — they still accept only `--environment`. See the migration
-sequence below.
+`deploy`, `rollback`, and the backup family are untouched by this slice or the
+next — they still accept only `--environment`. `cleanup` graduated to
+target-awareness in slice 4; see
+[Target-aware cleanup](#target-aware-cleanup-slice-4-current) below and the
+migration sequence.
 
 ## Installing on the VPS (slice 2b)
 
 Slice 2 changed only files in this repository — nothing was installed on the
 VPS, and the current deploy workflow kept running
 `health-check --environment staging` exactly as before, unaffected. This slice
-adds `infrastructure/scripts/install-target-operations`, which installs
-**only** the read-only subset onto the real host: the registry and the four
-read-only scripts (`targets`, `common`, `health-check`, `status`) — nothing
-that writes to a target's filesystem, database, or running service state.
+adds `infrastructure/scripts/install-target-operations`, which at the time
+installed **only** the read-only subset onto the real host: the registry and
+the four read-only scripts (`targets`, `common`, `health-check`, `status`) —
+nothing that writes to a target's filesystem, database, or running service
+state. Slice 4 (below) later expands the same installer to also manage
+`cleanup` — the installer itself, and this section's description of what it
+does, evolve together; see slice 4 for the current scope.
 
 Full detail — modes, ownership/mode requirements, backup and rollback
 behaviour, manual recovery, expected server commands — is in
@@ -349,9 +354,73 @@ behaviour, manual recovery, expected server commands — is in
   whatever is currently installed, with no changes and no backup.
 
 Installing this tooling does not provision `tits-guru` and does not touch
-`deploy`, `rollback`, `cleanup`, any backup script, workflows, sudoers, or
-server wrappers — see the two subsections above, which hold regardless of
-whether this slice has run on the VPS yet.
+`deploy`, `rollback`, any backup script, workflows, sudoers, or server
+wrappers — see the two subsections above, which hold regardless of whether
+this slice has run on the VPS yet.
+
+## Target-aware cleanup (slice 4, current)
+
+`cleanup` now accepts the same selector contract as `health-check` and
+`status`:
+
+```bash
+cleanup --target staging-main [--keep NUMBER] [--dry-run|--apply]
+cleanup --environment staging [--keep NUMBER] [--dry-run|--apply]
+```
+
+Omitting both `--dry-run` and `--apply` performs a dry run — this is the
+existing, preserved default. `--dry-run` is a new, readable alias for that
+same default; `--apply` is required to actually delete anything. `--target`
+and `--environment` are mutually exclusive, exactly one is required, and
+`--dry-run`/`--apply` are mutually exclusive with each other. Default
+retention is derived from the target's `environment_class` through the same
+`environment_release_retention` lookup legacy mode already used
+(`STAGING_RELEASE_RETENTION`/`PRODUCTION_RELEASE_RETENTION`), so
+`--target staging-main` and `--environment staging` resolve the identical
+default `--keep` — proven by dedicated legacy/target dry-run parity tests, not
+merely asserted.
+
+`require_active_target` gates target mode exactly as it does for
+`health-check`/`status`: a planned target (`tits-guru`) is rejected — clearly
+naming its lifecycle — before any lock is acquired, any path is scanned, or
+`pinned-releases`/history is touched.
+
+### Dry-run is genuinely side-effect free
+
+Earlier `cleanup` always touched and `chmod`'d `deployments/pinned-releases`
+and acquired the deployment lock, even without `--apply`. This is fixed:
+dry-run now acquires no lock, creates no lock file, never creates or modifies
+`pinned-releases` (a missing one is treated as empty), never appends
+deployment history, and never invokes `rm`. Retention, protection
+(current/previous/pinned releases are never candidates), and
+candidate-selection semantics are otherwise unchanged from the prior
+implementation.
+
+### Apply mode: locking, recomputation, and path safety
+
+`--apply` requires root, acquires the same exclusive deployment lock
+`deploy`/`rollback` use, and only *then* computes the candidate set — never
+before the lock, and never reused stale afterward. Every deletion candidate is
+validated by canonical containment under the releases root (`readlink -f`
+comparison, not a string prefix) both when first selected and again
+immediately before deletion; a release-looking symlink, or any object that
+isn't a real, non-symlink directory, fails the whole run closed rather than
+being silently skipped or deleted. Deletion stops on the first failure, and
+`release-cleaned` history is appended only after a real, successful deletion.
+
+### The `pinned-releases` ownership contract
+
+Before this slice, `pinned-releases` (like `deployments/history.jsonl` and the
+deployment lock file) had no explicit ownership contract anywhere in this
+repository: it simply inherited whatever identity the invoking process
+happened to have, which was `root:root` in practice only because `cleanup` is
+invoked exclusively via `infrastructure/config/sudoers/rateguru-deploy` as
+`(root)`. `cleanup` now makes this explicit: when apply mode creates a missing
+`pinned-releases`, it installs it `root:root 0640` — the same contract already
+enforced for `deployment.conf` and the target registry — via a single
+`install -o root -g root -m 0640` call, never a bare `touch`+`chmod`. A
+pre-existing `pinned-releases` file, valid or not, is never touched — content,
+mode, and mtime all survive a `cleanup --apply` run byte-for-byte.
 
 ## Compatibility with the current --environment interface
 
@@ -382,17 +451,23 @@ confirming both still succeed.
    `--target` alongside `--environment`, gated to `lifecycle=active` targets
    only. *(completed — see the section above)*
 3. **Install and verify read-only operations** — a transactional installer
-   places the registry and the four read-only scripts on the staging VPS and
-   proves runtime parity against the real host. *(in progress — see
+   places the registry and the read-only scripts on the staging VPS and
+   proves runtime parity against the real host. *(completed and accepted on
+   the real staging VPS — see
    [Installing on the VPS](#installing-on-the-vps-slice-2b) above and
    [`install-target-operations.md`](install-target-operations.md))*
-4. **Deploy path** — `deploy`, `rollback`, `cleanup` accept `--target`.
-5. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
+4. **Target-aware cleanup** — `cleanup` accepts `--target` alongside
+   `--environment`, dry-run is genuinely side-effect free, and the installer
+   now manages it transactionally too. *(current — see
+   [Target-aware cleanup](#target-aware-cleanup-slice-4-current) above)*
+5. **Target-aware deploy** — `deploy` accepts `--target`.
+6. **Target-aware rollback** — `rollback` accepts `--target`.
+7. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
    `offsite-retention`, `restore-test`, `offsite-restore-test`, preserving the
    existing `staging` backup namespace so no existing local or B2 path moves.
-6. **Perimeter** — GitHub Actions workflows, sudoers rules, server wrappers.
-7. **Remove compatibility** — drop `--environment` only after `staging-main`
-   parity is proven end to end.
+8. **Perimeter** — GitHub Actions workflows, sudoers rules, server wrappers.
+9. **Remove compatibility** — drop `--environment` only after `staging-main`
+   parity is proven end to end across every slice above.
 
 Each step is independently reviewable and revertible. `staging-main` deliberately
 mirrors current staging exactly, so parity in the last step is a comparison

@@ -57,8 +57,8 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first two are completed and the third is in progress;
-the phase stays **current**.
+Slices, in order. The first three are completed and accepted on the real
+staging VPS; the fourth is in progress. The phase stays **current**.
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
    deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy
@@ -70,14 +70,23 @@ the phase stays **current**.
    `lifecycle=active` targets via `require_active_target` — `tits-guru` stays
    rejected. `--environment` keeps its exact prior behaviour; nothing was
    installed on the VPS by this slice either.
-3. **Install and verify read-only operations — in progress.**
-   `infrastructure/scripts/install-target-operations` installs only the
-   registry and the four read-only scripts onto the staging VPS —
-   transactional, with a staged pre-install check, automatic rollback on any
-   failure, and runtime-parity verification against the real host with every
-   test override explicitly unset. `deploy`/`rollback`/`cleanup`/backup stay
-   untouched and legacy-only; `tits-guru` stays unprovisioned. See
+3. **Install and verify read-only operations — completed.**
+   `infrastructure/scripts/install-target-operations` installs the registry
+   and the read-only scripts onto the staging VPS — transactional, with a
+   staged pre-install check, automatic rollback on any failure, and
+   runtime-parity verification against the real host with every test
+   override explicitly unset. `deploy`/`rollback`/backup stay untouched and
+   legacy-only; `tits-guru` stays unprovisioned. See
    `runbooks/install-target-operations.md`.
+
+   **Accepted on the real staging VPS:** `staging-main` is `lifecycle=active`
+   and environment class `staging`; `tits-guru` is `lifecycle=planned` and
+   `production`; `health-check --environment staging` and
+   `health-check --target staging-main` both work; `status` legacy/target
+   parity passes; a planned `tits-guru` is rejected under both selectors;
+   `install-target-operations --check`/`--apply`/`--verify` all pass; public
+   Laravel storage is accessible through Nginx, and a real uploaded image
+   returns HTTP 200.
 
    **Staging infrastructure defect fixes found during the first real VPS
    install**, both scoped to the existing `staging-main` target and not part
@@ -87,11 +96,25 @@ the phase stays **current**.
    (`user:www-data:--x`) into a target's `shared`/`shared/storage`
    directories, fixing an HTTP 403 on every uploaded image. See
    `runbooks/public-storage-access.md`.
-4. Deploy path — `deploy`, `rollback`, `cleanup`.
-5. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
-6. Perimeter — workflows, sudoers, server wrappers.
-7. Remove the `--environment` interface, only after `staging-main` parity is
-   proven end to end.
+4. **Target-aware cleanup — current.** `cleanup` accepts `--target TARGET`
+   alongside the preserved `--environment` selector, adds an explicit
+   `--dry-run` alias for its existing default, and is now installed
+   transactionally by `install-target-operations` (six managed files, not
+   five) — the first mutating operation that installer manages, gated behind
+   the same `require_active_target` lifecycle check, the same deployment lock
+   `deploy`/`rollback` use, and canonical path-containment validation on
+   every deletion candidate. Also fixes a real dry-run side-effect bug (the
+   prior implementation always touched and `chmod`'d `pinned-releases` and
+   acquired the deployment lock even without `--apply`) and corrects the
+   installed `common` library from `0755` to `0644` — a sourced library,
+   never a CLI, so it must never be executable. `deploy`/`rollback`/backup
+   stay untouched and legacy-only.
+5. Target-aware deploy.
+6. Target-aware rollback.
+7. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
+8. Perimeter — workflows, sudoers, server wrappers.
+9. Remove the `--environment` interface, only after `staging-main` parity is
+   proven end to end across every slice above.
 
 ## 5. Infrastructure installer and clean-VPS bootstrap — planned
 

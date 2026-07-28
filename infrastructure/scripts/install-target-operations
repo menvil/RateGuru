@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# install-target-operations — install/verify the read-only target-aware
-# operational tooling (Phase 4 slice 2b).
+# install-target-operations — install/verify the target-aware operational
+# tooling (Phase 4 slices 2b-4).
 #
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry and the target-aware read-only
-#             scripts (targets, common, health-check, status), verify a
+#   --apply   Install the target registry and the five target-aware scripts
+#             (targets, common, health-check, status, cleanup), verify a
 #             staged copy before touching anything, install transactionally,
 #             then verify the installed result against the real host before
 #             committing.
@@ -16,8 +16,11 @@
 #             backup.
 #
 # What this installs — and does not:
-#   * Only five files: the registry and the four read-only scripts. deploy,
-#     rollback, cleanup and every backup script are untouched by this
+#   * Only six files: the registry and five scripts — targets, common,
+#     health-check and status (read-only), plus cleanup (Phase 4 slice 4,
+#     the first mutating operation this installer manages; its own
+#     lifecycle/lock/path-containment protections gate every write it can
+#     make). deploy, rollback and every backup script are untouched by this
 #     installer and remain --environment-only.
 #   * Never touches /home/www/rateguru/config/deployment.conf. The target
 #     helpers already default to the registry's installed path, so nothing
@@ -29,7 +32,7 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these five files in these five places
+# this installer's whole job is to put these six files in these six places
 # with these exact permissions, nothing else.
 #
 # This script never sources infrastructure/scripts/common or
@@ -50,6 +53,7 @@ SRC_TARGETS="${REPO_ROOT}/infrastructure/scripts/targets"
 SRC_COMMON="${REPO_ROOT}/infrastructure/scripts/common"
 SRC_HEALTH_CHECK="${REPO_ROOT}/infrastructure/scripts/health-check"
 SRC_STATUS="${REPO_ROOT}/infrastructure/scripts/status"
+SRC_CLEANUP="${REPO_ROOT}/infrastructure/scripts/cleanup"
 
 DST_CONFIG_ROOT="/home/www/rateguru/config"
 DST_BIN_ROOT="/home/www/rateguru/bin"
@@ -59,16 +63,23 @@ DST_TARGETS="${DST_BIN_ROOT}/targets"
 DST_COMMON="${DST_BIN_ROOT}/common"
 DST_HEALTH_CHECK="${DST_BIN_ROOT}/health-check"
 DST_STATUS="${DST_BIN_ROOT}/status"
+DST_CLEANUP="${DST_BIN_ROOT}/cleanup"
 
 DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
 
 BACKUP_ROOT="/var/backups/rateguru-target-operations"
 
 REGISTRY_MODE="0640"
-SCRIPT_MODE="0755"
+# common is a sourced library, never a CLI — it must never be executable.
+# Every other installed script (targets, health-check, status, cleanup) is
+# invoked directly and needs the exec bit. Two distinct named constants,
+# rather than one SCRIPT_MODE reused everywhere, is what makes that
+# distinction impossible to blur at a single call site by accident.
+COMMON_MODE="0644"
+CLI_MODE="0755"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the five files it installs, and the deployment.conf it reads but
+# about: the six files it installs, and the deployment.conf it reads but
 # never writes. A named constant (not a literal "root"/0 at each call site)
 # so the whole apply/verify flow can be exercised against non-root scratch
 # paths in tests, by reassigning these alongside DST_*/SRC_*/BACKUP_ROOT —
@@ -78,7 +89,7 @@ INSTALL_GROUP="root"
 INSTALL_OWNER_ID=0
 INSTALL_GROUP_ID=0
 
-REQUIRED_TOOLS=(bash jq curl install stat cmp diff awk mv cp mktemp readlink tail env)
+REQUIRED_TOOLS=(bash jq curl install stat cmp diff awk mv cp mktemp readlink tail env find sort cut sed rm flock)
 
 # --- Logging ------------------------------------------------------------
 
@@ -106,9 +117,9 @@ Usage:
 
   --check   Validate committed source files and host tooling. Read-only,
             no root required.
-  --apply   Install the registry and the read-only target-aware scripts
-            (requires root). Transactional: verifies a staged copy first,
-            then the installed result, before committing.
+  --apply   Install the registry and the target-aware scripts, including
+            cleanup (requires root). Transactional: verifies a staged copy
+            first, then the installed result, before committing.
   --verify  Verify the currently installed files and runtime behaviour
             (requires root). Makes no changes.
 USAGE
@@ -165,13 +176,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all five source files are present regular files"
+    log "all six source files are present regular files"
 }
 
 # Catches the exact regression that made this installer unusable after a bad
@@ -185,18 +196,18 @@ validate_source_files() {
 # validate_source_files already requires it to be a readable regular file.
 validate_source_executable_modes() {
     local path
-    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}"; do
+    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}"; do
         [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
     done
-    log "install-target-operations, targets, health-check and status are all executable"
+    log "install-target-operations, targets, health-check, status and cleanup are all executable"
 }
 
 validate_source_syntax() {
     local path
-    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}"; do
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}"; do
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
-    log "bash -n passed for all four source shell scripts"
+    log "bash -n passed for all five source shell scripts"
 }
 
 validate_source_registry() {
@@ -241,6 +252,7 @@ verify_staged_candidates() {
     local staged_common="${stage_dir}/common"
     local staged_health_check="${stage_dir}/health-check"
     local staged_status="${stage_dir}/status"
+    local staged_cleanup="${stage_dir}/cleanup"
 
     log "verifying staged candidates before installation"
 
@@ -274,6 +286,28 @@ verify_staged_candidates() {
         || fail "staged status --target staging-main failed"
     log "  staged status --target staging-main: OK"
 
+    # cleanup is exercised in --dry-run only here — dry-run is genuinely
+    # side-effect free (no lock, no write, no delete; see cleanup's own
+    # source), which is exactly what makes it safe to run against the real
+    # staging-main target root before anything else in this apply run is
+    # touched.
+    local staged_cleanup_env_output staged_cleanup_target_output
+    staged_cleanup_env_output="$("${override_env[@]}" bash "${staged_cleanup}" --environment staging --dry-run 2>&1)" \
+        || fail "staged cleanup --environment staging --dry-run failed:"$'\n'"${staged_cleanup_env_output}"
+    log "  staged cleanup --environment staging --dry-run: OK"
+
+    staged_cleanup_target_output="$("${override_env[@]}" bash "${staged_cleanup}" --target staging-main --dry-run 2>&1)" \
+        || fail "staged cleanup --target staging-main --dry-run failed:"$'\n'"${staged_cleanup_target_output}"
+    log "  staged cleanup --target staging-main --dry-run: OK"
+
+    local staged_cleanup_env_candidates staged_cleanup_target_candidates
+    staged_cleanup_env_candidates="$(grep -o 'DRY RUN would delete: .*' <<<"${staged_cleanup_env_output}" | sort || true)"
+    staged_cleanup_target_candidates="$(grep -o 'DRY RUN would delete: .*' <<<"${staged_cleanup_target_output}" | sort || true)"
+
+    [[ "${staged_cleanup_env_candidates}" == "${staged_cleanup_target_candidates}" ]] \
+        || fail "staged cleanup candidate parity mismatch between --environment staging and --target staging-main"
+    log "  staged cleanup legacy/target dry-run candidate parity: OK"
+
     # This command is *expected* to fail. The trap armed by perform_apply is
     # still inherited into this subshell (see the MAIN_BASHPID comment on
     # on_apply_error), but that handler now recognizes it isn't running in
@@ -286,6 +320,14 @@ verify_staged_candidates() {
     grep -q 'lifecycle=planned' <<<"${planned_output}" \
         || fail "staged health-check --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
     log "  staged health-check --target tits-guru: correctly rejected (lifecycle=planned)"
+
+    local staged_cleanup_planned_output
+    if staged_cleanup_planned_output="$("${override_env[@]}" bash "${staged_cleanup}" --target tits-guru --dry-run 2>&1)"; then
+        fail "staged cleanup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${staged_cleanup_planned_output}" \
+        || fail "staged cleanup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_cleanup_planned_output}"
+    log "  staged cleanup --target tits-guru: correctly rejected (lifecycle=planned)"
 
     log "staged candidates verified"
 }
@@ -541,17 +583,27 @@ verify_installed_files() {
     log "verifying installed files"
 
     verify_installed_regular_file "${DST_REGISTRY}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${REGISTRY_MODE}" "${SRC_REGISTRY}"
-    verify_installed_regular_file "${DST_TARGETS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${SCRIPT_MODE}" "${SRC_TARGETS}"
-    verify_installed_regular_file "${DST_COMMON}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${SCRIPT_MODE}" "${SRC_COMMON}"
-    verify_installed_regular_file "${DST_HEALTH_CHECK}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${SCRIPT_MODE}" "${SRC_HEALTH_CHECK}"
-    verify_installed_regular_file "${DST_STATUS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${SCRIPT_MODE}" "${SRC_STATUS}"
-    log "  ownership, mode and content: OK for all five files"
+    verify_installed_regular_file "${DST_TARGETS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_TARGETS}"
+    verify_installed_regular_file "${DST_COMMON}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${COMMON_MODE}" "${SRC_COMMON}"
+    verify_installed_regular_file "${DST_HEALTH_CHECK}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_HEALTH_CHECK}"
+    verify_installed_regular_file "${DST_STATUS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_STATUS}"
+    verify_installed_regular_file "${DST_CLEANUP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_CLEANUP}"
+    log "  ownership, mode and content: OK for all six files"
+
+    # common is a sourced library, never a CLI — verify_installed_regular_file
+    # already proved its mode is exactly COMMON_MODE (0644), which has no
+    # execute bits at all, but this asserts the specific property the spec
+    # calls out by name rather than leaving it as an implication of the mode
+    # check above.
+    [[ ! -x "${DST_COMMON}" ]] \
+        || fail "installed common must not be executable: ${DST_COMMON}"
+    log "  common is not executable: OK"
 
     local path
-    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}"; do
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}"; do
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
-    log "  bash -n: OK for all four installed scripts"
+    log "  bash -n: OK for all five installed scripts"
 
     "${DST_TARGETS}" validate --file "${DST_REGISTRY}" >/dev/null \
         || fail "installed targets CLI could not validate the installed registry"
@@ -646,15 +698,49 @@ verify_planned_target_rejected() {
     log "health-check --target tits-guru: correctly rejected (lifecycle=planned)"
 }
 
+# Phase 4 slice 4: cleanup --dry-run only, exactly like verify_staged_candidates
+# above — dry-run makes no changes to the real target, so this genuinely
+# proves candidate-selection parity against the real host without risking it.
+verify_cleanup_dry_run_parity() {
+    local env_output target_output
+
+    env_output="$(no_overrides_env "${DST_CLEANUP}" --environment staging --dry-run 2>&1)" \
+        || fail "installed cleanup --environment staging --dry-run failed:"$'\n'"${env_output}"
+    target_output="$(no_overrides_env "${DST_CLEANUP}" --target staging-main --dry-run 2>&1)" \
+        || fail "installed cleanup --target staging-main --dry-run failed:"$'\n'"${target_output}"
+    log "cleanup --environment staging --dry-run and cleanup --target staging-main --dry-run both ran"
+
+    local env_candidates target_candidates
+    env_candidates="$(grep -o 'DRY RUN would delete: .*' <<<"${env_output}" | sort || true)"
+    target_candidates="$(grep -o 'DRY RUN would delete: .*' <<<"${target_output}" | sort || true)"
+
+    [[ "${env_candidates}" == "${target_candidates}" ]] \
+        || fail "installed cleanup candidate parity mismatch between --environment staging and --target staging-main"
+
+    log "cleanup --environment staging and --target staging-main dry-run candidate parity: OK"
+}
+
+verify_cleanup_planned_target_rejected() {
+    local planned_output
+    if planned_output="$(no_overrides_env "${DST_CLEANUP}" --target tits-guru --dry-run 2>&1)"; then
+        fail "installed cleanup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${planned_output}" \
+        || fail "installed cleanup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
+    log "cleanup --target tits-guru: correctly rejected (lifecycle=planned)"
+}
+
 # Thin wrapper used by apply's post-install check, which wants one pass/fail
 # outcome rather than the phase-by-phase banners --verify prints — see
-# run_verify below, which calls the same four functions individually.
+# run_verify below, which calls the same six functions individually.
 verify_runtime_parity() {
     log "verifying runtime parity against the real host (no test overrides)"
     verify_legacy_environment_health
     verify_target_health
     verify_status_parity
     verify_planned_target_rejected
+    verify_cleanup_dry_run_parity
+    verify_cleanup_planned_target_rejected
     log "runtime parity verification passed"
 }
 
@@ -673,12 +759,13 @@ run_check() {
     log "  ${DST_COMMON}"
     log "  ${DST_HEALTH_CHECK}"
     log "  ${DST_STATUS}"
+    log "  ${DST_CLEANUP}"
 
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The two directories every one of the five destinations lives under. This
-# installer owns exactly five *files* — it never creates, chowns or chmods
+# The two directories every one of the six destinations lives under. This
+# installer owns exactly six *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -824,6 +911,7 @@ perform_apply() {
     install -m 0700 "${SRC_COMMON}" "${STAGE_DIR}/common"
     install -m 0700 "${SRC_HEALTH_CHECK}" "${STAGE_DIR}/health-check"
     install -m 0700 "${SRC_STATUS}" "${STAGE_DIR}/status"
+    install -m 0700 "${SRC_CLEANUP}" "${STAGE_DIR}/cleanup"
 
     verify_staged_candidates "${STAGE_DIR}"
 
@@ -834,12 +922,13 @@ perform_apply() {
 
     # Dependency-safe order: the registry before anything that reads it, the
     # targets validator before common (which invokes it), common before the
-    # two scripts that source it.
+    # three scripts that source it.
     install_regular_file_transactional "${STAGE_DIR}/deployment-targets.json" "${DST_REGISTRY}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${REGISTRY_MODE}"
-    install_regular_file_transactional "${STAGE_DIR}/targets" "${DST_TARGETS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${SCRIPT_MODE}"
-    install_regular_file_transactional "${STAGE_DIR}/common" "${DST_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${SCRIPT_MODE}"
-    install_regular_file_transactional "${STAGE_DIR}/health-check" "${DST_HEALTH_CHECK}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${SCRIPT_MODE}"
-    install_regular_file_transactional "${STAGE_DIR}/status" "${DST_STATUS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${SCRIPT_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/targets" "${DST_TARGETS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/common" "${DST_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${COMMON_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/health-check" "${DST_HEALTH_CHECK}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/status" "${DST_STATUS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/cleanup" "${DST_CLEANUP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
 
     log "files installed; verifying before committing"
 
@@ -852,7 +941,7 @@ perform_apply() {
 
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
-    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}"
     log "  backups      : ${BACKUP_DIR}"
     log "Run 'install-target-operations --verify' at any time to re-check the installed result."
 }
@@ -903,6 +992,12 @@ perform_verify() {
 
     log "--- planned-target rejection ---"
     verify_planned_target_rejected
+
+    log "--- cleanup dry-run parity ---"
+    verify_cleanup_dry_run_parity
+
+    log "--- cleanup planned-target rejection ---"
+    verify_cleanup_planned_target_rejected
 
     trap - ERR EXIT
     log "--- final result ---"
