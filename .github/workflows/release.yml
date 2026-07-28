@@ -188,6 +188,46 @@ jobs:
             ./ \
             "${package_root}/"
 
+          # Fail closed if a required infrastructure CLI lost its executable
+          # bit somewhere before this point (a wrong Git blob mode is the only
+          # way that happens — rsync --archive and the tar step below both
+          # preserve whatever mode is already on disk). deploy's own
+          # permission normalization can only preserve an existing executable
+          # bit, never invent one, so a bad artifact here would reach
+          # production unusable exactly the way install-target-operations and
+          # targets were. This must never be "fixed" with a chmod here: that
+          # would hide the wrong repository metadata instead of catching it.
+          # --- verify infrastructure CLI executable bits (begin) ---
+          required_infra_clis=(
+            backup
+            backup-cycle
+            cleanup
+            deploy
+            health-check
+            install-mail-capture
+            install-target-operations
+            offsite-backup
+            offsite-restore-test
+            offsite-retention
+            restore-test
+            rollback
+            status
+            status-mail-capture
+            targets
+            verify-mail-capture
+          )
+
+          for name in "${required_infra_clis[@]}"; do
+            cli_path="${package_root}/infrastructure/scripts/${name}"
+            if [[ ! -x "${cli_path}" ]]; then
+              echo "required release CLI is not executable: infrastructure/scripts/${name}" >&2
+              exit 1
+            fi
+          done
+
+          echo "verified: every required infrastructure CLI is executable in the release package"
+          # --- verify infrastructure CLI executable bits (end) ---
+
           jq \
             --null-input \
             --arg project "rateguru" \

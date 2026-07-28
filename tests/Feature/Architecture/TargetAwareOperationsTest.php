@@ -1373,8 +1373,11 @@ it('leaves every other operational script and workflow byte-identical to develop
         'infrastructure/config/cron/rateguru-backups',
         'infrastructure/templates/deployment.conf.example',
         'infrastructure/config/deployment-targets.json',
-        '.github/workflows/deploy-staging.yml',
-        '.github/workflows/release.yml',
+        // Both workflow files are deliberately excluded here: a later slice
+        // (the infrastructure CLI executable-mode fix) legitimately adds an
+        // executable-bit verification step to each. This list only proves
+        // *this* slice's own scope, not a permanent freeze on every file
+        // named here forever.
     ];
 
     foreach ($unchanged as $path) {

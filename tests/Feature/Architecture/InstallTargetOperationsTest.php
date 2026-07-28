@@ -399,6 +399,7 @@ function installOpsBaseVars(string $scratch, ?string $healthCheckStub = null, ?s
     }
 
     return [
+        'SRC_SELF' => base_path('infrastructure/scripts/install-target-operations'),
         'SRC_REGISTRY' => base_path('infrastructure/config/deployment-targets.json'),
         'SRC_TARGETS' => base_path('infrastructure/scripts/targets'),
         'SRC_COMMON' => base_path('infrastructure/scripts/common'),
@@ -586,10 +587,117 @@ it('--check succeeds read-only against the real repository, with no root require
     expect($exit)->toBe(0, $output);
     expect($output)
         ->toContain('all five source files are present regular files')
+        ->toContain('install-target-operations, targets, health-check and status are all executable')
         ->toContain('bash -n passed for all four source shell scripts')
         ->toContain('source registry is valid JSON')
         ->toContain('required host tools present')
         ->toContain('check passed');
+});
+
+// =============================================================================
+// validate_source_executable_modes: the fix for the regression that made
+// this installer unusable on the real staging VPS after every file under
+// infrastructure/scripts was deployed as mode 0640. This must fail clearly,
+// by name, before validate_source_registry ever directly invokes targets and
+// hits a bare "Permission denied". common is deliberately exempt — it is
+// only ever sourced, never executed directly.
+// =============================================================================
+
+/**
+ * @return array<string, string> SRC_* overrides: four executable dummy CLI
+ *                               files plus one non-executable common.
+ */
+function installOpsExecutableModeVars(string $scratch): array
+{
+    foreach (['self', 'targets', 'health-check', 'status'] as $name) {
+        installOpsWriteExecutable("{$scratch}/{$name}", "#!/usr/bin/env bash\nexit 0\n");
+    }
+
+    $commonPath = "{$scratch}/common";
+    file_put_contents($commonPath, "#!/usr/bin/env bash\n");
+    chmod($commonPath, 0o644);
+
+    return [
+        'SRC_SELF' => "{$scratch}/self",
+        'SRC_TARGETS' => "{$scratch}/targets",
+        'SRC_HEALTH_CHECK' => "{$scratch}/health-check",
+        'SRC_STATUS' => "{$scratch}/status",
+        'SRC_COMMON' => $commonPath,
+    ];
+}
+
+it('validate_source_executable_modes passes when self, targets, health-check and status are all executable', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsExecutableModeVars($scratch);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_executable_modes');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('install-target-operations, targets, health-check and status are all executable');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('validate_source_executable_modes does not require common to be executable', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsExecutableModeVars($scratch);
+        expect(is_executable($vars['SRC_COMMON']))->toBeFalse('fixture setup error: common must not be executable');
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_executable_modes');
+
+        expect($exit)->toBe(0, $output);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('validate_source_executable_modes fails, naming the specific file, for each required CLI', function () {
+    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS'] as $key) {
+        $scratch = installOpsScratchDir();
+
+        try {
+            $vars = installOpsExecutableModeVars($scratch);
+            chmod($vars[$key], 0o644);
+
+            [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_executable_modes');
+
+            expect($exit)->not->toBe(0, "{$key}: expected failure when not executable");
+            expect($output)->toContain("required source CLI is not executable: {$vars[$key]}");
+        } finally {
+            installOpsCleanup($scratch);
+        }
+    }
+});
+
+it('reports the specific non-executable source CLI before validate_source_registry ever invokes it directly, instead of a generic Permission denied', function () {
+    // Uses a real, working copy of the committed targets CLI — content
+    // identical to what ships — with only the executable bit removed, so a
+    // missing check here would genuinely reach validate_source_registry's
+    // direct invocation and fail with a bare, unhelpful "Permission denied"
+    // exactly as it did on the real VPS.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsExecutableModeVars($scratch);
+        copy(base_path('infrastructure/scripts/targets'), $vars['SRC_TARGETS']);
+        chmod($vars['SRC_TARGETS'], 0o644);
+
+        $vars['SRC_REGISTRY'] = base_path('infrastructure/config/deployment-targets.json');
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'run_source_validation');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("required source CLI is not executable: {$vars['SRC_TARGETS']}");
+        expect($output)->not->toContain('Permission denied');
+        expect($output)->not->toContain('source registry is valid JSON');
+    } finally {
+        installOpsCleanup($scratch);
+    }
 });
 
 it('--apply requires root', function () {
