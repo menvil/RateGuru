@@ -87,15 +87,9 @@ it('pins every external release action to a commit SHA', function () {
     }
 });
 
-it('runs the external social preview smoke test after each deployment', function () {
+it('does not gate deployments on an external social preview fixture', function () {
     foreach ([$this->stagingSteps, $this->productionSteps] as $deploymentSteps) {
-        $step = $deploymentSteps->get('Verify social preview as external crawler');
-
-        expect($step)->not->toBeNull()
-            ->and(data_get($step, 'env.RATEGURU_SOCIAL_SMOKE_URL'))
-            ->toBe('${{ vars.SOCIAL_SMOKE_POST_URL }}')
-            ->and(data_get($step, 'run'))
-            ->toContain('infrastructure/scripts/social-preview-smoke');
+        expect($deploymentSteps->has('Verify social preview as external crawler'))->toBeFalse();
     }
 });
 

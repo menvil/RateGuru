@@ -34,6 +34,7 @@ it('all platform share buttons expose provider urls in their href', function () 
         'share-telegram' => 't.me/share/url',
         'share-whatsapp' => 'wa.me',
         'share-reddit' => 'reddit.com/submit',
+        'share-pinterest' => 'pinterest.com/pin/create/button',
         'share-email' => 'mailto:',
     ];
 

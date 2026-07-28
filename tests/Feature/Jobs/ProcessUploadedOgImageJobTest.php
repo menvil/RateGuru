@@ -3,6 +3,7 @@
 use App\Jobs\ProcessUploadedImageJob;
 use App\Models\Post;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 
 it('creates a bounded 1200 by 630 jpeg social image for a new local upload', function () {
@@ -48,4 +49,26 @@ it('leaves a post without a local upload unchanged', function () {
     app()->call([new ProcessUploadedImageJob($post->id), 'handle']);
 
     expect($post->fresh()->og_image_path)->toBeNull();
+});
+
+it('reports a corrupt local upload without saving an open graph path', function () {
+    Storage::fake('public');
+    config(['rateguru.images.disk' => 'public']);
+    Exceptions::fake();
+
+    $sourcePath = 'posts/1/corrupt.jpg';
+    Storage::disk('public')->put($sourcePath, 'not an image');
+
+    $post = Post::factory()->published()->create([
+        'image_path' => $sourcePath,
+        'og_image_path' => null,
+    ]);
+
+    app()->call([new ProcessUploadedImageJob($post->id), 'handle']);
+
+    expect($post->fresh()->og_image_path)->toBeNull();
+
+    Exceptions::assertReported(
+        fn (RuntimeException $exception): bool => str_contains($exception->getMessage(), 'cannot be decoded'),
+    );
 });

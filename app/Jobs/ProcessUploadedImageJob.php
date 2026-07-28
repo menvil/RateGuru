@@ -6,6 +6,7 @@ use App\Models\Post;
 use App\Services\Images\OpenGraphImageGenerator;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use RuntimeException;
 
 final class ProcessUploadedImageJob implements ShouldQueue
 {
@@ -23,7 +24,13 @@ final class ProcessUploadedImageJob implements ShouldQueue
             return;
         }
 
-        $path = $generator->generate($post);
+        try {
+            $path = $generator->generate($post);
+        } catch (RuntimeException $exception) {
+            report($exception);
+
+            return;
+        }
 
         if ($path === null) {
             return;

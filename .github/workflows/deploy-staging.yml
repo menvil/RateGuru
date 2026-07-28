@@ -285,11 +285,3 @@ jobs:
           checksum-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}.sha256
 
           run-migrations: ${{ needs.resolve.outputs.run_migrations }}
-
-      - name: Verify social preview as external crawler
-        if: ${{ vars.SOCIAL_SMOKE_POST_URL != '' }}
-        shell: bash
-        env:
-          RATEGURU_SOCIAL_SMOKE_URL: ${{ vars.SOCIAL_SMOKE_POST_URL }}
-          RATEGURU_SOCIAL_SMOKE_BASIC_AUTH: ${{ secrets.SOCIAL_SMOKE_BASIC_AUTH }}
-        run: infrastructure/scripts/social-preview-smoke

@@ -286,14 +286,6 @@ jobs:
 
           run-migrations: "true"
 
-      - name: Verify social preview as external crawler
-        if: ${{ vars.SOCIAL_SMOKE_POST_URL != '' }}
-        shell: bash
-        env:
-          RATEGURU_SOCIAL_SMOKE_URL: ${{ vars.SOCIAL_SMOKE_POST_URL }}
-          RATEGURU_SOCIAL_SMOKE_BASIC_AUTH: ${{ secrets.SOCIAL_SMOKE_BASIC_AUTH }}
-        run: infrastructure/scripts/social-preview-smoke
-
       - name: Write staging verification summary
         shell: bash
         env:
@@ -351,14 +343,6 @@ jobs:
           checksum-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.validate.outputs.artifact-name }}.sha256
 
           run-migrations: "true"
-
-      - name: Verify social preview as external crawler
-        if: ${{ vars.SOCIAL_SMOKE_POST_URL != '' }}
-        shell: bash
-        env:
-          RATEGURU_SOCIAL_SMOKE_URL: ${{ vars.SOCIAL_SMOKE_POST_URL }}
-          RATEGURU_SOCIAL_SMOKE_BASIC_AUTH: ${{ secrets.SOCIAL_SMOKE_BASIC_AUTH }}
-        run: infrastructure/scripts/social-preview-smoke
 
       - name: Write production deployment summary
         shell: bash
