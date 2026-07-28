@@ -372,13 +372,30 @@ Omitting both `--dry-run` and `--apply` performs a dry run — this is the
 existing, preserved default. `--dry-run` is a new, readable alias for that
 same default; `--apply` is required to actually delete anything. `--target`
 and `--environment` are mutually exclusive, exactly one is required, and
-`--dry-run`/`--apply` are mutually exclusive with each other. Default
-retention is derived from the target's `environment_class` through the same
-`environment_release_retention` lookup legacy mode already used
-(`STAGING_RELEASE_RETENTION`/`PRODUCTION_RELEASE_RETENTION`), so
-`--target staging-main` and `--environment staging` resolve the identical
-default `--keep` — proven by dedicated legacy/target dry-run parity tests, not
-merely asserted.
+`--dry-run`/`--apply` are mutually exclusive with each other.
+
+Default retention is read from **independent sources per selector**, not one
+derived from the other:
+
+- `--environment staging|production` uses the legacy, host-level
+  `STAGING_RELEASE_RETENTION`/`PRODUCTION_RELEASE_RETENTION` from
+  `deployment.conf`, exactly as before this slice;
+- `--target TARGET` uses that target's own `release_retention` field in the
+  registry (`target_release_retention`, already an existing accessor from
+  the registry foundation slice) — the same field
+  [Registry versus deployment.conf](#registry-versus-deploymentconf) above
+  already documents as belonging in the registry because it differs *per
+  instance*.
+
+`--target staging-main` and `--environment staging` currently resolve the
+identical default `--keep` only because `staging-main`'s registry
+`release_retention` and `STAGING_RELEASE_RETENTION` happen to carry the same
+number today — proven by dedicated legacy/target dry-run parity tests against
+the real, committed registry values, and separately by a test that
+deliberately sets them to *different* values and proves each selector reads
+its own source, not the other's. A future second production target is free to
+carry its own `release_retention`, independent of any other target sharing
+its `environment_class`.
 
 `require_active_target` gates target mode exactly as it does for
 `health-check`/`status`: a planned target (`tits-guru`) is rejected — clearly

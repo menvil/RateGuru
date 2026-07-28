@@ -220,12 +220,26 @@ environment_incoming_artifacts() {
     esac
 }
 
-# Phase 4 slice 4: shared by cleanup's legacy and target selector paths, so
-# default retention is derived identically regardless of which selector was
-# used — target mode calls this with target_environment_class(TARGET_ID)
-# rather than reading the registry's own per-target release_retention field,
-# which is what makes legacy/target dry-run parity hold by construction for
-# staging-main (environment_class=staging) rather than by coincidence.
+# Phase 4 slice 4: cleanup's legacy (--environment) default retention only.
+# Kept for --environment compatibility — deployment.conf's
+# STAGING_RELEASE_RETENTION/PRODUCTION_RELEASE_RETENTION are host-level
+# settings, not the registry's per-target release_retention field. Target
+# mode does NOT call this: it reads target_release_retention(TARGET_ID)
+# instead, because release_retention is a required per-target registry
+# field precisely so two targets sharing an environment_class (e.g. two
+# production targets) can retain a different number of releases. Legacy and
+# target mode currently resolve the same number for staging/staging-main
+# only because the registry and deployment.conf happen to agree today — see
+# target_release_retention below and cleanup's own resolve_target().
+#
+# No default/error case for an unrecognized environment, matching every
+# other environment_* helper in this block (environment_root,
+# environment_runtime_user, environment_code_group, ...): none of them have
+# one. Every real call site runs validate_environment first, so this is
+# never reached with anything but "staging"/"production" — adding a check
+# here alone would be inconsistent with its siblings for no safety gain. If
+# this contract is ever revisited, do it for every environment_* helper
+# together, not one at a time.
 environment_release_retention() {
     local environment="$1"
 

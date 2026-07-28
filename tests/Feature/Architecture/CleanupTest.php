@@ -306,9 +306,18 @@ function cleanupOpsRawCandidates(string $output): array
  * install-target-operations already proves separately, for the one real
  * scenario the actual host is in).
  *
+ * $releaseRetention becomes the fixture's own targets.parity-target.
+ * release_retention — the value cleanup's target mode now reads directly
+ * (target_release_retention), independent of whatever deployment.conf's
+ * STAGING_RELEASE_RETENTION says. Defaults to 3, matching the value
+ * cleanupOpsRunParity's own deployment.conf fixture uses, so every existing
+ * caller of this function keeps testing "both sources happen to agree" —
+ * see the dedicated mismatched-retention test below for "target mode reads
+ * its own value, not the legacy one".
+ *
  * @return array{0: string, 1: string} [registryPath, targetsCliPath]
  */
-function cleanupOpsParityRegistry(string $scratch, string $applicationRoot): array
+function cleanupOpsParityRegistry(string $scratch, string $applicationRoot, int $releaseRetention = 3): array
 {
     $patchedTargets = str_replace(
         'ACTIVE_ALLOWLIST="staging-main"',
@@ -338,7 +347,7 @@ function cleanupOpsParityRegistry(string $scratch, string $applicationRoot): arr
                 'deploy_user' => 'parity-deploy',
                 'code_group' => 'parity-code',
                 'incoming_artifacts' => '/home/parity-deploy/incoming',
-                'release_retention' => 3,
+                'release_retention' => $releaseRetention,
                 'database' => ['name' => 'parity_db', 'application_role' => 'parity_app'],
                 'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
                 'public_hostnames' => ['parity.example'],
@@ -366,6 +375,12 @@ function cleanupOpsParityRegistry(string $scratch, string $applicationRoot): arr
 /**
  * Runs the same fixture through both `--environment staging` and
  * `--target parity-target`, dry-run only, and returns both raw outputs.
+ * Deployment.conf's STAGING_RELEASE_RETENTION and the registry's
+ * release_retention are deliberately set to the same value (3) here, so
+ * this proves parity given *matching* retention configuration — not that
+ * target mode derives its retention from legacy settings. See the dedicated
+ * mismatched-retention test for proof they are read from independent
+ * sources.
  *
  * @param  array<string, string|null>  $releases
  * @param  list<string>  $pinned
@@ -1163,6 +1178,67 @@ it('selects identical candidates for legacy and target selectors across mixed hi
             'v1.0.4-20260104-000000-abc1234',
         ]);
         expect($envOutput)->toContain('KEEP unknown/untracked release: v1.0.3-20260103-000000-abc1233');
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('reads default retention from independent sources per selector, not one derived from the other', function () {
+    // STAGING_RELEASE_RETENTION and the registry's release_retention are
+    // deliberately set to *different* values here — 3 vs 7 — proving target
+    // mode reads target_release_retention(TARGET_ID) from the registry, not
+    // environment_release_retention(target_environment_class(TARGET_ID))
+    // from deployment.conf. A prior implementation derived target mode's
+    // default from the environment class, which made the registry's own
+    // per-target release_retention field silently unused. Both expected
+    // sets are asserted exactly (not just "the two differ") so a swapped-
+    // source bug — legacy accidentally reading 7, target accidentally
+    // reading 3 — could not pass by accident.
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        $releases = [
+            'v1.0.1-20260101-000000-abc1231' => 'success',
+            'v1.0.2-20260102-000000-abc1232' => 'success',
+            'v1.0.3-20260103-000000-abc1233' => 'success',
+            'v1.0.4-20260104-000000-abc1234' => 'success',
+            'v1.0.5-20260105-000000-abc1235' => 'success',
+            'v1.0.6-20260106-000000-abc1236' => 'success',
+            'v1.0.7-20260107-000000-abc1237' => 'success',
+            'v1.0.8-20260108-000000-abc1238' => 'success',
+        ];
+
+        $root = cleanupOpsBuildFixture($scratch, $releases);
+        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, retention: 3);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root, releaseRetention: 7);
+
+        $env = cleanupOpsBaseEnv($scratch, [
+            'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]);
+
+        [$envExit, $envOutput] = cleanupOpsRunScript(['--environment', 'staging', '--dry-run'], $env);
+        [$targetExit, $targetOutput] = cleanupOpsRunScript(['--target', 'parity-target', '--dry-run'], $env);
+
+        expect($envExit)->toBe(0, $envOutput);
+        expect($targetExit)->toBe(0, $targetOutput);
+
+        // STAGING_RELEASE_RETENTION=3: newest 3 (v6,v7,v8) retained, the
+        // older 5 (v1-v5) are candidates.
+        expect(cleanupOpsCandidates($envOutput))->toBe([
+            'v1.0.1-20260101-000000-abc1231',
+            'v1.0.2-20260102-000000-abc1232',
+            'v1.0.3-20260103-000000-abc1233',
+            'v1.0.4-20260104-000000-abc1234',
+            'v1.0.5-20260105-000000-abc1235',
+        ]);
+
+        // parity-target.release_retention=7: newest 7 (v2-v8) retained,
+        // only the oldest (v1) is a candidate.
+        expect(cleanupOpsCandidates($targetOutput))->toBe([
+            'v1.0.1-20260101-000000-abc1231',
+        ]);
     } finally {
         cleanupOpsCleanup($scratch);
     }

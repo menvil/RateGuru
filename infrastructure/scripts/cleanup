@@ -153,7 +153,18 @@ resolve_target() {
         require_active_target "${TARGET_ID}"
 
         TARGET_ROOT="$(target_root "${TARGET_ID}")"
-        default_keep="$(environment_release_retention "$(target_environment_class "${TARGET_ID}")")"
+        # The registry's own per-target release_retention field, not a value
+        # derived from environment_class. deployment-targets.md is explicit
+        # that whatever differs per instance belongs in the registry —
+        # release_retention is one of its required fields precisely so two
+        # targets sharing an environment_class (e.g. two production targets)
+        # can retain a different number of releases. staging-main and
+        # tits-guru currently carry the same numbers as
+        # STAGING_RELEASE_RETENTION/PRODUCTION_RELEASE_RETENTION, which is
+        # why legacy/target parity holds for the real, committed registry —
+        # but that is the registry agreeing with deployment.conf today, not
+        # a rule this script enforces.
+        default_keep="$(target_release_retention "${TARGET_ID}")"
         LABEL="${TARGET_ID}"
     else
         validate_environment "${ENVIRONMENT}"
