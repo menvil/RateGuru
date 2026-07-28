@@ -323,18 +323,24 @@ function deployOpsParityRegistry(string $scratch, array $fixture): array
     $account = deployOpsCurrentAccount();
     $group = deployOpsCurrentGroup();
 
-    // Three constraints the committed `targets` validator enforces as
+    // Four constraints the committed `targets` validator enforces as
     // production safety rails, relaxed only in this throwaway, test-only
     // copy — the same technique CleanupTest.php already established for
     // application_root/ACTIVE_ALLOWLIST: (1) application_root and
     // (2) incoming_artifacts must otherwise live under /home/www/rateguru
-    // and /home respectively, which a scratch fixture can't satisfy; (3)
-    // code_group must otherwise differ from runtime_group, a real
-    // registry-modeling rule this fixture doesn't need to honor — it just
-    // needs one group name the test process can chown to without root, and
-    // reusing the test's own primary group for both is fine here (that
-    // modeling rule is already covered elsewhere, e.g.
-    // DeploymentTargetRegistryTest.php).
+    // and /home respectively, which a scratch fixture can't satisfy;
+    // (3) code_group must otherwise differ from runtime_group, and
+    // (4) code_group must otherwise differ from the runtime user's own
+    // name — both real registry-modeling rules this fixture doesn't need to
+    // honor. It just needs one group name the test process can chown to
+    // without root, and reusing the test's own account/primary-group for
+    // both runtime_user and code_group is fine here (that modeling rule is
+    // already covered elsewhere, e.g. DeploymentTargetRegistryTest.php).
+    // Constraint (4) only surfaces where a host's own account/primary-group
+    // pair happen to share a name — e.g. GitHub Actions' `runner` user,
+    // whose primary group is also named `runner` — so this was missed
+    // locally (this machine's account and primary group differ) until CI
+    // caught it.
     $patchedTargets = str_replace(
         'ACTIVE_ALLOWLIST="staging-main"',
         'ACTIVE_ALLOWLIST="parity-target"',
@@ -352,6 +358,11 @@ function deployOpsParityRegistry(string $scratch, array $fixture): array
     );
     $patchedTargets = str_replace(
         'if [[ "${code_group}" == "${runtime_group}" ]]; then',
+        'if false; then',
+        $patchedTargets,
+    );
+    $patchedTargets = str_replace(
+        'if [[ "${code_group}" == "${runtime_user}" ]]; then',
         'if false; then',
         $patchedTargets,
     );
