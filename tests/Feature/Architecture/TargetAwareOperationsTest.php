@@ -1353,7 +1353,6 @@ it('leaves every other operational script and workflow byte-identical to develop
     }
 
     $unchanged = [
-        'infrastructure/scripts/deploy',
         'infrastructure/scripts/rollback',
         'infrastructure/scripts/cleanup',
         'infrastructure/scripts/backup',
@@ -1373,8 +1372,6 @@ it('leaves every other operational script and workflow byte-identical to develop
         'infrastructure/config/cron/rateguru-backups',
         'infrastructure/templates/deployment.conf.example',
         'infrastructure/config/deployment-targets.json',
-        '.github/workflows/deploy-staging.yml',
-        '.github/workflows/release.yml',
     ];
 
     foreach ($unchanged as $path) {

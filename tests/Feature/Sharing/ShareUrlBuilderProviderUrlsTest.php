@@ -8,6 +8,7 @@ function providerMetadata(bool $withImage = true): ShareMetadata
 {
     return new ShareMetadata(
         title: 'My Post Title With Special & Chars',
+        shareText: 'My Post Title With Special & Chars',
         description: 'A full description of the post.',
         url: 'https://rateguru.test/posts/42',
         imageUrl: $withImage ? 'https://rateguru.test/storage/posts/img.jpg' : null,

@@ -31,7 +31,7 @@ final class ShareUrlBuilder
     {
         return 'https://twitter.com/intent/tweet?'.http_build_query([
             'url' => $metadata->url,
-            'text' => $metadata->title,
+            'text' => $metadata->shareText,
         ]);
     }
 
@@ -39,13 +39,13 @@ final class ShareUrlBuilder
     {
         return 'https://t.me/share/url?'.http_build_query([
             'url' => $metadata->url,
-            'text' => $metadata->title,
+            'text' => $metadata->shareText,
         ]);
     }
 
     private function whatsapp(ShareMetadata $metadata): string
     {
-        return 'https://wa.me/?text='.urlencode($metadata->title.' '.$metadata->url);
+        return 'https://wa.me/?text='.urlencode($metadata->shareText.' '.$metadata->url);
     }
 
     private function reddit(ShareMetadata $metadata): string

@@ -7,6 +7,7 @@ function makeMetadata(bool $withImage = true): ShareMetadata
 {
     return new ShareMetadata(
         title: 'Test Post Title',
+        shareText: 'Test Post Title',
         description: 'Test description text.',
         url: 'https://example.test/posts/1',
         imageUrl: $withImage ? 'https://example.test/image.jpg' : null,

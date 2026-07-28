@@ -155,6 +155,19 @@ environment_host_header() {
     esac
 }
 
+environment_public_hostname() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "rateguru.staging.myprojects.pp.ua"
+            ;;
+        production)
+            printf '%s\n' "tits.guru"
+            ;;
+    esac
+}
+
 acquire_deployment_lock() {
     local environment_root="$1"
 

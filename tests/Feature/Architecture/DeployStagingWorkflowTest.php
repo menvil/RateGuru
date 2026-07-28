@@ -53,7 +53,13 @@ it('deploys manually selected refs to staging', function () {
         ->and(data_get($deploySteps->get('Deploy to staging'), 'uses'))
         ->toBe('./.github/actions/deploy-rateguru')
         ->and(data_get($deploySteps->get('Deploy to staging'), 'with.run-migrations'))
-        ->toBe('${{ needs.resolve.outputs.run_migrations }}');
+        ->toBe('${{ needs.resolve.outputs.run_migrations }}')
+        ->and(data_get($deploySteps->get('Verify social preview as external crawler'), 'env.RATEGURU_SOCIAL_SMOKE_URL'))
+        ->toBe('${{ vars.SOCIAL_SMOKE_POST_URL }}')
+        ->and(data_get($deploySteps->get('Verify social preview as external crawler'), 'env.RATEGURU_SOCIAL_SMOKE_BASIC_AUTH'))
+        ->toBe('${{ secrets.SOCIAL_SMOKE_BASIC_AUTH }}')
+        ->and(data_get($deploySteps->get('Verify social preview as external crawler'), 'run'))
+        ->toContain('infrastructure/scripts/social-preview-smoke');
 
     expect(data_get($buildSteps->get('Checkout requested ref'), 'with.persist-credentials'))
         ->toBeFalse()

@@ -16,6 +16,7 @@ it('creates posts table with required columns', function () {
         'image_path',
         'image_url',
         'thumbnail_url',
+        'og_image_path',
         'source_url',
         'status',
         'upvotes_count',
