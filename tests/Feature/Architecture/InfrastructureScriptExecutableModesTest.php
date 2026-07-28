@@ -62,25 +62,10 @@ function infrastructureScriptGitModes(): array
 }
 
 it('keeps every infrastructure CLI script executable and common non-executable in the Git index', function () {
-    $cliAllowlist = [
-        'infrastructure/scripts/backup',
-        'infrastructure/scripts/backup-cycle',
-        'infrastructure/scripts/cleanup',
-        'infrastructure/scripts/deploy',
-        'infrastructure/scripts/health-check',
-        'infrastructure/scripts/install-mail-capture',
-        'infrastructure/scripts/install-public-storage-access',
-        'infrastructure/scripts/install-target-operations',
-        'infrastructure/scripts/offsite-backup',
-        'infrastructure/scripts/offsite-restore-test',
-        'infrastructure/scripts/offsite-retention',
-        'infrastructure/scripts/restore-test',
-        'infrastructure/scripts/rollback',
-        'infrastructure/scripts/status',
-        'infrastructure/scripts/status-mail-capture',
-        'infrastructure/scripts/targets',
-        'infrastructure/scripts/verify-mail-capture',
-    ];
+    $cliAllowlist = array_map(
+        fn (string $name): string => "infrastructure/scripts/{$name}",
+        requiredCliManifestNames(),
+    );
 
     $sourcedLibrary = 'infrastructure/scripts/common';
 

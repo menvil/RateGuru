@@ -52,6 +52,23 @@ function something()
 }
 
 /**
+ * The single committed source of truth for which infrastructure CLIs must
+ * stay executable — also read (independently, at runtime) by both
+ * deploy-staging.yml and release.yml, so the allowlist enforced by
+ * InfrastructureScriptExecutableModesTest, DeployStagingWorkflowTest and
+ * ProductionReleaseWorkflowTest can never drift from what the artifact-build
+ * workflows actually verify.
+ *
+ * @return list<string>
+ */
+function requiredCliManifestNames(): array
+{
+    $lines = preg_split('/\R/', file_get_contents(base_path('infrastructure/config/required-clis.txt')));
+
+    return array_values(array_filter(array_map('trim', $lines), fn (string $line): bool => $line !== ''));
+}
+
+/**
  * Create two configurable Rating Groups used by feed filter tests.
  */
 function seedFeedFilterGroups(): void

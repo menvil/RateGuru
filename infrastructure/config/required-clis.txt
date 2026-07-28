@@ -1,0 +1,17 @@
+backup
+backup-cycle
+cleanup
+deploy
+health-check
+install-mail-capture
+install-public-storage-access
+install-target-operations
+offsite-backup
+offsite-restore-test
+offsite-retention
+restore-test
+rollback
+status
+status-mail-capture
+targets
+verify-mail-capture

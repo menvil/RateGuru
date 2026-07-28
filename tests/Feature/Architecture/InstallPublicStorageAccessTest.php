@@ -493,11 +493,6 @@ fi
 SH;
 }
 
-function psaHealthCheckStub(): string
-{
-    return "#!/usr/bin/env bash\nexit 0\n";
-}
-
 it('--check succeeds against a healthy scratch target and performs no writes', function () {
     $scratch = psaScratchDir();
 

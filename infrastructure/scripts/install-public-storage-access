@@ -53,7 +53,7 @@ SELF_PATH="${BASH_SOURCE[0]}"
 
 BACKUP_ROOT="/var/backups/rateguru-public-storage-access"
 
-REQUIRED_TOOLS=(setfacl getfacl stat namei readlink runuser curl mktemp install cmp grep)
+REQUIRED_TOOLS=(setfacl getfacl stat namei readlink runuser curl mktemp install find od grep)
 
 # RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
 # =true — a stray environment variable surviving in a real root shell can

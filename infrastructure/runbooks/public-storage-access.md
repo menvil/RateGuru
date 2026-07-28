@@ -99,7 +99,7 @@ in this repository.
 
 Validates: the target is active; every required host tool is present
 (`setfacl`, `getfacl`, `stat`, `namei`, `readlink`, `runuser`, `curl`,
-`mktemp`, `install`, `cmp`, `grep`); `shared`, `shared/storage`,
+`mktemp`, `install`, `find`, `od`, `grep`); `shared`, `shared/storage`,
 `shared/storage/app`, `shared/storage/app/public` exist as real directories,
 never symlinks; `current/public/storage` is a symlink that resolves exactly
 to `shared/storage/app/public`; `shared` and `shared/storage` are owned by
@@ -123,10 +123,12 @@ sudo infrastructure/scripts/install-public-storage-access --apply --target stagi
    **current** ACL state of `shared` and `shared/storage` via
    `getfacl -p`, in a form `setfacl --restore` can replay exactly.
 4. Applies exactly two commands:
+
    ```bash
    setfacl -m u:www-data:--x /home/www/rateguru/<target>/shared
    setfacl -m u:www-data:--x /home/www/rateguru/<target>/shared/storage
    ```
+
    No `chmod`, `chown`, `chgrp`, `usermod`, or group-membership change ever
    runs — enforced by architecture tests that grep the script's own source
    for the absence of those commands, not just by manual review.
@@ -157,7 +159,7 @@ sudo infrastructure/scripts/install-public-storage-access --verify --target stag
 Re-runs every check from step 5 above against whatever is currently applied.
 Makes no changes. Reports each phase separately:
 
-```
+```text
 --- target validation ---
 --- filesystem structure ---
 --- ACL traversal ---
@@ -173,7 +175,7 @@ line.
 
 ## Backup location
 
-```
+```text
 /var/backups/rateguru-public-storage-access/<UTC timestamp>-<pid>-<target>/acl.restore
 ```
 
@@ -200,7 +202,7 @@ sudo infrastructure/scripts/install-public-storage-access --verify --target <tar
 
 ## Expected `getfacl` output after a successful apply
 
-```
+```text
 $ getfacl /home/www/rateguru/<target>/shared
 # file: home/www/rateguru/<target>/shared
 # owner: rateguru-<target>

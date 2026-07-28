@@ -117,15 +117,12 @@ it('fails the staging artifact build closed when a required infrastructure CLI i
     $block = $matches[1];
 
     $root = sys_get_temp_dir().'/deploy-staging-exec-check-'.uniqid('', true);
-    $cliNames = [
-        'backup', 'backup-cycle', 'cleanup', 'deploy', 'health-check',
-        'install-mail-capture', 'install-public-storage-access', 'install-target-operations', 'offsite-backup',
-        'offsite-restore-test', 'offsite-retention', 'restore-test', 'rollback',
-        'status', 'status-mail-capture', 'targets', 'verify-mail-capture',
-    ];
+    $cliNames = requiredCliManifestNames();
 
     try {
         mkdir($root.'/infrastructure/scripts', 0o755, true);
+        mkdir($root.'/infrastructure/config', 0o755, true);
+        copy(base_path('infrastructure/config/required-clis.txt'), $root.'/infrastructure/config/required-clis.txt');
 
         foreach ($cliNames as $name) {
             file_put_contents($root.'/infrastructure/scripts/'.$name, "#!/usr/bin/env bash\n");

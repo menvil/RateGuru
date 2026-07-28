@@ -198,25 +198,18 @@ jobs:
           # targets were. This must never be "fixed" with a chmod here: that
           # would hide the wrong repository metadata instead of catching it.
           # --- verify infrastructure CLI executable bits (begin) ---
-          required_infra_clis=(
-            backup
-            backup-cycle
-            cleanup
-            deploy
-            health-check
-            install-mail-capture
-            install-public-storage-access
-            install-target-operations
-            offsite-backup
-            offsite-restore-test
-            offsite-retention
-            restore-test
-            rollback
-            status
-            status-mail-capture
-            targets
-            verify-mail-capture
-          )
+          manifest="${package_root}/infrastructure/config/required-clis.txt"
+          if [[ ! -f "${manifest}" ]]; then
+            echo "required CLI manifest is missing from the release package: infrastructure/config/required-clis.txt" >&2
+            exit 1
+          fi
+
+          mapfile -t required_infra_clis < <(grep -v '^[[:space:]]*$' "${manifest}")
+
+          if [[ "${#required_infra_clis[@]}" -eq 0 ]]; then
+            echo "required CLI manifest is empty: infrastructure/config/required-clis.txt" >&2
+            exit 1
+          fi
 
           for name in "${required_infra_clis[@]}"; do
             cli_path="${package_root}/infrastructure/scripts/${name}"
