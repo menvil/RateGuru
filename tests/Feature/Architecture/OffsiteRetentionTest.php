@@ -325,18 +325,16 @@ function offsiteRetentionOpsParityRegistry(string $scratch, string $backupNamesp
 
 /**
  * Creates a fake remote timestamped backup directory (a single marker file
- * is enough — offsite-retention never inspects a backup's own contents) with
- * a given age in days.
+ * is enough — offsite-retention never inspects a backup's own contents).
+ * compute_candidates classifies age purely from the timestamp encoded in the
+ * directory name itself (see offsite-retention's own compute_candidates) —
+ * never from filesystem mtime — so this fixture only needs that name right.
  */
-function offsiteRetentionOpsBuildRemoteBackup(string $bucketRoot, string $namespace, string $timestamp, int $ageDays): string
+function offsiteRetentionOpsBuildRemoteBackup(string $bucketRoot, string $namespace, string $timestamp): string
 {
     $dir = "{$bucketRoot}/rateguru/{$namespace}/{$timestamp}";
     mkdir($dir, 0o755, true);
     file_put_contents($dir.'/database.dump', "fake\n");
-
-    $mtime = time() - ($ageDays * 86400);
-    touch($dir, $mtime);
-    touch($dir.'/database.dump', $mtime);
 
     return $dir;
 }
@@ -586,6 +584,61 @@ it('resolves target retention from the registry, independently of the legacy val
     }
 });
 
+it('purges a 20-day-old backup under the 17-day target cutoff but retains the same-age backup under the 30-day legacy cutoff', function () {
+    $scratch = offsiteRetentionOpsScratchDir();
+
+    try {
+        [$registryPath, $targetsPath] = offsiteRetentionOpsParityRegistry($scratch, 'parity', 17);
+
+        // Independent bucket roots per selector — a 20-day-old backup and a
+        // 1-day-old "latest" so the old one is a genuine deletion candidate
+        // rather than being unconditionally protected as the latest.
+        $targetBucketRoot = $scratch.'/bucket-target';
+        mkdir($targetBucketRoot, 0o755, true);
+        $targetOldTs = offsiteRetentionOpsTimestampDaysAgo(20);
+        offsiteRetentionOpsBuildRemoteBackup($targetBucketRoot, 'parity', $targetOldTs);
+        offsiteRetentionOpsBuildRemoteBackup($targetBucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(1));
+
+        [$targetExit, $targetOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
+            parse_offsite_retention_args --target parity-target --apply
+            resolve_offsite_retention_subject
+            perform_offsite_retention
+            BASH, offsiteRetentionOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+            'RATEGURU_RCLONE_BUCKET' => $targetBucketRoot,
+            'RATEGURU_RUN_ROOT' => $scratch.'/run-target',
+        ]), offsiteRetentionOpsPatchedScript($scratch));
+
+        expect($targetExit)->toBe(0, $targetOutput);
+        expect($targetOutput)->toContain('DELETE: ')->toContain($targetOldTs);
+        expect(is_dir("{$targetBucketRoot}/rateguru/parity/{$targetOldTs}"))
+            ->toBeFalse('a 20-day-old backup must be purged under the 17-day target retention window');
+
+        $legacyBucketRoot = $scratch.'/bucket-legacy';
+        mkdir($legacyBucketRoot, 0o755, true);
+        $legacyOldTs = offsiteRetentionOpsTimestampDaysAgo(20);
+        offsiteRetentionOpsBuildRemoteBackup($legacyBucketRoot, 'staging', $legacyOldTs);
+        offsiteRetentionOpsBuildRemoteBackup($legacyBucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
+
+        [$legacyExit, $legacyOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
+            parse_offsite_retention_args --environment staging --apply
+            resolve_offsite_retention_subject
+            perform_offsite_retention
+            BASH, offsiteRetentionOpsBaseEnv($scratch, [
+            'RATEGURU_RCLONE_BUCKET' => $legacyBucketRoot,
+            'RATEGURU_RUN_ROOT' => $scratch.'/run-legacy',
+        ]), offsiteRetentionOpsPatchedScript($scratch));
+
+        expect($legacyExit)->toBe(0, $legacyOutput);
+        expect($legacyOutput)->toContain("KEEP recent: {$legacyOldTs}");
+        expect(is_dir("{$legacyBucketRoot}/rateguru/staging/{$legacyOldTs}"))
+            ->toBeTrue('the same-age backup must be retained under the 30-day legacy retention window');
+    } finally {
+        offsiteRetentionOpsCleanup($scratch);
+    }
+});
+
 it('legacy and target selectors of the same namespace use the same remote root and lock, despite different retention', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
@@ -623,7 +676,7 @@ it('cannot run --environment staging and --target staging-main offsite retention
 
         $bucketRoot = $scratch.'/bucket';
         mkdir($bucketRoot, 0o755, true);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(1), 1);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(1));
 
         $runRoot = $scratch.'/run-'.uniqid('', true);
         mkdir($runRoot, 0o755, true);
@@ -672,10 +725,10 @@ it('protects the latest backup regardless of age, protects recent backups, and s
         $tsRecent = offsiteRetentionOpsTimestampDaysAgo(5);
         $tsLatest = offsiteRetentionOpsTimestampDaysAgo(1);
 
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsOld1, 40);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsOld2, 35);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsRecent, 5);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsLatest, 1);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsOld1);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsOld2);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsRecent);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsLatest);
 
         $env = offsiteRetentionOpsBaseEnv($scratch, ['RATEGURU_RCLONE_BUCKET' => $bucketRoot]);
 
@@ -718,11 +771,11 @@ it('produces deterministic candidate ordering across repeated runs', function ()
         $timestamps = [];
         foreach ([60, 55, 50, 45, 40] as $age) {
             $ts = offsiteRetentionOpsTimestampDaysAgo($age);
-            offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $ts, $age);
+            offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $ts);
             $timestamps[] = $ts;
         }
         $latestTs = offsiteRetentionOpsTimestampDaysAgo(1);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $latestTs, 1);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $latestTs);
 
         $env = offsiteRetentionOpsBaseEnv($scratch, ['RATEGURU_RCLONE_BUCKET' => $bucketRoot]);
 
@@ -761,8 +814,8 @@ it('dry-run never invokes rclone purge, not even with --dry-run, and acquires no
         $bucketRoot = $scratch.'/bucket';
         mkdir($bucketRoot, 0o755, true);
         $oldTs = offsiteRetentionOpsTimestampDaysAgo(40);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $oldTs, 40);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1), 1);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $oldTs);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
 
         $runRoot = $scratch.'/run-'.uniqid('', true);
         $invocationLog = $scratch.'/rclone-invocations.log';
@@ -802,8 +855,8 @@ it('apply lists remote backups twice — an unlocked preview, then a locked, aut
         $bucketRoot = $scratch.'/bucket';
         mkdir($bucketRoot, 0o755, true);
         $oldTs = offsiteRetentionOpsTimestampDaysAgo(40);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $oldTs, 40);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1), 1);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $oldTs);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
 
         $runRoot = $scratch.'/run-'.uniqid('', true);
         $invocationLog = $scratch.'/rclone-invocations.log';
@@ -843,7 +896,7 @@ it('protects a backup uploaded concurrently between the preview pass and the loc
         // At preview time, this is the only (and therefore latest) backup —
         // young enough to survive on its own, but about to be superseded.
         $wouldBeLatestAtPreview = offsiteRetentionOpsTimestampDaysAgo(2);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $wouldBeLatestAtPreview, 2);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $wouldBeLatestAtPreview);
 
         // Injected immediately before the SECOND `lsf` call (the locked,
         // authoritative one) — simulating a real backup uploaded
@@ -888,8 +941,8 @@ it('only apply ever invokes rclone purge — dry-run never does, under any circu
     try {
         $bucketRoot = $scratch.'/bucket';
         mkdir($bucketRoot, 0o755, true);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(40), 40);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1), 1);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(40));
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
 
         $dryRunLog = $scratch.'/dry-run-invocations.log';
         $dryRunEnv = offsiteRetentionOpsBaseEnv($scratch, [
@@ -931,8 +984,8 @@ it('reports no candidates when every remote backup is either the latest or withi
     try {
         $bucketRoot = $scratch.'/bucket';
         mkdir($bucketRoot, 0o755, true);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(5), 5);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1), 1);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(5));
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
 
         $env = offsiteRetentionOpsBaseEnv($scratch, ['RATEGURU_RCLONE_BUCKET' => $bucketRoot]);
 

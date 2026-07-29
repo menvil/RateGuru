@@ -96,18 +96,9 @@ USAGE
 # main is called.
 
 # --- selector parsing (mirrors offsite-backup/offsite-retention) ------------
-
-# require_flag_value <flag-name> <remaining-arg-count> <next-token>
-require_flag_value() {
-    local flag="$1" remaining="$2" value="${3-}"
-
-    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
-    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
-
-    case "${value}" in
-        -*) fail "${flag} requires a value, not another option: ${value}" ;;
-    esac
-}
+#
+# require_flag_value is defined in common (shared with offsite-backup and
+# offsite-retention — see the comment there).
 
 parse_offsite_restore_args() {
     TARGET_ID=""
@@ -169,56 +160,11 @@ resolve_offsite_restore_subject() {
 
 # --- manifest validation (identical contract to offsite-backup's own) -------
 #
-# Runs before createdb — like checksum and storage-archive validation. No
-# independently resolved database name to compare against (unlike local
-# restore-test) — `database` is only required to be present and non-empty.
-validate_backup_manifest() {
-    local manifest_path="$1"
-
-    [[ -f "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
-
-    local manifest_project manifest_environment manifest_database
-
-    manifest_project="$(jq -r '.project // empty' "${manifest_path}")"
-    manifest_environment="$(jq -r '.environment // empty' "${manifest_path}")"
-    manifest_database="$(jq -r '.database // empty' "${manifest_path}")"
-
-    [[ "${manifest_project}" == "rateguru" ]] \
-        || fail "backup manifest project mismatch: expected rateguru, got '${manifest_project}'"
-
-    [[ "${manifest_environment}" == "${ENVIRONMENT_CLASS}" ]] \
-        || fail "backup manifest environment mismatch: expected ${ENVIRONMENT_CLASS}, got '${manifest_environment}'"
-
-    [[ -n "${manifest_database}" ]] \
-        || fail "backup manifest database is missing or empty"
-
-    local manifest_schema_status
-    manifest_schema_status="$(manifest_schema_classify "${manifest_path}")"
-
-    case "${manifest_schema_status}" in
-        schema1)
-            ;;
-        schema2)
-            local manifest_backup_namespace
-            manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
-
-            [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
-                || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
-
-            if [[ "${SELECTOR_TYPE}" == "target" ]]; then
-                local manifest_target
-                manifest_target="$(jq -r '.target // empty' "${manifest_path}")"
-
-                if [[ -n "${manifest_target}" ]] && [[ "${manifest_target}" != "${TARGET_ID}" ]]; then
-                    fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
-                fi
-            fi
-            ;;
-        invalid:*)
-            fail "unsupported backup manifest schema_version: ${manifest_schema_status#invalid:}"
-            ;;
-    esac
-}
+# validate_backup_manifest is defined in common (shared with offsite-backup
+# — see the comment there). It runs before createdb — like checksum and
+# storage-archive validation. No independently resolved database name to
+# compare against (unlike local restore-test) — `database` is only required
+# to be present and non-empty.
 
 # --- offsite restore-test pipeline: one shared code path for both selectors -
 
@@ -361,7 +307,26 @@ print(max(names) if names else "")
 
     validate_backup_manifest "${TEMP_DIRECTORY}/manifest.json"
 
-    TEST_DATABASE="rateguru_offsite_restore_${SANITIZED_NAMESPACE}_$(date -u +%Y%m%d%H%M%S)_$$"
+    # PostgreSQL silently truncates identifiers longer than 63 bytes
+    # (NAMEDATALEN - 1). "rateguru_offsite_restore_" (25) + "_" + a 14-digit
+    # UTC timestamp + "_" + a PID (up to 7 digits on Linux) already uses 48
+    # bytes, leaving 15 for the namespace component — every namespace in the
+    # registry today (staging, production, tits-guru) is well under that and
+    # is completely unaffected. A longer namespace falls back to a short
+    # deterministic hash instead of silently relying on PostgreSQL's own
+    # truncation, which could otherwise drop the timestamp/PID suffix
+    # entirely and let two differently-named temporary databases collide.
+    DATABASE_NAMESPACE_TAG="${SANITIZED_NAMESPACE}"
+
+    if (( ${#DATABASE_NAMESPACE_TAG} > 15 )); then
+        DATABASE_NAMESPACE_TAG="$(
+            printf '%s' "${BACKUP_NAMESPACE}" \
+                | sha256sum \
+                | cut -c1-12
+        )"
+    fi
+
+    TEST_DATABASE="rateguru_offsite_restore_${DATABASE_NAMESPACE_TAG}_$(date -u +%Y%m%d%H%M%S)_$$"
 
     log ""
     log "Creating temporary PostgreSQL database:"

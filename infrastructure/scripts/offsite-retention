@@ -72,18 +72,9 @@ USAGE
 # main is called.
 
 # --- selector and execution-mode parsing -------------------------------------
-
-# require_flag_value <flag-name> <remaining-arg-count> <next-token>
-require_flag_value() {
-    local flag="$1" remaining="$2" value="${3-}"
-
-    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
-    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
-
-    case "${value}" in
-        -*) fail "${flag} requires a value, not another option: ${value}" ;;
-    esac
-}
+#
+# require_flag_value is defined in common (shared with offsite-backup and
+# offsite-restore-test — see the comment there).
 
 parse_offsite_retention_args() {
     TARGET_ID=""

@@ -928,6 +928,20 @@ it('runs storage archive validation before creating the temporary database', fun
     }
 });
 
+it('rejects a remote backup with no manifest.json at all before creating the temporary database', function () {
+    $scratch = offsiteRestoreOpsScratchDir();
+
+    try {
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: null);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('missing downloaded backup file: manifest.json');
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run before manifest validation passes');
+    } finally {
+        offsiteRestoreOpsCleanup($scratch);
+    }
+});
+
 it('validates a schema 1 (legacy) manifest and remains restorable through --environment', function () {
     $scratch = offsiteRestoreOpsScratchDir();
 

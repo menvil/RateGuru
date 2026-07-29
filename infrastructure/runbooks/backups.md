@@ -137,9 +137,13 @@ The retention window itself is resolved independently per selector: legacy
 mode uses `environment_offsite_backup_retention` (`staging` = 30 days,
 `production` = 90 days); target mode uses the registry's own
 `offsite_retention_days` field for the resolved target. These can genuinely
-differ even for targets that share a namespace — the latest backup and any
-backup inside either selector's own retention window are always protected,
-regardless of which selector triggered the run.
+differ even for targets that share a namespace — each run protects the
+latest backup unconditionally, and otherwise deletes only what falls outside
+*its own invoking selector's* resolved window. A legacy run never considers
+the target's window, and a target run never considers the legacy window: a
+backup old enough to be a candidate under a shorter target window can still
+be purged by a target run even though the same backup would still be
+protected by a separate legacy run using its own, longer window.
 
 ### Manifest validation reuses the same strict schema contract
 

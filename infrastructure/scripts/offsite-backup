@@ -76,18 +76,9 @@ USAGE
 # main is called, mirroring backup/restore-test's own structure exactly.
 
 # --- selector parsing (mirrors backup/restore-test) --------------------------
-
-# require_flag_value <flag-name> <remaining-arg-count> <next-token>
-require_flag_value() {
-    local flag="$1" remaining="$2" value="${3-}"
-
-    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
-    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
-
-    case "${value}" in
-        -*) fail "${flag} requires a value, not another option: ${value}" ;;
-    esac
-}
+#
+# require_flag_value is defined in common (shared with offsite-retention and
+# offsite-restore-test — see the comment there).
 
 parse_offsite_backup_args() {
     TARGET_ID=""
@@ -149,59 +140,14 @@ resolve_offsite_backup_subject() {
 
 # --- manifest validation ------------------------------------------------
 #
-# Runs before any rclone command — checksum validation only proves the local
-# backup's own files are internally consistent; this proves the backup being
-# uploaded actually belongs to the resolved selector before it is ever sent
-# to Backblaze B2. offsite-backup has no independently resolved database
-# name to compare against (unlike restore-test, which does) — `database` is
-# only required to be present and non-empty here.
-validate_backup_manifest() {
-    local manifest_path="$1"
-
-    [[ -f "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
-
-    local manifest_project manifest_environment manifest_database
-
-    manifest_project="$(jq -r '.project // empty' "${manifest_path}")"
-    manifest_environment="$(jq -r '.environment // empty' "${manifest_path}")"
-    manifest_database="$(jq -r '.database // empty' "${manifest_path}")"
-
-    [[ "${manifest_project}" == "rateguru" ]] \
-        || fail "backup manifest project mismatch: expected rateguru, got '${manifest_project}'"
-
-    [[ "${manifest_environment}" == "${ENVIRONMENT_CLASS}" ]] \
-        || fail "backup manifest environment mismatch: expected ${ENVIRONMENT_CLASS}, got '${manifest_environment}'"
-
-    [[ -n "${manifest_database}" ]] \
-        || fail "backup manifest database is missing or empty"
-
-    local manifest_schema_status
-    manifest_schema_status="$(manifest_schema_classify "${manifest_path}")"
-
-    case "${manifest_schema_status}" in
-        schema1)
-            ;;
-        schema2)
-            local manifest_backup_namespace
-            manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
-
-            [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
-                || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
-
-            if [[ "${SELECTOR_TYPE}" == "target" ]]; then
-                local manifest_target
-                manifest_target="$(jq -r '.target // empty' "${manifest_path}")"
-
-                if [[ -n "${manifest_target}" ]] && [[ "${manifest_target}" != "${TARGET_ID}" ]]; then
-                    fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
-                fi
-            fi
-            ;;
-        invalid:*)
-            fail "unsupported backup manifest schema_version: ${manifest_schema_status#invalid:}"
-            ;;
-    esac
-}
+# validate_backup_manifest is defined in common (shared with
+# offsite-restore-test — see the comment there). It runs before any rclone
+# command — checksum validation only proves the local backup's own files are
+# internally consistent; this proves the backup being uploaded actually
+# belongs to the resolved selector before it is ever sent to Backblaze B2.
+# offsite-backup has no independently resolved database name to compare
+# against (unlike restore-test, which does) — `database` is only required to
+# be present and non-empty.
 
 # --- offsite backup pipeline: one shared code path for both selectors -------
 
@@ -230,17 +176,27 @@ perform_offsite_backup() {
         fail "${BACKUP_NAMESPACE} offsite backup is already running"
     fi
 
-    LATEST_BACKUP="$(
-        find "${LOCAL_ROOT}" \
-            -regextype posix-extended \
-            -mindepth 1 \
-            -maxdepth 1 \
-            -type d \
-            -regex '.*/[0-9]{8}-[0-9]{6}' \
-            -printf '%f\n' \
-        | sort \
-        | tail -1
-    )"
+    # Guarded on -d first so a missing/invalid LOCAL_ROOT (e.g. offsite-backup
+    # run before any local backup for this namespace ever existed) cannot make
+    # `find` itself fail and abort the pipeline under pipefail — the
+    # "no timestamped local backup found" fail call below stays the single
+    # place that reports this condition, for a missing directory exactly like
+    # an empty one.
+    LATEST_BACKUP=""
+
+    if [[ -d "${LOCAL_ROOT}" ]]; then
+        LATEST_BACKUP="$(
+            find "${LOCAL_ROOT}" \
+                -regextype posix-extended \
+                -mindepth 1 \
+                -maxdepth 1 \
+                -type d \
+                -regex '.*/[0-9]{8}-[0-9]{6}' \
+                -printf '%f\n' \
+            | sort \
+            | tail -1
+        )"
+    fi
 
     [[ -n "${LATEST_BACKUP}" ]] || fail "no timestamped local backup found in ${LOCAL_ROOT}"
 

@@ -97,8 +97,9 @@ write any of them can make is already gated behind the same protections
 lifecycle check (checked immediately after root authorization, before any
 filesystem, database, remote-listing or lock work), and a shared backup
 namespace/lock so the legacy and target selectors can never write into the
-same namespace concurrently. `backup-cycle` stays target-aware only in its
-own future slice (7.3), once it has been given the equivalent scrutiny.
+same namespace concurrently. `backup-cycle` stays `--environment`-only until
+its own future slice (7.3), once it has been given the equivalent scrutiny —
+only then does it become target-aware.
 
 ## Modes
 
