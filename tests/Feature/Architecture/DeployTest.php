@@ -1331,7 +1331,7 @@ it('recovers correctly from a failed post-switch health check in target mode', f
 // Out of scope: nothing else changed
 // =============================================================================
 
-it('leaves backup scripts and workflows untouched', function () {
+it('leaves sudoers and workflows untouched', function () {
     exec('git rev-parse --verify -q origin/develop >/dev/null 2>&1', $probeOutput, $probeExit);
 
     if ($probeExit !== 0) {
@@ -1339,14 +1339,13 @@ it('leaves backup scripts and workflows untouched', function () {
     }
 
     // infrastructure/scripts/rollback graduated to target-awareness in Phase
-    // 4 slice 6, backup/restore-test in slice 7.1, and offsite-backup/
-    // offsite-retention/offsite-restore-test in slice 7.2 — all six are
-    // deliberately absent here; see RollbackTest.php,
-    // BackupTest.php/RestoreTest.php and
+    // 4 slice 6, backup/restore-test in slice 7.1, offsite-backup/
+    // offsite-retention/offsite-restore-test in slice 7.2, and backup-cycle
+    // in slice 7.3 — all seven are deliberately absent here; see
+    // RollbackTest.php, BackupTest.php/RestoreTest.php,
     // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
-    // for their own behavioral coverage.
+    // and BackupCycleTest.php for their own behavioral coverage.
     $unchanged = [
-        'infrastructure/scripts/backup-cycle',
         'infrastructure/config/sudoers/rateguru-deploy',
         '.github/workflows/deploy-staging.yml',
     ];
@@ -1366,14 +1365,5 @@ it('leaves backup scripts and workflows untouched', function () {
 
         expect($ok)->toBeTrue("origin/develop is unavailable for {$path}: {$stderr}");
         expect(File::get($full))->toBe($developContent, "{$path} must be byte-identical to origin/develop in this slice");
-    }
-});
-
-it('does not add --target to any backup script', function () {
-    foreach (['backup-cycle'] as $script) {
-        $source = File::get(base_path('infrastructure/scripts/'.$script));
-
-        expect(str_contains($source, '--target'))->toBeFalse("{$script} must not accept --target in this slice");
-        expect(str_contains($source, 'require_active_target'))->toBeFalse("{$script} must not call require_active_target in this slice");
     }
 });

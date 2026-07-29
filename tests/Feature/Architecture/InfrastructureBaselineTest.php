@@ -25,30 +25,20 @@ it('keeps staging maintenance active without enabling production prematurely', f
         ->not->toContain('rateguru-production');
 });
 
-it('keeps standalone backup utilities independent from deployment configuration', function () {
+it('keeps common free of removed legacy helpers', function () {
     $common = infrastructureSource('scripts/common');
 
     // backup and restore-test graduated to target-awareness in Phase 4 slice
-    // 7.1, and offsite-backup/offsite-retention/offsite-restore-test in
-    // slice 7.2, and now deliberately source common (for target_*/
-    // environment_* helpers, require_root, and the selector-parsing
-    // contract) — see BackupTest.php/RestoreTest.php and
+    // 7.1, offsite-backup/offsite-retention/offsite-restore-test in slice
+    // 7.2, and backup-cycle in slice 7.3 — every operational script now
+    // deliberately sources common (for target_*/environment_* helpers,
+    // require_root, and the selector-parsing contract). See
+    // BackupTest.php/RestoreTest.php,
     // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
-    // for their own coverage. backup-cycle stays legacy-only until its own
-    // future slice (7.3), and this test's job is to keep proving that for it
-    // specifically.
-    $scripts = [
-        'backup-cycle',
-    ];
-
+    // and BackupCycleTest.php for their own coverage.
     expect($common)
         ->not->toContain('parse_environment_argument()')
         ->not->toContain('acquire_operation_lock()');
-
-    foreach ($scripts as $script) {
-        expect(infrastructureSource('scripts/'.$script))
-            ->not->toContain('source /home/www/rateguru/bin/common');
-    }
 
     expect(infrastructureSource('scripts/restore-test'))
         ->toContain('exec 9>"${LOCK_FILE}"')

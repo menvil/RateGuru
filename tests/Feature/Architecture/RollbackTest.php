@@ -1573,7 +1573,7 @@ it('ignores RATEGURU_HEALTH_CHECK_BIN without the opt-in flag, and honors it wit
 // Out of scope: nothing else changed
 // =============================================================================
 
-it('leaves deploy, backup scripts and workflows untouched', function () {
+it('leaves deploy and workflows untouched', function () {
     exec('git rev-parse --verify -q origin/develop >/dev/null 2>&1', $probeOutput, $probeExit);
 
     if ($probeExit !== 0) {
@@ -1581,14 +1581,14 @@ it('leaves deploy, backup scripts and workflows untouched', function () {
     }
 
     // infrastructure/scripts/backup and restore-test graduated to
-    // target-awareness in Phase 4 slice 7.1, and offsite-backup/
-    // offsite-retention/offsite-restore-test in slice 7.2 — all five are
-    // deliberately absent here; see BackupTest.php/RestoreTest.php and
+    // target-awareness in Phase 4 slice 7.1, offsite-backup/
+    // offsite-retention/offsite-restore-test in slice 7.2, and backup-cycle
+    // in slice 7.3 — all six are deliberately absent here; see
+    // BackupTest.php/RestoreTest.php,
     // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
-    // for their own behavioral coverage.
+    // and BackupCycleTest.php for their own behavioral coverage.
     $unchanged = [
         'infrastructure/scripts/deploy',
-        'infrastructure/scripts/backup-cycle',
         'infrastructure/config/sudoers/rateguru-deploy',
         '.github/workflows/deploy-staging.yml',
     ];
