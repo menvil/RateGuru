@@ -57,7 +57,7 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first eight (through 7.3) are completed and accepted
+Slices, in order. The first nine (through 7.3) are completed and accepted
 on the real staging VPS; slice 8 (perimeter) is current. The phase stays
 **current**.
 

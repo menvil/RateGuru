@@ -266,6 +266,24 @@ it('rejects a flag-shaped --target value', function () {
     }
 });
 
+it('rejects the equals-joined --target=VALUE and --environment=VALUE forms', function () {
+    $scratch = perimeterScratchDir();
+
+    try {
+        [$exit, $output] = perimeterRunHarness('rateguru-deploy', $scratch, 'parse_wrapper_args --target=staging-main', perimeterBaseEnv());
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("--target must be given as '--target VALUE', not '--target=VALUE'");
+
+        [$exit, $output] = perimeterRunHarness('rateguru-deploy', $scratch, 'parse_wrapper_args --environment=staging', perimeterBaseEnv());
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--environment is not supported by rateguru-deploy; use --target');
+    } finally {
+        perimeterCleanup($scratch);
+    }
+});
+
 it('rejects an unknown short (wrapper-only) flag', function () {
     $scratch = perimeterScratchDir();
 
@@ -560,6 +578,15 @@ it('never uses eval or bash -c anywhere in any wrapper', function () {
 });
 
 it('test overrides are gated behind RATEGURU_ALLOW_TEST_OVERRIDES', function () {
+    // This test's proof depends on /home/www/rateguru/bin/common genuinely
+    // being absent on the machine running it — verify that precondition
+    // explicitly rather than assuming it, so a host that happens to have
+    // this path (e.g. a real staging VPS) gets a clear skip instead of a
+    // confusing pass or failure.
+    if (File::exists('/home/www/rateguru/bin/common')) {
+        test()->markTestSkipped('/home/www/rateguru/bin/common exists on this host — the hardcoded-default-path proof below cannot be exercised');
+    }
+
     $scratch = perimeterScratchDir();
 
     try {
@@ -638,6 +665,12 @@ it('rateguru-cleanup execs into the cleanup binary preserving --keep/--dry-run/-
 // =============================================================================
 
 it('provides a syntactically valid candidate sudoers file', function () {
+    exec('command -v visudo >/dev/null 2>&1', $probeOutput, $probeExit);
+
+    if ($probeExit !== 0) {
+        test()->markTestSkipped('visudo is not available on this host');
+    }
+
     $path = base_path('infrastructure/config/sudoers/rateguru-deploy');
 
     exec('visudo -cf '.escapeshellarg($path).' 2>&1', $output, $exit);

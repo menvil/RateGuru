@@ -203,20 +203,21 @@ function installPerimeterRunHarness(string $scratch, array $vars, string $call):
     return [$exit, $output];
 }
 
-function installPerimeterStatFile(string $path): string
-{
-    return trim((string) shell_exec('stat -f "%p %u %g" '.escapeshellarg($path).' 2>/dev/null || stat -c "%a %u %g" '.escapeshellarg($path).' 2>/dev/null'));
-}
-
 // =============================================================================
 // --check: static, read-only, no root
 // =============================================================================
 
 it('check passes against the real committed source files', function () {
-    [$exit, $output] = installPerimeterRunHarness(installPerimeterScratchDir(), installPerimeterBaseVars(installPerimeterScratchDir()), 'run_check');
+    $scratch = installPerimeterScratchDir();
 
-    expect($exit)->toBe(0, $output);
-    expect($output)->toContain('check passed');
+    try {
+        [$exit, $output] = installPerimeterRunHarness($scratch, installPerimeterBaseVars($scratch), 'run_check');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('check passed');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
 });
 
 it('check fails when a wrapper has a bash syntax error', function () {
@@ -426,6 +427,8 @@ it('a successful apply installs exactly five files with correct ownership, mode 
             expect(is_link($dst))->toBeFalse();
             expect(file_get_contents($dst))->toBe(file_get_contents($vars[$srcKey]));
             expect(substr(sprintf('%o', fileperms($dst)), -4))->toBe($mode);
+            expect(fileowner($dst))->toBe((int) $vars['INSTALL_OWNER_ID'], "{$dstKey} must be owned by INSTALL_OWNER_ID");
+            expect(filegroup($dst))->toBe((int) $vars['INSTALL_GROUP_ID'], "{$dstKey} must be group-owned by INSTALL_GROUP_ID");
         }
 
         $allDestFiles = array_merge(
@@ -580,6 +583,35 @@ it('leaves no partial perimeter when apply fails at any point', function () {
 
         foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_SUDOERS', 'DST_CRON'] as $key) {
             expect(file_exists($vars[$key]))->toBeFalse("{$key} must not exist — no destination existed before this run, so a failed apply must leave none behind");
+        }
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('apply fails with a specific diagnostic when the planned-target rejection happens for the wrong reason', function () {
+    // Exercises installPerimeterWriteWrapperStub's 'wrong-reason' variant:
+    // the stub fails a --target tits-guru probe, but not with
+    // lifecycle=planned, so verify_wrapper_planned_target_rejected must
+    // distinguish "rejected, but for the wrong reason" from both a genuine
+    // pass and an unexpected success.
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $wrongReasonStub = $scratch.'/wrong-reason-wrapper';
+        installPerimeterWriteWrapperStub($wrongReasonStub, 'wrong-reason');
+        $vars['SRC_WRAPPER_DEPLOY'] = $wrongReasonStub;
+        $vars['SRC_WRAPPER_ROLLBACK'] = $wrongReasonStub;
+        $vars['SRC_WRAPPER_CLEANUP'] = $wrongReasonStub;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('failed for the wrong reason');
+
+        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_SUDOERS', 'DST_CRON'] as $key) {
+            expect(file_exists($vars[$key]))->toBeFalse("{$key} must not exist — this failure happens during staged verification, before any destination is touched");
         }
     } finally {
         installPerimeterCleanup($scratch);
@@ -768,6 +800,7 @@ it('the three wrapper source files are present, readable, and syntactically vali
         $path = base_path("infrastructure/config/wrappers/{$name}");
         expect(File::exists($path))->toBeTrue();
 
+        $output = [];
         exec('bash -n '.escapeshellarg($path).' 2>&1', $output, $exit);
         expect($exit)->toBe(0, "bash -n failed for {$name}: ".implode("\n", $output));
     }

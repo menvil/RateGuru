@@ -1012,8 +1012,10 @@ staging health-check passed.
 
 ## Target-aware perimeter (slice 8, current)
 
-Every real staging operation now goes through target-based invocation, end
-to end:
+Once installed and switched over — see
+[Post-merge real-VPS acceptance](#post-merge-real-vps-acceptance-slice-8)
+below, which this slice's merge does **not** perform by itself — every real
+staging operation goes through target-based invocation, end to end:
 
 ```text
 GitHub Actions -> SSH -> sudo wrapper -> deploy --target staging-main

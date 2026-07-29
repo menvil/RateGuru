@@ -194,6 +194,18 @@ runs:
 
         echo "Deployment target: ${DEPLOYMENT_TARGET}"
 
+        # DEPLOY_WRAPPER must be the generic, target-aware wrapper — never a
+        # deprecated, per-environment one, which does not understand
+        # --target at all. Failing closed here, before the remote command is
+        # ever built, gives a clear diagnostic instead of a confusing remote
+        # "unknown argument: --target" failure.
+        deploy_wrapper_basename="$(basename "${DEPLOY_WRAPPER}")"
+
+        if [[ "${deploy_wrapper_basename}" != "rateguru-deploy" ]]; then
+          echo "DEPLOY_WRAPPER must be the generic rateguru-deploy wrapper (got: ${DEPLOY_WRAPPER})" >&2
+          exit 1
+        fi
+
         artifact_name="$(basename "${ARTIFACT_PATH}")"
         remote_artifact="${DEPLOY_INCOMING}/${artifact_name}"
         remote_checksum="${remote_artifact}.sha256"

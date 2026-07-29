@@ -325,8 +325,12 @@ validate_sudoers_content() {
 validate_cron_format() {
     local path="$1"
 
+    # The minute field's character class covers every standard cron syntax
+    # element (digits, "*", lists like "0,30", and step values like "*/15"),
+    # not just a bare number or "*" — this line count must not silently
+    # undercount a schedule that legitimately uses one of those forms.
     local operational_lines
-    operational_lines="$(grep -E '^[0-9*]+[[:space:]]' "${path}" || true)"
+    operational_lines="$(grep -E '^[0-9*,/-]+[[:space:]]' "${path}" || true)"
 
     local line_count
     line_count="$(grep -c . <<<"${operational_lines}" || true)"

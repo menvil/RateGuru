@@ -80,7 +80,13 @@ parse_wrapper_args() {
                 TARGET_SEEN=true
                 shift 2
                 ;;
+            --target=*)
+                fail "--target must be given as '--target VALUE', not '--target=VALUE'"
+                ;;
             --environment)
+                fail "--environment is not supported by ${WRAPPER_NAME}; use --target"
+                ;;
+            --environment=*)
                 fail "--environment is not supported by ${WRAPPER_NAME}; use --target"
                 ;;
             --help|-h)

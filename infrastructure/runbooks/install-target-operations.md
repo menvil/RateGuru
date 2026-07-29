@@ -482,9 +482,12 @@ share the identical cycle lock — see
 
 This installer never touches the GitHub Actions deploy workflow, sudoers, or
 any server wrapper — see [Not touched](#what-this-installer-owns--and-does-not)
-above. As of Phase 4 slice 8, the real staging perimeter calls `deploy
---target staging-main` through the generic `/usr/local/sbin/rateguru-deploy`
-wrapper; see [`target-perimeter.md`](target-perimeter.md).
+above. Phase 4 slice 8 adds the generic `/usr/local/sbin/rateguru-deploy`
+wrapper and switches the real staging perimeter to call `deploy --target
+staging-main` through it — but only once its own installer has been run on
+the VPS and the `DEPLOY_WRAPPER` GitHub variable has been switched by hand;
+see [`target-perimeter.md`](target-perimeter.md) for that post-merge
+acceptance procedure.
 
 ## Troubleshooting
 

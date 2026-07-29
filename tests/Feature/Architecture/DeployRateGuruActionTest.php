@@ -20,6 +20,7 @@ it('defines a hardened reusable RateGuru deployment action', function () {
         ->and(data_get($action, 'inputs.run-migrations.default'))->toBe('true');
 
     foreach ([
+        'deployment-target',
         'deploy-host',
         'deploy-user',
         'deploy-incoming',
