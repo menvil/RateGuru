@@ -1291,7 +1291,7 @@ it('keeps legacy production on rateguru-production.internal, never tits-guru', f
 
 // --- roadmap and runbook -----------------------------------------------------
 
-it('records slices 1-6 completed, slice 7.1 (local backup) current, without completing Phase 4', function () {
+it('records slices 1-7.1 completed, slice 7.2 (offsite backup) current, without completing Phase 4', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
@@ -1302,7 +1302,8 @@ it('records slices 1-6 completed, slice 7.1 (local backup) current, without comp
         ->toContain('Target-aware cleanup — completed')
         ->toContain('Target-aware deploy — completed')
         ->toContain('Target-aware rollback — completed')
-        ->toContain('Local backup and local restore-test — current')
+        ->toContain('Local backup and local restore-test — completed')
+        ->toContain('Offsite backup path — current')
         ->not->toContain('## 4. Multi-target production model — completed')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m');
 
@@ -1358,13 +1359,12 @@ it('leaves every other operational script and workflow byte-identical to develop
 
     $unchanged = [
         // infrastructure/scripts/cleanup, deploy and rollback graduated in
-        // Phase 4 slices 4, 5 and 6 respectively, and backup/restore-test in
-        // slice 7.1 — none of them is --environment-only anymore, so all
-        // five are deliberately absent here.
+        // Phase 4 slices 4, 5 and 6 respectively, backup/restore-test in
+        // slice 7.1, and offsite-backup/offsite-retention/
+        // offsite-restore-test in slice 7.2 — none of them is
+        // --environment-only anymore, so all eight are deliberately absent
+        // here.
         'infrastructure/scripts/backup-cycle',
-        'infrastructure/scripts/offsite-backup',
-        'infrastructure/scripts/offsite-retention',
-        'infrastructure/scripts/offsite-restore-test',
         'infrastructure/config/sudoers/rateguru-deploy',
         'infrastructure/config/ssh/70-rateguru-deploy.conf',
         'infrastructure/config/nginx/rateguru-staging',
@@ -1398,14 +1398,17 @@ it('leaves every other operational script and workflow byte-identical to develop
     }
 });
 
-it('does not add --target to any operational script outside health-check, status, cleanup, deploy, rollback, backup and restore-test', function () {
+it('does not add --target to any operational script outside health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention and offsite-restore-test', function () {
     // cleanup (Phase 4 slice 4), deploy (Phase 4 slice 5), rollback
-    // (Phase 4 slice 6), and backup/restore-test (Phase 4 slice 7.1) are each
-    // their own slice's subject and are deliberately excluded here — see
-    // CleanupTest.php, DeployTest.php, RollbackTest.php and
-    // BackupTest.php/RestoreTest.php for their target-awareness coverage.
+    // (Phase 4 slice 6), backup/restore-test (Phase 4 slice 7.1), and
+    // offsite-backup/offsite-retention/offsite-restore-test (Phase 4 slice
+    // 7.2) are each their own slice's subject and are deliberately excluded
+    // here — see CleanupTest.php, DeployTest.php, RollbackTest.php,
+    // BackupTest.php/RestoreTest.php and
+    // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
+    // for their target-awareness coverage.
     $mustNotChange = [
-        'backup-cycle', 'offsite-backup', 'offsite-retention', 'offsite-restore-test',
+        'backup-cycle',
     ];
 
     foreach ($mustNotChange as $script) {

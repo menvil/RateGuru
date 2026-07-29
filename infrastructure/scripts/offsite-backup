@@ -3,181 +3,384 @@
 set -Eeuo pipefail
 umask 077
 
-ENVIRONMENT=""
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup.
+# Production never sets either variable, so this resolves to the exact same
+# installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
-            shift 2
-            ;;
-        *)
-            echo "Unknown argument: $1" >&2
-            exit 1
-            ;;
-    esac
-done
-
-case "${ENVIRONMENT}" in
-    staging|production)
-        ;;
-    *)
-        echo "Usage: offsite-backup --environment staging|production" >&2
-        exit 1
-        ;;
-esac
-
-RCLONE_CONFIG="/root/.config/rclone/rclone.conf"
-RCLONE_REMOTE="rateguru-b2"
-BUCKET="rateguru-database-backups"
-
-LOCAL_ROOT="/home/www/rateguru/backups/${ENVIRONMENT}"
-REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${ENVIRONMENT}"
-
-LOCK_ROOT="/home/www/rateguru/run"
-LOCK_FILE="${LOCK_ROOT}/offsite-backup-${ENVIRONMENT}.lock"
-
-HISTORY_ROOT="/home/www/rateguru/backups"
-HISTORY_FILE="${HISTORY_ROOT}/offsite-history.jsonl"
-
-[[ -f "${RCLONE_CONFIG}" ]] || {
-    echo "Rclone configuration not found: ${RCLONE_CONFIG}" >&2
-    exit 1
-}
-
-install -d \
-    -o root \
-    -g root \
-    -m 0700 \
-    "${LOCK_ROOT}" \
-    "${HISTORY_ROOT}"
-
-exec 9>"${LOCK_FILE}"
-
-if ! flock -n 9; then
-    echo "Offsite backup for ${ENVIRONMENT} is already running" >&2
-    exit 1
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
 fi
 
-LATEST_BACKUP="$(
-    find "${LOCAL_ROOT}" \
-        -regextype posix-extended \
-        -mindepth 1 \
-        -maxdepth 1 \
-        -type d \
-        -regex '.*/[0-9]{8}-[0-9]{6}' \
-        -printf '%f\n' \
-    | sort \
-    | tail -1
-)"
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
 
-[[ -n "${LATEST_BACKUP}" ]] || {
-    echo "No timestamped local backup found in ${LOCAL_ROOT}" >&2
-    exit 1
+# Phase 4 slice 7.2: gated test overrides, following the exact
+# FOO_BIN_DEFAULT/FOO_BIN + rateguru_test_overrides_allowed shape backup/
+# restore-test already establish. Production values are unchanged — rclone
+# was previously invoked as a bare `rclone` (PATH-resolved); it now defaults
+# to the same absolute path convention every other gated binary uses.
+RCLONE_CONFIG_DEFAULT="/root/.config/rclone/rclone.conf"
+RCLONE_REMOTE_DEFAULT="rateguru-b2"
+BUCKET_DEFAULT="rateguru-database-backups"
+BACKUP_BASE_DEFAULT="/home/www/rateguru/backups"
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+RCLONE_BIN_DEFAULT="/usr/bin/rclone"
+
+RCLONE_CONFIG="${RCLONE_CONFIG_DEFAULT}"
+RCLONE_REMOTE="${RCLONE_REMOTE_DEFAULT}"
+BUCKET="${BUCKET_DEFAULT}"
+BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+RCLONE_BIN="${RCLONE_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_RCLONE_CONFIG:-}" ]]; then
+        RCLONE_CONFIG="${RATEGURU_RCLONE_CONFIG}"
+    fi
+
+    if [[ -n "${RATEGURU_RCLONE_REMOTE:-}" ]]; then
+        RCLONE_REMOTE="${RATEGURU_RCLONE_REMOTE}"
+    fi
+
+    if [[ -n "${RATEGURU_RCLONE_BUCKET:-}" ]]; then
+        BUCKET="${RATEGURU_RCLONE_BUCKET}"
+    fi
+
+    if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
+        BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
+    fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_RCLONE_BIN:-}" ]]; then
+        RCLONE_BIN="${RATEGURU_RCLONE_BIN}"
+    fi
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  offsite-backup --environment staging|production
+  offsite-backup --target TARGET_ID
+USAGE
 }
 
-LOCAL_DIRECTORY="${LOCAL_ROOT}/${LATEST_BACKUP}"
-REMOTE_DIRECTORY="${REMOTE_ROOT}/${LATEST_BACKUP}"
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called, mirroring backup/restore-test's own structure exactly.
 
-REQUIRED_FILES=(
-    database.dump
-    storage-app.tar.gz
-    environment.env
-    release.json
-    server-configuration.tar.gz
-    manifest.json
-    SHA256SUMS
-)
+# --- selector parsing (mirrors backup/restore-test) --------------------------
 
-for required_file in "${REQUIRED_FILES[@]}"; do
-    if [[ ! -f "${LOCAL_DIRECTORY}/${required_file}" ]]; then
-        echo "Missing required backup file: ${required_file}" >&2
-        exit 1
+# require_flag_value <flag-name> <remaining-arg-count> <next-token>
+require_flag_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
+}
+
+parse_offsite_backup_args() {
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
+                require_flag_value "--environment" "$#" "${2-}"
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    assert_selector_state
+}
+
+# --- selector resolution (mirrors backup/restore-test) -----------------------
+#
+# require_active_target runs first thing in the target branch — before the
+# rclone config check, remote listing, local backup root, lock, or any
+# filesystem/database work is ever computed or touched.
+resolve_offsite_backup_subject() {
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        require_active_target "${TARGET_ID}"
+
+        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+        LABEL="${TARGET_ID}"
+        SELECTOR_TYPE="target"
+    else
+        validate_environment "${ENVIRONMENT}"
+
+        ENVIRONMENT_CLASS="${ENVIRONMENT}"
+        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
+        LABEL="${ENVIRONMENT}"
+        SELECTOR_TYPE="environment"
     fi
-done
+}
 
-echo "Environment:    ${ENVIRONMENT}"
-echo "Local backup:   ${LOCAL_DIRECTORY}"
-echo "Remote backup:  ${REMOTE_DIRECTORY}"
-echo
+# --- manifest validation ------------------------------------------------
+#
+# Runs before any rclone command — checksum validation only proves the local
+# backup's own files are internally consistent; this proves the backup being
+# uploaded actually belongs to the resolved selector before it is ever sent
+# to Backblaze B2. offsite-backup has no independently resolved database
+# name to compare against (unlike restore-test, which does) — `database` is
+# only required to be present and non-empty here.
+validate_backup_manifest() {
+    local manifest_path="$1"
 
-echo "Checking local SHA-256 checksums"
+    [[ -f "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
 
-(
-    cd "${LOCAL_DIRECTORY}"
-    sha256sum --check SHA256SUMS
-)
+    local manifest_project manifest_environment manifest_database
 
-echo
-echo "Checking Backblaze B2 access"
+    manifest_project="$(jq -r '.project // empty' "${manifest_path}")"
+    manifest_environment="$(jq -r '.environment // empty' "${manifest_path}")"
+    manifest_database="$(jq -r '.database // empty' "${manifest_path}")"
 
-rclone \
-    --config "${RCLONE_CONFIG}" \
-    lsf \
-    "${RCLONE_REMOTE}:${BUCKET}" \
-    >/dev/null
+    [[ "${manifest_project}" == "rateguru" ]] \
+        || fail "backup manifest project mismatch: expected rateguru, got '${manifest_project}'"
 
-echo "Uploading immutable backup"
+    [[ "${manifest_environment}" == "${ENVIRONMENT_CLASS}" ]] \
+        || fail "backup manifest environment mismatch: expected ${ENVIRONMENT_CLASS}, got '${manifest_environment}'"
 
-rclone \
-    --config "${RCLONE_CONFIG}" \
-    copy \
-    "${LOCAL_DIRECTORY}" \
-    "${REMOTE_DIRECTORY}" \
-    --immutable \
-    --check-first \
-    --checksum \
-    --stats-one-line \
-    --stats 10s
+    [[ -n "${manifest_database}" ]] \
+        || fail "backup manifest database is missing or empty"
 
-echo
-echo "Comparing local and remote backup"
+    local manifest_schema_status
+    manifest_schema_status="$(manifest_schema_classify "${manifest_path}")"
 
-rclone \
-    --config "${RCLONE_CONFIG}" \
-    check \
-    "${LOCAL_DIRECTORY}" \
-    "${REMOTE_DIRECTORY}" \
-    --checkers 4
+    case "${manifest_schema_status}" in
+        schema1)
+            ;;
+        schema2)
+            local manifest_backup_namespace
+            manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
 
-REMOTE_SIZE_JSON="$(
-    rclone \
+            [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
+                || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
+
+            if [[ "${SELECTOR_TYPE}" == "target" ]]; then
+                local manifest_target
+                manifest_target="$(jq -r '.target // empty' "${manifest_path}")"
+
+                if [[ -n "${manifest_target}" ]] && [[ "${manifest_target}" != "${TARGET_ID}" ]]; then
+                    fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
+                fi
+            fi
+            ;;
+        invalid:*)
+            fail "unsupported backup manifest schema_version: ${manifest_schema_status#invalid:}"
+            ;;
+    esac
+}
+
+# --- offsite backup pipeline: one shared code path for both selectors -------
+
+perform_offsite_backup() {
+    # Keyed on BACKUP_NAMESPACE, never on LABEL — "offsite-backup --environment
+    # staging" and "offsite-backup --target staging-main" must resolve to the
+    # identical namespace, local root, remote root and lock file, exactly like
+    # backup/restore-test.
+    LOCAL_ROOT="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
+    REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${BACKUP_NAMESPACE}"
+    LOCK_FILE="${RUN_ROOT}/offsite-backup-${BACKUP_NAMESPACE}.lock"
+    HISTORY_FILE="${BACKUP_BASE}/offsite-history.jsonl"
+
+    [[ -f "${RCLONE_CONFIG}" ]] || fail "rclone configuration not found: ${RCLONE_CONFIG}"
+
+    install -d \
+        -o root \
+        -g root \
+        -m 0700 \
+        "${RUN_ROOT}" \
+        "${BACKUP_BASE}"
+
+    exec 9>"${LOCK_FILE}"
+
+    if ! flock -n 9; then
+        fail "${BACKUP_NAMESPACE} offsite backup is already running"
+    fi
+
+    LATEST_BACKUP="$(
+        find "${LOCAL_ROOT}" \
+            -regextype posix-extended \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -regex '.*/[0-9]{8}-[0-9]{6}' \
+            -printf '%f\n' \
+        | sort \
+        | tail -1
+    )"
+
+    [[ -n "${LATEST_BACKUP}" ]] || fail "no timestamped local backup found in ${LOCAL_ROOT}"
+
+    LOCAL_DIRECTORY="${LOCAL_ROOT}/${LATEST_BACKUP}"
+    REMOTE_DIRECTORY="${REMOTE_ROOT}/${LATEST_BACKUP}"
+
+    REQUIRED_FILES=(
+        database.dump
+        storage-app.tar.gz
+        environment.env
+        release.json
+        server-configuration.tar.gz
+        manifest.json
+        SHA256SUMS
+    )
+
+    local required_file
+    for required_file in "${REQUIRED_FILES[@]}"; do
+        [[ -f "${LOCAL_DIRECTORY}/${required_file}" ]] \
+            || fail "missing required backup file: ${required_file}"
+    done
+
+    log "${LABEL} offsite backup"
+    log "Local backup:  ${LOCAL_DIRECTORY}"
+    log "Remote backup: ${REMOTE_DIRECTORY}"
+
+    log "Checking local SHA-256 checksums"
+
+    (
+        cd "${LOCAL_DIRECTORY}"
+        sha256sum --check SHA256SUMS
+    )
+
+    validate_backup_manifest "${LOCAL_DIRECTORY}/manifest.json"
+
+    log "Checking Backblaze B2 access"
+
+    "${RCLONE_BIN}" \
         --config "${RCLONE_CONFIG}" \
-        size \
+        lsf \
+        "${RCLONE_REMOTE}:${BUCKET}" \
+        >/dev/null
+
+    log "Uploading immutable backup"
+
+    "${RCLONE_BIN}" \
+        --config "${RCLONE_CONFIG}" \
+        copy \
+        "${LOCAL_DIRECTORY}" \
         "${REMOTE_DIRECTORY}" \
-        --json
-)"
+        --immutable \
+        --check-first \
+        --checksum \
+        --stats-one-line \
+        --stats 10s
 
-REMOTE_FILES="$(
-    jq -r '.count' <<<"${REMOTE_SIZE_JSON}"
-)"
+    log "Comparing local and remote backup"
 
-REMOTE_BYTES="$(
-    jq -r '.bytes' <<<"${REMOTE_SIZE_JSON}"
-)"
+    "${RCLONE_BIN}" \
+        --config "${RCLONE_CONFIG}" \
+        check \
+        "${LOCAL_DIRECTORY}" \
+        "${REMOTE_DIRECTORY}" \
+        --checkers 4
 
-jq \
-    --null-input \
-    --compact-output \
-    --arg status "ok" \
-    --arg uploaded_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg environment "${ENVIRONMENT}" \
-    --arg backup "${LATEST_BACKUP}" \
-    --arg remote "${REMOTE_DIRECTORY}" \
-    --argjson files "${REMOTE_FILES}" \
-    --argjson bytes "${REMOTE_BYTES}" \
-    '{
-        status: $status,
-        uploaded_at: $uploaded_at,
-        environment: $environment,
-        backup: $backup,
-        remote: $remote,
-        files: $files,
-        bytes: $bytes
-    }' \
-    | tee -a "${HISTORY_FILE}"
+    REMOTE_SIZE_JSON="$(
+        "${RCLONE_BIN}" \
+            --config "${RCLONE_CONFIG}" \
+            size \
+            "${REMOTE_DIRECTORY}" \
+            --json
+    )"
 
-chmod 0600 "${HISTORY_FILE}"
+    REMOTE_FILES="$(
+        jq -r '.count' <<<"${REMOTE_SIZE_JSON}"
+    )"
 
-echo
-echo "Offsite backup completed successfully."
+    REMOTE_BYTES="$(
+        jq -r '.bytes' <<<"${REMOTE_SIZE_JSON}"
+    )"
+
+    local target_arg="null"
+    local selector_arg="environment"
+
+    if [[ "${SELECTOR_TYPE}" == "target" ]]; then
+        target_arg="${TARGET_ID}"
+        selector_arg="target"
+    fi
+
+    jq \
+        --null-input \
+        --compact-output \
+        --arg status "ok" \
+        --arg uploaded_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg selector "${selector_arg}" \
+        --arg target "${target_arg}" \
+        --arg environment "${ENVIRONMENT_CLASS}" \
+        --arg backup_namespace "${BACKUP_NAMESPACE}" \
+        --arg backup "${LATEST_BACKUP}" \
+        --arg remote "${REMOTE_DIRECTORY}" \
+        --argjson files "${REMOTE_FILES}" \
+        --argjson bytes "${REMOTE_BYTES}" \
+        '{
+            status: $status,
+            uploaded_at: $uploaded_at,
+            selector: $selector,
+            target: (if $selector == "target" then $target else null end),
+            environment: $environment,
+            backup_namespace: $backup_namespace,
+            backup: $backup,
+            remote: $remote,
+            files: $files,
+            bytes: $bytes
+        }' \
+        | tee -a "${HISTORY_FILE}"
+
+    chmod 0600 "${HISTORY_FILE}"
+
+    log ""
+    log "${LABEL} offsite backup completed successfully."
+}
+
+# --- dispatch -----------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation,
+# matching backup/restore-test's contract exactly.
+main() {
+    require_root
+    parse_offsite_backup_args "$@"
+    resolve_offsite_backup_subject
+    perform_offsite_backup
+}
+
+# A real invocation always has BASH_SOURCE[0] == $0, so main runs immediately
+# here. Tests source this file instead — BASH_SOURCE[0] != $0 in that case, so
+# main never auto-runs — then call
+# parse_offsite_backup_args/resolve_offsite_backup_subject/perform_offsite_backup
+# directly (bypassing require_root) or invoke the script as a genuine
+# subprocess (which does run main(), requiring root first, exactly as
+# production).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

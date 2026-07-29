@@ -322,14 +322,16 @@ true across every slice below, installed or not.
 ### What is deliberately still legacy-only
 
 `cleanup` graduated to target-awareness in slice 4, `deploy` in slice 5,
-`rollback` in slice 6, and `backup`/`restore-test` in slice 7.1; see
-[Target-aware cleanup](#target-aware-cleanup-slice-4-completed),
+`rollback` in slice 6, `backup`/`restore-test` in slice 7.1, and
+`offsite-backup`/`offsite-retention`/`offsite-restore-test` in slice 7.2;
+see [Target-aware cleanup](#target-aware-cleanup-slice-4-completed),
 [Target-aware deploy](#target-aware-deploy-slice-5-completed),
-[Target-aware rollback](#target-aware-rollback-slice-6-completed) and
-[Target-aware local backup](#target-aware-local-backup-slice-71-current)
-below, and the migration sequence. `backup-cycle`, `offsite-backup`,
-`offsite-retention` and `offsite-restore-test` remain `--environment`-only
-until slices 7.2 and 7.3.
+[Target-aware rollback](#target-aware-rollback-slice-6-completed),
+[Target-aware local backup](#target-aware-local-backup-slice-71-completed)
+and
+[Target-aware offsite backup](#target-aware-offsite-backup-slice-72-current)
+below, and the migration sequence. `backup-cycle` remains
+`--environment`-only until slice 7.3.
 
 ## Installing on the VPS (slice 2b)
 
@@ -627,7 +629,10 @@ eight-file contract.
 The GitHub Actions deploy workflow, its `/usr/local/sbin` wrapper, and
 sudoers are untouched by this slice and keep calling `deploy --environment
 staging`. The backup family remains `--environment`-only until its own
-slice (see [Target-aware local backup](#target-aware-local-backup-slice-71-current)
+slices (see
+[Target-aware local backup](#target-aware-local-backup-slice-71-completed)
+and
+[Target-aware offsite backup](#target-aware-offsite-backup-slice-72-current)
 below). `tits-guru` remains `lifecycle=planned` and undeployable.
 
 **Accepted on the real staging VPS:** the eight-file
@@ -638,7 +643,7 @@ legacy `rollback --environment staging --previous` completed successfully; a
 target `rollback --target staging-main --release ...` returned the release
 to its original state; the final post-rollback health check passed.
 
-## Target-aware local backup (slice 7.1, current)
+## Target-aware local backup (slice 7.1, completed)
 
 `backup` and `restore-test` now accept the same selector contract as
 `health-check`, `status`, `cleanup`, `deploy` and `rollback`:
@@ -744,6 +749,128 @@ ten-file contract.
 workflow, its `/usr/local/sbin` wrapper, and sudoers are untouched.
 `tits-guru` remains `lifecycle=planned` and undeployable.
 
+**Accepted on the real staging VPS:** the ten-file
+`install-target-operations --check`/`--apply`/`--verify` all passed; the
+installed `backup` and `restore-test` are owned `root:root` mode `0755`;
+`backup --target tits-guru` and `restore-test --target tits-guru` were both
+rejected with `lifecycle=planned`; a legacy `backup --environment staging`
+and a target `backup --target staging-main` both created a local backup in
+the shared `staging` namespace, and their checksums passed; a legacy
+`restore-test --environment staging` and a target
+`restore-test --target staging-main` both successfully restored PostgreSQL;
+the final health-check passed.
+
+## Target-aware offsite backup (slice 7.2, current)
+
+`offsite-backup`, `offsite-retention` and `offsite-restore-test` now accept
+the same selector contract as `backup`/`restore-test`:
+
+```bash
+offsite-backup --target staging-main
+offsite-backup --environment staging
+
+offsite-retention --target staging-main [--apply]
+offsite-retention --environment staging [--apply]
+
+offsite-restore-test --target staging-main
+offsite-restore-test --environment staging
+```
+
+`--target` and `--environment` remain mutually exclusive, exactly one is
+required, and `--help` documents both forms. `offsite-backup` and
+`offsite-restore-test` require root unconditionally, as the first action of
+every invocation, matching `backup`/`restore-test`'s exact contract.
+`offsite-retention` requires root unconditionally too — its dry-run mode
+simply never acts on that privilege (see below).
+
+### Legacy and target selectors share one remote namespace, root and lock
+
+All three scripts resolve `--environment staging` and `--target
+staging-main` to the **identical** remote namespace, base and lock file:
+
+```text
+backup namespace = staging
+remote root       = rateguru-b2:rateguru-database-backups/rateguru/staging
+lock (offsite-backup)        = /home/www/rateguru/run/offsite-backup-staging.lock
+lock (offsite-retention)     = /home/www/rateguru/run/offsite-retention-staging.lock
+lock (offsite-restore-test)  = /home/www/rateguru/run/offsite-restore-test-staging.lock
+```
+
+Every remote root and lock filename is built from `BACKUP_NAMESPACE`, never
+from the selector label — proven for each script by a dedicated concurrent-
+lock test. No existing remote backup moves.
+
+Target mode reads `BACKUP_NAMESPACE`/`ENVIRONMENT_CLASS` from the registry
+(`target_backup_namespace`, `target_environment_class` — both pre-existing
+accessors), and `offsite-retention` additionally reads
+`target_offsite_backup_retention`. Legacy mode reads the equivalent values
+from `environment_backup_namespace` (existing, from slice 7.1) and the new
+`environment_offsite_backup_retention` — following the exact contract every
+other `environment_*` helper already has.
+
+### Manifest validation reuses the same strict schema contract
+
+`offsite-backup` validates the local backup's manifest before ever calling
+`rclone`; `offsite-restore-test` validates the downloaded manifest before
+`createdb` — both using the identical strict, type-based
+`manifest_schema_version` classification `restore-test` established (and
+fixed a fail-open bug in) in slice 7.1: absent or JSON `null` is schema 1;
+a JSON *number* equal to `2` is schema 2 (additionally checking
+`backup_namespace`, and, under `--target`, a non-null manifest `target`);
+any other value — `3`, `0`, the JSON *string* `"2"`, an array, an object, a
+boolean — is rejected outright, before any mutation, with `unsupported
+backup manifest schema_version: ...` naming the offending value. The
+classifier itself (`manifest_schema_classify`) is shared, in `common`,
+between `offsite-backup` and `offsite-restore-test` — local `restore-test`
+is untouched and keeps its own, contractually identical inline copy. Neither
+offsite script has an independently resolved database name to compare
+against (unlike local `restore-test`) — `database` is only required to be
+present and non-empty.
+
+### Retention: side-effect-free dry-run, locked and re-listed apply
+
+`offsite-retention`'s dry-run (the default, no `--apply`) is genuinely
+side-effect free: no lock is acquired, and — unlike the pre-slice-7.2
+implementation — `rclone purge` is never invoked in any form, not even with
+rclone's own `--dry-run` flag. Candidates are computed purely from a
+read-only `rclone lsf` listing.
+
+`--apply` lists remote backups twice: an unlocked preview pass (purely for
+operator visibility, never used to decide what gets purged), then the lock
+is acquired and the listing and candidate computation both run again, fresh
+— protecting against a backup uploaded concurrently between the two passes.
+`rclone purge` only ever acts on the second, locked computation. The latest
+backup is always protected, regardless of age; backups within the resolved
+retention window are protected; only backups older than the cutoff and not
+the latest become candidates.
+
+Target retention (`target_offsite_backup_retention`) is read independently
+of the legacy value (`environment_offsite_backup_retention`) — proven by a
+dedicated test using a deliberately different target retention (17 days)
+against legacy staging's 30, confirming each selector computes its own
+cutoff while still sharing the same remote namespace and lock.
+
+### Installed by install-target-operations (thirteen files, not ten)
+
+`install-target-operations` now manages `offsite-backup`,
+`offsite-retention` and `offsite-restore-test` alongside the ten files slice
+7.1 left it with. Consistent with none of the three being safe to run for
+real during an install/verify pass (no B2 access, no remote listing, no
+local backup mutation, no database work), the installer only ever proves
+`--help` succeeds and `--target tits-guru` (correctly) fails with
+`lifecycle=planned` — staged, before anything is installed, and again
+against the installed binaries during `--apply`'s post-install check and
+every `--verify` run. See
+[`install-target-operations.md`](install-target-operations.md) for the full
+thirteen-file contract.
+
+### What is deliberately still legacy-only
+
+`backup-cycle` is untouched by this slice and remains `--environment`-only
+until slice 7.3. The GitHub Actions deploy workflow, its `/usr/local/sbin`
+wrapper, and sudoers are untouched. `tits-guru` remains `lifecycle=planned`
+and undeployable.
+
 **Post-merge, this slice still needs real-VPS acceptance** — see the
 migration sequence below.
 
@@ -802,11 +929,16 @@ confirming both still succeed.
    1. **7.1 Local backup and local restore-test** — `backup` and
       `restore-test` accept `--target`, preserving the existing `staging`
       backup namespace so no existing local backup directory moves; the
-      installer now manages them too. *(current — see
-      [Target-aware local backup](#target-aware-local-backup-slice-71-current)
-      above; real-VPS acceptance is still pending)*
+      installer now manages them too. *(completed and accepted on the real
+      staging VPS — see
+      [Target-aware local backup](#target-aware-local-backup-slice-71-completed)
+      above)*
    2. **7.2 Offsite backup path** — `offsite-backup`, `offsite-retention`,
-      `offsite-restore-test` accept `--target`. *(planned)*
+      `offsite-restore-test` accept `--target`, preserving the existing
+      `staging` offsite (B2) namespace so no existing remote backup moves;
+      the installer now manages them too. *(current — see
+      [Target-aware offsite backup](#target-aware-offsite-backup-slice-72-current)
+      above; real-VPS acceptance is still pending)*
    3. **7.3 Backup-cycle orchestration** — `backup-cycle` accepts `--target`.
       *(planned)*
 8. **Perimeter** — GitHub Actions workflows, sudoers rules, server wrappers.

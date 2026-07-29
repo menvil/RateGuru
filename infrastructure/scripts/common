@@ -301,6 +301,75 @@ environment_local_backup_retention() {
     esac
 }
 
+# Phase 4 slice 7.2: legacy (--environment) offsite retention, same contract
+# as environment_local_backup_retention above (no default/error case; every
+# real call site runs validate_environment first). Target mode never calls
+# this — it reads target_offsite_backup_retention (already defined below)
+# from the registry instead.
+environment_offsite_backup_retention() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "30"
+            ;;
+        production)
+            printf '%s\n' "90"
+            ;;
+    esac
+}
+
+# Phase 4 slice 7.2: shared, strict backup-manifest schema classifier for
+# offsite-backup and offsite-restore-test. infrastructure/scripts/restore-test
+# (local restore-test) already established this exact contract inline and is
+# out of scope for this slice — it is not touched, and does not call this
+# function — but the contract must stay identical, so it is extracted here
+# rather than re-derived with different semantics per caller.
+#
+# Never classify by `jq -r '.manifest_schema_version // empty'` alone: raw
+# output loses JSON type, so a schema_version of 3, 0, the JSON *string* "2"
+# (not a number), "garbage", an array, an object or a boolean would all
+# compare unequal to the literal string "2" and silently pass as legacy
+# schema 1 (fail-open). `type` disambiguates first.
+#
+# Prints exactly one of:
+#   schema1        - the field is absent or JSON null
+#   schema2        - the field is a JSON number equal to 2
+#   invalid:<value> - anything else, with the offending value's own JSON
+#                     representation appended (quoted for a string, compact
+#                     for an array/object) — callers turn this into their own
+#                     `fail "unsupported backup manifest schema_version: ..."`
+#
+# Never calls fail itself, and has no dependency on any selector-resolved
+# variable (ENVIRONMENT_CLASS, BACKUP_NAMESPACE, TARGET_ID, ...) — safe to
+# call before those exist.
+manifest_schema_classify() {
+    local manifest_path="$1"
+    local manifest_schema_type
+    manifest_schema_type="$(jq -r '.manifest_schema_version | type' "${manifest_path}")"
+
+    case "${manifest_schema_type}" in
+        null)
+            printf 'schema1\n'
+            ;;
+        number)
+            local manifest_schema_version
+            manifest_schema_version="$(jq -r '.manifest_schema_version' "${manifest_path}")"
+
+            if [[ "${manifest_schema_version}" == "2" ]]; then
+                printf 'schema2\n'
+            else
+                printf 'invalid:%s\n' "${manifest_schema_version}"
+            fi
+            ;;
+        *)
+            local manifest_schema_value
+            manifest_schema_value="$(jq -c '.manifest_schema_version' "${manifest_path}")"
+            printf 'invalid:%s\n' "${manifest_schema_value}"
+            ;;
+    esac
+}
+
 # --- deployment target registry (begin) ---
 #
 # Phase 4 slice 1: read-only accessors over the non-secret target registry.

@@ -1,28 +1,29 @@
 #!/usr/bin/env bash
 #
 # install-target-operations — install/verify the target-aware operational
-# tooling (Phase 4 slices 2b-7.1).
+# tooling (Phase 4 slices 2b-7.2).
 #
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry and the nine target-aware scripts
+#   --apply   Install the target registry and the twelve target-aware scripts
 #             (targets, common, health-check, status, cleanup, deploy,
-#             rollback, backup, restore-test), verify a staged copy before
-#             touching anything, install transactionally, then verify the
-#             installed result against the real host before committing.
+#             rollback, backup, restore-test, offsite-backup,
+#             offsite-retention, offsite-restore-test), verify a staged copy
+#             before touching anything, install transactionally, then verify
+#             the installed result against the real host before committing.
 #   --verify  Re-run the installed-file and runtime-parity checks against
 #             whatever is currently installed. Makes NO changes, creates NO
 #             backup.
 #
 # What this installs — and does not:
-#   * Only ten files: the registry and nine scripts — targets, common,
+#   * Only thirteen files: the registry and twelve scripts — targets, common,
 #     health-check and status (read-only), plus cleanup (Phase 4 slice 4),
-#     deploy (Phase 4 slice 5), rollback (Phase 4 slice 6), and backup /
-#     restore-test (Phase 4 slice 7.1) — the mutating operations this
-#     installer manages, each gated behind its own
-#     lifecycle/lock/path-containment protections. backup-cycle,
-#     offsite-backup, offsite-retention, offsite-restore-test and every
+#     deploy (Phase 4 slice 5), rollback (Phase 4 slice 6), backup /
+#     restore-test (Phase 4 slice 7.1), and offsite-backup /
+#     offsite-retention / offsite-restore-test (Phase 4 slice 7.2) — the
+#     mutating operations this installer manages, each gated behind its own
+#     lifecycle/lock/path-containment protections. backup-cycle and every
 #     perimeter file (GitHub Actions workflows, sudoers, server wrappers) stay
 #     untouched by this installer and remain --environment-only.
 #   * Never touches /home/www/rateguru/config/deployment.conf. The target
@@ -35,8 +36,8 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these ten files in these ten
-# places with these exact permissions, nothing else.
+# this installer's whole job is to put these thirteen files in these
+# thirteen places with these exact permissions, nothing else.
 #
 # This script never sources infrastructure/scripts/common or
 # deployment.conf. It reads deployment.conf's *metadata* (ownership, mode)
@@ -61,6 +62,9 @@ SRC_DEPLOY="${REPO_ROOT}/infrastructure/scripts/deploy"
 SRC_ROLLBACK="${REPO_ROOT}/infrastructure/scripts/rollback"
 SRC_BACKUP="${REPO_ROOT}/infrastructure/scripts/backup"
 SRC_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/restore-test"
+SRC_OFFSITE_BACKUP="${REPO_ROOT}/infrastructure/scripts/offsite-backup"
+SRC_OFFSITE_RETENTION="${REPO_ROOT}/infrastructure/scripts/offsite-retention"
+SRC_OFFSITE_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/offsite-restore-test"
 
 DST_CONFIG_ROOT="/home/www/rateguru/config"
 DST_BIN_ROOT="/home/www/rateguru/bin"
@@ -75,6 +79,9 @@ DST_DEPLOY="${DST_BIN_ROOT}/deploy"
 DST_ROLLBACK="${DST_BIN_ROOT}/rollback"
 DST_BACKUP="${DST_BIN_ROOT}/backup"
 DST_RESTORE_TEST="${DST_BIN_ROOT}/restore-test"
+DST_OFFSITE_BACKUP="${DST_BIN_ROOT}/offsite-backup"
+DST_OFFSITE_RETENTION="${DST_BIN_ROOT}/offsite-retention"
+DST_OFFSITE_RESTORE_TEST="${DST_BIN_ROOT}/offsite-restore-test"
 
 DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
 
@@ -90,7 +97,7 @@ COMMON_MODE="0644"
 CLI_MODE="0755"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the ten files it installs, and the deployment.conf it reads but
+# about: the thirteen files it installs, and the deployment.conf it reads but
 # never writes. A named constant (not a literal "root"/0 at each call site)
 # so the whole apply/verify flow can be exercised against non-root scratch
 # paths in tests, by reassigning these alongside DST_*/SRC_*/BACKUP_ROOT —
@@ -187,13 +194,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all ten source files are present regular files"
+    log "all thirteen source files are present regular files"
 }
 
 # Catches the exact regression that made this installer unusable after a bad
@@ -207,18 +214,18 @@ validate_source_files() {
 # validate_source_files already requires it to be a readable regular file.
 validate_source_executable_modes() {
     local path
-    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}"; do
+    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}"; do
         [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
     done
-    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup and restore-test are all executable"
+    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention and offsite-restore-test are all executable"
 }
 
 validate_source_syntax() {
     local path
-    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}"; do
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}"; do
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
-    log "bash -n passed for all nine source shell scripts"
+    log "bash -n passed for all twelve source shell scripts"
 }
 
 validate_source_registry() {
@@ -268,6 +275,9 @@ verify_staged_candidates() {
     local staged_rollback="${stage_dir}/rollback"
     local staged_backup="${stage_dir}/backup"
     local staged_restore_test="${stage_dir}/restore-test"
+    local staged_offsite_backup="${stage_dir}/offsite-backup"
+    local staged_offsite_retention="${stage_dir}/offsite-retention"
+    local staged_offsite_restore_test="${stage_dir}/offsite-restore-test"
 
     log "verifying staged candidates before installation"
 
@@ -417,6 +427,47 @@ verify_staged_candidates() {
     grep -q 'lifecycle=planned' <<<"${staged_restore_test_planned_output}" \
         || fail "staged restore-test --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_restore_test_planned_output}"
     log "  staged restore-test --target tits-guru: correctly rejected (lifecycle=planned)"
+
+    # offsite-backup, offsite-retention and offsite-restore-test are never run
+    # for real here either — no B2 access, no remote listing, no local backup
+    # mutation, no database work — only --help and the tits-guru lifecycle
+    # rejection are safe to prove, mirroring backup/restore-test's own staged
+    # checks above exactly.
+    "${override_env[@]}" bash "${staged_offsite_backup}" --help >/dev/null 2>&1 \
+        || fail "staged offsite-backup --help failed"
+    log "  staged offsite-backup --help: OK"
+
+    local staged_offsite_backup_planned_output
+    if staged_offsite_backup_planned_output="$("${override_env[@]}" bash "${staged_offsite_backup}" --target tits-guru 2>&1)"; then
+        fail "staged offsite-backup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${staged_offsite_backup_planned_output}" \
+        || fail "staged offsite-backup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_offsite_backup_planned_output}"
+    log "  staged offsite-backup --target tits-guru: correctly rejected (lifecycle=planned)"
+
+    "${override_env[@]}" bash "${staged_offsite_retention}" --help >/dev/null 2>&1 \
+        || fail "staged offsite-retention --help failed"
+    log "  staged offsite-retention --help: OK"
+
+    local staged_offsite_retention_planned_output
+    if staged_offsite_retention_planned_output="$("${override_env[@]}" bash "${staged_offsite_retention}" --target tits-guru 2>&1)"; then
+        fail "staged offsite-retention --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${staged_offsite_retention_planned_output}" \
+        || fail "staged offsite-retention --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_offsite_retention_planned_output}"
+    log "  staged offsite-retention --target tits-guru: correctly rejected (lifecycle=planned)"
+
+    "${override_env[@]}" bash "${staged_offsite_restore_test}" --help >/dev/null 2>&1 \
+        || fail "staged offsite-restore-test --help failed"
+    log "  staged offsite-restore-test --help: OK"
+
+    local staged_offsite_restore_test_planned_output
+    if staged_offsite_restore_test_planned_output="$("${override_env[@]}" bash "${staged_offsite_restore_test}" --target tits-guru 2>&1)"; then
+        fail "staged offsite-restore-test --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${staged_offsite_restore_test_planned_output}" \
+        || fail "staged offsite-restore-test --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_offsite_restore_test_planned_output}"
+    log "  staged offsite-restore-test --target tits-guru: correctly rejected (lifecycle=planned)"
 
     log "staged candidates verified"
 }
@@ -589,6 +640,10 @@ RATEGURU_OVERRIDE_VARS=(
     RATEGURU_DROPDB_BIN
     RATEGURU_PG_RESTORE_BIN
     RATEGURU_PSQL_BIN
+    RATEGURU_RCLONE_CONFIG
+    RATEGURU_RCLONE_REMOTE
+    RATEGURU_RCLONE_BUCKET
+    RATEGURU_RCLONE_BIN
 )
 
 no_overrides_env() {
@@ -692,7 +747,10 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_ROLLBACK}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_ROLLBACK}"
     verify_installed_regular_file "${DST_BACKUP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_BACKUP}"
     verify_installed_regular_file "${DST_RESTORE_TEST}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RESTORE_TEST}"
-    log "  ownership, mode and content: OK for all ten files"
+    verify_installed_regular_file "${DST_OFFSITE_BACKUP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_BACKUP}"
+    verify_installed_regular_file "${DST_OFFSITE_RETENTION}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_RETENTION}"
+    verify_installed_regular_file "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_RESTORE_TEST}"
+    log "  ownership, mode and content: OK for all thirteen files"
 
     # common is a sourced library, never a CLI — verify_installed_regular_file
     # already proved its mode is exactly COMMON_MODE (0644), which has no
@@ -704,10 +762,10 @@ verify_installed_files() {
     log "  common is not executable: OK"
 
     local path
-    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}"; do
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}"; do
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
-    log "  bash -n: OK for all nine installed scripts"
+    log "  bash -n: OK for all twelve installed scripts"
 
     "${DST_TARGETS}" validate --file "${DST_REGISTRY}" >/dev/null \
         || fail "installed targets CLI could not validate the installed registry"
@@ -928,9 +986,67 @@ verify_restore_test_planned_target_rejected() {
     log "restore-test --target tits-guru: correctly rejected (lifecycle=planned)"
 }
 
+# Phase 4 slice 7.2: offsite-backup/offsite-retention/offsite-restore-test
+# --help only — never a real upload, retention purge or restore test. This
+# installer's own --apply/--verify always run as root already, so the
+# installed scripts' own require_root passes here exactly as it would in
+# production; --help is reached and exits 0 before any rclone config check,
+# remote listing, lock or filesystem/database work.
+verify_offsite_backup_help() {
+    no_overrides_env "${DST_OFFSITE_BACKUP}" --help >/dev/null \
+        || fail "installed offsite-backup --help failed"
+    log "offsite-backup --help: OK"
+}
+
+# A deliberately unusable target: proves the installed offsite-backup's
+# ordering is root authorization -> lifecycle=planned rejection -> no rclone
+# config check, remote listing, local backup root, lock or filesystem work
+# ever reached, mirroring verify_backup_planned_target_rejected exactly.
+verify_offsite_backup_planned_target_rejected() {
+    local planned_output
+    if planned_output="$(no_overrides_env "${DST_OFFSITE_BACKUP}" --target tits-guru 2>&1)"; then
+        fail "installed offsite-backup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${planned_output}" \
+        || fail "installed offsite-backup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
+    log "offsite-backup --target tits-guru: correctly rejected (lifecycle=planned)"
+}
+
+verify_offsite_retention_help() {
+    no_overrides_env "${DST_OFFSITE_RETENTION}" --help >/dev/null \
+        || fail "installed offsite-retention --help failed"
+    log "offsite-retention --help: OK"
+}
+
+verify_offsite_retention_planned_target_rejected() {
+    local planned_output
+    if planned_output="$(no_overrides_env "${DST_OFFSITE_RETENTION}" --target tits-guru 2>&1)"; then
+        fail "installed offsite-retention --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${planned_output}" \
+        || fail "installed offsite-retention --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
+    log "offsite-retention --target tits-guru: correctly rejected (lifecycle=planned)"
+}
+
+verify_offsite_restore_test_help() {
+    no_overrides_env "${DST_OFFSITE_RESTORE_TEST}" --help >/dev/null \
+        || fail "installed offsite-restore-test --help failed"
+    log "offsite-restore-test --help: OK"
+}
+
+verify_offsite_restore_test_planned_target_rejected() {
+    local planned_output
+    if planned_output="$(no_overrides_env "${DST_OFFSITE_RESTORE_TEST}" --target tits-guru 2>&1)"; then
+        fail "installed offsite-restore-test --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${planned_output}" \
+        || fail "installed offsite-restore-test --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
+    log "offsite-restore-test --target tits-guru: correctly rejected (lifecycle=planned)"
+}
+
 # Thin wrapper used by apply's post-install check, which wants one pass/fail
 # outcome rather than the phase-by-phase banners --verify prints — see
-# run_verify below, which calls the same fourteen functions individually.
+# run_verify below, which calls the same twenty functions individually.
 verify_runtime_parity() {
     log "verifying runtime parity against the real host (no test overrides)"
     verify_legacy_environment_health
@@ -947,6 +1063,12 @@ verify_runtime_parity() {
     verify_backup_planned_target_rejected
     verify_restore_test_help
     verify_restore_test_planned_target_rejected
+    verify_offsite_backup_help
+    verify_offsite_backup_planned_target_rejected
+    verify_offsite_retention_help
+    verify_offsite_retention_planned_target_rejected
+    verify_offsite_restore_test_help
+    verify_offsite_restore_test_planned_target_rejected
     log "runtime parity verification passed"
 }
 
@@ -970,12 +1092,15 @@ run_check() {
     log "  ${DST_ROLLBACK}"
     log "  ${DST_BACKUP}"
     log "  ${DST_RESTORE_TEST}"
+    log "  ${DST_OFFSITE_BACKUP}"
+    log "  ${DST_OFFSITE_RETENTION}"
+    log "  ${DST_OFFSITE_RESTORE_TEST}"
 
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The two directories every one of the ten destinations lives under. This
-# installer owns exactly ten *files* — it never creates, chowns or chmods
+# The two directories every one of the thirteen destinations lives under. This
+# installer owns exactly thirteen *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -1126,6 +1251,9 @@ perform_apply() {
     install -m 0700 "${SRC_ROLLBACK}" "${STAGE_DIR}/rollback"
     install -m 0700 "${SRC_BACKUP}" "${STAGE_DIR}/backup"
     install -m 0700 "${SRC_RESTORE_TEST}" "${STAGE_DIR}/restore-test"
+    install -m 0700 "${SRC_OFFSITE_BACKUP}" "${STAGE_DIR}/offsite-backup"
+    install -m 0700 "${SRC_OFFSITE_RETENTION}" "${STAGE_DIR}/offsite-retention"
+    install -m 0700 "${SRC_OFFSITE_RESTORE_TEST}" "${STAGE_DIR}/offsite-restore-test"
 
     verify_staged_candidates "${STAGE_DIR}"
 
@@ -1136,8 +1264,9 @@ perform_apply() {
 
     # Dependency-safe order: the registry before anything that reads it, the
     # targets validator before common (which invokes it), common before the
-    # seven scripts that source it (health-check, status, cleanup, deploy,
-    # rollback, backup, restore-test).
+    # ten scripts that source it (health-check, status, cleanup, deploy,
+    # rollback, backup, restore-test, offsite-backup, offsite-retention,
+    # offsite-restore-test).
     install_regular_file_transactional "${STAGE_DIR}/deployment-targets.json" "${DST_REGISTRY}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${REGISTRY_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/targets" "${DST_TARGETS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/common" "${DST_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${COMMON_MODE}"
@@ -1148,6 +1277,9 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/rollback" "${DST_ROLLBACK}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/backup" "${DST_BACKUP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/restore-test" "${DST_RESTORE_TEST}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/offsite-backup" "${DST_OFFSITE_BACKUP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/offsite-retention" "${DST_OFFSITE_RETENTION}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/offsite-restore-test" "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
 
     log "files installed; verifying before committing"
 
@@ -1160,7 +1292,7 @@ perform_apply() {
 
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
-    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}"
     log "  backups      : ${BACKUP_DIR}"
     log "Run 'install-target-operations --verify' at any time to re-check the installed result."
 }
@@ -1241,6 +1373,24 @@ perform_verify() {
 
     log "--- restore-test planned-target rejection ---"
     verify_restore_test_planned_target_rejected
+
+    log "--- offsite-backup help ---"
+    verify_offsite_backup_help
+
+    log "--- offsite-backup planned-target rejection ---"
+    verify_offsite_backup_planned_target_rejected
+
+    log "--- offsite-retention help ---"
+    verify_offsite_retention_help
+
+    log "--- offsite-retention planned-target rejection ---"
+    verify_offsite_retention_planned_target_rejected
+
+    log "--- offsite-restore-test help ---"
+    verify_offsite_restore_test_help
+
+    log "--- offsite-restore-test planned-target rejection ---"
+    verify_offsite_restore_test_planned_target_rejected
 
     trap - ERR EXIT
     log "--- final result ---"
