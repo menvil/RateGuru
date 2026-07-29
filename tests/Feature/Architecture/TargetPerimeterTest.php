@@ -270,15 +270,17 @@ it('rejects the equals-joined --target=VALUE and --environment=VALUE forms', fun
     $scratch = perimeterScratchDir();
 
     try {
-        [$exit, $output] = perimeterRunHarness('rateguru-deploy', $scratch, 'parse_wrapper_args --target=staging-main', perimeterBaseEnv());
+        foreach (['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup'] as $wrapper) {
+            [$exit, $output] = perimeterRunHarness($wrapper, $scratch, 'parse_wrapper_args --target=staging-main', perimeterBaseEnv());
 
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain("--target must be given as '--target VALUE', not '--target=VALUE'");
+            expect($exit)->not->toBe(0);
+            expect($output)->toContain("--target must be given as '--target VALUE', not '--target=VALUE'");
 
-        [$exit, $output] = perimeterRunHarness('rateguru-deploy', $scratch, 'parse_wrapper_args --environment=staging', perimeterBaseEnv());
+            [$exit, $output] = perimeterRunHarness($wrapper, $scratch, 'parse_wrapper_args --environment=staging', perimeterBaseEnv());
 
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('--environment is not supported by rateguru-deploy; use --target');
+            expect($exit)->not->toBe(0);
+            expect($output)->toContain("--environment is not supported by {$wrapper}; use --target");
+        }
     } finally {
         perimeterCleanup($scratch);
     }

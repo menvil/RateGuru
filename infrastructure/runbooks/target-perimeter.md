@@ -396,6 +396,7 @@ action — is still the *legacy* action, one last time, before merge:
    ref=develop
    run-migrations=false
    ```
+
 7. Verify deploy history and the post-deploy health check.
 8. Inspect the installed `/etc/cron.d/rateguru-backups` on the VPS.
 9. Confirm no active perimeter command (deploy, cron) still uses

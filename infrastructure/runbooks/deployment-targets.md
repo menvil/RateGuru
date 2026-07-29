@@ -1172,9 +1172,19 @@ for the full rationale.
 `validate_environment`, `environment_root`, `environment_runtime_user`,
 `environment_code_group`, `environment_deploy_user`,
 `environment_incoming_artifacts`, `environment_url` and
-`environment_host_header` are untouched and keep their exact behaviour. Every
-operational script, sudoers rule, server wrapper and GitHub Actions workflow
-continues to call them unchanged.
+`environment_host_header` are untouched and keep their exact behaviour, and
+every operational script (`deploy`, `rollback`, `cleanup`, `backup-cycle`,
+`restore-test`, the offsite scripts) still accepts `--environment` and
+still calls them unchanged. This is no longer true of the perimeter as a
+whole: as of Phase 4 slice 8, the sudoers file, the GitHub Actions deploy
+workflow, and the server wrappers were all legitimately modified to add
+target-aware paths alongside the legacy ones — see
+[Target-aware perimeter](#target-aware-perimeter-slice-8-current) above.
+What remains, temporarily, is the legacy per-environment wrappers
+(`rateguru-staging-*`, `rateguru-production-*`) and their matching sudoers
+rules, kept only for rollback safety until a dedicated legacy-removal
+slice deletes both them and this internal `--environment` support
+together.
 
 The `target_*` helpers **read the registry only when one of them is actually
 called**. Sourcing `common` does not touch the registry. This is what makes

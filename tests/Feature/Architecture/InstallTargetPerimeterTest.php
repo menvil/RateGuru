@@ -378,6 +378,43 @@ it('check fails when the cron candidate has the wrong number of operational line
     }
 });
 
+it('recognizes an @-shortcut schedule (e.g. @daily) as an operational line, not just numeric/wildcard fields', function () {
+    // Exclusion-based, not inclusion-based: an operational line is any
+    // non-blank line that isn't a comment or an environment-variable
+    // assignment — so a schedule this installer's own author never
+    // enumerated (like a cron "@"-shortcut) is still counted, rather than
+    // silently undercounted the way a hand-enumerated character class of
+    // "valid" schedule syntax would.
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $bad = $scratch.'/shortcut-cron';
+        file_put_contents($bad, <<<'CRON'
+            SHELL=/bin/bash
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+            @daily root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1
+            10 4 * * 0 root /home/www/rateguru/bin/restore-test --target staging-main >> /var/log/rateguru/staging-local-restore-test.log 2>&1
+            40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target staging-main >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1
+            CRON);
+
+        $vars = installPerimeterBaseVars($scratch);
+        $vars['SRC_CRON'] = $bad;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        // The three lines are correctly counted (no "wrong number of
+        // operational lines" failure); this candidate still fails because
+        // its schedule/log-path text doesn't match the hardcoded literal
+        // check further down — a separate, unrelated concern.
+        expect($exit)->not->toBe(0);
+        expect($output)->not->toContain('expected exactly three operational cron lines');
+        expect($output)->toContain('changed schedule or log path');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
 it('check fails when a cron candidate line still uses --environment', function () {
     $scratch = installPerimeterScratchDir();
 
@@ -1023,6 +1060,93 @@ it('RATEGURU_PERIMETER_ROOT is ignored without the allow flag', function () {
         expect($exit)->toBe(0, $output);
         expect($output)->toContain('DEPLOY=/usr/local/sbin/rateguru-deploy');
         expect($output)->not->toContain($scratch);
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// RATEGURU_INSTALLED_OPERATIONS_ROOT (the staleness guard's own test seam)
+// =============================================================================
+
+it('RATEGURU_INSTALLED_OPERATIONS_ROOT lets the staleness guard pass against a prefixed bundle when the allow flag is set', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        installPerimeterWriteOperationsBundle($scratch);
+        $opsRoot = $scratch.'/ops';
+        $ownerId = (string) getmyuid();
+        $groupId = (string) getmygid();
+
+        $script = "set -Eeuo pipefail\n"
+            .'source '.escapeshellarg(installPerimeterScriptPath())."\n"
+            .'INSTALL_OWNER_ID='.escapeshellarg($ownerId)."\n"
+            .'INSTALL_GROUP_ID='.escapeshellarg($groupId)."\n"
+            .'validate_installed_operations_bundle'."\n"
+            .'printf \'BUNDLE_OK\n\''."\n";
+
+        $harnessPath = $scratch.'/harness.sh';
+        file_put_contents($harnessPath, $script);
+
+        $env = [
+            'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+            'HOME' => getenv('HOME') ?: '/tmp',
+            'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+            'RATEGURU_INSTALLED_OPERATIONS_ROOT' => $opsRoot,
+        ];
+
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+        $process = proc_open(['bash', $harnessPath], $descriptors, $pipes, null, $env);
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $exit = proc_close($process);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('BUNDLE_OK');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('RATEGURU_INSTALLED_OPERATIONS_ROOT is ignored without the allow flag, so a stale/absent real bundle still fails the guard', function () {
+    // A fully valid, matching bundle exists at this prefixed path — but
+    // without RATEGURU_ALLOW_TEST_OVERRIDES=true (absent, or explicitly
+    // false), the override must be ignored entirely, so the guard falls
+    // back to the real /home/www/rateguru path (absent on this machine) and
+    // fails — proving the false-positive path fixture cannot be used to
+    // satisfy the guard without the explicit opt-in.
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        installPerimeterWriteOperationsBundle($scratch);
+        $opsRoot = $scratch.'/ops';
+
+        $script = "set -Eeuo pipefail\n"
+            .'source '.escapeshellarg(installPerimeterScriptPath())."\n"
+            .'validate_installed_operations_bundle'."\n"
+            .'printf \'BUNDLE_OK\n\''."\n";
+
+        $harnessPath = $scratch.'/harness.sh';
+        file_put_contents($harnessPath, $script);
+
+        foreach ([[], ['RATEGURU_ALLOW_TEST_OVERRIDES' => 'false']] as $allowFlagVariant) {
+            $env = array_merge([
+                'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+                'HOME' => getenv('HOME') ?: '/tmp',
+                'RATEGURU_INSTALLED_OPERATIONS_ROOT' => $opsRoot,
+            ], $allowFlagVariant);
+
+            $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+            $process = proc_open(['bash', $harnessPath], $descriptors, $pipes, null, $env);
+            $output = stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            $exit = proc_close($process);
+
+            expect($exit)->not->toBe(0);
+            expect($output)->not->toContain('BUNDLE_OK');
+            expect($output)->toContain('installed target operations are stale or incomplete; run install-target-operations --apply first');
+            expect($output)->not->toContain($opsRoot);
+        }
     } finally {
         installPerimeterCleanup($scratch);
     }
