@@ -326,6 +326,48 @@ validate_target_support() {
     log "deploy, rollback, cleanup, backup-cycle, restore-test and offsite-restore-test all declare --target support"
 }
 
+# --- Wrapper static contract (shared by source, staged, and installed) ------
+#
+# One shared check, used identically for source files (--check), staged
+# candidates (--apply's own preflight, before a backup directory or any
+# destination file is ever touched), and installed files (--apply's
+# post-install verification and --verify) — so a defect in this check itself
+# is caught at the earliest possible point, never only after destination
+# files have already changed.
+verify_wrapper_static_contract() {
+    local wrapper_path="$1" underlying_path="$2" label="$3"
+
+    grep -Fq "${underlying_path}" "${wrapper_path}" \
+        || fail "${label} does not reference the generic installed operation path ${underlying_path}: ${wrapper_path}"
+
+    # The wrapper's own source legitimately mentions the string
+    # "--environment" once, to explicitly reject it — so the proof here is
+    # that the rejection message is present, never a blanket "the substring
+    # --environment must not appear anywhere" (which would also flag the
+    # rejection itself).
+    grep -Fq -- '--environment is not supported by' "${wrapper_path}" \
+        || fail "${label} does not explicitly reject --environment: ${wrapper_path}"
+
+    # Comment-only lines (and blank lines) are excluded before scanning for
+    # eval/bash -c: a documentation comment that merely *mentions* either —
+    # e.g. "no eval, no bash -c, no string-built command" — must never be
+    # mistaken for the real thing (the real bug this function fixes: that
+    # exact phrase, in a comment, previously tripped the naive whole-file
+    # grep below). Only a line containing actual, executable shell code is
+    # ever flagged; a line is comment-only when, after leading whitespace,
+    # it starts with "#".
+    local executable_lines
+    executable_lines="$(grep -Ev '^[[:space:]]*(#|$)' "${wrapper_path}")"
+
+    if grep -Eq '(^|[^a-zA-Z_])eval[[:space:]]' <<<"${executable_lines}"; then
+        fail "${label} contains an executable eval: ${wrapper_path}"
+    fi
+
+    if grep -Fq -- 'bash -c' <<<"${executable_lines}"; then
+        fail "${label} contains an executable bash -c: ${wrapper_path}"
+    fi
+}
+
 validate_source_registry() {
     jq empty "${SRC_REGISTRY}" 2>/dev/null || fail "source registry is not valid JSON: ${SRC_REGISTRY}"
 
@@ -491,6 +533,12 @@ run_source_validation() {
     validate_sudoers_content "${SRC_SUDOERS}"
     validate_cron_format "${SRC_CRON}"
     check_required_tools
+
+    verify_wrapper_static_contract "${SRC_WRAPPER_DEPLOY}" "/home/www/rateguru/bin/deploy" "source rateguru-deploy"
+    verify_wrapper_static_contract "${SRC_WRAPPER_ROLLBACK}" "/home/www/rateguru/bin/rollback" "source rateguru-rollback"
+    verify_wrapper_static_contract "${SRC_WRAPPER_CLEANUP}" "/home/www/rateguru/bin/cleanup" "source rateguru-cleanup"
+    log "source wrappers reference generic installed operation paths, explicitly reject --environment, and contain no executable eval/bash -c"
+
     # Shared by --check, --apply's own preflight, and --verify (this
     # function's only three callers) — runs last, after every other
     # repository-only check has already passed, and always before a staging
@@ -706,25 +754,10 @@ verify_installed_files() {
     done
     log "  bash -n: OK for all three installed wrappers"
 
-    for path in "${DST_WRAPPER_DEPLOY}:/home/www/rateguru/bin/deploy" \
-        "${DST_WRAPPER_ROLLBACK}:/home/www/rateguru/bin/rollback" \
-        "${DST_WRAPPER_CLEANUP}:/home/www/rateguru/bin/cleanup"
-    do
-        local wrapper_path="${path%%:*}" underlying_path="${path#*:}"
-        grep -Fq "${underlying_path}" "${wrapper_path}" \
-            || fail "installed wrapper does not reference the generic installed operation path ${underlying_path}: ${wrapper_path}"
-        # The wrapper's source legitimately mentions the string "--environment"
-        # once, to explicitly reject it — so the static proof here is that the
-        # rejection message is present, never a blanket "the substring
-        # --environment must not appear anywhere" (which would also flag the
-        # rejection itself).
-        grep -Fq -- '--environment is not supported by' "${wrapper_path}" \
-            || fail "installed wrapper does not explicitly reject --environment: ${wrapper_path}"
-        if grep -Eq '(^|[^a-zA-Z_])eval[[:space:]]|bash -c' "${wrapper_path}"; then
-            fail "installed wrapper contains eval or bash -c: ${wrapper_path}"
-        fi
-    done
-    log "  wrappers reference generic installed operation paths, never --environment, never eval/bash -c"
+    verify_wrapper_static_contract "${DST_WRAPPER_DEPLOY}" "/home/www/rateguru/bin/deploy" "installed rateguru-deploy"
+    verify_wrapper_static_contract "${DST_WRAPPER_ROLLBACK}" "/home/www/rateguru/bin/rollback" "installed rateguru-rollback"
+    verify_wrapper_static_contract "${DST_WRAPPER_CLEANUP}" "/home/www/rateguru/bin/cleanup" "installed rateguru-cleanup"
+    log "  installed wrappers reference generic installed operation paths, explicitly reject --environment, and contain no executable eval/bash -c"
 
     "${VISUDO_BIN}" -cf "${DST_SUDOERS}" >/dev/null \
         || fail "installed sudoers file failed visudo -cf: ${DST_SUDOERS}"
@@ -768,6 +801,11 @@ verify_staged_candidates() {
     bash -n "${staged_rollback}" || fail "bash -n failed for staged rateguru-rollback"
     bash -n "${staged_cleanup}" || fail "bash -n failed for staged rateguru-cleanup"
     log "  staged wrappers: bash -n OK"
+
+    verify_wrapper_static_contract "${staged_deploy}" "/home/www/rateguru/bin/deploy" "staged rateguru-deploy"
+    verify_wrapper_static_contract "${staged_rollback}" "/home/www/rateguru/bin/rollback" "staged rateguru-rollback"
+    verify_wrapper_static_contract "${staged_cleanup}" "/home/www/rateguru/bin/cleanup" "staged rateguru-cleanup"
+    log "  staged wrappers reference generic installed operation paths, explicitly reject --environment, and contain no executable eval/bash -c"
 
     verify_wrapper_help "${staged_deploy}" "staged rateguru-deploy"
     verify_wrapper_planned_target_rejected "${staged_deploy}" "staged rateguru-deploy"

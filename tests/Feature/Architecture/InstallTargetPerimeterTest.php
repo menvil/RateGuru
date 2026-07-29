@@ -91,17 +91,21 @@ function installPerimeterWriteWrapperStub(string $path, string $titsGuru = 'reje
     };
 
     // The literal strings below are never executed — they exist solely so
-    // this stub also satisfies verify_installed_files' static content
-    // checks (which grep for the generic installed operation path each real
-    // wrapper references, and for the explicit --environment rejection
-    // message), exactly as the real wrapper source does.
+    // this stub also satisfies verify_wrapper_static_contract's static
+    // content checks (which grep for the generic installed operation path
+    // each real wrapper references, the explicit --environment rejection
+    // message, and — this exact phrase, verbatim, is the real incident this
+    // stub now deliberately reproduces — a comment mentioning "no eval, no
+    // bash -c" that a naive whole-file grep once mistook for an executable
+    // eval/bash -c), exactly as the real wrapper source does.
     $script = <<<SH
 #!/usr/bin/env bash
 # Stub wrapper for install-target-perimeter tests only — never a real
 # deploy/rollback/cleanup operation. Mimics the real wrapper's own reference
 # to /home/www/rateguru/bin/deploy, /home/www/rateguru/bin/rollback and
-# /home/www/rateguru/bin/cleanup, and its explicit rejection message:
-# --environment is not supported by this wrapper.
+# /home/www/rateguru/bin/cleanup, its explicit rejection message:
+# --environment is not supported by this wrapper, and its own comment: no
+# eval, no bash -c, no string-built command.
 if [[ "\$*" == "--help" ]]; then
     echo "Usage: stub-wrapper --target TARGET_ID"
     exit 0
@@ -280,6 +284,13 @@ it('check passes against the real committed source files', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)->toContain('check passed');
+        // Proves the wrapper static contract (underlying path, --environment
+        // rejection, no executable eval/bash -c) ran and passed against the
+        // real, committed infrastructure/config/wrappers/* files — not a
+        // synthetic fixture — which is what genuinely proves the false
+        // positive fix, since the real rateguru-deploy source contains the
+        // exact "no eval, no bash -c" comment that used to trip this check.
+        expect($output)->toContain('source wrappers reference generic installed operation paths, explicitly reject --environment, and contain no executable eval/bash -c');
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -500,6 +511,151 @@ it('check makes no changes anywhere', function () {
     } finally {
         installPerimeterCleanup($scratch);
     }
+});
+
+// =============================================================================
+// Wrapper static contract: comment-only "eval"/"bash -c" must never
+// false-positive
+//
+// Real-VPS incident: install-target-perimeter --apply failed with
+// "installed wrapper contains eval or bash -c" against the real
+// rateguru-deploy, which does not contain either — only a comment reading
+// "no eval, no bash -c, no string-built command". The naive whole-file
+// `grep -Eq '...|bash -c'` matched that comment text. Fixed by
+// verify_wrapper_static_contract, which excludes comment-only lines before
+// scanning for executable eval/bash -c, and is now shared identically by
+// source (--check), staged (--apply preflight), and installed (--apply
+// post-install, --verify) validation — see the tests below.
+// =============================================================================
+
+/**
+ * A minimal wrapper-shaped fixture satisfying the two non-eval/bash-c parts
+ * of verify_wrapper_static_contract (references $underlyingPath, explicitly
+ * rejects --environment) so each test below isolates exactly the
+ * eval/bash -c behaviour under test.
+ */
+function installPerimeterWriteStaticContractFixture(string $path, string $underlyingPath, string $extraLine): void
+{
+    // ShellCheck-clean on purpose (validate_source_shellcheck runs before
+    // verify_wrapper_static_contract, so a fixture with unrelated warnings
+    // would fail for the wrong reason): no unused variables, no undefined
+    // variables, no reserved-word collisions.
+    $script = <<<SH
+#!/usr/bin/env bash
+# References {$underlyingPath} and explicitly rejects --environment,
+# matching every real wrapper's own static contract.
+echo "{$underlyingPath}" >/dev/null
+# --environment is not supported by this fixture; use --target
+{$extraLine}
+echo finished
+SH;
+
+    file_put_contents($path, $script);
+    chmod($path, 0o755);
+}
+
+it('accepts a wrapper whose only mention of eval/bash -c is a comment', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $fixture = $scratch.'/comment-only-wrapper';
+        installPerimeterWriteStaticContractFixture($fixture, '/home/www/rateguru/bin/deploy', '# no eval, no bash -c, no string-built command');
+
+        [$exit, $output] = installPerimeterRunHarness(
+            $scratch,
+            [],
+            'verify_wrapper_static_contract '.escapeshellarg($fixture).' /home/www/rateguru/bin/deploy fixture; echo STATIC_CONTRACT_OK',
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('STATIC_CONTRACT_OK');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('rejects a wrapper containing an executable eval', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $fixture = $scratch.'/eval-wrapper';
+        installPerimeterWriteStaticContractFixture($fixture, '/home/www/rateguru/bin/deploy', 'eval "echo hi"');
+
+        [$exit, $output] = installPerimeterRunHarness(
+            $scratch,
+            [],
+            'verify_wrapper_static_contract '.escapeshellarg($fixture).' /home/www/rateguru/bin/deploy fixture; echo STATIC_CONTRACT_OK',
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->not->toContain('STATIC_CONTRACT_OK');
+        expect($output)->toContain('fixture contains an executable eval');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('rejects a wrapper containing an executable bash -c', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $fixture = $scratch.'/bashc-wrapper';
+        installPerimeterWriteStaticContractFixture($fixture, '/home/www/rateguru/bin/deploy', 'bash -c "echo hi"');
+
+        [$exit, $output] = installPerimeterRunHarness(
+            $scratch,
+            [],
+            'verify_wrapper_static_contract '.escapeshellarg($fixture).' /home/www/rateguru/bin/deploy fixture; echo STATIC_CONTRACT_OK',
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->not->toContain('STATIC_CONTRACT_OK');
+        expect($output)->toContain('fixture contains an executable bash -c');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('an eval/bash -c defect is detected during apply\'s own preflight, before any backup directory, sudoers, or cron change', function () {
+    // perform_apply's first step, run_source_validation, now includes the
+    // static contract check against SRC_WRAPPER_* — so a defect is caught
+    // there, before STAGE_DIR is even created (and therefore before
+    // verify_staged_candidates' own identical check on the staged copy
+    // would otherwise have to catch it). Either way, the file-existence and
+    // backup-directory assertions below prove the one property that
+    // actually matters: no destination is ever touched.
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $badWrapper = $scratch.'/eval-wrapper';
+        installPerimeterWriteStaticContractFixture($badWrapper, '/home/www/rateguru/bin/deploy', 'eval "echo hi"');
+        $vars['SRC_WRAPPER_DEPLOY'] = $badWrapper;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('source rateguru-deploy contains an executable eval');
+
+        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_SUDOERS', 'DST_CRON'] as $key) {
+            expect(file_exists($vars[$key]))->toBeFalse("{$key} must not exist — a wrapper defect must be caught before any destination file is touched");
+        }
+        expect(glob($vars['BACKUP_ROOT'].'/*'))->toBe([], 'no backup directory should ever be created for this failure');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('source, staged, and installed validation all call the one shared static contract function', function () {
+    $source = installPerimeterSource();
+
+    expect(substr_count($source, 'verify_wrapper_static_contract "${SRC_WRAPPER_DEPLOY}"'))->toBe(1);
+    expect(substr_count($source, 'verify_wrapper_static_contract "${staged_deploy}"'))->toBe(1);
+    expect(substr_count($source, 'verify_wrapper_static_contract "${DST_WRAPPER_DEPLOY}"'))->toBe(1);
+
+    // Exactly one function definition — never three separate copies of the
+    // same eval/bash -c detection logic drifting apart.
+    expect(substr_count($source, 'verify_wrapper_static_contract() {'))->toBe(1);
 });
 
 // =============================================================================

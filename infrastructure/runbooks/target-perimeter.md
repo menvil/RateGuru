@@ -292,6 +292,39 @@ prevents that.
    destination that existed before is restored from its backup; one that
    did not exist is removed.
 
+### Wrapper static contract (shared by source, staged, and installed)
+
+Every one of the three wrappers is checked, by one shared function
+(`verify_wrapper_static_contract`), for: a reference to its generic
+installed operation path; an explicit rejection of `--environment`; and no
+*executable* `eval` or `bash -c` anywhere. The same function runs against
+the source files (`--check`), the staged candidates (`--apply`'s own
+preflight, before a backup directory or any destination file exists), and
+the installed files (`--apply`'s post-install verification and `--verify`)
+— so a defect in this check is caught at the earliest of those three
+points, never only after destination files have already changed.
+
+**Fixed pre-merge defect, found on a real VPS bootstrap attempt:** an
+earlier version of this check used a single whole-file
+`grep -Eq '...|bash -c'`, which does not distinguish code from comments.
+Every wrapper's own doc comment reads, verbatim, "no eval, no bash -c, no
+string-built command" — and that comment text alone was enough to trip the
+check:
+
+```text
+ERROR: installed wrapper contains eval or bash -c: /usr/local/sbin/rateguru-deploy
+apply failed (exit 1)
+rollback complete: previous files restored
+```
+
+No real `eval` or `bash -c` was ever present; `--apply` correctly rolled
+back and left the host in its prior working state, but the wrapper could
+never actually install. Fixed by excluding comment-only lines (any line
+that, after leading whitespace, starts with `#`) before scanning for
+executable `eval`/`bash -c`, and by making that fixed check one function
+shared by all three validation points instead of duplicated logic that
+could drift.
+
 ### `--verify` — requires root, read-only
 
 Re-runs the installed-file and runtime-parity checks against whatever is
