@@ -334,9 +334,11 @@ see [Target-aware cleanup](#target-aware-cleanup-slice-4-completed),
 [Target-aware backup cycle](#target-aware-backup-cycle-slice-73-completed)
 and
 [Target-aware perimeter](#target-aware-perimeter-slice-8-current)
-below, and the migration sequence. Systemd timers and internal
-`--environment` support are the only legacy-only pieces left, until a future
-legacy-removal slice.
+below, and the migration sequence. Systemd timers, internal `--environment`
+support, and the temporary legacy per-environment wrappers
+(`rateguru-staging-*`, `rateguru-production-*`) and their matching sudoers
+rules are the only legacy-only pieces left, until a future legacy-removal
+slice removes all of them together.
 
 ## Installing on the VPS (slice 2b)
 
