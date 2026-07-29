@@ -56,12 +56,12 @@ live on) belongs to a VPS bootstrap step outside this installer's scope.
 - `/home/www/rateguru/config/deployment.conf` — the target helpers already
   default to the registry's installed path above, so nothing there needs to
   change;
-- cron, systemd timers, GitHub Actions workflows, sudoers rules, server
-  wrappers — the deploy workflow and the `rateguru-backups` cron entry keep
-  invoking the legacy `/usr/local/sbin` wrapper and `backup-cycle
-  --environment staging`; migrating that perimeter to `--target staging-main`
-  is a separate future slice (see [Not touched](deployment-targets.md) in
-  `deployment-targets.md`'s migration sequence);
+- cron, GitHub Actions workflows, sudoers rules, the three generic sudo
+  wrappers — that perimeter migrated to `--target staging-main` in Phase 4
+  slice 8 (`infrastructure/scripts/install-target-perimeter`), a separate
+  installer from this one; see
+  [`target-perimeter.md`](target-perimeter.md);
+- systemd timers;
 - any Nginx, PHP-FPM, Supervisor or cron configuration;
 - the registry's own contents — `staging-main` and `tits-guru` keep the exact
   values slice 1 and slice 2 committed.
@@ -101,7 +101,7 @@ the same namespace concurrently. `backup-cycle` itself now carries the
 identical lifecycle check and shares the same namespace/lock contract, and
 additionally appends one compact JSON record per cycle to
 `/home/www/rateguru/backups/backup-cycles.jsonl` — see
-[Target-aware backup cycle](deployment-targets.md#target-aware-backup-cycle-slice-73-current)
+[Target-aware backup cycle](deployment-targets.md#target-aware-backup-cycle-slice-73-completed)
 in `deployment-targets.md` for the full pipeline and history schema.
 `--environment` is kept working, temporarily, alongside `--target` — it will
 be removed only in a dedicated future slice, once `--target` parity has been
@@ -478,11 +478,18 @@ Both selectors above resolve to the identical remote namespace,
 in `deployment-targets.md` for the shared-namespace/lock model. `backup-cycle
 --environment staging` and `backup-cycle --target staging-main` additionally
 share the identical cycle lock — see
-[Target-aware backup cycle](deployment-targets.md#target-aware-backup-cycle-slice-73-current).
+[Target-aware backup cycle](deployment-targets.md#target-aware-backup-cycle-slice-73-completed).
 
-The GitHub Actions deploy workflow and its `/usr/local/sbin` wrapper are
-intentionally unchanged by this slice and keep calling `deploy --environment
-staging` — see [Not touched](#what-this-installer-owns--and-does-not) above.
+This installer never touches the GitHub Actions deploy workflow, sudoers, or
+any server wrapper — see [Not touched](#what-this-installer-owns--and-does-not)
+above. Phase 4 slice 8 adds the generic `/usr/local/sbin/rateguru-deploy`
+wrapper and switches the real staging perimeter to call `deploy --target
+staging-main` through it — but only once its own installer has been run on
+the VPS and the `DEPLOY_WRAPPER` GitHub variable has been switched by hand;
+see [`target-perimeter.md`](target-perimeter.md#pre-merge-bootstrap-sequence--do-not-merge-before-completing-this)
+for that pre-merge bootstrap requirement — it must happen **before** slice 8
+is merged into `develop`, not after, or every subsequent deployment
+deadlocks.
 
 ## Troubleshooting
 

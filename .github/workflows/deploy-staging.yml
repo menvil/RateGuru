@@ -282,6 +282,8 @@ jobs:
       - name: Deploy to staging
         uses: ./.github/actions/deploy-rateguru
         with:
+          deployment-target: staging-main
+
           deploy-host: ${{ vars.DEPLOY_HOST }}
           deploy-port: ${{ vars.DEPLOY_PORT }}
           deploy-user: ${{ vars.DEPLOY_USER }}

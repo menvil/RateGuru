@@ -16,10 +16,15 @@ it('keeps staging maintenance active without enabling production prematurely', f
     $scheduler = infrastructureSource('config/cron/rateguru-staging-scheduler');
 
     expect($backups)
-        ->toContain('backup-cycle --environment staging')
+        ->toContain('backup-cycle --target staging-main')
         ->toContain('staging-local-restore-test.log')
         ->toContain('staging-offsite-restore-test.log')
-        ->not->toContain('--environment production')
+        ->not->toContain('--environment')
+        // The registry's only production target is tits-guru
+        // (lifecycle=planned) — the target-selector world's equivalent of
+        // the old "--environment production" guard this test's name
+        // promises.
+        ->not->toContain('tits-guru')
         ->and($scheduler)
         ->toContain('rateguru-staging cd /home/www/rateguru/staging/current')
         ->not->toContain('rateguru-production');

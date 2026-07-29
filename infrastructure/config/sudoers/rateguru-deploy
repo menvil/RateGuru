@@ -2,6 +2,15 @@ Defaults:deploy-rateguru-staging !requiretty
 Defaults:deploy-rateguru-production !requiretty
 
 deploy-rateguru-staging ALL=(root) NOPASSWD: \
+    /usr/local/sbin/rateguru-deploy, \
+    /usr/local/sbin/rateguru-rollback, \
+    /usr/local/sbin/rateguru-cleanup
+
+# Temporary legacy compatibility only, kept for rollback safety until the next
+# (legacy-removal) slice deletes these rules and the wrappers they name from
+# the server entirely. GitHub Actions no longer invokes any of the six rules
+# below; do not add a new caller for any of them.
+deploy-rateguru-staging ALL=(root) NOPASSWD: \
     /usr/local/sbin/rateguru-staging-deploy, \
     /usr/local/sbin/rateguru-staging-rollback, \
     /usr/local/sbin/rateguru-staging-cleanup

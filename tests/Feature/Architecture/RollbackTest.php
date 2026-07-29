@@ -1586,11 +1586,12 @@ it('leaves deploy and workflows untouched', function () {
     // in slice 7.3 — all six are deliberately absent here; see
     // BackupTest.php/RestoreTest.php,
     // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
-    // and BackupCycleTest.php for their own behavioral coverage.
+    // and BackupCycleTest.php for their own behavioral coverage. The sudoers
+    // rule and the staging deploy workflow legitimately graduated to the
+    // generic wrappers/--target staging-main in Phase 4 slice 8 — see
+    // TargetPerimeterTest.php — and are deliberately absent here too.
     $unchanged = [
         'infrastructure/scripts/deploy',
-        'infrastructure/config/sudoers/rateguru-deploy',
-        '.github/workflows/deploy-staging.yml',
     ];
 
     foreach ($unchanged as $path) {

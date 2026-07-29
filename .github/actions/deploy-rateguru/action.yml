@@ -2,6 +2,10 @@ name: Deploy RateGuru artifact
 description: Upload and deploy an immutable RateGuru release through restricted SSH
 
 inputs:
+  deployment-target:
+    required: true
+    description: Deployment target ID from the RateGuru target registry
+
   deploy-host:
     required: true
     description: SSH server hostname or IP
@@ -17,15 +21,15 @@ inputs:
 
   deploy-incoming:
     required: true
-    description: Environment-specific incoming artifact directory
+    description: Target-specific incoming artifact directory
 
   deploy-wrapper:
     required: true
-    description: Environment-specific sudo deployment wrapper
+    description: Target-specific sudo deployment wrapper
 
   deploy-root:
     required: true
-    description: Environment root containing current and releases
+    description: Target root containing current and releases
 
   ssh-private-key:
     required: true
@@ -59,12 +63,23 @@ runs:
     - name: Validate deployment inputs
       shell: bash
       env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
         RELEASE_ID: ${{ inputs.release-id }}
         ARTIFACT_PATH: ${{ inputs.artifact-path }}
         CHECKSUM_PATH: ${{ inputs.checksum-path }}
         RUN_MIGRATIONS: ${{ inputs.run-migrations }}
       run: |
         set -Eeuo pipefail
+
+        # Rejects empty, uppercase, slash, whitespace, shell metacharacters
+        # and a flag-shaped value (a leading "-") in one closed character
+        # class — none of those characters are members of [a-z0-9-].
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
 
         release_regex='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
 
@@ -170,19 +185,35 @@ runs:
         DEPLOY_USER: ${{ inputs.deploy-user }}
         DEPLOY_INCOMING: ${{ inputs.deploy-incoming }}
         DEPLOY_WRAPPER: ${{ inputs.deploy-wrapper }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
         RELEASE_ID: ${{ inputs.release-id }}
         ARTIFACT_PATH: ${{ inputs.artifact-path }}
         RUN_MIGRATIONS: ${{ inputs.run-migrations }}
       run: |
         set -Eeuo pipefail
 
+        echo "Deployment target: ${DEPLOYMENT_TARGET}"
+
+        # DEPLOY_WRAPPER must be the generic, target-aware wrapper — never a
+        # deprecated, per-environment one, which does not understand
+        # --target at all. Failing closed here, before the remote command is
+        # ever built, gives a clear diagnostic instead of a confusing remote
+        # "unknown argument: --target" failure.
+        deploy_wrapper_basename="$(basename "${DEPLOY_WRAPPER}")"
+
+        if [[ "${deploy_wrapper_basename}" != "rateguru-deploy" ]]; then
+          echo "DEPLOY_WRAPPER must be the generic rateguru-deploy wrapper (got: ${DEPLOY_WRAPPER})" >&2
+          exit 1
+        fi
+
         artifact_name="$(basename "${ARTIFACT_PATH}")"
         remote_artifact="${DEPLOY_INCOMING}/${artifact_name}"
         remote_checksum="${remote_artifact}.sha256"
 
         printf -v remote_command \
-          'sudo -n %q --release %q --artifact %q --checksum %q' \
+          'sudo -n %q --target %q --release %q --artifact %q --checksum %q' \
           "${DEPLOY_WRAPPER}" \
+          "${DEPLOYMENT_TARGET}" \
           "${RELEASE_ID}" \
           "${remote_artifact}" \
           "${remote_checksum}"

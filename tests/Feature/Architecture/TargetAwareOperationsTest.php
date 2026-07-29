@@ -1291,7 +1291,7 @@ it('keeps legacy production on rateguru-production.internal, never tits-guru', f
 
 // --- roadmap and runbook -----------------------------------------------------
 
-it('records slices 1-7.2 completed, slice 7.3 (backup-cycle orchestration) current, without completing Phase 4', function () {
+it('records slices 1-7.3 completed, slice 8 (perimeter) current, without completing Phase 4', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
@@ -1304,7 +1304,8 @@ it('records slices 1-7.2 completed, slice 7.3 (backup-cycle orchestration) curre
         ->toContain('Target-aware rollback — completed')
         ->toContain('Local backup and local restore-test — completed')
         ->toContain('Offsite backup path — completed')
-        ->toContain('Backup-cycle orchestration — current')
+        ->toContain('Backup-cycle orchestration — completed')
+        ->toContain('Perimeter — current')
         ->not->toContain('## 4. Multi-target production model — completed')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m');
 
@@ -1364,8 +1365,10 @@ it('leaves every other operational script and workflow byte-identical to develop
         // slice 7.1, offsite-backup/offsite-retention/offsite-restore-test in
         // slice 7.2, and backup-cycle in slice 7.3 — none of them is
         // --environment-only anymore, so all nine are deliberately absent
-        // here.
-        'infrastructure/config/sudoers/rateguru-deploy',
+        // here. infrastructure/config/sudoers/rateguru-deploy and
+        // infrastructure/config/cron/rateguru-backups graduated to
+        // --target/staging-main in Phase 4 slice 8 — see
+        // TargetPerimeterTest.php — and are deliberately absent here too.
         'infrastructure/config/ssh/70-rateguru-deploy.conf',
         'infrastructure/config/nginx/rateguru-staging',
         'infrastructure/config/nginx/rateguru-production',
@@ -1373,14 +1376,14 @@ it('leaves every other operational script and workflow byte-identical to develop
         'infrastructure/config/php-fpm/rateguru-production.conf',
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',
-        'infrastructure/config/cron/rateguru-backups',
         'infrastructure/templates/deployment.conf.example',
         'infrastructure/config/deployment-targets.json',
         // Both workflow files are deliberately excluded here: a later slice
         // (the infrastructure CLI executable-mode fix) legitimately adds an
-        // executable-bit verification step to each. This list only proves
-        // *this* slice's own scope, not a permanent freeze on every file
-        // named here forever.
+        // executable-bit verification step to each, and Phase 4 slice 8
+        // added a required deployment-target input to the staging deploy
+        // workflow. This list only proves *this* slice's own scope, not a
+        // permanent freeze on every file named here forever.
     ];
 
     foreach ($unchanged as $path) {
