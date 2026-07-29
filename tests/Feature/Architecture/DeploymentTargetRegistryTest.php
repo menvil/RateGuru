@@ -1312,8 +1312,12 @@ it('leaves the --environment interface untouched', function () {
 });
 
 it('changes no runtime configuration in this slice', function () {
-    // Nginx, PHP-FPM, Supervisor, cron and sudoers are untouched: nothing in
-    // them may reference the registry or a target ID.
+    // Nginx, PHP-FPM, Supervisor and the Laravel scheduler cron are
+    // untouched: nothing in them may reference the registry or a target ID.
+    // config/cron/rateguru-backups and config/sudoers/rateguru-deploy
+    // legitimately graduated to --target/staging-main in Phase 4 slice 8 —
+    // see TargetPerimeterTest.php for their own coverage — and are
+    // deliberately absent here.
     $configs = [
         'config/nginx/rateguru-staging',
         'config/nginx/rateguru-production',
@@ -1321,8 +1325,6 @@ it('changes no runtime configuration in this slice', function () {
         'config/php-fpm/rateguru-production.conf',
         'config/supervisor/rateguru-staging-queue.conf',
         'config/cron/rateguru-staging-scheduler',
-        'config/cron/rateguru-backups',
-        'config/sudoers/rateguru-deploy',
     ];
 
     foreach ($configs as $path) {

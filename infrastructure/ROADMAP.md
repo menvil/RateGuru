@@ -57,8 +57,8 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first seven (through 7.2) are completed and accepted
-on the real staging VPS; slice 7.3 is in progress. The phase stays
+Slices, in order. The first eight (through 7.3) are completed and accepted
+on the real staging VPS; slice 8 (perimeter) is current. The phase stays
 **current**.
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
@@ -193,7 +193,7 @@ on the real staging VPS; slice 7.3 is in progress. The phase stays
       succeeded; `offsite-backup --target tits-guru` (and the other two
       offsite scripts) were rejected with `lifecycle=planned`; the final
       health-check passed.
-   3. **7.3 Backup-cycle orchestration — current.** `backup-cycle` gains
+   3. **7.3 Backup-cycle orchestration — completed.** `backup-cycle` gains
       `--target` alongside the preserved `--environment` selector, sharing
       the identical namespace and cycle lock as every script above. Runs the
       full five-step pipeline — local backup, local restore-test, offsite
@@ -203,10 +203,29 @@ on the real staging VPS; slice 7.3 is in progress. The phase stays
       ever applied once local backup, local restore-test and the offsite
       upload have all already succeeded; local backups are not pruned by
       this slice. `install-target-operations` now manages fourteen files,
-      not thirteen. Real-VPS acceptance is a separate follow-up step after
-      this slice merges; cron, systemd timers, GitHub Actions workflows and
-      sudoers stay legacy-only perimeter until the next slice.
-8. Perimeter — cron, systemd timers, workflows, sudoers, server wrappers.
+      not thirteen.
+
+      **Accepted on the real staging VPS:** the fourteen-file
+      `install-target-operations --check`/`--apply`/`--verify` all passed;
+      `/home/www/rateguru/bin/backup-cycle` was updated; a real
+      `backup-cycle --target staging-main` ran the full five-step pipeline
+      to completion — local backup, local restore-test, offsite (B2)
+      upload, offsite retention apply, and offsite restore-test all
+      succeeded; the cycle was recorded in
+      `/home/www/rateguru/backups/backup-cycles.jsonl`; the final staging
+      health-check passed.
+8. **Perimeter — current.** `infrastructure/scripts/install-target-perimeter`
+   installs three generic, target-aware sudo wrappers
+   (`rateguru-deploy`/`rateguru-rollback`/`rateguru-cleanup`), a sudoers rule
+   granting the staging deploy user access to them, and switches the
+   `rateguru-backups` cron entry and the GitHub Actions staging deploy
+   workflow from `--environment staging` to `--target staging-main`.
+   `deploy`/`rollback`/`cleanup`/`backup-cycle`/`restore-test`/
+   `offsite-restore-test` themselves are unchanged — they already support
+   `--target` from earlier slices. The temporary legacy per-environment
+   wrappers and sudoers rules remain installed, for rollback safety, until a
+   dedicated legacy-removal slice deletes them. See
+   `runbooks/target-perimeter.md`.
 9. Remove the `--environment` interface, only after `staging-main` parity is
    proven end to end across every slice above.
 

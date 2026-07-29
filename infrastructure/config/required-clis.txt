@@ -6,6 +6,7 @@ health-check
 install-mail-capture
 install-public-storage-access
 install-target-operations
+install-target-perimeter
 offsite-backup
 offsite-restore-test
 offsite-retention

@@ -324,17 +324,19 @@ true across every slice below, installed or not.
 `cleanup` graduated to target-awareness in slice 4, `deploy` in slice 5,
 `rollback` in slice 6, `backup`/`restore-test` in slice 7.1,
 `offsite-backup`/`offsite-retention`/`offsite-restore-test` in slice 7.2, and
-`backup-cycle` in slice 7.3;
+`backup-cycle` in slice 7.3; the perimeter that invokes them (cron, sudoers,
+server wrappers, the GitHub Actions deploy workflow) migrated in slice 8;
 see [Target-aware cleanup](#target-aware-cleanup-slice-4-completed),
 [Target-aware deploy](#target-aware-deploy-slice-5-completed),
 [Target-aware rollback](#target-aware-rollback-slice-6-completed),
 [Target-aware local backup](#target-aware-local-backup-slice-71-completed),
-[Target-aware offsite backup](#target-aware-offsite-backup-slice-72-completed)
+[Target-aware offsite backup](#target-aware-offsite-backup-slice-72-completed),
+[Target-aware backup cycle](#target-aware-backup-cycle-slice-73-completed)
 and
-[Target-aware backup cycle](#target-aware-backup-cycle-slice-73-current)
-below, and the migration sequence. Cron, systemd timers, GitHub Actions
-workflows, sudoers rules and server wrappers remain the only legacy-only
-perimeter left, until a future slice migrates them too.
+[Target-aware perimeter](#target-aware-perimeter-slice-8-current)
+below, and the migration sequence. Systemd timers and internal
+`--environment` support are the only legacy-only pieces left, until a future
+legacy-removal slice.
 
 ## Installing on the VPS (slice 2b)
 
@@ -884,7 +886,7 @@ upload (`offsite-backup --target staging-main`) succeeded; a target
 was rejected with `lifecycle=planned` for all three scripts; the final
 health-check passed.
 
-## Target-aware backup cycle (slice 7.3, current)
+## Target-aware backup cycle (slice 7.3, completed)
 
 `backup-cycle` now accepts the same selector contract as every other
 backup-path script:
@@ -991,15 +993,160 @@ for the full fourteen-file contract.
 ### What is deliberately still legacy-only
 
 Cron, systemd timers, the GitHub Actions deploy workflow, its
-`/usr/local/sbin` wrapper, and sudoers are untouched by this slice — the
-`rateguru-backups` cron entry keeps calling `backup-cycle --environment
-staging`. `tits-guru` remains `lifecycle=planned` and undeployable.
-`--environment` itself is kept working, temporarily, alongside `--target`
-across every backup-path script; it is removed only at the end of the
-migration sequence, once `--target` parity is proven end to end.
+`/usr/local/sbin` wrapper, and sudoers were untouched by this slice — the
+`rateguru-backups` cron entry kept calling `backup-cycle --environment
+staging` until slice 8 (below) switched it to `--target staging-main`.
+`tits-guru` remains `lifecycle=planned` and undeployable. `--environment`
+itself is kept working, temporarily, alongside `--target` across every
+backup-path script; it is removed only at the end of the migration
+sequence, once `--target` parity is proven end to end.
 
-**Post-merge, this slice still needs real-VPS acceptance** — see the
-migration sequence below.
+**Accepted on the real staging VPS:** the fourteen-file
+`install-target-operations --check`/`--apply`/`--verify` all passed;
+`/home/www/rateguru/bin/backup-cycle` was updated; a real
+`backup-cycle --target staging-main` ran the full five-step pipeline to
+completion (local backup, local restore-test, offsite upload, offsite
+retention apply, offsite restore-test all succeeded); the cycle was
+recorded in `/home/www/rateguru/backups/backup-cycles.jsonl`; the final
+staging health-check passed.
+
+## Target-aware perimeter (slice 8, current)
+
+Every real staging operation now goes through target-based invocation, end
+to end:
+
+```text
+GitHub Actions -> SSH -> sudo wrapper -> deploy --target staging-main
+cron            -> backup-cycle/restore-test/offsite-restore-test --target staging-main
+```
+
+`deploy`, `rollback`, `cleanup`, `backup-cycle`, `restore-test` and
+`offsite-restore-test` themselves are unchanged by this slice — every one of
+them already accepted `--target` from an earlier slice (5, 6, 4, 7.3, 7.1
+and 7.2 respectively). What changes here is exclusively the *perimeter*
+that invokes them: the server-side sudo wrappers, the sudoers rule, the
+GitHub Actions deployment path, and the backup cron entries.
+
+### Three generic, target-aware sudo wrappers
+
+`infrastructure/config/wrappers/rateguru-{deploy,rollback,cleanup}`, sourced
+from this repository and installed at
+`/usr/local/sbin/rateguru-{deploy,rollback,cleanup}` (`root:root 0755`),
+replace the legacy, per-environment
+`rateguru-staging-{deploy,rollback,cleanup}` /
+`rateguru-production-{deploy,rollback,cleanup}` wrappers for staging. Each
+generic wrapper:
+
+- requires root (it is only ever reached via `sudo`, or by real root
+  directly for server administration);
+- accepts exactly one selector, `--target TARGET_ID` — `--environment`, a
+  missing/duplicate/empty/flag-shaped `--target`, and any lone short flag
+  other than `-h`/`--help` are all rejected before anything else runs;
+- authorizes the caller: when invoked through `sudo`, `SUDO_USER` must
+  exactly equal the target's own registered `deploy_user` from the
+  registry, or the caller is rejected before the underlying operation is
+  ever reached; a direct invocation by real root (no `SUDO_USER`, or
+  `SUDO_USER=root`) is always permitted;
+- calls `require_active_target` before the underlying operation, so a
+  planned target (`tits-guru`) is rejected the same way every other
+  target-aware command already rejects it — before any operation-specific
+  argument, filesystem path, lock, or database is touched;
+- execs into the real, unchanged `deploy`/`rollback`/`cleanup` binary at its
+  generic installed path (`/home/www/rateguru/bin/deploy`, `.../rollback`,
+  `.../cleanup`) with `--target TARGET_ID` prepended exactly once, followed
+  by every other argument the caller gave, untouched and in order — the
+  wrapper never interprets `--release`/`--artifact`/`--checksum`/`--migrate`/
+  `--keep`/`--dry-run`/`--apply`/`--previous` itself;
+- scrubs its own process environment before that exec: `env -i` with only
+  `PATH`, `HOME=/root`, `USER=root`, `LOGNAME=root` — every `RATEGURU_*` test
+  override and any other caller-supplied variable is stripped
+  unconditionally, not enumerated and unset one at a time;
+- uses only Bash arrays and `exec` — never `eval`, never `bash -c`, never a
+  string-built command.
+
+`--help` prints the wrapper's own target-only usage form and exits before
+any selector, authorization, or lifecycle work — it never runs the
+underlying operation.
+
+### Sudoers: generic wrappers for staging, no entry for tits-guru
+
+`infrastructure/config/sudoers/rateguru-deploy` grants
+`deploy-rateguru-staging` `NOPASSWD` access to the three generic wrappers.
+No rule is added for `tits-guru`'s own (unprovisioned) deploy user —
+`tits-guru` stays `lifecycle=planned`, so nothing in the sudoers file grants
+it any access at all. The prior per-environment rules
+(`rateguru-staging-*`, `rateguru-production-*`) remain, explicitly marked as
+temporary legacy compatibility: the GitHub Actions workflow no longer
+invokes them, and a dedicated future legacy-removal slice deletes them from
+both the server and this file.
+
+### GitHub Actions: a required, locally-validated deployment-target input
+
+`.github/actions/deploy-rateguru/action.yml` gained a required
+`deployment-target` input, validated locally (`^[a-z0-9]+(-[a-z0-9]+)*$` —
+rejecting empty, uppercase, slash, whitespace, shell metacharacters, and a
+flag-shaped value) before any SSH connection is made. The remote deploy
+command becomes `sudo -n "${DEPLOY_WRAPPER}" --target "${DEPLOYMENT_TARGET}"
+--release ... --artifact ... --checksum ... [--migrate]`, built entirely
+through `printf -v ... %q` — never string concatenation of an unquoted
+value. `.github/workflows/deploy-staging.yml` passes
+`deployment-target: staging-main` explicitly; the GitHub Environment
+`staging` (the approval/secrets boundary) and the `rateguru-staging-deployment`
+concurrency group are both unchanged — they were never a legacy operational
+selector and are not renamed by this slice. After this slice merges, the
+`DEPLOY_WRAPPER` GitHub variable must be switched, by hand, to
+`/usr/local/sbin/rateguru-deploy` — see
+[Post-merge real-VPS acceptance](#post-merge-real-vps-acceptance-slice-8)
+below.
+
+### Backup cron: the same schedules and log paths, now target-based
+
+`infrastructure/config/cron/rateguru-backups` keeps its exact schedule
+(`30 2 * * *` nightly, `10 4`/`40 4 * * 0` weekly) and log paths unchanged;
+only the selector on each of the three operational lines changed from
+`--environment staging`/`--environment production` to
+`--target staging-main`. The Laravel scheduler cron entry
+(`rateguru-staging-scheduler`) is untouched — it never used the legacy
+selector and is unrelated to this migration.
+
+### Transactional installer
+
+`infrastructure/scripts/install-target-perimeter` installs the five files
+above (three wrappers, the sudoers rule, the cron file) with the same
+`--check`/`--apply`/`--verify` contract, staged pre-install verification,
+timestamped backup, and automatic rollback-on-failure that
+`install-target-operations` already established — see
+[`target-perimeter.md`](target-perimeter.md) for the full contract. It never
+runs a real deploy, rollback, cleanup apply, backup-cycle, or restore
+operation: its only runtime probes are each wrapper's `--help` and a bare
+`--target tits-guru` (which the wrapper itself rejects with
+`lifecycle=planned` before any underlying binary is ever reached).
+
+### What is deliberately still legacy-only
+
+Internal `--environment` support in `deploy`/`rollback`/`cleanup`/
+`backup-cycle`/`restore-test`/`offsite-restore-test` is untouched and stays
+working. The temporary legacy per-environment wrappers and sudoers rules
+remain installed, for rollback safety, until a dedicated future
+legacy-removal slice deletes both `--environment` support and the legacy
+wrappers/sudoers rules together. `tits-guru` remains `lifecycle=planned` and
+undeployable — this slice does not provision it.
+
+### Post-merge real-VPS acceptance (slice 8)
+
+1. Deploy the latest `develop` to staging (through the still-legacy
+   perimeter, one last time).
+2. Run `install-target-perimeter --check`, then `--apply`, then `--verify`
+   on the VPS.
+3. Update the GitHub variable `DEPLOY_WRAPPER` to
+   `/usr/local/sbin/rateguru-deploy`.
+4. Confirm the installed cron and sudoers with
+   `install-target-perimeter --verify`.
+5. Run the GitHub Actions staging deployment workflow for real.
+6. Verify deploy history and the post-deploy health check.
+7. Inspect the installed `/etc/cron.d/rateguru-backups` on the VPS.
+8. Confirm no active perimeter command (deploy, cron) still uses
+   `--environment`.
 
 ## Compatibility with the current --environment interface
 
@@ -1069,13 +1216,20 @@ confirming both still succeed.
       above)*
    3. **7.3 Backup-cycle orchestration** — `backup-cycle` accepts `--target`,
       sharing the same namespace/lock as the five scripts it orchestrates,
-      and appends a compact JSONL history record per cycle. *(current — see
-      [Target-aware backup cycle](#target-aware-backup-cycle-slice-73-current)
-      above; real-VPS acceptance is still pending)*
-8. **Perimeter** — cron, systemd timers, GitHub Actions workflows, sudoers
-   rules, server wrappers.
-9. **Remove compatibility** — drop `--environment` only after `staging-main`
-   parity is proven end to end across every slice above.
+      and appends a compact JSONL history record per cycle. *(completed and
+      accepted on the real staging VPS — see
+      [Target-aware backup cycle](#target-aware-backup-cycle-slice-73-completed)
+      above)*
+8. **Perimeter** — three generic sudo wrappers, a sudoers rule for the
+   staging deploy user, and the GitHub Actions deploy workflow and backup
+   cron switched from `--environment staging` to `--target staging-main`.
+   *(current — see
+   [Target-aware perimeter](#target-aware-perimeter-slice-8-current) above
+   and [`target-perimeter.md`](target-perimeter.md); real-VPS acceptance is
+   a post-merge follow-up)*
+9. **Remove compatibility** — drop `--environment` and the temporary legacy
+   per-environment wrappers/sudoers rules, only after `staging-main` parity
+   is proven end to end across every slice above.
 
 Each step is independently reviewable and revertible. `staging-main` deliberately
 mirrors current staging exactly, so parity in the last step is a comparison

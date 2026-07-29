@@ -51,7 +51,7 @@ it('defines a hardened reusable RateGuru deployment action', function () {
         ->toContain('test "${checksum_name}" = "${artifact_name}.sha256"')
         ->toContain('-o StrictHostKeyChecking=yes')
         ->toContain('-o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}"')
-        ->toContain("'sudo -n %q --release %q --artifact %q --checksum %q'")
+        ->toContain("'sudo -n %q --target %q --release %q --artifact %q --checksum %q'")
         ->toContain('remote_command+=" --migrate"')
         ->toContain("'basename \"$(readlink -f %q)\"'")
         ->toContain("jq -r '.release'")

@@ -1,0 +1,835 @@
+#!/usr/bin/env bash
+#
+# install-target-perimeter — install/verify the target-aware operational
+# perimeter (Phase 4 slice 8): the three generic sudo wrappers, the sudoers
+# rule granting the staging deploy user access to them, and the backup cron
+# entry.
+#
+# Modes:
+#   --check   Validate the committed source files and host tooling only.
+#             Read-only: makes NO changes to the system, requires no root.
+#   --apply   Install the three wrappers, the sudoers rule and the backup
+#             cron entry, verify a staged copy before touching anything,
+#             install transactionally, then verify the installed result
+#             against the real host before committing.
+#   --verify  Re-run the installed-file and runtime-parity checks against
+#             whatever is currently installed. Makes NO changes, creates NO
+#             backup.
+#
+# What this installs — and does not:
+#   * Only five files: the three generic wrappers (rateguru-deploy,
+#     rateguru-rollback, rateguru-cleanup), the sudoers rule that grants the
+#     staging deploy user access to them, and the backup-cycle/restore-test/
+#     offsite-restore-test cron entries. deploy, rollback, cleanup,
+#     backup-cycle, restore-test and offsite-restore-test themselves are
+#     untouched by this installer — they already support --target from
+#     earlier Phase 4 slices (installed by install-target-operations, a
+#     prerequisite this installer depends on but does not own).
+#   * Never touches deployment.conf or the target registry.
+#   * Never adds a sudoers rule for tits-guru's deploy user: tits-guru stays
+#     lifecycle=planned, and this installer does not provision it.
+#   * Never removes the temporary legacy per-environment wrappers or sudoers
+#     rules (rateguru-staging-*, rateguru-production-*) — a future
+#     legacy-removal slice does that.
+#
+# Destinations are fixed, hardcoded constants — see "Locations" below — save
+# for one deliberate test seam: RATEGURU_PERIMETER_ROOT (gated behind
+# RATEGURU_ALLOW_TEST_OVERRIDES=true) prefixes every destination path and the
+# backup root, so this installer's own transactional install/rollback logic
+# can be exercised end to end against a private scratch tree. Production
+# never sets either variable, so this resolves to the exact real absolute
+# destinations below.
+
+set -Eeuo pipefail
+umask 022
+
+# --- Locations (fixed; PERIMETER_ROOT is the one deliberate test seam) -----
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+SRC_SELF="${SCRIPT_DIR}/install-target-perimeter"
+SRC_WRAPPER_DEPLOY="${REPO_ROOT}/infrastructure/config/wrappers/rateguru-deploy"
+SRC_WRAPPER_ROLLBACK="${REPO_ROOT}/infrastructure/config/wrappers/rateguru-rollback"
+SRC_WRAPPER_CLEANUP="${REPO_ROOT}/infrastructure/config/wrappers/rateguru-cleanup"
+SRC_SUDOERS="${REPO_ROOT}/infrastructure/config/sudoers/rateguru-deploy"
+SRC_CRON="${REPO_ROOT}/infrastructure/config/cron/rateguru-backups"
+
+# Referenced, unchanged operational tooling. Read-only: install-target-perimeter
+# never installs, modifies, or takes ownership of any of these — that is
+# install-target-operations' job, a prerequisite this installer depends on.
+# Used only to prove the committed sources still declare --target support and
+# to give the staged/installed wrappers a self-contained common/registry to
+# resolve against during this installer's own safe probes (see
+# wrapper_probe_env below).
+SRC_COMMON="${REPO_ROOT}/infrastructure/scripts/common"
+SRC_TARGETS="${REPO_ROOT}/infrastructure/scripts/targets"
+SRC_REGISTRY="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+# common unconditionally sources deployment.conf at its own top, before any
+# function is even defined — every wrapper probe below needs a valid one
+# regardless of target mode. The committed example template is exactly what
+# every other Architecture test already points RATEGURU_DEPLOYMENT_CONF_FILE
+# at (see e.g. BackupCycleTest.php's backupCycleDeploymentConfPath()).
+SRC_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
+SRC_DEPLOY="${REPO_ROOT}/infrastructure/scripts/deploy"
+SRC_ROLLBACK="${REPO_ROOT}/infrastructure/scripts/rollback"
+SRC_CLEANUP="${REPO_ROOT}/infrastructure/scripts/cleanup"
+SRC_BACKUP_CYCLE="${REPO_ROOT}/infrastructure/scripts/backup-cycle"
+SRC_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/restore-test"
+SRC_OFFSITE_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/offsite-restore-test"
+
+# Gates RATEGURU_PERIMETER_ROOT and RATEGURU_VISUDO_BIN below — the identical
+# plain condition every operational script's own top-of-file COMMON_FILE
+# override uses. A stray environment variable surviving in a real root shell
+# can never silently redirect this installer's destinations or its visudo
+# binary without the explicit opt-in flag.
+overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+PERIMETER_ROOT=""
+if overrides_allowed && [[ -n "${RATEGURU_PERIMETER_ROOT:-}" ]]; then
+    PERIMETER_ROOT="${RATEGURU_PERIMETER_ROOT}"
+fi
+
+DST_WRAPPER_DEPLOY="${PERIMETER_ROOT}/usr/local/sbin/rateguru-deploy"
+DST_WRAPPER_ROLLBACK="${PERIMETER_ROOT}/usr/local/sbin/rateguru-rollback"
+DST_WRAPPER_CLEANUP="${PERIMETER_ROOT}/usr/local/sbin/rateguru-cleanup"
+DST_SUDOERS="${PERIMETER_ROOT}/etc/sudoers.d/rateguru-deploy"
+DST_CRON="${PERIMETER_ROOT}/etc/cron.d/rateguru-backups"
+
+DST_SBIN_DIR="${PERIMETER_ROOT}/usr/local/sbin"
+DST_SUDOERS_DIR="${PERIMETER_ROOT}/etc/sudoers.d"
+DST_CRON_DIR="${PERIMETER_ROOT}/etc/cron.d"
+
+BACKUP_ROOT="${PERIMETER_ROOT}/var/backups/rateguru-target-perimeter"
+
+VISUDO_BIN_DEFAULT="$(command -v visudo || true)"
+VISUDO_BIN="${VISUDO_BIN_DEFAULT}"
+if overrides_allowed && [[ -n "${RATEGURU_VISUDO_BIN:-}" ]]; then
+    VISUDO_BIN="${RATEGURU_VISUDO_BIN}"
+fi
+
+WRAPPER_MODE="0755"
+SUDOERS_MODE="0440"
+CRON_MODE="0644"
+
+# The ownership this installer enforces on every file and directory it cares
+# about. Plain, freely reassignable constants (not gated env overrides) — the
+# same technique infrastructure/scripts/install-target-operations already
+# established for its own INSTALL_OWNER/INSTALL_OWNER_ID/INSTALL_GROUP/
+# INSTALL_GROUP_ID: tests source this file, reassign these to the test
+# process's own uid/gid alongside PERIMETER_ROOT, and exercise the full
+# transactional apply/rollback core without needing real root.
+INSTALL_OWNER="root"
+INSTALL_GROUP="root"
+INSTALL_OWNER_ID=0
+INSTALL_GROUP_ID=0
+
+REQUIRED_TOOLS=(bash jq install stat cmp diff mv cp mktemp readlink grep)
+
+# --- Logging --------------------------------------------------------------
+
+log() {
+    printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
+fail() {
+    printf '[%s] ERROR: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
+    exit 1
+}
+
+# --- Argument parsing -------------------------------------------------------
+
+MODE=""
+MODE_SEEN=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-target-perimeter --check
+  install-target-perimeter --apply
+  install-target-perimeter --verify
+  install-target-perimeter --help
+
+  --check   Validate committed source files and host tooling. Read-only,
+            no root required.
+  --apply   Install the three wrappers, the sudoers rule and the cron
+            entry (requires root). Transactional: verifies a staged copy
+            first, then the installed result, before committing.
+  --verify  Verify the currently installed files and runtime behaviour
+            (requires root). Makes no changes.
+USAGE
+}
+
+parse_mode_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "only one mode may be given (already have --${MODE})"
+                fi
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${MODE_SEEN}" == true ]] || { usage >&2; fail "exactly one of --check, --apply or --verify is required"; }
+}
+
+# --- Shared helpers ---------------------------------------------------------
+
+require_root() {
+    [[ "${EUID}" -eq 0 ]] || fail "this command must be executed as root"
+}
+
+check_required_tools() {
+    local tool
+    for tool in "${REQUIRED_TOOLS[@]}"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+
+    [[ -n "${VISUDO_BIN}" ]] || fail "visudo is not available on PATH"
+    [[ -x "${VISUDO_BIN}" ]] || fail "visudo is not executable: ${VISUDO_BIN}"
+
+    log "required host tools present: ${REQUIRED_TOOLS[*]} visudo(${VISUDO_BIN})"
+}
+
+# --- Source validation (side-effect free; used by --check and apply preflight)
+
+validate_source_files() {
+    local path
+    for path in "${SRC_WRAPPER_DEPLOY}" "${SRC_WRAPPER_ROLLBACK}" "${SRC_WRAPPER_CLEANUP}" "${SRC_SUDOERS}" "${SRC_CRON}"; do
+        [[ -e "${path}" ]] || fail "missing required source file: ${path}"
+        [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
+        [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
+        [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
+    done
+    log "all five source files are present regular files"
+}
+
+validate_source_executable_modes() {
+    local path
+    for path in "${SRC_SELF}" "${SRC_WRAPPER_DEPLOY}" "${SRC_WRAPPER_ROLLBACK}" "${SRC_WRAPPER_CLEANUP}"; do
+        [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
+    done
+    log "install-target-perimeter, rateguru-deploy, rateguru-rollback and rateguru-cleanup are all executable"
+}
+
+validate_source_syntax() {
+    local path
+    for path in "${SRC_WRAPPER_DEPLOY}" "${SRC_WRAPPER_ROLLBACK}" "${SRC_WRAPPER_CLEANUP}"; do
+        bash -n "${path}" || fail "bash -n failed for source file: ${path}"
+    done
+    log "bash -n passed for all three wrapper scripts"
+}
+
+# Best-effort: only runs when shellcheck happens to be on this host's PATH.
+# Never required — a host without it must not be blocked from checking or
+# installing the perimeter.
+validate_source_shellcheck() {
+    if ! command -v shellcheck >/dev/null 2>&1; then
+        log "shellcheck not available on PATH; skipping"
+        return 0
+    fi
+
+    local path
+    for path in "${SRC_WRAPPER_DEPLOY}" "${SRC_WRAPPER_ROLLBACK}" "${SRC_WRAPPER_CLEANUP}"; do
+        shellcheck "${path}" || fail "shellcheck failed for source file: ${path}"
+    done
+    log "shellcheck passed for all three wrapper scripts"
+}
+
+# Confirms the six operational scripts this perimeter ultimately drives still
+# declare --target support in their own committed source — a static,
+# read-only proof that requires no execution and no root, safe for --check.
+validate_target_support() {
+    local entry path label
+    for entry in \
+        "${SRC_DEPLOY}:deploy" \
+        "${SRC_ROLLBACK}:rollback" \
+        "${SRC_CLEANUP}:cleanup" \
+        "${SRC_BACKUP_CYCLE}:backup-cycle" \
+        "${SRC_RESTORE_TEST}:restore-test" \
+        "${SRC_OFFSITE_RESTORE_TEST}:offsite-restore-test"
+    do
+        path="${entry%%:*}"
+        label="${entry#*:}"
+        [[ -f "${path}" ]] || fail "referenced operational script is missing: ${path}"
+        grep -q -- '--target' "${path}" \
+            || fail "${label} does not appear to declare --target support: ${path}"
+    done
+    log "deploy, rollback, cleanup, backup-cycle, restore-test and offsite-restore-test all declare --target support"
+}
+
+validate_source_registry() {
+    jq empty "${SRC_REGISTRY}" 2>/dev/null || fail "source registry is not valid JSON: ${SRC_REGISTRY}"
+
+    "${SRC_TARGETS}" validate --file "${SRC_REGISTRY}" >/dev/null \
+        || fail "source targets CLI could not validate the committed registry"
+
+    local listing
+    listing="$("${SRC_TARGETS}" list --file "${SRC_REGISTRY}")" \
+        || fail "source targets CLI could not list the committed registry"
+
+    grep -Fxq "$(printf 'staging-main\tactive\tstaging')" <<<"${listing}" \
+        || fail "source registry does not list staging-main as active/staging"
+    grep -Fxq "$(printf 'tits-guru\tplanned\tproduction')" <<<"${listing}" \
+        || fail "source registry does not list tits-guru as planned/production"
+
+    log "source registry is valid JSON, passes its own validator, and lists the expected targets"
+}
+
+validate_sudoers_syntax() {
+    local path="$1"
+    "${VISUDO_BIN}" -cf "${path}" >/dev/null \
+        || fail "sudoers file failed visudo -cf: ${path}"
+}
+
+# Confirms the sudoers content grants the staging deploy user access to the
+# three generic wrappers, and — the one thing this installer must never do —
+# never grants tits-guru's own (unprovisioned) deploy user any access at all,
+# since tits-guru stays lifecycle=planned.
+validate_sudoers_content() {
+    local path="$1"
+
+    grep -Fq '/usr/local/sbin/rateguru-deploy' "${path}" \
+        || fail "sudoers file does not grant access to rateguru-deploy: ${path}"
+    grep -Fq '/usr/local/sbin/rateguru-rollback' "${path}" \
+        || fail "sudoers file does not grant access to rateguru-rollback: ${path}"
+    grep -Fq '/usr/local/sbin/rateguru-cleanup' "${path}" \
+        || fail "sudoers file does not grant access to rateguru-cleanup: ${path}"
+    grep -Fq 'deploy-rateguru-staging' "${path}" \
+        || fail "sudoers file does not grant the staging deploy user access: ${path}"
+
+    if grep -Fq 'deploy-rateguru-tits-guru' "${path}"; then
+        fail "sudoers file must not grant tits-guru's deploy user any access — tits-guru remains lifecycle=planned: ${path}"
+    fi
+}
+
+# Shared by --check (against the committed source) and --verify (against the
+# installed file): exactly three operational lines, all target-aware, none
+# legacy, with the nightly cycle's schedule and every log path unchanged from
+# before this slice.
+validate_cron_format() {
+    local path="$1"
+
+    local operational_lines
+    operational_lines="$(grep -E '^[0-9*]+[[:space:]]' "${path}" || true)"
+
+    local line_count
+    line_count="$(grep -c . <<<"${operational_lines}" || true)"
+    [[ "${line_count}" -eq 3 ]] \
+        || fail "expected exactly three operational cron lines in ${path}, found ${line_count}"
+
+    local line
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+
+        [[ "${line}" == *'--target staging-main'* ]] \
+            || fail "cron line does not use --target staging-main: ${line}"
+
+        [[ "${line}" != *'--environment'* ]] \
+            || fail "cron line still references --environment: ${line}"
+    done <<<"${operational_lines}"
+
+    grep -Fq '30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1' "${path}" \
+        || fail "nightly backup-cycle cron line changed schedule or log path: ${path}"
+    grep -Fq '10 4 * * 0 root /home/www/rateguru/bin/restore-test --target staging-main >> /var/log/rateguru/staging-local-restore-test.log 2>&1' "${path}" \
+        || fail "weekly local restore-test cron line changed schedule or log path: ${path}"
+    grep -Fq '40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target staging-main >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1' "${path}" \
+        || fail "weekly offsite restore-test cron line changed schedule or log path: ${path}"
+}
+
+run_source_validation() {
+    validate_source_files
+    validate_source_executable_modes
+    validate_source_syntax
+    validate_source_shellcheck
+    validate_target_support
+    validate_source_registry
+    validate_sudoers_syntax "${SRC_SUDOERS}"
+    validate_sudoers_content "${SRC_SUDOERS}"
+    validate_cron_format "${SRC_CRON}"
+    check_required_tools
+}
+
+# --- Safe wrapper probes (never a real deploy/rollback/cleanup) -------------
+#
+# Always points the probed wrapper at this repository's own committed
+# common/registry — never at whatever may or may not already be installed at
+# /home/www/rateguru — so these probes are self-contained and never depend on
+# install-target-operations having run first. -u SUDO_USER strips any
+# SUDO_USER this installer's own process inherited (e.g. from `sudo
+# infrastructure/scripts/install-target-perimeter --apply` itself) before the
+# probe runs, so the wrapper's own caller-identity check always sees a direct
+# root invocation — exactly the "genuinely safe, never a real mutating call"
+# probe mode the wrapper's own --help intentionally bypasses (see
+# infrastructure/config/wrappers/rateguru-deploy).
+wrapper_probe_env() {
+    env \
+        -u SUDO_USER \
+        RATEGURU_ALLOW_TEST_OVERRIDES=true \
+        RATEGURU_COMMON_FILE="${SRC_COMMON}" \
+        RATEGURU_DEPLOYMENT_CONF_FILE="${SRC_DEPLOYMENT_CONF}" \
+        RATEGURU_TARGET_REGISTRY_FILE="${SRC_REGISTRY}" \
+        RATEGURU_TARGETS_CLI="${SRC_TARGETS}" \
+        "$@"
+}
+
+verify_wrapper_help() {
+    local wrapper_path="$1" label="$2"
+    wrapper_probe_env bash "${wrapper_path}" --help >/dev/null \
+        || fail "${label} --help failed"
+    log "${label} --help: OK"
+}
+
+# A deliberately safe probe: no --help (which would bypass the lifecycle
+# check entirely — see the wrapper's own parse_wrapper_args), and no
+# operation-specific arguments at all. Proves the wrapper's own ordering is
+# root authorization -> caller authorization -> lifecycle=planned rejection
+# -> underlying operation never reached.
+verify_wrapper_planned_target_rejected() {
+    local wrapper_path="$1" label="$2"
+    local output
+    if output="$(wrapper_probe_env bash "${wrapper_path}" --target tits-guru 2>&1)"; then
+        fail "${label} --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+    fi
+    grep -q 'lifecycle=planned' <<<"${output}" \
+        || fail "${label} --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${output}"
+    log "${label} --target tits-guru: correctly rejected (lifecycle=planned)"
+}
+
+# --- Transactional install/rollback core -------------------------------
+#
+# Parameterized on source/destination/owner/group/mode, exactly mirroring
+# infrastructure/scripts/install-target-operations's own extractable core —
+# see tests/Feature/Architecture/InstallTargetPerimeterTest.php.
+
+# --- installer core (begin) ---
+
+BACKUP_DIR=""
+ROLLBACK_RESTORE=()
+ROLLBACK_REMOVE=()
+
+files_differ() {
+    local src="$1" dst="$2"
+    [[ -f "${dst}" ]] || return 0
+    ! cmp -s "${src}" "${dst}"
+}
+
+record_target() {
+    local dst="$1"
+    if [[ -e "${dst}" || -L "${dst}" ]]; then
+        local backup_path="${BACKUP_DIR}${dst}"
+        install -d -m 0700 "$(dirname "${backup_path}")"
+        cp -a "${dst}" "${backup_path}"
+        ROLLBACK_RESTORE+=("${dst}")
+    else
+        ROLLBACK_REMOVE+=("${dst}")
+    fi
+}
+
+reject_unsafe_existing_destination() {
+    local dst="$1"
+
+    if [[ -L "${dst}" ]]; then
+        fail "refusing to install over an existing symlink: ${dst}"
+    fi
+
+    if [[ -e "${dst}" ]] && [[ ! -f "${dst}" ]]; then
+        fail "refusing to install over an existing non-regular-file destination: ${dst}"
+    fi
+}
+
+install_regular_file_transactional() {
+    local src="$1" dst="$2" owner="$3" group="$4" mode="$5"
+
+    reject_unsafe_existing_destination "${dst}"
+    record_target "${dst}"
+
+    local tmp
+    tmp="$(mktemp "${dst}.XXXXXX")"
+
+    if ! install -o "${owner}" -g "${group}" -m "${mode}" "${src}" "${tmp}"; then
+        rm -f "${tmp}"
+        fail "failed to stage ${dst} for install (writing the temporary file failed)"
+    fi
+
+    if ! mv -f "${tmp}" "${dst}"; then
+        rm -f "${tmp}"
+        fail "failed to rename the staged file into place: ${dst}"
+    fi
+}
+
+verify_installed_regular_file() {
+    local dst="$1" owner_id="$2" group_id="$3" mode="$4" src="$5"
+
+    [[ -e "${dst}" ]] || fail "expected installed file is missing: ${dst}"
+    [[ ! -L "${dst}" ]] || fail "installed file must not be a symlink: ${dst}"
+    [[ -f "${dst}" ]] || fail "installed file must be a regular file: ${dst}"
+
+    local actual_owner
+    actual_owner="$(stat -c '%u:%g' "${dst}")"
+    [[ "${actual_owner}" == "${owner_id}:${group_id}" ]] \
+        || fail "installed file has wrong ownership: ${dst} is ${actual_owner}, expected ${owner_id}:${group_id}"
+
+    local actual_mode
+    actual_mode="$(stat -c '%a' "${dst}")"
+    (( 8#${actual_mode} == 8#${mode} )) \
+        || fail "installed file has wrong mode: ${dst} is ${actual_mode}, expected ${mode}"
+
+    if (( (8#${actual_mode} & 8#022) != 0 )); then
+        fail "installed file must not be group- or other-writable: ${dst} (mode ${actual_mode})"
+    fi
+
+    cmp -s "${src}" "${dst}" \
+        || fail "installed file content differs from its committed source: ${dst}"
+}
+
+rollback_installed_files() {
+    local status=0 dst backup_path
+
+    for dst in "${ROLLBACK_REMOVE[@]:-}"; do
+        [[ -n "${dst}" ]] || continue
+        rm -f "${dst}" || { log "ERROR: could not remove ${dst} during rollback"; status=1; }
+    done
+
+    for dst in "${ROLLBACK_RESTORE[@]:-}"; do
+        [[ -n "${dst}" ]] || continue
+        backup_path="${BACKUP_DIR}${dst}"
+        if [[ -e "${backup_path}" || -L "${backup_path}" ]]; then
+            rm -f "${dst}"
+            cp -a "${backup_path}" "${dst}" \
+                || { log "ERROR: could not restore ${dst} from ${backup_path}"; status=1; }
+        else
+            log "ERROR: no backup found for ${dst}; it was left as installed"
+            status=1
+        fi
+    done
+
+    return "${status}"
+}
+
+# --- installer core (end) ---
+
+# --- Runtime verification helpers (extractable) -----------------------------
+
+# --- runtime verification (begin) ---
+
+validate_destination_directory() {
+    local dir="$1"
+
+    [[ -e "${dir}" ]] || fail "destination directory is missing: ${dir} (this installer never creates it)"
+    [[ ! -L "${dir}" ]] || fail "destination directory must not be a symlink: ${dir}"
+    [[ -d "${dir}" ]] || fail "destination path must be a directory: ${dir}"
+
+    local owner
+    owner="$(stat -c '%u:%g' "${dir}")"
+    [[ "${owner}" == "${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}" ]] \
+        || fail "destination directory must be owned by ${INSTALL_OWNER}:${INSTALL_GROUP}, is ${owner}: ${dir}"
+
+    local mode
+    mode="$(stat -c '%a' "${dir}")"
+    if (( (8#${mode} & 8#022) != 0 )); then
+        fail "destination directory must not be group- or other-writable (mode ${mode}): ${dir}"
+    fi
+
+    [[ -w "${dir}" ]] || fail "destination directory is not writable, cannot install into it: ${dir}"
+    [[ -x "${dir}" ]] || fail "destination directory is not searchable (missing execute bit): ${dir}"
+}
+
+validate_destination_directories() {
+    validate_destination_directory "${DST_SBIN_DIR}"
+    validate_destination_directory "${DST_SUDOERS_DIR}"
+    validate_destination_directory "${DST_CRON_DIR}"
+    log "destination directories exist, are ${INSTALL_OWNER}:${INSTALL_GROUP}-owned, non-writable-by-others directories (unchanged by this installer)"
+}
+
+verify_installed_files() {
+    log "verifying installed files"
+
+    verify_installed_regular_file "${DST_WRAPPER_DEPLOY}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${WRAPPER_MODE}" "${SRC_WRAPPER_DEPLOY}"
+    verify_installed_regular_file "${DST_WRAPPER_ROLLBACK}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${WRAPPER_MODE}" "${SRC_WRAPPER_ROLLBACK}"
+    verify_installed_regular_file "${DST_WRAPPER_CLEANUP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${WRAPPER_MODE}" "${SRC_WRAPPER_CLEANUP}"
+    verify_installed_regular_file "${DST_SUDOERS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${SUDOERS_MODE}" "${SRC_SUDOERS}"
+    verify_installed_regular_file "${DST_CRON}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CRON_MODE}" "${SRC_CRON}"
+    log "  ownership, mode and content: OK for all five files"
+
+    local path
+    for path in "${DST_WRAPPER_DEPLOY}" "${DST_WRAPPER_ROLLBACK}" "${DST_WRAPPER_CLEANUP}"; do
+        bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
+    done
+    log "  bash -n: OK for all three installed wrappers"
+
+    for path in "${DST_WRAPPER_DEPLOY}:/home/www/rateguru/bin/deploy" \
+        "${DST_WRAPPER_ROLLBACK}:/home/www/rateguru/bin/rollback" \
+        "${DST_WRAPPER_CLEANUP}:/home/www/rateguru/bin/cleanup"
+    do
+        local wrapper_path="${path%%:*}" underlying_path="${path#*:}"
+        grep -Fq "${underlying_path}" "${wrapper_path}" \
+            || fail "installed wrapper does not reference the generic installed operation path ${underlying_path}: ${wrapper_path}"
+        # The wrapper's source legitimately mentions the string "--environment"
+        # once, to explicitly reject it — so the static proof here is that the
+        # rejection message is present, never a blanket "the substring
+        # --environment must not appear anywhere" (which would also flag the
+        # rejection itself).
+        grep -Fq -- '--environment is not supported by' "${wrapper_path}" \
+            || fail "installed wrapper does not explicitly reject --environment: ${wrapper_path}"
+        if grep -Eq '(^|[^a-zA-Z_])eval[[:space:]]|bash -c' "${wrapper_path}"; then
+            fail "installed wrapper contains eval or bash -c: ${wrapper_path}"
+        fi
+    done
+    log "  wrappers reference generic installed operation paths, never --environment, never eval/bash -c"
+
+    "${VISUDO_BIN}" -cf "${DST_SUDOERS}" >/dev/null \
+        || fail "installed sudoers file failed visudo -cf: ${DST_SUDOERS}"
+    validate_sudoers_content "${DST_SUDOERS}"
+    log "  installed sudoers: visudo -cf OK, content OK"
+
+    validate_cron_format "${DST_CRON}"
+    log "  installed cron: format OK (three target-aware lines, schedule and log paths unchanged)"
+
+    log "installed-file verification passed"
+}
+
+verify_runtime_parity() {
+    log "verifying runtime parity (safe probes only — never a real deploy/rollback/cleanup)"
+
+    verify_wrapper_help "${DST_WRAPPER_DEPLOY}" "rateguru-deploy"
+    verify_wrapper_planned_target_rejected "${DST_WRAPPER_DEPLOY}" "rateguru-deploy"
+    verify_wrapper_help "${DST_WRAPPER_ROLLBACK}" "rateguru-rollback"
+    verify_wrapper_planned_target_rejected "${DST_WRAPPER_ROLLBACK}" "rateguru-rollback"
+    verify_wrapper_help "${DST_WRAPPER_CLEANUP}" "rateguru-cleanup"
+    verify_wrapper_planned_target_rejected "${DST_WRAPPER_CLEANUP}" "rateguru-cleanup"
+
+    log "runtime parity verification passed"
+}
+
+# --- runtime verification (end) ---
+
+# --- Staged pre-install verification (apply mode only) ----------------------
+
+verify_staged_candidates() {
+    local stage_dir="$1"
+    local staged_deploy="${stage_dir}/rateguru-deploy"
+    local staged_rollback="${stage_dir}/rateguru-rollback"
+    local staged_cleanup="${stage_dir}/rateguru-cleanup"
+    local staged_sudoers="${stage_dir}/rateguru-deploy.sudoers"
+    local staged_cron="${stage_dir}/rateguru-backups.cron"
+
+    log "verifying staged candidates before installation"
+
+    bash -n "${staged_deploy}" || fail "bash -n failed for staged rateguru-deploy"
+    bash -n "${staged_rollback}" || fail "bash -n failed for staged rateguru-rollback"
+    bash -n "${staged_cleanup}" || fail "bash -n failed for staged rateguru-cleanup"
+    log "  staged wrappers: bash -n OK"
+
+    verify_wrapper_help "${staged_deploy}" "staged rateguru-deploy"
+    verify_wrapper_planned_target_rejected "${staged_deploy}" "staged rateguru-deploy"
+    verify_wrapper_help "${staged_rollback}" "staged rateguru-rollback"
+    verify_wrapper_planned_target_rejected "${staged_rollback}" "staged rateguru-rollback"
+    verify_wrapper_help "${staged_cleanup}" "staged rateguru-cleanup"
+    verify_wrapper_planned_target_rejected "${staged_cleanup}" "staged rateguru-cleanup"
+
+    "${VISUDO_BIN}" -cf "${staged_sudoers}" >/dev/null \
+        || fail "staged sudoers file failed visudo -cf"
+    validate_sudoers_content "${staged_sudoers}"
+    log "  staged sudoers: visudo -cf OK, content OK"
+
+    validate_cron_format "${staged_cron}"
+    log "  staged cron: format OK"
+
+    log "staged candidates verified"
+}
+
+# --- Modes ----------------------------------------------------------------
+
+run_check() {
+    log "mode: check (read-only, no root required)"
+
+    run_source_validation
+
+    log "destinations are fixed constants:"
+    log "  ${DST_WRAPPER_DEPLOY}"
+    log "  ${DST_WRAPPER_ROLLBACK}"
+    log "  ${DST_WRAPPER_CLEANUP}"
+    log "  ${DST_SUDOERS}"
+    log "  ${DST_CRON}"
+
+    log "check passed: source files, host tooling, target registry, sudoers candidate and cron format are all valid"
+}
+
+APPLY_COMMITTED=false
+STAGE_DIR=""
+MAIN_BASHPID=""
+
+# set -E means every ERR/EXIT trap armed below is inherited by every $(...)
+# command substitution's subshell for as long as it stays armed — see the
+# identical MAIN_BASHPID guard in install-target-operations for the full
+# rationale (a deliberately-failing probe inside a command substitution must
+# never re-trigger this handler a second time from inside that subshell).
+on_apply_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    log "apply failed (exit ${code})"
+
+    if [[ "${APPLY_COMMITTED}" == false ]] && [[ -n "${BACKUP_DIR}" ]]; then
+        if rollback_installed_files; then
+            log "rollback complete: previous files restored"
+        else
+            log "ERROR: rollback INCOMPLETE — some files may not have been restored"
+            log "backups remain in ${BACKUP_DIR} for manual recovery"
+        fi
+    fi
+
+    [[ -z "${STAGE_DIR}" ]] || rm -rf "${STAGE_DIR}"
+
+    exit "${code}"
+}
+
+run_apply() {
+    require_root
+    perform_apply
+}
+
+perform_apply() {
+    BACKUP_DIR=""
+    ROLLBACK_RESTORE=()
+    ROLLBACK_REMOVE=()
+    APPLY_COMMITTED=false
+
+    log "mode: apply"
+
+    run_source_validation
+    validate_destination_directories
+
+    MAIN_BASHPID="${BASHPID}"
+    trap on_apply_error ERR EXIT
+
+    STAGE_DIR="$(mktemp -d)"
+    install -m 0700 "${SRC_WRAPPER_DEPLOY}" "${STAGE_DIR}/rateguru-deploy"
+    install -m 0700 "${SRC_WRAPPER_ROLLBACK}" "${STAGE_DIR}/rateguru-rollback"
+    install -m 0700 "${SRC_WRAPPER_CLEANUP}" "${STAGE_DIR}/rateguru-cleanup"
+    install -m 0600 "${SRC_SUDOERS}" "${STAGE_DIR}/rateguru-deploy.sudoers"
+    install -m 0600 "${SRC_CRON}" "${STAGE_DIR}/rateguru-backups.cron"
+
+    verify_staged_candidates "${STAGE_DIR}"
+
+    BACKUP_DIR="${BACKUP_ROOT}/$(date -u '+%Y%m%dT%H%M%SZ')"
+    install -d -m 0700 "${BACKUP_ROOT}"
+    install -d -m 0700 "${BACKUP_DIR}"
+    log "backups for this run: ${BACKUP_DIR}"
+
+    # Wrappers first, sudoers only after its own visudo pass on the staged
+    # copy (already proven above by verify_staged_candidates, re-proven here
+    # against the exact bytes about to be installed), cron last.
+    install_regular_file_transactional "${STAGE_DIR}/rateguru-deploy" "${DST_WRAPPER_DEPLOY}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${WRAPPER_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/rateguru-rollback" "${DST_WRAPPER_ROLLBACK}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${WRAPPER_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/rateguru-cleanup" "${DST_WRAPPER_CLEANUP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${WRAPPER_MODE}"
+
+    "${VISUDO_BIN}" -cf "${STAGE_DIR}/rateguru-deploy.sudoers" >/dev/null \
+        || fail "staged sudoers failed visudo -cf immediately before install"
+    install_regular_file_transactional "${STAGE_DIR}/rateguru-deploy.sudoers" "${DST_SUDOERS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${SUDOERS_MODE}"
+
+    install_regular_file_transactional "${STAGE_DIR}/rateguru-backups.cron" "${DST_CRON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CRON_MODE}"
+
+    log "files installed; verifying before committing"
+
+    verify_installed_files
+    verify_runtime_parity
+
+    APPLY_COMMITTED=true
+    trap - ERR EXIT
+    rm -rf "${STAGE_DIR}"
+
+    log "apply complete"
+    log "  wrappers : ${DST_WRAPPER_DEPLOY}, ${DST_WRAPPER_ROLLBACK}, ${DST_WRAPPER_CLEANUP}"
+    log "  sudoers  : ${DST_SUDOERS}"
+    log "  cron     : ${DST_CRON}"
+    log "  backups  : ${BACKUP_DIR}"
+    log "Run 'install-target-perimeter --verify' at any time to re-check the installed result."
+}
+
+on_verify_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    log "--- final result ---"
+    log "FAIL: verification did not pass (see the error above)"
+    exit "${code}"
+}
+
+run_verify() {
+    require_root
+    perform_verify
+}
+
+perform_verify() {
+    log "mode: verify (no changes, no backup)"
+
+    MAIN_BASHPID="${BASHPID}"
+    trap on_verify_error ERR EXIT
+
+    log "--- source validation ---"
+    run_source_validation
+
+    log "--- installed-file validation ---"
+    verify_installed_files
+
+    log "--- runtime parity ---"
+    verify_runtime_parity
+
+    trap - ERR EXIT
+    log "--- final result ---"
+    log "PASS: target-aware perimeter installed and verified"
+}
+
+# --- dispatch -----------------------------------------------------------
+#
+# Everything above this point is constants and function definitions only —
+# nothing runs until main is called. Tests source this whole file
+# (BASH_SOURCE[0] != $0 in that case, so main never auto-runs), reassign
+# PERIMETER_ROOT/INSTALL_OWNER*/INSTALL_GROUP* to scratch-safe values, and
+# call run_check/perform_apply/perform_verify directly — bypassing
+# require_root, the same technique infrastructure/scripts/deploy and
+# infrastructure/scripts/backup-cycle already establish for themselves.
+main() {
+    parse_mode_args "$@"
+
+    case "${MODE}" in
+        check)
+            run_check
+            ;;
+        apply)
+            run_apply
+            ;;
+        verify)
+            run_verify
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

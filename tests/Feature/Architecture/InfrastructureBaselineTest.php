@@ -16,10 +16,10 @@ it('keeps staging maintenance active without enabling production prematurely', f
     $scheduler = infrastructureSource('config/cron/rateguru-staging-scheduler');
 
     expect($backups)
-        ->toContain('backup-cycle --environment staging')
+        ->toContain('backup-cycle --target staging-main')
         ->toContain('staging-local-restore-test.log')
         ->toContain('staging-offsite-restore-test.log')
-        ->not->toContain('--environment production')
+        ->not->toContain('--environment')
         ->and($scheduler)
         ->toContain('rateguru-staging cd /home/www/rateguru/staging/current')
         ->not->toContain('rateguru-production');

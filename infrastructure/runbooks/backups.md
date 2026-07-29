@@ -72,7 +72,7 @@ As of slice 7.2, `offsite-backup`, `offsite-retention` and
 `offsite-restore-test` are target-aware — see
 [Target-aware offsite backup path](#target-aware-offsite-backup-path-phase-4-slice-72)
 below. As of slice 7.3, `backup-cycle` itself is target-aware too — see
-[Target-aware backup cycle](#target-aware-backup-cycle-phase-4-slice-73)
+[Target-aware backup cycle](#target-aware-backup-cycle-phase-4-slice-73-completed)
 below.
 
 ## Target-aware offsite backup path (Phase 4 slice 7.2)
@@ -159,7 +159,7 @@ the remote backup it downloads before creating the temporary restore
 database. Local `restore-test` is untouched by this slice and keeps its own,
 already-correct implementation of the same contract.
 
-## Target-aware backup cycle (Phase 4 slice 7.3)
+## Target-aware backup cycle (Phase 4 slice 7.3, completed)
 
 `backup-cycle` accepts the same selector contract as every other backup-path
 script:
@@ -251,6 +251,24 @@ ever records a cycle that genuinely started (i.e., past the lock). A history
 write failure after every step already succeeded still turns the cycle into
 a reported failure; a history write failure on the failure path is logged
 but never replaces the original child's exit code.
+
+**Accepted on the real staging VPS:** a real `backup-cycle --target
+staging-main` ran the full five-step pipeline to completion — local backup,
+local restore-test, offsite upload, offsite retention apply, and offsite
+restore-test all succeeded — and the cycle was recorded in
+`/home/www/rateguru/backups/backup-cycles.jsonl`; the final staging
+health-check passed.
+
+### Cron now calls backup-cycle by target (Phase 4 slice 8)
+
+`/etc/cron.d/rateguru-backups` (installed from
+`infrastructure/config/cron/rateguru-backups`) calls all three operational
+commands — the nightly `backup-cycle`, and the weekly `restore-test` /
+`offsite-restore-test` — with `--target staging-main`, not
+`--environment staging`. Schedules and log paths are unchanged; see
+[`target-perimeter.md`](target-perimeter.md) for the perimeter migration
+this belongs to. `backup-cycle` itself did not change for this: it has
+accepted `--target` since slice 7.3 (above).
 
 ### Recovering from an immutable partial upload
 

@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+#
+# rateguru-deploy — generic, target-aware sudo wrapper installed at
+# /usr/local/sbin/rateguru-deploy (Phase 4 slice 8). Replaces the legacy,
+# per-environment /usr/local/sbin/rateguru-staging-deploy /
+# rateguru-production-deploy wrappers with a single wrapper that accepts only
+# --target TARGET_ID, authorizes the caller against the target's own
+# registered deploy user, and execs the real deploy binary with a completely
+# scrubbed environment. deploy itself is untouched by this slice — it already
+# supports --target since Phase 4 slice 5.
+
+set -Eeuo pipefail
+
+WRAPPER_NAME="rateguru-deploy"
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/deploy. Common
+# has not been sourced yet at this point, so this is a plain inline
+# condition, not a call to rateguru_test_overrides_allowed().
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Gated test override for the underlying binary this wrapper execs into,
+# following the exact FOO_BIN_DEFAULT/FOO_BIN + rateguru_test_overrides_allowed
+# shape every operational script already establishes. Production value is
+# unchanged; this exists purely so tests can point this wrapper at a
+# self-contained stub deploy binary instead of the real installed one.
+DEPLOY_BIN_DEFAULT="/home/www/rateguru/bin/deploy"
+DEPLOY_BIN="${DEPLOY_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_DEPLOY_BIN:-}" ]]; then
+        DEPLOY_BIN="${RATEGURU_DEPLOY_BIN}"
+    fi
+fi
+
+# The exact minimal production environment every exec below runs with —
+# matches infrastructure/config/cron/rateguru-backups's own PATH exactly, so
+# every perimeter entry point (cron, this wrapper) hands operational scripts
+# the identical, minimal, non-attacker-influenceable environment.
+PRODUCTION_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+print_wrapper_usage() {
+    cat <<USAGE
+Usage:
+  ${WRAPPER_NAME} --target TARGET_ID [operation arguments...]
+
+This wrapper accepts only a --target selector; --environment is not
+supported here. Every other argument is passed through, unexamined and in
+order, to the underlying deploy operation (e.g. --release, --artifact,
+--checksum, --migrate).
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called. Tests source this whole file (BASH_SOURCE[0] != $0 in that
+# case, so main never auto-runs), then call parse_wrapper_args/
+# authorize_caller/require_active_target/exec_underlying directly — bypassing
+# require_root, which needs no coverage beyond a real non-root subprocess
+# invocation failing closed — mirroring the exact technique
+# infrastructure/scripts/deploy already established for itself.
+
+# --- argument parsing --------------------------------------------------------
+#
+# Extracts exactly one --target selector and rejects --environment,
+# duplicate/missing/empty/flag-shaped targets, and any lone short flag other
+# than -h/--help (every real operation flag in this codebase — --release,
+# --artifact, --checksum, --migrate, --keep, --dry-run, --apply, --previous —
+# is long-form; a lone short flag can never legitimately be one of them, so it
+# is rejected here rather than silently forwarded). Everything else is
+# collected into OPERATION_ARGS, untouched and in order, for the underlying
+# binary — this wrapper never interprets operation-specific flags itself.
+parse_wrapper_args() {
+    TARGET_ID=""
+    TARGET_SEEN=false
+    OPERATION_ARGS=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                if [[ $# -lt 2 ]]; then
+                    fail "--target requires a value"
+                fi
+
+                if [[ -z "$2" ]]; then
+                    fail "--target requires a non-empty value"
+                fi
+
+                case "$2" in
+                    -*)
+                        fail "--target requires a value, not another option: $2"
+                        ;;
+                esac
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                fail "--environment is not supported by ${WRAPPER_NAME}; use --target"
+                ;;
+            --help|-h)
+                print_wrapper_usage
+                exit 0
+                ;;
+            -[!-]*)
+                fail "unknown ${WRAPPER_NAME} flag: $1"
+                ;;
+            *)
+                OPERATION_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [[ "${TARGET_SEEN}" != true ]]; then
+        fail "--target is required"
+    fi
+}
+
+# --- caller authorization -----------------------------------------------------
+#
+# SUDO_USER is set by sudo to the identity that invoked it, before privilege
+# escalation. Empty (a genuine root shell calling this wrapper directly, with
+# no sudo involved) or "root" itself (root explicitly ran it through sudo) are
+# both treated as server administration and always permitted. Any other
+# caller must be exactly the target's own registered deploy user — read from
+# the registry, never assumed — or is rejected before the underlying
+# operation is ever reached.
+authorize_caller() {
+    local caller="${SUDO_USER:-}"
+
+    if [[ -z "${caller}" ]] || [[ "${caller}" == root ]]; then
+        return 0
+    fi
+
+    local registered_deploy_user
+    registered_deploy_user="$(target_deploy_user "${TARGET_ID}")"
+
+    if [[ "${caller}" != "${registered_deploy_user}" ]]; then
+        fail "deploy user ${caller} is not authorized for target ${TARGET_ID}"
+    fi
+}
+
+# --- exec into the underlying operation ---------------------------------------
+#
+# env -i starts the child with a completely empty environment, then adds back
+# only the four production variables above — every RATEGURU_* test override
+# this wrapper's own process may have seen (RATEGURU_ALLOW_TEST_OVERRIDES,
+# RATEGURU_COMMON_FILE, RATEGURU_DEPLOY_BIN, RATEGURU_TARGET_REGISTRY_FILE, or
+# anything else in the caller's environment) is stripped unconditionally,
+# regardless of what was set beforehand — there is no list of variables to
+# remember to unset. Pure Bash arrays and exec: no eval, no bash -c, no
+# string-built command. --target is added exactly once, ahead of whatever
+# OPERATION_ARGS parsing collected; exec replaces this process, so the child's
+# own exit code becomes this wrapper's exit code unmodified.
+exec_underlying() {
+    exec env -i \
+        PATH="${PRODUCTION_PATH}" \
+        HOME=/root \
+        USER=root \
+        LOGNAME=root \
+        "${DEPLOY_BIN}" \
+        --target "${TARGET_ID}" \
+        "${OPERATION_ARGS[@]}"
+}
+
+# --- dispatch -----------------------------------------------------------
+#
+# require_root stays the unconditional first action of a real invocation —
+# this wrapper is reached only via sudo (or by real root directly), and never
+# performs any privileged filesystem work of its own beyond that gate; every
+# actual mutation happens in the execed underlying binary.
+main() {
+    require_root
+    parse_wrapper_args "$@"
+    authorize_caller
+    require_active_target "${TARGET_ID}"
+    exec_underlying
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

@@ -1329,41 +1329,13 @@ it('recovers correctly from a failed post-switch health check in target mode', f
 
 // =============================================================================
 // Out of scope: nothing else changed
+//
+// A prior version of this file had its own "leaves sudoers and workflows
+// untouched" test here, checking infrastructure/config/sudoers/rateguru-deploy
+// and .github/workflows/deploy-staging.yml against origin/develop. Both
+// legitimately graduated to the generic wrappers/--target staging-main in
+// Phase 4 slice 8 (see TargetPerimeterTest.php), leaving that test with an
+// empty $unchanged list — it was deleted outright rather than left as a
+// vacuous loop, matching the precedent already set elsewhere in this file's
+// own history for scripts that graduate out of "still legacy-only".
 // =============================================================================
-
-it('leaves sudoers and workflows untouched', function () {
-    exec('git rev-parse --verify -q origin/develop >/dev/null 2>&1', $probeOutput, $probeExit);
-
-    if ($probeExit !== 0) {
-        test()->markTestSkipped('origin/develop is not available in this checkout (shallow clone) — run locally for full history to exercise this check.');
-    }
-
-    // infrastructure/scripts/rollback graduated to target-awareness in Phase
-    // 4 slice 6, backup/restore-test in slice 7.1, offsite-backup/
-    // offsite-retention/offsite-restore-test in slice 7.2, and backup-cycle
-    // in slice 7.3 — all seven are deliberately absent here; see
-    // RollbackTest.php, BackupTest.php/RestoreTest.php,
-    // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
-    // and BackupCycleTest.php for their own behavioral coverage.
-    $unchanged = [
-        'infrastructure/config/sudoers/rateguru-deploy',
-        '.github/workflows/deploy-staging.yml',
-    ];
-
-    foreach ($unchanged as $path) {
-        $full = base_path($path);
-        expect(File::exists($full))->toBeTrue("expected file to exist: {$path}");
-
-        $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = proc_open('git show origin/develop:'.escapeshellarg($path), $descriptors, $pipes);
-        expect($process)->not->toBeFalse();
-        $developContent = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $ok = proc_close($process) === 0;
-
-        expect($ok)->toBeTrue("origin/develop is unavailable for {$path}: {$stderr}");
-        expect(File::get($full))->toBe($developContent, "{$path} must be byte-identical to origin/develop in this slice");
-    }
-});
