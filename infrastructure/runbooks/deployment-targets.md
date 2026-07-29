@@ -321,13 +321,15 @@ true across every slice below, installed or not.
 
 ### What is deliberately still legacy-only
 
-The backup family is untouched so far — it still accepts only
-`--environment`. `cleanup` graduated to target-awareness in slice 4, `deploy`
-in slice 5, and `rollback` in slice 6; see
+`cleanup` graduated to target-awareness in slice 4, `deploy` in slice 5,
+`rollback` in slice 6, and `backup`/`restore-test` in slice 7.1; see
 [Target-aware cleanup](#target-aware-cleanup-slice-4-completed),
-[Target-aware deploy](#target-aware-deploy-slice-5-completed) and
-[Target-aware rollback](#target-aware-rollback-slice-6-current) below, and the
-migration sequence.
+[Target-aware deploy](#target-aware-deploy-slice-5-completed),
+[Target-aware rollback](#target-aware-rollback-slice-6-completed) and
+[Target-aware local backup](#target-aware-local-backup-slice-71-current)
+below, and the migration sequence. `backup-cycle`, `offsite-backup`,
+`offsite-retention` and `offsite-restore-test` remain `--environment`-only
+until slices 7.2 and 7.3.
 
 ## Installing on the VPS (slice 2b)
 
@@ -541,7 +543,7 @@ combination) was rejected with `lifecycle=planned` before any artifact
 validation was reached; both `health-check --environment staging` and
 `health-check --target staging-main` passed.
 
-## Target-aware rollback (slice 6, current)
+## Target-aware rollback (slice 6, completed)
 
 `rollback` now accepts the same selector contract as `health-check`,
 `status`, `cleanup` and `deploy`:
@@ -625,12 +627,125 @@ eight-file contract.
 The GitHub Actions deploy workflow, its `/usr/local/sbin` wrapper, and
 sudoers are untouched by this slice and keep calling `deploy --environment
 staging`. The backup family remains `--environment`-only until its own
-slice. `tits-guru` remains `lifecycle=planned` and undeployable.
+slice (see [Target-aware local backup](#target-aware-local-backup-slice-71-current)
+below). `tits-guru` remains `lifecycle=planned` and undeployable.
 
-**Post-merge, this slice still needs real-VPS acceptance** (installing the
-eight-file bundle on the real staging VPS and re-running the same class of
-checks slices 4 and 5 already passed there) — see the migration sequence
-below.
+**Accepted on the real staging VPS:** the eight-file
+`install-target-operations --check`/`--apply`/`--verify` all passed; the
+installed `rollback` is owned `root:root` mode `0755`;
+`rollback --target tits-guru` was rejected with `lifecycle=planned`; a
+legacy `rollback --environment staging --previous` completed successfully; a
+target `rollback --target staging-main --release ...` returned the release
+to its original state; the final post-rollback health check passed.
+
+## Target-aware local backup (slice 7.1, current)
+
+`backup` and `restore-test` now accept the same selector contract as
+`health-check`, `status`, `cleanup`, `deploy` and `rollback`:
+
+```bash
+backup --target staging-main
+backup --environment staging
+
+restore-test --target staging-main
+restore-test --environment staging
+```
+
+`--target` and `--environment` remain mutually exclusive, exactly one is
+required, and `--help` documents both forms.
+
+The backup family is split into three independently reviewable increments —
+7.1 (this slice, local only), 7.2 (offsite/B2), 7.3 (`backup-cycle`
+orchestration) — because local PostgreSQL/storage backup, remote B2
+operations, and orchestration each carry different side effects and
+deserve separate scrutiny. `backup-cycle`, `offsite-backup`,
+`offsite-retention` and `offsite-restore-test` are untouched by this slice
+and remain `--environment`-only.
+
+### Root authorization still runs first, unconditionally
+
+Like `deploy` and `rollback`, both scripts run privileged filesystem/database
+operations on every invocation, not only under a dedicated flag. Their
+root-first contract mirrors `rollback` exactly: `require_root` is still the
+first substantive action, before any argument parsing. Only after root
+authorization succeeds does `require_active_target` run — immediately, before
+any backup root, lock, database binary, `rclone`, or filesystem work — so
+`tits-guru` stays rejected with `lifecycle=planned` before anything is
+touched.
+
+### Legacy and target selectors share one namespace, root and lock
+
+`backup --environment staging` and `backup --target staging-main` (and the
+equivalent pair for `restore-test`) resolve to the **identical** backup
+namespace, root and lock file:
+
+```text
+backup namespace = staging
+backup root      = /home/www/rateguru/backups/staging
+lock             = /home/www/rateguru/run/backup-staging.lock
+```
+
+The lock filename is built from the resolved backup namespace, never from
+the selector label — this is what makes the two selectors mutually
+exclusive against the same namespace rather than able to write concurrently.
+No existing backup directory moves.
+
+Target mode reads `DATABASE_NAME`/`BACKUP_NAMESPACE`/`RETENTION_DAYS` from
+the registry (`target_database_name`, `target_backup_namespace`,
+`target_local_backup_retention` — all pre-existing accessors from the
+registry foundation slice); legacy mode reads them from three new `common`
+helpers, `environment_database_name`/`environment_backup_namespace`/
+`environment_local_backup_retention`, following the exact contract every
+other `environment_*` helper already has (the caller runs
+`validate_environment` first; no isolated defensive default).
+
+### Manifest: schema 2, backward compatible with schema 1
+
+Every backup `backup` produces from this slice onward carries a
+`manifest_schema_version: 2` manifest recording `selector`, `target` (`null`
+for a legacy-mode backup), `environment`, and `backup_namespace` alongside
+the pre-existing fields. `restore-test` validates whichever schema it finds:
+`project`/`environment`/`database` are always required; `backup_namespace`
+is required only for schema 2; a schema 2 backup with a non-null `target`
+must match `restore-test`'s own `--target`, if that selector is in use. A
+schema 1 backup — everything produced before this slice, with none of the
+new fields — remains fully restorable through both
+`restore-test --environment staging` and
+`restore-test --target staging-main`. Manifest validation, like checksum and
+storage-archive validation, always completes before the temporary database
+is created.
+
+### Target-specific server configuration snapshot
+
+In target mode, the server-configuration archive contains only that
+target's own Nginx site, PHP-FPM pool, Supervisor unit, cron entry, and
+deploy account's `authorized_keys` — never another target's. Legacy mode
+keeps its existing, byte-for-byte-preserved path list covering both staging
+and production files, unchanged.
+
+### Installed by install-target-operations (ten files, not eight)
+
+`install-target-operations` now manages `backup` and `restore-test`
+alongside the eight files slice 6 left it with. Consistent with neither
+script being safe to run for real during an install/verify pass, the
+installer only ever proves `backup --help`/`restore-test --help` succeed and
+`backup --target tits-guru`/`restore-test --target tits-guru` (both
+correctly) fail with `lifecycle=planned` — staged, before anything is
+installed, and again against the installed binaries during `--apply`'s
+post-install check and every `--verify` run. See
+[`install-target-operations.md`](install-target-operations.md) for the full
+ten-file contract.
+
+### What is deliberately still legacy-only
+
+`backup-cycle`, `offsite-backup`, `offsite-retention` and
+`offsite-restore-test` are untouched by this slice and remain
+`--environment`-only until slices 7.2 and 7.3. The GitHub Actions deploy
+workflow, its `/usr/local/sbin` wrapper, and sudoers are untouched.
+`tits-guru` remains `lifecycle=planned` and undeployable.
+
+**Post-merge, this slice still needs real-VPS acceptance** — see the
+migration sequence below.
 
 ## Compatibility with the current --environment interface
 
@@ -678,12 +793,22 @@ confirming both still succeed.
 6. **Target-aware rollback** — `rollback` accepts `--target`, preserving its
    root-first contract, adding fail-closed release path safety, and reusing
    the identical health-check selector on both the normal and recovery path;
-   the installer now manages it too. *(current — see
-   [Target-aware rollback](#target-aware-rollback-slice-6-current) above;
-   real-VPS acceptance is still pending)*
-7. **Backup path** — `backup`, `backup-cycle`, `offsite-backup`,
-   `offsite-retention`, `restore-test`, `offsite-restore-test`, preserving the
-   existing `staging` backup namespace so no existing local or B2 path moves.
+   the installer now manages it too. *(completed and accepted on the real
+   staging VPS — see
+   [Target-aware rollback](#target-aware-rollback-slice-6-completed) above)*
+7. **Backup path**, split into three independently reviewable increments —
+   local database/storage backup, remote B2 operations, and orchestration
+   each carry different side effects:
+   1. **7.1 Local backup and local restore-test** — `backup` and
+      `restore-test` accept `--target`, preserving the existing `staging`
+      backup namespace so no existing local backup directory moves; the
+      installer now manages them too. *(current — see
+      [Target-aware local backup](#target-aware-local-backup-slice-71-current)
+      above; real-VPS acceptance is still pending)*
+   2. **7.2 Offsite backup path** — `offsite-backup`, `offsite-retention`,
+      `offsite-restore-test` accept `--target`. *(planned)*
+   3. **7.3 Backup-cycle orchestration** — `backup-cycle` accepts `--target`.
+      *(planned)*
 8. **Perimeter** — GitHub Actions workflows, sudoers rules, server wrappers.
 9. **Remove compatibility** — drop `--environment` only after `staging-main`
    parity is proven end to end across every slice above.

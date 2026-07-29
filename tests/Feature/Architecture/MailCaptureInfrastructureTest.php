@@ -1393,13 +1393,28 @@ it('excludes captured staging mail from disaster-recovery backups', function () 
 
     expect($runbook)->toContain('exclude');
 
-    // Parse the backup allowlist itself and assert it neither names the
-    // mail-capture state tree nor a broader /var/lib parent that would sweep
-    // it in indirectly.
-    expect(preg_match('/INFRA_PATHS=\((.*?)\)/s', $backup, $allowlist))
-        ->toBe(1, 'could not locate the INFRA_PATHS allowlist in scripts/backup');
+    // Phase 4 slice 7.1 moved the allowlist into
+    // build_server_configuration_archive(), which now builds a lowercase
+    // `infra_paths=(...)` array — once for the legacy selector, once for the
+    // target selector — plus an empty `local -a infra_paths=()` declaration
+    // above both, which the same regex also matches (with an empty captured
+    // body). Filtered out here so the assertion genuinely proves both real
+    // allowlists were found and checked, rather than trivially passing
+    // against an empty capture.
+    expect(preg_match_all('/infra_paths=\((.*?)\)/s', $backup, $allowlists))
+        ->toBeGreaterThanOrEqual(2, 'could not locate both infra_paths allowlists in scripts/backup');
 
-    expect($allowlist[1])
-        ->not->toContain('staging-mail-capture')
-        ->not->toContain('var/lib');
+    $nonEmptyAllowlists = array_values(array_filter(
+        $allowlists[1],
+        fn (string $allowlist): bool => trim($allowlist) !== '',
+    ));
+
+    expect($nonEmptyAllowlists)
+        ->toHaveCount(2, 'expected exactly two non-empty infra_paths allowlists (legacy and target) in scripts/backup');
+
+    foreach ($nonEmptyAllowlists as $allowlist) {
+        expect($allowlist)
+            ->not->toContain('staging-mail-capture')
+            ->not->toContain('var/lib');
+    }
 });

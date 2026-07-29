@@ -3,207 +3,466 @@
 set -Eeuo pipefail
 umask 077
 
-ENVIRONMENT=""
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this script
+# at an attacker- or operator-controlled file to source. This is a plain
+# inline condition, not a call to common's rateguru_test_overrides_allowed():
+# common has not been sourced yet at this point, so no function it defines
+# exists to call. Production never sets either variable, so this resolves to
+# the exact same installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
-            shift 2
-            ;;
-        *)
-            echo "Unknown argument: $1" >&2
-            exit 1
-            ;;
-    esac
-done
-
-case "${ENVIRONMENT}" in
-    staging)
-        ENVIRONMENT_ROOT="/home/www/rateguru/staging"
-        DATABASE_NAME="rateguru_staging"
-        RETENTION_DAYS=14
-        ;;
-    production)
-        ENVIRONMENT_ROOT="/home/www/rateguru/production"
-        DATABASE_NAME="rateguru_production"
-        RETENTION_DAYS=30
-        ;;
-    *)
-        echo "Usage: backup --environment staging|production" >&2
-        exit 1
-        ;;
-esac
-
-BACKUP_ROOT="/home/www/rateguru/backups/${ENVIRONMENT}"
-TIMESTAMP="$(date -u +%Y%m%d-%H%M%S)"
-TEMP_ROOT="${BACKUP_ROOT}/.${TIMESTAMP}.tmp"
-FINAL_ROOT="${BACKUP_ROOT}/${TIMESTAMP}"
-LOCK_FILE="/home/www/rateguru/run/backup-${ENVIRONMENT}.lock"
-
-install -d -o root -g root -m 0700 \
-    /home/www/rateguru/run \
-    "${BACKUP_ROOT}"
-
-exec 9>"${LOCK_FILE}"
-
-if ! flock -n 9; then
-    echo "${ENVIRONMENT} backup is already running" >&2
-    exit 1
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
 fi
 
-cleanup() {
-    rm -rf "${TEMP_ROOT}"
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Phase 4 slice 7.1: gated test overrides for every previously-hardcoded path
+# and binary this script touches, following the exact
+# FOO_BIN_DEFAULT/FOO_BIN + rateguru_test_overrides_allowed shape established
+# for HEALTH_CHECK_BIN in deploy/rollback. Production values are unchanged.
+# SYSTEM_ROOT is deliberately backup-only: it is the root the server
+# configuration snapshot is tar'd from (real production always tars from
+# "/"), which lets tests exercise that snapshot against a scratch fixture
+# tree instead of the real filesystem. restore-test never reads anything
+# outside BACKUP_BASE/RUN_ROOT, so it has no equivalent use for it.
+BACKUP_BASE_DEFAULT="/home/www/rateguru/backups"
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+SYSTEM_ROOT_DEFAULT="/"
+PG_DUMP_BIN_DEFAULT="/usr/bin/pg_dump"
+PHP_BIN_DEFAULT="/usr/bin/php8.5"
+
+BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+SYSTEM_ROOT="${SYSTEM_ROOT_DEFAULT}"
+PG_DUMP_BIN="${PG_DUMP_BIN_DEFAULT}"
+PHP_BIN="${PHP_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
+        BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
+    fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_SYSTEM_ROOT:-}" ]]; then
+        SYSTEM_ROOT="${RATEGURU_SYSTEM_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_PG_DUMP_BIN:-}" ]]; then
+        PG_DUMP_BIN="${RATEGURU_PG_DUMP_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_PHP_BIN:-}" ]]; then
+        PHP_BIN="${RATEGURU_PHP_BIN}"
+    fi
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  backup --environment staging|production
+  backup --target TARGET_ID
+USAGE
 }
 
-trap cleanup EXIT
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called. This is what lets tests source this whole section standalone
+# (BASH_SOURCE[0] != $0 when sourced, so the guard never calls main on its
+# own), call parse_backup_args/resolve_backup_subject/perform_backup directly
+# for parsing- and resolution-only coverage, or call main explicitly for
+# tests that legitimately need the full root-gated flow — the same technique
+# already established for deploy and rollback.
 
-install -d -o root -g root -m 0700 "${TEMP_ROOT}"
+# --- selector parsing (mirrors health-check/status/cleanup/deploy/rollback) --
 
-CURRENT_RELEASE="unknown"
+# require_flag_value <flag-name> <remaining-arg-count> <next-token>
+#
+# <remaining-arg-count> is "$#" from the caller's while loop, taken *before*
+# any shift — i.e. it counts the flag itself plus everything after it, so
+# "at least 2" means a following token genuinely exists. <next-token> is
+# "${2-}" from the same call site (nounset-safe whether or not $2 exists).
+require_flag_value() {
+    local flag="$1" remaining="$2" value="${3-}"
 
-if [[ -L "${ENVIRONMENT_ROOT}/current" ]]; then
-    CURRENT_RELEASE="$(
-        basename "$(
-            readlink -f "${ENVIRONMENT_ROOT}/current"
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
+}
+
+parse_backup_args() {
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
+                require_flag_value "--environment" "$#" "${2-}"
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    assert_selector_state
+}
+
+# --- selector resolution (mirrors cleanup/deploy/rollback) ------------------
+#
+# require_active_target runs first thing in the target branch — before
+# BACKUP_ROOT, the lock file, any database binary, rclone, or filesystem
+# mutation is ever computed or touched. main() already called require_root
+# before this function runs, so the full ordering for --target is: root
+# authorization -> lifecycle=planned rejection -> (only if active)
+# filesystem/database/lock work.
+resolve_backup_subject() {
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        require_active_target "${TARGET_ID}"
+
+        ENVIRONMENT_ROOT="$(target_root "${TARGET_ID}")"
+        DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
+        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+        RETENTION_DAYS="$(target_local_backup_retention "${TARGET_ID}")"
+        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+        LABEL="${TARGET_ID}"
+        SELECTOR_TYPE="target"
+
+        # Only needed by the target-specific server-configuration snapshot
+        # below (build_server_configuration_archive) — never read by legacy
+        # mode, which keeps its own fixed, byte-for-byte-preserved path list.
+        NGINX_SITE_NAME="$(target_nginx_site_name "${TARGET_ID}")"
+        PHP_FPM_POOL="$(target_php_fpm_pool "${TARGET_ID}")"
+        SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
+        SCHEDULER_NAME="$(target_scheduler_name "${TARGET_ID}")"
+        DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
+    else
+        validate_environment "${ENVIRONMENT}"
+
+        ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
+        DATABASE_NAME="$(environment_database_name "${ENVIRONMENT}")"
+        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
+        RETENTION_DAYS="$(environment_local_backup_retention "${ENVIRONMENT}")"
+        ENVIRONMENT_CLASS="${ENVIRONMENT}"
+        LABEL="${ENVIRONMENT}"
+        SELECTOR_TYPE="environment"
+    fi
+}
+
+# --- server configuration snapshot -------------------------------------------
+#
+# Target mode archives only this target's own configuration files — never
+# another target's authorized_keys, htpasswd, PHP-FPM pool, Supervisor unit or
+# cron entry. Legacy mode keeps the exact same fixed path list it always has,
+# covering both staging and production files regardless of which one is being
+# backed up (unchanged behaviour, preserved on purpose). Both modes additionally
+# search /etc/sudoers.d and /etc/ssh/sshd_config.d for any RateGuru-named file,
+# exactly as before. Paths are relative to SYSTEM_ROOT (production always "/"),
+# which is what lets tests exercise this against a scratch fixture tree.
+build_server_configuration_archive() {
+    local -a infra_paths=()
+
+    if [[ "${SELECTOR_TYPE}" == "target" ]]; then
+        infra_paths=(
+            "home/www/rateguru/bin"
+            "home/www/rateguru/config"
+            "home/www/rateguru/DEPLOYMENT_POLICY"
+            "home/www/rateguru/runbooks"
+            "etc/nginx/sites-available/${NGINX_SITE_NAME}"
+            "etc/nginx/${NGINX_SITE_NAME}.htpasswd"
+            "etc/php/8.5/fpm/pool.d/${PHP_FPM_POOL}.conf"
+            "etc/supervisor/conf.d/${SUPERVISOR_PROGRAM}.conf"
+            "etc/cron.d/${SCHEDULER_NAME}"
+            "home/${DEPLOY_ACCOUNT}/.ssh/authorized_keys"
+        )
+    else
+        infra_paths=(
+            "home/www/rateguru/bin"
+            "home/www/rateguru/config"
+            "home/www/rateguru/DEPLOYMENT_POLICY"
+            "home/www/rateguru/runbooks"
+            "etc/nginx/sites-available/rateguru-staging"
+            "etc/nginx/sites-available/rateguru-production"
+            "etc/nginx/rateguru-staging.htpasswd"
+            "etc/php/8.5/fpm/pool.d/rateguru-staging.conf"
+            "etc/php/8.5/fpm/pool.d/rateguru-production.conf"
+            "etc/supervisor/conf.d/rateguru-staging-queue.conf"
+            "etc/supervisor/conf.d/rateguru-production-queue.conf"
+            "etc/cron.d/rateguru-staging-scheduler"
+            "etc/cron.d/rateguru-production-scheduler"
+            "home/deploy-rateguru-staging/.ssh/authorized_keys"
+            "home/deploy-rateguru-production/.ssh/authorized_keys"
+        )
+    fi
+
+    local system_root_prefix="${SYSTEM_ROOT%/}/"
+
+    local -a existing_infra_paths=()
+    local path
+    for path in "${infra_paths[@]}"; do
+        if [[ -e "${system_root_prefix}${path}" ]]; then
+            existing_infra_paths+=("${path}")
+        fi
+    done
+
+    while IFS= read -r path; do
+        existing_infra_paths+=("${path#"${system_root_prefix}"}")
+    done < <(
+        find \
+            "${system_root_prefix}etc/sudoers.d" \
+            "${system_root_prefix}etc/ssh/sshd_config.d" \
+            -maxdepth 1 \
+            -type f \
+            -iname '*rateguru*' \
+            2>/dev/null
+    )
+
+    if (( ${#existing_infra_paths[@]} == 0 )); then
+        # No configuration paths exist on this host (a minimal or scratch
+        # environment) — tar with zero file operands is a hard error on both
+        # GNU and BSD tar ("Cowardly refusing to create an empty archive" /
+        # "no files or directories specified"), so read an explicitly empty
+        # file list instead, which both accept as "create a valid, empty
+        # archive."
+        tar \
+            -C "${SYSTEM_ROOT}" \
+            -czf "${TEMP_ROOT}/server-configuration.tar.gz" \
+            -T /dev/null
+    else
+        tar \
+            -C "${SYSTEM_ROOT}" \
+            -czf "${TEMP_ROOT}/server-configuration.tar.gz" \
+            "${existing_infra_paths[@]}"
+    fi
+}
+
+# --- manifest -----------------------------------------------------------
+#
+# manifest_schema_version 2 for both selectors — backward compatible with
+# schema 1 (the format every backup on disk before this slice used, with no
+# manifest_schema_version/selector/target/backup_namespace fields at all):
+# restore-test still accepts those, see its own manifest validation. Legacy
+# mode's target is always JSON null, never an empty string, so a consumer can
+# tell "legacy backup" apart from "target backup naming an empty target" (which
+# can never legitimately happen — validate_target_id rejects an empty ID).
+build_manifest() {
+    local target_arg="null"
+    local selector_arg="environment"
+
+    if [[ "${SELECTOR_TYPE}" == "target" ]]; then
+        target_arg="${TARGET_ID}"
+        selector_arg="target"
+    fi
+
+    # Captured into their own assignments — not inline inside the jq
+    # invocation — so that a failure of either command (e.g. a broken
+    # PG_DUMP_BIN/PHP_BIN override) is the exit status of the assignment
+    # itself and aborts the backup under `set -e`, rather than silently
+    # embedding an empty version string into the manifest and continuing.
+    local postgres_version php_version
+    postgres_version="$("${PG_DUMP_BIN}" --version)"
+    php_version="$("${PHP_BIN}" -r 'echo PHP_VERSION;')"
+
+    jq \
+        --null-input \
+        --arg project "rateguru" \
+        --arg selector "${selector_arg}" \
+        --arg target "${target_arg}" \
+        --arg environment "${ENVIRONMENT_CLASS}" \
+        --arg backup_namespace "${BACKUP_NAMESPACE}" \
+        --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg hostname "$(hostname -f 2>/dev/null || hostname)" \
+        --arg database "${DATABASE_NAME}" \
+        --arg release "${CURRENT_RELEASE}" \
+        --arg postgres_version "${postgres_version}" \
+        --arg php_version "${php_version}" \
+        --argjson manifest_schema_version 2 \
+        '{
+            manifest_schema_version: $manifest_schema_version,
+            project: $project,
+            selector: $selector,
+            target: (if $selector == "target" then $target else null end),
+            environment: $environment,
+            backup_namespace: $backup_namespace,
+            created_at: $created_at,
+            hostname: $hostname,
+            database: $database,
+            release: $release,
+            postgres_version: $postgres_version,
+            php_version: $php_version
+        }' \
+        > "${TEMP_ROOT}/manifest.json"
+}
+
+# --- backup pipeline: one shared code path for both selectors ---------------
+
+perform_backup() {
+    BACKUP_ROOT="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
+    TIMESTAMP="$(date -u +%Y%m%d-%H%M%S)"
+    TEMP_ROOT="${BACKUP_ROOT}/.${TIMESTAMP}.tmp"
+    FINAL_ROOT="${BACKUP_ROOT}/${TIMESTAMP}"
+    # Keyed on BACKUP_NAMESPACE, never on LABEL (the selector-specific target
+    # ID or environment name): "backup --environment staging" and
+    # "backup --target staging-main" resolve to the identical namespace
+    # "staging", so they must also resolve to the identical lock file and
+    # backup root — otherwise both selectors could write into the same
+    # namespace concurrently.
+    LOCK_FILE="${RUN_ROOT}/backup-${BACKUP_NAMESPACE}.lock"
+
+    install -d -o root -g root -m 0700 \
+        "${RUN_ROOT}" \
+        "${BACKUP_ROOT}"
+
+    exec 9>"${LOCK_FILE}"
+
+    if ! flock -n 9; then
+        fail "${BACKUP_NAMESPACE} backup is already running"
+    fi
+
+    cleanup() {
+        rm -rf "${TEMP_ROOT}"
+    }
+
+    trap cleanup EXIT
+
+    install -d -o root -g root -m 0700 "${TEMP_ROOT}"
+
+    CURRENT_RELEASE="unknown"
+
+    if [[ -L "${ENVIRONMENT_ROOT}/current" ]]; then
+        CURRENT_RELEASE="$(
+            basename "$(
+                readlink -f "${ENVIRONMENT_ROOT}/current"
+            )"
         )"
-    )"
-fi
+    fi
 
-echo "Backing up PostgreSQL database ${DATABASE_NAME}"
+    log "Backing up PostgreSQL database ${DATABASE_NAME}"
 
-runuser -u postgres -- \
-    /usr/bin/pg_dump \
-        --format=custom \
-        --compress=9 \
-        --no-owner \
-        --no-privileges \
-        "${DATABASE_NAME}" \
-    > "${TEMP_ROOT}/database.dump"
+    runuser -u postgres -- \
+        "${PG_DUMP_BIN}" \
+            --format=custom \
+            --compress=9 \
+            --no-owner \
+            --no-privileges \
+            "${DATABASE_NAME}" \
+        > "${TEMP_ROOT}/database.dump"
 
-echo "Backing up application storage"
+    log "Backing up application storage"
 
-tar \
-    -C "${ENVIRONMENT_ROOT}/shared/storage" \
-    -czf "${TEMP_ROOT}/storage-app.tar.gz" \
-    app
+    tar \
+        -C "${ENVIRONMENT_ROOT}/shared/storage" \
+        -czf "${TEMP_ROOT}/storage-app.tar.gz" \
+        app
 
-echo "Backing up environment configuration"
+    log "Backing up environment configuration"
 
-install \
-    -o root \
-    -g root \
-    -m 0600 \
-    "${ENVIRONMENT_ROOT}/shared/.env" \
-    "${TEMP_ROOT}/environment.env"
-
-if [[ -f "${ENVIRONMENT_ROOT}/current/release.json" ]]; then
     install \
         -o root \
         -g root \
         -m 0600 \
-        "${ENVIRONMENT_ROOT}/current/release.json" \
-        "${TEMP_ROOT}/release.json"
-else
-    printf '{}\n' > "${TEMP_ROOT}/release.json"
-fi
+        "${ENVIRONMENT_ROOT}/shared/.env" \
+        "${TEMP_ROOT}/environment.env"
 
-echo "Backing up server configuration"
-
-INFRA_PATHS=(
-    "home/www/rateguru/bin"
-    "home/www/rateguru/config"
-    "home/www/rateguru/DEPLOYMENT_POLICY"
-    "home/www/rateguru/runbooks"
-    "etc/nginx/sites-available/rateguru-staging"
-    "etc/nginx/sites-available/rateguru-production"
-    "etc/nginx/rateguru-staging.htpasswd"
-    "etc/php/8.5/fpm/pool.d/rateguru-staging.conf"
-    "etc/php/8.5/fpm/pool.d/rateguru-production.conf"
-    "etc/supervisor/conf.d/rateguru-staging-queue.conf"
-    "etc/supervisor/conf.d/rateguru-production-queue.conf"
-    "etc/cron.d/rateguru-staging-scheduler"
-    "etc/cron.d/rateguru-production-scheduler"
-    "home/deploy-rateguru-staging/.ssh/authorized_keys"
-    "home/deploy-rateguru-production/.ssh/authorized_keys"
-)
-
-EXISTING_INFRA_PATHS=()
-
-for path in "${INFRA_PATHS[@]}"; do
-    if [[ -e "/${path}" ]]; then
-        EXISTING_INFRA_PATHS+=("${path}")
+    if [[ -f "${ENVIRONMENT_ROOT}/current/release.json" ]]; then
+        install \
+            -o root \
+            -g root \
+            -m 0600 \
+            "${ENVIRONMENT_ROOT}/current/release.json" \
+            "${TEMP_ROOT}/release.json"
+    else
+        printf '{}\n' > "${TEMP_ROOT}/release.json"
     fi
-done
 
-while IFS= read -r path; do
-    EXISTING_INFRA_PATHS+=("${path#/}")
-done < <(
-    find \
-        /etc/sudoers.d \
-        /etc/ssh/sshd_config.d \
+    log "Backing up server configuration"
+
+    build_server_configuration_archive
+    build_manifest
+
+    (
+        cd "${TEMP_ROOT}"
+
+        sha256sum \
+            database.dump \
+            storage-app.tar.gz \
+            environment.env \
+            release.json \
+            server-configuration.tar.gz \
+            manifest.json \
+            > SHA256SUMS
+    )
+
+    mv "${TEMP_ROOT}" "${FINAL_ROOT}"
+    trap - EXIT
+
+    # Local retention applies only inside the resolved BACKUP_ROOT — removes
+    # only timestamped backup directories, never auxiliary directories such as
+    # uploads.
+    find "${BACKUP_ROOT}" \
+        -regextype posix-extended \
+        -mindepth 1 \
         -maxdepth 1 \
-        -type f \
-        -iname '*rateguru*' \
-        2>/dev/null
-)
+        -type d \
+        -regex '.*/[0-9]{8}-[0-9]{6}' \
+        -mtime "+${RETENTION_DAYS}" \
+        -exec rm -rf -- {} +
 
-tar \
-    -C / \
-    -czf "${TEMP_ROOT}/server-configuration.tar.gz" \
-    "${EXISTING_INFRA_PATHS[@]}"
+    log ""
+    log "${LABEL} backup completed:"
+    log "${FINAL_ROOT}"
 
-jq \
-    --null-input \
-    --arg project "rateguru" \
-    --arg environment "${ENVIRONMENT}" \
-    --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg hostname "$(hostname -f 2>/dev/null || hostname)" \
-    --arg database "${DATABASE_NAME}" \
-    --arg release "${CURRENT_RELEASE}" \
-    --arg postgres_version "$(/usr/bin/pg_dump --version)" \
-    --arg php_version "$(/usr/bin/php8.5 -r 'echo PHP_VERSION;')" \
-    '{
-        project: $project,
-        environment: $environment,
-        created_at: $created_at,
-        hostname: $hostname,
-        database: $database,
-        release: $release,
-        postgres_version: $postgres_version,
-        php_version: $php_version
-    }' \
-    > "${TEMP_ROOT}/manifest.json"
+    du -sh "${FINAL_ROOT}"
+}
 
-(
-    cd "${TEMP_ROOT}"
+# --- dispatch -----------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation,
+# matching deploy/rollback's contract exactly: parse_backup_args,
+# resolve_backup_subject and perform_backup are all inert definitions until
+# main calls them, in this exact order.
+main() {
+    require_root
+    parse_backup_args "$@"
+    resolve_backup_subject
+    perform_backup
+}
 
-    sha256sum \
-        database.dump \
-        storage-app.tar.gz \
-        environment.env \
-        release.json \
-        server-configuration.tar.gz \
-        manifest.json \
-        > SHA256SUMS
-)
-
-mv "${TEMP_ROOT}" "${FINAL_ROOT}"
-trap - EXIT
-
-# Remove only timestamped backup directories.
-# Do not touch auxiliary directories such as uploads.
-find "${BACKUP_ROOT}" \
-    -regextype posix-extended \
-    -mindepth 1 \
-    -maxdepth 1 \
-    -type d \
-    -regex '.*/[0-9]{8}-[0-9]{6}' \
-    -mtime "+${RETENTION_DAYS}" \
-    -exec rm -rf -- {} +
-
-echo
-echo "Backup completed:"
-echo "${FINAL_ROOT}"
-
-du -sh "${FINAL_ROOT}"
+# A real invocation (`bash backup ...` or `./backup ...`) always has
+# BASH_SOURCE[0] == $0, so main runs immediately here. Tests source this file
+# instead — BASH_SOURCE[0] != $0 in that case, so main never auto-runs — then
+# call parse_backup_args/resolve_backup_subject/perform_backup directly
+# (bypassing require_root, for parsing/resolution/pipeline coverage that
+# doesn't need real root) or invoke the script as a genuine subprocess (which
+# does run main(), requiring root first, exactly as production).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

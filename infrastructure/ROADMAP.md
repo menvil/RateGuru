@@ -57,8 +57,8 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first five are completed and accepted on the real
-staging VPS; the sixth is in progress. The phase stays **current**.
+Slices, in order. The first six are completed and accepted on the real
+staging VPS; slice 7.1 is in progress. The phase stays **current**.
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
    deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy
@@ -143,12 +143,31 @@ staging VPS; the sixth is in progress. The phase stays **current**.
    any artifact validation was reached; both
    `health-check --environment staging` and
    `health-check --target staging-main` passed.
-6. **Target-aware rollback — current.** `rollback` accepts `--target TARGET`
+6. **Target-aware rollback — completed.** `rollback` accepts `--target TARGET`
    alongside the preserved `--environment` selector, with the same
    `--release RELEASE_ID | --previous` destination contract either way.
-   `install-target-operations` now manages eight files, not seven. Backup
-   path, perimeter, and removing `--environment` stay planned.
-7. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
+   `install-target-operations` now manages eight files, not seven.
+
+   **Accepted on the real staging VPS:** the eight-file
+   `install-target-operations --check`/`--apply`/`--verify` all passed; the
+   installed `rollback` is owned `root:root` mode `0755`;
+   `rollback --target tits-guru` was rejected with `lifecycle=planned`; a
+   legacy `rollback --environment staging --previous` completed
+   successfully; a target `rollback --target staging-main --release ...`
+   returned the release to its original state; the final post-rollback
+   health check passed.
+7. Backup path — local database/storage backups, remote Backblaze B2
+   operations, and orchestration each carry different side effects, so this
+   is split into three independently reviewable increments rather than one:
+   1. **7.1 Local backup and local restore-test — current.** `backup` and
+      `restore-test` accept `--target TARGET` alongside `--environment`,
+      sharing the existing `staging` local backup namespace with
+      `staging-main` — no existing backup directory moves.
+      `install-target-operations` now manages ten files, not eight.
+   2. **7.2 Offsite backup path — planned.** `offsite-backup`,
+      `offsite-retention` and `offsite-restore-test` gain `--target`.
+   3. **7.3 Backup-cycle orchestration — planned.** `backup-cycle` gains
+      `--target`, once 7.1 and 7.2 have both landed.
 8. Perimeter — workflows, sudoers, server wrappers.
 9. Remove the `--environment` interface, only after `staging-main` parity is
    proven end to end across every slice above.

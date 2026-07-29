@@ -1580,11 +1580,13 @@ it('leaves deploy, backup scripts and workflows untouched', function () {
         test()->markTestSkipped('origin/develop is not available in this checkout (shallow clone) — run locally for full history to exercise this check.');
     }
 
+    // infrastructure/scripts/backup and restore-test graduated to
+    // target-awareness in Phase 4 slice 7.1 and are deliberately absent
+    // here; see BackupTest.php/RestoreTest.php for their own behavioral
+    // coverage.
     $unchanged = [
         'infrastructure/scripts/deploy',
-        'infrastructure/scripts/backup',
         'infrastructure/scripts/backup-cycle',
-        'infrastructure/scripts/restore-test',
         'infrastructure/scripts/offsite-backup',
         'infrastructure/scripts/offsite-retention',
         'infrastructure/scripts/offsite-restore-test',

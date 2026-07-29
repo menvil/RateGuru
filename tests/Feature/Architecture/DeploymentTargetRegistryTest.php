@@ -310,15 +310,24 @@ it('derives staging-main from the committed infrastructure sources', function ()
         ->toContain('server_name '.$target['public_hostnames'][0].';')
         ->toContain('fastcgi_pass unix:'.$target['php_fpm']['socket'].';');
 
-    // Backup — database name and local retention come from the backup script;
-    // offsite retention from offsite-retention.
+    // Backup — since Phase 4 slice 7.1, the database name, backup namespace
+    // and local retention for --environment mode live in common's
+    // environment_database_name/environment_backup_namespace/
+    // environment_local_backup_retention helpers, not in the backup script
+    // itself; offsite retention still comes from offsite-retention, which
+    // remains legacy-only.
     $backup = $source('scripts/backup');
+    $commonSource = $source('scripts/common');
+    expect($commonSource)
+        ->toContain("printf '%s\\n' \"{$target['database']['name']}\"")
+        ->toContain("printf '%s\\n' \"{$target['backup']['namespace']}\"")
+        ->toContain("printf '%s\\n' \"{$target['backup']['local_retention_days']}\"");
     expect($backup)
-        ->toContain('DATABASE_NAME="'.$target['database']['name'].'"')
-        ->toContain('RETENTION_DAYS='.$target['backup']['local_retention_days'])
-        // The backup root is namespaced by this value today.
-        ->toContain('BACKUP_ROOT="/home/www/rateguru/backups/${ENVIRONMENT}"')
-        // Scheduler and site names appear in the config-snapshot allowlist.
+        // The backup root is namespaced by BACKUP_NAMESPACE, resolved from
+        // either selector into the same shared value.
+        ->toContain('BACKUP_ROOT="${BACKUP_BASE}/${BACKUP_NAMESPACE}"')
+        ->toContain('BACKUP_BASE_DEFAULT="/home/www/rateguru/backups"')
+        // Scheduler and site names appear in the legacy config-snapshot allowlist.
         ->toContain('etc/cron.d/'.$target['scheduler']['name'])
         ->toContain('etc/nginx/sites-available/'.$target['nginx']['site_name']);
 
@@ -1302,14 +1311,14 @@ it('leaves the --environment interface untouched', function () {
 
 it('converts no mutating operational script to --target yet', function () {
     // health-check and status became target-aware in Phase 4 slice 2, cleanup
-    // in slice 4, deploy in slice 5, and rollback in slice 6 — see
-    // TargetAwareOperationsTest.php, CleanupTest.php, DeployTest.php and
-    // RollbackTest.php for their behavioral coverage. Every other script that
-    // writes to a target's filesystem, database or service state is still
-    // --environment-only until its own migration slice.
+    // in slice 4, deploy in slice 5, rollback in slice 6, and backup/
+    // restore-test in slice 7.1 — see TargetAwareOperationsTest.php,
+    // CleanupTest.php, DeployTest.php, RollbackTest.php and
+    // BackupTest.php/RestoreTest.php for their behavioral coverage. Every
+    // other script that writes to a target's filesystem, database or service
+    // state is still --environment-only until its own migration slice.
     $operational = [
-        'backup', 'backup-cycle', 'offsite-backup', 'offsite-retention',
-        'restore-test', 'offsite-restore-test',
+        'backup-cycle', 'offsite-backup', 'offsite-retention', 'offsite-restore-test',
     ];
 
     foreach ($operational as $script) {

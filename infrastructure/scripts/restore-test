@@ -3,171 +3,432 @@
 set -Eeuo pipefail
 umask 077
 
-ENVIRONMENT=""
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup. Production
+# never sets either variable, so this resolves to the exact same installed
+# path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
-            shift 2
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# Phase 4 slice 7.1: gated test overrides, following the exact
+# FOO_BIN_DEFAULT/FOO_BIN + rateguru_test_overrides_allowed shape backup
+# already establishes for its own binaries. Production values are unchanged.
+BACKUP_BASE_DEFAULT="/home/www/rateguru/backups"
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+CREATEDB_BIN_DEFAULT="/usr/bin/createdb"
+DROPDB_BIN_DEFAULT="/usr/bin/dropdb"
+PG_RESTORE_BIN_DEFAULT="/usr/bin/pg_restore"
+PSQL_BIN_DEFAULT="/usr/bin/psql"
+
+BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+CREATEDB_BIN="${CREATEDB_BIN_DEFAULT}"
+DROPDB_BIN="${DROPDB_BIN_DEFAULT}"
+PG_RESTORE_BIN="${PG_RESTORE_BIN_DEFAULT}"
+PSQL_BIN="${PSQL_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
+        BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
+    fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_CREATEDB_BIN:-}" ]]; then
+        CREATEDB_BIN="${RATEGURU_CREATEDB_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_DROPDB_BIN:-}" ]]; then
+        DROPDB_BIN="${RATEGURU_DROPDB_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_PG_RESTORE_BIN:-}" ]]; then
+        PG_RESTORE_BIN="${RATEGURU_PG_RESTORE_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_PSQL_BIN:-}" ]]; then
+        PSQL_BIN="${RATEGURU_PSQL_BIN}"
+    fi
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  restore-test --environment staging|production
+  restore-test --target TARGET_ID
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called, mirroring backup's own structure exactly.
+
+# --- selector parsing (mirrors backup) ---------------------------------------
+
+# require_flag_value <flag-name> <remaining-arg-count> <next-token>
+require_flag_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
+}
+
+parse_restore_args() {
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
+                require_flag_value "--environment" "$#" "${2-}"
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    assert_selector_state
+}
+
+# --- selector resolution (mirrors backup) ------------------------------------
+#
+# require_active_target runs first thing in the target branch — before
+# BACKUP_ROOT, the lock file, the manifest, or any database work is ever
+# computed or touched.
+resolve_restore_subject() {
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        require_active_target "${TARGET_ID}"
+
+        DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
+        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+        LABEL="${TARGET_ID}"
+        SELECTOR_TYPE="target"
+    else
+        validate_environment "${ENVIRONMENT}"
+
+        DATABASE_NAME="$(environment_database_name "${ENVIRONMENT}")"
+        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
+        ENVIRONMENT_CLASS="${ENVIRONMENT}"
+        LABEL="${ENVIRONMENT}"
+        SELECTOR_TYPE="environment"
+    fi
+}
+
+# --- manifest validation ------------------------------------------------
+#
+# Runs before createdb, always — a manifest mismatch must never reach the
+# point of creating a temporary database. project/environment/database are
+# required on every backup this repository has ever produced, schema 1 or
+# schema 2 alike. backup_namespace is only demanded for schema 2, because
+# schema 1 backups (everything produced before this slice) never had that
+# field, and a pre-existing, valid staging backup must stay restorable
+# through both "restore-test --environment staging" and
+# "restore-test --target staging-main" unchanged. A schema 2 backup whose
+# target is non-null must match TARGET_ID when the selector itself is
+# --target; a null target (every legacy-mode backup) or a legacy-mode
+# selector never triggers that check.
+validate_backup_manifest() {
+    local manifest_path="$1"
+
+    [[ -f "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
+
+    local manifest_project manifest_environment manifest_database
+
+    manifest_project="$(jq -r '.project // empty' "${manifest_path}")"
+    manifest_environment="$(jq -r '.environment // empty' "${manifest_path}")"
+    manifest_database="$(jq -r '.database // empty' "${manifest_path}")"
+
+    [[ "${manifest_project}" == "rateguru" ]] \
+        || fail "backup manifest project mismatch: expected rateguru, got '${manifest_project}'"
+
+    [[ "${manifest_environment}" == "${ENVIRONMENT_CLASS}" ]] \
+        || fail "backup manifest environment mismatch: expected ${ENVIRONMENT_CLASS}, got '${manifest_environment}'"
+
+    [[ "${manifest_database}" == "${DATABASE_NAME}" ]] \
+        || fail "backup manifest database mismatch: expected ${DATABASE_NAME}, got '${manifest_database}'"
+
+    # manifest_schema_version is classified by JSON *type* first, never by
+    # `jq -r '... // empty'` alone: raw output collapses a JSON string "2", a
+    # JSON number 2, and any non-scalar value into an indistinguishable bash
+    # string, which previously let anything other than the literal string
+    # "2" silently fall through as schema 1 (fail-open) — a schema_version of
+    # 3, 0, the JSON string "2" (not a number), "garbage", an array, an
+    # object or a boolean all compared unequal to "2" and were accepted as
+    # legacy schema 1 without ever being rejected. `type` disambiguates this:
+    # "null" covers both an absent key and an explicit JSON null (schema 1,
+    # per contract); "number" is checked again, separately and strictly,
+    # against the literal value 2; every other type is rejected outright,
+    # before createdb, with the offending value's own JSON representation in
+    # the error.
+    local manifest_schema_type
+    manifest_schema_type="$(jq -r '.manifest_schema_version | type' "${manifest_path}")"
+
+    local schema_is_v2=false
+
+    case "${manifest_schema_type}" in
+        null)
+            # Absent or explicit JSON null — schema 1 (legacy): no
+            # additional fields required.
+            ;;
+        number)
+            local manifest_schema_version
+            manifest_schema_version="$(jq -r '.manifest_schema_version' "${manifest_path}")"
+
+            if [[ "${manifest_schema_version}" == "2" ]]; then
+                schema_is_v2=true
+            else
+                fail "unsupported backup manifest schema_version: ${manifest_schema_version}"
+            fi
             ;;
         *)
-            echo "Unknown argument: $1" >&2
-            exit 1
+            local manifest_schema_value
+            manifest_schema_value="$(jq -c '.manifest_schema_version' "${manifest_path}")"
+            fail "unsupported backup manifest schema_version: ${manifest_schema_value}"
             ;;
     esac
-done
 
-case "${ENVIRONMENT}" in
-    staging|production)
-        ;;
-    *)
-        echo "Usage: restore-test --environment staging|production" >&2
-        exit 1
-        ;;
-esac
+    if [[ "${schema_is_v2}" == true ]]; then
+        local manifest_backup_namespace
+        manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
 
-LOCK_ROOT="/home/www/rateguru/run"
-LOCK_FILE="${LOCK_ROOT}/restore-test-${ENVIRONMENT}.lock"
+        [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
+            || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
 
-install -d \
-    -o root \
-    -g root \
-    -m 0700 \
-    "${LOCK_ROOT}"
+        if [[ "${SELECTOR_TYPE}" == "target" ]]; then
+            local manifest_target
+            manifest_target="$(jq -r '.target // empty' "${manifest_path}")"
 
-exec 9>"${LOCK_FILE}"
-
-if ! flock -n 9; then
-    echo "Restore test for ${ENVIRONMENT} is already running" >&2
-    exit 1
-fi
-
-BACKUP_ROOT="/home/www/rateguru/backups/${ENVIRONMENT}"
-
-LATEST_BACKUP="$(
-    find "${BACKUP_ROOT}" \
-        -regextype posix-extended \
-        -mindepth 1 \
-        -maxdepth 1 \
-        -type d \
-        -regex '.*/[0-9]{8}-[0-9]{6}' \
-        -printf '%f\n' \
-    | sort \
-    | tail -1
-)"
-
-[[ -n "${LATEST_BACKUP}" ]] || {
-    echo "No backup found for ${ENVIRONMENT}" >&2
-    exit 1
+            if [[ -n "${manifest_target}" ]] && [[ "${manifest_target}" != "${TARGET_ID}" ]]; then
+                fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
+            fi
+        fi
+    fi
 }
 
-BACKUP_DIRECTORY="${BACKUP_ROOT}/${LATEST_BACKUP}"
-TEST_DATABASE="rateguru_restore_${ENVIRONMENT}_$(date -u +%Y%m%d%H%M%S)_$$"
-TEST_DATABASE="${TEST_DATABASE//-/_}"
+# --- restore-test pipeline: one shared code path for both selectors ---------
 
-cleanup() {
+perform_restore_test() {
+    # Keyed on BACKUP_NAMESPACE, never on LABEL — see the identical comment in
+    # backup's perform_backup: "restore-test --environment staging" and
+    # "restore-test --target staging-main" must resolve to the identical
+    # namespace, backup root and lock file.
+    BACKUP_ROOT="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
+    LOCK_FILE="${RUN_ROOT}/restore-test-${BACKUP_NAMESPACE}.lock"
+
+    install -d \
+        -o root \
+        -g root \
+        -m 0700 \
+        "${RUN_ROOT}"
+
+    exec 9>"${LOCK_FILE}"
+
+    if ! flock -n 9; then
+        fail "restore test for ${BACKUP_NAMESPACE} is already running"
+    fi
+
+    LATEST_BACKUP="$(
+        find "${BACKUP_ROOT}" \
+            -regextype posix-extended \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -regex '.*/[0-9]{8}-[0-9]{6}' \
+            -printf '%f\n' \
+        | sort \
+        | tail -1
+    )"
+
+    [[ -n "${LATEST_BACKUP}" ]] || fail "no backup found in namespace ${BACKUP_NAMESPACE}"
+
+    BACKUP_DIRECTORY="${BACKUP_ROOT}/${LATEST_BACKUP}"
+
+    # Sanitized so a namespace containing characters PostgreSQL identifiers
+    # cannot carry (e.g. "tits-guru"'s hyphen) still produces a safe temporary
+    # database name.
+    SANITIZED_NAMESPACE="$(
+        printf '%s' "${BACKUP_NAMESPACE}" \
+            | sed -E 's/[^a-zA-Z0-9_]/_/g'
+    )"
+    TEST_DATABASE="rateguru_restore_${SANITIZED_NAMESPACE}_$(date -u +%Y%m%d%H%M%S)_$$"
+
+    cleanup() {
+        runuser -u postgres -- \
+            "${DROPDB_BIN}" \
+                --if-exists \
+                "${TEST_DATABASE}" \
+                >/dev/null 2>&1 || true
+    }
+
+    trap cleanup EXIT
+
+    log "Testing backup:"
+    log "${BACKUP_DIRECTORY}"
+
+    (
+        cd "${BACKUP_DIRECTORY}"
+        sha256sum --check SHA256SUMS
+    )
+
+    tar \
+        -tzf "${BACKUP_DIRECTORY}/storage-app.tar.gz" \
+        >/dev/null
+
+    validate_backup_manifest "${BACKUP_DIRECTORY}/manifest.json"
+
     runuser -u postgres -- \
-        /usr/bin/dropdb \
-        --if-exists \
-        "${TEST_DATABASE}" \
-        >/dev/null 2>&1 || true
+        "${CREATEDB_BIN}" \
+            --template=template0 \
+            "${TEST_DATABASE}"
+
+    log "Restoring PostgreSQL dump into temporary database"
+
+    # The backup remains root-only. The root shell opens the file and passes
+    # the already-open stdin stream to pg_restore running as postgres.
+    runuser -u postgres -- \
+        "${PG_RESTORE_BIN}" \
+            --exit-on-error \
+            --single-transaction \
+            --no-owner \
+            --no-privileges \
+            --dbname="${TEST_DATABASE}" \
+        < "${BACKUP_DIRECTORY}/database.dump"
+
+    TABLE_COUNT="$(
+        runuser -u postgres -- \
+            "${PSQL_BIN}" \
+                --no-align \
+                --tuples-only \
+                --dbname="${TEST_DATABASE}" \
+                --command="
+                    SELECT count(*)
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public';
+                "
+    )"
+
+    TABLE_COUNT="${TABLE_COUNT//[[:space:]]/}"
+
+    if [[ ! "${TABLE_COUNT}" =~ ^[0-9]+$ ]] \
+        || (( TABLE_COUNT == 0 ))
+    then
+        fail "restored database contains no public tables"
+    fi
+
+    MIGRATION_COUNT="$(
+        runuser -u postgres -- \
+            "${PSQL_BIN}" \
+                --no-align \
+                --tuples-only \
+                --dbname="${TEST_DATABASE}" \
+                --command="
+                    SELECT CASE
+                        WHEN to_regclass('public.migrations') IS NULL
+                            THEN 0
+                        ELSE (SELECT count(*) FROM migrations)
+                    END;
+                "
+    )"
+
+    MIGRATION_COUNT="${MIGRATION_COUNT//[[:space:]]/}"
+
+    if [[ ! "${MIGRATION_COUNT}" =~ ^[0-9]+$ ]]; then
+        fail "unable to determine migrations table row count"
+    fi
+
+    cleanup
+    trap - EXIT
+
+    local target_arg=""
+
+    if [[ "${SELECTOR_TYPE}" == "target" ]]; then
+        target_arg="${TARGET_ID}"
+    fi
+
+    RESULT="$(
+        jq \
+            --null-input \
+            --compact-output \
+            --arg tested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg selector "${SELECTOR_TYPE}" \
+            --arg target "${target_arg}" \
+            --arg environment "${ENVIRONMENT_CLASS}" \
+            --arg backup_namespace "${BACKUP_NAMESPACE}" \
+            --arg backup "${LATEST_BACKUP}" \
+            --argjson tables "${TABLE_COUNT}" \
+            --argjson migrations "${MIGRATION_COUNT}" \
+            '{
+                status: "ok",
+                tested_at: $tested_at,
+                selector: $selector,
+                target: (if $selector == "target" then $target else null end),
+                environment: $environment,
+                backup_namespace: $backup_namespace,
+                backup: $backup,
+                tables: $tables,
+                migrations: $migrations
+            }'
+    )"
+
+    printf '%s\n' "${RESULT}" \
+        | tee -a "${BACKUP_ROOT}/restore-tests.jsonl"
+
+    log ""
+    log "${LABEL} restore test completed successfully."
 }
 
-trap cleanup EXIT
+# --- dispatch -----------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation,
+# matching backup's contract exactly: parse_restore_args,
+# resolve_restore_subject and perform_restore_test are all inert definitions
+# until main calls them, in this exact order.
+main() {
+    require_root
+    parse_restore_args "$@"
+    resolve_restore_subject
+    perform_restore_test
+}
 
-echo "Testing backup:"
-echo "${BACKUP_DIRECTORY}"
-
-(
-    cd "${BACKUP_DIRECTORY}"
-    sha256sum --check SHA256SUMS
-)
-
-tar \
-    -tzf "${BACKUP_DIRECTORY}/storage-app.tar.gz" \
-    >/dev/null
-
-runuser -u postgres -- \
-    /usr/bin/createdb \
-        --template=template0 \
-        "${TEST_DATABASE}"
-
-echo "Restoring PostgreSQL dump into temporary database"
-
-# The backup remains root-only. The root shell opens the file and passes
-# the already-open stdin stream to pg_restore running as postgres.
-runuser -u postgres -- \
-    /usr/bin/pg_restore \
-        --exit-on-error \
-        --single-transaction \
-        --no-owner \
-        --no-privileges \
-        --dbname="${TEST_DATABASE}" \
-    < "${BACKUP_DIRECTORY}/database.dump"
-
-TABLE_COUNT="$(
-    runuser -u postgres -- \
-        /usr/bin/psql \
-            --no-align \
-            --tuples-only \
-            --dbname="${TEST_DATABASE}" \
-            --command="
-                SELECT count(*)
-                FROM information_schema.tables
-                WHERE table_schema = 'public';
-            "
-)"
-
-TABLE_COUNT="${TABLE_COUNT//[[:space:]]/}"
-
-if [[ ! "${TABLE_COUNT}" =~ ^[0-9]+$ ]] \
-    || (( TABLE_COUNT == 0 ))
-then
-    echo "Restored database contains no public tables" >&2
-    exit 1
+# A real invocation always has BASH_SOURCE[0] == $0, so main runs immediately
+# here. Tests source this file instead — BASH_SOURCE[0] != $0 in that case, so
+# main never auto-runs — then call
+# parse_restore_args/resolve_restore_subject/perform_restore_test directly
+# (bypassing require_root) or invoke the script as a genuine subprocess (which
+# does run main(), requiring root first, exactly as production).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
 fi
-
-MIGRATION_COUNT="$(
-    runuser -u postgres -- \
-        /usr/bin/psql \
-            --no-align \
-            --tuples-only \
-            --dbname="${TEST_DATABASE}" \
-            --command="
-                SELECT CASE
-                    WHEN to_regclass('public.migrations') IS NULL
-                        THEN 0
-                    ELSE (SELECT count(*) FROM migrations)
-                END;
-            "
-)"
-
-MIGRATION_COUNT="${MIGRATION_COUNT//[[:space:]]/}"
-
-cleanup
-trap - EXIT
-
-RESULT="$(
-    jq \
-        --null-input \
-        --arg tested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --arg environment "${ENVIRONMENT}" \
-        --arg backup "${LATEST_BACKUP}" \
-        --argjson tables "${TABLE_COUNT}" \
-        --argjson migrations "${MIGRATION_COUNT}" \
-        '{
-            status: "ok",
-            tested_at: $tested_at,
-            environment: $environment,
-            backup: $backup,
-            tables: $tables,
-            migrations: $migrations
-        }'
-)"
-
-printf '%s\n' "${RESULT}" \
-    | tee -a "${BACKUP_ROOT}/restore-tests.jsonl"
-
-echo
-echo "Restore test completed successfully."
