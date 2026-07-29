@@ -57,8 +57,8 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first seven (through 7.1) are completed and accepted
-on the real staging VPS; slice 7.2 is in progress. The phase stays
+Slices, in order. The first seven (through 7.2) are completed and accepted
+on the real staging VPS; slice 7.3 is in progress. The phase stays
 **current**.
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
@@ -177,14 +177,36 @@ on the real staging VPS; slice 7.2 is in progress. The phase stays
       `restore-test --environment staging` and a target
       `restore-test --target staging-main` both successfully restored
       PostgreSQL; the final health-check passed.
-   2. **7.2 Offsite backup path — current.** `offsite-backup`,
+   2. **7.2 Offsite backup path — completed.** `offsite-backup`,
       `offsite-retention` and `offsite-restore-test` accept `--target TARGET`
       alongside `--environment`, sharing the existing `staging` offsite (B2)
       namespace with `staging-main` — no existing remote backup moves.
       `install-target-operations` now manages thirteen files, not ten.
-   3. **7.3 Backup-cycle orchestration — planned.** `backup-cycle` gains
-      `--target`, once 7.1 and 7.2 have both landed.
-8. Perimeter — workflows, sudoers, server wrappers.
+
+      **Accepted on the real staging VPS (`PHASE 4 SLICE 7.2 ACCEPTED`):**
+      the thirteen-file `install-target-operations --check`/`--apply`/
+      `--verify` all passed; the installed `offsite-backup`,
+      `offsite-retention` and `offsite-restore-test` are owned `root:root`
+      mode `0755`; a real target upload (`offsite-backup --target
+      staging-main`) succeeded; `offsite-retention --target staging-main`
+      dry-run succeeded; `offsite-restore-test --target staging-main`
+      succeeded; `offsite-backup --target tits-guru` (and the other two
+      offsite scripts) were rejected with `lifecycle=planned`; the final
+      health-check passed.
+   3. **7.3 Backup-cycle orchestration — current.** `backup-cycle` gains
+      `--target` alongside the preserved `--environment` selector, sharing
+      the identical namespace and cycle lock as every script above. Runs the
+      full five-step pipeline — local backup, local restore-test, offsite
+      upload, offsite retention (`--apply`), offsite restore-test — strictly
+      in order, fail-fast, and appends one compact JSON record per cycle to
+      `/home/www/rateguru/backups/backup-cycles.jsonl`. Retention is only
+      ever applied once local backup, local restore-test and the offsite
+      upload have all already succeeded; local backups are not pruned by
+      this slice. `install-target-operations` now manages fourteen files,
+      not thirteen. Real-VPS acceptance is a separate follow-up step after
+      this slice merges; cron, systemd timers, GitHub Actions workflows and
+      sudoers stay legacy-only perimeter until the next slice.
+8. Perimeter — cron, systemd timers, workflows, sudoers, server wrappers.
 9. Remove the `--environment` interface, only after `staging-main` parity is
    proven end to end across every slice above.
 

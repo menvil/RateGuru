@@ -66,14 +66,13 @@ value.
 Manifest validation always completes — like checksum and storage-archive
 validation — before the temporary restore-test database is created.
 
-### What stays legacy-only
+### What's target-aware as of this slice
 
-`backup-cycle` is unaffected by this slice and remains `--environment`-only
-until its own future slice (7.3) — see
-[Offsite backup procedure](#offsite-backup-procedure) below. As of slice 7.2,
-`offsite-backup`, `offsite-retention` and `offsite-restore-test` themselves
-are target-aware — see
+As of slice 7.2, `offsite-backup`, `offsite-retention` and
+`offsite-restore-test` are target-aware — see
 [Target-aware offsite backup path](#target-aware-offsite-backup-path-phase-4-slice-72)
+below. As of slice 7.3, `backup-cycle` itself is target-aware too — see
+[Target-aware backup cycle](#target-aware-backup-cycle-phase-4-slice-73)
 below.
 
 ## Target-aware offsite backup path (Phase 4 slice 7.2)
@@ -160,26 +159,98 @@ the remote backup it downloads before creating the temporary restore
 database. Local `restore-test` is untouched by this slice and keeps its own,
 already-correct implementation of the same contract.
 
-### What stays legacy-only
+## Target-aware backup cycle (Phase 4 slice 7.3)
 
-`backup-cycle` is unaffected by this slice and remains `--environment`-only
-until its own future slice (7.3).
-
-## Offsite backup procedure
-
-Run the complete local and offsite backup cycle for the required environment:
+`backup-cycle` accepts the same selector contract as every other backup-path
+script:
 
 ```bash
 sudo /home/www/rateguru/bin/backup-cycle --environment staging
 sudo /home/www/rateguru/bin/backup-cycle --environment production
+sudo /home/www/rateguru/bin/backup-cycle --target staging-main
 ```
 
-The cycle creates a local backup, invokes `offsite-backup`, and applies offsite
-retention. The upload uses `rclone copy --immutable`, so an existing remote
-object is never overwritten with different content. `backup-cycle` itself
-remains `--environment`-only until slice 7.3; the `offsite-backup` and
-`offsite-retention` invocations it makes internally are unaffected by this
-and keep using the legacy selector until then.
+`--target` and `--environment` are mutually exclusive, exactly one is
+required, and `--help` documents both forms. `backup-cycle` requires root
+unconditionally, as the first action of every invocation. In target mode,
+`require_active_target` runs immediately after root authorization — before
+the cycle lock, the history file, or any child command — so a planned target
+(`tits-guru`) is rejected before anything is touched.
+
+**Both selectors resolve to the identical existing namespace and cycle
+lock**, exactly like `backup`/`restore-test`/`offsite-*`:
+
+```text
+backup namespace = staging
+cycle lock       = /home/www/rateguru/run/backup-cycle-staging.lock
+history file     = /home/www/rateguru/backups/backup-cycles.jsonl
+```
+
+`backup-cycle --environment staging` and `backup-cycle --target staging-main`
+cannot run concurrently against that namespace — the lock filename is built
+from the resolved backup namespace, never from the selector label. A
+different namespace (e.g. `production`) uses its own, independent lock and
+never contends with `staging`.
+
+### The five-step pipeline, strictly in order, fail-fast
+
+```text
+1. backup
+2. restore-test
+3. offsite-backup
+4. offsite-retention --apply
+5. offsite-restore-test
+```
+
+Every step is invoked with the exact same selector the cycle itself
+received (`--environment staging` or `--target staging-main` for all five —
+selectors are never mixed within one cycle), and its real stdout/stderr is
+never suppressed. Each step only runs if the previous one exited `0`; the
+first failure stops the cycle immediately, and the cycle's own exit code is
+the failing child's exit code, unmodified.
+
+### Retention safety ordering
+
+`offsite-retention --apply` — the one step in this pipeline that actually
+deletes old remote backups — only ever runs after local backup, local
+restore-test, and the offsite upload have all already succeeded. If any of
+those three fails, retention is never reached, so old B2 backups are never
+purged on the strength of a local backup or upload that did not actually
+happen. `offsite-restore-test` always runs after retention: if retention
+succeeds but the offsite restore-test then fails, the cycle is still recorded
+as failed — the retention deletion itself is **not** rolled back; this is a
+deliberate, documented limitation of this slice, not an oversight.
+
+**This slice does not delete local backups.** Local retention (pruning old
+timestamped directories under `/home/www/rateguru/backups/<namespace>/`) is
+`backup`'s own existing, unchanged behaviour — `backup-cycle` does not add
+any local retention of its own.
+
+### Cycle history: one compact JSON record per cycle
+
+Every started cycle appends exactly one line to
+`/home/www/rateguru/backups/backup-cycles.jsonl` (created `0600`, inside a
+`0700` root-owned directory), generated entirely through `jq -cn`:
+
+```json
+{"status":"ok","started_at":"2026-07-29T15:00:00Z","completed_at":"2026-07-29T15:02:00Z","selector":"target","target":"staging-main","environment":"staging","backup_namespace":"staging","completed_steps":["backup","restore-test","offsite-backup","offsite-retention","offsite-restore-test"],"failed_step":null}
+```
+
+A failed cycle additionally carries `exit_code` (the failing child's own exit
+code) and a `completed_steps` array that only lists the steps that actually
+finished before the failure:
+
+```json
+{"status":"failed","started_at":"...","completed_at":"...","selector":"target","target":"staging-main","environment":"staging","backup_namespace":"staging","completed_steps":["backup","restore-test"],"failed_step":"offsite-backup","exit_code":1}
+```
+
+`target` is `null` for the legacy `--environment` selector, exactly like
+every other backup-path history record. A `lifecycle=planned` rejection or a
+cycle-lock contention writes **no** history record at all — history only
+ever records a cycle that genuinely started (i.e., past the lock). A history
+write failure after every step already succeeded still turns the cycle into
+a reported failure; a history write failure on the failure path is logged
+but never replaces the original child's exit code.
 
 ### Recovering from an immutable partial upload
 

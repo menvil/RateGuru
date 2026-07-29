@@ -1,73 +1,386 @@
 #!/usr/bin/env bash
+#
+# backup-cycle — orchestrates the full, verifiable backup pipeline for one
+# namespace: local backup, local restore-test, offsite upload, offsite
+# retention (--apply) and offsite restore-test, run strictly in sequence and
+# fail-fast. Phase 4 slice 7.3: accepts --target alongside the legacy
+# --environment, sharing the same physical backup namespace and cycle lock as
+# every other target-aware backup script (backup, restore-test,
+# offsite-backup, offsite-retention, offsite-restore-test).
 
 set -Eeuo pipefail
 umask 077
 
-ENVIRONMENT=""
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup.
+COMMON_FILE=/home/www/rateguru/bin/common
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
-            shift 2
-            ;;
-        *)
-            echo "Unknown argument: $1" >&2
-            exit 1
-            ;;
-    esac
-done
-
-case "${ENVIRONMENT}" in
-    staging|production)
-        ;;
-    *)
-        echo "Usage: backup-cycle --environment staging|production" >&2
-        exit 1
-        ;;
-esac
-
-LOCK_ROOT="/home/www/rateguru/run"
-LOCK_FILE="${LOCK_ROOT}/backup-cycle-${ENVIRONMENT}.lock"
-
-install -d \
-    -o root \
-    -g root \
-    -m 0700 \
-    "${LOCK_ROOT}"
-
-exec 9>"${LOCK_FILE}"
-
-if ! flock -n 9; then
-    echo "Backup cycle for ${ENVIRONMENT} is already running" >&2
-    exit 1
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
 fi
 
-echo "========================================"
-echo "RateGuru backup cycle"
-echo "Environment: ${ENVIRONMENT}"
-echo "Started:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-echo "========================================"
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
 
-echo
-echo "[1/3] Creating local backup"
+# Phase 4 slice 7.3: gated test overrides, following the exact
+# FOO_BIN_DEFAULT/FOO_BIN + rateguru_test_overrides_allowed shape every prior
+# backup-path script already establishes. Production values are unchanged.
+BACKUP_BIN_DEFAULT="/home/www/rateguru/bin/backup"
+RESTORE_TEST_BIN_DEFAULT="/home/www/rateguru/bin/restore-test"
+OFFSITE_BACKUP_BIN_DEFAULT="/home/www/rateguru/bin/offsite-backup"
+OFFSITE_RETENTION_BIN_DEFAULT="/home/www/rateguru/bin/offsite-retention"
+OFFSITE_RESTORE_TEST_BIN_DEFAULT="/home/www/rateguru/bin/offsite-restore-test"
+BACKUP_BASE_DEFAULT="/home/www/rateguru/backups"
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
 
-/home/www/rateguru/bin/backup \
-    --environment "${ENVIRONMENT}"
+BACKUP_BIN="${BACKUP_BIN_DEFAULT}"
+RESTORE_TEST_BIN="${RESTORE_TEST_BIN_DEFAULT}"
+OFFSITE_BACKUP_BIN="${OFFSITE_BACKUP_BIN_DEFAULT}"
+OFFSITE_RETENTION_BIN="${OFFSITE_RETENTION_BIN_DEFAULT}"
+OFFSITE_RESTORE_TEST_BIN="${OFFSITE_RESTORE_TEST_BIN_DEFAULT}"
+BACKUP_BASE="${BACKUP_BASE_DEFAULT}"
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
 
-echo
-echo "[2/3] Uploading offsite backup"
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_BACKUP_BIN:-}" ]]; then
+        BACKUP_BIN="${RATEGURU_BACKUP_BIN}"
+    fi
 
-/home/www/rateguru/bin/offsite-backup \
-    --environment "${ENVIRONMENT}"
+    if [[ -n "${RATEGURU_RESTORE_TEST_BIN:-}" ]]; then
+        RESTORE_TEST_BIN="${RATEGURU_RESTORE_TEST_BIN}"
+    fi
 
-echo
-echo "[3/3] Applying offsite retention"
+    if [[ -n "${RATEGURU_OFFSITE_BACKUP_BIN:-}" ]]; then
+        OFFSITE_BACKUP_BIN="${RATEGURU_OFFSITE_BACKUP_BIN}"
+    fi
 
-/home/www/rateguru/bin/offsite-retention \
-    --environment "${ENVIRONMENT}" \
-    --apply
+    if [[ -n "${RATEGURU_OFFSITE_RETENTION_BIN:-}" ]]; then
+        OFFSITE_RETENTION_BIN="${RATEGURU_OFFSITE_RETENTION_BIN}"
+    fi
 
-echo
-echo "Backup cycle completed:"
-echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    if [[ -n "${RATEGURU_OFFSITE_RESTORE_TEST_BIN:-}" ]]; then
+        OFFSITE_RESTORE_TEST_BIN="${RATEGURU_OFFSITE_RESTORE_TEST_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_BACKUP_BASE:-}" ]]; then
+        BACKUP_BASE="${RATEGURU_BACKUP_BASE}"
+    fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  backup-cycle --environment staging|production
+  backup-cycle --target TARGET_ID
+
+Runs the full backup pipeline in order, stopping at the first failure:
+  1. local backup
+  2. local restore-test
+  3. offsite upload
+  4. offsite retention (--apply)
+  5. offsite restore-test
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called, mirroring backup/offsite-backup's own structure exactly.
+
+# --- selector parsing (mirrors backup/offsite-backup) ------------------------
+#
+# require_flag_value is defined in common (shared with backup, offsite-backup,
+# offsite-retention and offsite-restore-test).
+
+parse_backup_cycle_args() {
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
+                require_flag_value "--environment" "$#" "${2-}"
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    assert_selector_state
+}
+
+# --- selector resolution (mirrors backup/offsite-backup) --------------------
+#
+# require_active_target runs first thing in the target branch — before
+# CHILD_SELECTOR_ARGS is ever built, the lock file, the history file, or any
+# child command is ever computed or touched. main() already called
+# require_root before this function runs, so the full ordering for --target
+# is: root authorization -> lifecycle=planned rejection -> (only if active)
+# lock/history/child-command work.
+#
+# CHILD_SELECTOR_ARGS is never built from SELECTOR_TYPE or LABEL — it is
+# built directly from the same TARGET_ID/ENVIRONMENT values the selector
+# itself carries, so every one of the five child commands receives exactly
+# the selector the operator gave, never a derived label.
+resolve_backup_cycle_subject() {
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        require_active_target "${TARGET_ID}"
+
+        SELECTOR_TYPE="target"
+        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+        LABEL="${TARGET_ID}"
+        CHILD_SELECTOR_ARGS=(--target "${TARGET_ID}")
+    else
+        validate_environment "${ENVIRONMENT}"
+
+        SELECTOR_TYPE="environment"
+        ENVIRONMENT_CLASS="${ENVIRONMENT}"
+        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
+        LABEL="${ENVIRONMENT}"
+        CHILD_SELECTOR_ARGS=(--environment "${ENVIRONMENT}")
+    fi
+}
+
+# --- cycle history -------------------------------------------------------
+#
+# Appends exactly one compact JSON object to HISTORY_FILE, generated entirely
+# through jq -cn (never manual string concatenation). HISTORY_FILE is shared
+# across every namespace (mirrors offsite-backup's own global
+# offsite-history.jsonl) — the per-namespace cycle lock only serializes
+# writers for the *same* namespace, so a concurrent cycle for a different
+# namespace could still interleave its own append with this one. A single
+# `printf ... >> file` is one write(2) call, which POSIX guarantees is atomic
+# on an O_APPEND-opened file up to PIPE_BUF — that, not the lock, is what
+# keeps this specific append safe against cross-namespace interleaving.
+#
+# Returns non-zero (never calls fail itself) on any failure to build or write
+# the record, so the caller decides what that means: a failed cycle's own
+# exit code must never be masked by a secondary history-write failure, while
+# a successful cycle whose history write fails must still be treated as a
+# failed cycle overall. See perform_backup_cycle below.
+append_cycle_history() {
+    local status="$1"
+    local completed_at
+    completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    local target_arg="null"
+    [[ "${SELECTOR_TYPE}" == "target" ]] && target_arg="${TARGET_ID}"
+
+    local completed_steps_json
+    completed_steps_json="$(jq -cn --args '$ARGS.positional' "${COMPLETED_STEPS[@]}")" || return 1
+
+    local failed_step_json="null"
+    if [[ -n "${FAILED_STEP}" ]]; then
+        failed_step_json="$(jq -cn --arg v "${FAILED_STEP}" '$v')" || return 1
+    fi
+
+    local extra_json="{}"
+    if [[ "${status}" == "failed" ]]; then
+        extra_json="$(jq -cn --argjson code "${STEP_EXIT_CODE}" '{exit_code: $code}')" || return 1
+    fi
+
+    local record
+    record="$(
+        jq -cn \
+            --arg status "${status}" \
+            --arg started_at "${STARTED_AT}" \
+            --arg completed_at "${completed_at}" \
+            --arg selector "${SELECTOR_TYPE}" \
+            --arg target "${target_arg}" \
+            --arg environment "${ENVIRONMENT_CLASS}" \
+            --arg backup_namespace "${BACKUP_NAMESPACE}" \
+            --argjson completed_steps "${completed_steps_json}" \
+            --argjson failed_step "${failed_step_json}" \
+            --argjson extra "${extra_json}" \
+            '{
+                status: $status,
+                started_at: $started_at,
+                completed_at: $completed_at,
+                selector: $selector,
+                target: (if $selector == "target" then $target else null end),
+                environment: $environment,
+                backup_namespace: $backup_namespace,
+                completed_steps: $completed_steps,
+                failed_step: $failed_step
+            } + $extra'
+    )" || return 1
+
+    printf '%s\n' "${record}" >> "${HISTORY_FILE}" || return 1
+    chmod 0600 "${HISTORY_FILE}" || return 1
+}
+
+# --- backup cycle pipeline: one shared code path for both selectors ---------
+
+perform_backup_cycle() {
+    # Keyed on BACKUP_NAMESPACE, never on LABEL — "backup-cycle --environment
+    # staging" and "backup-cycle --target staging-main" must resolve to the
+    # identical namespace, hence the identical lock file, exactly like every
+    # other backup-path script.
+    LOCK_FILE="${RUN_ROOT}/backup-cycle-${BACKUP_NAMESPACE}.lock"
+    HISTORY_FILE="${BACKUP_BASE}/backup-cycles.jsonl"
+
+    install -d \
+        -o root \
+        -g root \
+        -m 0700 \
+        "${RUN_ROOT}" \
+        "${BACKUP_BASE}"
+
+    exec 9>"${LOCK_FILE}"
+
+    if ! flock -n 9; then
+        fail "backup cycle for namespace ${BACKUP_NAMESPACE} is already running"
+    fi
+
+    STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    local target_display="(none)"
+    [[ "${SELECTOR_TYPE}" == "target" ]] && target_display="${TARGET_ID}"
+
+    log "========================================"
+    log "RateGuru backup cycle"
+    log "Selector:         ${SELECTOR_TYPE}"
+    log "Target:           ${target_display}"
+    log "Environment:      ${ENVIRONMENT_CLASS}"
+    log "Backup namespace: ${BACKUP_NAMESPACE}"
+    log "Started:          ${STARTED_AT}"
+    log "========================================"
+
+    COMPLETED_STEPS=()
+    FAILED_STEP=""
+    STEP_EXIT_CODE=0
+
+    log ""
+    log "[1/5] Creating local backup"
+
+    if "${BACKUP_BIN}" "${CHILD_SELECTOR_ARGS[@]}"; then
+        COMPLETED_STEPS+=(backup)
+    else
+        STEP_EXIT_CODE=$?
+        FAILED_STEP="backup"
+    fi
+
+    if [[ -z "${FAILED_STEP}" ]]; then
+        log ""
+        log "[2/5] Testing local restore"
+
+        if "${RESTORE_TEST_BIN}" "${CHILD_SELECTOR_ARGS[@]}"; then
+            COMPLETED_STEPS+=(restore-test)
+        else
+            STEP_EXIT_CODE=$?
+            FAILED_STEP="restore-test"
+        fi
+    fi
+
+    if [[ -z "${FAILED_STEP}" ]]; then
+        log ""
+        log "[3/5] Uploading offsite backup"
+
+        if "${OFFSITE_BACKUP_BIN}" "${CHILD_SELECTOR_ARGS[@]}"; then
+            COMPLETED_STEPS+=(offsite-backup)
+        else
+            STEP_EXIT_CODE=$?
+            FAILED_STEP="offsite-backup"
+        fi
+    fi
+
+    # Only reached once local backup, local restore-test and the offsite
+    # upload have all already succeeded — old B2 backups are never purged on
+    # the strength of a local backup or upload that did not actually happen.
+    if [[ -z "${FAILED_STEP}" ]]; then
+        log ""
+        log "[4/5] Applying offsite retention"
+
+        if "${OFFSITE_RETENTION_BIN}" "${CHILD_SELECTOR_ARGS[@]}" --apply; then
+            COMPLETED_STEPS+=(offsite-retention)
+        else
+            STEP_EXIT_CODE=$?
+            FAILED_STEP="offsite-retention"
+        fi
+    fi
+
+    # If retention already succeeded but this step fails, the cycle is still
+    # reported failed — the retention deletion itself is never rolled back
+    # (see the runbook: this slice does not implement that).
+    if [[ -z "${FAILED_STEP}" ]]; then
+        log ""
+        log "[5/5] Testing offsite restore"
+
+        if "${OFFSITE_RESTORE_TEST_BIN}" "${CHILD_SELECTOR_ARGS[@]}"; then
+            COMPLETED_STEPS+=(offsite-restore-test)
+        else
+            STEP_EXIT_CODE=$?
+            FAILED_STEP="offsite-restore-test"
+        fi
+    fi
+
+    if [[ -n "${FAILED_STEP}" ]]; then
+        log ""
+        log "Backup cycle for ${LABEL} failed at step: ${FAILED_STEP}"
+
+        # A history write failure here must never replace or hide the
+        # original child failure's exit code — it is only logged, and the
+        # cycle still exits with STEP_EXIT_CODE regardless.
+        append_cycle_history "failed" \
+            || log "ERROR: failed to write backup cycle history (original failure at step ${FAILED_STEP} is not masked)"
+
+        exit "${STEP_EXIT_CODE}"
+    fi
+
+    log ""
+    log "Backup cycle for ${LABEL} completed successfully"
+
+    # Unlike the failure path, a history write failure here genuinely turns
+    # an otherwise-successful cycle into a failed one — there is no already-
+    # failed child exit code to preserve instead.
+    append_cycle_history "ok" \
+        || fail "backup cycle history write failed after a successful pipeline"
+}
+
+# --- dispatch -----------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation,
+# matching backup/offsite-backup's contract exactly: parse_backup_cycle_args,
+# resolve_backup_cycle_subject and perform_backup_cycle are all inert
+# definitions until main calls them, in this exact order.
+main() {
+    require_root
+    parse_backup_cycle_args "$@"
+    resolve_backup_cycle_subject
+    perform_backup_cycle
+}
+
+# A real invocation always has BASH_SOURCE[0] == $0, so main runs immediately
+# here. Tests source this file instead — BASH_SOURCE[0] != $0 in that case, so
+# main never auto-runs — then call
+# parse_backup_cycle_args/resolve_backup_cycle_subject/perform_backup_cycle
+# directly (bypassing require_root) or invoke the script as a genuine
+# subprocess (which does run main(), requiring root first, exactly as
+# production).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

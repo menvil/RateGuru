@@ -1311,39 +1311,6 @@ it('leaves the --environment interface untouched', function () {
         ->toContain('PRODUCTION_ROOT=');
 });
 
-it('converts no mutating operational script to --target yet', function () {
-    // health-check and status became target-aware in Phase 4 slice 2, cleanup
-    // in slice 4, deploy in slice 5, rollback in slice 6, backup/
-    // restore-test in slice 7.1, and offsite-backup/offsite-retention/
-    // offsite-restore-test in slice 7.2 — see TargetAwareOperationsTest.php,
-    // CleanupTest.php, DeployTest.php, RollbackTest.php,
-    // BackupTest.php/RestoreTest.php and
-    // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
-    // for their behavioral coverage. backup-cycle is still --environment-only
-    // until its own migration slice (7.3).
-    $operational = [
-        'backup-cycle',
-    ];
-
-    foreach ($operational as $script) {
-        $source = File::get(base_path('infrastructure/scripts/'.$script));
-
-        expect(str_contains($source, '--target'))
-            ->toBeFalse("{$script} must not accept --target in this slice");
-        expect(str_contains($source, 'deployment-targets.json'))
-            ->toBeFalse("{$script} must not read the registry in this slice");
-
-        foreach (['target_root', 'target_get', 'target_exists', 'target_lifecycle'] as $helper) {
-            expect(str_contains($source, $helper))
-                ->toBeFalse("{$script} must not call {$helper} in this slice");
-        }
-
-        // Each one still speaks --environment.
-        expect(str_contains($source, '--environment'))
-            ->toBeTrue("{$script} must still accept --environment");
-    }
-});
-
 it('changes no runtime configuration in this slice', function () {
     // Nginx, PHP-FPM, Supervisor, cron and sudoers are untouched: nothing in
     // them may reference the registry or a target ID.
