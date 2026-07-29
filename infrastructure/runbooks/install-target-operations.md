@@ -92,14 +92,16 @@ operations, and orchestration each carry different side effects and
 deserve separate scrutiny — that is why the backup family is split into
 slices 7.1, 7.2 and 7.3 rather than migrated all at once. What makes it safe
 to graduate the individual scripts ahead of the orchestrator is that every
-write any of them can make is already gated behind the same protections
-`cleanup`, `deploy` and `rollback` rely on: the `require_active_target`
-lifecycle check (checked immediately after root authorization, before any
-filesystem, database, remote-listing or lock work), and a shared backup
-namespace/lock so the legacy and target selectors can never write into the
-same namespace concurrently. `backup-cycle` stays `--environment`-only until
-its own future slice (7.3), once it has been given the equivalent scrutiny —
-only then does it become target-aware.
+write any of them can make is already gated behind the same per-selector
+protections `cleanup`, `deploy` and `rollback` rely on: in target mode, the
+`require_active_target` lifecycle check (checked immediately after root
+authorization, before any filesystem, database, remote-listing or lock
+work); in legacy `--environment` mode, the equivalent `validate_environment`
+check at the same point — plus, either way, a shared backup namespace/lock
+so the legacy and target selectors can never write into the same namespace
+concurrently. `backup-cycle` stays `--environment`-only until its own
+future slice (7.3), once it has been given the equivalent scrutiny — only
+then does it become target-aware.
 
 ## Modes
 
