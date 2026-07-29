@@ -253,6 +253,54 @@ environment_release_retention() {
     esac
 }
 
+# Phase 4 slice 7.1: legacy (--environment) backup helpers, mirroring
+# environment_public_hostname/environment_host_header — literal per-class
+# values, not sourced from deployment.conf, because these three are
+# deliberately declared here rather than added as new deployment.conf
+# settings. Same contract as every other environment_* helper in this block:
+# no default/error case, because every real call site runs
+# validate_environment first. Target mode never calls these — it reads
+# target_database_name/target_backup_namespace/target_local_backup_retention
+# (already defined below) from the registry instead.
+environment_database_name() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "rateguru_staging"
+            ;;
+        production)
+            printf '%s\n' "rateguru_production"
+            ;;
+    esac
+}
+
+environment_backup_namespace() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "staging"
+            ;;
+        production)
+            printf '%s\n' "production"
+            ;;
+    esac
+}
+
+environment_local_backup_retention() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "14"
+            ;;
+        production)
+            printf '%s\n' "30"
+            ;;
+    esac
+}
+
 # --- deployment target registry (begin) ---
 #
 # Phase 4 slice 1: read-only accessors over the non-secret target registry.
