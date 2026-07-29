@@ -245,10 +245,23 @@ build_server_configuration_archive() {
             2>/dev/null
     )
 
-    tar \
-        -C "${SYSTEM_ROOT}" \
-        -czf "${TEMP_ROOT}/server-configuration.tar.gz" \
-        "${existing_infra_paths[@]}"
+    if (( ${#existing_infra_paths[@]} == 0 )); then
+        # No configuration paths exist on this host (a minimal or scratch
+        # environment) — tar with zero file operands is a hard error on both
+        # GNU and BSD tar ("Cowardly refusing to create an empty archive" /
+        # "no files or directories specified"), so read an explicitly empty
+        # file list instead, which both accept as "create a valid, empty
+        # archive."
+        tar \
+            -C "${SYSTEM_ROOT}" \
+            -czf "${TEMP_ROOT}/server-configuration.tar.gz" \
+            -T /dev/null
+    else
+        tar \
+            -C "${SYSTEM_ROOT}" \
+            -czf "${TEMP_ROOT}/server-configuration.tar.gz" \
+            "${existing_infra_paths[@]}"
+    fi
 }
 
 # --- manifest -----------------------------------------------------------
@@ -269,6 +282,15 @@ build_manifest() {
         selector_arg="target"
     fi
 
+    # Captured into their own assignments — not inline inside the jq
+    # invocation — so that a failure of either command (e.g. a broken
+    # PG_DUMP_BIN/PHP_BIN override) is the exit status of the assignment
+    # itself and aborts the backup under `set -e`, rather than silently
+    # embedding an empty version string into the manifest and continuing.
+    local postgres_version php_version
+    postgres_version="$("${PG_DUMP_BIN}" --version)"
+    php_version="$("${PHP_BIN}" -r 'echo PHP_VERSION;')"
+
     jq \
         --null-input \
         --arg project "rateguru" \
@@ -280,8 +302,8 @@ build_manifest() {
         --arg hostname "$(hostname -f 2>/dev/null || hostname)" \
         --arg database "${DATABASE_NAME}" \
         --arg release "${CURRENT_RELEASE}" \
-        --arg postgres_version "$("${PG_DUMP_BIN}" --version)" \
-        --arg php_version "$("${PHP_BIN}" -r 'echo PHP_VERSION;')" \
+        --arg postgres_version "${postgres_version}" \
+        --arg php_version "${php_version}" \
         --argjson manifest_schema_version 2 \
         '{
             manifest_schema_version: $manifest_schema_version,

@@ -415,6 +415,8 @@ function backupOpsBuildSystemRoot(string $scratch): string
         'etc/cron.d',
         'home/parity-deploy/.ssh',
         'home/other-deploy/.ssh',
+        'home/deploy-rateguru-staging/.ssh',
+        'home/deploy-rateguru-production/.ssh',
         'etc/sudoers.d',
         'etc/ssh/sshd_config.d',
     ] as $dir) {
@@ -440,6 +442,20 @@ function backupOpsBuildSystemRoot(string $scratch): string
     file_put_contents($sysroot.'/etc/supervisor/conf.d/other-queue.conf', "[program:other-queue]\n");
     file_put_contents($sysroot.'/etc/cron.d/other-scheduler', "* * * * * true\n");
     file_put_contents($sysroot.'/home/other-deploy/.ssh/authorized_keys', "ssh-ed25519 AAAA other\n");
+
+    // Legacy mode's own fixed, byte-for-byte-preserved path list — both
+    // staging and production, regardless of which one is being backed up.
+    file_put_contents($sysroot.'/etc/nginx/sites-available/rateguru-staging', "server {}\n");
+    file_put_contents($sysroot.'/etc/nginx/sites-available/rateguru-production', "server {}\n");
+    file_put_contents($sysroot.'/etc/nginx/rateguru-staging.htpasswd', "user:hash\n");
+    file_put_contents($sysroot.'/etc/php/8.5/fpm/pool.d/rateguru-staging.conf', "[rateguru-staging]\n");
+    file_put_contents($sysroot.'/etc/php/8.5/fpm/pool.d/rateguru-production.conf', "[rateguru-production]\n");
+    file_put_contents($sysroot.'/etc/supervisor/conf.d/rateguru-staging-queue.conf', "[program:rateguru-staging-queue]\n");
+    file_put_contents($sysroot.'/etc/supervisor/conf.d/rateguru-production-queue.conf', "[program:rateguru-production-queue]\n");
+    file_put_contents($sysroot.'/etc/cron.d/rateguru-staging-scheduler', "* * * * * true\n");
+    file_put_contents($sysroot.'/etc/cron.d/rateguru-production-scheduler', "* * * * * true\n");
+    file_put_contents($sysroot.'/home/deploy-rateguru-staging/.ssh/authorized_keys', "ssh-ed25519 AAAA staging\n");
+    file_put_contents($sysroot.'/home/deploy-rateguru-production/.ssh/authorized_keys', "ssh-ed25519 AAAA production\n");
 
     return $sysroot;
 }
@@ -1093,6 +1109,45 @@ it('the target server-configuration archive contains only this target\'s own con
             ->not->toContain('etc/php/8.5/fpm/pool.d/other-pool.conf')
             ->not->toContain('etc/supervisor/conf.d/other-queue.conf')
             ->not->toContain('etc/cron.d/other-scheduler')
+            ->not->toContain('home/other-deploy/.ssh/authorized_keys');
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('the legacy server-configuration archive contains both staging and production configuration', function () {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $result = backupOpsRunFullBackup($scratch, useTarget: false);
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'staging');
+        exec('tar -tzf '.escapeshellarg($backupDir.'/server-configuration.tar.gz'), $listing);
+        $listing = implode("\n", $listing);
+
+        expect($listing)
+            ->toContain('etc/nginx/sites-available/rateguru-staging')
+            ->toContain('etc/nginx/sites-available/rateguru-production')
+            ->toContain('etc/nginx/rateguru-staging.htpasswd')
+            ->toContain('etc/php/8.5/fpm/pool.d/rateguru-staging.conf')
+            ->toContain('etc/php/8.5/fpm/pool.d/rateguru-production.conf')
+            ->toContain('etc/supervisor/conf.d/rateguru-staging-queue.conf')
+            ->toContain('etc/supervisor/conf.d/rateguru-production-queue.conf')
+            ->toContain('etc/cron.d/rateguru-staging-scheduler')
+            ->toContain('etc/cron.d/rateguru-production-scheduler')
+            ->toContain('home/deploy-rateguru-staging/.ssh/authorized_keys')
+            ->toContain('home/deploy-rateguru-production/.ssh/authorized_keys')
+            ->toContain('etc/sudoers.d/rateguru-deploy')
+            ->toContain('home/www/rateguru/bin');
+
+        expect($listing)
+            ->not->toContain('etc/nginx/sites-available/parity-site')
+            ->not->toContain('etc/php/8.5/fpm/pool.d/parity-pool.conf')
+            ->not->toContain('etc/supervisor/conf.d/parity-queue.conf')
+            ->not->toContain('etc/cron.d/parity-scheduler')
+            ->not->toContain('home/parity-deploy/.ssh/authorized_keys')
+            ->not->toContain('etc/nginx/sites-available/other-site')
             ->not->toContain('home/other-deploy/.ssh/authorized_keys');
     } finally {
         backupOpsCleanup($scratch);

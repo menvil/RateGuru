@@ -341,13 +341,17 @@ function restoreTestOpsBuildBackupDirectory(string $namespaceRoot, string $times
     file_put_contents($dir.'/release.json', json_encode(['release' => 'v1.0.0-20260101-000000-aaa1111']));
     file_put_contents($dir.'/server-configuration.tar.gz', "fake-server-config\n");
 
+    // A null $manifest omits manifest.json entirely — rather than writing an
+    // empty-but-present '{}' — so a test can exercise
+    // validate_backup_manifest's own missing-manifest failure
+    // ([[ -f "${manifest_path}" ]] || fail ...), not just an empty one.
+    $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
+
     if ($manifest !== null) {
         file_put_contents($dir.'/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT));
-    } else {
-        file_put_contents($dir.'/manifest.json', '{}');
+        $files[] = 'manifest.json';
     }
 
-    $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz', 'manifest.json'];
     $lines = [];
     foreach ($files as $file) {
         $hash = hash_file('sha256', $dir.'/'.$file);
@@ -927,6 +931,20 @@ it('runs storage archive validation before creating the temporary database', fun
 
         expect($result['exit'])->not->toBe(0);
         expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run before storage archive validation passes');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('rejects a backup with no manifest.json at all before creating the temporary database', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: null);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('backup manifest is missing');
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run before manifest validation passes');
     } finally {
         restoreTestOpsCleanup($scratch);
     }

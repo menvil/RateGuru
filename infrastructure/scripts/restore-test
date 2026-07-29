@@ -326,6 +326,10 @@ perform_restore_test() {
 
     MIGRATION_COUNT="${MIGRATION_COUNT//[[:space:]]/}"
 
+    if [[ ! "${MIGRATION_COUNT}" =~ ^[0-9]+$ ]]; then
+        fail "unable to determine migrations table row count"
+    fi
+
     cleanup
     trap - EXIT
 
