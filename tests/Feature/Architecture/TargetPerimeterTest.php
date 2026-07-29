@@ -355,6 +355,43 @@ it('refuses to run as a non-root caller', function () {
     }
 });
 
+it('does not source an overridden common when run directly as non-root — the root gate runs first', function () {
+    // Proves the literal root-first contract: the inline EUID gate at the
+    // top of each wrapper must reject a real non-root invocation before
+    // RATEGURU_ALLOW_TEST_OVERRIDES is even consulted and before common is
+    // sourced. A "poisoned" common that leaves a detectable marker if
+    // sourced makes this observable — perimeterBaseEnv()'s own override
+    // (pointing at the real repo common) would otherwise source
+    // successfully and only fail later, inside main()'s require_root,
+    // which would look identical from the exit code/message alone.
+    if (posix_getuid() === 0) {
+        test()->markTestSkipped('this check requires a non-root test process');
+    }
+
+    $scratch = perimeterScratchDir();
+    $poisonedCommon = $scratch.'/poisoned-common';
+    $markerFile = $scratch.'/marker';
+
+    file_put_contents($poisonedCommon, "#!/usr/bin/env bash\ntouch ".escapeshellarg($markerFile)."\n");
+
+    try {
+        foreach (['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup'] as $wrapper) {
+            [$exit, $output] = perimeterRunSubprocess($wrapper, ['--target', 'staging-main'], [
+                'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+                'HOME' => getenv('HOME') ?: '/tmp',
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_COMMON_FILE' => $poisonedCommon,
+            ]);
+
+            expect($exit)->not->toBe(0);
+            expect($output)->toContain('this command must be executed as root');
+            expect(file_exists($markerFile))->toBeFalse("{$wrapper} must not source the overridden common before the root check");
+        }
+    } finally {
+        perimeterCleanup($scratch);
+    }
+});
+
 // =============================================================================
 // Wrappers: caller authorization (SUDO_USER vs. registry deploy user)
 // =============================================================================

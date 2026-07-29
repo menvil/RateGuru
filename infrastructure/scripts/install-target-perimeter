@@ -6,14 +6,20 @@
 # entry.
 #
 # Modes:
-#   --check   Validate the committed source files and host tooling only.
-#             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the three wrappers, the sudoers rule and the backup
-#             cron entry, verify a staged copy before touching anything,
-#             install transactionally, then verify the installed result
+#   --check   Validate the committed source files, host tooling, AND that
+#             the real installed fourteen-file target operations bundle
+#             (install-target-operations' own responsibility, a prerequisite
+#             this installer depends on but does not own) is present,
+#             correctly owned/moded, and byte-identical to this repository's
+#             committed sources. Read-only: makes NO changes to the system.
+#   --apply   Everything --check does, as its own preflight, then installs
+#             the three wrappers, the sudoers rule and the backup cron
+#             entry: verifies a staged copy before touching anything,
+#             installs transactionally, then verifies the installed result
 #             against the real host before committing.
 #   --verify  Re-run the installed-file and runtime-parity checks against
-#             whatever is currently installed. Makes NO changes, creates NO
+#             whatever is currently installed, including the fourteen-file
+#             operations bundle check above. Makes NO changes, creates NO
 #             backup.
 #
 # What this installs — and does not:
@@ -21,10 +27,13 @@
 #     rateguru-rollback, rateguru-cleanup), the sudoers rule that grants the
 #     staging deploy user access to them, and the backup-cycle/restore-test/
 #     offsite-restore-test cron entries. deploy, rollback, cleanup,
-#     backup-cycle, restore-test and offsite-restore-test themselves are
-#     untouched by this installer — they already support --target from
-#     earlier Phase 4 slices (installed by install-target-operations, a
-#     prerequisite this installer depends on but does not own).
+#     backup-cycle, restore-test, offsite-restore-test, and the other seven
+#     files in the fourteen-file operations bundle are untouched by this
+#     installer — they already support --target from earlier Phase 4 slices
+#     (installed by install-target-operations, a prerequisite this installer
+#     depends on but does not own). This installer only ever *verifies* that
+#     bundle is current — see "Installed operations bundle staleness guard"
+#     below — never installs, modifies, or takes ownership of any of it.
 #   * Never touches deployment.conf or the target registry.
 #   * Never adds a sudoers rule for tits-guru's deploy user: tits-guru stays
 #     lifecycle=planned, and this installer does not provision it.
@@ -33,12 +42,14 @@
 #     legacy-removal slice does that.
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below — save
-# for one deliberate test seam: RATEGURU_PERIMETER_ROOT (gated behind
-# RATEGURU_ALLOW_TEST_OVERRIDES=true) prefixes every destination path and the
-# backup root, so this installer's own transactional install/rollback logic
-# can be exercised end to end against a private scratch tree. Production
-# never sets either variable, so this resolves to the exact real absolute
-# destinations below.
+# for two deliberate test seams, both gated behind
+# RATEGURU_ALLOW_TEST_OVERRIDES=true: RATEGURU_PERIMETER_ROOT prefixes every
+# destination path this installer actually owns, plus the backup root;
+# RATEGURU_INSTALLED_OPERATIONS_ROOT separately prefixes the read-only
+# fourteen-file operations bundle this installer only ever verifies. Either
+# lets the relevant logic be exercised end to end against a private scratch
+# tree. Production never sets any of these, so both resolve to the exact
+# real absolute destinations below.
 
 set -Eeuo pipefail
 umask 022
@@ -71,12 +82,17 @@ SRC_REGISTRY="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
 # every other Architecture test already points RATEGURU_DEPLOYMENT_CONF_FILE
 # at (see e.g. BackupCycleTest.php's backupCycleDeploymentConfPath()).
 SRC_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
+SRC_HEALTH_CHECK="${REPO_ROOT}/infrastructure/scripts/health-check"
+SRC_STATUS="${REPO_ROOT}/infrastructure/scripts/status"
 SRC_DEPLOY="${REPO_ROOT}/infrastructure/scripts/deploy"
 SRC_ROLLBACK="${REPO_ROOT}/infrastructure/scripts/rollback"
 SRC_CLEANUP="${REPO_ROOT}/infrastructure/scripts/cleanup"
-SRC_BACKUP_CYCLE="${REPO_ROOT}/infrastructure/scripts/backup-cycle"
+SRC_BACKUP="${REPO_ROOT}/infrastructure/scripts/backup"
 SRC_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/restore-test"
+SRC_OFFSITE_BACKUP="${REPO_ROOT}/infrastructure/scripts/offsite-backup"
+SRC_OFFSITE_RETENTION="${REPO_ROOT}/infrastructure/scripts/offsite-retention"
 SRC_OFFSITE_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/offsite-restore-test"
+SRC_BACKUP_CYCLE="${REPO_ROOT}/infrastructure/scripts/backup-cycle"
 
 # Gates RATEGURU_PERIMETER_ROOT and RATEGURU_VISUDO_BIN below — the identical
 # plain condition every operational script's own top-of-file COMMON_FILE
@@ -104,6 +120,33 @@ DST_CRON_DIR="${PERIMETER_ROOT}/etc/cron.d"
 
 BACKUP_ROOT="${PERIMETER_ROOT}/var/backups/rateguru-target-perimeter"
 
+# A second, independently gated test seam — never conflated with
+# PERIMETER_ROOT above, which prefixes destinations this installer actually
+# owns and installs. INSTALLED_OPERATIONS_ROOT instead prefixes the
+# fourteen-file operations bundle install-target-operations owns: a
+# read-only dependency this installer only ever verifies, never installs or
+# modifies. Empty by default, so production resolves to the exact real
+# absolute /home/www/rateguru paths below.
+INSTALLED_OPERATIONS_ROOT=""
+if overrides_allowed && [[ -n "${RATEGURU_INSTALLED_OPERATIONS_ROOT:-}" ]]; then
+    INSTALLED_OPERATIONS_ROOT="${RATEGURU_INSTALLED_OPERATIONS_ROOT}"
+fi
+
+DST_OPS_REGISTRY="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/config/deployment-targets.json"
+DST_OPS_TARGETS="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/targets"
+DST_OPS_COMMON="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/common"
+DST_OPS_HEALTH_CHECK="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/health-check"
+DST_OPS_STATUS="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/status"
+DST_OPS_CLEANUP="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/cleanup"
+DST_OPS_DEPLOY="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/deploy"
+DST_OPS_ROLLBACK="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/rollback"
+DST_OPS_BACKUP="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/backup"
+DST_OPS_RESTORE_TEST="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/restore-test"
+DST_OPS_OFFSITE_BACKUP="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/offsite-backup"
+DST_OPS_OFFSITE_RETENTION="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/offsite-retention"
+DST_OPS_OFFSITE_RESTORE_TEST="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/offsite-restore-test"
+DST_OPS_BACKUP_CYCLE="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/backup-cycle"
+
 VISUDO_BIN_DEFAULT="$(command -v visudo || true)"
 VISUDO_BIN="${VISUDO_BIN_DEFAULT}"
 if overrides_allowed && [[ -n "${RATEGURU_VISUDO_BIN:-}" ]]; then
@@ -113,6 +156,15 @@ fi
 WRAPPER_MODE="0755"
 SUDOERS_MODE="0440"
 CRON_MODE="0644"
+
+# The exact modes install-target-operations itself enforces for the same
+# fourteen files (see its own REGISTRY_MODE/COMMON_MODE/CLI_MODE) — kept as
+# separate OPS_-prefixed constants here, never reused from WRAPPER_MODE/etc
+# above, since these describe a dependency this installer only reads, not
+# one it owns.
+OPS_REGISTRY_MODE="0640"
+OPS_COMMON_MODE="0644"
+OPS_CLI_MODE="0755"
 
 # The ownership this installer enforces on every file and directory it cares
 # about. Plain, freely reassignable constants (not gated env overrides) — the
@@ -152,8 +204,9 @@ Usage:
   install-target-perimeter --verify
   install-target-perimeter --help
 
-  --check   Validate committed source files and host tooling. Read-only,
-            no root required.
+  --check   Validate committed source files, host tooling, and that the
+            installed fourteen-file target operations bundle is current.
+            Read-only; makes no changes.
   --apply   Install the three wrappers, the sudoers rule and the cron
             entry (requires root). Transactional: verifies a staged copy
             first, then the installed result, before committing.
@@ -291,6 +344,73 @@ validate_source_registry() {
     log "source registry is valid JSON, passes its own validator, and lists the expected targets"
 }
 
+# --- Installed operations bundle staleness guard ----------------------------
+#
+# install-target-perimeter depends on install-target-operations having
+# already installed a fully current fourteen-file bundle at
+# /home/www/rateguru — this installer never installs, modifies, or takes
+# ownership of any of those fourteen files itself (see the file header).
+# Before this installer ever creates a staging directory, a backup
+# directory, or touches a single destination file, it confirms that bundle
+# is not missing, incomplete, drifted, or otherwise stale relative to this
+# repository's own committed sources: installing the perimeter (wrappers
+# that exec into these binaries) on top of a stale bundle — e.g. an
+# installed backup-cycle that predates --target support and would answer
+# "Unknown argument: --target" — would silently wire the new perimeter to
+# broken operational scripts. Every failure here uses the identical, clearly
+# actionable message so an operator knows exactly what to run first.
+
+check_installed_operation_file() {
+    local dst="$1" src="$2" mode="$3" label="$4"
+    local guidance="installed target operations are stale or incomplete; run install-target-operations --apply first"
+
+    if [[ ! -e "${dst}" ]]; then
+        fail "${guidance} (${label} is missing: ${dst})"
+    fi
+
+    if [[ -L "${dst}" ]]; then
+        fail "${guidance} (${label} must not be a symlink: ${dst})"
+    fi
+
+    if [[ ! -f "${dst}" ]]; then
+        fail "${guidance} (${label} must be a regular file: ${dst})"
+    fi
+
+    local actual_owner
+    actual_owner="$(stat -c '%u:%g' "${dst}" 2>/dev/null)" \
+        || fail "${guidance} (could not stat ${label}: ${dst})"
+    [[ "${actual_owner}" == "${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}" ]] \
+        || fail "${guidance} (${label} has wrong ownership: ${dst} is ${actual_owner}, expected ${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID})"
+
+    local actual_mode
+    actual_mode="$(stat -c '%a' "${dst}" 2>/dev/null)" \
+        || fail "${guidance} (could not stat mode of ${label}: ${dst})"
+    (( 8#${actual_mode} == 8#${mode} )) \
+        || fail "${guidance} (${label} has wrong mode: ${dst} is ${actual_mode}, expected ${mode})"
+
+    cmp -s "${src}" "${dst}" \
+        || fail "${guidance} (${label} content differs from its committed source: ${dst})"
+}
+
+validate_installed_operations_bundle() {
+    check_installed_operation_file "${DST_OPS_REGISTRY}" "${SRC_REGISTRY}" "${OPS_REGISTRY_MODE}" "registry"
+    check_installed_operation_file "${DST_OPS_TARGETS}" "${SRC_TARGETS}" "${OPS_CLI_MODE}" "targets"
+    check_installed_operation_file "${DST_OPS_COMMON}" "${SRC_COMMON}" "${OPS_COMMON_MODE}" "common"
+    check_installed_operation_file "${DST_OPS_HEALTH_CHECK}" "${SRC_HEALTH_CHECK}" "${OPS_CLI_MODE}" "health-check"
+    check_installed_operation_file "${DST_OPS_STATUS}" "${SRC_STATUS}" "${OPS_CLI_MODE}" "status"
+    check_installed_operation_file "${DST_OPS_CLEANUP}" "${SRC_CLEANUP}" "${OPS_CLI_MODE}" "cleanup"
+    check_installed_operation_file "${DST_OPS_DEPLOY}" "${SRC_DEPLOY}" "${OPS_CLI_MODE}" "deploy"
+    check_installed_operation_file "${DST_OPS_ROLLBACK}" "${SRC_ROLLBACK}" "${OPS_CLI_MODE}" "rollback"
+    check_installed_operation_file "${DST_OPS_BACKUP}" "${SRC_BACKUP}" "${OPS_CLI_MODE}" "backup"
+    check_installed_operation_file "${DST_OPS_RESTORE_TEST}" "${SRC_RESTORE_TEST}" "${OPS_CLI_MODE}" "restore-test"
+    check_installed_operation_file "${DST_OPS_OFFSITE_BACKUP}" "${SRC_OFFSITE_BACKUP}" "${OPS_CLI_MODE}" "offsite-backup"
+    check_installed_operation_file "${DST_OPS_OFFSITE_RETENTION}" "${SRC_OFFSITE_RETENTION}" "${OPS_CLI_MODE}" "offsite-retention"
+    check_installed_operation_file "${DST_OPS_OFFSITE_RESTORE_TEST}" "${SRC_OFFSITE_RESTORE_TEST}" "${OPS_CLI_MODE}" "offsite-restore-test"
+    check_installed_operation_file "${DST_OPS_BACKUP_CYCLE}" "${SRC_BACKUP_CYCLE}" "${OPS_CLI_MODE}" "backup-cycle"
+
+    log "installed target operations bundle (fourteen files) matches this repository's committed sources"
+}
+
 validate_sudoers_syntax() {
     local path="$1"
     "${VISUDO_BIN}" -cf "${path}" >/dev/null \
@@ -367,6 +487,11 @@ run_source_validation() {
     validate_sudoers_content "${SRC_SUDOERS}"
     validate_cron_format "${SRC_CRON}"
     check_required_tools
+    # Shared by --check, --apply's own preflight, and --verify (this
+    # function's only three callers) — runs last, after every other
+    # repository-only check has already passed, and always before a staging
+    # directory, backup directory, or destination file is ever touched.
+    validate_installed_operations_bundle
 }
 
 # --- Safe wrapper probes (never a real deploy/rollback/cleanup) -------------
@@ -661,7 +786,7 @@ verify_staged_candidates() {
 # --- Modes ----------------------------------------------------------------
 
 run_check() {
-    log "mode: check (read-only, no root required)"
+    log "mode: check (read-only)"
 
     run_source_validation
 
@@ -672,7 +797,7 @@ run_check() {
     log "  ${DST_SUDOERS}"
     log "  ${DST_CRON}"
 
-    log "check passed: source files, host tooling, target registry, sudoers candidate and cron format are all valid"
+    log "check passed: source files, host tooling, target registry, sudoers candidate, cron format, and the installed operations bundle are all valid"
 }
 
 APPLY_COMMITTED=false

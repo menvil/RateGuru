@@ -224,8 +224,14 @@ on the real staging VPS; slice 8 (perimeter) is current. The phase stays
    `offsite-restore-test` themselves are unchanged — they already support
    `--target` from earlier slices. The temporary legacy per-environment
    wrappers and sudoers rules remain installed, for rollback safety, until a
-   dedicated legacy-removal slice deletes them. See
-   `runbooks/target-perimeter.md`.
+   dedicated legacy-removal slice deletes them.
+
+   **Do not merge this slice before completing its pre-merge bootstrap
+   sequence** (deploy the feature-branch artifact through the still-legacy
+   action, install and verify the perimeter on the VPS, switch
+   `DEPLOY_WRAPPER` to the generic wrapper) — merging first checks out the
+   new deployment action onto `develop` before the VPS is ready for it,
+   deadlocking every subsequent deployment. See `runbooks/target-perimeter.md`.
 9. Remove the `--environment` interface, only after `staging-main` parity is
    proven end to end across every slice above.
 

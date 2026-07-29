@@ -13,6 +13,20 @@ set -Eeuo pipefail
 
 WRAPPER_NAME="rateguru-deploy"
 
+# Literal root-first contract: for a real invocation (never a sourced test
+# harness — BASH_SOURCE[0] == $0), reject a non-root caller before anything
+# else runs at all — before RATEGURU_ALLOW_TEST_OVERRIDES is even consulted,
+# before COMMON_FILE is resolved, before common is sourced. This is what
+# common's own require_root (called inside main(), below) cannot be: common
+# itself is not yet sourced at this point, so this is a plain inline EUID
+# check, not a function call. require_root still runs inside main() as
+# defense in depth for any caller that reaches that point some other way
+# (e.g. main() invoked directly after sourcing).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]] && [[ "${EUID}" -ne 0 ]]; then
+    printf 'ERROR: this command must be executed as root\n' >&2
+    exit 1
+fi
+
 # RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
 # =true — see the identical comment in infrastructure/scripts/deploy. Common
 # has not been sourced yet at this point, so this is a plain inline
@@ -186,10 +200,12 @@ exec_underlying() {
 
 # --- dispatch -----------------------------------------------------------
 #
-# require_root stays the unconditional first action of a real invocation —
-# this wrapper is reached only via sudo (or by real root directly), and never
-# performs any privileged filesystem work of its own beyond that gate; every
-# actual mutation happens in the execed underlying binary.
+# require_root stays the first action main() takes — defense in depth behind
+# the inline EUID gate at the top of this file, which already rejects a real
+# non-root invocation before common is even sourced. This wrapper is reached
+# only via sudo (or by real root directly), and never performs any privileged
+# filesystem work of its own beyond that gate; every actual mutation happens
+# in the execed underlying binary.
 main() {
     require_root
     parse_wrapper_args "$@"

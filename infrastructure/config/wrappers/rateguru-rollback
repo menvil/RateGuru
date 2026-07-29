@@ -17,6 +17,16 @@ set -Eeuo pipefail
 
 WRAPPER_NAME="rateguru-rollback"
 
+# Literal root-first contract: see the identical, fully-commented gate in
+# infrastructure/config/wrappers/rateguru-deploy. Rejects a real (never
+# sourced) non-root invocation before RATEGURU_ALLOW_TEST_OVERRIDES is even
+# consulted or common is sourced. require_root still runs inside main() as
+# defense in depth.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]] && [[ "${EUID}" -ne 0 ]]; then
+    printf 'ERROR: this command must be executed as root\n' >&2
+    exit 1
+fi
+
 COMMON_FILE=/home/www/rateguru/bin/common
 
 if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \

@@ -11,6 +11,14 @@ perimeter invokes (`deploy`, `rollback`, `cleanup`, `backup-cycle`,
 [`deployment-targets.md`](deployment-targets.md#target-aware-perimeter-slice-8-current).
 This document is only about the perimeter that calls them.
 
+> **Do not merge this slice before completing its
+> [pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence--do-not-merge-before-completing-this):
+> deploy the feature-branch artifact, install and verify the target
+> perimeter on the VPS, and switch `DEPLOY_WRAPPER` to the generic
+> wrapper.** Merging first checks out the new deployment action onto
+> `develop` before the VPS is ready for it, deadlocking every subsequent
+> deployment.
+
 ## Why a perimeter slice, separate from the scripts themselves
 
 Every mutating operational script already accepted `--target` before this
@@ -164,12 +172,13 @@ Environment used for approval and secrets — an entirely different concept
 from a *deployment target*, and not renamed by this slice) and the
 `rateguru-staging-deployment` concurrency group, both unchanged.
 
-### DEPLOY_WRAPPER must be switched by hand, post-merge
+### DEPLOY_WRAPPER must be switched by hand, before merge
 
-Merging this slice does **not** switch the live GitHub Actions variable —
-`DEPLOY_WRAPPER` keeps pointing at the legacy staging wrapper until an
-operator updates it. See
-[Post-merge real-VPS acceptance](#post-merge-real-vps-acceptance) below.
+The live GitHub Actions variable `DEPLOY_WRAPPER` is never switched
+automatically — an operator must update it by hand, and must do so
+**before** this slice is merged into `develop`, not after. See
+[Pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence--do-not-merge-before-completing-this)
+below for why merging first creates an unrecoverable deadlock.
 
 ## Backup cron
 
@@ -197,7 +206,7 @@ infrastructure/scripts/install-target-perimeter --verify
 Same contract as `install-target-operations`, scoped to five files instead
 of fourteen:
 
-### `--check` — read-only, no root
+### `--check` — read-only
 
 Validates: the five source files exist and are regular files; the three
 wrapper scripts and the installer itself are executable and pass `bash -n`;
@@ -210,7 +219,44 @@ planned/production; the candidate sudoers file passes `visudo -cf` and
 grants staging (never `tits-guru`) access to the three generic wrappers;
 the candidate cron file has exactly three operational lines, all using
 `--target staging-main`, none using `--environment`, with schedule and log
-paths unchanged. Makes no changes anywhere.
+paths unchanged; and — see
+[Installed operations bundle staleness guard](#installed-operations-bundle-staleness-guard)
+below — that the real, installed fourteen-file target operations bundle at
+`/home/www/rateguru` is present, correctly owned and moded, and
+byte-identical to this repository's own committed sources. Makes no changes
+anywhere.
+
+### Installed operations bundle staleness guard
+
+`install-target-perimeter` depends on `install-target-operations` having
+already installed a fully current fourteen-file bundle — the registry and
+`targets`/`common`/`health-check`/`status`/`cleanup`/`deploy`/`rollback`/
+`backup`/`restore-test`/`offsite-backup`/`offsite-retention`/
+`offsite-restore-test`/`backup-cycle` — at `/home/www/rateguru`. This
+installer never installs, modifies, or takes ownership of any of those
+fourteen files; it only ever verifies them, for `--check`, `--apply`'s own
+preflight, and `--verify` alike, before a staging directory, a backup
+directory, or a single perimeter destination file is ever touched.
+
+For each of the fourteen files, the check confirms: it exists; it is a
+regular file, never a symlink; its owner/mode match what
+`install-target-operations` installs (registry `root:root 0640`, `common`
+`root:root 0644`, every other file `root:root 0755`); and its content is
+byte-identical to this repository's own committed source. Any single
+failure — missing, symlinked, wrong mode, wrong ownership, or content
+drift — aborts with:
+
+```text
+installed target operations are stale or incomplete; run install-target-operations --apply first
+```
+
+This is exactly the situation an installed `backup-cycle` from before Phase
+4 slice 7.3 would produce: it predates `--target` support and answers
+`Unknown argument: --target`, even though the committed source in this
+repository is already target-aware. Installing the perimeter (wrappers that
+exec into these binaries) on top of a bundle like that would silently wire
+the new perimeter to broken operational scripts — this guard is what
+prevents that.
 
 ### `--apply` — requires root, transactional
 
@@ -282,23 +328,77 @@ just because the installer itself happened to be invoked through `sudo`.
 Gated behind `RATEGURU_ALLOW_TEST_OVERRIDES=true`: `RATEGURU_PERIMETER_ROOT`
 (prefixes all five destination paths and the backup root — the one
 deliberate seam that lets this installer's transactional core be exercised
-end to end against a private scratch tree) and `RATEGURU_VISUDO_BIN`
-(which `visudo` binary to use). Without the allow flag, both are ignored.
+end to end against a private scratch tree), `RATEGURU_VISUDO_BIN` (which
+`visudo` binary to use), and `RATEGURU_INSTALLED_OPERATIONS_ROOT` (prefixes
+the fourteen-file operations bundle path this installer only ever verifies
+— a second, independently gated seam, never conflated with
+`RATEGURU_PERIMETER_ROOT`, since this bundle is a read-only dependency, not
+something this installer owns or installs). Without the allow flag, all
+three are ignored.
 
-## Post-merge real-VPS acceptance
+## Pre-merge bootstrap sequence — do not merge before completing this
 
-1. Deploy the latest `develop` to staging — through the still-legacy
-   perimeter, one last time.
-2. Run `install-target-perimeter --check`, then `--apply`, then `--verify`
-   on the VPS.
-3. Update the GitHub variable `DEPLOY_WRAPPER` to
-   `/usr/local/sbin/rateguru-deploy`.
-4. Confirm the installed cron and sudoers with `install-target-perimeter
-   --verify`.
-5. Run the GitHub Actions staging deployment workflow for real.
-6. Verify deploy history and the post-deploy health check.
-7. Inspect the installed `/etc/cron.d/rateguru-backups` on the VPS.
-8. Confirm no active perimeter command (deploy, cron) still uses
+**Merging this change before bootstrapping the VPS creates a deadlock that
+cannot be recovered from remotely.** The staging deploy job's own "Checkout
+deployment action" step always checks out `.github/actions/deploy-rateguru`
+from `develop` — regardless of what ref is being *built and deployed* as
+the artifact. Once `develop` has the new action (which requires
+`deployment-target` and builds `--target ...` into the remote command),
+*every* subsequent deployment sends `--target` to whatever `DEPLOY_WRAPPER`
+currently points at. If that variable still names the legacy per-environment
+wrapper — which does not understand `--target` at all — the deployment
+fails immediately. And the only way to switch `DEPLOY_WRAPPER` to the new
+generic wrapper is to run `install-target-perimeter --apply` on the VPS,
+which requires `infrastructure/scripts/install-target-perimeter` to already
+exist in a *deployed* release — which requires a successful deployment
+first. Merging before that chain is complete locks out every future
+deployment until someone fixes it by hand, out of band, on the VPS.
+
+> **Do not merge before the feature-branch artifact has been deployed, the
+> target perimeter installed and verified, and `DEPLOY_WRAPPER` switched to
+> the generic wrapper.**
+
+The sequence below breaks the deadlock by deploying this feature branch's
+own artifact while `develop` — and therefore the deploy job's own checked-out
+action — is still the *legacy* action, one last time, before merge:
+
+1. Before merging, run the existing `Deploy to staging` GitHub Actions
+   workflow (`workflow_dispatch`) with:
+
+   ```text
+   ref=infra/target-aware-perimeter
+   run-migrations=false
+   ```
+
+2. Because the deploy job's action is checked out from the *current*
+   `develop` — still the legacy action at this point, with no
+   `deployment-target` input and no `--target` in its remote command — this
+   feature-branch artifact deploys through the still-legacy wrapper exactly
+   like any other deployment does today.
+3. On the VPS, from the just-deployed feature-branch release, run:
+
+   ```bash
+   infrastructure/scripts/install-target-perimeter --check
+   infrastructure/scripts/install-target-perimeter --apply
+   infrastructure/scripts/install-target-perimeter --verify
+   ```
+
+4. Update the GitHub variable:
+
+   ```text
+   DEPLOY_WRAPPER=/usr/local/sbin/rateguru-deploy
+   ```
+
+5. **Only now** may this change be merged into `develop`.
+6. After merging, run the normal deployment:
+
+   ```text
+   ref=develop
+   run-migrations=false
+   ```
+7. Verify deploy history and the post-deploy health check.
+8. Inspect the installed `/etc/cron.d/rateguru-backups` on the VPS.
+9. Confirm no active perimeter command (deploy, cron) still uses
    `--environment`.
 
 ## Troubleshooting

@@ -121,6 +121,66 @@ SH;
 }
 
 /**
+ * Creates a fully current, byte-identical-to-committed-source fourteen-file
+ * operations bundle under $scratch/ops/home/www/rateguru/..., matching
+ * exactly what install-target-operations installs for real — modes 0640
+ * (registry), 0644 (common), 0755 (every CLI). This is what makes every
+ * existing perform_apply/perform_verify/run_check test below pass
+ * validate_installed_operations_bundle without needing to know it exists;
+ * only the tests in the "installed operations bundle staleness guard"
+ * section below deliberately break one piece of it afterward.
+ *
+ * @return array<string, string> DST_OPS_* var name => path
+ */
+function installPerimeterWriteOperationsBundle(string $scratch): array
+{
+    $opsRoot = $scratch.'/ops';
+    $configDir = $opsRoot.'/home/www/rateguru/config';
+    $binDir = $opsRoot.'/home/www/rateguru/bin';
+    mkdir($configDir, 0o755, true);
+    mkdir($binDir, 0o755, true);
+
+    $copy = function (string $srcRelative, string $dst, int $mode): void {
+        copy(base_path($srcRelative), $dst);
+        chmod($dst, $mode);
+    };
+
+    $registry = $configDir.'/deployment-targets.json';
+    $copy('infrastructure/config/deployment-targets.json', $registry, 0o640);
+
+    $common = $binDir.'/common';
+    $copy('infrastructure/scripts/common', $common, 0o644);
+
+    $cliMap = [
+        'DST_OPS_TARGETS' => 'targets',
+        'DST_OPS_HEALTH_CHECK' => 'health-check',
+        'DST_OPS_STATUS' => 'status',
+        'DST_OPS_CLEANUP' => 'cleanup',
+        'DST_OPS_DEPLOY' => 'deploy',
+        'DST_OPS_ROLLBACK' => 'rollback',
+        'DST_OPS_BACKUP' => 'backup',
+        'DST_OPS_RESTORE_TEST' => 'restore-test',
+        'DST_OPS_OFFSITE_BACKUP' => 'offsite-backup',
+        'DST_OPS_OFFSITE_RETENTION' => 'offsite-retention',
+        'DST_OPS_OFFSITE_RESTORE_TEST' => 'offsite-restore-test',
+        'DST_OPS_BACKUP_CYCLE' => 'backup-cycle',
+    ];
+
+    $vars = [
+        'DST_OPS_REGISTRY' => $registry,
+        'DST_OPS_COMMON' => $common,
+    ];
+
+    foreach ($cliMap as $varName => $scriptName) {
+        $dst = $binDir.'/'.$scriptName;
+        $copy('infrastructure/scripts/'.$scriptName, $dst, 0o755);
+        $vars[$varName] = $dst;
+    }
+
+    return $vars;
+}
+
+/**
  * @return array<string, string>
  */
 function installPerimeterBaseVars(string $scratch, ?string $wrapperStub = null): array
@@ -134,7 +194,7 @@ function installPerimeterBaseVars(string $scratch, ?string $wrapperStub = null):
     $ownerId = (string) getmyuid();
     $groupId = (string) getmygid();
 
-    return [
+    return array_merge([
         'SRC_WRAPPER_DEPLOY' => $wrapperStub,
         'SRC_WRAPPER_ROLLBACK' => $wrapperStub,
         'SRC_WRAPPER_CLEANUP' => $wrapperStub,
@@ -144,12 +204,17 @@ function installPerimeterBaseVars(string $scratch, ?string $wrapperStub = null):
         'SRC_TARGETS' => base_path('infrastructure/scripts/targets'),
         'SRC_REGISTRY' => base_path('infrastructure/config/deployment-targets.json'),
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
+        'SRC_HEALTH_CHECK' => base_path('infrastructure/scripts/health-check'),
+        'SRC_STATUS' => base_path('infrastructure/scripts/status'),
         'SRC_DEPLOY' => base_path('infrastructure/scripts/deploy'),
         'SRC_ROLLBACK' => base_path('infrastructure/scripts/rollback'),
         'SRC_CLEANUP' => base_path('infrastructure/scripts/cleanup'),
-        'SRC_BACKUP_CYCLE' => base_path('infrastructure/scripts/backup-cycle'),
+        'SRC_BACKUP' => base_path('infrastructure/scripts/backup'),
         'SRC_RESTORE_TEST' => base_path('infrastructure/scripts/restore-test'),
+        'SRC_OFFSITE_BACKUP' => base_path('infrastructure/scripts/offsite-backup'),
+        'SRC_OFFSITE_RETENTION' => base_path('infrastructure/scripts/offsite-retention'),
         'SRC_OFFSITE_RESTORE_TEST' => base_path('infrastructure/scripts/offsite-restore-test'),
+        'SRC_BACKUP_CYCLE' => base_path('infrastructure/scripts/backup-cycle'),
         'DST_WRAPPER_DEPLOY' => $scratch.'/dest/usr/local/sbin/rateguru-deploy',
         'DST_WRAPPER_ROLLBACK' => $scratch.'/dest/usr/local/sbin/rateguru-rollback',
         'DST_WRAPPER_CLEANUP' => $scratch.'/dest/usr/local/sbin/rateguru-cleanup',
@@ -163,7 +228,7 @@ function installPerimeterBaseVars(string $scratch, ?string $wrapperStub = null):
         'INSTALL_GROUP' => trim((string) shell_exec('id -gn')),
         'INSTALL_OWNER_ID' => $ownerId,
         'INSTALL_GROUP_ID' => $groupId,
-    ];
+    ], installPerimeterWriteOperationsBundle($scratch));
 }
 
 /**
@@ -395,6 +460,189 @@ it('check makes no changes anywhere', function () {
         expect(glob($scratch.'/dest/usr/local/sbin/*'))->toBe([]);
         expect(glob($scratch.'/dest/etc/sudoers.d/*'))->toBe([]);
         expect(glob($scratch.'/dest/etc/cron.d/*'))->toBe([]);
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Installed operations bundle staleness guard
+//
+// install-target-perimeter must confirm the real installed fourteen-file
+// operations bundle (install-target-operations' own responsibility) is
+// present and current — for --check, --apply's own preflight, and
+// --verify alike — before ever creating a staging directory, a backup
+// directory, or touching a single perimeter destination file.
+// =============================================================================
+
+it('check passes when the installed operations bundle is fully current', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        [$exit, $output] = installPerimeterRunHarness($scratch, installPerimeterBaseVars($scratch), 'run_check');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('installed target operations bundle (fourteen files) matches this repository\'s committed sources');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when an installed operation is missing', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        unlink($vars['DST_OPS_BACKUP_CYCLE']);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('installed target operations are stale or incomplete; run install-target-operations --apply first');
+        expect($output)->toContain('backup-cycle is missing');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when an installed operation is a symlink', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $decoy = $scratch.'/decoy-backup-cycle';
+        file_put_contents($decoy, file_get_contents($vars['DST_OPS_BACKUP_CYCLE']));
+        unlink($vars['DST_OPS_BACKUP_CYCLE']);
+        symlink($decoy, $vars['DST_OPS_BACKUP_CYCLE']);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('installed target operations are stale or incomplete; run install-target-operations --apply first');
+        expect($output)->toContain('backup-cycle must not be a symlink');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails on content drift in an installed operation', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        file_put_contents($vars['DST_OPS_BACKUP_CYCLE'], "#!/usr/bin/env bash\necho tampered\n");
+        chmod($vars['DST_OPS_BACKUP_CYCLE'], 0o755);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('installed target operations are stale or incomplete; run install-target-operations --apply first');
+        expect($output)->toContain('backup-cycle content differs from its committed source');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when an installed operation has the wrong mode', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        chmod($vars['DST_OPS_REGISTRY'], 0o644);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('installed target operations are stale or incomplete; run install-target-operations --apply first');
+        expect($output)->toContain('registry has wrong mode');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when the installed backup-cycle predates --target support, the exact reported symptom', function () {
+    // Reproduces the real incident this guard exists for: an installed
+    // backup-cycle from before Phase 4 slice 7.3 answers "Unknown argument:
+    // --target" even though the committed source is already target-aware.
+    // The installer's own check is purely static (content/mode/ownership),
+    // so this proves two things together: (1) that stale content is
+    // detected as drift against the committed source, and (2) that the
+    // fixture genuinely reproduces the reported failure mode if invoked.
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+
+        $staleBackupCycle = <<<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+case "$1" in
+    --environment)
+        echo "legacy backup-cycle ok"
+        ;;
+    *)
+        echo "Unknown argument: --target" >&2
+        exit 1
+        ;;
+esac
+SH;
+        file_put_contents($vars['DST_OPS_BACKUP_CYCLE'], $staleBackupCycle);
+        chmod($vars['DST_OPS_BACKUP_CYCLE'], 0o755);
+
+        // The fixture really does reproduce the reported symptom.
+        exec(escapeshellarg($vars['DST_OPS_BACKUP_CYCLE']).' --target staging-main 2>&1', $staleOutput, $staleExit);
+        expect($staleExit)->not->toBe(0);
+        expect(implode("\n", $staleOutput))->toContain('Unknown argument: --target');
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('installed target operations are stale or incomplete; run install-target-operations --apply first');
+        expect($output)->toContain('backup-cycle content differs from its committed source');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('a stale installed operations bundle is rejected before any perimeter destination is touched', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        unlink($vars['DST_OPS_BACKUP_CYCLE']);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('installed target operations are stale or incomplete; run install-target-operations --apply first');
+
+        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_SUDOERS', 'DST_CRON'] as $key) {
+            expect(file_exists($vars[$key]))->toBeFalse("{$key} must not exist — a stale operations bundle must be rejected before any perimeter file is touched");
+        }
+        expect(glob($vars['BACKUP_ROOT'].'/*'))->toBe([], 'no backup directory should ever be created for this failure');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('verify also rejects a stale installed operations bundle', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+
+        [$applyExit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0);
+
+        // Simulate the bundle going stale after a successful apply — e.g. a
+        // manual, out-of-band change to the installed backup-cycle.
+        file_put_contents($vars['DST_OPS_BACKUP_CYCLE'], "#!/usr/bin/env bash\necho tampered\n");
+        chmod($vars['DST_OPS_BACKUP_CYCLE'], 0o755);
+
+        [$verifyExit, $verifyOutput] = installPerimeterRunHarness($scratch, $vars, 'perform_verify');
+
+        expect($verifyExit)->not->toBe(0);
+        expect($verifyOutput)->toContain('installed target operations are stale or incomplete; run install-target-operations --apply first');
     } finally {
         installPerimeterCleanup($scratch);
     }

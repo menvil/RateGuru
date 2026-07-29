@@ -1012,9 +1012,9 @@ staging health-check passed.
 
 ## Target-aware perimeter (slice 8, current)
 
-Once installed and switched over — see
-[Post-merge real-VPS acceptance](#post-merge-real-vps-acceptance-slice-8)
-below, which this slice's merge does **not** perform by itself — every real
+Once installed and switched over — a mandatory
+[pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence-slice-8) below,
+**not** something merging this slice performs by itself — every real
 staging operation goes through target-based invocation, end to end:
 
 ```text
@@ -1095,11 +1095,11 @@ value. `.github/workflows/deploy-staging.yml` passes
 `deployment-target: staging-main` explicitly; the GitHub Environment
 `staging` (the approval/secrets boundary) and the `rateguru-staging-deployment`
 concurrency group are both unchanged — they were never a legacy operational
-selector and are not renamed by this slice. After this slice merges, the
-`DEPLOY_WRAPPER` GitHub variable must be switched, by hand, to
-`/usr/local/sbin/rateguru-deploy` — see
-[Post-merge real-VPS acceptance](#post-merge-real-vps-acceptance-slice-8)
-below.
+selector and are not renamed by this slice. The `DEPLOY_WRAPPER` GitHub
+variable must be switched, by hand, to `/usr/local/sbin/rateguru-deploy`
+**before** this slice is merged into `develop`, not after — see
+[Pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence-slice-8)
+below for why merging first creates an unrecoverable deadlock.
 
 ### Backup cron: the same schedules and log paths, now target-based
 
@@ -1134,21 +1134,38 @@ legacy-removal slice deletes both `--environment` support and the legacy
 wrappers/sudoers rules together. `tits-guru` remains `lifecycle=planned` and
 undeployable — this slice does not provision it.
 
-### Post-merge real-VPS acceptance (slice 8)
+### Pre-merge bootstrap sequence (slice 8)
 
-1. Deploy the latest `develop` to staging (through the still-legacy
-   perimeter, one last time).
-2. Run `install-target-perimeter --check`, then `--apply`, then `--verify`
-   on the VPS.
+**Do not merge before the feature-branch artifact has been deployed, the
+target perimeter installed and verified, and `DEPLOY_WRAPPER` switched to
+the generic wrapper.** The staging deploy job's "Checkout deployment
+action" step always checks out `.github/actions/deploy-rateguru` from
+`develop`, regardless of what ref is being built and deployed. Once
+`develop` has the new action, every deployment sends `--target` to whatever
+`DEPLOY_WRAPPER` names — if that is still the legacy wrapper (which does
+not understand `--target`), every deployment fails, and the only way to
+install the fix (`install-target-perimeter`) is itself a deployment.
+Merging first is a deadlock with no remote recovery.
+
+1. Before merging, run the `Deploy to staging` workflow
+   (`workflow_dispatch`) with `ref=infra/target-aware-perimeter`,
+   `run-migrations=false` — this deploys the feature branch's own artifact
+   through the *still-legacy* action (checked out from the current,
+   pre-merge `develop`).
+2. On the VPS, from that deployed release, run `install-target-perimeter
+   --check`, then `--apply`, then `--verify`.
 3. Update the GitHub variable `DEPLOY_WRAPPER` to
    `/usr/local/sbin/rateguru-deploy`.
-4. Confirm the installed cron and sudoers with
-   `install-target-perimeter --verify`.
-5. Run the GitHub Actions staging deployment workflow for real.
+4. **Only now** merge this slice into `develop`.
+5. After merging, run the normal deployment workflow with `ref=develop`,
+   `run-migrations=false`.
 6. Verify deploy history and the post-deploy health check.
 7. Inspect the installed `/etc/cron.d/rateguru-backups` on the VPS.
 8. Confirm no active perimeter command (deploy, cron) still uses
    `--environment`.
+
+See [`target-perimeter.md`](target-perimeter.md#pre-merge-bootstrap-sequence--do-not-merge-before-completing-this)
+for the full rationale.
 
 ## Compatibility with the current --environment interface
 
@@ -1227,8 +1244,10 @@ confirming both still succeed.
    cron switched from `--environment staging` to `--target staging-main`.
    *(current — see
    [Target-aware perimeter](#target-aware-perimeter-slice-8-current) above
-   and [`target-perimeter.md`](target-perimeter.md); real-VPS acceptance is
-   a post-merge follow-up)*
+   and [`target-perimeter.md`](target-perimeter.md); requires the
+   [pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence-slice-8) —
+   installing and switching the VPS over is a prerequisite for merging this
+   slice, not a follow-up after it)*
 9. **Remove compatibility** — drop `--environment` and the temporary legacy
    per-environment wrappers/sudoers rules, only after `staging-main` parity
    is proven end to end across every slice above.
