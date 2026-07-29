@@ -1,11 +1,11 @@
 # Installing the target-aware operations
 
-Phase 4 slices 2b-5. This runbook covers
+Phase 4 slices 2b-6. This runbook covers
 `infrastructure/scripts/install-target-operations`, which installs the
 deployment target registry and the target-aware scripts on the staging VPS:
 `targets`, `common`, `health-check` and `status` (read-only, slice 2b), plus
-`cleanup` (slice 4) and `deploy` (slice 5) — the mutating operations this
-installer manages.
+`cleanup` (slice 4), `deploy` (slice 5) and `rollback` (slice 6) — the
+mutating operations this installer manages.
 
 For what the registry and the target-aware commands themselves are, see
 [`deployment-targets.md`](deployment-targets.md). This document is only about
@@ -13,7 +13,7 @@ getting them onto the host safely.
 
 ## What this installer owns — and does not
 
-Exactly seven files:
+Exactly eight files:
 
 | Source (this repo) | Destination |
 |---|---|
@@ -24,17 +24,18 @@ Exactly seven files:
 | `infrastructure/scripts/status` | `/home/www/rateguru/bin/status` |
 | `infrastructure/scripts/cleanup` | `/home/www/rateguru/bin/cleanup` |
 | `infrastructure/scripts/deploy` | `/home/www/rateguru/bin/deploy` |
+| `infrastructure/scripts/rollback` | `/home/www/rateguru/bin/rollback` |
 
 These destinations are **fixed, hardcoded constants** in the installer — not
 configurable by environment variable or CLI argument, on purpose. This
-installer's entire job is putting these seven files in these seven places
+installer's entire job is putting these eight files in these eight places
 with these exact permissions. Nothing else.
 
 ### The two destination directories must already exist
 
 `/home/www/rateguru/config` and `/home/www/rateguru/bin` are **not** owned by
 this installer, and it never creates, `chown`s or `chmod`s either one — only
-the seven files inside them. `--apply` validates both directories before it
+the eight files inside them. `--apply` validates both directories before it
 creates a backup or changes anything: each must exist, be a real directory
 (not a symlink), owned by `root:root`, and not group- or other-writable.
 `--apply` refuses to proceed — before touching anything — if either
@@ -47,9 +48,9 @@ on) belongs to a VPS bootstrap step outside this installer's scope.
 - `/home/www/rateguru/config/deployment.conf` — the target helpers already
   default to the registry's installed path above, so nothing there needs to
   change;
-- `rollback` — still `--environment`-only;
 - `backup`, `backup-cycle`, `offsite-backup`, `offsite-retention`,
-  `restore-test`, `offsite-restore-test` — untouched;
+  `restore-test`, `offsite-restore-test` — still `--environment`-only,
+  untouched;
 - GitHub Actions workflows, sudoers rules, server wrappers — the deploy
   workflow keeps invoking the legacy `/usr/local/sbin` wrapper with
   `--environment staging`; migrating it to `--target staging-main` is a
@@ -60,31 +61,31 @@ on) belongs to a VPS bootstrap step outside this installer's scope.
 
 ### Why tits-guru remains planned
 
-Installing `health-check`, `status`, `cleanup` and `deploy` on the VPS does
-**not** provision `tits-guru`. It has `lifecycle: planned` in the registry,
-and every target-aware command rejects it — before any URL is built, any
-`curl` runs, or any filesystem path, lock or history is touched — via
-`require_active_target`, which only lets `lifecycle: active` targets through.
-`staging-main` is the only target with that lifecycle. Nothing in this
-installer, or in the scripts it installs, creates a `tits-guru` directory,
-database, service, or DNS record; those all belong to a future slice that
-provisions the target for real, and only then would its lifecycle be
-reviewed and changed to `active`.
+Installing `health-check`, `status`, `cleanup`, `deploy` and `rollback` on
+the VPS does **not** provision `tits-guru`. It has `lifecycle: planned` in
+the registry, and every target-aware command rejects it — before any URL is
+built, any `curl` runs, or any filesystem path, lock or history is touched —
+via `require_active_target`, which only lets `lifecycle: active` targets
+through. `staging-main` is the only target with that lifecycle. Nothing in
+this installer, or in the scripts it installs, creates a `tits-guru`
+directory, database, service, or DNS record; those all belong to a future
+slice that provisions the target for real, and only then would its
+lifecycle be reviewed and changed to `active`.
 
-### Why no rollback/backup script is changed
+### Why the backup family is not changed
 
 Those scripts write to a target's filesystem, database, or running service
-state, the same way `cleanup` and `deploy` do — but `cleanup` and `deploy`
-are deliberately the migration sequence's next two slices (see
-`deployment-targets.md`), not an exception to the pattern. What makes it safe
-to graduate them ahead of `rollback`/backup is that every write they can make
-is already gated behind the same protections those scripts themselves rely
-on: the `require_active_target` lifecycle check (checked immediately after
-root authorization, before any artifact, filesystem or lock work, for
-`deploy`), the identical exclusive deployment lock, and canonical
-path-containment validation on every deletion or extraction candidate before
-it is touched. `rollback` and the backup family remain target-aware only in
-later slices, once each has been given the equivalent scrutiny.
+state, the same way `cleanup`, `deploy` and `rollback` do — but each of those
+three graduated in its own dedicated, independently reviewed migration slice
+(see `deployment-targets.md`), not as an exception to the pattern. What makes
+it safe to graduate them ahead of the backup family is that every write they
+can make is already gated behind the same protections those scripts
+themselves rely on: the `require_active_target` lifecycle check (checked
+immediately after root authorization, before any filesystem or lock work),
+the identical exclusive deployment lock, and canonical path-containment
+validation on every release path, deletion or extraction candidate before it
+is touched. The backup family remains target-aware only in its own future
+slice, once it has been given the equivalent scrutiny.
 
 ## Modes
 
@@ -101,8 +102,8 @@ clear error before anything else runs.
 
 ### `--check` — repository-only, no root
 
-Validates the seven source files (exist, regular, not a symlink), runs
-`bash -n` on the six shell scripts, confirms `jq` can parse the registry,
+Validates the eight source files (exist, regular, not a symlink), runs
+`bash -n` on the seven shell scripts, confirms `jq` can parse the registry,
 runs the *committed* `targets` CLI against the *committed* registry and
 confirms it both validates and lists `staging-main` as `active`/`staging` and
 `tits-guru` as `planned`/`production`, and confirms every required host tool
@@ -131,7 +132,7 @@ sudo infrastructure/scripts/install-target-operations --apply
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-4. The seven source files are copied into a private, root-only temporary
+4. The eight source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract from slice 2, and **only** here — to prove the candidate
    set is internally consistent before anything real is touched: `targets
@@ -140,16 +141,17 @@ sudo infrastructure/scripts/install-target-operations --apply
    `status --target staging-main`,
    `cleanup --environment staging --dry-run`,
    `cleanup --target staging-main --dry-run` (asserting both select the same
-   candidate release IDs), `deploy --help`, and that
-   `health-check --target tits-guru`, `cleanup --target tits-guru --dry-run`
-   and `deploy --target tits-guru` (with a deliberately unusable artifact
-   path) still correctly fail with `lifecycle=planned`. Every staged
-   `cleanup` invocation here is `--dry-run` only and `deploy` is never
-   invoked with a real artifact, so this step never mutates the real staging
-   target.
+   candidate release IDs), `deploy --help`, `rollback --help`, and that
+   `health-check --target tits-guru`, `cleanup --target tits-guru --dry-run`,
+   `deploy --target tits-guru` (with a deliberately unusable artifact path)
+   and `rollback --target tits-guru` (with a deliberately unusable release
+   ID) still correctly fail with `lifecycle=planned`. Every staged `cleanup`
+   invocation here is `--dry-run` only, and neither `deploy` nor `rollback`
+   is ever invoked for a real deployment or rollback, so this step never
+   mutates the real staging target.
 5. A timestamped backup directory is created (see below), and each
    destination is installed in dependency order — registry, `targets`,
-   `common`, `health-check`, `status`, `cleanup`, `deploy` — via
+   `common`, `health-check`, `status`, `cleanup`, `deploy`, `rollback` — via
    stage-in-place-then-atomic-rename into a same-directory, `mktemp`-created
    temporary file, never a direct overwrite and never a predictable temporary
    path. An existing destination that is anything other than absent or a
@@ -188,6 +190,8 @@ install. Reports each phase separately:
 --- cleanup planned-target rejection ---
 --- deploy help ---
 --- deploy planned-target rejection ---
+--- rollback help ---
+--- rollback planned-target rejection ---
 --- final result ---
 PASS: installed files and runtime behaviour verified
 ```
@@ -200,12 +204,12 @@ line — `--verify` never claims success after a step it didn't actually pass.
 | | Owner | Mode | Notes |
 |---|---|---|---|
 | `deployment-targets.json` | `root:root` | `0640` | registry — non-secret, but not world-readable |
-| `targets`, `health-check`, `status`, `cleanup`, `deploy` | `root:root` | `0755` | executable scripts |
+| `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback` | `root:root` | `0755` | executable scripts |
 | `common` | `root:root` | `0644` | sourced library, never a CLI — must never be executable |
 
 `common` was previously installed at `0755`, the same mode as the CLIs beside
 it; that was wrong; it is a sourced library, never invoked directly, and this
-installer now corrects it. None of the seven may be group- or world-writable,
+installer now corrects it. None of the eight may be group- or world-writable,
 and none may be a symlink — enforced both when installing and when verifying.
 Existing destinations must also be a plain regular file or absent — a
 directory, FIFO, socket or device is refused the same way a symlink is.
@@ -270,7 +274,7 @@ sudo cp -a \
     /home/www/rateguru/bin/common
 ```
 
-Repeat for each of the seven destinations that need restoring. Confirm with:
+Repeat for each of the eight destinations that need restoring. Confirm with:
 
 ```bash
 sudo infrastructure/scripts/install-target-operations --verify
@@ -322,7 +326,15 @@ overridden paths:
     `lifecycle=planned` rejection → no artifact or filesystem validation ever
     reached. `deploy` is never invoked with a real artifact by this installer,
     at any point — a real deployment is always a separate, explicit,
-    human-triggered action.
+    human-triggered action;
+14. `rollback --help` succeeds;
+15. `rollback --target tits-guru`, given a deliberately unusable release ID,
+    **fails**, and its error names `lifecycle=planned` — proving the
+    installed `rollback`'s ordering is root authorization →
+    `lifecycle=planned` rejection → no filesystem, lock or history work ever
+    reached. `rollback` is never invoked for a real rollback by this
+    installer, at any point — a real rollback is always a separate,
+    explicit, human-triggered action.
 
 ## Expected server commands
 
@@ -343,11 +355,13 @@ sudo infrastructure/scripts/install-target-operations --verify
 /home/www/rateguru/bin/health-check --environment staging
 /home/www/rateguru/bin/status --environment staging
 /home/www/rateguru/bin/deploy --environment staging --release ... --artifact ...
+/home/www/rateguru/bin/rollback --environment staging --previous
 
 # The new interface becomes available once installed:
 /home/www/rateguru/bin/health-check --target staging-main
 /home/www/rateguru/bin/status --target staging-main
 /home/www/rateguru/bin/deploy --target staging-main --release ... --artifact ...
+/home/www/rateguru/bin/rollback --target staging-main --previous
 ```
 
 The GitHub Actions deploy workflow and its `/usr/local/sbin` wrapper are

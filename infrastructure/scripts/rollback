@@ -2,86 +2,287 @@
 
 set -Eeuo pipefail
 
-# shellcheck disable=SC1091
-source /home/www/rateguru/bin/common
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this script
+# at an attacker- or operator-controlled file to source. This is a plain
+# inline condition, not a call to common's rateguru_test_overrides_allowed():
+# common has not been sourced yet at this point, so no function it defines
+# exists to call. Production never sets either variable, so this resolves to
+# the exact same installed path as before.
+COMMON_FILE=/home/www/rateguru/bin/common
 
-require_root
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
 
-ENVIRONMENT=""
-TARGET_RELEASE=""
-USE_PREVIOUS=false
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
-            shift 2
-            ;;
-        --release)
-            TARGET_RELEASE="${2:-}"
-            shift 2
-            ;;
-        --previous)
-            USE_PREVIOUS=true
-            shift
-            ;;
-        *)
-            fail "unknown argument: $1"
-            ;;
+# Phase 4 slice 6: gated test override for the one external binary rollback
+# invokes by absolute path, mirroring deploy's own RATEGURU_HEALTH_CHECK_BIN/
+# HEALTH_CHECK_BIN pattern exactly. Production value is unchanged; this exists
+# purely so tests can run rollback's real pipeline end to end against a
+# self-contained stub health-check instead of the real installed one. Gated
+# the same way every other RATEGURU_* override is: a stray environment
+# variable in a real root shell can never silently redirect this binary
+# without the explicit opt-in flag.
+HEALTH_CHECK_BIN_DEFAULT="/home/www/rateguru/bin/health-check"
+HEALTH_CHECK_BIN="${HEALTH_CHECK_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_HEALTH_CHECK_BIN:-}" ]]; then
+        HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_BIN}"
+    fi
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+
+  rollback \
+    --environment staging|production \
+    (--release RELEASE_ID | --previous)
+
+  rollback \
+    --target TARGET_ID \
+    (--release RELEASE_ID | --previous)
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called. This is what lets tests source this whole section standalone
+# (BASH_SOURCE[0] != $0 when sourced, so the guard never calls main on its
+# own), call parse_rollback_args/resolve_target/perform_rollback directly for
+# parsing- and resolution-only coverage, or call main explicitly for tests
+# that legitimately need the full root-gated flow — the same technique
+# infrastructure/scripts/deploy already established, chosen here over
+# cleanup's run_apply()/run_verify() wrapper because rollback runs privileged
+# filesystem mutation on every invocation, not just under a dedicated flag —
+# require_root must stay the unconditional first action, unchanged from
+# before this slice.
+
+# --- selector, destination and execution-mode parsing ------------------------
+#
+# rollback cannot reuse common's parse_selector_args directly — it has extra
+# flags (--release, --previous) that function does not know about — so it
+# runs its own loop for --target/--environment/--release/--previous, then
+# calls assert_selector_state for the exact same mutual-exclusion /
+# exactly-one-required / non-empty validation health-check/status/cleanup/
+# deploy already get. Every value-taking flag below validates its value
+# through require_flag_value before assignment or shifting, so a missing,
+# empty, or flag-shaped value fails closed with a message naming the specific
+# flag, matching deploy's own contract exactly.
+
+# require_flag_value <flag-name> <remaining-arg-count> <next-token>
+#
+# <remaining-arg-count> is "$#" from the caller's while loop, taken *before*
+# any shift — i.e. it counts the flag itself plus everything after it, so
+# "at least 2" means a following token genuinely exists. <next-token> is
+# "${2-}" from the same call site (nounset-safe whether or not $2 exists).
+require_flag_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
     esac
-done
+}
 
-[[ -n "${ENVIRONMENT}" ]] \
-    || fail "--environment is required"
+parse_rollback_args() {
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+    RELEASE_ID=""
+    RELEASE_SEEN=false
+    USE_PREVIOUS=false
+    PREVIOUS_SEEN=false
 
-validate_environment "${ENVIRONMENT}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
+                require_flag_value "--environment" "$#" "${2-}"
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --release)
+                [[ "${RELEASE_SEEN}" != true ]] || fail "--release given more than once"
+                [[ "${PREVIOUS_SEEN}" != true ]] || fail "--release and --previous cannot be combined"
+                require_flag_value "--release" "$#" "${2-}"
+                RELEASE_ID="$2"
+                RELEASE_SEEN=true
+                shift 2
+                ;;
+            --previous)
+                [[ "${PREVIOUS_SEEN}" != true ]] || fail "--previous given more than once"
+                [[ "${RELEASE_SEEN}" != true ]] || fail "--release and --previous cannot be combined"
+                USE_PREVIOUS=true
+                PREVIOUS_SEEN=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
 
-ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
+    assert_selector_state
 
-acquire_deployment_lock "${ENVIRONMENT_ROOT}"
+    if [[ "${RELEASE_SEEN}" != true ]] && [[ "${PREVIOUS_SEEN}" != true ]]; then
+        fail "--release or --previous is required"
+    fi
+}
 
-CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
-PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
+# --- target resolution (mirrors health-check/status/cleanup/deploy) ----------
 
-[[ -L "${CURRENT_LINK}" ]] \
-    || fail "current symlink does not exist"
+resolve_target() {
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        # require_active_target validates the target ID, the whole registry,
+        # that the target exists, and that it is lifecycle=active — all
+        # before target_root, the current/previous symlinks, the releases
+        # directory, the deployment lock, history, systemctl or health-check
+        # are ever touched. main() already called require_root before this
+        # function runs, so the full ordering for --target is: root
+        # authorization -> lifecycle=planned rejection -> (only if active)
+        # filesystem/lock work.
+        require_active_target "${TARGET_ID}"
 
-ORIGINAL_CURRENT_PATH="$(readlink -f "${CURRENT_LINK}")"
-ORIGINAL_CURRENT_ID="$(basename "${ORIGINAL_CURRENT_PATH}")"
-ORIGINAL_PREVIOUS_PRESENT=false
-ORIGINAL_PREVIOUS_PATH=""
+        ENVIRONMENT_ROOT="$(target_root "${TARGET_ID}")"
+        LABEL="${TARGET_ID}"
+        HEALTH_SELECTOR=(--target "${TARGET_ID}")
+    else
+        validate_environment "${ENVIRONMENT}"
 
-if [[ -L "${PREVIOUS_LINK}" ]]; then
-    ORIGINAL_PREVIOUS_PRESENT=true
-    ORIGINAL_PREVIOUS_PATH="$(readlink -f "${PREVIOUS_LINK}")"
-fi
+        ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
+        LABEL="${ENVIRONMENT}"
+        HEALTH_SELECTOR=(--environment "${ENVIRONMENT}")
+    fi
+}
 
-if [[ "${USE_PREVIOUS}" == true ]]; then
-    [[ "${ORIGINAL_PREVIOUS_PRESENT}" == true ]] \
-        || fail "previous symlink does not exist"
+# --- release path safety -----------------------------------------------------
+#
+# Fail-closed validation for every release path this script ever reads as the
+# current release, the previous release, or an explicit --release target —
+# before any symlink is switched. current/previous remain ordinary symlinks;
+# what is refused is an unsafe *target* of that symlink (escaping the
+# releases root, a nested path, an invalid release ID, a release directory
+# that is itself a symlink, or a missing target) — never the fact that
+# current/previous are symlinks in the first place, which is expected and
+# required.
 
-    TARGET_RELEASE_PATH="${ORIGINAL_PREVIOUS_PATH}"
-    TARGET_RELEASE="$(basename "${TARGET_RELEASE_PATH}")"
-else
-    [[ -n "${TARGET_RELEASE}" ]] \
-        || fail "--release or --previous is required"
+validate_releases_root() {
+    [[ -e "${RELEASES_ROOT}" ]] \
+        || fail "releases root does not exist: ${RELEASES_ROOT}"
 
-    validate_release_id "${TARGET_RELEASE}"
+    [[ ! -L "${RELEASES_ROOT}" ]] \
+        || fail "releases root must not be a symlink: ${RELEASES_ROOT}"
 
-    TARGET_RELEASE_PATH="${ENVIRONMENT_ROOT}/releases/${TARGET_RELEASE}"
-fi
+    [[ -d "${RELEASES_ROOT}" ]] \
+        || fail "releases root must be a real directory: ${RELEASES_ROOT}"
 
-[[ -d "${TARGET_RELEASE_PATH}" ]] \
-    || fail "target release does not exist: ${TARGET_RELEASE_PATH}"
+    local canonical_environment_root
+    CANONICAL_RELEASES_ROOT="$(readlink -f "${RELEASES_ROOT}")"
+    canonical_environment_root="$(readlink -f "${ENVIRONMENT_ROOT}")"
 
-if [[ "${ORIGINAL_CURRENT_PATH}" == "${TARGET_RELEASE_PATH}" ]]; then
-    fail "target release is already current"
-fi
+    [[ "$(dirname "${CANONICAL_RELEASES_ROOT}")" == "${canonical_environment_root}" ]] \
+        || fail "releases root does not canonically resolve under the target root: ${RELEASES_ROOT}"
+}
 
-ROLLBACK_STARTED=false
-SWITCH_STARTED=false
-TERMINAL_HISTORY_WRITTEN=false
-FAILURE_STATUS="failed"
+# validate_release_directory <release_path> <label>
+#
+# <release_path> is a literal, single-hop path — never pre-resolved with
+# `readlink -f` by the caller — so a release directory that is itself a
+# symlink is caught here by name, rather than silently followed through to
+# whatever it ultimately points at. Requires: exists; is a real directory;
+# is not itself a symlink; is a direct child of RELEASES_ROOT; has a
+# release-ID-shaped basename; and, after `readlink -f`, resolves to exactly
+# itself — i.e. nothing anywhere in the chain lets it escape the releases
+# root. Used identically for the current release, the previous release, and
+# an explicit --release path.
+validate_release_directory() {
+    local release_path="$1"
+    local label="$2"
+
+    [[ -e "${release_path}" ]] \
+        || fail "${label} release does not exist: ${release_path}"
+
+    [[ ! -L "${release_path}" ]] \
+        || fail "${label} release must not be a symlink: ${release_path}"
+
+    [[ -d "${release_path}" ]] \
+        || fail "${label} release must be a real directory: ${release_path}"
+
+    [[ "$(dirname "${release_path}")" == "${RELEASES_ROOT}" ]] \
+        || fail "${label} release is not a direct child of the releases root: ${release_path}"
+
+    local release_id
+    release_id="$(basename "${release_path}")"
+
+    validate_release_id "${release_id}"
+
+    # Compared against CANONICAL_RELEASES_ROOT (readlink -f of RELEASES_ROOT),
+    # never the literal RELEASES_ROOT itself: on hosts where some prefix of
+    # RELEASES_ROOT is itself a symlink (e.g. macOS aliasing /var to
+    # /private/var), readlink -f on release_path resolves through it, and
+    # comparing that against an un-resolved literal path would produce a
+    # false "escapes the releases root" failure for a perfectly safe release.
+    local canonical
+    canonical="$(readlink -f "${release_path}")"
+
+    [[ "${canonical}" == "${CANONICAL_RELEASES_ROOT}/${release_id}" ]] \
+        || fail "${label} release escapes the releases root: ${release_path}"
+}
+
+# validate_pointer_release <link_path> <label>
+#
+# <link_path> (current or previous) must be a symlink. Its immediate
+# (single-hop) target is read with plain `readlink` — never `readlink -f` —
+# made absolute if it is not already, and handed to validate_release_directory
+# unresolved further, so that function's own `-L` check is what catches a
+# release directory that is itself a symlink. Prints the validated absolute
+# path.
+validate_pointer_release() {
+    local link_path="$1"
+    local label="$2"
+
+    [[ -L "${link_path}" ]] \
+        || fail "${label} symlink does not exist: ${link_path}"
+
+    local immediate_target
+    immediate_target="$(readlink "${link_path}")"
+
+    case "${immediate_target}" in
+        /*) ;;
+        *) immediate_target="${ENVIRONMENT_ROOT}/${immediate_target}" ;;
+    esac
+
+    validate_release_directory "${immediate_target}" "${label}"
+
+    printf '%s\n' "${immediate_target}"
+}
+
+# --- rollback recovery (unchanged internals from before this slice; process-
+# global trap, not function-scoped, so moving the call site that arms it into
+# perform_rollback below changes nothing about when or how it fires) ---------
 
 restore_link_state() {
     local link_path="$1"
@@ -135,10 +336,12 @@ restore_original_links() {
         recovery_failed=true
     fi
 
+    # Recovery health-check uses the exact same selector rollback was invoked
+    # with (HEALTH_SELECTOR, resolved once in resolve_target) — never a second,
+    # independently-derived selector — so target mode and legacy mode are
+    # verified identically on both the normal and the recovery path.
     if [[ "${current_restored}" == true ]]; then
-        if ! /home/www/rateguru/bin/health-check \
-            --environment "${ENVIRONMENT}"
-        then
+        if ! "${HEALTH_CHECK_BIN}" "${HEALTH_SELECTOR[@]}"; then
             recovery_failed=true
         fi
     fi
@@ -186,48 +389,135 @@ handle_rollback_exit() {
     exit "${exit_code}"
 }
 
-trap handle_rollback_exit EXIT
+# --- rollback pipeline: one shared code path for both selectors -------------
 
-append_history \
-    "${ENVIRONMENT_ROOT}" \
-    "rollback-started" \
-    "${TARGET_RELEASE}" \
-    "running"
+perform_rollback() {
+    RELEASES_ROOT="${ENVIRONMENT_ROOT}/releases"
+    CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
+    PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
 
-ROLLBACK_STARTED=true
-SWITCH_STARTED=true
+    acquire_deployment_lock "${ENVIRONMENT_ROOT}"
 
-ln -sfn \
-    "${ORIGINAL_CURRENT_PATH}" \
-    "${PREVIOUS_LINK}.new"
+    validate_releases_root
 
-mv -Tf \
-    "${PREVIOUS_LINK}.new" \
-    "${PREVIOUS_LINK}"
+    ORIGINAL_CURRENT_PATH="$(validate_pointer_release "${CURRENT_LINK}" "current")"
+    ORIGINAL_CURRENT_ID="$(basename "${ORIGINAL_CURRENT_PATH}")"
 
-ln -sfn \
-    "${TARGET_RELEASE_PATH}" \
-    "${CURRENT_LINK}.new"
+    ORIGINAL_PREVIOUS_PRESENT=false
+    ORIGINAL_PREVIOUS_PATH=""
 
-mv -Tf \
-    "${CURRENT_LINK}.new" \
-    "${CURRENT_LINK}"
+    # -e alone would miss a dangling symlink (a real, unsafe case
+    # validate_pointer_release must still catch); -L alone would miss an
+    # existing plain file or directory at PREVIOUS_LINK, silently treating it
+    # as "absent" and letting the later atomic mv -Tf clobber it without ever
+    # validating what was there. Either condition routes into
+    # validate_pointer_release, whose own `-L` check is what actually rejects
+    # a non-symlink previous — mirroring cleanup's protect_pointer_link.
+    if [[ -e "${PREVIOUS_LINK}" ]] || [[ -L "${PREVIOUS_LINK}" ]]; then
+        ORIGINAL_PREVIOUS_PRESENT=true
+        ORIGINAL_PREVIOUS_PATH="$(validate_pointer_release "${PREVIOUS_LINK}" "previous")"
+    fi
 
-systemctl reload "${PHP_FPM_SERVICE}"
+    if [[ "${USE_PREVIOUS}" == true ]]; then
+        [[ "${ORIGINAL_PREVIOUS_PRESENT}" == true ]] \
+            || fail "previous symlink does not exist"
 
-if ! /home/www/rateguru/bin/health-check \
-    --environment "${ENVIRONMENT}"
-then
-    FAILURE_STATUS="failed-health-check"
-    fail "rollback health check failed; restoring ${ORIGINAL_CURRENT_ID}"
+        TARGET_RELEASE_PATH="${ORIGINAL_PREVIOUS_PATH}"
+        TARGET_RELEASE="$(basename "${TARGET_RELEASE_PATH}")"
+    else
+        validate_release_id "${RELEASE_ID}"
+
+        TARGET_RELEASE="${RELEASE_ID}"
+        TARGET_RELEASE_PATH="${RELEASES_ROOT}/${TARGET_RELEASE}"
+
+        validate_release_directory "${TARGET_RELEASE_PATH}" "explicit"
+    fi
+
+    # Compared canonically (readlink -f on both sides), not as literal
+    # strings: ORIGINAL_CURRENT_PATH is the symlink's raw, single-hop target
+    # (see validate_pointer_release), which can carry a trailing slash or a
+    # symlinked path-prefix difference from the freshly-constructed
+    # TARGET_RELEASE_PATH even when both genuinely name the same release
+    # directory. A literal-string false negative here would let the swap
+    # proceed and silently overwrite previous with what is already current,
+    # discarding a real rollback point for no actual change to current.
+    if [[ "$(readlink -f "${ORIGINAL_CURRENT_PATH}")" == "$(readlink -f "${TARGET_RELEASE_PATH}")" ]]; then
+        fail "target release is already current"
+    fi
+
+    ROLLBACK_STARTED=false
+    SWITCH_STARTED=false
+    TERMINAL_HISTORY_WRITTEN=false
+    FAILURE_STATUS="failed"
+
+    trap handle_rollback_exit EXIT
+
+    append_history \
+        "${ENVIRONMENT_ROOT}" \
+        "rollback-started" \
+        "${TARGET_RELEASE}" \
+        "running"
+
+    ROLLBACK_STARTED=true
+    SWITCH_STARTED=true
+
+    ln -sfn \
+        "${ORIGINAL_CURRENT_PATH}" \
+        "${PREVIOUS_LINK}.new"
+
+    mv -Tf \
+        "${PREVIOUS_LINK}.new" \
+        "${PREVIOUS_LINK}"
+
+    ln -sfn \
+        "${TARGET_RELEASE_PATH}" \
+        "${CURRENT_LINK}.new"
+
+    mv -Tf \
+        "${CURRENT_LINK}.new" \
+        "${CURRENT_LINK}"
+
+    systemctl reload "${PHP_FPM_SERVICE}"
+
+    if ! "${HEALTH_CHECK_BIN}" "${HEALTH_SELECTOR[@]}"; then
+        FAILURE_STATUS="failed-health-check"
+        fail "rollback health check failed; restoring ${ORIGINAL_CURRENT_ID}"
+    fi
+
+    log "${LABEL} rolled back to ${TARGET_RELEASE}"
+
+    append_history \
+        "${ENVIRONMENT_ROOT}" \
+        "rollback-finished" \
+        "${TARGET_RELEASE}" \
+        "success"
+
+    TERMINAL_HISTORY_WRITTEN=true
+}
+
+# --- dispatch -----------------------------------------------------------
+
+# require_root stays the first substantive action of a real invocation,
+# unchanged from before this slice — rollback runs privileged filesystem
+# mutation on every invocation, not only under a dedicated flag, so this is
+# the production root-only contract, unweakened by anything above:
+# parse_rollback_args, resolve_target and perform_rollback are all inert
+# definitions until main calls them, in this exact order.
+main() {
+    require_root
+    parse_rollback_args "$@"
+    resolve_target
+    perform_rollback
+}
+
+# A real invocation (`bash rollback ...` or `./rollback ...`) always has
+# BASH_SOURCE[0] == $0, so main runs immediately here, exactly as today.
+# Tests source this file instead — BASH_SOURCE[0] != $0 in that case, so main
+# never auto-runs — then call parse_rollback_args/resolve_target/
+# perform_rollback directly (bypassing require_root, for parsing/resolution/
+# pipeline coverage that doesn't need real root) or invoke the script as a
+# genuine subprocess (which does run main(), requiring root first, exactly as
+# production).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
 fi
-
-log "${ENVIRONMENT} rolled back to ${TARGET_RELEASE}"
-
-append_history \
-    "${ENVIRONMENT_ROOT}" \
-    "rollback-finished" \
-    "${TARGET_RELEASE}" \
-    "success"
-
-TERMINAL_HISTORY_WRITTEN=true

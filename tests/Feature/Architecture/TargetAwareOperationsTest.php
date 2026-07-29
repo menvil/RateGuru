@@ -1291,7 +1291,7 @@ it('keeps legacy production on rateguru-production.internal, never tits-guru', f
 
 // --- roadmap and runbook -----------------------------------------------------
 
-it('records slices 1-4 completed, slice 5 (deploy) current, without completing Phase 4', function () {
+it('records slices 1-5 completed, slice 6 (rollback) current, without completing Phase 4', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
@@ -1300,7 +1300,8 @@ it('records slices 1-4 completed, slice 5 (deploy) current, without completing P
         ->toContain('Read-only target operations — completed')
         ->toContain('Install and verify read-only operations — completed')
         ->toContain('Target-aware cleanup — completed')
-        ->toContain('Target-aware deploy — current')
+        ->toContain('Target-aware deploy — completed')
+        ->toContain('Target-aware rollback — current')
         ->not->toContain('## 4. Multi-target production model — completed')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m');
 
@@ -1355,9 +1356,10 @@ it('leaves every other operational script and workflow byte-identical to develop
     }
 
     $unchanged = [
-        'infrastructure/scripts/rollback',
-        // infrastructure/scripts/cleanup graduated in Phase 4 slice 4 — it is
-        // no longer --environment-only, so it is deliberately absent here.
+        // infrastructure/scripts/cleanup, deploy and rollback graduated in
+        // Phase 4 slices 4, 5 and 6 respectively — none of them is
+        // --environment-only anymore, so all three are deliberately absent
+        // here.
         'infrastructure/scripts/backup',
         'infrastructure/scripts/backup-cycle',
         'infrastructure/scripts/restore-test',
@@ -1397,12 +1399,13 @@ it('leaves every other operational script and workflow byte-identical to develop
     }
 });
 
-it('does not add --target to any operational script outside health-check, status, cleanup and deploy', function () {
-    // cleanup (Phase 4 slice 4) and deploy (Phase 4 slice 5) are each their
-    // own slice's subject and are deliberately excluded here — see
-    // CleanupTest.php and DeployTest.php for their target-awareness coverage.
+it('does not add --target to any operational script outside health-check, status, cleanup, deploy and rollback', function () {
+    // cleanup (Phase 4 slice 4), deploy (Phase 4 slice 5) and rollback
+    // (Phase 4 slice 6) are each their own slice's subject and are
+    // deliberately excluded here — see CleanupTest.php, DeployTest.php and
+    // RollbackTest.php for their target-awareness coverage.
     $mustNotChange = [
-        'rollback', 'backup', 'backup-cycle',
+        'backup', 'backup-cycle',
         'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test',
     ];
 

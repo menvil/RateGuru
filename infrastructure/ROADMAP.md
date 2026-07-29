@@ -57,8 +57,8 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first four are completed and accepted on the real
-staging VPS; the fifth is in progress. The phase stays **current**.
+Slices, in order. The first five are completed and accepted on the real
+staging VPS; the sixth is in progress. The phase stays **current**.
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
    deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy
@@ -116,7 +116,7 @@ staging VPS; the fifth is in progress. The phase stays **current**.
    `cleanup --target staging-main --dry-run` selected the identical candidate
    release set; `cleanup --target tits-guru --dry-run` was rejected with
    `lifecycle=planned`.
-5. **Target-aware deploy — current.** `deploy` accepts `--target TARGET`
+5. **Target-aware deploy — completed.** `deploy` accepts `--target TARGET`
    alongside the preserved `--environment` selector, with the exact same
    `--release`/`--artifact`/`--checksum`/`--migrate` flags either way. The
    root-first contract is unchanged — `require_root` still runs before any
@@ -135,7 +135,19 @@ staging VPS; the fifth is in progress. The phase stays **current**.
    deploy workflow, its `/usr/local/sbin` wrapper, and sudoers keep calling
    `deploy --environment staging` — migrating that perimeter to
    `--target staging-main` is a separate future slice.
-6. Target-aware rollback.
+
+   **Accepted on the real staging VPS:** the seven-file
+   `install-target-operations --check`/`--apply`/`--verify` all passed;
+   the installed `deploy` is owned `root:root` mode `0755`;
+   `deploy --target tits-guru` was rejected with `lifecycle=planned` before
+   any artifact validation was reached; both
+   `health-check --environment staging` and
+   `health-check --target staging-main` passed.
+6. **Target-aware rollback — current.** `rollback` accepts `--target TARGET`
+   alongside the preserved `--environment` selector, with the same
+   `--release RELEASE_ID | --previous` destination contract either way.
+   `install-target-operations` now manages eight files, not seven. Backup
+   path, perimeter, and removing `--environment` stay planned.
 7. Backup path — `backup`, `backup-cycle`, `offsite-*`, `restore-test`.
 8. Perimeter — workflows, sudoers, server wrappers.
 9. Remove the `--environment` interface, only after `staging-main` parity is
