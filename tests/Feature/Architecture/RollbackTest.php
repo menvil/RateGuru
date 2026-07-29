@@ -1581,15 +1581,14 @@ it('leaves deploy, backup scripts and workflows untouched', function () {
     }
 
     // infrastructure/scripts/backup and restore-test graduated to
-    // target-awareness in Phase 4 slice 7.1 and are deliberately absent
-    // here; see BackupTest.php/RestoreTest.php for their own behavioral
-    // coverage.
+    // target-awareness in Phase 4 slice 7.1, and offsite-backup/
+    // offsite-retention/offsite-restore-test in slice 7.2 — all five are
+    // deliberately absent here; see BackupTest.php/RestoreTest.php and
+    // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
+    // for their own behavioral coverage.
     $unchanged = [
         'infrastructure/scripts/deploy',
         'infrastructure/scripts/backup-cycle',
-        'infrastructure/scripts/offsite-backup',
-        'infrastructure/scripts/offsite-retention',
-        'infrastructure/scripts/offsite-restore-test',
         'infrastructure/config/sudoers/rateguru-deploy',
         '.github/workflows/deploy-staging.yml',
     ];

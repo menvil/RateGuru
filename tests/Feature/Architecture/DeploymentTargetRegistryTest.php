@@ -314,14 +314,16 @@ it('derives staging-main from the committed infrastructure sources', function ()
     // and local retention for --environment mode live in common's
     // environment_database_name/environment_backup_namespace/
     // environment_local_backup_retention helpers, not in the backup script
-    // itself; offsite retention still comes from offsite-retention, which
-    // remains legacy-only.
+    // itself; since slice 7.2, offsite retention for --environment mode
+    // likewise lives in common's environment_offsite_backup_retention, not
+    // in offsite-retention itself.
     $backup = $source('scripts/backup');
     $commonSource = $source('scripts/common');
     expect($commonSource)
         ->toContain("printf '%s\\n' \"{$target['database']['name']}\"")
         ->toContain("printf '%s\\n' \"{$target['backup']['namespace']}\"")
-        ->toContain("printf '%s\\n' \"{$target['backup']['local_retention_days']}\"");
+        ->toContain("printf '%s\\n' \"{$target['backup']['local_retention_days']}\"")
+        ->toContain("printf '%s\\n' \"{$target['backup']['offsite_retention_days']}\"");
     expect($backup)
         // The backup root is namespaced by BACKUP_NAMESPACE, resolved from
         // either selector into the same shared value.
@@ -332,7 +334,7 @@ it('derives staging-main from the committed infrastructure sources', function ()
         ->toContain('etc/nginx/sites-available/'.$target['nginx']['site_name']);
 
     expect($source('scripts/offsite-retention'))
-        ->toContain('RETENTION_DAYS='.$target['backup']['offsite_retention_days']);
+        ->toContain('REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${BACKUP_NAMESPACE}"');
 
     // The scheduler cron file exists under the recorded name and runs as the
     // runtime user.
@@ -1311,14 +1313,16 @@ it('leaves the --environment interface untouched', function () {
 
 it('converts no mutating operational script to --target yet', function () {
     // health-check and status became target-aware in Phase 4 slice 2, cleanup
-    // in slice 4, deploy in slice 5, rollback in slice 6, and backup/
-    // restore-test in slice 7.1 — see TargetAwareOperationsTest.php,
-    // CleanupTest.php, DeployTest.php, RollbackTest.php and
-    // BackupTest.php/RestoreTest.php for their behavioral coverage. Every
-    // other script that writes to a target's filesystem, database or service
-    // state is still --environment-only until its own migration slice.
+    // in slice 4, deploy in slice 5, rollback in slice 6, backup/
+    // restore-test in slice 7.1, and offsite-backup/offsite-retention/
+    // offsite-restore-test in slice 7.2 — see TargetAwareOperationsTest.php,
+    // CleanupTest.php, DeployTest.php, RollbackTest.php,
+    // BackupTest.php/RestoreTest.php and
+    // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
+    // for their behavioral coverage. backup-cycle is still --environment-only
+    // until its own migration slice (7.3).
     $operational = [
-        'backup-cycle', 'offsite-backup', 'offsite-retention', 'offsite-restore-test',
+        'backup-cycle',
     ];
 
     foreach ($operational as $script) {

@@ -3,76 +3,162 @@
 set -Eeuo pipefail
 umask 077
 
-ENVIRONMENT=""
-APPLY=false
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup.
+COMMON_FILE=/home/www/rateguru/bin/common
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --environment)
-            ENVIRONMENT="${2:-}"
-            shift 2
-            ;;
-        --apply)
-            APPLY=true
-            shift
-            ;;
-        *)
-            echo "Unknown argument: $1" >&2
-            exit 1
-            ;;
-    esac
-done
-
-case "${ENVIRONMENT}" in
-    staging)
-        RETENTION_DAYS=30
-        ;;
-    production)
-        RETENTION_DAYS=90
-        ;;
-    *)
-        echo "Usage: offsite-retention --environment staging|production [--apply]" >&2
-        exit 1
-        ;;
-esac
-
-RCLONE_CONFIG="/root/.config/rclone/rclone.conf"
-RCLONE_REMOTE="rateguru-b2"
-BUCKET="rateguru-database-backups"
-
-REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${ENVIRONMENT}"
-
-LOCK_ROOT="/home/www/rateguru/run"
-LOCK_FILE="${LOCK_ROOT}/offsite-retention-${ENVIRONMENT}.lock"
-
-[[ -f "${RCLONE_CONFIG}" ]] || {
-    echo "Rclone configuration not found: ${RCLONE_CONFIG}" >&2
-    exit 1
-}
-
-install -d \
-    -o root \
-    -g root \
-    -m 0700 \
-    "${LOCK_ROOT}"
-
-exec 9>"${LOCK_FILE}"
-
-if ! flock -n 9; then
-    echo "Offsite retention for ${ENVIRONMENT} is already running" >&2
-    exit 1
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
 fi
 
-REMOTE_LIST="$(
-    rclone \
-        --config "${RCLONE_CONFIG}" \
-        lsf \
-        "${REMOTE_ROOT}" \
-        --dirs-only
-)"
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
 
-mapfile -t BACKUPS < <(
-    python3 -c '
+# Phase 4 slice 7.2: gated test overrides, matching offsite-backup's own set
+# except RATEGURU_BACKUP_BASE — retention never reads or writes anything
+# under the local backup tree, only the remote namespace and its own lock,
+# so there is no BACKUP_BASE-rooted path here to override. (Also no
+# createdb/dropdb/pg_restore/psql — those are offsite-restore-test's alone.)
+RCLONE_CONFIG_DEFAULT="/root/.config/rclone/rclone.conf"
+RCLONE_REMOTE_DEFAULT="rateguru-b2"
+BUCKET_DEFAULT="rateguru-database-backups"
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+RCLONE_BIN_DEFAULT="/usr/bin/rclone"
+
+RCLONE_CONFIG="${RCLONE_CONFIG_DEFAULT}"
+RCLONE_REMOTE="${RCLONE_REMOTE_DEFAULT}"
+BUCKET="${BUCKET_DEFAULT}"
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+RCLONE_BIN="${RCLONE_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_RCLONE_CONFIG:-}" ]]; then
+        RCLONE_CONFIG="${RATEGURU_RCLONE_CONFIG}"
+    fi
+
+    if [[ -n "${RATEGURU_RCLONE_REMOTE:-}" ]]; then
+        RCLONE_REMOTE="${RATEGURU_RCLONE_REMOTE}"
+    fi
+
+    if [[ -n "${RATEGURU_RCLONE_BUCKET:-}" ]]; then
+        BUCKET="${RATEGURU_RCLONE_BUCKET}"
+    fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_RCLONE_BIN:-}" ]]; then
+        RCLONE_BIN="${RATEGURU_RCLONE_BIN}"
+    fi
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  offsite-retention --environment staging|production [--apply]
+  offsite-retention --target TARGET_ID [--apply]
+
+Without --apply, offsite-retention performs a dry run: it lists candidates
+without deleting anything and without acquiring the offsite lock. --apply is
+required to actually delete remote backups.
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called.
+
+# --- selector and execution-mode parsing -------------------------------------
+#
+# require_flag_value is defined in common (shared with offsite-backup and
+# offsite-restore-test — see the comment there).
+
+parse_offsite_retention_args() {
+    TARGET_ID=""
+    ENVIRONMENT=""
+    TARGET_SEEN=false
+    ENVIRONMENT_SEEN=false
+    APPLY=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --environment)
+                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
+                require_flag_value "--environment" "$#" "${2-}"
+                ENVIRONMENT="$2"
+                ENVIRONMENT_SEEN=true
+                shift 2
+                ;;
+            --apply)
+                APPLY=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    assert_selector_state
+}
+
+# --- selector resolution (mirrors offsite-backup) ----------------------------
+#
+# require_active_target runs first thing in the target branch — before the
+# rclone config check, any remote listing, the lock, or any candidate
+# computation or purge.
+resolve_offsite_retention_subject() {
+    if [[ "${TARGET_SEEN}" == true ]]; then
+        require_active_target "${TARGET_ID}"
+
+        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+        OFFSITE_RETENTION_DAYS="$(target_offsite_backup_retention "${TARGET_ID}")"
+        LABEL="${TARGET_ID}"
+        SELECTOR_TYPE="target"
+    else
+        validate_environment "${ENVIRONMENT}"
+
+        ENVIRONMENT_CLASS="${ENVIRONMENT}"
+        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
+        OFFSITE_RETENTION_DAYS="$(environment_offsite_backup_retention "${ENVIRONMENT}")"
+        LABEL="${ENVIRONMENT}"
+        SELECTOR_TYPE="environment"
+    fi
+}
+
+# --- candidate computation (read-only; shared by dry-run and apply) ---------
+
+# Populates the BACKUPS array with every timestamped remote directory name,
+# sorted ascending. A plain rclone `lsf` listing — read-only, never mutating
+# — so this is safe to call from dry-run, from apply's own informational
+# preview pass, and from apply's authoritative locked pass alike.
+list_remote_backups() {
+    local remote_list
+    remote_list="$(
+        "${RCLONE_BIN}" \
+            --config "${RCLONE_CONFIG}" \
+            lsf \
+            "${REMOTE_ROOT}" \
+            --dirs-only
+    )"
+
+    mapfile -t BACKUPS < <(
+        python3 -c '
 import re
 import sys
 
@@ -86,80 +172,180 @@ for line in sys.stdin:
 
 for name in sorted(set(names)):
     print(name)
-' <<<"${REMOTE_LIST}"
-)
+' <<<"${remote_list}"
+    )
+}
 
-if (( ${#BACKUPS[@]} == 0 )); then
-    echo "No timestamped remote backups found."
-    exit 0
-fi
+# Classifies every entry in BACKUPS (already populated by list_remote_backups)
+# against CUTOFF_EPOCH, populating DELETE_CANDIDATES and logging a KEEP line
+# for everything protected. The single highest-sorted entry is always
+# protected as the latest, regardless of its age. Deterministic: BACKUPS is
+# already sorted ascending by list_remote_backups, so the same input always
+# produces the same LATEST_BACKUP and the same DELETE_CANDIDATES order.
+compute_candidates() {
+    DELETE_CANDIDATES=()
+    LATEST_BACKUP="${BACKUPS[-1]}"
 
-LATEST_BACKUP="${BACKUPS[-1]}"
-CUTOFF_EPOCH="$(
-    date \
-        -u \
-        -d "${RETENTION_DAYS} days ago" \
-        +%s
-)"
+    local backup
+    for backup in "${BACKUPS[@]}"; do
+        if [[ "${backup}" == "${LATEST_BACKUP}" ]]; then
+            log "KEEP latest: ${backup}"
+            continue
+        fi
 
-echo "Environment:       ${ENVIRONMENT}"
-echo "Retention:         ${RETENTION_DAYS} days"
-echo "Latest protected:  ${LATEST_BACKUP}"
-echo "Mode:              $([[ "${APPLY}" == true ]] && echo APPLY || echo DRY-RUN)"
-echo
+        local year month day hour minute second backup_epoch
+        year="${backup:0:4}"
+        month="${backup:4:2}"
+        day="${backup:6:2}"
+        hour="${backup:9:2}"
+        minute="${backup:11:2}"
+        second="${backup:13:2}"
 
-DELETE_COUNT=0
+        backup_epoch="$(
+            date \
+                -u \
+                -d "${year}-${month}-${day} ${hour}:${minute}:${second} UTC" \
+                +%s
+        )"
 
-for backup in "${BACKUPS[@]}"; do
-    if [[ "${backup}" == "${LATEST_BACKUP}" ]]; then
-        echo "KEEP latest: ${backup}"
-        continue
+        if (( backup_epoch >= CUTOFF_EPOCH )); then
+            log "KEEP recent: ${backup}"
+            continue
+        fi
+
+        DELETE_CANDIDATES+=("${backup}")
+    done
+}
+
+# --- dry-run: genuinely side-effect free -------------------------------------
+#
+# No lock, no filesystem mutation, and — unlike the prior implementation —
+# no `rclone purge --dry-run` call at all: dry-run's own correctness must
+# never depend on rclone's own --dry-run flag behaving as documented. Backup
+# candidates are computed purely from a read-only listing and printed.
+
+run_dry_run() {
+    list_remote_backups
+
+    if (( ${#BACKUPS[@]} == 0 )); then
+        log "No timestamped remote backups found."
+        return 0
     fi
 
-    YEAR="${backup:0:4}"
-    MONTH="${backup:4:2}"
-    DAY="${backup:6:2}"
-    HOUR="${backup:9:2}"
-    MINUTE="${backup:11:2}"
-    SECOND="${backup:13:2}"
+    compute_candidates
 
-    BACKUP_EPOCH="$(
+    local backup
+    for backup in "${DELETE_CANDIDATES[@]}"; do
+        log "WOULD DELETE: ${REMOTE_ROOT}/${backup}"
+    done
+
+    log ""
+    log "Retention candidates: ${#DELETE_CANDIDATES[@]}"
+    log "No data was deleted. Run with --apply to perform deletion."
+}
+
+# --- apply: locked, recomputed, purges -------------------------------------
+#
+# An initial, unlocked listing/computation runs first, purely so an operator
+# sees a preview before the lock is even acquired — its result is never used
+# to decide what gets purged. The lock is acquired only afterward, and the
+# authoritative listing and candidate computation both run again, fresh,
+# while holding it — protecting against a backup uploaded concurrently
+# between the preview pass and the purge (network-bound offsite operations
+# have a far larger race window than the local-filesystem-only equivalent in
+# cleanup). purge only ever acts on this second, locked computation.
+
+run_apply() {
+    list_remote_backups
+
+    if (( ${#BACKUPS[@]} > 0 )); then
+        compute_candidates
+        log "Retention candidates (preview, before lock): ${#DELETE_CANDIDATES[@]}"
+    else
+        log "No timestamped remote backups found (preview, before lock)."
+    fi
+
+    install -d \
+        -o root \
+        -g root \
+        -m 0700 \
+        "${RUN_ROOT}"
+
+    exec 9>"${LOCK_FILE}"
+
+    if ! flock -n 9; then
+        fail "${BACKUP_NAMESPACE} offsite retention is already running"
+    fi
+
+    list_remote_backups
+
+    if (( ${#BACKUPS[@]} == 0 )); then
+        log "No timestamped remote backups found."
+        return 0
+    fi
+
+    compute_candidates
+
+    local backup
+    for backup in "${DELETE_CANDIDATES[@]}"; do
+        log "DELETE: ${REMOTE_ROOT}/${backup}"
+
+        "${RCLONE_BIN}" \
+            --config "${RCLONE_CONFIG}" \
+            purge \
+            "${REMOTE_ROOT}/${backup}"
+    done
+
+    log ""
+    log "Retention candidates: ${#DELETE_CANDIDATES[@]}"
+}
+
+# --- offsite retention pipeline: one shared code path for both selectors ---
+
+perform_offsite_retention() {
+    # Keyed on BACKUP_NAMESPACE, never on LABEL — matching offsite-backup's
+    # identical shared-namespace contract exactly.
+    REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${BACKUP_NAMESPACE}"
+    LOCK_FILE="${RUN_ROOT}/offsite-retention-${BACKUP_NAMESPACE}.lock"
+
+    [[ -f "${RCLONE_CONFIG}" ]] || fail "rclone configuration not found: ${RCLONE_CONFIG}"
+
+    log "${LABEL} offsite retention"
+    log "Selector:          ${SELECTOR_TYPE}"
+    log "Environment class: ${ENVIRONMENT_CLASS}"
+    log "Retention:         ${OFFSITE_RETENTION_DAYS} days"
+    log "Mode:              $([[ "${APPLY}" == true ]] && printf apply || printf dry-run)"
+
+    CUTOFF_EPOCH="$(
         date \
             -u \
-            -d "${YEAR}-${MONTH}-${DAY} ${HOUR}:${MINUTE}:${SECOND} UTC" \
+            -d "${OFFSITE_RETENTION_DAYS} days ago" \
             +%s
     )"
 
-    if (( BACKUP_EPOCH >= CUTOFF_EPOCH )); then
-        echo "KEEP recent: ${backup}"
-        continue
-    fi
-
-    REMOTE_DIRECTORY="${REMOTE_ROOT}/${backup}"
-
     if [[ "${APPLY}" == true ]]; then
-        echo "DELETE: ${REMOTE_DIRECTORY}"
-
-        rclone \
-            --config "${RCLONE_CONFIG}" \
-            purge \
-            "${REMOTE_DIRECTORY}"
+        run_apply
     else
-        echo "WOULD DELETE: ${REMOTE_DIRECTORY}"
-
-        rclone \
-            --config "${RCLONE_CONFIG}" \
-            purge \
-            "${REMOTE_DIRECTORY}" \
-            --dry-run
+        run_dry_run
     fi
+}
 
-    DELETE_COUNT=$((DELETE_COUNT + 1))
-done
+# --- dispatch -----------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation,
+# matching offsite-backup's contract exactly — even dry-run requires root,
+# unchanged from before this slice (the previous implementation already
+# implicitly required it via `install -d -o root -g root` in both modes).
+# What changed in this slice is that dry-run no longer performs that
+# install, acquires no lock, and calls no rclone mutation — it simply no
+# longer *needs* to act on the root privilege it is still required to have.
+main() {
+    require_root
+    parse_offsite_retention_args "$@"
+    resolve_offsite_retention_subject
+    perform_offsite_retention
+}
 
-echo
-echo "Retention candidates: ${DELETE_COUNT}"
-
-if [[ "${APPLY}" == false ]]; then
-    echo "No data was deleted. Run with --apply to perform deletion."
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
 fi

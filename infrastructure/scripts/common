@@ -301,6 +301,137 @@ environment_local_backup_retention() {
     esac
 }
 
+# Phase 4 slice 7.2: legacy (--environment) offsite retention, same contract
+# as environment_local_backup_retention above (no default/error case; every
+# real call site runs validate_environment first). Target mode never calls
+# this — it reads target_offsite_backup_retention (already defined below)
+# from the registry instead.
+environment_offsite_backup_retention() {
+    local environment="$1"
+
+    case "${environment}" in
+        staging)
+            printf '%s\n' "30"
+            ;;
+        production)
+            printf '%s\n' "90"
+            ;;
+    esac
+}
+
+# Phase 4 slice 7.2: shared, strict backup-manifest schema classifier for
+# offsite-backup and offsite-restore-test. infrastructure/scripts/restore-test
+# (local restore-test) already established this exact contract inline and is
+# out of scope for this slice — it is not touched, and does not call this
+# function — but the contract must stay identical, so it is extracted here
+# rather than re-derived with different semantics per caller.
+#
+# Never classify by `jq -r '.manifest_schema_version // empty'` alone: raw
+# output loses JSON type, so a schema_version of 3, 0, the JSON *string* "2"
+# (not a number), "garbage", an array, an object or a boolean would all
+# compare unequal to the literal string "2" and silently pass as legacy
+# schema 1 (fail-open). `type` disambiguates first.
+#
+# Prints exactly one of:
+#   schema1        - the field is absent or JSON null
+#   schema2        - the field is a JSON number equal to 2
+#   invalid:<value> - anything else, with the offending value's own JSON
+#                     representation appended (quoted for a string, compact
+#                     for an array/object) — callers turn this into their own
+#                     `fail "unsupported backup manifest schema_version: ..."`
+#
+# Never calls fail itself, and has no dependency on any selector-resolved
+# variable (ENVIRONMENT_CLASS, BACKUP_NAMESPACE, TARGET_ID, ...) — safe to
+# call before those exist.
+manifest_schema_classify() {
+    local manifest_path="$1"
+    local manifest_schema_type
+    manifest_schema_type="$(jq -r '.manifest_schema_version | type' "${manifest_path}")"
+
+    case "${manifest_schema_type}" in
+        null)
+            printf 'schema1\n'
+            ;;
+        number)
+            local manifest_schema_version
+            manifest_schema_version="$(jq -r '.manifest_schema_version' "${manifest_path}")"
+
+            if [[ "${manifest_schema_version}" == "2" ]]; then
+                printf 'schema2\n'
+            else
+                printf 'invalid:%s\n' "${manifest_schema_version}"
+            fi
+            ;;
+        *)
+            local manifest_schema_value
+            manifest_schema_value="$(jq -c '.manifest_schema_version' "${manifest_path}")"
+            printf 'invalid:%s\n' "${manifest_schema_value}"
+            ;;
+    esac
+}
+
+# Phase 4 slice 7.2 (review follow-up): shared manifest validator for
+# offsite-backup and offsite-restore-test — both scripts had this exact,
+# byte-identical implementation; extracted here to remove the duplication.
+# infrastructure/scripts/restore-test (local restore-test) has a materially
+# different contract (it also checks `database` against its own
+# independently resolved database name) and stays untouched, exactly as
+# before — this function is never called by it.
+#
+# Runs before any rclone command — checksum validation only proves the
+# selected backup's own files are internally consistent; this proves the
+# backup actually belongs to the resolved selector. Operates on
+# ENVIRONMENT_CLASS, BACKUP_NAMESPACE, SELECTOR_TYPE and TARGET_ID, set by
+# the caller's own resolve_* step before this runs — same convention as
+# require_active_target and parse_selector_args below.
+validate_backup_manifest() {
+    local manifest_path="$1"
+
+    [[ -f "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
+
+    local manifest_project manifest_environment manifest_database
+
+    manifest_project="$(jq -r '.project // empty' "${manifest_path}")"
+    manifest_environment="$(jq -r '.environment // empty' "${manifest_path}")"
+    manifest_database="$(jq -r '.database // empty' "${manifest_path}")"
+
+    [[ "${manifest_project}" == "rateguru" ]] \
+        || fail "backup manifest project mismatch: expected rateguru, got '${manifest_project}'"
+
+    [[ "${manifest_environment}" == "${ENVIRONMENT_CLASS}" ]] \
+        || fail "backup manifest environment mismatch: expected ${ENVIRONMENT_CLASS}, got '${manifest_environment}'"
+
+    [[ -n "${manifest_database}" ]] \
+        || fail "backup manifest database is missing or empty"
+
+    local manifest_schema_status
+    manifest_schema_status="$(manifest_schema_classify "${manifest_path}")"
+
+    case "${manifest_schema_status}" in
+        schema1)
+            ;;
+        schema2)
+            local manifest_backup_namespace
+            manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
+
+            [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
+                || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
+
+            if [[ "${SELECTOR_TYPE}" == "target" ]]; then
+                local manifest_target
+                manifest_target="$(jq -r '.target // empty' "${manifest_path}")"
+
+                if [[ -n "${manifest_target}" ]] && [[ "${manifest_target}" != "${TARGET_ID}" ]]; then
+                    fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
+                fi
+            fi
+            ;;
+        invalid:*)
+            fail "unsupported backup manifest schema_version: ${manifest_schema_status#invalid:}"
+            ;;
+    esac
+}
+
 # --- deployment target registry (begin) ---
 #
 # Phase 4 slice 1: read-only accessors over the non-secret target registry.
@@ -718,5 +849,26 @@ assert_selector_state() {
     else
         [[ -n "${ENVIRONMENT}" ]] || fail "--environment requires a non-empty value"
     fi
+}
+
+# Phase 4 slice 7.2 (review follow-up): shared flag-value validator for the
+# offsite-* scripts' own hand-rolled --target/--environment (and
+# offsite-retention's --apply) argument loops — offsite-backup,
+# offsite-retention and offsite-restore-test had this exact, byte-identical
+# implementation; extracted here to remove the duplication. backup/deploy/
+# rollback keep their own separate copies untouched (out of scope for this
+# slice) — bash's normal function-shadowing means a script defining its own
+# require_flag_value after sourcing this file is unaffected either way.
+#
+# require_flag_value <flag-name> <remaining-arg-count> <next-token>
+require_flag_value() {
+    local flag="$1" remaining="$2" value="${3-}"
+
+    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+
+    case "${value}" in
+        -*) fail "${flag} requires a value, not another option: ${value}" ;;
+    esac
 }
 # --- deployment target registry (end) ---

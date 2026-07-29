@@ -214,6 +214,12 @@ jobs:
           npm ci --ignore-scripts
           npx playwright install chromium --with-deps
 
+      # The target-aware offsite backup Architecture tests exercise a real
+      # `rclone` binary (against a local-backend config, never real B2) to
+      # get genuine --immutable/check/purge semantics instead of a stub.
+      - name: Install rclone
+        run: sudo apt-get update && sudo apt-get install -y rclone
+
       - name: Prepare application
         run: |
           cp .env.example .env
@@ -328,6 +334,12 @@ jobs:
           name: public-build
           path: public/build
 
+      # The target-aware offsite backup Architecture tests exercise a real
+      # `rclone` binary (against a local-backend config, never real B2) to
+      # get genuine --immutable/check/purge semantics instead of a stub.
+      - name: Install rclone
+        run: sudo apt-get update && sudo apt-get install -y rclone
+
       - name: Prepare application
         run: |
           cp .env.example .env
@@ -385,6 +397,12 @@ jobs:
         with:
           name: public-build
           path: public/build
+
+      # The target-aware offsite backup Architecture tests exercise a real
+      # `rclone` binary (against a local-backend config, never real B2) to
+      # get genuine --immutable/check/purge semantics instead of a stub.
+      - name: Install rclone
+        run: sudo apt-get update && sudo apt-get install -y rclone
 
       - name: Prepare application
         run: |

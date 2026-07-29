@@ -1339,14 +1339,14 @@ it('leaves backup scripts and workflows untouched', function () {
     }
 
     // infrastructure/scripts/rollback graduated to target-awareness in Phase
-    // 4 slice 6, and backup/restore-test in slice 7.1 — all three are
-    // deliberately absent here; see RollbackTest.php and
-    // BackupTest.php/RestoreTest.php for their own behavioral coverage.
+    // 4 slice 6, backup/restore-test in slice 7.1, and offsite-backup/
+    // offsite-retention/offsite-restore-test in slice 7.2 — all six are
+    // deliberately absent here; see RollbackTest.php,
+    // BackupTest.php/RestoreTest.php and
+    // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
+    // for their own behavioral coverage.
     $unchanged = [
         'infrastructure/scripts/backup-cycle',
-        'infrastructure/scripts/offsite-backup',
-        'infrastructure/scripts/offsite-retention',
-        'infrastructure/scripts/offsite-restore-test',
         'infrastructure/config/sudoers/rateguru-deploy',
         '.github/workflows/deploy-staging.yml',
     ];
@@ -1370,7 +1370,7 @@ it('leaves backup scripts and workflows untouched', function () {
 });
 
 it('does not add --target to any backup script', function () {
-    foreach (['backup-cycle', 'offsite-backup', 'offsite-retention', 'offsite-restore-test'] as $script) {
+    foreach (['backup-cycle'] as $script) {
         $source = File::get(base_path('infrastructure/scripts/'.$script));
 
         expect(str_contains($source, '--target'))->toBeFalse("{$script} must not accept --target in this slice");

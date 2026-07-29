@@ -29,17 +29,16 @@ it('keeps standalone backup utilities independent from deployment configuration'
     $common = infrastructureSource('scripts/common');
 
     // backup and restore-test graduated to target-awareness in Phase 4 slice
-    // 7.1 and now deliberately source common (for target_*/environment_*
-    // helpers, require_root, and the selector-parsing contract) — see
-    // BackupTest.php/RestoreTest.php for their own coverage. The remaining
-    // scripts here (the offsite/cycle family) stay legacy-only until their
-    // own future slice, and this test's job is to keep proving that for them
+    // 7.1, and offsite-backup/offsite-retention/offsite-restore-test in
+    // slice 7.2, and now deliberately source common (for target_*/
+    // environment_* helpers, require_root, and the selector-parsing
+    // contract) — see BackupTest.php/RestoreTest.php and
+    // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
+    // for their own coverage. backup-cycle stays legacy-only until its own
+    // future slice (7.3), and this test's job is to keep proving that for it
     // specifically.
     $scripts = [
         'backup-cycle',
-        'offsite-backup',
-        'offsite-retention',
-        'offsite-restore-test',
     ];
 
     expect($common)

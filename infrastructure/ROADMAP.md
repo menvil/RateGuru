@@ -57,8 +57,9 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first six are completed and accepted on the real
-staging VPS; slice 7.1 is in progress. The phase stays **current**.
+Slices, in order. The first seven (through 7.1) are completed and accepted
+on the real staging VPS; slice 7.2 is in progress. The phase stays
+**current**.
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
    deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy
@@ -159,13 +160,28 @@ staging VPS; slice 7.1 is in progress. The phase stays **current**.
 7. Backup path — local database/storage backups, remote Backblaze B2
    operations, and orchestration each carry different side effects, so this
    is split into three independently reviewable increments rather than one:
-   1. **7.1 Local backup and local restore-test — current.** `backup` and
+   1. **7.1 Local backup and local restore-test — completed.** `backup` and
       `restore-test` accept `--target TARGET` alongside `--environment`,
       sharing the existing `staging` local backup namespace with
       `staging-main` — no existing backup directory moves.
       `install-target-operations` now manages ten files, not eight.
-   2. **7.2 Offsite backup path — planned.** `offsite-backup`,
-      `offsite-retention` and `offsite-restore-test` gain `--target`.
+
+      **Accepted on the real staging VPS:** the ten-file
+      `install-target-operations --check`/`--apply`/`--verify` all passed;
+      the installed `backup` and `restore-test` are owned `root:root` mode
+      `0755`; `backup --target tits-guru` and
+      `restore-test --target tits-guru` were both rejected with
+      `lifecycle=planned`; a legacy `backup --environment staging` and a
+      target `backup --target staging-main` both created a local backup in
+      the shared `staging` namespace, and their checksums passed; a legacy
+      `restore-test --environment staging` and a target
+      `restore-test --target staging-main` both successfully restored
+      PostgreSQL; the final health-check passed.
+   2. **7.2 Offsite backup path — current.** `offsite-backup`,
+      `offsite-retention` and `offsite-restore-test` accept `--target TARGET`
+      alongside `--environment`, sharing the existing `staging` offsite (B2)
+      namespace with `staging-main` — no existing remote backup moves.
+      `install-target-operations` now manages thirteen files, not ten.
    3. **7.3 Backup-cycle orchestration — planned.** `backup-cycle` gains
       `--target`, once 7.1 and 7.2 have both landed.
 8. Perimeter — workflows, sudoers, server wrappers.
