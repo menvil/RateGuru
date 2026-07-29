@@ -56,6 +56,13 @@ the backup it selects:
   new fields) remains fully restorable through both selectors, as long as
   the schema-1-only fields above still match.
 
+`manifest_schema_version` is recognized strictly, by its JSON type: absent
+or JSON `null` is schema 1; a JSON *number* equal to `2` is schema 2. Any
+other value — `3`, `0`, the JSON *string* `"2"`, an array, an object, a
+boolean — is rejected outright, before the temporary database is created,
+with `unsupported backup manifest schema_version: ...` naming the offending
+value.
+
 Manifest validation always completes — like checksum and storage-archive
 validation — before the temporary restore-test database is created.
 

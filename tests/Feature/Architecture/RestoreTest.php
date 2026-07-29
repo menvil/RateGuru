@@ -1071,6 +1071,109 @@ it('accepts a schema 2 manifest with a null target under --target, when project/
     }
 });
 
+// =============================================================================
+// manifest_schema_version classification: strict, by JSON type, never by
+// `jq -r '... // empty'` alone — see validate_backup_manifest's own comment
+// for why a raw-output comparison against the literal string "2" used to be
+// fail-open (a schema_version of 3, 0, the JSON string "2", "garbage", an
+// array, an object or a boolean all quietly fell through as schema 1
+// instead of being rejected).
+// =============================================================================
+
+it('accepts a manifest with no manifest_schema_version field at all as schema 1', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema1('staging', 'rateguru_staging');
+
+        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('accepts a manifest with manifest_schema_version explicitly JSON null as schema 1', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema1('staging', 'rateguru_staging');
+        $manifest['manifest_schema_version'] = null;
+
+        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('accepts a manifest with a numeric manifest_schema_version of 2 as schema 2', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
+
+        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('rejects a numeric manifest_schema_version of 3 before creating the temporary database', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
+        $manifest['manifest_schema_version'] = 3;
+
+        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('unsupported backup manifest schema_version: 3');
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run for an unsupported schema_version');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('rejects a string manifest_schema_version of "2" before creating the temporary database', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
+        $manifest['manifest_schema_version'] = '2';
+
+        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('unsupported backup manifest schema_version: "2"');
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run for an unsupported schema_version');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('rejects a malformed (array-typed) manifest_schema_version before creating the temporary database', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
+        $manifest['manifest_schema_version'] = [1, 2];
+
+        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('unsupported backup manifest schema_version: [1,2]');
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run for an unsupported schema_version');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
 it('sanitizes the temporary database name from a namespace containing characters unsafe for a PostgreSQL identifier', function () {
     $scratch = restoreTestOpsScratchDir();
 

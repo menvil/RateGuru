@@ -165,12 +165,11 @@ validate_backup_manifest() {
 
     [[ -f "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
 
-    local manifest_project manifest_environment manifest_database manifest_schema_version
+    local manifest_project manifest_environment manifest_database
 
     manifest_project="$(jq -r '.project // empty' "${manifest_path}")"
     manifest_environment="$(jq -r '.environment // empty' "${manifest_path}")"
     manifest_database="$(jq -r '.database // empty' "${manifest_path}")"
-    manifest_schema_version="$(jq -r '.manifest_schema_version // empty' "${manifest_path}")"
 
     [[ "${manifest_project}" == "rateguru" ]] \
         || fail "backup manifest project mismatch: expected rateguru, got '${manifest_project}'"
@@ -181,7 +180,47 @@ validate_backup_manifest() {
     [[ "${manifest_database}" == "${DATABASE_NAME}" ]] \
         || fail "backup manifest database mismatch: expected ${DATABASE_NAME}, got '${manifest_database}'"
 
-    if [[ "${manifest_schema_version}" == "2" ]]; then
+    # manifest_schema_version is classified by JSON *type* first, never by
+    # `jq -r '... // empty'` alone: raw output collapses a JSON string "2", a
+    # JSON number 2, and any non-scalar value into an indistinguishable bash
+    # string, which previously let anything other than the literal string
+    # "2" silently fall through as schema 1 (fail-open) — a schema_version of
+    # 3, 0, the JSON string "2" (not a number), "garbage", an array, an
+    # object or a boolean all compared unequal to "2" and were accepted as
+    # legacy schema 1 without ever being rejected. `type` disambiguates this:
+    # "null" covers both an absent key and an explicit JSON null (schema 1,
+    # per contract); "number" is checked again, separately and strictly,
+    # against the literal value 2; every other type is rejected outright,
+    # before createdb, with the offending value's own JSON representation in
+    # the error.
+    local manifest_schema_type
+    manifest_schema_type="$(jq -r '.manifest_schema_version | type' "${manifest_path}")"
+
+    local schema_is_v2=false
+
+    case "${manifest_schema_type}" in
+        null)
+            # Absent or explicit JSON null — schema 1 (legacy): no
+            # additional fields required.
+            ;;
+        number)
+            local manifest_schema_version
+            manifest_schema_version="$(jq -r '.manifest_schema_version' "${manifest_path}")"
+
+            if [[ "${manifest_schema_version}" == "2" ]]; then
+                schema_is_v2=true
+            else
+                fail "unsupported backup manifest schema_version: ${manifest_schema_version}"
+            fi
+            ;;
+        *)
+            local manifest_schema_value
+            manifest_schema_value="$(jq -c '.manifest_schema_version' "${manifest_path}")"
+            fail "unsupported backup manifest schema_version: ${manifest_schema_value}"
+            ;;
+    esac
+
+    if [[ "${schema_is_v2}" == true ]]; then
         local manifest_backup_namespace
         manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
 
