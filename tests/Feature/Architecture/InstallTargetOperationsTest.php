@@ -2398,6 +2398,22 @@ it('verify_backup_cycle_help fails when the installed backup-cycle does not answ
     }
 });
 
+it('verify_backup_cycle_planned_target_rejected passes when tits-guru is correctly rejected', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $vars['DST_BACKUP_CYCLE'] = $vars['SRC_BACKUP_CYCLE'];
+
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_cycle_planned_target_rejected');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('backup-cycle --target tits-guru: correctly rejected (lifecycle=planned)');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
 it('verify_backup_cycle_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
