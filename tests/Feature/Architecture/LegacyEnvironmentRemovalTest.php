@@ -31,13 +31,21 @@ use Illuminate\Support\Facades\File;
  *     so it cannot reintroduce anything — only explanatory prose about
  *     history, present in most already-converted files).
  *   - Any `->not->toContain(...)`/`->not->toMatch(...)` Pest assertion line
- *     naming a forbidden token (content-scoped: proving a token's *absence*
- *     is the guard working as intended, not a regression).
+ *     naming a forbidden token *as that call's own argument* (content-scoped:
+ *     proving a token's *absence* is the guard working as intended, not a
+ *     regression — scoped to the negated call's argument specifically, so a
+ *     different, positive assertion for the same token chained onto the same
+ *     line is never mistaken for a proof of absence).
  *   - Inside tests/Feature/Architecture only, for the `--environment` token
- *     only: the specific `it()` block whose own title names `--environment`
- *     — identified structurally by scanning that block's title line, never
- *     by file-level exemption, so a new test can freely re-use the same
- *     literal to prove rejection without needing this guard edited.
+ *     only: a non-`expect(...)` line (test-input construction, e.g. a
+ *     heredoc feeding a literal `--environment` flag to the binary under
+ *     test — it cannot itself assert anything, so it can never hide a
+ *     regression), or an `expect(...)` line matching one of a small, fixed
+ *     set of known-safe content markers (rejection error text, a
+ *     --help/self-check absence proof, or evidence the flag was forwarded
+ *     inertly rather than parsed) — never a whole `it()` block exempted by
+ *     its title, which would also wave through an unrelated assertion that
+ *     the flag was *accepted* as a working selector again.
  *
  * Every other forbidden token, in every other location, has zero exceptions
  * beyond the two named-and-exact cases above.
@@ -240,34 +248,6 @@ function legacyRemovalFilesToScan(): array
 }
 
 /**
- * The [start, end) line-index ranges (0-indexed, end exclusive) of every
- * top-level `it(...)` block in a Pest test file, approximated as "from one
- * `it(` line to the line immediately before the next one, or EOF" — precise
- * enough for this guard, which only needs to know which lines belong to the
- * same test as its own title line.
- *
- * @param  list<string>  $lines
- * @return list<array{0: int, 1: int}>
- */
-function legacyRemovalItBlocks(array $lines): array
-{
-    $starts = [];
-
-    foreach ($lines as $i => $line) {
-        if (preg_match('/^it\(/', $line) === 1) {
-            $starts[] = $i;
-        }
-    }
-
-    $blocks = [];
-    foreach ($starts as $idx => $start) {
-        $blocks[] = [$start, $starts[$idx + 1] ?? count($lines)];
-    }
-
-    return $blocks;
-}
-
-/**
  * 'markdown' for .md files, 'default' for everything else this guard scans
  * (shell scripts with no extension, PHP test files, YAML workflows, and the
  * handful of plain config formats under infrastructure/config).
@@ -307,17 +287,61 @@ function legacyRemovalLineIsComment(string $line, string $sourceType): bool
 }
 
 /**
+ * Fixed content markers under which an `expect(...)` assertion line may
+ * legitimately mention --environment literally without proving it works as
+ * a selector again: rejection error text, a --help/self-check absence
+ * proof, or evidence the flag was forwarded inertly rather than parsed.
+ * Every positive (non ->not->) --environment mention in an Architecture
+ * test today matches one of these.
+ *
+ * @return list<string>
+ */
+function legacyRemovalEnvironmentSafeAssertionMarkers(): array
+{
+    return [
+        'unknown argument: --environment',
+        'never mention --environment',
+        'still uses --environment',
+        'still mentions --environment',
+        'OPS: [--environment]',
+    ];
+}
+
+/**
+ * True if $line has a `->not->toContain('...')`/`->not->toMatch('...')`
+ * call whose own quoted argument contains $token — scoped to that call's
+ * argument specifically, not "the line contains both substrings somewhere",
+ * so a chained positive assertion for a *different* token on the same line
+ * (e.g. `->not->toContain('--environment')->toContain('STAGING_ROOT')`)
+ * is never mistaken for proving STAGING_ROOT's absence too.
+ */
+function legacyRemovalLineNegatesToken(string $line, string $token): bool
+{
+    if (preg_match_all('/->not->to(?:Contain|Match)\(\s*([\'"])(.*?)\1\s*\)/', $line, $matches) === 0) {
+        return false;
+    }
+
+    foreach ($matches[2] as $negatedArgument) {
+        if (legacyRemovalLineContainsToken($negatedArgument, $token)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Whether a line containing $token, in $file at $lineNumber, must be
  * skipped rather than recorded as a violation — folding together every
  * exemption this guard grants (see the file-level docblock): a comment
  * line, content inside the marked ROADMAP.md historical range, an
  * assertion proving the token's absence, the two named files' own
  * --environment self-checks, the two named files' own wrapper-name
- * literals, and — for --environment only, inside Architecture tests — an
- * it() block structurally about --environment.
+ * literals, and — for --environment only, inside Architecture tests — a
+ * non-assertion line (test-input construction, which cannot itself prove or
+ * hide anything) or an assertion matching a known-safe marker.
  *
  * @param  array{0: int, 1: int}|null  $roadmapExemptRange
- * @param  list<array{0: int, 1: int}>  $exemptBlockRanges
  * @param  list<string>  $environmentTokenExemptFiles
  * @param  list<string>  $wrapperNameExemptFiles
  * @param  list<string>  $wrapperNameTokens
@@ -333,7 +357,6 @@ function legacyRemovalIsExempt(
     array $wrapperNameExemptFiles,
     array $wrapperNameTokens,
     ?array $roadmapExemptRange,
-    array $exemptBlockRanges,
 ): bool {
     // A comment cannot execute, so it cannot reintroduce anything — safe
     // for every token, in every scanned location.
@@ -350,9 +373,7 @@ function legacyRemovalIsExempt(
 
     // Proving a token's absence is the guard working as intended, not a
     // regression — safe for every token.
-    if ((str_contains($line, '->not->toContain(') || str_contains($line, '->not->toMatch('))
-        && str_contains($line, $token)
-    ) {
+    if (legacyRemovalLineNegatesToken($line, $token)) {
         return true;
     }
 
@@ -365,8 +386,12 @@ function legacyRemovalIsExempt(
     }
 
     if ($token === '--environment' && $isArchitectureTest) {
-        foreach ($exemptBlockRanges as [$start, $end]) {
-            if ($lineNumber >= $start && $lineNumber < $end) {
+        if (! str_contains($line, 'expect(')) {
+            return true;
+        }
+
+        foreach (legacyRemovalEnvironmentSafeAssertionMarkers() as $marker) {
+            if (str_contains($line, $marker)) {
                 return true;
             }
         }
@@ -408,34 +433,6 @@ function legacyRemovalScan(): array
 
         $isArchitectureTest = str_starts_with($file, $architectureTestsDir.'/');
 
-        // Precompute which line ranges belong to an it() block that is
-        // structurally, unambiguously about --environment: either its own
-        // title names the flag, or some line in the block asserts the real
-        // rejection message a script prints for it. The only test-suite
-        // exemption for that token, identified this way rather than by
-        // file.
-        $exemptBlockRanges = [];
-        if ($isArchitectureTest) {
-            foreach (legacyRemovalItBlocks($rawLines) as [$start, $end]) {
-                $blockIsAboutEnvironment = str_contains($rawLines[$start], '--environment');
-
-                for ($i = $start; ! $blockIsAboutEnvironment && $i < $end; $i++) {
-                    if (str_contains($rawLines[$i], 'unknown argument: --environment')
-                        || str_contains($rawLines[$i], 'never mention --environment')
-                        || str_contains($rawLines[$i], 'still uses --environment')
-                        || str_contains($rawLines[$i], 'still mentions --environment')
-                        || str_contains($rawLines[$i], 'legacy backup-cycle ok')
-                    ) {
-                        $blockIsAboutEnvironment = true;
-                    }
-                }
-
-                if ($blockIsAboutEnvironment) {
-                    $exemptBlockRanges[] = [$start, $end];
-                }
-            }
-        }
-
         foreach ($rawLines as $lineNumber => $line) {
             foreach ($tokens as $token) {
                 if (! legacyRemovalLineContainsToken($line, $token)) {
@@ -453,7 +450,6 @@ function legacyRemovalScan(): array
                     $wrapperNameExemptFiles,
                     $wrapperNameTokens,
                     $roadmapExemptRange,
-                    $exemptBlockRanges,
                 )) {
                     continue;
                 }
@@ -476,6 +472,39 @@ it('never reintroduces the legacy --environment interface anywhere in the scanne
     $violations = legacyRemovalScan();
 
     expect($violations)->toBe([], "forbidden legacy token(s) found:\n".implode("\n", $violations));
+});
+
+it('scopes the negation exemption to the negated call\'s own argument, not the whole line', function () {
+    // A genuine positive assertion for STAGING_ROOT chained onto the same
+    // line as an unrelated ->not->toContain('--environment') must never be
+    // exempted by the *other* call's negation.
+    $line = "        expect(\$o)->not->toContain('--environment')->toContain('STAGING_ROOT');";
+
+    expect(legacyRemovalLineNegatesToken($line, '--environment'))->toBeTrue();
+    expect(legacyRemovalLineNegatesToken($line, 'STAGING_ROOT'))->toBeFalse();
+});
+
+it('never grants the --environment architecture-test exemption to a whole it() block by title alone', function () {
+    // A hypothetical regression: a real, positive assertion that the flag
+    // was accepted as a working selector, inside a block whose title merely
+    // mentions --environment (e.g. because it's testing rejection of it
+    // elsewhere) — this specific assertion is not one of the known-safe
+    // markers, so it must not be exempted just because it shares a block
+    // with genuinely safe lines.
+    $line = "        expect(\$output)->toContain('parsed --environment successfully as a target selector');";
+
+    expect(legacyRemovalIsExempt(
+        '--environment',
+        base_path('tests/Feature/Architecture/SomeHypotheticalTest.php'),
+        0,
+        $line,
+        'default',
+        true,
+        legacyRemovalEnvironmentTokenFileExemptions(),
+        legacyRemovalWrapperNameTokenFileExemptions(),
+        legacyRemovalWrapperNameTokens(),
+        null,
+    ))->toBeFalse();
 });
 
 it('the ROADMAP exemption itself still exists — the guard is not silently exempting a range that moved or was deleted', function () {

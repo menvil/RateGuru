@@ -44,10 +44,12 @@
 #   * Six required-absent files: the legacy per-environment wrappers
 #     (rateguru-staging-deploy/rollback/cleanup,
 #     rateguru-production-deploy/rollback/cleanup). --apply removes any of
-#     these still present on the host; --check and --verify never fail
-#     merely because one is present (--check reports the removal plan;
-#     --verify only runs after --apply is expected to have already removed
-#     them).
+#     these still present on the host. --check never fails merely because
+#     one is present — it only reports the removal plan, read-only. --verify
+#     is different: it fails closed if any of the six is still present,
+#     since it is meant to run only after a successful --apply has already
+#     removed them — do not run --verify to "check" presence the way --check
+#     does.
 #   * Never touches deployment.conf or the target registry.
 #   * Never adds a sudoers rule for tits-guru's deploy user: tits-guru stays
 #     lifecycle=planned, and this installer does not provision it.
@@ -944,16 +946,28 @@ run_check() {
 
     # Read-only report of which legacy wrappers --apply would remove. Neither
     # a present nor an absent legacy wrapper is a --check failure — the
-    # filesystem is never touched in this mode.
-    local name path
+    # filesystem is never touched in this mode. A present path that is not a
+    # regular file or symlink is different: --apply's own
+    # reject_unsafe_legacy_wrapper_path would refuse to remove it, so
+    # reporting it as an ordinary "would be removed" candidate would be
+    # actively misleading — flag it as a blocker instead, and fail the
+    # check, so this surfaces before a real --apply run hits it.
+    local name path unsafe_legacy_wrapper_found=false
     for name in "${LEGACY_WRAPPER_NAMES[@]}"; do
         path="$(legacy_wrapper_path "${name}")"
-        if [[ -e "${path}" || -L "${path}" ]]; then
+        if [[ -e "${path}" ]] && [[ ! -f "${path}" ]] && [[ ! -L "${path}" ]]; then
+            log "  legacy wrapper BLOCKS --apply, not a regular file or symlink: ${path}"
+            unsafe_legacy_wrapper_found=true
+        elif [[ -e "${path}" || -L "${path}" ]]; then
             log "  legacy wrapper present, would be removed by --apply: ${path}"
         else
             log "  legacy wrapper already absent: ${path}"
         fi
     done
+
+    if [[ "${unsafe_legacy_wrapper_found}" == true ]]; then
+        fail "one or more legacy wrapper paths are not a regular file or symlink; --apply would refuse to remove them — see the BLOCKS lines above"
+    fi
 
     log "check passed: source files, host tooling, target registry, sudoers candidate, cron format, and the installed operations bundle are all valid"
 }

@@ -572,7 +572,7 @@ require_active_target() {
 # argument loop (including parse_target_args below) — offsite-backup,
 # offsite-retention and offsite-restore-test originally had this exact,
 # byte-identical implementation inline; extracted here to remove the
-# duplication. backup/deploy/rollback/cleanup keep their own separate copies,
+# duplication. deploy/rollback/restore-test keep their own separate copies,
 # since bash's normal function-shadowing means a script defining its own
 # require_flag_value after sourcing this file is unaffected either way.
 #

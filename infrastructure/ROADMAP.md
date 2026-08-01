@@ -57,9 +57,11 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. Slices 1 through 8 are completed and accepted on the real
-staging VPS; slice 9 (complete legacy-selector removal) is current. The phase
-stays **current**.
+Slices, in order. Slices 1 through 8 are completed; slices 3 through 8 are
+additionally accepted on the real staging VPS (slices 1-2 declared the target
+registry and added read-only `--target` support only — neither installed
+anything on the VPS). Slice 9 (complete legacy-selector removal) is current.
+The phase stays **current**.
 
 <!-- legacy-environment-history:start -->
 <!--

@@ -3,6 +3,16 @@
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
+/**
+ * The exact --argjson literal release.yml uses to embed the release
+ * metadata's target IDs — shared so a future target rename only needs
+ * updating here, not independently in every test that checks for it.
+ */
+function releaseWorkflowTargetsArgJson(): string
+{
+    return '--argjson targets \'["staging-main", "tits-guru"]\'';
+}
+
 beforeEach(function () {
     $path = base_path('.github/workflows/release.yml');
 
@@ -87,7 +97,7 @@ it('never references the operational --environment selector anywhere in the rele
 
 it('records target IDs, not environment classes, in the release metadata targets array', function () {
     expect($this->releaseWorkflowSource)
-        ->toContain('--argjson targets \'["staging-main", "tits-guru"]\'')
+        ->toContain(releaseWorkflowTargetsArgJson())
         ->not->toContain('"staging"')
         ->not->toContain('"production"');
 });
@@ -117,7 +127,7 @@ it('retains required production release script safeguards', function () {
         ->toContain('git merge-base \\')
         ->toContain('--is-ancestor \\')
         ->toContain('release_id="${version}-${timestamp}-${short_sha}"')
-        ->toContain('--argjson targets \'["staging-main", "tits-guru"]\'')
+        ->toContain(releaseWorkflowTargetsArgJson())
         ->not->toContain('["staging", "production"]')
         ->toContain('--classmap-authoritative')
         ->toContain("--exclude='.env.*'")

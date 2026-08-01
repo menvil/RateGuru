@@ -73,18 +73,9 @@ USAGE
 # main is called, mirroring backup's own structure exactly.
 
 # --- target parsing (mirrors backup) -----------------------------------------
-
-# require_flag_value <flag-name> <remaining-arg-count> <next-token>
-require_flag_value() {
-    local flag="$1" remaining="$2" value="${3-}"
-
-    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
-    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
-
-    case "${value}" in
-        -*) fail "${flag} requires a value, not another option: ${value}" ;;
-    esac
-}
+#
+# require_flag_value is defined in common (sourced above) — not redefined
+# here, so a future validation change there applies consistently.
 
 parse_restore_args() {
     TARGET_ID=""

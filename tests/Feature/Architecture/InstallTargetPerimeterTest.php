@@ -1261,6 +1261,28 @@ it('check reports every legacy wrapper as already absent when none exist', funct
     }
 });
 
+it('check fails and reports a directory at a legacy wrapper path as a blocker, not as an ordinary removal candidate', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $names = installPerimeterLegacyWrapperNames();
+
+        $obstacleName = $names[count($names) - 1];
+        $obstacle = $vars['DST_SBIN_DIR'].'/'.$obstacleName;
+        mkdir($obstacle, 0o750);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("legacy wrapper BLOCKS --apply, not a regular file or symlink: {$obstacle}");
+        expect($output)->not->toContain("legacy wrapper present, would be removed by --apply: {$obstacle}");
+        expect(is_dir($obstacle))->toBeTrue('--check must never touch the filesystem');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
 it('apply removes every existing legacy wrapper, backing each up first', function () {
     $scratch = installPerimeterScratchDir();
 
