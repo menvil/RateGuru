@@ -303,12 +303,9 @@ function backupOpsBuildFixture(string $scratch): array
  * verbatim. The template no longer carries any target-specific field at all
  * (see infrastructure/templates/deployment.conf.example's own header
  * comment): the application root now comes exclusively from the target
- * registry. $fixture is accepted only for call-site compatibility; its
- * contents are no longer read.
- *
- * @param  array{root: string}  $fixture
+ * registry.
  */
-function backupOpsDeploymentConfForFixture(string $scratch, array $fixture): string
+function backupOpsDeploymentConfForFixture(string $scratch): string
 {
     $path = $scratch.'/deployment-'.uniqid('', true).'.conf';
     file_put_contents($path, File::get(backupOpsDeploymentConfPath()));
@@ -700,7 +697,7 @@ it('resolves values only from the registry, never from deployment.conf', functio
         // post-cutover, so a real, unmodified copy already proves the
         // registry is the *only* source of TARGET_ROOT — there is nothing
         // left in deployment.conf for resolve_backup_subject to consult.
-        $brokenConfPath = backupOpsDeploymentConfForFixture($scratch, ['root' => $scratch.'/definitely-missing-'.uniqid('', true)]);
+        $brokenConfPath = backupOpsDeploymentConfForFixture($scratch);
 
         [$exit, $output] = backupOpsRunHarness($scratch, <<<'BASH'
             parse_backup_args --target parity-target
@@ -790,7 +787,7 @@ it('cannot run two backups concurrently against the same namespace', function ()
 
     try {
         $fixture = backupOpsBuildFixture($scratch);
-        $confPath = backupOpsDeploymentConfForFixture($scratch, $fixture);
+        $confPath = backupOpsDeploymentConfForFixture($scratch);
         [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture);
 
         $runRoot = $scratch.'/run-'.uniqid('', true);
@@ -956,7 +953,7 @@ it('removes timestamped backups older than the resolved retention while keeping 
 
     try {
         $fixture = backupOpsBuildFixture($scratch);
-        $confPath = backupOpsDeploymentConfForFixture($scratch, $fixture);
+        $confPath = backupOpsDeploymentConfForFixture($scratch);
         $sysroot = backupOpsBuildSystemRoot($scratch);
         backupOpsInstallRunuserStub($scratch);
         $pgDumpLog = $scratch.'/pg_dump.log';

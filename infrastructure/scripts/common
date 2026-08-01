@@ -169,11 +169,13 @@ manifest_schema_classify() {
 # resolve_* step before this runs — same convention as require_active_target
 # and parse_target_args below.
 #
-# A schema 2 manifest whose own target field is empty (every manifest
-# produced before this cutover, when the operational selector was not yet
-# target-only) is accepted without a target comparison — historical manifest
-# content is immutable and stays restorable; only a manifest that does carry
-# a target is checked against it.
+# A schema 2 manifest whose own target field is absent or JSON null (every
+# manifest produced before this cutover, when the operational selector was
+# not yet target-only) is accepted without a target comparison — historical
+# manifest content is immutable and stays restorable. An explicit empty
+# string is not treated the same as absent: it is rejected outright, the
+# same way an unexpected type is, since a real manifest this script writes
+# itself never produces one.
 validate_backup_manifest() {
     local manifest_path="$1"
 
@@ -207,12 +209,30 @@ validate_backup_manifest() {
             [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
                 || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
 
-            local manifest_target
-            manifest_target="$(jq -r '.target // empty' "${manifest_path}")"
+            local manifest_target_type
+            manifest_target_type="$(jq -r '.target | type' "${manifest_path}")"
 
-            if [[ -n "${manifest_target}" ]] && [[ "${manifest_target}" != "${TARGET_ID}" ]]; then
-                fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
-            fi
+            case "${manifest_target_type}" in
+                null)
+                    # Absent or explicit JSON null — a schema 2 manifest
+                    # predating the target-only cutover; no target to compare.
+                    ;;
+                string)
+                    local manifest_target
+                    manifest_target="$(jq -r '.target' "${manifest_path}")"
+
+                    [[ -n "${manifest_target}" ]] \
+                        || fail "backup manifest target is an empty string"
+
+                    [[ "${manifest_target}" == "${TARGET_ID}" ]] \
+                        || fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
+                    ;;
+                *)
+                    local manifest_target_value
+                    manifest_target_value="$(jq -c '.target' "${manifest_path}")"
+                    fail "backup manifest target has unexpected type: ${manifest_target_value}"
+                    ;;
+            esac
             ;;
         invalid:*)
             fail "unsupported backup manifest schema_version: ${manifest_schema_status#invalid:}"

@@ -29,8 +29,8 @@ a planned target (`tits-guru`) is rejected before anything is touched.
 Every backup carries a `manifest_schema_version: 2` manifest naming its
 `target`, `environment` and `backup_namespace`, alongside the pre-existing
 `project`, `database`, `release`, `postgres_version` and `php_version`
-fields. `restore-test` validates whichever schema it finds on the backup it
-selects:
+fields, plus the leftover `selector` field described below. `restore-test`
+validates whichever schema it finds on the backup it selects:
 
 - always required: `project == rateguru`, `environment` matching the target's
   environment class, `database` matching the resolved database;

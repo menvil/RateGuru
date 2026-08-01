@@ -358,14 +358,19 @@ function offsiteBackupOpsBuildLocalBackup(string $localRoot, string $timestamp, 
  * patched script, and a genuine local-backend rclone "remote") against a
  * purpose-built local backup directory.
  *
+ * $options['backupBase'] overrides the freshly generated default, letting a
+ * caller pre-seed sibling backups under the exact base this run will scan.
+ *
  * @return array{exit: int, output: string, backupBase: string, bucketRoot: string, localDir: string, historyFile: string, remoteDir: string}
  */
 function offsiteBackupOpsRunFullOffsiteBackup(string $scratch, ?array $manifest, array $options = []): array
 {
-    $backupBase = $scratch.'/backups-'.uniqid('', true);
+    $backupBase = $options['backupBase'] ?? $scratch.'/backups-'.uniqid('', true);
     $namespace = $options['namespace'] ?? 'parity';
     $localRoot = $backupBase.'/'.$namespace;
-    mkdir($localRoot, 0o755, true);
+    if (! is_dir($localRoot)) {
+        mkdir($localRoot, 0o755, true);
+    }
 
     $timestamp = $options['timestamp'] ?? '20260115-120000';
     $localDir = offsiteBackupOpsBuildLocalBackup($localRoot, $timestamp, $manifest, $options);
@@ -755,7 +760,12 @@ it('selects the latest local backup only within the resolved namespace', functio
         offsiteBackupOpsBuildLocalBackup($parityRoot, '20260101-000000', offsiteBackupOpsManifestSchema1('staging', 'rateguru_staging'));
         offsiteBackupOpsBuildLocalBackup($otherRoot, '20260201-000000', offsiteBackupOpsManifestSchema1('staging', 'rateguru_staging'));
 
+        // Must run against the very same $backupBase the two siblings above
+        // were created under — otherwise the helper's own freshly generated
+        // base would never see them, and this test would pass regardless of
+        // whether backup selection actually respects namespace isolation.
         $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: offsiteBackupOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+            'backupBase' => $backupBase,
             'timestamp' => '20260115-120000',
         ]);
 
@@ -832,7 +842,11 @@ it('rejects a schema 2 manifest with the wrong environment before rclone is ever
     $scratch = offsiteBackupOpsScratchDir();
 
     try {
-        $manifest = offsiteBackupOpsManifestSchema2('environment', null, 'production', 'staging', 'rateguru_staging');
+        // Only the environment field is wrong here — backup_namespace stays
+        // 'parity', matching the run's actual resolved namespace, so this
+        // isolates the environment-mismatch check from an unrelated
+        // namespace mismatch that would otherwise also be present.
+        $manifest = offsiteBackupOpsManifestSchema2('environment', null, 'production', 'parity', 'rateguru_staging');
 
         $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: $manifest);
 

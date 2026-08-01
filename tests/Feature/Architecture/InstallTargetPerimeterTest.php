@@ -1297,6 +1297,38 @@ it('apply removes every existing legacy wrapper, backing each up first', functio
     }
 });
 
+it('apply fails closed, before backing anything up or removing it, when a legacy wrapper path is a directory instead of a file', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $names = installPerimeterLegacyWrapperNames();
+
+        // A regular-file survivor earlier in the list, so a real backup
+        // directory does get created this run — proving the directory
+        // obstacle is rejected before record_target ever runs for it, not
+        // merely before rm -f, and that nothing it would have touched (its
+        // own backup, its own removal) ever happens.
+        $survivorName = $names[0];
+        $survivor = $vars['DST_SBIN_DIR'].'/'.$survivorName;
+        file_put_contents($survivor, "pre-existing legacy wrapper\n");
+        chmod($survivor, 0o750);
+
+        $obstacleName = $names[count($names) - 1];
+        $obstacle = $vars['DST_SBIN_DIR'].'/'.$obstacleName;
+        mkdir($obstacle, 0o750);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("refusing to remove a legacy wrapper path that is not a regular file or symlink: {$obstacle}");
+        expect(is_dir($obstacle))->toBeTrue('the directory obstacle must be left exactly as found');
+        expect(file_get_contents($survivor))->toBe("pre-existing legacy wrapper\n", 'the earlier survivor must be restored, not left removed');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
 it('apply never creates a legacy wrapper that was already absent', function () {
     $scratch = installPerimeterScratchDir();
 
@@ -1385,6 +1417,12 @@ it('a failed apply restores a legacy wrapper that existed before, with its origi
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
 
         expect($exit)->not->toBe(0);
+        // Proves remove_legacy_wrappers actually reached and removed the
+        // survivor before the later obstacle failed the run — not merely
+        // that the final restored state looks right, which would also hold
+        // if wrapper ordering changed and the survivor were never removed
+        // (and so never needed restoring) in the first place.
+        expect($output)->toContain("removed legacy wrapper: {$survivor}");
         expect($output)->toContain('rollback complete');
         expect(file_exists($survivor))->toBeTrue('a legacy wrapper that existed before this run must be restored on rollback');
         expect(is_dir($survivor))->toBeFalse();

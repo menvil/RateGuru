@@ -289,15 +289,13 @@ function deployOpsBuildFixture(string $scratch, bool $laravel = false): array
  * target-specific field at all (see
  * infrastructure/templates/deployment.conf.example's own header comment):
  * every one of those values now comes exclusively from the target registry,
- * via deployOpsParityRegistry(), which already derives them from this same
- * fixture's own root/incoming plus the current account/group. $fixture is
- * accepted only for call-site compatibility with every existing caller; its
- * contents are no longer read. Still returns a fresh scratch copy (rather
- * than the template path itself) so callers that mutate it afterward — e.g.
- * the Laravel-prep test's own PHP_BIN override — never touch the
- * repository's own source file.
+ * via deployOpsParityRegistry(), which already derives them from the
+ * fixture's own root/incoming plus the current account/group. Still returns
+ * a fresh scratch copy (rather than the template path itself) so callers
+ * that mutate it afterward — e.g. the Laravel-prep test's own PHP_BIN
+ * override — never touch the repository's own source file.
  */
-function deployOpsDeploymentConfForFixture(string $scratch, array $fixture): string
+function deployOpsDeploymentConfForFixture(string $scratch): string
 {
     $path = $scratch.'/deployment-'.uniqid('', true).'.conf';
     file_put_contents($path, File::get(deployOpsDeploymentConfPath()));
@@ -916,7 +914,7 @@ it('rejects an artifact located outside the target incoming-artifacts directory'
     try {
         $fixture = deployOpsBuildFixture($scratch);
         [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
-        $confPath = deployOpsDeploymentConfForFixture($scratch, $fixture);
+        $confPath = deployOpsDeploymentConfForFixture($scratch);
 
         $outsideArtifact = $scratch.'/outside.tar.gz';
         copy($fixture['artifact'], $outsideArtifact);
@@ -945,7 +943,7 @@ it('rejects a checksum located outside the target incoming-artifacts directory',
     try {
         $fixture = deployOpsBuildFixture($scratch);
         [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
-        $confPath = deployOpsDeploymentConfForFixture($scratch, $fixture);
+        $confPath = deployOpsDeploymentConfForFixture($scratch);
 
         $outsideChecksum = $scratch.'/outside.tar.gz.sha256';
         copy($fixture['checksum'], $outsideChecksum);
@@ -981,7 +979,7 @@ it('rejects a checksum located outside the target incoming-artifacts directory',
 function deployOpsRunFullDeployment(string $scratch, ?bool $failHealthCheck = false): array
 {
     $fixture = deployOpsBuildFixture($scratch);
-    $confPath = deployOpsDeploymentConfForFixture($scratch, $fixture);
+    $confPath = deployOpsDeploymentConfForFixture($scratch);
     deployOpsInstallCoreStubs($scratch);
     [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
 
@@ -1080,7 +1078,7 @@ it('runs the Laravel artisan command sequence with the correct --expected-host',
 
     try {
         $fixture = deployOpsBuildFixture($scratch, laravel: true);
-        $confPath = deployOpsDeploymentConfForFixture($scratch, $fixture);
+        $confPath = deployOpsDeploymentConfForFixture($scratch);
         deployOpsInstallCoreStubs($scratch);
         deployOpsFakePhpBin($scratch);
         $conf = preg_replace('/^PHP_BIN=.*$/m', 'PHP_BIN='.$scratch.'/bin/fake-php', File::get($confPath));
@@ -1151,7 +1149,7 @@ it('recovers correctly from a failed post-switch health check', function () {
         // uncanonicalized readlink() here would be a false mismatch, not a real one.
         $originalCurrent = realpath($root.'/current');
 
-        $confPath = deployOpsDeploymentConfForFixture($scratch, $first['fixture']);
+        $confPath = deployOpsDeploymentConfForFixture($scratch);
         [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $first['fixture']);
         deployOpsInstallCoreStubs($scratch);
         $failingHealthCheckLog = $scratch.'/failing-hc-target.log';

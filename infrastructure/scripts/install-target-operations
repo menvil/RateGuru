@@ -228,6 +228,13 @@ validate_source_syntax() {
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
     log "bash -n passed for all thirteen source shell scripts"
+
+    # deployment.conf is never executed directly — common sources it — but it
+    # is still bash-syntax content (KEY=value assignments), and bash -n
+    # parses that exactly as well as a script, catching a syntax error before
+    # this installer ever stages or installs it.
+    bash -n "${SRC_DEPLOYMENT_CONF}" || fail "bash -n failed for source file: ${SRC_DEPLOYMENT_CONF}"
+    log "bash -n passed for source deployment.conf"
 }
 
 validate_source_registry() {
@@ -722,6 +729,13 @@ verify_installed_files() {
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
     log "  bash -n: OK for all thirteen installed scripts"
+
+    # deployment.conf is never executed directly — common sources it — but it
+    # is still bash-syntax content (KEY=value assignments), and bash -n
+    # parses that exactly as well as a script, catching a syntax error (an
+    # unescaped quote, for example) before it is ever actually sourced.
+    bash -n "${DST_DEPLOYMENT_CONF}" || fail "bash -n failed for installed file: ${DST_DEPLOYMENT_CONF}"
+    log "  bash -n: OK for installed deployment.conf"
 
     "${DST_TARGETS}" validate --file "${DST_REGISTRY}" >/dev/null \
         || fail "installed targets CLI could not validate the installed registry"

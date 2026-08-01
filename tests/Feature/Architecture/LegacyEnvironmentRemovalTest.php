@@ -54,6 +54,7 @@ function legacyRemovalScanRoots(): array
         'infrastructure/config',
         'infrastructure/templates/deployment.conf.example',
         'infrastructure/runbooks',
+        'infrastructure/ROADMAP.md',
         '.github',
         'tests/Feature/Architecture',
     ];
@@ -133,28 +134,33 @@ function legacyRemovalWrapperNameTokenFileExemptions(): array
     ];
 }
 
-/** @return list<string> */
+/**
+ * Derived from legacyRemovalForbiddenTokens() rather than duplicated, so the
+ * two lists can never silently drift apart.
+ *
+ * @return list<string>
+ */
 function legacyRemovalWrapperNameTokens(): array
 {
-    return [
-        'rateguru-staging-deploy',
-        'rateguru-staging-rollback',
-        'rateguru-staging-cleanup',
-        'rateguru-production-deploy',
-        'rateguru-production-rollback',
-        'rateguru-production-cleanup',
-    ];
+    return array_values(array_filter(
+        legacyRemovalForbiddenTokens(),
+        fn (string $token): bool => str_starts_with($token, 'rateguru-staging-') || str_starts_with($token, 'rateguru-production-'),
+    ));
 }
 
 /**
  * True if $line contains $token as a whole identifier — not merely as a
- * prefix of a longer, unrelated one (e.g. "rateguru-staging-deploy" must not
+ * substring of a longer, unrelated one. Bounded on *both* sides by
+ * identifier-continuation characters (letters, digits, underscore, hyphen —
+ * every character these tokens themselves are built from), so this rejects
+ * both a token embedded as a suffix (e.g. "rateguru-staging-deploy" must not
  * match inside "rateguru-staging-deployment", a genuinely different and
- * unrelated GitHub Actions concurrency group name).
+ * unrelated GitHub Actions concurrency group name) and one embedded as a
+ * prefix (e.g. "STAGING_ROOT" must not match inside "MY_STAGING_ROOT").
  */
 function legacyRemovalLineContainsToken(string $line, string $token): bool
 {
-    return preg_match('/'.preg_quote($token, '/').'(?![a-zA-Z])/', $line) === 1;
+    return preg_match('/(?<![a-zA-Z0-9_-])'.preg_quote($token, '/').'(?![a-zA-Z0-9_-])/', $line) === 1;
 }
 
 /**
@@ -261,15 +267,112 @@ function legacyRemovalItBlocks(array $lines): array
     return $blocks;
 }
 
-function legacyRemovalLineIsComment(string $line): bool
+/**
+ * 'markdown' for .md files, 'default' for everything else this guard scans
+ * (shell scripts with no extension, PHP test files, YAML workflows, and the
+ * handful of plain config formats under infrastructure/config).
+ */
+function legacyRemovalSourceType(string $file): string
+{
+    return str_ends_with($file, '.md') ? 'markdown' : 'default';
+}
+
+/**
+ * True if $line is a comment (or blank) for $sourceType, and so cannot
+ * execute or reintroduce anything.
+ *
+ * Shell and PHP files — the 'default' type, which also covers every other
+ * scanned format here — use `//`, `#`, `*`, and `/*` as comment prefixes.
+ * Markdown has no such prefix of its own: a leading `#` is a heading and a
+ * leading `*` is a bullet-list marker or the start of `**bold**`, not a
+ * comment, so treating them as one wrongly hides real prose. Only `//` and
+ * HTML comment syntax count for Markdown.
+ */
+function legacyRemovalLineIsComment(string $line, string $sourceType): bool
 {
     $trimmed = ltrim($line);
 
-    return $trimmed === ''
-        || str_starts_with($trimmed, '//')
+    if ($trimmed === '') {
+        return true;
+    }
+
+    if ($sourceType === 'markdown') {
+        return str_starts_with($trimmed, '//') || str_starts_with($trimmed, '<!--');
+    }
+
+    return str_starts_with($trimmed, '//')
         || str_starts_with($trimmed, '#')
         || str_starts_with($trimmed, '*')
         || str_starts_with($trimmed, '/*');
+}
+
+/**
+ * Whether a line containing $token, in $file at $lineNumber, must be
+ * skipped rather than recorded as a violation — folding together every
+ * exemption this guard grants (see the file-level docblock): a comment
+ * line, content inside the marked ROADMAP.md historical range, an
+ * assertion proving the token's absence, the two named files' own
+ * --environment self-checks, the two named files' own wrapper-name
+ * literals, and — for --environment only, inside Architecture tests — an
+ * it() block structurally about --environment.
+ *
+ * @param  array{0: int, 1: int}|null  $roadmapExemptRange
+ * @param  list<array{0: int, 1: int}>  $exemptBlockRanges
+ * @param  list<string>  $environmentTokenExemptFiles
+ * @param  list<string>  $wrapperNameExemptFiles
+ * @param  list<string>  $wrapperNameTokens
+ */
+function legacyRemovalIsExempt(
+    string $token,
+    string $file,
+    int $lineNumber,
+    string $line,
+    string $sourceType,
+    bool $isArchitectureTest,
+    array $environmentTokenExemptFiles,
+    array $wrapperNameExemptFiles,
+    array $wrapperNameTokens,
+    ?array $roadmapExemptRange,
+    array $exemptBlockRanges,
+): bool {
+    // A comment cannot execute, so it cannot reintroduce anything — safe
+    // for every token, in every scanned location.
+    if (legacyRemovalLineIsComment($line, $sourceType)) {
+        return true;
+    }
+
+    if ($roadmapExemptRange !== null
+        && $lineNumber >= $roadmapExemptRange[0]
+        && $lineNumber < $roadmapExemptRange[1]
+    ) {
+        return true;
+    }
+
+    // Proving a token's absence is the guard working as intended, not a
+    // regression — safe for every token.
+    if ((str_contains($line, '->not->toContain(') || str_contains($line, '->not->toMatch('))
+        && str_contains($line, $token)
+    ) {
+        return true;
+    }
+
+    if ($token === '--environment' && in_array($file, $environmentTokenExemptFiles, true)) {
+        return true;
+    }
+
+    if (in_array($token, $wrapperNameTokens, true) && in_array($file, $wrapperNameExemptFiles, true)) {
+        return true;
+    }
+
+    if ($token === '--environment' && $isArchitectureTest) {
+        foreach ($exemptBlockRanges as [$start, $end]) {
+            if ($lineNumber >= $start && $lineNumber < $end) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -296,6 +399,8 @@ function legacyRemovalScan(): array
         if ($rawLines === false) {
             continue;
         }
+
+        $sourceType = legacyRemovalSourceType($file);
 
         $roadmapExemptRange = ($file === $roadmapFile)
             ? legacyRemovalMarkedRange($rawLines, $roadmapStartMarker, $roadmapEndMarker)
@@ -332,51 +437,25 @@ function legacyRemovalScan(): array
         }
 
         foreach ($rawLines as $lineNumber => $line) {
-            // A comment cannot execute, so it cannot reintroduce anything —
-            // safe for every token, in every scanned location.
-            if (legacyRemovalLineIsComment($line)) {
-                continue;
-            }
-
-            if ($roadmapExemptRange !== null
-                && $lineNumber >= $roadmapExemptRange[0]
-                && $lineNumber < $roadmapExemptRange[1]
-            ) {
-                continue;
-            }
-
             foreach ($tokens as $token) {
                 if (! legacyRemovalLineContainsToken($line, $token)) {
                     continue;
                 }
 
-                // Proving a token's absence is the guard working as
-                // intended, not a regression — safe for every token.
-                if ((str_contains($line, '->not->toContain(') || str_contains($line, '->not->toMatch('))
-                    && str_contains($line, $token)
-                ) {
+                if (legacyRemovalIsExempt(
+                    $token,
+                    $file,
+                    $lineNumber,
+                    $line,
+                    $sourceType,
+                    $isArchitectureTest,
+                    $environmentTokenExemptFiles,
+                    $wrapperNameExemptFiles,
+                    $wrapperNameTokens,
+                    $roadmapExemptRange,
+                    $exemptBlockRanges,
+                )) {
                     continue;
-                }
-
-                if ($token === '--environment' && in_array($file, $environmentTokenExemptFiles, true)) {
-                    continue;
-                }
-
-                if (in_array($token, $wrapperNameTokens, true) && in_array($file, $wrapperNameExemptFiles, true)) {
-                    continue;
-                }
-
-                if ($token === '--environment' && $isArchitectureTest) {
-                    $inExemptBlock = false;
-                    foreach ($exemptBlockRanges as [$start, $end]) {
-                        if ($lineNumber >= $start && $lineNumber < $end) {
-                            $inExemptBlock = true;
-                            break;
-                        }
-                    }
-                    if ($inExemptBlock) {
-                        continue;
-                    }
                 }
 
                 $violations[] = sprintf('%s:%d: %s', $file, $lineNumber + 1, trim($line));
@@ -415,4 +494,8 @@ it('the ROADMAP exemption itself still exists — the guard is not silently exem
 it('does not use a broad per-file or per-directory allowlist — only two named production files are exempted, and only from --environment', function () {
     expect(legacyRemovalEnvironmentTokenFileExemptions())->toHaveCount(2);
     expect(legacyRemovalForbiddenTokens())->toContain('--environment');
+});
+
+it('derives exactly six wrapper-name tokens from the forbidden-token list — the six legacy wrapper filenames, no more, no fewer', function () {
+    expect(legacyRemovalWrapperNameTokens())->toHaveCount(6)->each->toStartWith('rateguru-');
 });

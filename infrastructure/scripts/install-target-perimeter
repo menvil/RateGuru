@@ -752,6 +752,24 @@ rollback_installed_files() {
 
 # --- Legacy wrapper removal (transactional; reuses the installer core above)
 #
+# A legacy wrapper path must be either absent, a symlink (rm -f unlinks it
+# regardless of what it points to), or a regular file — never a directory or
+# other special type. `rm -f` without `-r` cannot remove a directory, and
+# fails silently enough (unguarded, but inside remove_legacy_wrappers rather
+# than a tested context) that a later rollback would then try to cp -a its
+# backed-up copy *into* the still-existing directory rather than replacing
+# it, succeeding at a nested, non-transactional "restore" instead of failing
+# closed. Rejecting the unsafe type up front, before it is ever backed up or
+# touched, keeps this the same fail-closed contract
+# reject_unsafe_existing_destination already gives the install side.
+reject_unsafe_legacy_wrapper_path() {
+    local path="$1"
+
+    if [[ -e "${path}" ]] && [[ ! -f "${path}" ]] && [[ ! -L "${path}" ]]; then
+        fail "refusing to remove a legacy wrapper path that is not a regular file or symlink: ${path}"
+    fi
+}
+
 # Backs up (via record_target — the identical helper every install_regular_
 # file_transactional call above already uses) and removes each of the six
 # legacy wrapper paths that currently exists. A path already absent before
@@ -763,6 +781,7 @@ remove_legacy_wrappers() {
     local name path
     for name in "${LEGACY_WRAPPER_NAMES[@]}"; do
         path="$(legacy_wrapper_path "${name}")"
+        reject_unsafe_legacy_wrapper_path "${path}"
         record_target "${path}"
 
         if [[ -e "${path}" || -L "${path}" ]]; then

@@ -415,15 +415,21 @@ function restoreTestOpsManifestSchema1(string $environment, string $database): a
  * patched script) against a purpose-built backup directory, using
  * --target parity-target.
  *
+ * $options['backupBase'] overrides the freshly generated default, letting a
+ * caller pre-compute sibling backup paths (e.g. for $options['extra_backups'])
+ * that land beneath the exact base this run will scan.
+ *
  * @return array{exit: int, output: string, backupBase: string, namespaceRoot: string, backupDir: string, createdbLog: string, dropdbLog: string, pgRestoreLog: string, psqlLog: string, runRoot: string}
  */
 function restoreTestOpsRunFullRestore(string $scratch, ?array $manifest, array $options = []): array
 {
-    $backupBase = $scratch.'/backups-'.uniqid('', true);
+    $backupBase = $options['backupBase'] ?? $scratch.'/backups-'.uniqid('', true);
     $namespace = $options['namespace'] ?? 'parity';
     $databaseName = $options['database_name'] ?? 'parity_db';
     $namespaceRoot = $backupBase.'/'.$namespace;
-    mkdir($namespaceRoot, 0o755, true);
+    if (! is_dir($namespaceRoot)) {
+        mkdir($namespaceRoot, 0o755, true);
+    }
 
     $timestamp = $options['timestamp'] ?? '20260115-120000';
     $backupDir = restoreTestOpsBuildBackupDirectory($namespaceRoot, $timestamp, $manifest, $options);
@@ -812,19 +818,20 @@ it('selects the latest timestamped backup only within the resolved namespace', f
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $backupBase = $scratch.'/backups';
-        $parityRoot = $backupBase.'/parity';
-        $otherRoot = $backupBase.'/other-namespace';
-        mkdir($parityRoot, 0o755, true);
-        mkdir($otherRoot, 0o755, true);
+        $backupBase = $scratch.'/backups-'.uniqid('', true);
 
         // An older sibling in the same (resolved) namespace, and a newer one
-        // in a completely different namespace — neither must be picked.
-        restoreTestOpsBuildBackupDirectory($parityRoot, '20260101-000000', restoreTestOpsManifestSchema1('staging', 'parity_db'));
-        restoreTestOpsBuildBackupDirectory($otherRoot, '20260201-000000', restoreTestOpsManifestSchema1('staging', 'rateguru_staging'));
-
+        // in a completely different namespace — neither must be picked. Built
+        // through extra_backups, keyed off the same $backupBase the primary
+        // backup below is created under and this run will scan — not an
+        // unrelated directory the run never looks at.
         $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema1('staging', 'parity_db'), options: [
+            'backupBase' => $backupBase,
             'timestamp' => '20260115-120000',
+            'extra_backups' => [
+                [$backupBase.'/parity', '20260101-000000', restoreTestOpsManifestSchema1('staging', 'parity_db')],
+                [$backupBase.'/other-namespace', '20260201-000000', restoreTestOpsManifestSchema1('staging', 'rateguru_staging')],
+            ],
         ]);
 
         expect($result['exit'])->toBe(0, $result['output']);

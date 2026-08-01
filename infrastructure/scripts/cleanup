@@ -82,14 +82,14 @@ parse_cleanup_args() {
         case "$1" in
             --target)
                 [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
-                [[ $# -ge 2 ]] || fail "--target requires a value"
+                require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
                 shift 2
                 ;;
             --keep)
                 [[ "${KEEP_SEEN}" != true ]] || fail "--keep given more than once"
-                [[ $# -ge 2 ]] || fail "--keep requires a value"
+                require_flag_value "--keep" "$#" "${2-}"
                 KEEP="$2"
                 KEEP_SEEN=true
                 shift 2

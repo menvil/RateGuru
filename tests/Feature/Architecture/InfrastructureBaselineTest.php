@@ -42,7 +42,9 @@ it('keeps common free of removed legacy helpers', function () {
     // and BackupCycleTest.php for their own coverage.
     expect($common)
         ->not->toContain('parse_environment_argument()')
+        ->not->toContain('parse_environment_argument')
         ->not->toContain('acquire_operation_lock()')
+        ->not->toContain('acquire_operation_lock')
         ->not->toContain('validate_environment()')
         ->not->toContain('environment_root()')
         ->not->toContain('environment_public_hostname()')

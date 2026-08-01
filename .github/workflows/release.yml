@@ -212,7 +212,7 @@ jobs:
             --arg built_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg workflow_run_id "${GITHUB_RUN_ID}" \
             --arg workflow_run_number "${GITHUB_RUN_NUMBER}" \
-            --argjson targets '["staging", "production"]' \
+            --argjson targets '["staging-main", "tits-guru"]' \
             '{
               project: $project,
               source_ref: $source_ref,
@@ -282,6 +282,8 @@ jobs:
       - name: Deploy release artifact to staging
         uses: ./.github/actions/deploy-rateguru
         with:
+          deployment-target: staging-main
+
           deploy-host: ${{ vars.DEPLOY_HOST }}
           deploy-port: ${{ vars.DEPLOY_PORT }}
           deploy-user: ${{ vars.DEPLOY_USER }}
@@ -340,6 +342,8 @@ jobs:
       - name: Deploy verified artifact to production
         uses: ./.github/actions/deploy-rateguru
         with:
+          deployment-target: tits-guru
+
           deploy-host: ${{ vars.DEPLOY_HOST }}
           deploy-port: ${{ vars.DEPLOY_PORT }}
           deploy-user: ${{ vars.DEPLOY_USER }}

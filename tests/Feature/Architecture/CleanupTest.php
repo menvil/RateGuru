@@ -240,22 +240,6 @@ function cleanupOpsBuildFixture(
 }
 
 /**
- * A scratch, writable copy of the real committed deployment.conf.example,
- * verbatim. The template no longer carries any target-specific field at all
- * (see infrastructure/templates/deployment.conf.example's own header
- * comment): the application root and release retention now come exclusively
- * from the target registry, via cleanupOpsParityRegistry(). $root is
- * accepted only for call-site compatibility; its value is no longer read.
- */
-function cleanupOpsDeploymentConfForRoot(string $scratch, string $root): string
-{
-    $path = $scratch.'/deployment-'.uniqid('', true).'.conf';
-    file_put_contents($path, File::get(cleanupOpsDeploymentConfPath()));
-
-    return $path;
-}
-
-/**
  * Extracts every "DRY RUN would delete: RELEASE_ID" line from cleanup output
  * as a sorted list of release IDs — the stable comparison surface the spec
  * pins, deliberately excluding timestamps and selector-specific labels.
@@ -591,11 +575,15 @@ it('rejects duplicate execution modes', function () {
     }
 });
 
-it('rejects an invalid --keep value', function () {
+it('rejects a semantically invalid --keep value', function () {
+    // Not '-1' or '': those are syntactically invalid — a flag-shaped or
+    // empty value — and require_flag_value now rejects them before this
+    // semantic check is ever reached; see the dedicated syntactic test
+    // below.
     $scratch = cleanupOpsScratchDir();
 
     try {
-        foreach (['-1', 'abc', '1.5', ''] as $invalid) {
+        foreach (['abc', '1.5'] as $invalid) {
             [$exit, $output] = cleanupOpsRunScript(
                 ['--target', 'staging-main', '--keep', $invalid],
                 cleanupOpsBaseEnv($scratch),
@@ -604,6 +592,28 @@ it('rejects an invalid --keep value', function () {
             expect($exit)->not->toBe(0, "keep={$invalid}");
             expect($output)->toContain('--keep must be a non-negative integer');
         }
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('rejects a syntactically invalid --keep value before ever reaching the semantic check', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        [$exit, $output] = cleanupOpsRunScript(
+            ['--target', 'staging-main', '--keep', ''],
+            cleanupOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--keep requires a non-empty value');
+
+        [$exit, $output] = cleanupOpsRunScript(
+            ['--target', 'staging-main', '--keep', '-1'],
+            cleanupOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--keep requires a value, not another option: -1');
     } finally {
         cleanupOpsCleanup($scratch);
     }
@@ -620,6 +630,30 @@ it('rejects --target or --keep given without a value', function () {
         [$exit, $output] = cleanupOpsRunScript(['--target', 'staging-main', '--keep'], cleanupOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--keep requires a value');
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('rejects an explicitly empty --target value', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        [$exit, $output] = cleanupOpsRunScript(['--target', '', '--dry-run'], cleanupOpsBaseEnv($scratch));
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target requires a non-empty value');
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('rejects --target swallowing the next flag as its value', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        [$exit, $output] = cleanupOpsRunScript(['--target', '--dry-run'], cleanupOpsBaseEnv($scratch));
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target requires a value, not another option: --dry-run');
     } finally {
         cleanupOpsCleanup($scratch);
     }
@@ -762,13 +796,11 @@ it('lets an active target through lifecycle validation and reach real fixture co
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
         ]);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
         [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
             ['--target', 'parity-target', '--dry-run'],
             cleanupOpsBaseEnv($scratch, [
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,
             ]),
