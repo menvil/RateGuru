@@ -266,28 +266,12 @@ it('derives staging-main from the committed infrastructure sources', function ()
     // in this repository. It does NOT prove the registry agrees with the
     // running staging VPS — nothing in CI can reach that host.
     //
-    // The two can drift: STAGING_CODE_GROUP in deployment.conf.example was
-    // `rateguru-staging` while the installed /home/www/rateguru/config/
-    // deployment.conf on the VPS said `rateguru-staging-code`, and release
-    // files were group-owned by the latter. Repository parity was green
-    // throughout, because both sides of this comparison were wrong together.
-    //
     // Runtime parity is a manual step, documented in
     // runbooks/deployment-targets.md under "Verifying runtime parity", and must
     // be re-run on the VPS before the target is used for a real deployment.
     $target = json_decode(File::get(targetRegistryPath()), true, 512, JSON_THROW_ON_ERROR)['targets']['staging-main'];
 
     $source = fn (string $path): string => File::get(base_path('infrastructure/'.$path));
-
-    // deployment.conf.example — roots, users, group, incoming, retention.
-    $deploymentConf = $source('templates/deployment.conf.example');
-    expect($deploymentConf)
-        ->toContain('STAGING_ROOT='.$target['application_root'])
-        ->toContain('STAGING_RUNTIME_USER='.$target['runtime_user'])
-        ->toContain('STAGING_CODE_GROUP='.$target['code_group'])
-        ->toContain('STAGING_DEPLOY_USER='.$target['deploy_user'])
-        ->toContain('STAGING_INCOMING_ARTIFACTS='.$target['incoming_artifacts'])
-        ->toContain('STAGING_RELEASE_RETENTION='.$target['release_retention']);
 
     // PHP-FPM pool — pool name, socket, and the runtime user it runs as.
     $pool = $source('config/php-fpm/rateguru-staging.conf');
@@ -310,28 +294,18 @@ it('derives staging-main from the committed infrastructure sources', function ()
         ->toContain('server_name '.$target['public_hostnames'][0].';')
         ->toContain('fastcgi_pass unix:'.$target['php_fpm']['socket'].';');
 
-    // Backup — since Phase 4 slice 7.1, the database name, backup namespace
-    // and local retention for --environment mode live in common's
-    // environment_database_name/environment_backup_namespace/
-    // environment_local_backup_retention helpers, not in the backup script
-    // itself; since slice 7.2, offsite retention for --environment mode
-    // likewise lives in common's environment_offsite_backup_retention, not
-    // in offsite-retention itself.
+    // Backup — since the legacy --environment interface was removed, every
+    // registry-derived value (database name, backup namespace, retention,
+    // health URL/host header, nginx/scheduler names) is resolved generically
+    // at runtime through common's target_*() accessors, reading straight from
+    // the registry itself — there is no longer a separate, hardcoded
+    // per-target copy in these scripts to compare against for drift. What
+    // remains provable structurally is the shared, target-agnostic template
+    // shape these scripts build from that resolved value.
     $backup = $source('scripts/backup');
-    $commonSource = $source('scripts/common');
-    expect($commonSource)
-        ->toContain("printf '%s\\n' \"{$target['database']['name']}\"")
-        ->toContain("printf '%s\\n' \"{$target['backup']['namespace']}\"")
-        ->toContain("printf '%s\\n' \"{$target['backup']['local_retention_days']}\"")
-        ->toContain("printf '%s\\n' \"{$target['backup']['offsite_retention_days']}\"");
     expect($backup)
-        // The backup root is namespaced by BACKUP_NAMESPACE, resolved from
-        // either selector into the same shared value.
         ->toContain('BACKUP_ROOT="${BACKUP_BASE}/${BACKUP_NAMESPACE}"')
-        ->toContain('BACKUP_BASE_DEFAULT="/home/www/rateguru/backups"')
-        // Scheduler and site names appear in the legacy config-snapshot allowlist.
-        ->toContain('etc/cron.d/'.$target['scheduler']['name'])
-        ->toContain('etc/nginx/sites-available/'.$target['nginx']['site_name']);
+        ->toContain('BACKUP_BASE_DEFAULT="/home/www/rateguru/backups"');
 
     expect($source('scripts/offsite-retention'))
         ->toContain('REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${BACKUP_NAMESPACE}"');
@@ -340,11 +314,6 @@ it('derives staging-main from the committed infrastructure sources', function ()
     // runtime user.
     expect($source('config/cron/'.$target['scheduler']['name']))
         ->toContain($target['runtime_user']);
-
-    // Health URL and Host header still come from common's environment helpers.
-    expect($source('scripts/common'))
-        ->toContain('"'.$target['health']['url'].'"')
-        ->toContain('"'.$target['health']['host_header'].'"');
 
     // The referenced environment template really exists.
     expect(File::exists(base_path($target['environment_template'])))->toBeTrue();
@@ -1282,35 +1251,6 @@ it('never builds a jq program from untrusted target input', function () {
 
 // --- no operational behaviour changed --------------------------------------
 
-it('leaves the --environment interface untouched', function () {
-    $common = File::get(base_path('infrastructure/scripts/common'));
-
-    foreach ([
-        'validate_environment',
-        'environment_root',
-        'environment_runtime_user',
-        'environment_code_group',
-        'environment_deploy_user',
-        'environment_incoming_artifacts',
-        'environment_url',
-        'environment_host_header',
-    ] as $function) {
-        expect($common)->toContain($function.'() {');
-    }
-
-    // The environment allowlist itself is unchanged.
-    expect($common)->toMatch('/validate_environment\(\)\s*\{.*?staging\|production\).*?\}/s');
-
-    // deployment.conf keeps its global settings; target-specific values did not
-    // migrate out of it in this slice.
-    expect(File::get(base_path('infrastructure/templates/deployment.conf.example')))
-        ->toContain('RELEASE_ID_REGEX=')
-        ->toContain('PHP_BIN=')
-        ->toContain('PHP_FPM_SERVICE=')
-        ->toContain('STAGING_ROOT=')
-        ->toContain('PRODUCTION_ROOT=');
-});
-
 it('changes no runtime configuration in this slice', function () {
     // Nginx, PHP-FPM, Supervisor and the Laravel scheduler cron are
     // untouched: nothing in them may reference the registry or a target ID.
@@ -1385,34 +1325,18 @@ it('documents the registry model in a runbook', function () {
         ->toContain('What is non-secret')
         ->toContain('Where secrets stay')
         ->toContain('rclone.conf')
-        // Compatibility and migration plan.
-        ->toContain('Compatibility with the current --environment interface')
-        ->toContain('Migration sequence');
+        // The interface is now target-only; History points at the full
+        // migration record instead of restating it.
+        ->toContain('The `--target` interface')
+        ->toContain('## History')
+        ->not->toContain('--environment');
 
-    // Ordering is checked inside the migration section only — words like
-    // "Install" legitimately appear earlier in the runtime-parity prose.
-    expect(preg_match('/## Migration sequence\n(.*?)(?=\n## )/s', $contents, $sectionMatch))
-        ->toBe(1, 'could not locate the Migration sequence section');
-
-    $section = $sectionMatch[1];
-    $previous = -1;
-
-    foreach ([
-        'Registry foundation',
-        'Read-only target operations',
-        'Install and verify read-only operations',
-        'Target-aware cleanup',
-        'Target-aware deploy',
-        'Target-aware rollback',
-        'Backup path',
-        'Perimeter',
-        'Remove compatibility',
-    ] as $step) {
-        $position = strpos($section, $step);
-        expect($position)->not->toBeFalse("missing migration step: {$step}");
-        expect($position)->toBeGreaterThan($previous, "migration step out of order: {$step}");
-        $previous = $position;
-    }
+    // The History section points at ROADMAP.md rather than re-deriving the
+    // migration order itself, so this test no longer checks step ordering —
+    // DeploymentTargetRegistryTest's own ROADMAP-facing tests cover that.
+    expect(preg_match('/## History\n(.*?)(?=\n## )/s', $contents, $sectionMatch))
+        ->toBe(1, 'could not locate the History section');
+    expect($sectionMatch[1])->toContain('infrastructure/ROADMAP.md');
 });
 
 it('documents the registry resolution contract the code actually implements', function () {

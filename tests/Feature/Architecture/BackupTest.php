@@ -299,15 +299,19 @@ function backupOpsBuildFixture(string $scratch): array
 }
 
 /**
+ * A scratch, writable copy of the real committed deployment.conf.example,
+ * verbatim. The template no longer carries any target-specific field at all
+ * (see infrastructure/templates/deployment.conf.example's own header
+ * comment): the application root now comes exclusively from the target
+ * registry. $fixture is accepted only for call-site compatibility; its
+ * contents are no longer read.
+ *
  * @param  array{root: string}  $fixture
  */
 function backupOpsDeploymentConfForFixture(string $scratch, array $fixture): string
 {
-    $conf = File::get(backupOpsDeploymentConfPath());
-    $conf = preg_replace('/^STAGING_ROOT=.*$/m', 'STAGING_ROOT='.$fixture['root'], $conf);
-
     $path = $scratch.'/deployment-'.uniqid('', true).'.conf';
-    file_put_contents($path, $conf);
+    file_put_contents($path, File::get(backupOpsDeploymentConfPath()));
 
     return $path;
 }
@@ -415,8 +419,6 @@ function backupOpsBuildSystemRoot(string $scratch): string
         'etc/cron.d',
         'home/parity-deploy/.ssh',
         'home/other-deploy/.ssh',
-        'home/deploy-rateguru-staging/.ssh',
-        'home/deploy-rateguru-production/.ssh',
         'etc/sudoers.d',
         'etc/ssh/sshd_config.d',
     ] as $dir) {
@@ -443,33 +445,18 @@ function backupOpsBuildSystemRoot(string $scratch): string
     file_put_contents($sysroot.'/etc/cron.d/other-scheduler', "* * * * * true\n");
     file_put_contents($sysroot.'/home/other-deploy/.ssh/authorized_keys', "ssh-ed25519 AAAA other\n");
 
-    // Legacy mode's own fixed, byte-for-byte-preserved path list — both
-    // staging and production, regardless of which one is being backed up.
-    file_put_contents($sysroot.'/etc/nginx/sites-available/rateguru-staging', "server {}\n");
-    file_put_contents($sysroot.'/etc/nginx/sites-available/rateguru-production', "server {}\n");
-    file_put_contents($sysroot.'/etc/nginx/rateguru-staging.htpasswd', "user:hash\n");
-    file_put_contents($sysroot.'/etc/php/8.5/fpm/pool.d/rateguru-staging.conf', "[rateguru-staging]\n");
-    file_put_contents($sysroot.'/etc/php/8.5/fpm/pool.d/rateguru-production.conf', "[rateguru-production]\n");
-    file_put_contents($sysroot.'/etc/supervisor/conf.d/rateguru-staging-queue.conf', "[program:rateguru-staging-queue]\n");
-    file_put_contents($sysroot.'/etc/supervisor/conf.d/rateguru-production-queue.conf', "[program:rateguru-production-queue]\n");
-    file_put_contents($sysroot.'/etc/cron.d/rateguru-staging-scheduler', "* * * * * true\n");
-    file_put_contents($sysroot.'/etc/cron.d/rateguru-production-scheduler', "* * * * * true\n");
-    file_put_contents($sysroot.'/home/deploy-rateguru-staging/.ssh/authorized_keys', "ssh-ed25519 AAAA staging\n");
-    file_put_contents($sysroot.'/home/deploy-rateguru-production/.ssh/authorized_keys', "ssh-ed25519 AAAA production\n");
-
     return $sysroot;
 }
 
 /**
  * Runs a real, full perform_backup pass (against the root-bypassed patched
- * script) using either --environment staging or --target parity-target.
+ * script) using --target parity-target.
  *
  * @return array{exit: int, output: string, fixture: array, backupBase: string, runRoot: string, sysroot: string, pgDumpLog: string}
  */
-function backupOpsRunFullBackup(string $scratch, bool $useTarget, int $localRetentionDays = 14, bool $failPgDump = false): array
+function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false): array
 {
     $fixture = backupOpsBuildFixture($scratch);
-    $confPath = backupOpsDeploymentConfForFixture($scratch, $fixture);
     $sysroot = backupOpsBuildSystemRoot($scratch);
     backupOpsInstallRunuserStub($scratch);
 
@@ -481,27 +468,21 @@ function backupOpsRunFullBackup(string $scratch, bool $useTarget, int $localRete
     $backupBase = $scratch.'/backups-'.uniqid('', true);
     $runRoot = $scratch.'/run-'.uniqid('', true);
 
+    [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, $localRetentionDays);
+
     $env = backupOpsBaseEnv($scratch, [
-        'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
         'RATEGURU_BACKUP_BASE' => $backupBase,
         'RATEGURU_RUN_ROOT' => $runRoot,
         'RATEGURU_SYSTEM_ROOT' => $sysroot,
         'RATEGURU_PG_DUMP_BIN' => $pgDumpStub,
         'RATEGURU_PHP_BIN' => $phpStub,
+        'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+        'RATEGURU_TARGETS_CLI' => $targetsPath,
     ]);
-
-    if ($useTarget) {
-        [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, $localRetentionDays);
-        $env['RATEGURU_TARGET_REGISTRY_FILE'] = $registryPath;
-        $env['RATEGURU_TARGETS_CLI'] = $targetsPath;
-        $selectorArgs = '--target parity-target';
-    } else {
-        $selectorArgs = '--environment staging';
-    }
 
     [$exit, $output] = backupOpsRunHarness(
         $scratch,
-        "parse_backup_args {$selectorArgs}\nresolve_backup_subject\nperform_backup",
+        "parse_backup_args --target parity-target\nresolve_backup_subject\nperform_backup",
         $env,
         backupOpsPatchedScript($scratch),
     );
@@ -532,23 +513,6 @@ function backupOpsLatestBackupDir(string $backupBase, string $namespace): string
 // Selector contract
 // =============================================================================
 
-it('supports the legacy --environment selector', function () {
-    $scratch = backupOpsScratchDir();
-
-    try {
-        [$exit, $output] = backupOpsRunHarness($scratch, <<<'BASH'
-            parse_backup_args --environment staging
-            resolve_backup_subject
-            printf 'LABEL=%s\n' "${LABEL}"
-            BASH, backupOpsBaseEnv($scratch));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('LABEL=staging');
-    } finally {
-        backupOpsCleanup($scratch);
-    }
-});
-
 it('supports the --target selector', function () {
     $scratch = backupOpsScratchDir();
 
@@ -572,61 +536,36 @@ it('supports the --target selector', function () {
     }
 });
 
-it('rejects --target and --environment used together', function () {
-    $scratch = backupOpsScratchDir();
-
-    try {
-        [$exit, $output] = backupOpsRunHarness(
-            $scratch,
-            'parse_backup_args --target staging-main --environment staging',
-            backupOpsBaseEnv($scratch),
-        );
-
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('cannot be combined');
-    } finally {
-        backupOpsCleanup($scratch);
-    }
-});
-
-it('requires exactly one selector', function () {
+it('requires --target', function () {
     $scratch = backupOpsScratchDir();
 
     try {
         [$exit, $output] = backupOpsRunHarness($scratch, 'parse_backup_args', backupOpsBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('exactly one of --target or --environment is required');
+        expect($output)->toContain('--target is required');
     } finally {
         backupOpsCleanup($scratch);
     }
 });
 
-it('rejects duplicate selectors', function () {
+it('rejects duplicate --target', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        [$targetExit, $targetOutput] = backupOpsRunHarness(
+        [$exit, $output] = backupOpsRunHarness(
             $scratch,
             'parse_backup_args --target a --target b',
             backupOpsBaseEnv($scratch),
         );
-        expect($targetExit)->not->toBe(0);
-        expect($targetOutput)->toContain('--target given more than once');
-
-        [$envExit, $envOutput] = backupOpsRunHarness(
-            $scratch,
-            'parse_backup_args --environment staging --environment production',
-            backupOpsBaseEnv($scratch),
-        );
-        expect($envExit)->not->toBe(0);
-        expect($envOutput)->toContain('--environment given more than once');
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target given more than once');
     } finally {
         backupOpsCleanup($scratch);
     }
 });
 
-it('rejects a selector given without a value, with an empty value, or with a flag-shaped value', function () {
+it('rejects --target given without a value, with an empty value, or with a flag-shaped value', function () {
     $scratch = backupOpsScratchDir();
 
     try {
@@ -634,23 +573,19 @@ it('rejects a selector given without a value, with an empty value, or with a fla
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a value');
 
-        [$exit, $output] = backupOpsRunHarness($scratch, 'parse_backup_args --environment', backupOpsBaseEnv($scratch));
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('--environment requires a value');
-
         [$exit, $output] = backupOpsRunHarness($scratch, "parse_backup_args --target ''", backupOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a non-empty value');
 
-        [$exit, $output] = backupOpsRunHarness($scratch, 'parse_backup_args --target --environment staging', backupOpsBaseEnv($scratch));
+        [$exit, $output] = backupOpsRunHarness($scratch, 'parse_backup_args --target --bogus', backupOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('--target requires a value, not another option: --environment');
+        expect($output)->toContain('--target requires a value, not another option: --bogus');
     } finally {
         backupOpsCleanup($scratch);
     }
 });
 
-it('shows both selector forms on --help and exits 0', function () {
+it('shows only the --target form on --help and exits 0', function () {
     $scratch = backupOpsScratchDir();
 
     try {
@@ -658,8 +593,8 @@ it('shows both selector forms on --help and exits 0', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)
-            ->toContain('--environment staging|production')
-            ->toContain('--target TARGET_ID');
+            ->toContain('--target TARGET_ID')
+            ->not->toContain('--environment');
     } finally {
         backupOpsCleanup($scratch);
     }
@@ -673,6 +608,19 @@ it('rejects unknown arguments', function () {
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unknown argument: --bogus');
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('rejects a removed --environment flag exactly like any other unknown argument', function () {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        [$exit, $output] = backupOpsRunHarness($scratch, 'parse_backup_args --environment staging', backupOpsBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('unknown argument: --environment');
     } finally {
         backupOpsCleanup($scratch);
     }
@@ -738,20 +686,20 @@ it('rejects an unknown target clearly', function () {
 });
 
 // =============================================================================
-// Value resolution: target from the registry only, legacy from environment
-// helpers only
+// Value resolution: target from the registry only
 // =============================================================================
 
-it('target mode resolves values only from the registry, never from deployment.conf', function () {
+it('resolves values only from the registry, never from deployment.conf', function () {
     $scratch = backupOpsScratchDir();
 
     try {
         $fixture = backupOpsBuildFixture($scratch);
         [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, 7);
 
-        // deployment.conf deliberately points STAGING_ROOT somewhere that
-        // does not exist — if resolve_backup_subject's target branch ever
-        // consulted it, this would surface as a wrong ENVIRONMENT_ROOT.
+        // deployment.conf no longer carries any target-specific field at all
+        // post-cutover, so a real, unmodified copy already proves the
+        // registry is the *only* source of TARGET_ROOT — there is nothing
+        // left in deployment.conf for resolve_backup_subject to consult.
         $brokenConfPath = backupOpsDeploymentConfForFixture($scratch, ['root' => $scratch.'/definitely-missing-'.uniqid('', true)]);
 
         [$exit, $output] = backupOpsRunHarness($scratch, <<<'BASH'
@@ -760,7 +708,7 @@ it('target mode resolves values only from the registry, never from deployment.co
             printf 'DATABASE_NAME=%s\n' "${DATABASE_NAME}"
             printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
             printf 'RETENTION_DAYS=%s\n' "${RETENTION_DAYS}"
-            printf 'ENVIRONMENT_ROOT=%s\n' "${ENVIRONMENT_ROOT}"
+            printf 'TARGET_ROOT=%s\n' "${TARGET_ROOT}"
             BASH, backupOpsBaseEnv($scratch, [
             'RATEGURU_DEPLOYMENT_CONF_FILE' => $brokenConfPath,
             'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
@@ -772,106 +720,53 @@ it('target mode resolves values only from the registry, never from deployment.co
             ->toContain('DATABASE_NAME=parity_db')
             ->toContain('BACKUP_NAMESPACE=parity')
             ->toContain('RETENTION_DAYS=7')
-            ->toContain('ENVIRONMENT_ROOT='.$fixture['root']);
+            ->toContain('TARGET_ROOT='.$fixture['root']);
     } finally {
         backupOpsCleanup($scratch);
     }
 });
 
-it('legacy mode resolves values only from environment helpers, never from the registry', function () {
-    $scratch = backupOpsScratchDir();
-
-    try {
-        $fixture = backupOpsBuildFixture($scratch);
-        $confPath = backupOpsDeploymentConfForFixture($scratch, $fixture);
-
-        // The registry is deliberately missing entirely — if
-        // resolve_backup_subject's legacy branch ever consulted it, this
-        // would fail outright.
-        $missingRegistryPath = $scratch.'/definitely-missing-registry.json';
-
-        [$exit, $output] = backupOpsRunHarness($scratch, <<<'BASH'
-            parse_backup_args --environment staging
-            resolve_backup_subject
-            printf 'DATABASE_NAME=%s\n' "${DATABASE_NAME}"
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            printf 'RETENTION_DAYS=%s\n' "${RETENTION_DAYS}"
-            printf 'ENVIRONMENT_ROOT=%s\n' "${ENVIRONMENT_ROOT}"
-            BASH, backupOpsBaseEnv($scratch, [
-            'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
-            'RATEGURU_TARGET_REGISTRY_FILE' => $missingRegistryPath,
-        ]));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)
-            ->toContain('DATABASE_NAME=rateguru_staging')
-            ->toContain('BACKUP_NAMESPACE=staging')
-            ->toContain('RETENTION_DAYS=14')
-            ->toContain('ENVIRONMENT_ROOT='.$fixture['root']);
-    } finally {
-        backupOpsCleanup($scratch);
-    }
-});
-
-it('resolve_backup_subject never calls the legacy helper in target mode, and never calls the target helper in legacy mode', function () {
+it('resolve_backup_subject only ever calls target_* registry helpers', function () {
     $source = backupOpsSource();
 
     expect(preg_match(
-        '/^resolve_backup_subject\(\) \{\n'
-        .'    if \[\[ "\$\{TARGET_SEEN\}" == true \]\]; then\n'
-        .'(.*?)'
-        .'    else\n'
-        .'(.*?)'
-        .'    fi\n'
-        .'\}\n/ms',
+        '/^resolve_backup_subject\(\) \{\n(.*?)^\}\n/ms',
         $source,
         $matches,
-    ))->toBe(1, 'could not locate the expected if/else structure of resolve_backup_subject() in scripts/backup');
+    ))->toBe(1, 'could not locate resolve_backup_subject() in scripts/backup');
 
-    [, $targetBranch, $legacyBranch] = $matches;
+    $body = $matches[1];
 
-    expect($targetBranch)
+    expect($body)
+        ->toContain('require_active_target')
         ->toContain('target_root')
         ->toContain('target_database_name')
         ->toContain('target_backup_namespace')
         ->toContain('target_local_backup_retention')
         ->not->toContain('environment_root')
         ->not->toContain('environment_database_name')
-        ->not->toContain('validate_environment');
-
-    expect($legacyBranch)
-        ->toContain('environment_root')
-        ->toContain('environment_database_name')
-        ->toContain('environment_backup_namespace')
-        ->toContain('environment_local_backup_retention')
-        ->not->toContain('target_root')
-        ->not->toContain('require_active_target');
+        ->not->toContain('environment_backup_namespace')
+        ->not->toContain('environment_local_backup_retention')
+        ->not->toContain('validate_environment')
+        ->not->toContain('SELECTOR_TYPE');
 });
 
 // =============================================================================
 // Shared namespace, root and lock across selectors
 // =============================================================================
 
-it('the real committed staging-main target and staging environment resolve the identical backup namespace', function () {
+it('the real committed staging-main target resolves the staging backup namespace', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        [$exit, $legacyOutput] = backupOpsRunHarness($scratch, <<<'BASH'
-            parse_backup_args --environment staging
-            resolve_backup_subject
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, backupOpsBaseEnv($scratch));
-        expect($exit)->toBe(0, $legacyOutput);
-
-        [$exit, $targetOutput] = backupOpsRunHarness($scratch, <<<'BASH'
+        [$exit, $output] = backupOpsRunHarness($scratch, <<<'BASH'
             parse_backup_args --target staging-main
             resolve_backup_subject
             printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
             BASH, backupOpsBaseEnv($scratch));
-        expect($exit)->toBe(0, $targetOutput);
 
-        expect($legacyOutput)->toContain('BACKUP_NAMESPACE=staging');
-        expect($targetOutput)->toContain('BACKUP_NAMESPACE=staging');
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('BACKUP_NAMESPACE=staging');
     } finally {
         backupOpsCleanup($scratch);
     }
@@ -884,13 +779,13 @@ it('the lock filename is built from the backup namespace, never from the selecto
     expect($source)->not->toContain('LOCK_FILE="${RUN_ROOT}/backup-${LABEL}.lock"');
 });
 
-it('cannot run --environment staging and --target staging-main backups concurrently against the same namespace', function () {
+it('cannot run two backups concurrently against the same namespace', function () {
     // Proves the shared-lock contract for real: holds the exact lock file
-    // "backup --target parity-target" would acquire (built from the shared
+    // "backup --target parity-target" would acquire (built from the
     // namespace, not the selector label), then runs a real
-    // "backup --environment ..." pointed at that same namespace and confirms
-    // it is refused as already running — never silently proceeding to write
-    // into the same namespace concurrently.
+    // "backup --target parity-target" pointed at that same namespace and
+    // confirms it is refused as already running — never silently proceeding
+    // to write into the same namespace concurrently.
     $scratch = backupOpsScratchDir();
 
     try {
@@ -933,34 +828,11 @@ it('cannot run --environment staging and --target staging-main backups concurren
 // Full pipeline (root-bypassed via backupOpsPatchedScript)
 // =============================================================================
 
-it('creates all seven required backup files, with a passing SHA256SUMS, for the legacy selector', function () {
+it('creates all seven required backup files, with a passing SHA256SUMS', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        $result = backupOpsRunFullBackup($scratch, useTarget: false);
-        expect($result['exit'])->toBe(0, $result['output']);
-
-        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'staging');
-
-        foreach ([
-            'database.dump', 'storage-app.tar.gz', 'environment.env',
-            'release.json', 'server-configuration.tar.gz', 'manifest.json', 'SHA256SUMS',
-        ] as $file) {
-            expect(file_exists($backupDir.'/'.$file))->toBeTrue("missing required backup file: {$file}");
-        }
-
-        exec('cd '.escapeshellarg($backupDir).' && sha256sum --check SHA256SUMS 2>&1', $checkOutput, $checkExit);
-        expect($checkExit)->toBe(0, implode("\n", $checkOutput));
-    } finally {
-        backupOpsCleanup($scratch);
-    }
-});
-
-it('creates all seven required backup files, with a passing SHA256SUMS, for the target selector', function () {
-    $scratch = backupOpsScratchDir();
-
-    try {
-        $result = backupOpsRunFullBackup($scratch, useTarget: true);
+        $result = backupOpsRunFullBackup($scratch);
         expect($result['exit'])->toBe(0, $result['output']);
 
         $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'parity');
@@ -979,25 +851,13 @@ it('creates all seven required backup files, with a passing SHA256SUMS, for the 
     }
 });
 
-it('passes the resolved database name to the pg_dump command', function () {
-    $scratch = backupOpsScratchDir();
-
-    try {
-        $legacyResult = backupOpsRunFullBackup($scratch, useTarget: false);
-        expect($legacyResult['exit'])->toBe(0, $legacyResult['output']);
-        expect(File::get($legacyResult['pgDumpLog']))->toContain('rateguru_staging');
-    } finally {
-        backupOpsCleanup($scratch);
-    }
-});
-
 it('database dump command receives the resolved target database name', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        $targetResult = backupOpsRunFullBackup($scratch, useTarget: true);
-        expect($targetResult['exit'])->toBe(0, $targetResult['output']);
-        expect(File::get($targetResult['pgDumpLog']))->toContain('parity_db');
+        $result = backupOpsRunFullBackup($scratch);
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(File::get($result['pgDumpLog']))->toContain('parity_db');
     } finally {
         backupOpsCleanup($scratch);
     }
@@ -1007,10 +867,10 @@ it('storage archive contains the app directory', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        $result = backupOpsRunFullBackup($scratch, useTarget: false);
+        $result = backupOpsRunFullBackup($scratch);
         expect($result['exit'])->toBe(0, $result['output']);
 
-        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'staging');
+        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'parity');
         exec('tar -tzf '.escapeshellarg($backupDir.'/storage-app.tar.gz'), $listing);
 
         expect($listing)->toContain('app/', 'app/marker.txt');
@@ -1023,10 +883,10 @@ it('copies .env and release metadata into the backup', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        $result = backupOpsRunFullBackup($scratch, useTarget: false);
+        $result = backupOpsRunFullBackup($scratch);
         expect($result['exit'])->toBe(0, $result['output']);
 
-        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'staging');
+        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'parity');
 
         expect(File::get($backupDir.'/environment.env'))->toContain('APP_ENV=testing');
         expect(json_decode(File::get($backupDir.'/release.json'), true))->toBe(['release' => $result['fixture']['release']]);
@@ -1035,35 +895,11 @@ it('copies .env and release metadata into the backup', function () {
     }
 });
 
-it('writes a schema 2 manifest with the correct selector, target, environment, namespace and database for the legacy selector', function () {
+it('writes a schema 2 manifest with the correct selector, target, environment, namespace and database', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        $result = backupOpsRunFullBackup($scratch, useTarget: false);
-        expect($result['exit'])->toBe(0, $result['output']);
-
-        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'staging');
-        $manifest = json_decode(File::get($backupDir.'/manifest.json'), true);
-
-        expect($manifest)->toMatchArray([
-            'manifest_schema_version' => 2,
-            'project' => 'rateguru',
-            'selector' => 'environment',
-            'target' => null,
-            'environment' => 'staging',
-            'backup_namespace' => 'staging',
-            'database' => 'rateguru_staging',
-        ]);
-    } finally {
-        backupOpsCleanup($scratch);
-    }
-});
-
-it('writes a schema 2 manifest with the correct selector, target, environment, namespace and database for the target selector', function () {
-    $scratch = backupOpsScratchDir();
-
-    try {
-        $result = backupOpsRunFullBackup($scratch, useTarget: true);
+        $result = backupOpsRunFullBackup($scratch);
         expect($result['exit'])->toBe(0, $result['output']);
 
         $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'parity');
@@ -1083,11 +919,11 @@ it('writes a schema 2 manifest with the correct selector, target, environment, n
     }
 });
 
-it('the target server-configuration archive contains only this target\'s own configuration', function () {
+it('the server-configuration archive contains only this target\'s own configuration', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        $result = backupOpsRunFullBackup($scratch, useTarget: true);
+        $result = backupOpsRunFullBackup($scratch);
         expect($result['exit'])->toBe(0, $result['output']);
 
         $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'parity');
@@ -1109,45 +945,6 @@ it('the target server-configuration archive contains only this target\'s own con
             ->not->toContain('etc/php/8.5/fpm/pool.d/other-pool.conf')
             ->not->toContain('etc/supervisor/conf.d/other-queue.conf')
             ->not->toContain('etc/cron.d/other-scheduler')
-            ->not->toContain('home/other-deploy/.ssh/authorized_keys');
-    } finally {
-        backupOpsCleanup($scratch);
-    }
-});
-
-it('the legacy server-configuration archive contains both staging and production configuration', function () {
-    $scratch = backupOpsScratchDir();
-
-    try {
-        $result = backupOpsRunFullBackup($scratch, useTarget: false);
-        expect($result['exit'])->toBe(0, $result['output']);
-
-        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'staging');
-        exec('tar -tzf '.escapeshellarg($backupDir.'/server-configuration.tar.gz'), $listing);
-        $listing = implode("\n", $listing);
-
-        expect($listing)
-            ->toContain('etc/nginx/sites-available/rateguru-staging')
-            ->toContain('etc/nginx/sites-available/rateguru-production')
-            ->toContain('etc/nginx/rateguru-staging.htpasswd')
-            ->toContain('etc/php/8.5/fpm/pool.d/rateguru-staging.conf')
-            ->toContain('etc/php/8.5/fpm/pool.d/rateguru-production.conf')
-            ->toContain('etc/supervisor/conf.d/rateguru-staging-queue.conf')
-            ->toContain('etc/supervisor/conf.d/rateguru-production-queue.conf')
-            ->toContain('etc/cron.d/rateguru-staging-scheduler')
-            ->toContain('etc/cron.d/rateguru-production-scheduler')
-            ->toContain('home/deploy-rateguru-staging/.ssh/authorized_keys')
-            ->toContain('home/deploy-rateguru-production/.ssh/authorized_keys')
-            ->toContain('etc/sudoers.d/rateguru-deploy')
-            ->toContain('home/www/rateguru/bin');
-
-        expect($listing)
-            ->not->toContain('etc/nginx/sites-available/parity-site')
-            ->not->toContain('etc/php/8.5/fpm/pool.d/parity-pool.conf')
-            ->not->toContain('etc/supervisor/conf.d/parity-queue.conf')
-            ->not->toContain('etc/cron.d/parity-scheduler')
-            ->not->toContain('home/parity-deploy/.ssh/authorized_keys')
-            ->not->toContain('etc/nginx/sites-available/other-site')
             ->not->toContain('home/other-deploy/.ssh/authorized_keys');
     } finally {
         backupOpsCleanup($scratch);
@@ -1211,11 +1008,11 @@ it('leaves no final backup directory when pg_dump fails', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        $result = backupOpsRunFullBackup($scratch, useTarget: false, failPgDump: true);
+        $result = backupOpsRunFullBackup($scratch, failPgDump: true);
 
         expect($result['exit'])->not->toBe(0);
 
-        $namespaceRoot = $result['backupBase'].'/staging';
+        $namespaceRoot = $result['backupBase'].'/parity';
         $entries = is_dir($namespaceRoot) ? (scandir($namespaceRoot) ?: []) : [];
         $timestamped = array_filter($entries, fn ($e) => preg_match('/^\d{8}-\d{6}$/', $e) === 1);
 
@@ -1229,17 +1026,17 @@ it('removes the temporary working directory on both success and failure', functi
     $scratch = backupOpsScratchDir();
 
     try {
-        $successResult = backupOpsRunFullBackup($scratch, useTarget: false);
+        $successResult = backupOpsRunFullBackup($scratch);
         expect($successResult['exit'])->toBe(0, $successResult['output']);
 
-        $namespaceRoot = $successResult['backupBase'].'/staging';
+        $namespaceRoot = $successResult['backupBase'].'/parity';
         $tempEntries = array_filter(scandir($namespaceRoot) ?: [], fn ($e) => str_starts_with($e, '.') && str_ends_with($e, '.tmp'));
         expect($tempEntries)->toBeEmpty('no .tmp working directory may remain after a successful backup');
 
-        $failureResult = backupOpsRunFullBackup($scratch, useTarget: false, failPgDump: true);
+        $failureResult = backupOpsRunFullBackup($scratch, failPgDump: true);
         expect($failureResult['exit'])->not->toBe(0);
 
-        $failureNamespaceRoot = $failureResult['backupBase'].'/staging';
+        $failureNamespaceRoot = $failureResult['backupBase'].'/parity';
         $failureTempEntries = is_dir($failureNamespaceRoot)
             ? array_filter(scandir($failureNamespaceRoot) ?: [], fn ($e) => str_starts_with($e, '.') && str_ends_with($e, '.tmp'))
             : [];

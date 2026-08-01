@@ -412,15 +412,16 @@ function restoreTestOpsManifestSchema1(string $environment, string $database): a
 
 /**
  * Runs a real, full perform_restore_test pass (against the root-bypassed
- * patched script) against a purpose-built backup directory.
+ * patched script) against a purpose-built backup directory, using
+ * --target parity-target.
  *
  * @return array{exit: int, output: string, backupBase: string, namespaceRoot: string, backupDir: string, createdbLog: string, dropdbLog: string, pgRestoreLog: string, psqlLog: string, runRoot: string}
  */
-function restoreTestOpsRunFullRestore(string $scratch, bool $useTarget, ?array $manifest, array $options = []): array
+function restoreTestOpsRunFullRestore(string $scratch, ?array $manifest, array $options = []): array
 {
     $backupBase = $scratch.'/backups-'.uniqid('', true);
-    $namespace = $options['namespace'] ?? ($useTarget ? 'parity' : 'staging');
-    $databaseName = $options['database_name'] ?? ($useTarget ? 'parity_db' : 'rateguru_staging');
+    $namespace = $options['namespace'] ?? 'parity';
+    $databaseName = $options['database_name'] ?? 'parity_db';
     $namespaceRoot = $backupBase.'/'.$namespace;
     mkdir($namespaceRoot, 0o755, true);
 
@@ -445,6 +446,8 @@ function restoreTestOpsRunFullRestore(string $scratch, bool $useTarget, ?array $
     $psqlLog = $scratch.'/psql-'.uniqid('', true).'.log';
     touch($psqlLog);
 
+    [$registryPath, $targetsPath] = restoreTestOpsParityRegistry($scratch, $namespace, $databaseName);
+
     $env = restoreTestOpsBaseEnv($scratch, [
         'RATEGURU_BACKUP_BASE' => $backupBase,
         'RATEGURU_RUN_ROOT' => $runRoot,
@@ -458,20 +461,13 @@ function restoreTestOpsRunFullRestore(string $scratch, bool $useTarget, ?array $
         'RESTORE_STUB_PSQL_LOG' => $psqlLog,
         'RESTORE_STUB_TABLE_COUNT' => (string) ($options['table_count'] ?? 5),
         'RESTORE_STUB_MIGRATION_COUNT' => (string) ($options['migration_count'] ?? 12),
+        'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+        'RATEGURU_TARGETS_CLI' => $targetsPath,
     ]);
-
-    if ($useTarget) {
-        [$registryPath, $targetsPath] = restoreTestOpsParityRegistry($scratch, $namespace, $databaseName);
-        $env['RATEGURU_TARGET_REGISTRY_FILE'] = $registryPath;
-        $env['RATEGURU_TARGETS_CLI'] = $targetsPath;
-        $selectorArgs = '--target parity-target';
-    } else {
-        $selectorArgs = '--environment staging';
-    }
 
     [$exit, $output] = restoreTestOpsRunHarness(
         $scratch,
-        "parse_restore_args {$selectorArgs}\nresolve_restore_subject\nperform_restore_test",
+        "parse_restore_args --target parity-target\nresolve_restore_subject\nperform_restore_test",
         $env,
         restoreTestOpsPatchedScript($scratch),
     );
@@ -493,23 +489,6 @@ function restoreTestOpsRunFullRestore(string $scratch, bool $useTarget, ?array $
 // =============================================================================
 // Selector contract
 // =============================================================================
-
-it('supports the legacy --environment selector', function () {
-    $scratch = restoreTestOpsScratchDir();
-
-    try {
-        [$exit, $output] = restoreTestOpsRunHarness($scratch, <<<'BASH'
-            parse_restore_args --environment staging
-            resolve_restore_subject
-            printf 'LABEL=%s\n' "${LABEL}"
-            BASH, restoreTestOpsBaseEnv($scratch));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('LABEL=staging');
-    } finally {
-        restoreTestOpsCleanup($scratch);
-    }
-});
 
 it('supports the --target selector', function () {
     $scratch = restoreTestOpsScratchDir();
@@ -533,61 +512,36 @@ it('supports the --target selector', function () {
     }
 });
 
-it('rejects --target and --environment used together', function () {
-    $scratch = restoreTestOpsScratchDir();
-
-    try {
-        [$exit, $output] = restoreTestOpsRunHarness(
-            $scratch,
-            'parse_restore_args --target staging-main --environment staging',
-            restoreTestOpsBaseEnv($scratch),
-        );
-
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('cannot be combined');
-    } finally {
-        restoreTestOpsCleanup($scratch);
-    }
-});
-
-it('requires exactly one selector', function () {
+it('requires --target', function () {
     $scratch = restoreTestOpsScratchDir();
 
     try {
         [$exit, $output] = restoreTestOpsRunHarness($scratch, 'parse_restore_args', restoreTestOpsBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('exactly one of --target or --environment is required');
+        expect($output)->toContain('--target is required');
     } finally {
         restoreTestOpsCleanup($scratch);
     }
 });
 
-it('rejects duplicate selectors', function () {
+it('rejects duplicate --target', function () {
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        [$targetExit, $targetOutput] = restoreTestOpsRunHarness(
+        [$exit, $output] = restoreTestOpsRunHarness(
             $scratch,
             'parse_restore_args --target a --target b',
             restoreTestOpsBaseEnv($scratch),
         );
-        expect($targetExit)->not->toBe(0);
-        expect($targetOutput)->toContain('--target given more than once');
-
-        [$envExit, $envOutput] = restoreTestOpsRunHarness(
-            $scratch,
-            'parse_restore_args --environment staging --environment production',
-            restoreTestOpsBaseEnv($scratch),
-        );
-        expect($envExit)->not->toBe(0);
-        expect($envOutput)->toContain('--environment given more than once');
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target given more than once');
     } finally {
         restoreTestOpsCleanup($scratch);
     }
 });
 
-it('rejects a selector given without a value, with an empty value, or with a flag-shaped value', function () {
+it('rejects --target given without a value, with an empty value, or with a flag-shaped value', function () {
     $scratch = restoreTestOpsScratchDir();
 
     try {
@@ -595,23 +549,19 @@ it('rejects a selector given without a value, with an empty value, or with a fla
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a value');
 
-        [$exit, $output] = restoreTestOpsRunHarness($scratch, 'parse_restore_args --environment', restoreTestOpsBaseEnv($scratch));
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('--environment requires a value');
-
         [$exit, $output] = restoreTestOpsRunHarness($scratch, "parse_restore_args --target ''", restoreTestOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a non-empty value');
 
-        [$exit, $output] = restoreTestOpsRunHarness($scratch, 'parse_restore_args --target --environment staging', restoreTestOpsBaseEnv($scratch));
+        [$exit, $output] = restoreTestOpsRunHarness($scratch, 'parse_restore_args --target --bogus', restoreTestOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('--target requires a value, not another option: --environment');
+        expect($output)->toContain('--target requires a value, not another option: --bogus');
     } finally {
         restoreTestOpsCleanup($scratch);
     }
 });
 
-it('shows both selector forms on --help and exits 0', function () {
+it('shows only the --target form on --help and exits 0', function () {
     $scratch = restoreTestOpsScratchDir();
 
     try {
@@ -619,8 +569,8 @@ it('shows both selector forms on --help and exits 0', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)
-            ->toContain('--environment staging|production')
-            ->toContain('--target TARGET_ID');
+            ->toContain('--target TARGET_ID')
+            ->not->toContain('--environment');
     } finally {
         restoreTestOpsCleanup($scratch);
     }
@@ -634,6 +584,19 @@ it('rejects unknown arguments', function () {
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unknown argument: --bogus');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('rejects a removed --environment flag exactly like any other unknown argument', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        [$exit, $output] = restoreTestOpsRunHarness($scratch, 'parse_restore_args --environment staging', restoreTestOpsBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('unknown argument: --environment');
     } finally {
         restoreTestOpsCleanup($scratch);
     }
@@ -702,7 +665,7 @@ it('rejects an unknown target clearly', function () {
 // Value resolution and source isolation
 // =============================================================================
 
-it('target mode resolves values only from the registry, never from deployment.conf', function () {
+it('resolves values only from the registry, never from deployment.conf', function () {
     $scratch = restoreTestOpsScratchDir();
 
     try {
@@ -731,84 +694,44 @@ it('target mode resolves values only from the registry, never from deployment.co
     }
 });
 
-it('legacy mode resolves values only from environment helpers, never from the registry', function () {
-    $scratch = restoreTestOpsScratchDir();
-
-    try {
-        $missingRegistryPath = $scratch.'/definitely-missing-registry.json';
-
-        [$exit, $output] = restoreTestOpsRunHarness($scratch, <<<'BASH'
-            parse_restore_args --environment staging
-            resolve_restore_subject
-            printf 'DATABASE_NAME=%s\n' "${DATABASE_NAME}"
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, restoreTestOpsBaseEnv($scratch, [
-            'RATEGURU_TARGET_REGISTRY_FILE' => $missingRegistryPath,
-        ]));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)
-            ->toContain('DATABASE_NAME=rateguru_staging')
-            ->toContain('BACKUP_NAMESPACE=staging');
-    } finally {
-        restoreTestOpsCleanup($scratch);
-    }
-});
-
-it('resolve_restore_subject never calls the legacy helper in target mode, and never calls the target helper in legacy mode', function () {
+it('resolve_restore_subject only ever calls target_* registry helpers', function () {
     $source = restoreTestOpsSource();
 
     expect(preg_match(
-        '/^resolve_restore_subject\(\) \{\n'
-        .'    if \[\[ "\$\{TARGET_SEEN\}" == true \]\]; then\n'
-        .'(.*?)'
-        .'    else\n'
-        .'(.*?)'
-        .'    fi\n'
-        .'\}\n/ms',
+        '/^resolve_restore_subject\(\) \{\n(.*?)^\}\n/ms',
         $source,
         $matches,
-    ))->toBe(1, 'could not locate the expected if/else structure of resolve_restore_subject() in scripts/restore-test');
+    ))->toBe(1, 'could not locate resolve_restore_subject() in scripts/restore-test');
 
-    [, $targetBranch, $legacyBranch] = $matches;
+    $body = $matches[1];
 
-    expect($targetBranch)
+    expect($body)
+        ->toContain('require_active_target')
         ->toContain('target_database_name')
         ->toContain('target_backup_namespace')
+        ->toContain('target_environment_class')
         ->not->toContain('environment_database_name')
-        ->not->toContain('validate_environment');
-
-    expect($legacyBranch)
-        ->toContain('environment_database_name')
-        ->toContain('environment_backup_namespace')
-        ->not->toContain('target_database_name')
-        ->not->toContain('require_active_target');
+        ->not->toContain('environment_backup_namespace')
+        ->not->toContain('validate_environment')
+        ->not->toContain('SELECTOR_TYPE');
 });
 
 // =============================================================================
-// Shared namespace and lock across selectors
+// Shared namespace and lock
 // =============================================================================
 
-it('the real committed staging-main target and staging environment resolve the identical backup namespace', function () {
+it('the real committed staging-main target resolves the staging backup namespace', function () {
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        [$exit, $legacyOutput] = restoreTestOpsRunHarness($scratch, <<<'BASH'
-            parse_restore_args --environment staging
-            resolve_restore_subject
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, restoreTestOpsBaseEnv($scratch));
-        expect($exit)->toBe(0, $legacyOutput);
-
-        [$exit, $targetOutput] = restoreTestOpsRunHarness($scratch, <<<'BASH'
+        [$exit, $output] = restoreTestOpsRunHarness($scratch, <<<'BASH'
             parse_restore_args --target staging-main
             resolve_restore_subject
             printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
             BASH, restoreTestOpsBaseEnv($scratch));
-        expect($exit)->toBe(0, $targetOutput);
 
-        expect($legacyOutput)->toContain('BACKUP_NAMESPACE=staging');
-        expect($targetOutput)->toContain('BACKUP_NAMESPACE=staging');
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('BACKUP_NAMESPACE=staging');
     } finally {
         restoreTestOpsCleanup($scratch);
     }
@@ -821,7 +744,13 @@ it('the lock filename is built from the backup namespace, never from the selecto
     expect($source)->not->toContain('LOCK_FILE="${RUN_ROOT}/restore-test-${LABEL}.lock"');
 });
 
-it('cannot run --environment staging and --target staging-main restore tests concurrently against the same namespace', function () {
+it('cannot run two restore tests concurrently against the same namespace', function () {
+    // Proves the shared-lock contract for real: holds the exact lock file
+    // "restore-test --target parity-target" would acquire (built from the
+    // namespace, not the selector label), then runs a real
+    // "restore-test --target parity-target" pointed at that same namespace
+    // and confirms it is refused as already running — never silently
+    // proceeding to run a second restore test concurrently.
     $scratch = restoreTestOpsScratchDir();
 
     try {
@@ -884,22 +813,23 @@ it('selects the latest timestamped backup only within the resolved namespace', f
 
     try {
         $backupBase = $scratch.'/backups';
-        $stagingRoot = $backupBase.'/staging';
+        $parityRoot = $backupBase.'/parity';
         $otherRoot = $backupBase.'/other-namespace';
-        mkdir($stagingRoot, 0o755, true);
+        mkdir($parityRoot, 0o755, true);
         mkdir($otherRoot, 0o755, true);
 
-        // An older and a newer backup inside the resolved namespace, plus an
-        // even newer one in an unrelated namespace that must be ignored.
-        restoreTestOpsBuildBackupDirectory($stagingRoot, '20260101-000000', restoreTestOpsManifestSchema1('staging', 'rateguru_staging'));
+        // An older sibling in the same (resolved) namespace, and a newer one
+        // in a completely different namespace — neither must be picked.
+        restoreTestOpsBuildBackupDirectory($parityRoot, '20260101-000000', restoreTestOpsManifestSchema1('staging', 'parity_db'));
         restoreTestOpsBuildBackupDirectory($otherRoot, '20260201-000000', restoreTestOpsManifestSchema1('staging', 'rateguru_staging'));
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: restoreTestOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema1('staging', 'parity_db'), options: [
             'timestamp' => '20260115-120000',
         ]);
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['output'])->toContain('20260115-120000');
+        expect($result['output'])->not->toContain('20260101-000000');
         expect($result['output'])->not->toContain('20260201-000000');
     } finally {
         restoreTestOpsCleanup($scratch);
@@ -910,7 +840,7 @@ it('runs checksum validation before creating the temporary database', function (
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: restoreTestOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema1('staging', 'parity_db'), options: [
             'corrupt_checksum' => true,
         ]);
 
@@ -925,7 +855,7 @@ it('runs storage archive validation before creating the temporary database', fun
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: restoreTestOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema1('staging', 'parity_db'), options: [
             'corrupt_storage_archive' => true,
         ]);
 
@@ -940,7 +870,7 @@ it('rejects a backup with no manifest.json at all before creating the temporary 
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: null);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: null);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('backup manifest is missing');
@@ -950,24 +880,11 @@ it('rejects a backup with no manifest.json at all before creating the temporary 
     }
 });
 
-it('validates a schema 1 (legacy) manifest and remains restorable through --environment', function () {
+it('validates a schema 1 (legacy) manifest and remains restorable through --target', function () {
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: restoreTestOpsManifestSchema1('staging', 'rateguru_staging'));
-
-        expect($result['exit'])->toBe(0, $result['output']);
-        expect(File::get($result['createdbLog']))->not->toBe('');
-    } finally {
-        restoreTestOpsCleanup($scratch);
-    }
-});
-
-it('validates a schema 1 (legacy) manifest and remains restorable through --target for the same namespace', function () {
-    $scratch = restoreTestOpsScratchDir();
-
-    try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: true, manifest: restoreTestOpsManifestSchema1('staging', 'parity_db'));
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema1('staging', 'parity_db'));
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect(File::get($result['createdbLog']))->not->toBe('');
@@ -980,10 +897,10 @@ it('rejects a schema 2 manifest with the wrong project before creating the tempo
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'parity', 'parity_db');
         $manifest['project'] = 'not-rateguru';
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('project mismatch');
@@ -997,9 +914,9 @@ it('rejects a schema 2 manifest with the wrong environment before creating the t
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema2('environment', null, 'production', 'staging', 'rateguru_staging');
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'production', 'parity', 'parity_db');
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('environment mismatch');
@@ -1013,9 +930,9 @@ it('rejects a schema 2 manifest with the wrong database before creating the temp
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_production');
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'parity', 'rateguru_production');
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('database mismatch');
@@ -1029,9 +946,9 @@ it('rejects a schema 2 manifest with the wrong backup_namespace before creating 
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'some-other-namespace', 'rateguru_staging');
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'some-other-namespace', 'parity_db');
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('backup_namespace mismatch');
@@ -1047,7 +964,7 @@ it('rejects a schema 2 target-selector manifest naming a different target before
     try {
         $manifest = restoreTestOpsManifestSchema2('target', 'some-other-target', 'staging', 'parity', 'parity_db');
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: true, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('target mismatch');
@@ -1063,7 +980,7 @@ it('accepts a schema 2 manifest with a null target under --target, when project/
     try {
         $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'parity', 'parity_db');
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: true, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->toBe(0, $result['output']);
     } finally {
@@ -1084,9 +1001,9 @@ it('accepts a manifest with no manifest_schema_version field at all as schema 1'
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema1('staging', 'rateguru_staging');
+        $manifest = restoreTestOpsManifestSchema1('staging', 'parity_db');
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->toBe(0, $result['output']);
     } finally {
@@ -1098,10 +1015,10 @@ it('accepts a manifest with manifest_schema_version explicitly JSON null as sche
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema1('staging', 'rateguru_staging');
+        $manifest = restoreTestOpsManifestSchema1('staging', 'parity_db');
         $manifest['manifest_schema_version'] = null;
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->toBe(0, $result['output']);
     } finally {
@@ -1113,9 +1030,9 @@ it('accepts a manifest with a numeric manifest_schema_version of 2 as schema 2',
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'parity', 'parity_db');
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->toBe(0, $result['output']);
     } finally {
@@ -1127,10 +1044,10 @@ it('rejects a numeric manifest_schema_version of 3 before creating the temporary
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'parity', 'parity_db');
         $manifest['manifest_schema_version'] = 3;
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('unsupported backup manifest schema_version: 3');
@@ -1144,10 +1061,10 @@ it('rejects a string manifest_schema_version of "2" before creating the temporar
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'parity', 'parity_db');
         $manifest['manifest_schema_version'] = '2';
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('unsupported backup manifest schema_version: "2"');
@@ -1161,10 +1078,10 @@ it('rejects a malformed (array-typed) manifest_schema_version before creating th
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
+        $manifest = restoreTestOpsManifestSchema2('environment', null, 'staging', 'parity', 'parity_db');
         $manifest['manifest_schema_version'] = [1, 2];
 
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: $manifest);
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('unsupported backup manifest schema_version: [1,2]');
@@ -1178,7 +1095,7 @@ it('sanitizes the temporary database name from a namespace containing characters
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: true, manifest: restoreTestOpsManifestSchema2('target', 'parity-target', 'staging', 'tits-guru', 'rateguru_tits_guru'), options: [
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema2('target', 'parity-target', 'staging', 'tits-guru', 'rateguru_tits_guru'), options: [
             'namespace' => 'tits-guru',
             'database_name' => 'rateguru_tits_guru',
         ]);
@@ -1197,10 +1114,10 @@ it('createdb, pg_restore, psql and dropdb all receive the exact same temporary d
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: restoreTestOpsManifestSchema1('staging', 'rateguru_staging'));
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema1('staging', 'parity_db'));
         expect($result['exit'])->toBe(0, $result['output']);
 
-        preg_match('/rateguru_restore_staging_\d{14}_\d+/', File::get($result['createdbLog']), $matches);
+        preg_match('/rateguru_restore_parity_\d{14}_\d+/', File::get($result['createdbLog']), $matches);
         expect($matches)->not->toBeEmpty('could not find the temporary database name in the createdb log');
         $databaseName = $matches[0];
 
@@ -1216,7 +1133,7 @@ it('rejects a restored database with zero public tables, still drops the tempora
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: restoreTestOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema1('staging', 'parity_db'), options: [
             'table_count' => 0,
         ]);
 
@@ -1233,7 +1150,7 @@ it('drops the temporary database on success too', function () {
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: restoreTestOpsManifestSchema1('staging', 'rateguru_staging'));
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema1('staging', 'parity_db'));
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect(File::get($result['dropdbLog']))->not->toBe('');
@@ -1246,7 +1163,7 @@ it('writes history only after a successful restore, including selector/target/en
     $scratch = restoreTestOpsScratchDir();
 
     try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: true, manifest: restoreTestOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db'), options: [
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: restoreTestOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db'), options: [
             'migration_count' => 7,
             'table_count' => 9,
         ]);
@@ -1271,26 +1188,6 @@ it('writes history only after a successful restore, including selector/target/en
         ]);
         expect($entry)->toHaveKey('tested_at');
         expect($entry)->toHaveKey('backup');
-    } finally {
-        restoreTestOpsCleanup($scratch);
-    }
-});
-
-it('writes legacy-selector history with a null target', function () {
-    $scratch = restoreTestOpsScratchDir();
-
-    try {
-        $result = restoreTestOpsRunFullRestore($scratch, useTarget: false, manifest: restoreTestOpsManifestSchema1('staging', 'rateguru_staging'));
-
-        expect($result['exit'])->toBe(0, $result['output']);
-
-        $historyFile = $result['namespaceRoot'].'/restore-tests.jsonl';
-        $lines = array_values(array_filter(explode("\n", trim(File::get($historyFile)))));
-        $entry = json_decode($lines[0], true);
-
-        expect($entry['selector'])->toBe('environment');
-        expect($entry['target'])->toBeNull();
-        expect($entry['backup_namespace'])->toBe('staging');
     } finally {
         restoreTestOpsCleanup($scratch);
     }

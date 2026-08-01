@@ -293,10 +293,15 @@ function backupCycleBuildStubs(string $scratch, ?string $failStep = null, int $f
  * test needs: exit code, combined output, the ordered list of stub
  * invocations (as "name args..." strings), and the history/lock paths used.
  *
+ * $useParityTarget selects which target's registry values populate the run:
+ * false uses staging-main's own committed registry values (namespace
+ * "staging") against the real committed registry; true uses a synthetic
+ * parity-target via backupCycleParityRegistry().
+ *
  * @param  array{namespace?: string, fail_step?: string, fail_exit_code?: int, backup_base?: string, run_root?: string, extra_env?: array<string, string>}  $options
- * @return array{exit: int, output: string, calls: list<string>, backupBase: string, runRoot: string, historyFile: string, namespace: string}
+ * @return array{exit: int, output: string, calls: list<string>, backupBase: string, runRoot: string, historyFile: string, namespace: string, targetId: string}
  */
-function backupCycleRunFullCycle(string $scratch, bool $useTarget, array $options = []): array
+function backupCycleRunFullCycle(string $scratch, bool $useParityTarget, array $options = []): array
 {
     $backupBase = $options['backup_base'] ?? $scratch.'/backups-'.uniqid('', true);
     $runRoot = $options['run_root'] ?? $scratch.'/run-'.uniqid('', true);
@@ -306,7 +311,7 @@ function backupCycleRunFullCycle(string $scratch, bool $useTarget, array $option
     $stubLog = $scratch.'/call-log-'.uniqid('', true).'.txt';
     file_put_contents($stubLog, '');
 
-    $namespace = $options['namespace'] ?? ($useTarget ? 'parity' : 'staging');
+    $namespace = $options['namespace'] ?? ($useParityTarget ? 'parity' : 'staging');
     $failStep = $options['fail_step'] ?? null;
     $failExitCode = $options['fail_exit_code'] ?? 7;
 
@@ -323,18 +328,18 @@ function backupCycleRunFullCycle(string $scratch, bool $useTarget, array $option
         'RATEGURU_OFFSITE_RESTORE_TEST_BIN' => $stubs['offsite-restore-test'],
     ], $options['extra_env'] ?? []));
 
-    if ($useTarget) {
+    if ($useParityTarget) {
+        $targetId = 'parity-target';
         [$registryPath, $targetsPath] = backupCycleParityRegistry($scratch, $namespace);
         $env['RATEGURU_TARGET_REGISTRY_FILE'] = $registryPath;
         $env['RATEGURU_TARGETS_CLI'] = $targetsPath;
-        $selectorArgs = '--target parity-target';
     } else {
-        $selectorArgs = '--environment staging';
+        $targetId = 'staging-main';
     }
 
     [$exit, $output] = backupCycleRunHarness(
         $scratch,
-        "parse_backup_cycle_args {$selectorArgs}\nresolve_backup_cycle_subject\nperform_backup_cycle",
+        "parse_backup_cycle_args --target {$targetId}\nresolve_backup_cycle_subject\nperform_backup_cycle",
         $env,
         backupCyclePatchedScript($scratch),
     );
@@ -350,6 +355,7 @@ function backupCycleRunFullCycle(string $scratch, bool $useTarget, array $option
         'runRoot' => $runRoot,
         'historyFile' => $backupBase.'/backup-cycles.jsonl',
         'namespace' => $namespace,
+        'targetId' => $targetId,
     ];
 }
 
@@ -370,23 +376,6 @@ function backupCycleHistoryLines(string $historyFile): array
 // =============================================================================
 // Selector contract
 // =============================================================================
-
-it('supports the legacy --environment selector', function () {
-    $scratch = backupCycleScratchDir();
-
-    try {
-        [$exit, $output] = backupCycleRunHarness($scratch, <<<'BASH'
-            parse_backup_cycle_args --environment staging
-            resolve_backup_cycle_subject
-            printf 'LABEL=%s\n' "${LABEL}"
-            BASH, backupCycleBaseEnv($scratch));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('LABEL=staging');
-    } finally {
-        backupCycleCleanup($scratch);
-    }
-});
 
 it('supports the --target selector', function () {
     $scratch = backupCycleScratchDir();
@@ -410,55 +399,46 @@ it('supports the --target selector', function () {
     }
 });
 
-it('rejects --target and --environment used together', function () {
-    $scratch = backupCycleScratchDir();
-
-    try {
-        [$exit, $output] = backupCycleRunHarness(
-            $scratch,
-            'parse_backup_cycle_args --target staging-main --environment staging',
-            backupCycleBaseEnv($scratch),
-        );
-
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('cannot be combined');
-    } finally {
-        backupCycleCleanup($scratch);
-    }
-});
-
-it('requires exactly one selector', function () {
+it('requires --target', function () {
     $scratch = backupCycleScratchDir();
 
     try {
         [$exit, $output] = backupCycleRunHarness($scratch, 'parse_backup_cycle_args', backupCycleBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('exactly one of --target or --environment is required');
+        expect($output)->toContain('--target is required');
     } finally {
         backupCycleCleanup($scratch);
     }
 });
 
-it('rejects duplicate selectors', function () {
+it('rejects a removed --environment flag exactly like any other unknown argument', function () {
+    // --environment is no longer a recognized flag at all — there is no
+    // special deprecation message, just the same generic rejection any
+    // other bogus flag gets.
     $scratch = backupCycleScratchDir();
 
     try {
-        [$targetExit, $targetOutput] = backupCycleRunHarness(
+        [$exit, $output] = backupCycleRunHarness($scratch, 'parse_backup_cycle_args --environment staging', backupCycleBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('unknown argument: --environment');
+    } finally {
+        backupCycleCleanup($scratch);
+    }
+});
+
+it('rejects duplicate --target', function () {
+    $scratch = backupCycleScratchDir();
+
+    try {
+        [$exit, $output] = backupCycleRunHarness(
             $scratch,
             'parse_backup_cycle_args --target a --target b',
             backupCycleBaseEnv($scratch),
         );
-        expect($targetExit)->not->toBe(0);
-        expect($targetOutput)->toContain('--target given more than once');
-
-        [$envExit, $envOutput] = backupCycleRunHarness(
-            $scratch,
-            'parse_backup_cycle_args --environment staging --environment production',
-            backupCycleBaseEnv($scratch),
-        );
-        expect($envExit)->not->toBe(0);
-        expect($envOutput)->toContain('--environment given more than once');
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target given more than once');
     } finally {
         backupCycleCleanup($scratch);
     }
@@ -476,15 +456,15 @@ it('rejects a selector given without a value, with an empty value, or with a fla
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a non-empty value');
 
-        [$exit, $output] = backupCycleRunHarness($scratch, 'parse_backup_cycle_args --target --environment staging', backupCycleBaseEnv($scratch));
+        [$exit, $output] = backupCycleRunHarness($scratch, 'parse_backup_cycle_args --target --help', backupCycleBaseEnv($scratch));
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('--target requires a value, not another option: --environment');
+        expect($output)->toContain('--target requires a value, not another option: --help');
     } finally {
         backupCycleCleanup($scratch);
     }
 });
 
-it('shows both selector forms on --help and exits 0', function () {
+it('shows only the --target form on --help and exits 0', function () {
     $scratch = backupCycleScratchDir();
 
     try {
@@ -492,8 +472,8 @@ it('shows both selector forms on --help and exits 0', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)
-            ->toContain('--environment staging|production')
-            ->toContain('--target TARGET_ID');
+            ->toContain('--target TARGET_ID')
+            ->not->toContain('--environment');
     } finally {
         backupCycleCleanup($scratch);
     }
@@ -575,7 +555,7 @@ it('rejects an unknown target clearly', function () {
 // Value resolution and source isolation
 // =============================================================================
 
-it('target mode resolves values only from the registry, never from deployment.conf', function () {
+it('resolves values only from the registry', function () {
     $scratch = backupCycleScratchDir();
 
     try {
@@ -604,99 +584,36 @@ it('target mode resolves values only from the registry, never from deployment.co
     }
 });
 
-it('legacy mode resolves values only from environment helpers, never from the registry', function () {
-    $scratch = backupCycleScratchDir();
-
-    try {
-        $missingRegistryPath = $scratch.'/definitely-missing-registry.json';
-
-        [$exit, $output] = backupCycleRunHarness($scratch, <<<'BASH'
-            parse_backup_cycle_args --environment staging
-            resolve_backup_cycle_subject
-            printf 'ENVIRONMENT_CLASS=%s\n' "${ENVIRONMENT_CLASS}"
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, backupCycleBaseEnv($scratch, [
-            'RATEGURU_TARGET_REGISTRY_FILE' => $missingRegistryPath,
-        ]));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)
-            ->toContain('ENVIRONMENT_CLASS=staging')
-            ->toContain('BACKUP_NAMESPACE=staging');
-    } finally {
-        backupCycleCleanup($scratch);
-    }
-});
-
-it('resolve_backup_cycle_subject never calls the legacy helper in target mode, and never calls the target helper in legacy mode', function () {
+it('resolve_backup_cycle_subject resolves values only through require_active_target and the target_* accessors', function () {
     $source = backupCycleSource();
 
     expect(preg_match(
-        '/^resolve_backup_cycle_subject\(\) \{\n'
-        .'    if \[\[ "\$\{TARGET_SEEN\}" == true \]\]; then\n'
-        .'(.*?)'
-        .'    else\n'
-        .'(.*?)'
-        .'    fi\n'
-        .'\}\n/ms',
+        '/^resolve_backup_cycle_subject\(\) \{\n(.*?)\n\}\n/ms',
         $source,
         $matches,
-    ))->toBe(1, 'could not locate the expected if/else structure of resolve_backup_cycle_subject() in scripts/backup-cycle');
+    ))->toBe(1, 'could not locate resolve_backup_cycle_subject() in scripts/backup-cycle');
 
-    [, $targetBranch, $legacyBranch] = $matches;
-
-    expect($targetBranch)
+    expect($matches[1])
+        ->toContain('require_active_target')
         ->toContain('target_environment_class')
         ->toContain('target_backup_namespace')
-        ->toContain('CHILD_SELECTOR_ARGS=(--target')
+        ->toContain('CHILD_TARGET_ARGS=(--target')
         ->not->toContain('environment_backup_namespace')
         ->not->toContain('validate_environment');
-
-    expect($legacyBranch)
-        ->toContain('environment_backup_namespace')
-        ->toContain('CHILD_SELECTOR_ARGS=(--environment')
-        ->not->toContain('target_backup_namespace')
-        ->not->toContain('require_active_target');
 });
 
 // =============================================================================
-// Shared namespace and lock across selectors
+// Namespace-keyed lock
 // =============================================================================
-
-it('the real committed staging-main target and staging environment resolve the identical backup namespace', function () {
-    $scratch = backupCycleScratchDir();
-
-    try {
-        [$exit, $legacyOutput] = backupCycleRunHarness($scratch, <<<'BASH'
-            parse_backup_cycle_args --environment staging
-            resolve_backup_cycle_subject
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, backupCycleBaseEnv($scratch));
-        expect($exit)->toBe(0, $legacyOutput);
-
-        [$exit, $targetOutput] = backupCycleRunHarness($scratch, <<<'BASH'
-            parse_backup_cycle_args --target staging-main
-            resolve_backup_cycle_subject
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, backupCycleBaseEnv($scratch));
-        expect($exit)->toBe(0, $targetOutput);
-
-        expect($legacyOutput)->toContain('BACKUP_NAMESPACE=staging');
-        expect($targetOutput)->toContain('BACKUP_NAMESPACE=staging');
-    } finally {
-        backupCycleCleanup($scratch);
-    }
-});
 
 it('the lock filename is built from the backup namespace, never from the selector label', function () {
     $source = backupCycleSource();
 
     expect($source)->toContain('LOCK_FILE="${RUN_ROOT}/backup-cycle-${BACKUP_NAMESPACE}.lock"');
     expect($source)->not->toContain('backup-cycle-${LABEL}.lock');
-    expect($source)->not->toContain('backup-cycle-${SELECTOR_TYPE}.lock');
 });
 
-it('cannot run --environment staging and --target staging-main backup cycles concurrently against the same namespace, and writes no history on contention', function () {
+it('cannot run two backup cycles concurrently against the same namespace lock, and writes no history on contention', function () {
     $scratch = backupCycleScratchDir();
 
     try {
@@ -708,7 +625,7 @@ it('cannot run --environment staging and --target staging-main backup cycles con
         expect(flock($lockHandle, LOCK_EX | LOCK_NB))->toBeTrue('could not pre-acquire the shared namespace lock');
 
         try {
-            $result = backupCycleRunFullCycle($scratch, useTarget: true, options: [
+            $result = backupCycleRunFullCycle($scratch, useParityTarget: true, options: [
                 'namespace' => 'parity',
                 'run_root' => $runRoot,
             ]);
@@ -738,7 +655,7 @@ it('different namespaces never conflict for the same lock root', function () {
         expect(flock($lockHandle, LOCK_EX | LOCK_NB))->toBeTrue();
 
         try {
-            $result = backupCycleRunFullCycle($scratch, useTarget: true, options: [
+            $result = backupCycleRunFullCycle($scratch, useParityTarget: true, options: [
                 'namespace' => 'parity',
                 'run_root' => $runRoot,
             ]);
@@ -807,7 +724,7 @@ SH);
         ]);
 
         [$exit, $output] = backupCycleRunHarness($scratch, <<<'BASH'
-            parse_backup_cycle_args --environment staging
+            parse_backup_cycle_args --target staging-main
             resolve_backup_cycle_subject
             perform_backup_cycle
             BASH, $env, backupCyclePatchedScript($scratch));
@@ -823,30 +740,30 @@ SH);
 // Full pipeline: order, arguments, retention --apply, unsuppressed output
 // =============================================================================
 
-it('runs backup, restore-test, offsite-backup, offsite-retention and offsite-restore-test in exact order for the legacy selector, and retention receives --apply', function () {
+it('runs backup, restore-test, offsite-backup, offsite-retention and offsite-restore-test in exact order for --target staging-main, and retention receives --apply', function () {
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false);
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['calls'])->toBe([
-            'backup --environment staging',
-            'restore-test --environment staging',
-            'offsite-backup --environment staging',
-            'offsite-retention --environment staging --apply',
-            'offsite-restore-test --environment staging',
+            'backup --target staging-main',
+            'restore-test --target staging-main',
+            'offsite-backup --target staging-main',
+            'offsite-retention --target staging-main --apply',
+            'offsite-restore-test --target staging-main',
         ]);
     } finally {
         backupCycleCleanup($scratch);
     }
 });
 
-it('runs the same five commands in the same order for the target selector, passing --target to all five, and retention receives --apply', function () {
+it('runs the same five commands in the same order for --target parity-target, passing --target to all five, and retention receives --apply', function () {
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: true);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: true);
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['calls'])->toBe([
@@ -861,11 +778,11 @@ it('runs the same five commands in the same order for the target selector, passi
     }
 });
 
-it('never mixes selectors within one cycle: every one of the five commands gets the identical selector', function () {
+it('never mixes targets within one cycle: every one of the five commands gets the identical --target', function () {
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: true);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: true);
 
         expect($result['exit'])->toBe(0, $result['output']);
 
@@ -882,7 +799,7 @@ it('passes real child stdout and stderr straight through, unsuppressed', functio
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false);
 
         expect($result['exit'])->toBe(0, $result['output']);
 
@@ -898,7 +815,7 @@ it('prints a numbered step header for each of the five steps and a success banne
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: true);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: true);
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['output'])
@@ -922,18 +839,18 @@ it('failure at step 1 (backup) blocks steps 2-5, preserves the exit code, and pr
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false, options: ['fail_step' => 'backup', 'fail_exit_code' => 101]);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false, options: ['fail_step' => 'backup', 'fail_exit_code' => 101]);
 
         expect($result['exit'])->toBe(101);
-        expect($result['calls'])->toBe(['backup --environment staging']);
-        expect($result['output'])->toContain('Backup cycle for staging failed at step: backup');
+        expect($result['calls'])->toBe(['backup --target staging-main']);
+        expect($result['output'])->toContain('Backup cycle for staging-main failed at step: backup');
 
         $records = backupCycleHistoryLines($result['historyFile']);
         expect($records)->toHaveCount(1);
         expect($records[0])->toMatchArray([
             'status' => 'failed',
-            'selector' => 'environment',
-            'target' => null,
+            'selector' => 'target',
+            'target' => 'staging-main',
             'environment' => 'staging',
             'backup_namespace' => 'staging',
             'completed_steps' => [],
@@ -949,14 +866,14 @@ it('failure at step 2 (restore-test) blocks steps 3-5', function () {
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false, options: ['fail_step' => 'restore-test', 'fail_exit_code' => 102]);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false, options: ['fail_step' => 'restore-test', 'fail_exit_code' => 102]);
 
         expect($result['exit'])->toBe(102);
         expect($result['calls'])->toBe([
-            'backup --environment staging',
-            'restore-test --environment staging',
+            'backup --target staging-main',
+            'restore-test --target staging-main',
         ]);
-        expect($result['output'])->toContain('Backup cycle for staging failed at step: restore-test');
+        expect($result['output'])->toContain('Backup cycle for staging-main failed at step: restore-test');
 
         $records = backupCycleHistoryLines($result['historyFile']);
         expect($records)->toHaveCount(1);
@@ -972,15 +889,15 @@ it('failure at step 3 (offsite-backup) blocks steps 4-5 — retention is never a
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false, options: ['fail_step' => 'offsite-backup', 'fail_exit_code' => 103]);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false, options: ['fail_step' => 'offsite-backup', 'fail_exit_code' => 103]);
 
         expect($result['exit'])->toBe(103);
         expect($result['calls'])->toBe([
-            'backup --environment staging',
-            'restore-test --environment staging',
-            'offsite-backup --environment staging',
+            'backup --target staging-main',
+            'restore-test --target staging-main',
+            'offsite-backup --target staging-main',
         ]);
-        expect($result['output'])->toContain('Backup cycle for staging failed at step: offsite-backup');
+        expect($result['output'])->toContain('Backup cycle for staging-main failed at step: offsite-backup');
 
         $records = backupCycleHistoryLines($result['historyFile']);
         expect($records[0]['completed_steps'])->toBe(['backup', 'restore-test']);
@@ -995,16 +912,16 @@ it('failure at step 4 (offsite-retention) blocks step 5', function () {
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false, options: ['fail_step' => 'offsite-retention', 'fail_exit_code' => 104]);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false, options: ['fail_step' => 'offsite-retention', 'fail_exit_code' => 104]);
 
         expect($result['exit'])->toBe(104);
         expect($result['calls'])->toBe([
-            'backup --environment staging',
-            'restore-test --environment staging',
-            'offsite-backup --environment staging',
-            'offsite-retention --environment staging --apply',
+            'backup --target staging-main',
+            'restore-test --target staging-main',
+            'offsite-backup --target staging-main',
+            'offsite-retention --target staging-main --apply',
         ]);
-        expect($result['output'])->toContain('Backup cycle for staging failed at step: offsite-retention');
+        expect($result['output'])->toContain('Backup cycle for staging-main failed at step: offsite-retention');
 
         $records = backupCycleHistoryLines($result['historyFile']);
         expect($records[0]['completed_steps'])->toBe(['backup', 'restore-test', 'offsite-backup']);
@@ -1019,17 +936,17 @@ it('failure at step 5 (offsite-restore-test) still ends the cycle failed, with r
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false, options: ['fail_step' => 'offsite-restore-test', 'fail_exit_code' => 105]);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false, options: ['fail_step' => 'offsite-restore-test', 'fail_exit_code' => 105]);
 
         expect($result['exit'])->toBe(105);
         expect($result['calls'])->toBe([
-            'backup --environment staging',
-            'restore-test --environment staging',
-            'offsite-backup --environment staging',
-            'offsite-retention --environment staging --apply',
-            'offsite-restore-test --environment staging',
+            'backup --target staging-main',
+            'restore-test --target staging-main',
+            'offsite-backup --target staging-main',
+            'offsite-retention --target staging-main --apply',
+            'offsite-restore-test --target staging-main',
         ]);
-        expect($result['output'])->toContain('Backup cycle for staging failed at step: offsite-restore-test');
+        expect($result['output'])->toContain('Backup cycle for staging-main failed at step: offsite-restore-test');
 
         $records = backupCycleHistoryLines($result['historyFile']);
         expect($records)->toHaveCount(1);
@@ -1045,11 +962,11 @@ it('failure at step 5 (offsite-restore-test) still ends the cycle failed, with r
 // Cycle history: schema, atomicity, and the two write-failure semantics
 // =============================================================================
 
-it('writes a single compact-JSONL success record with the full schema for the legacy selector', function () {
+it('writes a single compact-JSONL success record with the full schema for --target staging-main', function () {
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false);
         expect($result['exit'])->toBe(0, $result['output']);
 
         $lines = array_values(array_filter(explode("\n", trim(File::get($result['historyFile'])))));
@@ -1059,8 +976,8 @@ it('writes a single compact-JSONL success record with the full schema for the le
         $entry = json_decode($lines[0], true);
         expect($entry)->toMatchArray([
             'status' => 'ok',
-            'selector' => 'environment',
-            'target' => null,
+            'selector' => 'target',
+            'target' => 'staging-main',
             'environment' => 'staging',
             'backup_namespace' => 'staging',
             'completed_steps' => ['backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test'],
@@ -1074,11 +991,11 @@ it('writes a single compact-JSONL success record with the full schema for the le
     }
 });
 
-it('writes a single compact-JSONL success record with the full schema for the target selector', function () {
+it('writes a single compact-JSONL success record with the full schema for --target parity-target', function () {
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: true);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: true);
         expect($result['exit'])->toBe(0, $result['output']);
 
         $lines = array_values(array_filter(explode("\n", trim(File::get($result['historyFile'])))));
@@ -1103,7 +1020,7 @@ it('timestamps are present, ISO-8601 UTC, and started_at is never after complete
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false);
         expect($result['exit'])->toBe(0, $result['output']);
 
         $records = backupCycleHistoryLines($result['historyFile']);
@@ -1121,7 +1038,7 @@ it('history directory and file are created with root-only permissions', function
     $scratch = backupCycleScratchDir();
 
     try {
-        $result = backupCycleRunFullCycle($scratch, useTarget: false);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false);
         expect($result['exit'])->toBe(0, $result['output']);
 
         expect(fileperms($result['historyFile']) & 0o777)->toBe(0o600);
@@ -1167,7 +1084,7 @@ it('a history write failure after a successful pipeline turns the cycle into a f
         // fail here, purely to exercise this path deterministically.
         mkdir($backupBase.'/backup-cycles.jsonl', 0o755, true);
 
-        $result = backupCycleRunFullCycle($scratch, useTarget: false, options: ['backup_base' => $backupBase]);
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false, options: ['backup_base' => $backupBase]);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['calls'])->toHaveCount(5, 'all five steps must have genuinely run before the history write failure is detected');
@@ -1185,7 +1102,7 @@ it('a history write failure on the failure path never masks the original child e
         mkdir($backupBase, 0o755, true);
         mkdir($backupBase.'/backup-cycles.jsonl', 0o755, true);
 
-        $result = backupCycleRunFullCycle($scratch, useTarget: false, options: [
+        $result = backupCycleRunFullCycle($scratch, useParityTarget: false, options: [
             'backup_base' => $backupBase,
             'fail_step' => 'restore-test',
             'fail_exit_code' => 66,
@@ -1193,7 +1110,7 @@ it('a history write failure on the failure path never masks the original child e
 
         expect($result['exit'])->toBe(66, 'the original child failure exit code must survive a secondary history-write failure');
         expect($result['output'])
-            ->toContain('Backup cycle for staging failed at step: restore-test')
+            ->toContain('Backup cycle for staging-main failed at step: restore-test')
             ->toContain('ERROR: failed to write backup cycle history');
     } finally {
         backupCycleCleanup($scratch);
@@ -1249,7 +1166,7 @@ it('honors every child-binary and backup/run-root override when the allow flag i
         $customRunRoot = $scratch.'/custom-run';
 
         [$exit, $output] = backupCycleRunHarness($scratch, <<<'BASH'
-            parse_backup_cycle_args --environment staging
+            parse_backup_cycle_args --target staging-main
             printf 'BACKUP_BIN=%s\n' "${BACKUP_BIN}"
             printf 'RESTORE_TEST_BIN=%s\n' "${RESTORE_TEST_BIN}"
             printf 'OFFSITE_BACKUP_BIN=%s\n' "${OFFSITE_BACKUP_BIN}"

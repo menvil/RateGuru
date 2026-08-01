@@ -3,29 +3,28 @@
 The deployment target registry is the source of truth for **which application
 instances exist** and **what belongs to each of them**.
 
-This document describes the registry itself. It does **not** describe how to
-deploy: no operational script consumes the registry yet. See
-[Migration sequence](#migration-sequence).
+This document describes the registry itself, and how every operational script
+consumes it. `--target TARGET_ID` is the sole operational selector: every
+script identifies which instance to act on this way, with no alternative
+selector of any kind.
 
 ## Target versus environment class
 
-Today infrastructure identifies a deployment by one flag:
+Every operational script identifies a deployment by one flag:
 
 ```bash
---environment staging|production
+--target TARGET_ID
 ```
 
-That single word carries two unrelated meanings at once:
+A target ID carries exactly one meaning: **which instance** to act on — its
+root, users, database, backup path. That is deliberately kept separate from
+**what kind** of instance it is — how strict retention is, whether debug is
+allowed, how cautious tooling should be. Conflating the two would cap the
+platform at exactly one instance per kind: a second production brand on the
+same codebase would have nowhere to go, because "production" would already be
+taken as an identity rather than being one property among several.
 
-1. **which instance** to act on — its root, users, database, backup path;
-2. **what kind** of instance it is — how strict retention is, whether debug is
-   allowed, how cautious tooling should be.
-
-Those are different things, and conflating them caps the platform at exactly one
-production instance. A second production brand on the same codebase has no way
-to exist: `production` is already taken as an identity.
-
-The registry separates them.
+The registry keeps them separate.
 
 - **Target ID** — the identity of one independently deployable application
   instance. Stable, unique, and used to look up every concrete value.
@@ -45,18 +44,15 @@ with its own retention.
 
 Modelling them as one "production" slot with swapped values would mean every
 operation implicitly acts on whichever set of values happens to be configured —
-exactly the ambiguity that makes a second brand impossible. Separate targets
-make the instance an explicit argument.
+exactly the ambiguity the target model exists to avoid. Separate targets make
+the instance an explicit argument.
 
 ## Registry location
 
 | Role | Path |
 |------|------|
 | Source of truth (committed) | `infrastructure/config/deployment-targets.json` |
-| Runtime destination (not yet installed) | `/home/www/rateguru/config/deployment-targets.json` |
-
-The runtime path is **documented, not created**. This slice installs nothing on
-the VPS.
+| Installed runtime location | `/home/www/rateguru/config/deployment-targets.json` |
 
 Both consumers honour the same sources in the same order. They differ only in
 *how* they reach `TARGET_REGISTRY_FILE`, and the CLI adds `--file` on top.
@@ -103,9 +99,11 @@ property of any single target:
 - `PHP_BIN`
 - `PHP_FPM_SERVICE`
 
-Everything that differs *per instance* belongs in the registry. The two files
-are also different kinds of thing: `deployment.conf` is shell that gets sourced;
-the registry is data that is only ever parsed.
+Everything that differs *per instance* belongs in the registry instead —
+application root, Linux users and groups, database name, backup namespace and
+retention, public hostnames, and every other target-specific value. The two
+files are also different kinds of thing: `deployment.conf` is shell that gets
+sourced; the registry is data that is only ever parsed.
 
 ### Why JSON, and why it is never executed
 
@@ -147,7 +145,10 @@ does not exist, as a user that does not exist.
 Two independent things prevent that:
 
 - the `active`-allowlist above keeps `tits-guru` at `planned` in validation;
-- no operational script reads the registry at all in this slice.
+- every operational script calls `require_active_target` before touching a
+  URL, the filesystem, a database, or a lock — a target that is not
+  `lifecycle: active` is rejected before any of that, naming its lifecycle in
+  the error.
 
 When `tits-guru` is genuinely provisioned, flipping it to `active` is a
 reviewable one-line change with the allowlist updated alongside it.
@@ -164,7 +165,7 @@ Validation actively rejects property names suggesting otherwise —
 
 ### Where secrets stay
 
-Secrets do not move into the registry and are not affected by this work:
+Secrets do not move into the registry:
 
 | Secret | Location |
 |--------|----------|
@@ -213,11 +214,13 @@ Repository tests prove the registry agrees with the **committed** configuration
 in this repository. They cannot prove it agrees with the **running VPS** —
 nothing in CI can reach that host.
 
-The two do drift. `STAGING_CODE_GROUP` in `deployment.conf.example` read
-`rateguru-staging` while the installed `/home/www/rateguru/config/
-deployment.conf` said `rateguru-staging-code`, and release files were group
-owned by the latter. Repository parity was green throughout, because both sides
-of the comparison were wrong together.
+The two have drifted before: the registry's own `code_group` value for
+`staging-main` did not match the group actually owning release files on the
+host, because the group name that was supposed to match it lived in a
+different, since-retired configuration file that had silently fallen out of
+sync. Repository parity was green throughout, because both sides of that
+now-defunct comparison were wrong together — CI never reaches the real host,
+so nothing there could catch it.
 
 Note that `rateguru-staging` and `rateguru-staging-code` are two distinct
 groups with distinct jobs: the first is the runtime user's own group, the
@@ -237,15 +240,26 @@ each part separately so the two group roles can never be conflated:
 `runtime_group` matching `runtime_user` is the normal Linux convention for a
 user's primary group. `code_group` must always be a distinct `-code` group:
 making it the runtime user's own group would give the runtime user ownership of
-its own code, which is exactly the separation the staging model exists to keep.
+its own code, which is exactly the separation the model exists to keep.
 
 Re-run this on the VPS before a target is used for a real deployment, and after
-any change to users or groups:
+any change to users or groups. Since all per-target values now live only in the
+installed registry, comparing it against the live host is a direct check —
+there is no second, independent config file to cross-reference against it
+anymore. Confirming that `/home/www/rateguru/config/deployment.conf` itself
+carries none of these fields (only `RELEASE_ID_REGEX`, `PHP_BIN`,
+`PHP_FPM_SERVICE` belong there) is worth doing alongside this, precisely
+because a second, drifting copy of a per-target value is the failure mode
+this whole section exists to catch:
 
 ```bash
-echo "Installed deployment.conf:"
-grep -E '^STAGING_(RUNTIME_USER|CODE_GROUP|DEPLOY_USER)=' \
-    /home/www/rateguru/config/deployment.conf
+echo "Installed deployment.conf (host-global only):"
+cat /home/www/rateguru/config/deployment.conf
+
+echo
+echo "Installed registry, staging-main accounts:"
+jq -r '.targets["staging-main"] | "runtime_user=\(.runtime_user) code_group=\(.code_group) deploy_user=\(.deploy_user)"' \
+    /home/www/rateguru/config/deployment-targets.json
 
 echo
 echo "Current release ownership:"
@@ -263,13 +277,13 @@ Compare the output against `staging-main` in the registry:
 
 | Registry field | Must match |
 |----------------|------------|
-| `runtime_user` | `STAGING_RUNTIME_USER`, and the pool's `user =` |
-| `deploy_user` | `STAGING_DEPLOY_USER`, and the owner of the current release |
-| `code_group` | `STAGING_CODE_GROUP`, and the group of the current release |
+| `runtime_user` | the PHP-FPM pool's `user =` |
+| `deploy_user` | the owner of the current release |
+| `code_group` | the group of the current release |
 
 Any mismatch means the registry describes a host that does not exist. Fix the
-registry and `deployment.conf.example` together — a green test suite is not
-evidence here.
+registry to match reality — a green test suite is not evidence here, since
+nothing in CI can reach the real host.
 
 ### Repository versus runtime checks
 
@@ -282,149 +296,89 @@ additionally requires the file to be a regular file, not a symlink, owned
 `deployment.conf` already gets. A symlink is refused everywhere, because it lets
 the validated path and the read path diverge.
 
-## Read-only target-aware operations (slice 2, completed)
+## The `--target` interface
 
-`health-check` and `status` now accept exactly one selector:
+`health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`,
+`restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`
+and `backup-cycle` all accept exactly one selector, `--target TARGET_ID`, and
+nothing else identifies which instance to act on:
 
 ```bash
-health-check --target staging-main
-health-check --environment staging
-
-status --target staging-main
-status --environment staging
+health-check --target TARGET_ID
+status --target TARGET_ID
+cleanup --target TARGET_ID [--keep NUMBER] [--dry-run|--apply]
+deploy --target TARGET_ID --release RELEASE_ID --artifact PATH [--checksum PATH] [--migrate]
+rollback --target TARGET_ID (--release RELEASE_ID | --previous)
+backup --target TARGET_ID
+restore-test --target TARGET_ID
+offsite-backup --target TARGET_ID
+offsite-retention --target TARGET_ID [--apply]
+offsite-restore-test --target TARGET_ID
+backup-cycle --target TARGET_ID
 ```
 
-Both commands still support `--environment staging|production` with **no
-change to that path's behaviour** — same functions, same output, same exit
-codes. `--target` and `--environment` cannot be combined, exactly one is
-required, and `--help` documents both forms.
+A missing, duplicate, empty, or flag-shaped `--target` value is rejected, and
+`--help` documents the exact form for each command. This is true end to end:
+every real caller — the sudo wrappers, cron, the GitHub Actions deploy
+workflow — also resolves through this same interface; see
+[Perimeter: wrappers, sudoers, cron and GitHub Actions](#perimeter-wrappers-sudoers-cron-and-github-actions)
+below.
 
 ### Only active targets may be operated on
 
-Every target-mode entry point calls `require_active_target TARGET` before
-doing anything else: it validates the target ID, validates the whole registry,
-confirms the target exists, and confirms `lifecycle == active` — all before a
-URL is built, `curl` runs, or an application path is touched. `staging-main` is
-the only target with `lifecycle: active`; `tits-guru` stays `planned` and is
-rejected by both commands with a message naming its lifecycle. This is a
-promise, not an implementation detail: `targets validate` continues to reject
-`lifecycle: active` on any target other than `staging-main` (see
-[Validation](#validation) above), so a target cannot become operable by
-mistake — flipping it requires a reviewed registry change.
+Every entry point calls `require_active_target TARGET` before doing anything
+else: it validates the target ID, validates the whole registry, confirms the
+target exists, and confirms `lifecycle == active` — all before a URL is built,
+`curl` runs, or an application path is touched. `staging-main` is the only
+target with `lifecycle: active`; `tits-guru` stays `planned` and is rejected
+with a message naming its lifecycle. This is a promise, not an implementation
+detail: `targets validate` continues to reject `lifecycle: active` on any
+target other than `staging-main` (see [Validation](#validation) above), so a
+target cannot become operable by mistake — flipping it requires a reviewed
+registry change.
 
 ### tits-guru is still not deployable
 
 `tits-guru` has no directories, users, database, socket, queue worker, cron
 entry, or Nginx site; rejecting it at `lifecycle=planned` is exactly what keeps
-a *declared* target from being mistaken for a *deployable* one. That stays
-true across every slice below, installed or not.
+a *declared* target from being mistaken for a *deployable* one.
 
-### What is deliberately still legacy-only
-
-`cleanup` graduated to target-awareness in slice 4, `deploy` in slice 5,
-`rollback` in slice 6, `backup`/`restore-test` in slice 7.1,
-`offsite-backup`/`offsite-retention`/`offsite-restore-test` in slice 7.2, and
-`backup-cycle` in slice 7.3; the perimeter that invokes them (cron, sudoers,
-server wrappers, the GitHub Actions deploy workflow) migrated in slice 8;
-see [Target-aware cleanup](#target-aware-cleanup-slice-4-completed),
-[Target-aware deploy](#target-aware-deploy-slice-5-completed),
-[Target-aware rollback](#target-aware-rollback-slice-6-completed),
-[Target-aware local backup](#target-aware-local-backup-slice-71-completed),
-[Target-aware offsite backup](#target-aware-offsite-backup-slice-72-completed),
-[Target-aware backup cycle](#target-aware-backup-cycle-slice-73-completed)
-and
-[Target-aware perimeter](#target-aware-perimeter-slice-8-current)
-below, and the migration sequence. Systemd timers, internal `--environment`
-support, and the temporary legacy per-environment wrappers
-(`rateguru-staging-*`, `rateguru-production-*`) and their matching sudoers
-rules are the only legacy-only pieces left, until a future legacy-removal
-slice removes all of them together.
-
-## Installing on the VPS (slice 2b)
-
-Slice 2 changed only files in this repository — nothing was installed on the
-VPS, and the current deploy workflow kept running
-`health-check --environment staging` exactly as before, unaffected. This slice
-adds `infrastructure/scripts/install-target-operations`, which at the time
-installed **only** the read-only subset onto the real host: the registry and
-the four read-only scripts (`targets`, `common`, `health-check`, `status`) —
-nothing that writes to a target's filesystem, database, or running service
-state. Slice 4 (below) later expands the same installer to also manage
-`cleanup` — the installer itself, and this section's description of what it
-does, evolve together; see slice 4 for the current scope.
-
-Full detail — modes, ownership/mode requirements, backup and rollback
-behaviour, manual recovery, expected server commands — is in
-[`install-target-operations.md`](install-target-operations.md). In short:
-
-- `--check` validates the committed source files and host tooling; read-only,
-  no root, safe anywhere;
-- `--apply` verifies a staged candidate copy, installs transactionally, then
-  verifies the installed result against the real host — with every
-  `RATEGURU_*` test override explicitly unset — before committing; any
-  failure after files start changing rolls everything back automatically;
-- `--verify` re-runs the installed-file and runtime-parity checks against
-  whatever is currently installed, with no changes and no backup.
-
-Installing this tooling does not provision `tits-guru` and does not touch
-`rollback`, any backup script, workflows, sudoers, or server wrappers — see
-the two subsections above, which hold regardless of whether this slice has
-run on the VPS yet.
-
-## Target-aware cleanup (slice 4, completed)
-
-`cleanup` now accepts the same selector contract as `health-check` and
-`status`:
+## Read-only operations: health-check and status
 
 ```bash
-cleanup --target staging-main [--keep NUMBER] [--dry-run|--apply]
-cleanup --environment staging [--keep NUMBER] [--dry-run|--apply]
+health-check --target staging-main
+status --target staging-main
 ```
 
-Omitting both `--dry-run` and `--apply` performs a dry run — this is the
-existing, preserved default. `--dry-run` is a new, readable alias for that
-same default; `--apply` is required to actually delete anything. `--target`
-and `--environment` are mutually exclusive, exactly one is required, and
-`--dry-run`/`--apply` are mutually exclusive with each other.
+Neither command mutates anything. `require_active_target` runs before a URL
+is built or `curl` runs, so `tits-guru` is rejected cleanly. `status` reports
+the target's own header (`Target:`, `Lifecycle:`, `Environment class:`), then
+four sections in order — `Releases`, `Current release metadata`, `Health`,
+`Recent deployment history` — ending with `Status: healthy` when everything
+it checked passed.
 
-Default retention is read from **independent sources per selector**, not one
-derived from the other:
+## Target-aware cleanup
 
-- `--environment staging|production` uses the legacy, host-level
-  `STAGING_RELEASE_RETENTION`/`PRODUCTION_RELEASE_RETENTION` from
-  `deployment.conf`, exactly as before this slice;
-- `--target TARGET` uses that target's own `release_retention` field in the
-  registry (`target_release_retention`, already an existing accessor from
-  the registry foundation slice) — the same field
-  [Registry versus deployment.conf](#registry-versus-deploymentconf) above
-  already documents as belonging in the registry because it differs *per
-  instance*.
+`cleanup --target TARGET_ID [--keep NUMBER] [--dry-run|--apply]`. Omitting both
+`--dry-run` and `--apply` performs a dry run — this is the default; `--dry-run`
+is a readable, explicit alias for it. `--apply` is required to actually delete
+anything. Default retention, when `--keep` is not given, comes from the
+target's own `release_retention` field in the registry
+(`target_release_retention`) — never a host-level default, since retention is
+a property of the instance, not the host.
 
-`--target staging-main` and `--environment staging` currently resolve the
-identical default `--keep` only because `staging-main`'s registry
-`release_retention` and `STAGING_RELEASE_RETENTION` happen to carry the same
-number today — proven by dedicated legacy/target dry-run parity tests against
-the real, committed registry values, and separately by a test that
-deliberately sets them to *different* values and proves each selector reads
-its own source, not the other's. A future second production target is free to
-carry its own `release_retention`, independent of any other target sharing
-its `environment_class`.
-
-`require_active_target` gates target mode exactly as it does for
-`health-check`/`status`: a planned target (`tits-guru`) is rejected — clearly
-naming its lifecycle — before any lock is acquired, any path is scanned, or
+`require_active_target` gates `cleanup` exactly as it does `health-check`/
+`status`: a planned target (`tits-guru`) is rejected — clearly naming its
+lifecycle — before any lock is acquired, any path is scanned, or
 `pinned-releases`/history is touched.
 
 ### Dry-run is genuinely side-effect free
 
-Earlier `cleanup` always touched and `chmod`'d `deployments/pinned-releases`
-and acquired the deployment lock, even without `--apply`. This is fixed:
-dry-run now acquires no lock, creates no lock file, never creates or modifies
+Dry-run acquires no lock, creates no lock file, never creates or modifies
 `pinned-releases` (a missing one is treated as empty), never appends
 deployment history, and never invokes `rm`. Retention, protection
 (current/previous/pinned releases are never candidates), and
-candidate-selection semantics are otherwise unchanged from the prior
-implementation.
+candidate-selection semantics are otherwise unaffected.
 
 ### Apply mode: locking, recomputation, and path safety
 
@@ -440,256 +394,104 @@ being silently skipped or deleted. Deletion stops on the first failure, and
 
 ### The `pinned-releases` ownership contract
 
-Before this slice, `pinned-releases` (like `deployments/history.jsonl` and the
-deployment lock file) had no explicit ownership contract anywhere in this
-repository: it simply inherited whatever identity the invoking process
-happened to have, which was `root:root` in practice only because `cleanup` is
-invoked exclusively via `infrastructure/config/sudoers/rateguru-deploy` as
-`(root)`. `cleanup` now makes this explicit: when apply mode creates a missing
-`pinned-releases`, it installs it `root:root 0640` — the same contract already
+`pinned-releases` (like `deployments/history.jsonl` and the deployment lock
+file) is owned `root:root 0640`: when apply mode creates a missing
+`pinned-releases`, it installs it that way — the same contract already
 enforced for `deployment.conf` and the target registry — via a single
 `install -o root -g root -m 0640` call, never a bare `touch`+`chmod`. A
 pre-existing `pinned-releases` file, valid or not, is never touched — content,
 mode, and mtime all survive a `cleanup --apply` run byte-for-byte.
 
-**Accepted on the real staging VPS:** `install-target-operations
---check`/`--apply`/`--verify` all passed against the six-file installer;
-`cleanup --environment staging --dry-run` and
-`cleanup --target staging-main --dry-run` selected the identical candidate
-release set; `cleanup --target tits-guru --dry-run` was rejected with
-`lifecycle=planned`.
+## Deploy
 
-## Target-aware deploy (slice 5, completed)
+`deploy --target TARGET_ID --release RELEASE_ID --artifact PATH [--checksum PATH] [--migrate]`.
 
-`deploy` now accepts the same selector contract as `health-check`, `status`
-and `cleanup`, with the exact same operational flags either way:
+### Root authorization runs first, unconditionally
 
-```bash
-deploy --target staging-main --release RELEASE_ID --artifact PATH [--checksum PATH] [--migrate]
-deploy --environment staging --release RELEASE_ID --artifact PATH [--checksum PATH] [--migrate]
-```
+`deploy` runs privileged filesystem operations (writing release directories,
+changing ownership, switching the `current` symlink) on every invocation.
+`require_root` is the first substantive action, before any argument parsing.
+Only after root authorization succeeds does `require_active_target` run —
+immediately, before artifact/checksum canonicalization, the
+artifact-existence check, the incoming directory, the target filesystem root,
+the deployment lock, or any mutation. So the full ordering is: root
+authorization → `lifecycle=planned` rejection → (only if active) artifact/
+filesystem validation. `tits-guru` is rejected at the lifecycle gate before any
+artifact path is ever touched.
 
-`--target` and `--environment` remain mutually exclusive, exactly one is
-required, an empty value or a duplicate flag is rejected, and `--help`
-documents both forms.
+### The deployment pipeline
 
-### Root authorization still runs first, unconditionally
-
-Unlike `cleanup`, `deploy` runs privileged filesystem operations (writing
-release directories, changing ownership, switching the `current` symlink) on
-every invocation, not only under `--apply`. Its root-first contract is
-therefore preserved **exactly**: `require_root` is still the first
-substantive action, before any argument parsing. Only after root
-authorization succeeds does `require_active_target` run — immediately,
-before artifact/checksum canonicalization, the artifact-existence check, the
-incoming directory, the target filesystem root, the deployment lock, or any
-mutation. So the full ordering for `--target` is: root authorization →
-`lifecycle=planned` rejection → (only if active) artifact/filesystem
-validation. `tits-guru` is rejected at the lifecycle gate before any artifact
-path is ever touched, exactly like `health-check`, `status` and `cleanup`.
-
-### One shared deployment pipeline
-
-Selector resolution (`resolve_target`) populates the same set of variables —
-application root, runtime user, deploy user, code group, incoming-artifacts
-directory, canonical public hostname (a new `target_primary_public_hostname`
-accessor, following the existing fail-closed `_target_property` contract —
-no new registry field), and the health-check selector to use after the
-switch — from either the registry (`target_*` helpers) or `deployment.conf`
-(`environment_*` helpers), depending on which selector was given. Everything
+Selector resolution (`resolve_target`) populates the application root, runtime
+user, deploy user, code group, incoming-artifacts directory, canonical public
+hostname (`target_primary_public_hostname`), and the health-check target to
+use after the switch, all from the registry (`target_*` helpers). Everything
 after resolution — checksum verification, unsafe-path rejection, the
 disk-space check, extraction, symlinks, ownership/permission normalization,
 `verify-required-clis`, Laravel cache preparation, optional migrations,
 `rateguru:sharing:verify`, the atomic `current` switch, PHP-FPM reload,
 health-check, automatic recovery of `current`/`previous` on failure,
-deployment history, and queue restart — is one single pipeline, unchanged
-from before this slice, with no second target-specific code path.
+deployment history, and queue restart — is preserved exactly as before this
+model existed: release ID validation, artifact/checksum containment within the
+incoming directory, SHA-256 verification, unsafe tar path rejection, the
+disk-space check, the shared deployment lock (the same one `cleanup`/
+`rollback` use), immutable release directories, the temporary extraction
+directory, `.env`/`storage`/`public/storage` symlinks, ownership/permission
+normalization, and everything downstream of it.
 
-### Preserved exactly
+## Rollback
 
-Every existing protection carries over unchanged: root-only execution,
-release ID validation, artifact/checksum containment within the
-selector-specific incoming directory, SHA-256 verification, unsafe tar path
-rejection, the disk-space check, the shared deployment lock (the same one
-`cleanup`/`rollback` use), immutable release directories, the temporary
-extraction directory, `.env`/`storage`/`public/storage` symlinks,
-ownership/permission normalization, `verify-required-clis`, Laravel cache
-preparation, optional migrations, `rateguru:sharing:verify`, the atomic
-`current` switch, PHP-FPM reload, health-check, automatic recovery of
-`current`/`previous` after a failure, failed/success deployment history,
-queue restart, and deletion of a failed release directory after successful
-recovery.
+`rollback --target TARGET_ID (--release RELEASE_ID | --previous)`. Exactly one
+rollback destination is required: `--release RELEASE_ID` or `--previous` — the
+two together are rejected as an ambiguous invocation.
 
-### Installed by install-target-operations (seven files, not six)
+### Root authorization runs first, unconditionally
 
-`install-target-operations` now manages `deploy` alongside the six files
-slice 4 left it with. Consistent with `deploy` never being safe to run for
-real during an install/verify pass (no artifact exists to deploy, and doing
-so would mutate the real staging target), the installer only ever proves
-`deploy --help` succeeds and `deploy --target tits-guru` (given a
-deliberately unusable release/artifact combination) fails with
-`lifecycle=planned` — both staged, before anything is installed, and again
-against the installed binary during `--apply`'s post-install check and every
-`--verify` run. See
-[`install-target-operations.md`](install-target-operations.md) for the full
-seven-file contract.
+Like `deploy`, `rollback` runs privileged filesystem operations (switching the
+`current`/`previous` symlinks) on every invocation. `require_root` is the
+first substantive action, before any argument parsing. Only after root
+authorization succeeds does `require_active_target` run — immediately, before
+`target_root`, before the `current`/`previous` symlinks are read, before the
+releases directory or the deployment lock is touched, before history is
+written, before `systemctl` or health-check runs, and before any mutation.
+`tits-guru` is rejected at the lifecycle gate before any release path is ever
+touched.
 
-### What is deliberately still legacy-only
+### The rollback pipeline
 
-The GitHub Actions deploy workflow, its `/usr/local/sbin` wrapper, and
-sudoers keep calling `deploy --environment staging` — this slice does not
-touch workflows, sudoers, or server wrappers. Migrating that perimeter to
-`--target staging-main` is a separate future slice (see the migration
-sequence below). The backup family remains `--environment`-only until its
-own slice. `tits-guru` remains `lifecycle=planned` and undeployable —
-installing this tooling does not provision it.
-
-**Accepted on the real staging VPS:** the seven-file
-`install-target-operations --check`/`--apply`/`--verify` all passed; the
-installed `deploy` is owned `root:root` mode `0755`;
-`deploy --target tits-guru` (given a deliberately unusable release/artifact
-combination) was rejected with `lifecycle=planned` before any artifact
-validation was reached; both `health-check --environment staging` and
-`health-check --target staging-main` passed.
-
-## Target-aware rollback (slice 6, completed)
-
-`rollback` now accepts the same selector contract as `health-check`,
-`status`, `cleanup` and `deploy`:
-
-```bash
-rollback --target staging-main (--release RELEASE_ID | --previous)
-rollback --environment staging (--release RELEASE_ID | --previous)
-```
-
-`--target` and `--environment` remain mutually exclusive, exactly one is
-required, and `--help` documents both forms. Exactly one rollback
-destination is required: `--release RELEASE_ID` or `--previous` — the two
-together are rejected as an ambiguous invocation, a fail-closed correction of
-what used to be accepted (silently preferring one over the other). This
-changes no valid legacy invocation's behaviour: every existing
-`rollback --environment ... --release ...` or
-`rollback --environment ... --previous` command keeps working exactly as
-before.
-
-### Root authorization still runs first, unconditionally
-
-Like `deploy`, `rollback` runs privileged filesystem operations (switching
-the `current`/`previous` symlinks) on every invocation, not only under a
-dedicated flag. Its root-first contract is therefore preserved exactly:
-`require_root` is still the first substantive action, before any argument
-parsing. Only after root authorization succeeds does `require_active_target`
-run — immediately, before `target_root`, before the `current`/`previous`
-symlinks are read, before the releases directory or the deployment lock is
-touched, before history is written, before `systemctl` or health-check runs,
-and before any mutation. So the full ordering for `--target` is: root
-authorization → `lifecycle=planned` rejection → (only if active)
-filesystem/lock work. `tits-guru` is rejected at the lifecycle gate before
-any release path is ever touched.
-
-### One shared rollback pipeline
-
-Selector resolution (`resolve_target`) populates the same set of variables —
-the target's filesystem root and the health-check selector to use — from
-either the registry (`target_root`) or `deployment.conf`
-(`environment_root`), depending on which selector was given. Everything
-after resolution — the shared deployment lock, requiring `current` to exist,
+Selector resolution (`resolve_target`) populates the target's filesystem root
+(`target_root`) and the health-check target to use. Everything after
+resolution — the shared deployment lock, requiring `current` to exist,
 capturing the original `current`/`previous`, choosing the explicit release or
-`previous`, refusing a rollback onto the already-current release, history,
-the atomic `previous`/`current` switch, PHP-FPM reload, post-switch
-health-check, automatic restoration of the original `current`/`previous` on
-failure, and cleanup of temporary symlinks — is one single pipeline,
-unchanged in semantics from before this slice, with no second
-target-specific code path. Both the normal and the recovery health-check call
-use the identical selector rollback was invoked with
-(`"${HEALTH_CHECK_BIN}" "${HEALTH_SELECTOR[@]}"`), so target mode and legacy
-mode are verified identically on both paths.
+`previous`, refusing a rollback onto the already-current release, history, the
+atomic `previous`/`current` switch, PHP-FPM reload, post-switch health-check,
+automatic restoration of the original `current`/`previous` on failure, and
+cleanup of temporary symlinks — is one single pipeline.
 
 ### Release path safety
 
 Every release path this script reads as the current release, the previous
 release, or an explicit `--release` target is validated, fail-closed, before
-any symlink is switched: it must exist, be a real directory, not be a
-symlink itself, be a direct child of the releases root, have a basename that
-passes release ID validation, and — after `readlink -f` — resolve to exactly
-itself. `current`/`previous` themselves remain ordinary symlinks, as always;
-what is refused is an unsafe *target* of that symlink — escaping the
-releases root, a nested path, a release directory that is itself a symlink,
-an invalid release ID, or a missing target — never the fact that
-`current`/`previous` are symlinks in the first place.
+any symlink is switched: it must exist, be a real directory, not be a symlink
+itself, be a direct child of the releases root, have a basename that passes
+release ID validation, and — after `readlink -f` — resolve to exactly itself.
+`current`/`previous` themselves remain ordinary symlinks, as always; what is
+refused is an unsafe *target* of that symlink — escaping the releases root, a
+nested path, a release directory that is itself a symlink, an invalid release
+ID, or a missing target.
 
-### Installed by install-target-operations (eight files, not seven)
+## Local backup and restore-test
 
-`install-target-operations` now manages `rollback` alongside the seven files
-slice 5 left it with. Consistent with `rollback` never being safe to run for
-real during an install/verify pass (there is no throwaway release to roll
-back to on the real staging target), the installer only ever proves
-`rollback --help` succeeds and `rollback --target tits-guru` (given a
-deliberately unusable release ID) fails with `lifecycle=planned` — both
-staged, before anything is installed, and again against the installed binary
-during `--apply`'s post-install check and every `--verify` run. See
-[`install-target-operations.md`](install-target-operations.md) for the full
-eight-file contract.
+`backup --target TARGET_ID` and `restore-test --target TARGET_ID`. Both scripts
+require root unconditionally, as the first action of every invocation, matching
+`deploy`/`rollback`'s exact contract. In target mode, `require_active_target`
+runs immediately after root authorization — before the backup root, lock,
+database binary, `rclone`, or any filesystem work — so a planned target
+(`tits-guru`) is rejected before anything is touched.
 
-### What is deliberately still legacy-only
-
-The GitHub Actions deploy workflow, its `/usr/local/sbin` wrapper, and
-sudoers are untouched by this slice and keep calling `deploy --environment
-staging`. The backup family remains `--environment`-only until its own
-slices (see
-[Target-aware local backup](#target-aware-local-backup-slice-71-completed)
-and
-[Target-aware offsite backup](#target-aware-offsite-backup-slice-72-completed)
-below). `tits-guru` remains `lifecycle=planned` and undeployable.
-
-**Accepted on the real staging VPS:** the eight-file
-`install-target-operations --check`/`--apply`/`--verify` all passed; the
-installed `rollback` is owned `root:root` mode `0755`;
-`rollback --target tits-guru` was rejected with `lifecycle=planned`; a
-legacy `rollback --environment staging --previous` completed successfully; a
-target `rollback --target staging-main --release ...` returned the release
-to its original state; the final post-rollback health check passed.
-
-## Target-aware local backup (slice 7.1, completed)
-
-`backup` and `restore-test` now accept the same selector contract as
-`health-check`, `status`, `cleanup`, `deploy` and `rollback`:
-
-```bash
-backup --target staging-main
-backup --environment staging
-
-restore-test --target staging-main
-restore-test --environment staging
-```
-
-`--target` and `--environment` remain mutually exclusive, exactly one is
-required, and `--help` documents both forms.
-
-The backup family is split into three independently reviewable increments —
-7.1 (this slice, local only), 7.2 (offsite/B2), 7.3 (`backup-cycle`
-orchestration) — because local PostgreSQL/storage backup, remote B2
-operations, and orchestration each carry different side effects and
-deserve separate scrutiny. `backup-cycle`, `offsite-backup`,
-`offsite-retention` and `offsite-restore-test` are untouched by this slice
-and remain `--environment`-only.
-
-### Root authorization still runs first, unconditionally
-
-Like `deploy` and `rollback`, both scripts run privileged filesystem/database
-operations on every invocation, not only under a dedicated flag. Their
-root-first contract mirrors `rollback` exactly: `require_root` is still the
-first substantive action, before any argument parsing. Only after root
-authorization succeeds does `require_active_target` run — immediately, before
-any backup root, lock, database binary, `rclone`, or filesystem work — so
-`tits-guru` stays rejected with `lifecycle=planned` before anything is
-touched.
-
-### Legacy and target selectors share one namespace, root and lock
-
-`backup --environment staging` and `backup --target staging-main` (and the
-equivalent pair for `restore-test`) resolve to the **identical** backup
-namespace, root and lock file:
+Both scripts resolve `DATABASE_NAME`/`BACKUP_NAMESPACE`/`RETENTION_DAYS` from
+the registry (`target_database_name`, `target_backup_namespace`,
+`target_local_backup_retention`). `staging-main`'s namespace is `staging`, and
+its backup root and lock file are unchanged from before the registry existed:
 
 ```text
 backup namespace = staging
@@ -697,103 +499,36 @@ backup root      = /home/www/rateguru/backups/staging
 lock             = /home/www/rateguru/run/backup-staging.lock
 ```
 
-The lock filename is built from the resolved backup namespace, never from
-the selector label — this is what makes the two selectors mutually
-exclusive against the same namespace rather than able to write concurrently.
-No existing backup directory moves.
-
-Target mode reads `DATABASE_NAME`/`BACKUP_NAMESPACE`/`RETENTION_DAYS` from
-the registry (`target_database_name`, `target_backup_namespace`,
-`target_local_backup_retention` — all pre-existing accessors from the
-registry foundation slice); legacy mode reads them from three new `common`
-helpers, `environment_database_name`/`environment_backup_namespace`/
-`environment_local_backup_retention`, following the exact contract every
-other `environment_*` helper already has (the caller runs
-`validate_environment` first; no isolated defensive default).
-
 ### Manifest: schema 2, backward compatible with schema 1
 
-Every backup `backup` produces from this slice onward carries a
-`manifest_schema_version: 2` manifest recording `selector`, `target` (`null`
-for a legacy-mode backup), `environment`, and `backup_namespace` alongside
-the pre-existing fields. `restore-test` validates whichever schema it finds:
-`project`/`environment`/`database` are always required; `backup_namespace`
-is required only for schema 2; a schema 2 backup with a non-null `target`
-must match `restore-test`'s own `--target`, if that selector is in use. A
-schema 1 backup — everything produced before this slice, with none of the
-new fields — remains fully restorable through both
-`restore-test --environment staging` and
-`restore-test --target staging-main`. Manifest validation, like checksum and
-storage-archive validation, always completes before the temporary database
-is created.
+Every backup carries a `manifest_schema_version: 2` manifest recording
+`target`, `environment`, and `backup_namespace` alongside the pre-existing
+fields. `restore-test` requires `project`/`environment`/`database` always,
+`backup_namespace` for schema 2, and — for a schema 2 backup — a matching
+`target`. A schema 1 backup — everything produced before the registry-based
+model existed, with none of the new fields — remains fully restorable.
+Manifest validation, like checksum and storage-archive validation, always
+completes before the temporary database is created.
 
 ### Target-specific server configuration snapshot
 
-In target mode, the server-configuration archive contains only that
-target's own Nginx site, PHP-FPM pool, Supervisor unit, cron entry, and
-deploy account's `authorized_keys` — never another target's. Legacy mode
-keeps its existing, byte-for-byte-preserved path list covering both staging
-and production files, unchanged.
+The server-configuration archive contains only the target's own Nginx site,
+PHP-FPM pool, Supervisor unit, cron entry, and deploy account's
+`authorized_keys` — never another target's.
 
-### Installed by install-target-operations (ten files, not eight)
+## Target-aware offsite backup path
 
-`install-target-operations` now manages `backup` and `restore-test`
-alongside the eight files slice 6 left it with. Consistent with neither
-script being safe to run for real during an install/verify pass, the
-installer only ever proves `backup --help`/`restore-test --help` succeed and
-`backup --target tits-guru`/`restore-test --target tits-guru` (both
-correctly) fail with `lifecycle=planned` — staged, before anything is
-installed, and again against the installed binaries during `--apply`'s
-post-install check and every `--verify` run. See
-[`install-target-operations.md`](install-target-operations.md) for the full
-ten-file contract.
+`offsite-backup --target TARGET_ID`, `offsite-retention --target TARGET_ID
+[--apply]`, and `offsite-restore-test --target TARGET_ID`. `offsite-backup`
+and `offsite-restore-test` require root unconditionally, as the first action
+of every invocation. `offsite-retention` requires root unconditionally too —
+its dry-run mode simply never acts on that privilege.
 
-### What is deliberately still legacy-only
-
-`backup-cycle`, `offsite-backup`, `offsite-retention` and
-`offsite-restore-test` are untouched by this slice and remain
-`--environment`-only until slices 7.2 and 7.3. The GitHub Actions deploy
-workflow, its `/usr/local/sbin` wrapper, and sudoers are untouched.
-`tits-guru` remains `lifecycle=planned` and undeployable.
-
-**Accepted on the real staging VPS:** the ten-file
-`install-target-operations --check`/`--apply`/`--verify` all passed; the
-installed `backup` and `restore-test` are owned `root:root` mode `0755`;
-`backup --target tits-guru` and `restore-test --target tits-guru` were both
-rejected with `lifecycle=planned`; a legacy `backup --environment staging`
-and a target `backup --target staging-main` both created a local backup in
-the shared `staging` namespace, and their checksums passed; a legacy
-`restore-test --environment staging` and a target
-`restore-test --target staging-main` both successfully restored PostgreSQL;
-the final health-check passed.
-
-## Target-aware offsite backup (slice 7.2, completed)
-
-`offsite-backup`, `offsite-retention` and `offsite-restore-test` now accept
-the same selector contract as `backup`/`restore-test`:
-
-```bash
-offsite-backup --target staging-main
-offsite-backup --environment staging
-
-offsite-retention --target staging-main [--apply]
-offsite-retention --environment staging [--apply]
-
-offsite-restore-test --target staging-main
-offsite-restore-test --environment staging
-```
-
-`--target` and `--environment` remain mutually exclusive, exactly one is
-required, and `--help` documents both forms. `offsite-backup` and
-`offsite-restore-test` require root unconditionally, as the first action of
-every invocation, matching `backup`/`restore-test`'s exact contract.
-`offsite-retention` requires root unconditionally too — its dry-run mode
-simply never acts on that privilege (see below).
-
-### Legacy and target selectors share one remote namespace, root and lock
-
-All three scripts resolve `--environment staging` and `--target
-staging-main` to the **identical** remote namespace, base and lock file:
+All three resolve `BACKUP_NAMESPACE`/`ENVIRONMENT_CLASS` from the registry
+(`target_backup_namespace`, `target_environment_class`), and
+`offsite-retention` additionally reads `target_offsite_backup_retention`.
+`staging-main`'s remote root and locks are unchanged from before the registry
+existed:
 
 ```text
 backup namespace = staging
@@ -803,135 +538,55 @@ lock (offsite-retention)     = /home/www/rateguru/run/offsite-retention-staging.
 lock (offsite-restore-test)  = /home/www/rateguru/run/offsite-restore-test-staging.lock
 ```
 
-Every remote root and lock filename is built from `BACKUP_NAMESPACE`, never
-from the selector label — proven for each script by a dedicated concurrent-
-lock test. No existing remote backup moves.
-
-Target mode reads `BACKUP_NAMESPACE`/`ENVIRONMENT_CLASS` from the registry
-(`target_backup_namespace`, `target_environment_class` — both pre-existing
-accessors), and `offsite-retention` additionally reads
-`target_offsite_backup_retention`. Legacy mode reads the equivalent values
-from `environment_backup_namespace` (existing, from slice 7.1) and the new
-`environment_offsite_backup_retention` — following the exact contract every
-other `environment_*` helper already has.
-
 ### Manifest validation reuses the same strict schema contract
 
 `offsite-backup` validates the local backup's manifest before ever calling
 `rclone`; `offsite-restore-test` validates the downloaded manifest before
 `createdb` — both using the identical strict, type-based
-`manifest_schema_version` classification `restore-test` established (and
-fixed a fail-open bug in) in slice 7.1: absent or JSON `null` is schema 1;
-a JSON *number* equal to `2` is schema 2 (additionally checking
-`backup_namespace`, and, under `--target`, a non-null manifest `target`);
-any other value — `3`, `0`, the JSON *string* `"2"`, an array, an object, a
-boolean — is rejected outright, before any mutation, with `unsupported
-backup manifest schema_version: ...` naming the offending value. The
-classifier itself (`manifest_schema_classify`) is shared, in `common`,
-between `offsite-backup` and `offsite-restore-test` — local `restore-test`
-is untouched and keeps its own, contractually identical inline copy. Neither
-offsite script has an independently resolved database name to compare
-against (unlike local `restore-test`) — `database` is only required to be
-present and non-empty.
+`manifest_schema_version` classification `restore-test` uses: absent or JSON
+`null` is schema 1; a JSON *number* equal to `2` is schema 2 (additionally
+checking `backup_namespace` and a non-null manifest `target`); any other value
+— `3`, `0`, the JSON *string* `"2"`, an array, an object, a boolean — is
+rejected outright, before any mutation, with `unsupported backup manifest
+schema_version: ...` naming the offending value. The classifier
+(`manifest_schema_classify`) is shared, in `common`, between `offsite-backup`
+and `offsite-restore-test`; local `restore-test` keeps its own, contractually
+identical inline copy. Neither offsite script has an independently resolved
+database name to compare against (unlike local `restore-test`) — `database` is
+only required to be present and non-empty.
 
 ### Retention: side-effect-free dry-run, locked and re-listed apply
 
 `offsite-retention`'s dry-run (the default, no `--apply`) is genuinely
-side-effect free: no lock is acquired, and — unlike the pre-slice-7.2
-implementation — `rclone purge` is never invoked in any form, not even with
-rclone's own `--dry-run` flag. Candidates are computed purely from a
-read-only `rclone lsf` listing.
+side-effect free: no lock is acquired, and `rclone purge` is never invoked in
+any form, not even with rclone's own `--dry-run` flag. Candidates are computed
+purely from a read-only `rclone lsf` listing.
 
 `--apply` lists remote backups twice: an unlocked preview pass (purely for
-operator visibility, never used to decide what gets purged), then the lock
-is acquired and the listing and candidate computation both run again, fresh
-— protecting against a backup uploaded concurrently between the two passes.
+operator visibility, never used to decide what gets purged), then the lock is
+acquired and the listing and candidate computation both run again, fresh —
+protecting against a backup uploaded concurrently between the two passes.
 `rclone purge` only ever acts on the second, locked computation. The latest
 backup is always protected, regardless of age; backups within the resolved
-retention window are protected; only backups older than the cutoff and not
-the latest become candidates.
+retention window are protected; only backups older than the cutoff and not the
+latest become candidates.
 
-Target retention (`target_offsite_backup_retention`) is read independently
-of the legacy value (`environment_offsite_backup_retention`) — proven by a
-dedicated test using a deliberately different target retention (17 days)
-against legacy staging's 30, confirming each selector computes its own
-cutoff while still sharing the same remote namespace and lock.
+## Target-aware backup cycle
 
-### Installed by install-target-operations (thirteen files, not ten)
+`backup-cycle --target TARGET_ID`. `require_root` is the first action of
+`main()`, then `parse_backup_cycle_args`, then `resolve_backup_cycle_subject`
+(where `require_active_target` runs immediately, before the cycle lock, the
+history file, or any child command), then `perform_backup_cycle`. `tits-guru`
+is rejected with `lifecycle=planned` before any of those are ever touched.
 
-`install-target-operations` now manages `offsite-backup`,
-`offsite-retention` and `offsite-restore-test` alongside the ten files slice
-7.1 left it with. Consistent with none of the three being safe to run for
-real during an install/verify pass (no B2 access, no remote listing, no
-local backup mutation, no database work), the installer only ever proves
-`--help` succeeds and `--target tits-guru` (correctly) fails with
-`lifecycle=planned` — staged, before anything is installed, and again
-against the installed binaries during `--apply`'s post-install check and
-every `--verify` run. See
-[`install-target-operations.md`](install-target-operations.md) for the full
-thirteen-file contract.
-
-### What is deliberately still legacy-only
-
-`backup-cycle` was untouched by this slice and graduated to target-awareness
-in slice 7.3 (below). The GitHub Actions deploy workflow, its
-`/usr/local/sbin` wrapper, cron, systemd timers, and sudoers are untouched.
-`tits-guru` remains `lifecycle=planned` and undeployable.
-
-**Accepted on the real staging VPS (`PHASE 4 SLICE 7.2 ACCEPTED`):** the
-thirteen-file `install-target-operations --check`/`--apply`/`--verify` all
-passed; the installed `offsite-backup`, `offsite-retention` and
-`offsite-restore-test` are owned `root:root` mode `0755`; a real target
-upload (`offsite-backup --target staging-main`) succeeded; a target
-`offsite-retention --target staging-main` dry-run succeeded;
-`offsite-restore-test --target staging-main` succeeded; `--target tits-guru`
-was rejected with `lifecycle=planned` for all three scripts; the final
-health-check passed.
-
-## Target-aware backup cycle (slice 7.3, completed)
-
-`backup-cycle` now accepts the same selector contract as every other
-backup-path script:
-
-```bash
-backup-cycle --target staging-main
-backup-cycle --environment staging
-```
-
-`--target` and `--environment` remain mutually exclusive, exactly one is
-required, and `--help` documents both forms. This is the last of the three
-backup-path increments (7.1 local backup/restore-test, 7.2 offsite
-backup/retention/restore-test, 7.3 this orchestrator) — kept as its own
-slice because orchestration carries different review concerns from the
-scripts it drives: lock/history semantics and fail-fast ordering across five
-child invocations, rather than a single script's own selector resolution.
-
-### Root authorization still runs first, unconditionally
-
-`backup-cycle`'s `main()` mirrors every other mutating operational script
-exactly: `require_root`, then `parse_backup_cycle_args`, then
-`resolve_backup_cycle_subject` (where `require_active_target` runs
-immediately, in the `--target` branch, before the cycle lock, the history
-file, or any child command), then `perform_backup_cycle`. `tits-guru` is
-rejected with `lifecycle=planned` before any of those are ever touched.
-
-### One shared namespace and cycle lock
-
-`backup-cycle --environment staging` and `backup-cycle --target
-staging-main` resolve to the **identical** backup namespace and lock file —
-the same namespace `backup`, `restore-test`, `offsite-backup`,
-`offsite-retention` and `offsite-restore-test` already share:
+`staging-main`'s namespace, cycle lock and history file are unchanged from
+before the registry existed:
 
 ```text
 backup namespace = staging
 cycle lock        = /home/www/rateguru/run/backup-cycle-staging.lock
 history file      = /home/www/rateguru/backups/backup-cycles.jsonl
 ```
-
-The lock filename is built from the resolved backup namespace, never from
-the selector label or the selector type, so the legacy and target selectors
-of one namespace can never run concurrently, while two different namespaces
-never contend with each other.
 
 ### The five-step pipeline is strictly sequential and fail-fast
 
@@ -943,336 +598,131 @@ never contend with each other.
 5. offsite-restore-test
 ```
 
-Every step receives the exact selector the cycle itself was given — never a
-mix of `--target` and `--environment` within one cycle — and its real
+Every step receives the exact target the cycle itself was given, and its real
 stdout/stderr passes straight through, unsuppressed. Each step only runs if
 the previous one exited `0`. The first non-zero exit stops the cycle
 immediately: no later step runs, the cycle's own exit code is that child's
 exit code unmodified, and `offsite-retention --apply` in particular is only
-ever reached once local backup, local restore-test and the offsite upload
-have all already succeeded — old B2 backups are never purged on the strength
-of a local backup or upload that did not actually happen. If retention
-itself succeeds but the subsequent offsite restore-test fails, the cycle is
-still reported failed; the retention deletion is not rolled back. This slice
-does not add local backup retention — `backup` keeps its own, unchanged
-local pruning.
+ever reached once local backup, local restore-test and the offsite upload have
+all already succeeded — old B2 backups are never purged on the strength of a
+local backup or upload that did not actually happen. If retention itself
+succeeds but the subsequent offsite restore-test fails, the cycle is still
+reported failed; the retention deletion is not rolled back. `backup-cycle`
+does not add local backup retention — `backup` keeps its own, unchanged local
+pruning.
 
 ### Cycle history: one compact JSON record per started cycle
 
 Every cycle that gets past the lock appends exactly one `jq -cn`-generated,
-compact-JSON line to `/home/www/rateguru/backups/backup-cycles.jsonl`
-(`0600`, inside a `0700` root-owned directory that is shared with every
-namespace — never per-namespace, mirroring `offsite-backup`'s own
-`offsite-history.jsonl`). A single `printf ... >>` is one `write(2)` call,
-atomic up to `PIPE_BUF` on an `O_APPEND`-opened file, which is what keeps two
-different namespaces' concurrent cycles from interleaving their records —
-the per-namespace lock only serializes writers within the same namespace.
+compact-JSON line to `/home/www/rateguru/backups/backup-cycles.jsonl` (`0600`,
+inside a `0700` root-owned directory that is shared with every namespace). A
+single `printf ... >>` is one `write(2)` call, atomic up to `PIPE_BUF` on an
+`O_APPEND`-opened file, which is what keeps two different namespaces'
+concurrent cycles from interleaving their records — the per-namespace lock
+only serializes writers within the same namespace.
 
 A success record carries `completed_steps` (all five, in order) and
 `failed_step: null`, and never carries an `exit_code` field at all. A failure
 record's `completed_steps` lists only the steps that actually finished, plus
-`failed_step` and the failing child's own `exit_code`. `target` is `null` for
-the legacy selector, exactly like every other backup-path history record. A
-`lifecycle=planned` rejection or lock contention writes no history record —
-only a cycle that genuinely started, past the lock, ever gets one. A history
-write failure after a fully successful pipeline still turns the cycle into a
-reported failure; a history write failure on the failure path is logged but
-never replaces the original child's own exit code.
+`failed_step` and the failing child's own `exit_code`. A `lifecycle=planned`
+rejection or lock contention writes no history record — only a cycle that
+genuinely started, past the lock, ever gets one. A history write failure after
+a fully successful pipeline still turns the cycle into a reported failure; a
+history write failure on the failure path is logged but never replaces the
+original child's own exit code.
 
-### Installed by install-target-operations (fourteen files, not thirteen)
+## Perimeter: wrappers, sudoers, cron and GitHub Actions
 
-`install-target-operations` now manages `backup-cycle` alongside the
-thirteen files slice 7.2 left it with. Consistent with a real cycle being
-unsafe to run during an install/verify pass (it would create a local backup,
-run a restore test, upload offsite and apply real retention against the real
-staging-main target), the installer only ever proves `backup-cycle --help`
-succeeds and `backup-cycle --target tits-guru` (correctly) fails with
-`lifecycle=planned` — staged, before anything is installed, and again
-against the installed binary during `--apply`'s post-install check and every
-`--verify` run. See [`install-target-operations.md`](install-target-operations.md)
-for the full fourteen-file contract.
-
-### What is deliberately still legacy-only
-
-Cron, systemd timers, the GitHub Actions deploy workflow, its
-`/usr/local/sbin` wrapper, and sudoers were untouched by this slice — the
-`rateguru-backups` cron entry kept calling `backup-cycle --environment
-staging` until slice 8 (below) switched it to `--target staging-main`.
-`tits-guru` remains `lifecycle=planned` and undeployable. `--environment`
-itself is kept working, temporarily, alongside `--target` across every
-backup-path script; it is removed only at the end of the migration
-sequence, once `--target` parity is proven end to end.
-
-**Accepted on the real staging VPS:** the fourteen-file
-`install-target-operations --check`/`--apply`/`--verify` all passed;
-`/home/www/rateguru/bin/backup-cycle` was updated; a real
-`backup-cycle --target staging-main` ran the full five-step pipeline to
-completion (local backup, local restore-test, offsite upload, offsite
-retention apply, offsite restore-test all succeeded); the cycle was
-recorded in `/home/www/rateguru/backups/backup-cycles.jsonl`; the final
-staging health-check passed.
-
-## Target-aware perimeter (slice 8, current)
-
-Once installed and switched over — a mandatory
-[pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence-slice-8) below,
-**not** something merging this slice performs by itself — every real
-staging operation goes through target-based invocation, end to end:
+Every real staging operation goes through target-based invocation, end to end:
 
 ```text
 GitHub Actions -> SSH -> sudo wrapper -> deploy --target staging-main
 cron            -> backup-cycle/restore-test/offsite-restore-test --target staging-main
 ```
 
-`deploy`, `rollback`, `cleanup`, `backup-cycle`, `restore-test` and
-`offsite-restore-test` themselves are unchanged by this slice — every one of
-them already accepted `--target` from an earlier slice (5, 6, 4, 7.3, 7.1
-and 7.2 respectively). What changes here is exclusively the *perimeter*
-that invokes them: the server-side sudo wrappers, the sudoers rule, the
-GitHub Actions deployment path, and the backup cron entries.
-
-### Three generic, target-aware sudo wrappers
-
-`infrastructure/config/wrappers/rateguru-{deploy,rollback,cleanup}`, sourced
-from this repository and installed at
-`/usr/local/sbin/rateguru-{deploy,rollback,cleanup}` (`root:root 0755`),
-replace the legacy, per-environment
-`rateguru-staging-{deploy,rollback,cleanup}` /
-`rateguru-production-{deploy,rollback,cleanup}` wrappers for staging. Each
+Three generic, target-aware sudo wrappers —
+`infrastructure/config/wrappers/rateguru-{deploy,rollback,cleanup}`, installed
+at `/usr/local/sbin/rateguru-{deploy,rollback,cleanup}` (`root:root 0755`) —
+are the only way `deploy`/`rollback`/`cleanup` are invoked through `sudo`. Each
 generic wrapper:
 
-- requires root (it is only ever reached via `sudo`, or by real root
-  directly for server administration);
-- accepts exactly one selector, `--target TARGET_ID` — `--environment`, a
-  missing/duplicate/empty/flag-shaped `--target`, and any lone short flag
-  other than `-h`/`--help` are all rejected before anything else runs;
-- authorizes the caller: when invoked through `sudo`, `SUDO_USER` must
-  exactly equal the target's own registered `deploy_user` from the
-  registry, or the caller is rejected before the underlying operation is
-  ever reached; a direct invocation by real root (no `SUDO_USER`, or
-  `SUDO_USER=root`) is always permitted;
-- calls `require_active_target` before the underlying operation, so a
-  planned target (`tits-guru`) is rejected the same way every other
-  target-aware command already rejects it — before any operation-specific
-  argument, filesystem path, lock, or database is touched;
+- requires root (it is only ever reached via `sudo`, or by real root directly
+  for server administration);
+- accepts exactly one selector, `--target TARGET_ID` — a missing/duplicate/
+  empty/flag-shaped `--target`, and any lone short flag other than `-h`/
+  `--help`, are all rejected before anything else runs;
+- authorizes the caller: when invoked through `sudo`, `SUDO_USER` must exactly
+  equal the target's own registered `deploy_user` from the registry, or the
+  caller is rejected before the underlying operation is ever reached; a direct
+  invocation by real root (no `SUDO_USER`, or `SUDO_USER=root`) is always
+  permitted;
+- calls `require_active_target` before the underlying operation, so a planned
+  target (`tits-guru`) is rejected the same way every other target-aware
+  command already rejects it — before any operation-specific argument,
+  filesystem path, lock, or database is touched;
 - execs into the real, unchanged `deploy`/`rollback`/`cleanup` binary at its
-  generic installed path (`/home/www/rateguru/bin/deploy`, `.../rollback`,
-  `.../cleanup`) with `--target TARGET_ID` prepended exactly once, followed
-  by every other argument the caller gave, untouched and in order — the
-  wrapper never interprets `--release`/`--artifact`/`--checksum`/`--migrate`/
-  `--keep`/`--dry-run`/`--apply`/`--previous` itself;
+  installed path (`/home/www/rateguru/bin/deploy`, `.../rollback`,
+  `.../cleanup`) with `--target TARGET_ID` prepended exactly once, followed by
+  every other argument the caller gave, untouched and in order;
 - scrubs its own process environment before that exec: `env -i` with only
   `PATH`, `HOME=/root`, `USER=root`, `LOGNAME=root` — every `RATEGURU_*` test
-  override and any other caller-supplied variable is stripped
-  unconditionally, not enumerated and unset one at a time;
+  override and any other caller-supplied variable is stripped unconditionally;
 - uses only Bash arrays and `exec` — never `eval`, never `bash -c`, never a
   string-built command.
 
-`--help` prints the wrapper's own target-only usage form and exits before
-any selector, authorization, or lifecycle work — it never runs the
-underlying operation.
-
-### Sudoers: generic wrappers for staging, no entry for tits-guru
-
 `infrastructure/config/sudoers/rateguru-deploy` grants
-`deploy-rateguru-staging` `NOPASSWD` access to the three generic wrappers.
-No rule is added for `tits-guru`'s own (unprovisioned) deploy user —
-`tits-guru` stays `lifecycle=planned`, so nothing in the sudoers file grants
-it any access at all. The prior per-environment rules
-(`rateguru-staging-*`, `rateguru-production-*`) remain, explicitly marked as
-temporary legacy compatibility: the GitHub Actions workflow no longer
-invokes them, and a dedicated future legacy-removal slice deletes them from
-both the server and this file.
+`deploy-rateguru-staging` `NOPASSWD` access to the three generic wrappers, and
+nothing else — no rule exists for `tits-guru`'s own (unprovisioned) deploy
+user, since `tits-guru` stays `lifecycle=planned`.
 
-### GitHub Actions: a required, locally-validated deployment-target input
+`.github/actions/deploy-rateguru/action.yml` has a required
+`deployment-target` input, validated locally
+(`^[a-z0-9]+(-[a-z0-9]+)*$` — rejecting empty, uppercase, slash, whitespace,
+shell metacharacters, and a flag-shaped value) before any SSH connection is
+made. The remote deploy command is `sudo -n "${DEPLOY_WRAPPER}" --target
+"${DEPLOYMENT_TARGET}" --release ... --artifact ... --checksum ...
+[--migrate]`, built entirely through `printf -v ... %q` — never string
+concatenation of an unquoted value. `.github/workflows/deploy-staging.yml`
+passes `deployment-target: staging-main` explicitly; the GitHub Environment
+`staging` (the approval/secrets boundary) and the
+`rateguru-staging-deployment` concurrency group are both unrelated GitHub
+concepts, not renamed or affected by this model.
 
-`.github/actions/deploy-rateguru/action.yml` gained a required
-`deployment-target` input, validated locally (`^[a-z0-9]+(-[a-z0-9]+)*$` —
-rejecting empty, uppercase, slash, whitespace, shell metacharacters, and a
-flag-shaped value) before any SSH connection is made. The remote deploy
-command becomes `sudo -n "${DEPLOY_WRAPPER}" --target "${DEPLOYMENT_TARGET}"
---release ... --artifact ... --checksum ... [--migrate]`, built entirely
-through `printf -v ... %q` — never string concatenation of an unquoted
-value. `.github/workflows/deploy-staging.yml` passes
-`deployment-target: staging-main` explicitly; the GitHub Environment
-`staging` (the approval/secrets boundary) and the `rateguru-staging-deployment`
-concurrency group are both unchanged — they were never a legacy operational
-selector and are not renamed by this slice. The `DEPLOY_WRAPPER` GitHub
-variable must be switched, by hand, to `/usr/local/sbin/rateguru-deploy`
-**before** this slice is merged into `develop`, not after — see
-[Pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence-slice-8)
-below for why merging first creates an unrecoverable deadlock.
+`infrastructure/config/cron/rateguru-backups` calls all three operational
+commands — the nightly `backup-cycle`, and the weekly `restore-test` /
+`offsite-restore-test` — with `--target staging-main`.
 
-### Backup cron: the same schedules and log paths, now target-based
+See [`target-perimeter.md`](target-perimeter.md) for the full installer
+contract (`install-target-perimeter`) that manages the three wrappers, the
+sudoers rule and the cron file, and for how it removes any leftover legacy
+per-environment wrapper files.
 
-`infrastructure/config/cron/rateguru-backups` keeps its exact schedule
-(`30 2 * * *` nightly, `10 4`/`40 4 * * 0` weekly) and log paths unchanged;
-only the selector on each of the three operational lines changed from
-`--environment staging`/`--environment production` to
-`--target staging-main`. The Laravel scheduler cron entry
-(`rateguru-staging-scheduler`) is untouched — it never used the legacy
-selector and is unrelated to this migration.
+## History
 
-### Transactional installer
+The registry-based, target-only model replaced an earlier interface that
+identified a deployment by an environment class (`staging` or `production`)
+directly, with no separate instance identity. That interface was migrated off
+script by script, over several reviewed increments — registry foundation,
+read-only operations, cleanup, deploy, rollback, the backup family, and
+finally the perimeter (sudo wrappers, sudoers, cron, the GitHub Actions deploy
+workflow) — with `staging-main` parity proven end to end and accepted on the
+real staging VPS at each step along the way. The legacy per-environment
+selector, its supporting helper functions, its per-environment `deployment.conf`
+constants, and its temporary per-environment sudo wrappers have since been
+removed entirely; `--target TARGET_ID` is the only interface anywhere, and
+`tests/Feature/Architecture/LegacyEnvironmentRemovalTest.php` guards against
+any of it reappearing.
 
-`infrastructure/scripts/install-target-perimeter` installs the five files
-above (three wrappers, the sudoers rule, the cron file) with the same
-`--check`/`--apply`/`--verify` contract, staged pre-install verification,
-timestamped backup, and automatic rollback-on-failure that
-`install-target-operations` already established — see
-[`target-perimeter.md`](target-perimeter.md) for the full contract. It never
-runs a real deploy, rollback, cleanup apply, backup-cycle, or restore
-operation: its only runtime probes are each wrapper's `--help` and a bare
-`--target tits-guru` (which the wrapper itself rejects with
-`lifecycle=planned` before any underlying binary is ever reached).
+Physical values the old interface used to name — paths, database names,
+backup namespaces, deploy account names — were preserved verbatim as
+`staging-main`'s own registry values throughout; nothing physical was ever
+renamed. Backup format and history compatibility (schema 1 manifests,
+existing JSONL history files) is preserved unchanged and stays readable
+regardless of which interface originally wrote it.
 
-### What is deliberately still legacy-only
-
-Internal `--environment` support in `deploy`/`rollback`/`cleanup`/
-`backup-cycle`/`restore-test`/`offsite-restore-test` is untouched and stays
-working. The temporary legacy per-environment wrappers and sudoers rules
-remain installed, for rollback safety, until a dedicated future
-legacy-removal slice deletes both `--environment` support and the legacy
-wrappers/sudoers rules together. `tits-guru` remains `lifecycle=planned` and
-undeployable — this slice does not provision it.
-
-### Pre-merge bootstrap sequence (slice 8)
-
-**Do not merge before the feature-branch artifact has been deployed, the
-target perimeter installed and verified, and `DEPLOY_WRAPPER` switched to
-the generic wrapper.** The staging deploy job's "Checkout deployment
-action" step always checks out `.github/actions/deploy-rateguru` from
-`develop`, regardless of what ref is being built and deployed. Once
-`develop` has the new action, every deployment sends `--target` to whatever
-`DEPLOY_WRAPPER` names — if that is still the legacy wrapper (which does
-not understand `--target`), every deployment fails, and the only way to
-install the fix (`install-target-perimeter`) is itself a deployment.
-Merging first is a deadlock with no remote recovery.
-
-1. Before merging, run the `Deploy to staging` workflow
-   (`workflow_dispatch`) with `ref=infra/target-aware-perimeter`,
-   `run-migrations=false` — this deploys the feature branch's own artifact
-   through the *still-legacy* action (checked out from the current,
-   pre-merge `develop`).
-2. On the VPS, from that deployed release, run `install-target-perimeter
-   --check`, then `--apply`, then `--verify`.
-3. Update the GitHub variable `DEPLOY_WRAPPER` to
-   `/usr/local/sbin/rateguru-deploy`.
-4. **Only now** merge this slice into `develop`.
-5. After merging, run the normal deployment workflow with `ref=develop`,
-   `run-migrations=false`.
-6. Verify deploy history and the post-deploy health check.
-7. Inspect the installed `/etc/cron.d/rateguru-backups` on the VPS.
-8. Confirm no active perimeter command (deploy, cron) still uses
-   `--environment`.
-
-See [`target-perimeter.md`](target-perimeter.md#pre-merge-bootstrap-sequence--do-not-merge-before-completing-this)
-for the full rationale.
-
-## Compatibility with the current --environment interface
-
-`validate_environment`, `environment_root`, `environment_runtime_user`,
-`environment_code_group`, `environment_deploy_user`,
-`environment_incoming_artifacts`, `environment_url` and
-`environment_host_header` are untouched and keep their exact behaviour, and
-every operational script (`deploy`, `rollback`, `cleanup`, `backup-cycle`,
-`restore-test`, the offsite scripts) still accepts `--environment` and
-still calls them unchanged. This is no longer true of the perimeter as a
-whole: as of Phase 4 slice 8, the sudoers file, the GitHub Actions deploy
-workflow, and the server wrappers were all legitimately modified to add
-target-aware paths alongside the legacy ones — see
-[Target-aware perimeter](#target-aware-perimeter-slice-8-current) above.
-What remains, temporarily, is the legacy per-environment wrappers
-(`rateguru-staging-*`, `rateguru-production-*`) and their matching sudoers
-rules, kept only for rollback safety until a dedicated legacy-removal
-slice deletes both them and this internal `--environment` support
-together.
-
-The `target_*` helpers **read the registry only when one of them is actually
-called**. Sourcing `common` does not touch the registry. This is what makes
-each slice safe to merge before the registry is installed: the scripts
-currently on the VPS gain the functions but do not have to invoke them, so
-nothing can fail on a host where the registry is still absent — proven for
-slice 2 specifically by running `health-check --environment staging` and
-`status --environment staging` with the registry file missing or malformed and
-confirming both still succeed.
-
-`--environment` is removed only at the end of the sequence below, and only once
-`staging-main` has demonstrated parity through the registry.
-
-## Migration sequence
-
-1. **Registry foundation** — the registry, validation CLI, lazy `target_*`
-   helpers, docs and tests. *(completed)*
-2. **Read-only target operations** — `health-check` and `status` accept
-   `--target` alongside `--environment`, gated to `lifecycle=active` targets
-   only. *(completed — see the section above)*
-3. **Install and verify read-only operations** — a transactional installer
-   places the registry and the read-only scripts on the staging VPS and
-   proves runtime parity against the real host. *(completed and accepted on
-   the real staging VPS — see
-   [Installing on the VPS](#installing-on-the-vps-slice-2b) above and
-   [`install-target-operations.md`](install-target-operations.md))*
-4. **Target-aware cleanup** — `cleanup` accepts `--target` alongside
-   `--environment`, dry-run is genuinely side-effect free, and the installer
-   now manages it transactionally too. *(completed and accepted on the real
-   staging VPS — see
-   [Target-aware cleanup](#target-aware-cleanup-slice-4-completed) above)*
-5. **Target-aware deploy** — `deploy` accepts `--target`, preserving its
-   root-first contract and every existing protection unchanged; the installer
-   now manages it too. *(completed and accepted on the real staging VPS —
-   see [Target-aware deploy](#target-aware-deploy-slice-5-completed) above)*
-6. **Target-aware rollback** — `rollback` accepts `--target`, preserving its
-   root-first contract, adding fail-closed release path safety, and reusing
-   the identical health-check selector on both the normal and recovery path;
-   the installer now manages it too. *(completed and accepted on the real
-   staging VPS — see
-   [Target-aware rollback](#target-aware-rollback-slice-6-completed) above)*
-7. **Backup path**, split into three independently reviewable increments —
-   local database/storage backup, remote B2 operations, and orchestration
-   each carry different side effects:
-   1. **7.1 Local backup and local restore-test** — `backup` and
-      `restore-test` accept `--target`, preserving the existing `staging`
-      backup namespace so no existing local backup directory moves; the
-      installer now manages them too. *(completed and accepted on the real
-      staging VPS — see
-      [Target-aware local backup](#target-aware-local-backup-slice-71-completed)
-      above)*
-   2. **7.2 Offsite backup path** — `offsite-backup`, `offsite-retention`,
-      `offsite-restore-test` accept `--target`, preserving the existing
-      `staging` offsite (B2) namespace so no existing remote backup moves;
-      the installer now manages them too. *(completed and accepted on the
-      real staging VPS, `PHASE 4 SLICE 7.2 ACCEPTED` — see
-      [Target-aware offsite backup](#target-aware-offsite-backup-slice-72-completed)
-      above)*
-   3. **7.3 Backup-cycle orchestration** — `backup-cycle` accepts `--target`,
-      sharing the same namespace/lock as the five scripts it orchestrates,
-      and appends a compact JSONL history record per cycle. *(completed and
-      accepted on the real staging VPS — see
-      [Target-aware backup cycle](#target-aware-backup-cycle-slice-73-completed)
-      above)*
-8. **Perimeter** — three generic sudo wrappers, a sudoers rule for the
-   staging deploy user, and the GitHub Actions deploy workflow and backup
-   cron switched from `--environment staging` to `--target staging-main`.
-   *(current — see
-   [Target-aware perimeter](#target-aware-perimeter-slice-8-current) above
-   and [`target-perimeter.md`](target-perimeter.md); requires the
-   [pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence-slice-8) —
-   installing and switching the VPS over is a prerequisite for merging this
-   slice, not a follow-up after it)*
-9. **Remove compatibility** — drop `--environment` and the temporary legacy
-   per-environment wrappers/sudoers rules, only after `staging-main` parity
-   is proven end to end across every slice above.
-
-Each step is independently reviewable and revertible. `staging-main` deliberately
-mirrors current staging exactly, so parity in the last step is a comparison
-against committed values rather than a judgement call.
-
-Read-only operations (health-check, status) were split from mutating ones
-(deploy, rollback, cleanup, backup) deliberately: a target-aware read never
-risks the running host, so it is the safer half of "deploy path" to land
-first, ahead of anything that writes to a target's filesystem, database, or
-service state.
+See `infrastructure/ROADMAP.md` (Phase 4) for the full, step-by-step history
+of this migration, including what was verified on the real staging VPS at
+each increment.
 
 ## Adding a target
 

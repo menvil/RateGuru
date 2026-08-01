@@ -3,9 +3,8 @@
 # backup-cycle — orchestrates the full, verifiable backup pipeline for one
 # namespace: local backup, local restore-test, offsite upload, offsite
 # retention (--apply) and offsite restore-test, run strictly in sequence and
-# fail-fast. Phase 4 slice 7.3: accepts --target alongside the legacy
-# --environment, sharing the same physical backup namespace and cycle lock as
-# every other target-aware backup script (backup, restore-test,
+# fail-fast. Accepts --target, sharing the same physical backup namespace and
+# cycle lock as every other backup script (backup, restore-test,
 # offsite-backup, offsite-retention, offsite-restore-test).
 
 set -Eeuo pipefail
@@ -76,7 +75,6 @@ fi
 usage() {
     cat <<'USAGE'
 Usage:
-  backup-cycle --environment staging|production
   backup-cycle --target TARGET_ID
 
 Runs the full backup pipeline in order, stopping at the first failure:
@@ -92,16 +90,14 @@ USAGE
 # this file, is constants and function definitions only — nothing runs until
 # main is called, mirroring backup/offsite-backup's own structure exactly.
 
-# --- selector parsing (mirrors backup/offsite-backup) ------------------------
+# --- target parsing (mirrors backup/offsite-backup) --------------------------
 #
 # require_flag_value is defined in common (shared with backup, offsite-backup,
 # offsite-retention and offsite-restore-test).
 
 parse_backup_cycle_args() {
     TARGET_ID=""
-    ENVIRONMENT=""
     TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -110,13 +106,6 @@ parse_backup_cycle_args() {
                 require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
-                shift 2
-                ;;
-            --environment)
-                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                require_flag_value "--environment" "$#" "${2-}"
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
                 shift 2
                 ;;
             --help|-h)
@@ -129,40 +118,24 @@ parse_backup_cycle_args() {
         esac
     done
 
-    assert_selector_state
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
 
-# --- selector resolution (mirrors backup/offsite-backup) --------------------
+# --- target resolution (mirrors backup/offsite-backup) -----------------------
 #
-# require_active_target runs first thing in the target branch — before
-# CHILD_SELECTOR_ARGS is ever built, the lock file, the history file, or any
-# child command is ever computed or touched. main() already called
-# require_root before this function runs, so the full ordering for --target
-# is: root authorization -> lifecycle=planned rejection -> (only if active)
-# lock/history/child-command work.
-#
-# CHILD_SELECTOR_ARGS is never built from SELECTOR_TYPE or LABEL — it is
-# built directly from the same TARGET_ID/ENVIRONMENT values the selector
-# itself carries, so every one of the five child commands receives exactly
-# the selector the operator gave, never a derived label.
+# require_active_target runs first thing — before CHILD_TARGET_ARGS is ever
+# built, the lock file, the history file, or any child command is ever
+# computed or touched. main() already called require_root before this
+# function runs, so the full ordering is: root authorization ->
+# lifecycle=planned rejection -> (only if active) lock/history/child-command
+# work.
 resolve_backup_cycle_subject() {
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        require_active_target "${TARGET_ID}"
+    require_active_target "${TARGET_ID}"
 
-        SELECTOR_TYPE="target"
-        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
-        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
-        LABEL="${TARGET_ID}"
-        CHILD_SELECTOR_ARGS=(--target "${TARGET_ID}")
-    else
-        validate_environment "${ENVIRONMENT}"
-
-        SELECTOR_TYPE="environment"
-        ENVIRONMENT_CLASS="${ENVIRONMENT}"
-        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
-        LABEL="${ENVIRONMENT}"
-        CHILD_SELECTOR_ARGS=(--environment "${ENVIRONMENT}")
-    fi
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+    CHILD_TARGET_ARGS=(--target "${TARGET_ID}")
 }
 
 # --- cycle history -------------------------------------------------------
@@ -187,9 +160,6 @@ append_cycle_history() {
     local completed_at
     completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-    local target_arg="null"
-    [[ "${SELECTOR_TYPE}" == "target" ]] && target_arg="${TARGET_ID}"
-
     local completed_steps_json
     completed_steps_json="$(jq -cn --args '$ARGS.positional' "${COMPLETED_STEPS[@]}")" || return 1
 
@@ -209,8 +179,8 @@ append_cycle_history() {
             --arg status "${status}" \
             --arg started_at "${STARTED_AT}" \
             --arg completed_at "${completed_at}" \
-            --arg selector "${SELECTOR_TYPE}" \
-            --arg target "${target_arg}" \
+            --arg selector "target" \
+            --arg target "${TARGET_ID}" \
             --arg environment "${ENVIRONMENT_CLASS}" \
             --arg backup_namespace "${BACKUP_NAMESPACE}" \
             --argjson completed_steps "${completed_steps_json}" \
@@ -221,7 +191,7 @@ append_cycle_history() {
                 started_at: $started_at,
                 completed_at: $completed_at,
                 selector: $selector,
-                target: (if $selector == "target" then $target else null end),
+                target: $target,
                 environment: $environment,
                 backup_namespace: $backup_namespace,
                 completed_steps: $completed_steps,
@@ -233,13 +203,12 @@ append_cycle_history() {
     chmod 0600 "${HISTORY_FILE}" || return 1
 }
 
-# --- backup cycle pipeline: one shared code path for both selectors ---------
+# --- backup cycle pipeline ------------------------------------------------
 
 perform_backup_cycle() {
-    # Keyed on BACKUP_NAMESPACE, never on LABEL — "backup-cycle --environment
-    # staging" and "backup-cycle --target staging-main" must resolve to the
-    # identical namespace, hence the identical lock file, exactly like every
-    # other backup-path script.
+    # Keyed on BACKUP_NAMESPACE, never on LABEL — two targets sharing a
+    # backup namespace must resolve to the identical lock file, exactly like
+    # every other backup-path script.
     LOCK_FILE="${RUN_ROOT}/backup-cycle-${BACKUP_NAMESPACE}.lock"
     HISTORY_FILE="${BACKUP_BASE}/backup-cycles.jsonl"
 
@@ -258,13 +227,9 @@ perform_backup_cycle() {
 
     STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-    local target_display="(none)"
-    [[ "${SELECTOR_TYPE}" == "target" ]] && target_display="${TARGET_ID}"
-
     log "========================================"
     log "RateGuru backup cycle"
-    log "Selector:         ${SELECTOR_TYPE}"
-    log "Target:           ${target_display}"
+    log "Target:           ${TARGET_ID}"
     log "Environment:      ${ENVIRONMENT_CLASS}"
     log "Backup namespace: ${BACKUP_NAMESPACE}"
     log "Started:          ${STARTED_AT}"
@@ -277,7 +242,7 @@ perform_backup_cycle() {
     log ""
     log "[1/5] Creating local backup"
 
-    if "${BACKUP_BIN}" "${CHILD_SELECTOR_ARGS[@]}"; then
+    if "${BACKUP_BIN}" "${CHILD_TARGET_ARGS[@]}"; then
         COMPLETED_STEPS+=(backup)
     else
         STEP_EXIT_CODE=$?
@@ -288,7 +253,7 @@ perform_backup_cycle() {
         log ""
         log "[2/5] Testing local restore"
 
-        if "${RESTORE_TEST_BIN}" "${CHILD_SELECTOR_ARGS[@]}"; then
+        if "${RESTORE_TEST_BIN}" "${CHILD_TARGET_ARGS[@]}"; then
             COMPLETED_STEPS+=(restore-test)
         else
             STEP_EXIT_CODE=$?
@@ -300,7 +265,7 @@ perform_backup_cycle() {
         log ""
         log "[3/5] Uploading offsite backup"
 
-        if "${OFFSITE_BACKUP_BIN}" "${CHILD_SELECTOR_ARGS[@]}"; then
+        if "${OFFSITE_BACKUP_BIN}" "${CHILD_TARGET_ARGS[@]}"; then
             COMPLETED_STEPS+=(offsite-backup)
         else
             STEP_EXIT_CODE=$?
@@ -315,7 +280,7 @@ perform_backup_cycle() {
         log ""
         log "[4/5] Applying offsite retention"
 
-        if "${OFFSITE_RETENTION_BIN}" "${CHILD_SELECTOR_ARGS[@]}" --apply; then
+        if "${OFFSITE_RETENTION_BIN}" "${CHILD_TARGET_ARGS[@]}" --apply; then
             COMPLETED_STEPS+=(offsite-retention)
         else
             STEP_EXIT_CODE=$?
@@ -330,7 +295,7 @@ perform_backup_cycle() {
         log ""
         log "[5/5] Testing offsite restore"
 
-        if "${OFFSITE_RESTORE_TEST_BIN}" "${CHILD_SELECTOR_ARGS[@]}"; then
+        if "${OFFSITE_RESTORE_TEST_BIN}" "${CHILD_TARGET_ARGS[@]}"; then
             COMPLETED_STEPS+=(offsite-restore-test)
         else
             STEP_EXIT_CODE=$?

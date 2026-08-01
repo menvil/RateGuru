@@ -1,37 +1,27 @@
 # Target-aware perimeter
 
-Phase 4 slice 8. This runbook covers
-`infrastructure/scripts/install-target-perimeter`, the three generic sudo
-wrappers it installs, the sudoers rule, and the GitHub Actions / cron
-switch to `--target staging-main`.
+This runbook covers `infrastructure/scripts/install-target-perimeter`, the
+three generic sudo wrappers it installs, the sudoers rule, the backup cron
+entries, and the removal of the now-obsolete per-environment wrapper files
+that predate them.
 
 For what `--target` itself means, and for the operational scripts this
 perimeter invokes (`deploy`, `rollback`, `cleanup`, `backup-cycle`,
-`restore-test`, `offsite-restore-test` — all unchanged by this slice), see
-[`deployment-targets.md`](deployment-targets.md#target-aware-perimeter-slice-8-current).
+`restore-test`, `offsite-restore-test`), see
+[`deployment-targets.md`](deployment-targets.md#perimeter-wrappers-sudoers-cron-and-github-actions).
 This document is only about the perimeter that calls them.
 
-> **Do not merge this slice before completing its
-> [pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence--do-not-merge-before-completing-this):
-> deploy the feature-branch artifact, install and verify the target
-> perimeter on the VPS, and switch `DEPLOY_WRAPPER` to the generic
-> wrapper.** Merging first checks out the new deployment action onto
-> `develop` before the VPS is ready for it, deadlocking every subsequent
-> deployment.
+## Why the perimeter is its own installer
 
-## Why a perimeter slice, separate from the scripts themselves
-
-Every mutating operational script already accepted `--target` before this
-slice — `deploy` since slice 5, `rollback` since slice 6, `cleanup` since
-slice 4, `backup`/`restore-test` since slice 7.1,
-`offsite-backup`/`offsite-retention`/`offsite-restore-test` since slice 7.2,
-`backup-cycle` since slice 7.3. But every *real* invocation still went
-through `--environment staging`: GitHub Actions called a per-environment
-sudo wrapper, and cron called `backup-cycle --environment staging`. Adding
-`--target` support to a script was safe to merge on its own because nothing
-real called it yet. Switching the actual callers is a different, riskier
-change — a wrong sudoers rule or wrapper bug is a real deployment or backup
-outage — so it gets its own slice, its own installer, and its own review.
+`deploy`, `rollback`, `cleanup`, `backup-cycle`, `restore-test` and
+`offsite-restore-test` themselves are just scripts that accept `--target`.
+What actually invokes them for real is a different concern: the sudo
+wrappers, the sudoers rule, and the cron/CI configuration. A wrong sudoers
+rule or wrapper bug is a real deployment or backup outage, which is a
+different order of risk from a script accepting a flag — so the perimeter
+gets its own installer, its own review, and its own transactional
+install/verify/rollback contract, entirely separate from
+[`install-target-operations`](install-target-operations.md).
 
 ## What this installs — and does not
 
@@ -45,6 +35,14 @@ Exactly five files:
 | `infrastructure/config/sudoers/rateguru-deploy` | `/etc/sudoers.d/rateguru-deploy` | `root:root` | `0440` |
 | `infrastructure/config/cron/rateguru-backups` | `/etc/cron.d/rateguru-backups` | `root:root` | `0644` |
 
+`--apply` additionally **removes** six now-obsolete wrapper files at
+`/usr/local/sbin` — one per operation (deploy, rollback, cleanup), for each
+of the two per-environment identities the platform used to operate under
+(staging, production) — that predate the three generic wrappers above and
+are no longer referenced by anything. This removal is transactional, backed
+up, and rolled back on failure exactly like every install step: see
+[Legacy wrapper removal](#legacy-wrapper-removal) below.
+
 **Not touched, by this or any other change here:**
 
 - `deploy`, `rollback`, `cleanup`, `backup-cycle`, `restore-test`,
@@ -52,15 +50,9 @@ Exactly five files:
   `deployment.conf` — all owned by `install-target-operations`, a
   **prerequisite** this installer depends on but never installs itself;
 - `infrastructure/config/cron/rateguru-staging-scheduler` — the Laravel
-  scheduler entry, unrelated to this migration;
+  scheduler entry, unrelated to this perimeter;
 - systemd timers, Nginx, PHP-FPM, Supervisor, Ansible, production
-  provisioning, or `tits-guru`'s own (nonexistent) infrastructure;
-- the temporary legacy per-environment wrappers
-  (`rateguru-staging-{deploy,rollback,cleanup}`,
-  `rateguru-production-{deploy,rollback,cleanup}`) or their sudoers rules —
-  left installed, for rollback safety, until a dedicated future
-  legacy-removal slice deletes them from the server and from
-  `infrastructure/config/sudoers/rateguru-deploy`.
+  provisioning, or `tits-guru`'s own (nonexistent) infrastructure.
 
 ### Why there is no sudoers rule for tits-guru
 
@@ -69,25 +61,24 @@ provisioned: no directory, no database, no deploy user account, nothing.
 Granting sudoers access for a deploy user that does not exist yet would be
 meaningless at best. When `tits-guru` is actually provisioned and flipped to
 `active`, its own sudoers rule is a reviewable one-line addition alongside
-that provisioning work — not something this installer, or any earlier
-slice, adds preemptively.
+that provisioning work — not something this installer adds preemptively.
 
 ## The three generic wrappers
 
-Each of `rateguru-deploy`, `rateguru-rollback`, `rateguru-cleanup` replaces
-a pair of legacy, per-environment wrappers
-(`rateguru-staging-X`/`rateguru-production-X`) with a single wrapper that:
+Each of `rateguru-deploy`, `rateguru-rollback`, `rateguru-cleanup`:
 
 1. requires root (`require_root`, from `common`) — it is only ever reached
    through `sudo`, or invoked directly by real root for server
    administration;
-2. accepts **exactly one** selector: `--target TARGET_ID`. `--environment`
-   is explicitly rejected with a message naming the wrapper. A missing,
-   duplicate, empty, or flag-shaped `--target` value is rejected. Every
-   other argument — `--release`, `--artifact`, `--checksum`, `--migrate`,
-   `--keep`, `--dry-run`, `--apply`, `--previous` — is collected untouched,
-   in order, and passed straight through: the wrapper never interprets an
-   operation-specific flag itself;
+2. accepts **exactly one** selector: `--target TARGET_ID`. A missing,
+   duplicate, empty, or flag-shaped `--target` value is rejected. Every other
+   long-form argument — `--release`, `--artifact`, `--checksum`, `--migrate`,
+   `--keep`, `--dry-run`, `--apply`, `--previous`, or anything else the
+   wrapper does not itself recognize — is collected untouched, in order, and
+   passed straight through to the underlying operation, which handles its
+   own unknown-argument rejection if the flag is invalid; a lone short flag
+   other than `-h`/`--help` is rejected by the wrapper itself, since every
+   real operation flag in this codebase is long-form;
 3. authorizes the caller. `SUDO_USER` (set by `sudo` to the identity that
    invoked it) must exactly equal the target's own `deploy_user` from the
    registry (`target_deploy_user`), or the wrapper rejects the call with:
@@ -139,14 +130,15 @@ deploy-rateguru-staging ALL=(root) NOPASSWD: \
     /usr/local/sbin/rateguru-cleanup
 ```
 
-The temporary legacy rules for `rateguru-staging-*` and
-`rateguru-production-*` remain in the same file, clearly marked as
-deprecated compatibility only — GitHub Actions no longer calls any of them,
-and no new caller should be added.
+This is the only grant in the file: the staging deploy user's access to the
+three generic wrappers, and nothing else. No rule for `tits-guru`'s
+(unprovisioned) deploy user, and no rule for any per-environment identity —
+those grants existed only temporarily, alongside the six obsolete wrapper
+files, and were removed together with them.
 
 ## GitHub Actions
 
-`.github/actions/deploy-rateguru/action.yml` gained a required
+`.github/actions/deploy-rateguru/action.yml` has a required
 `deployment-target` input, validated locally — before any SSH connection —
 against `^[a-z0-9]+(-[a-z0-9]+)*$`. That single regex rejects empty,
 uppercase, a slash, whitespace, shell metacharacters, and a flag-shaped
@@ -166,24 +158,17 @@ never string concatenation of an unquoted target. The workflow log prints
 `Deployment target: staging-main` — never the SSH key or `known_hosts`.
 
 `.github/workflows/deploy-staging.yml` passes `deployment-target:
-staging-main` explicitly. It otherwise stays exactly what it was: a
-staging-specific workflow with `environment: staging` (the GitHub
+staging-main` explicitly, and the `DEPLOY_WRAPPER` GitHub variable points at
+`/usr/local/sbin/rateguru-deploy`. The workflow otherwise stays exactly what
+it was: a staging-specific workflow with `environment: staging` (the GitHub
 Environment used for approval and secrets — an entirely different concept
-from a *deployment target*, and not renamed by this slice) and the
+from a *deployment target*, and not affected by this perimeter) and the
 `rateguru-staging-deployment` concurrency group, both unchanged.
-
-### DEPLOY_WRAPPER must be switched by hand, before merge
-
-The live GitHub Actions variable `DEPLOY_WRAPPER` is never switched
-automatically — an operator must update it by hand, and must do so
-**before** this slice is merged into `develop`, not after. See
-[Pre-merge bootstrap sequence](#pre-merge-bootstrap-sequence--do-not-merge-before-completing-this)
-below for why merging first creates an unrecoverable deadlock.
 
 ## Backup cron
 
 `infrastructure/config/cron/rateguru-backups` keeps its exact schedule and
-log paths — only the selector changed:
+log paths:
 
 ```cron
 30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1
@@ -192,8 +177,7 @@ log paths — only the selector changed:
 ```
 
 `infrastructure/config/cron/rateguru-staging-scheduler` (the Laravel
-scheduler) is untouched — it never used `--environment`/`--target` and is
-unrelated to this migration.
+scheduler) is untouched — it is unrelated to this perimeter.
 
 ## Installer
 
@@ -203,8 +187,8 @@ infrastructure/scripts/install-target-perimeter --apply
 infrastructure/scripts/install-target-perimeter --verify
 ```
 
-Same contract as `install-target-operations`, scoped to five files instead
-of fourteen:
+Same contract as `install-target-operations`, scoped to five installed
+files (plus the six-file legacy removal) instead of fifteen.
 
 ### `--check` — read-only
 
@@ -216,47 +200,50 @@ never blocks `--check`); that `deploy`, `rollback`, `cleanup`,
 `--target` support in their own committed source; the committed registry
 validates and lists `staging-main` active/staging and `tits-guru`
 planned/production; the candidate sudoers file passes `visudo -cf` and
-grants staging (never `tits-guru`) access to the three generic wrappers;
-the candidate cron file has exactly three operational lines, all using
-`--target staging-main`, none using `--environment`, with schedule and log
+grants staging (never `tits-guru`, never any other identity) access to only
+the three generic wrappers; the candidate cron file has exactly three
+operational lines, all using `--target staging-main`, with schedule and log
 paths unchanged; and — see
 [Installed operations bundle staleness guard](#installed-operations-bundle-staleness-guard)
-below — that the real, installed fourteen-file target operations bundle at
+below — that the real, installed fifteen-file target operations bundle at
 `/home/www/rateguru` is present, correctly owned and moded, and
-byte-identical to this repository's own committed sources. Makes no changes
+byte-identical to this repository's own committed sources. `--check` also
+reports, for each of the six legacy wrapper paths, whether it is currently
+present (and so would be removed by `--apply`) or already absent — purely
+informational; neither state is a `--check` failure. Makes no changes
 anywhere.
 
 ### Installed operations bundle staleness guard
 
 `install-target-perimeter` depends on `install-target-operations` having
-already installed a fully current fourteen-file bundle — the registry and
-`targets`/`common`/`health-check`/`status`/`cleanup`/`deploy`/`rollback`/
-`backup`/`restore-test`/`offsite-backup`/`offsite-retention`/
-`offsite-restore-test`/`backup-cycle` — at `/home/www/rateguru`. This
-installer never installs, modifies, or takes ownership of any of those
-fourteen files; it only ever verifies them, for `--check`, `--apply`'s own
-preflight, and `--verify` alike, before a staging directory, a backup
-directory, or a single perimeter destination file is ever touched.
+already installed a fully current fifteen-file bundle — the registry,
+`deployment.conf`, and `targets`/`common`/`health-check`/`status`/`cleanup`/
+`deploy`/`rollback`/`backup`/`restore-test`/`offsite-backup`/
+`offsite-retention`/`offsite-restore-test`/`backup-cycle` — at
+`/home/www/rateguru`. This installer never installs, modifies, or takes
+ownership of any of those fifteen files; it only ever verifies them, for
+`--check`, `--apply`'s own preflight, and `--verify` alike, before a staging
+directory, a backup directory, or a single perimeter destination file is
+ever touched.
 
-For each of the fourteen files, the check confirms: it exists; it is a
+For each of the fifteen files, the check confirms: it exists; it is a
 regular file, never a symlink; its owner/mode match what
-`install-target-operations` installs (registry `root:root 0640`, `common`
-`root:root 0644`, every other file `root:root 0755`); and its content is
-byte-identical to this repository's own committed source. Any single
-failure — missing, symlinked, wrong mode, wrong ownership, or content
-drift — aborts with:
+`install-target-operations` installs (registry and `deployment.conf` both
+`root:root 0640`, `common` `root:root 0644`, every other file `root:root
+0755`); and its content is byte-identical to this repository's own
+committed source. Any single failure — missing, symlinked, wrong mode,
+wrong ownership, or content drift — aborts with:
 
 ```text
 installed target operations are stale or incomplete; run install-target-operations --apply first
 ```
 
-This is exactly the situation an installed `backup-cycle` from before Phase
-4 slice 7.3 would produce: it predates `--target` support and answers
-`Unknown argument: --target`, even though the committed source in this
-repository is already target-aware. Installing the perimeter (wrappers that
-exec into these binaries) on top of a bundle like that would silently wire
-the new perimeter to broken operational scripts — this guard is what
-prevents that.
+This is exactly the situation an installed `backup-cycle` that predates its
+own `--target` support would produce: it would answer an unrecognized-flag
+error, even though the committed source in this repository already accepts
+it. Installing the perimeter (wrappers that exec into these binaries) on top
+of a bundle like that would silently wire the new perimeter to broken
+operational scripts — this guard is what prevents that.
 
 ### `--apply` — requires root, transactional
 
@@ -275,28 +262,54 @@ prevents that.
 4. A timestamped backup directory is created, and each destination is
    installed in order — the three wrappers, then the sudoers file (only
    after its own fresh `visudo -cf` pass, immediately before install), then
-   cron last — via stage-in-place-then-atomic-rename, never a direct
-   overwrite. An existing destination that is not absent and not a plain
-   regular file (a symlink, directory, FIFO, socket, device) is refused
-   outright and never backed up.
-5. The installed result is verified: exact ownership, exact mode,
+   cron — via stage-in-place-then-atomic-rename, never a direct overwrite.
+   An existing destination that is not absent and not a plain regular file
+   (a symlink, directory, FIFO, socket, device) is refused outright and
+   never backed up.
+5. The six legacy wrapper paths are removed — see
+   [Legacy wrapper removal](#legacy-wrapper-removal) below.
+6. The installed result is verified: exact ownership, exact mode,
    byte-for-byte content match, `bash -n`, that each installed wrapper
-   references its generic installed operation path and never
-   `--environment`, that no wrapper contains `eval` or `bash -c`, that the
-   installed sudoers passes `visudo -cf` and its content check, and that
-   the installed cron passes the same format check.
-6. Runtime parity is verified — the same safe wrapper probes as step 3, now
+   references its generic installed operation path and contains no mention
+   of the retired selector at all, that no wrapper contains `eval` or
+   `bash -c`, that the installed sudoers passes `visudo -cf` and its content
+   check, that the installed cron passes the same format check, and that all
+   six legacy wrapper paths are now absent.
+7. Runtime parity is verified — the same safe wrapper probes as step 3, now
    against the installed binaries.
-7. Only once every check above passes is the change committed. Any failure
-   before that point rolls back every destination this run touched — a
-   destination that existed before is restored from its backup; one that
-   did not exist is removed.
+8. Only once every check above passes is the change committed. Any failure
+   before that point rolls back every destination this run touched,
+   including any legacy wrapper already removed — see
+   [Legacy wrapper removal](#legacy-wrapper-removal) below.
+
+### Legacy wrapper removal
+
+`--apply` backs up (using the identical backup mechanism every installed
+destination above already uses) and removes each of the six legacy wrapper
+paths that currently exists, one per operation for each of the two
+per-environment identities the platform used to run under. A path that is
+already absent before the run is simply recorded as "did not exist" — no
+error, and nothing to back up.
+
+This is fully transactional, sharing the same rollback path as the five
+installed files: if anything fails later in the same `--apply` run — the
+five-file installation, the post-install verification, or runtime parity —
+every legacy wrapper this run removed is restored from its backup with its
+original owner, group, mode and content, and a legacy wrapper that was
+already absent before the run stays absent afterward. `--verify` — which
+only ever runs after a successful `--apply` — fails closed if any of the six
+paths still exists.
 
 ### Wrapper static contract (shared by source, staged, and installed)
 
 Every one of the three wrappers is checked, by one shared function
 (`verify_wrapper_static_contract`), for: a reference to its generic
-installed operation path; an explicit rejection of `--environment`; and no
+installed operation path; the complete absence of any mention of the
+retired per-environment flag anywhere in the wrapper's source — there is no
+dedicated rejection branch for it to check instead, because the flag no
+longer exists as a concept the wrapper needs to special-case, so an
+unrecognized instance of it now simply falls through to the wrapper's own
+generic unknown-argument handling like any other invalid flag; and no
 *executable* `eval` or `bash -c` anywhere. The same function runs against
 the source files (`--check`), the staged candidates (`--apply`'s own
 preflight, before a backup directory or any destination file exists), and
@@ -304,12 +317,11 @@ the installed files (`--apply`'s post-install verification and `--verify`)
 — so a defect in this check is caught at the earliest of those three
 points, never only after destination files have already changed.
 
-**Fixed pre-merge defect, found on a real VPS bootstrap attempt:** an
-earlier version of this check used a single whole-file
-`grep -Eq '...|bash -c'`, which does not distinguish code from comments.
-Every wrapper's own doc comment reads, verbatim, "no eval, no bash -c, no
-string-built command" — and that comment text alone was enough to trip the
-check:
+**Fixed defect, found on a real VPS bootstrap attempt:** an earlier version
+of this check used a single whole-file `grep -Eq '...|bash -c'`, which does
+not distinguish code from comments. Every wrapper's own doc comment reads,
+verbatim, "no eval, no bash -c, no string-built command" — and that comment
+text alone was enough to trip the check:
 
 ```text
 ERROR: installed wrapper contains eval or bash -c: /usr/local/sbin/rateguru-deploy
@@ -328,7 +340,8 @@ could drift.
 ### `--verify` — requires root, read-only
 
 Re-runs the installed-file and runtime-parity checks against whatever is
-currently installed. Makes no changes and creates no backup.
+currently installed, including confirming that all six legacy wrapper paths
+remain absent. Makes no changes and creates no backup.
 
 ### Safe probes, never a real operation
 
@@ -359,81 +372,32 @@ just because the installer itself happened to be invoked through `sudo`.
 ### Test overrides
 
 Gated behind `RATEGURU_ALLOW_TEST_OVERRIDES=true`: `RATEGURU_PERIMETER_ROOT`
-(prefixes all five destination paths and the backup root — the one
-deliberate seam that lets this installer's transactional core be exercised
-end to end against a private scratch tree), `RATEGURU_VISUDO_BIN` (which
-`visudo` binary to use), and `RATEGURU_INSTALLED_OPERATIONS_ROOT` (prefixes
-the fourteen-file operations bundle path this installer only ever verifies
-— a second, independently gated seam, never conflated with
+(prefixes all five destination paths, the six legacy wrapper paths, and the
+backup root — the one deliberate seam that lets this installer's
+transactional core, including legacy wrapper removal, be exercised end to
+end against a private scratch tree), `RATEGURU_VISUDO_BIN` (which `visudo`
+binary to use), and `RATEGURU_INSTALLED_OPERATIONS_ROOT` (prefixes the
+fifteen-file operations bundle path this installer only ever verifies — a
+second, independently gated seam, never conflated with
 `RATEGURU_PERIMETER_ROOT`, since this bundle is a read-only dependency, not
 something this installer owns or installs). Without the allow flag, all
 three are ignored.
 
-## Pre-merge bootstrap sequence — do not merge before completing this
+## History: the DEPLOY_WRAPPER cutover
 
-**Merging this change before bootstrapping the VPS creates a deadlock that
-cannot be recovered from remotely.** The staging deploy job's own "Checkout
-deployment action" step always checks out `.github/actions/deploy-rateguru`
-from `develop` — regardless of what ref is being *built and deployed* as
-the artifact. Once `develop` has the new action (which requires
-`deployment-target` and builds `--target ...` into the remote command),
-*every* subsequent deployment sends `--target` to whatever `DEPLOY_WRAPPER`
-currently points at. If that variable still names the legacy per-environment
-wrapper — which does not understand `--target` at all — the deployment
-fails immediately. And the only way to switch `DEPLOY_WRAPPER` to the new
-generic wrapper is to run `install-target-perimeter --apply` on the VPS,
-which requires `infrastructure/scripts/install-target-perimeter` to already
-exist in a *deployed* release — which requires a successful deployment
-first. Merging before that chain is complete locks out every future
-deployment until someone fixes it by hand, out of band, on the VPS.
-
-> **Do not merge before the feature-branch artifact has been deployed, the
-> target perimeter installed and verified, and `DEPLOY_WRAPPER` switched to
-> the generic wrapper.**
-
-The sequence below breaks the deadlock by deploying this feature branch's
-own artifact while `develop` — and therefore the deploy job's own checked-out
-action — is still the *legacy* action, one last time, before merge:
-
-1. Before merging, run the existing `Deploy to staging` GitHub Actions
-   workflow (`workflow_dispatch`) with:
-
-   ```text
-   ref=infra/target-aware-perimeter
-   run-migrations=false
-   ```
-
-2. Because the deploy job's action is checked out from the *current*
-   `develop` — still the legacy action at this point, with no
-   `deployment-target` input and no `--target` in its remote command — this
-   feature-branch artifact deploys through the still-legacy wrapper exactly
-   like any other deployment does today.
-3. On the VPS, from the just-deployed feature-branch release, run:
-
-   ```bash
-   infrastructure/scripts/install-target-perimeter --check
-   infrastructure/scripts/install-target-perimeter --apply
-   infrastructure/scripts/install-target-perimeter --verify
-   ```
-
-4. Update the GitHub variable:
-
-   ```text
-   DEPLOY_WRAPPER=/usr/local/sbin/rateguru-deploy
-   ```
-
-5. **Only now** may this change be merged into `develop`.
-6. After merging, run the normal deployment:
-
-   ```text
-   ref=develop
-   run-migrations=false
-   ```
-
-7. Verify deploy history and the post-deploy health check.
-8. Inspect the installed `/etc/cron.d/rateguru-backups` on the VPS.
-9. Confirm no active perimeter command (deploy, cron) still uses
-   `--environment`.
+The generic wrappers, the sudoers rule, and the target-based cron and GitHub
+Actions configuration described above replaced an earlier arrangement where
+every real staging operation went through a per-environment sudo wrapper
+instead. Switching the live `DEPLOY_WRAPPER` GitHub variable to point at the
+generic wrapper had to happen on the VPS, by hand, before the change that
+introduced the `deployment-target` GitHub Actions input could be merged —
+because the staging deploy job's "Checkout deployment action" step always
+checks out the current `develop` action regardless of which ref is being
+deployed, so merging first would have sent every subsequent deployment a
+selector the still-installed wrapper didn't yet understand, with no way to
+fix it remotely. That cutover has since completed and was accepted on the
+real staging VPS; see `infrastructure/ROADMAP.md` (Phase 4) for the full,
+step-by-step account.
 
 ## Troubleshooting
 
@@ -446,14 +410,16 @@ action — is still the *legacy* action, one last time, before merge:
   files in this repository don't work together correctly. Nothing on the
   host was touched.
 - **`--apply` fails after installation and rolls back**: check the failed
-  step in the log. The previous files are already restored; re-run
-  `--check` before trying `--apply` again.
-- **A deployment through the new wrapper fails with "deploy user ... is not
+  step in the log. The previous files — and any legacy wrapper this run
+  removed — are already restored; re-run `--check` before trying `--apply`
+  again.
+- **A deployment through the wrapper fails with "deploy user ... is not
   authorized for target ..."**: the sudoers rule's `deploy-rateguru-staging`
   does not match `SUDO_USER` for this call, or the target's registered
   `deploy_user` in `infrastructure/config/deployment-targets.json` is wrong.
   Fix whichever is actually incorrect — never widen the wrapper's own
   authorization check to work around it.
 - **`--verify` fails on an already-installed host**: a file was modified,
-  had its ownership/mode changed, or was replaced by a symlink outside this
-  installer. Re-run `--apply` to restore the committed state.
+  had its ownership/mode changed, was replaced by a symlink outside this
+  installer, or a legacy wrapper this installer already removed has
+  reappeared. Re-run `--apply` to restore the committed state.

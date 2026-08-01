@@ -1394,15 +1394,16 @@ it('excludes captured staging mail from disaster-recovery backups', function () 
     expect($runbook)->toContain('exclude');
 
     // Phase 4 slice 7.1 moved the allowlist into
-    // build_server_configuration_archive(), which now builds a lowercase
-    // `infra_paths=(...)` array — once for the legacy selector, once for the
-    // target selector — plus an empty `local -a infra_paths=()` declaration
-    // above both, which the same regex also matches (with an empty captured
-    // body). Filtered out here so the assertion genuinely proves both real
-    // allowlists were found and checked, rather than trivially passing
-    // against an empty capture.
+    // build_server_configuration_archive(), which builds a lowercase
+    // `infra_paths=(...)` array — now the sole, target-only allowlist, since
+    // Phase 4's legacy-selector removal deleted the parallel legacy-selector
+    // copy this test used to also check — plus an empty
+    // `local -a infra_paths=()` declaration above it, which the same regex
+    // also matches (with an empty captured body). Filtered out here so the
+    // assertion genuinely proves the real allowlist was found and checked,
+    // rather than trivially passing against an empty capture.
     expect(preg_match_all('/infra_paths=\((.*?)\)/s', $backup, $allowlists))
-        ->toBeGreaterThanOrEqual(2, 'could not locate both infra_paths allowlists in scripts/backup');
+        ->toBeGreaterThanOrEqual(1, 'could not locate the infra_paths allowlist in scripts/backup');
 
     $nonEmptyAllowlists = array_values(array_filter(
         $allowlists[1],
@@ -1410,7 +1411,7 @@ it('excludes captured staging mail from disaster-recovery backups', function () 
     ));
 
     expect($nonEmptyAllowlists)
-        ->toHaveCount(2, 'expected exactly two non-empty infra_paths allowlists (legacy and target) in scripts/backup');
+        ->toHaveCount(1, 'expected exactly one non-empty infra_paths allowlist in scripts/backup');
 
     foreach ($nonEmptyAllowlists as $allowlist) {
         expect($allowlist)

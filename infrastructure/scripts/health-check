@@ -21,25 +21,17 @@ fi
 # shellcheck disable=SC1090
 source "${COMMON_FILE}"
 
-parse_selector_args health-check "$@"
+parse_target_args health-check "$@"
 
 # require_active_target validates the target ID, the whole registry, that the
 # target exists, and that it is lifecycle=active — all before anything below
 # builds a URL or calls curl. A planned target (e.g. tits-guru today) or an
 # unknown one is rejected here, never reaching the network.
-if [[ "${TARGET_SEEN}" == true ]]; then
-    require_active_target "${TARGET_ID}"
+require_active_target "${TARGET_ID}"
 
-    BASE_URL="$(target_health_url "${TARGET_ID}")"
-    HOST_HEADER="$(target_health_host_header "${TARGET_ID}")"
-    LABEL="${TARGET_ID}"
-else
-    validate_environment "${ENVIRONMENT}"
-
-    BASE_URL="$(environment_url "${ENVIRONMENT}")"
-    HOST_HEADER="$(environment_host_header "${ENVIRONMENT}")"
-    LABEL="${ENVIRONMENT}"
-fi
+BASE_URL="$(target_health_url "${TARGET_ID}")"
+HOST_HEADER="$(target_health_host_header "${TARGET_ID}")"
+LABEL="${TARGET_ID}"
 
 HEALTH_URL="${BASE_URL%/}/up"
 

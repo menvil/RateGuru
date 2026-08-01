@@ -160,9 +160,9 @@ function rollbackOpsBaseEnv(string $scratch, array $overrides = []): array
 }
 
 /**
- * A stub matching health-check's real --environment/--target CLI shape
- * closely enough for rollback's own purposes: logs its argv, exits 0 (or 1
- * to simulate a failed post-switch/recovery health check).
+ * A stub matching health-check's real --target CLI shape closely enough for
+ * rollback's own purposes: logs its argv, exits 0 (or 1 to simulate a failed
+ * post-switch/recovery health check).
  */
 function rollbackOpsHealthCheckStub(string $scratch, string $logFile, bool $fail = false): string
 {
@@ -181,9 +181,9 @@ function rollbackOpsHealthCheckStub(string $scratch, string $logFile, bool $fail
  * unlike deploy, so only this one stub is needed. Defaults to a shared,
  * scratch-wide log for tests that only ever run one rollback per scratch
  * dir; callers that run more than one rollback against the same scratch dir
- * (e.g. an --environment/--target parity pair) must pass a distinct
- * $logFile per run so each run's reload count can be asserted independently
- * rather than against a combined log. Returns the log file path used.
+ * must pass a distinct $logFile per run so each run's reload count can be
+ * asserted independently rather than against a combined log. Returns the log
+ * file path used.
  */
 function rollbackOpsInstallSystemctlStub(string $scratch, ?string $logFile = null): string
 {
@@ -284,20 +284,22 @@ function rollbackOpsBareFixture(string $scratch): array
 }
 
 /**
- * A deployment.conf fixture derived from the real committed template, with
- * STAGING_ROOT overridden to point at the fixture's own root. Accepts any
- * array carrying a 'root' key, so both the full and bare fixture builders
- * work here interchangeably.
+ * A scratch, writable copy of the real committed deployment.conf.example,
+ * verbatim. Formerly rewrote STAGING_ROOT to point at each fixture's own
+ * root — but the template no longer carries any target-specific field at
+ * all (see infrastructure/templates/deployment.conf.example's own header
+ * comment): the application root now comes exclusively from the target
+ * registry, via rollbackOpsParityRegistry(), which already uses this same
+ * fixture's own root. $fixture is accepted only for call-site compatibility
+ * with every existing caller (both the full and bare fixture builders, which
+ * both carry a 'root' key); its contents are no longer read.
  *
  * @param  array{root: string}  $fixture
  */
 function rollbackOpsDeploymentConfForFixture(string $scratch, array $fixture): string
 {
-    $conf = File::get(rollbackOpsDeploymentConfPath());
-    $conf = preg_replace('/^STAGING_ROOT=.*$/m', 'STAGING_ROOT='.$fixture['root'], $conf);
-
     $path = $scratch.'/deployment-'.uniqid('', true).'.conf';
-    file_put_contents($path, $conf);
+    file_put_contents($path, File::get(rollbackOpsDeploymentConfPath()));
 
     return $path;
 }
@@ -405,20 +407,20 @@ function rollbackOpsCurrentGroup(): string
 
 /**
  * Runs one full, real rollback (lock, current/previous validation, history,
- * atomic switch, PHP-FPM reload, health-check) against a fresh fixture,
- * using either --environment staging or --target parity-target, and either
- * --previous or an explicit --release.
+ * atomic switch, PHP-FPM reload, health-check) against a fresh fixture, via
+ * --target parity-target, and either --previous or an explicit --release.
  *
  * @return array{exit: int, output: string, fixture: array, healthCheckLog: string, systemctlLog: string}
  */
-function rollbackOpsRunFullRollback(string $scratch, bool $useTarget, ?string $explicitRelease, bool $failHealthCheck = false): array
+function rollbackOpsRunFullRollback(string $scratch, ?string $explicitRelease, bool $failHealthCheck = false): array
 {
     $fixture = rollbackOpsBuildFixture($scratch);
     $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+    [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
     // A run-unique log, not the shared scratch-wide default: callers that run
-    // this twice against the same $scratch (env/target parity pairs) must be
-    // able to assert each run's own reload count independently.
+    // this more than once against the same $scratch must be able to assert
+    // each run's own reload count independently.
     $systemctlLog = $scratch.'/systemctl-'.uniqid('', true).'.log';
     rollbackOpsInstallSystemctlStub($scratch, $systemctlLog);
 
@@ -428,23 +430,16 @@ function rollbackOpsRunFullRollback(string $scratch, bool $useTarget, ?string $e
 
     $env = rollbackOpsBaseEnv($scratch, [
         'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+        'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+        'RATEGURU_TARGETS_CLI' => $targetsPath,
         'RATEGURU_HEALTH_CHECK_BIN' => $healthCheckStub,
     ]);
-
-    if ($useTarget) {
-        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
-        $env['RATEGURU_TARGET_REGISTRY_FILE'] = $registryPath;
-        $env['RATEGURU_TARGETS_CLI'] = $targetsPath;
-        $selectorArgs = '--target parity-target';
-    } else {
-        $selectorArgs = '--environment staging';
-    }
 
     $destinationArgs = $explicitRelease !== null ? "--release {$explicitRelease}" : '--previous';
 
     [$exit, $output] = rollbackOpsRunHarness(
         $scratch,
-        "parse_rollback_args {$selectorArgs} {$destinationArgs}\nresolve_target\nperform_rollback",
+        "parse_rollback_args --target parity-target {$destinationArgs}\nresolve_target\nperform_rollback",
         $env,
     );
 
@@ -460,26 +455,6 @@ function rollbackOpsRunFullRollback(string $scratch, bool $useTarget, ?string $e
 // =============================================================================
 // Selector contract
 // =============================================================================
-
-it('supports the legacy --environment selector', function () {
-    $scratch = rollbackOpsScratchDir();
-
-    try {
-        $fixture = rollbackOpsBuildFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
-
-        [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --previous
-            resolve_target
-            printf 'LABEL=%s\n' "${LABEL}"
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('LABEL=staging');
-    } finally {
-        rollbackOpsCleanup($scratch);
-    }
-});
 
 it('supports the --target selector', function () {
     $scratch = rollbackOpsScratchDir();
@@ -504,24 +479,7 @@ it('supports the --target selector', function () {
     }
 });
 
-it('rejects --target and --environment used together', function () {
-    $scratch = rollbackOpsScratchDir();
-
-    try {
-        [$exit, $output] = rollbackOpsRunHarness(
-            $scratch,
-            'parse_rollback_args --target staging-main --environment staging --previous',
-            rollbackOpsBaseEnv($scratch),
-        );
-
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('cannot be combined');
-    } finally {
-        rollbackOpsCleanup($scratch);
-    }
-});
-
-it('requires exactly one selector', function () {
+it('requires --target', function () {
     $scratch = rollbackOpsScratchDir();
 
     try {
@@ -532,47 +490,51 @@ it('requires exactly one selector', function () {
         );
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('exactly one of --target or --environment is required');
+        expect($output)->toContain('--target is required');
     } finally {
         rollbackOpsCleanup($scratch);
     }
 });
 
-it('rejects duplicate selectors', function () {
+it('rejects a removed --environment flag exactly like any other unknown argument', function () {
+    // --environment is no longer a recognized flag at all — there is no
+    // special deprecation message, just the same generic rejection any
+    // other bogus flag gets.
     $scratch = rollbackOpsScratchDir();
 
     try {
-        [$targetExit, $targetOutput] = rollbackOpsRunHarness(
+        [$exit, $output] = rollbackOpsRunHarness($scratch, 'parse_rollback_args --environment staging --previous', rollbackOpsBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('unknown argument: --environment');
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('rejects duplicate --target', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
             'parse_rollback_args --target a --target b --previous',
             rollbackOpsBaseEnv($scratch),
         );
-        expect($targetExit)->not->toBe(0);
-        expect($targetOutput)->toContain('--target given more than once');
-
-        [$envExit, $envOutput] = rollbackOpsRunHarness(
-            $scratch,
-            'parse_rollback_args --environment staging --environment production --previous',
-            rollbackOpsBaseEnv($scratch),
-        );
-        expect($envExit)->not->toBe(0);
-        expect($envOutput)->toContain('--environment given more than once');
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target given more than once');
     } finally {
         rollbackOpsCleanup($scratch);
     }
 });
 
-it('rejects a selector given without a value', function () {
+it('rejects --target given without a value', function () {
     $scratch = rollbackOpsScratchDir();
 
     try {
         [$exit, $output] = rollbackOpsRunHarness($scratch, 'parse_rollback_args --target', rollbackOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a value');
-
-        [$exit, $output] = rollbackOpsRunHarness($scratch, 'parse_rollback_args --environment', rollbackOpsBaseEnv($scratch));
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('--environment requires a value');
     } finally {
         rollbackOpsCleanup($scratch);
     }
@@ -597,23 +559,19 @@ it('rejects an explicitly empty selector value', function () {
 it('rejects a selector that swallows the next flag as its value', function () {
     // Regression-shaped: a value-taking flag must never blindly take
     // whatever token follows it, including another flag — mirrors deploy's
-    // identical protection for --target/--environment.
+    // identical protection for --target.
     $scratch = rollbackOpsScratchDir();
 
     try {
         [$exit, $output] = rollbackOpsRunHarness($scratch, 'parse_rollback_args --target --previous', rollbackOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a value, not another option: --previous');
-
-        [$exit, $output] = rollbackOpsRunHarness($scratch, 'parse_rollback_args --environment --previous', rollbackOpsBaseEnv($scratch));
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('--environment requires a value, not another option: --previous');
     } finally {
         rollbackOpsCleanup($scratch);
     }
 });
 
-it('shows both selector forms on --help and exits 0', function () {
+it('shows only the --target form on --help and exits 0', function () {
     $scratch = rollbackOpsScratchDir();
 
     try {
@@ -621,10 +579,10 @@ it('shows both selector forms on --help and exits 0', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)
-            ->toContain('--environment staging|production')
             ->toContain('--target TARGET_ID')
             ->toContain('--release RELEASE_ID')
-            ->toContain('--previous');
+            ->toContain('--previous')
+            ->not->toContain('--environment');
     } finally {
         rollbackOpsCleanup($scratch);
     }
@@ -653,7 +611,7 @@ it('parses an explicit --release', function () {
     try {
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            'parse_rollback_args --environment staging --release v1.0.0-20260101-000000-abc1234'
+            'parse_rollback_args --target staging-main --release v1.0.0-20260101-000000-abc1234'
             .'; printf "RELEASE_ID=[%s]\nUSE_PREVIOUS=[%s]\n" "${RELEASE_ID}" "${USE_PREVIOUS}"',
             rollbackOpsBaseEnv($scratch),
         );
@@ -673,7 +631,7 @@ it('parses --previous', function () {
     try {
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            'parse_rollback_args --environment staging --previous'
+            'parse_rollback_args --target staging-main --previous'
             .'; printf "RELEASE_ID=[%s]\nUSE_PREVIOUS=[%s]\n" "${RELEASE_ID}" "${USE_PREVIOUS}"',
             rollbackOpsBaseEnv($scratch),
         );
@@ -693,7 +651,7 @@ it('requires a rollback destination', function () {
     try {
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            'parse_rollback_args --environment staging',
+            'parse_rollback_args --target staging-main',
             rollbackOpsBaseEnv($scratch),
         );
 
@@ -710,7 +668,7 @@ it('rejects --release and --previous used together, in either order', function (
     try {
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            'parse_rollback_args --environment staging --release v1.0.0-20260101-000000-abc1234 --previous',
+            'parse_rollback_args --target staging-main --release v1.0.0-20260101-000000-abc1234 --previous',
             rollbackOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -718,7 +676,7 @@ it('rejects --release and --previous used together, in either order', function (
 
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            'parse_rollback_args --environment staging --previous --release v1.0.0-20260101-000000-abc1234',
+            'parse_rollback_args --target staging-main --previous --release v1.0.0-20260101-000000-abc1234',
             rollbackOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -734,7 +692,7 @@ it('rejects duplicate --release', function () {
     try {
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            'parse_rollback_args --environment staging --release v1.0.0-20260101-000000-abc1234 --release v1.0.1-20260101-000000-abc1235',
+            'parse_rollback_args --target staging-main --release v1.0.0-20260101-000000-abc1234 --release v1.0.1-20260101-000000-abc1235',
             rollbackOpsBaseEnv($scratch),
         );
 
@@ -751,7 +709,7 @@ it('rejects duplicate --previous', function () {
     try {
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            'parse_rollback_args --environment staging --previous --previous',
+            'parse_rollback_args --target staging-main --previous --previous',
             rollbackOpsBaseEnv($scratch),
         );
 
@@ -768,7 +726,7 @@ it('rejects --release given without a value, with an empty value, or with a flag
     try {
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            'parse_rollback_args --environment staging --release',
+            'parse_rollback_args --target staging-main --release',
             rollbackOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -776,7 +734,7 @@ it('rejects --release given without a value, with an empty value, or with a flag
 
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            "parse_rollback_args --environment staging --release ''",
+            "parse_rollback_args --target staging-main --release ''",
             rollbackOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -784,7 +742,7 @@ it('rejects --release given without a value, with an empty value, or with a flag
 
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            'parse_rollback_args --environment staging --release --previous',
+            'parse_rollback_args --target staging-main --release --previous',
             rollbackOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -799,13 +757,16 @@ it('rejects an invalid release ID at the pipeline level', function () {
 
     try {
         $fixture = rollbackOpsBuildFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --release not-a-valid-release-id
+            parse_rollback_args --target parity-target --release not-a-valid-release-id
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('invalid release ID');
@@ -819,13 +780,16 @@ it('rejects rolling back onto the release that is already current', function () 
 
     try {
         $fixture = rollbackOpsBuildFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<BASH
-            parse_rollback_args --environment staging --release {$fixture['current']}
+            parse_rollback_args --target parity-target --release {$fixture['current']}
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('target release is already current');
@@ -847,17 +811,20 @@ it('rejects rolling back onto the already-current release even when the current 
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         $releaseId = 'v1.0.0-20260101-000000-aaa1111';
         mkdir($fixture['root'].'/releases/'.$releaseId, 0o755, true);
         symlink($fixture['root'].'/releases/'.$releaseId.'/', $fixture['root'].'/current');
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<BASH
-            parse_rollback_args --environment staging --release {$releaseId}
+            parse_rollback_args --target parity-target --release {$releaseId}
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('target release is already current');
@@ -870,103 +837,20 @@ it('rejects rolling back onto the already-current release even when the current 
 // Target resolution
 // =============================================================================
 
-it('target mode resolves the root only from the registry, never from deployment.conf', function () {
-    $scratch = rollbackOpsScratchDir();
-
-    try {
-        $fixture = rollbackOpsBuildFixture($scratch);
-        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
-        rollbackOpsInstallSystemctlStub($scratch);
-        $healthCheckLog = $scratch.'/hc.log';
-        touch($healthCheckLog);
-        $stub = rollbackOpsHealthCheckStub($scratch, $healthCheckLog);
-
-        // deployment.conf deliberately points STAGING_ROOT somewhere that
-        // does not exist — if resolve_target's target branch ever consulted
-        // it, validate_releases_root would fail here.
-        $brokenConfPath = rollbackOpsDeploymentConfForFixture($scratch, ['root' => $scratch.'/definitely-missing-root-'.uniqid('', true)]);
-
-        [$exit, $output] = rollbackOpsRunHarness(
-            $scratch,
-            "parse_rollback_args --target parity-target --previous\nresolve_target\nperform_rollback",
-            rollbackOpsBaseEnv($scratch, [
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $brokenConfPath,
-                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
-                'RATEGURU_TARGETS_CLI' => $targetsPath,
-                'RATEGURU_HEALTH_CHECK_BIN' => $stub,
-            ]),
-        );
-
-        expect($exit)->toBe(0, $output);
-        expect(realpath($fixture['root'].'/current'))->toBe(realpath($fixture['root'].'/releases/'.$fixture['old']));
-    } finally {
-        rollbackOpsCleanup($scratch);
-    }
-});
-
-it('legacy mode resolves the root only from deployment.conf, never from the registry', function () {
-    $scratch = rollbackOpsScratchDir();
-
-    try {
-        $fixture = rollbackOpsBuildFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
-        rollbackOpsInstallSystemctlStub($scratch);
-        $healthCheckLog = $scratch.'/hc.log';
-        touch($healthCheckLog);
-        $stub = rollbackOpsHealthCheckStub($scratch, $healthCheckLog);
-
-        // The registry is deliberately missing entirely — if resolve_target's
-        // legacy branch ever consulted it, this would fail.
-        $missingRegistryPath = $scratch.'/definitely-missing-registry.json';
-
-        [$exit, $output] = rollbackOpsRunHarness(
-            $scratch,
-            "parse_rollback_args --environment staging --previous\nresolve_target\nperform_rollback",
-            rollbackOpsBaseEnv($scratch, [
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
-                'RATEGURU_TARGET_REGISTRY_FILE' => $missingRegistryPath,
-                'RATEGURU_HEALTH_CHECK_BIN' => $stub,
-            ]),
-        );
-
-        expect($exit)->toBe(0, $output);
-        expect(realpath($fixture['root'].'/current'))->toBe(realpath($fixture['root'].'/releases/'.$fixture['old']));
-    } finally {
-        rollbackOpsCleanup($scratch);
-    }
-});
-
-it('resolve_target never calls the legacy helper in target mode, and never calls the target helper in legacy mode', function () {
+it('resolve_target resolves the root only from the registry, via require_active_target', function () {
     $source = rollbackOpsSource();
 
-    // Anchors explicitly on the if/else/fi structure itself — not just "some
-    // text before/after the first literal 'else'" — so a change to the
-    // function's shape (the condition, an added branch, different
-    // indentation) fails this test outright instead of silently splitting at
-    // the wrong place and passing on a coincidental match.
     expect(preg_match(
-        '/^resolve_target\(\) \{\n'
-        .'    if \[\[ "\$\{TARGET_SEEN\}" == true \]\]; then\n'
-        .'(.*?)'
-        .'    else\n'
-        .'(.*?)'
-        .'    fi\n'
-        .'\}\n/ms',
+        '/^resolve_target\(\) \{\n(.*?)\n\}\n/ms',
         $source,
         $matches,
-    ))->toBe(1, 'could not locate the expected if/else structure of resolve_target() in scripts/rollback');
+    ))->toBe(1, 'could not locate resolve_target() in scripts/rollback');
 
-    [, $targetBranch, $legacyBranch] = $matches;
-
-    expect($targetBranch)
+    expect($matches[1])
+        ->toContain('require_active_target')
         ->toContain('target_root')
         ->not->toContain('environment_root')
         ->not->toContain('validate_environment');
-
-    expect($legacyBranch)
-        ->toContain('environment_root')
-        ->not->toContain('target_root')
-        ->not->toContain('require_active_target');
 });
 
 // =============================================================================
@@ -1042,17 +926,20 @@ it('rejects a current release located outside the releases root', function () {
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         $outside = $scratch.'/outside-root/v9.0.0-20260101-000000-fff9999';
         mkdir($outside, 0o755, true);
         symlink($outside, $fixture['root'].'/current');
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --previous
+            parse_rollback_args --target parity-target --previous
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('current release is not a direct child of the releases root');
@@ -1067,7 +954,7 @@ it('rejects a previous release located outside the releases root', function () {
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         $validCurrent = 'v1.0.0-20260101-000000-aaa1111';
         mkdir($fixture['root'].'/releases/'.$validCurrent, 0o755, true);
@@ -1078,10 +965,13 @@ it('rejects a previous release located outside the releases root', function () {
         symlink($outside, $fixture['root'].'/previous');
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --previous
+            parse_rollback_args --target parity-target --previous
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('previous release is not a direct child of the releases root');
@@ -1096,7 +986,7 @@ it('rejects an explicit --release that is itself a symlink', function () {
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         $validCurrent = 'v1.0.0-20260101-000000-aaa1111';
         mkdir($fixture['root'].'/releases/'.$validCurrent, 0o755, true);
@@ -1108,10 +998,13 @@ it('rejects an explicit --release that is itself a symlink', function () {
         symlink($elsewhere, $fixture['root'].'/releases/'.$explicitId);
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<BASH
-            parse_rollback_args --environment staging --release {$explicitId}
+            parse_rollback_args --target parity-target --release {$explicitId}
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('explicit release must not be a symlink');
@@ -1126,7 +1019,7 @@ it('rejects a current release directory that is itself a symlink', function () {
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         $elsewhere = $scratch.'/elsewhere';
         mkdir($elsewhere, 0o755, true);
@@ -1135,10 +1028,13 @@ it('rejects a current release directory that is itself a symlink', function () {
         symlink($fixture['root'].'/releases/'.$currentId, $fixture['root'].'/current');
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --previous
+            parse_rollback_args --target parity-target --previous
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('current release must not be a symlink');
@@ -1153,7 +1049,7 @@ it('rejects a previous release directory that is itself a symlink', function () 
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         $validCurrent = 'v1.0.0-20260101-000000-aaa1111';
         mkdir($fixture['root'].'/releases/'.$validCurrent, 0o755, true);
@@ -1166,10 +1062,13 @@ it('rejects a previous release directory that is itself a symlink', function () 
         symlink($fixture['root'].'/releases/'.$previousId, $fixture['root'].'/previous');
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --previous
+            parse_rollback_args --target parity-target --previous
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('previous release must not be a symlink');
@@ -1190,7 +1089,7 @@ it('rejects a previous that exists as a plain file, instead of silently treating
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         $validCurrent = 'v1.0.0-20260101-000000-aaa1111';
         mkdir($fixture['root'].'/releases/'.$validCurrent, 0o755, true);
@@ -1199,10 +1098,13 @@ it('rejects a previous that exists as a plain file, instead of silently treating
         file_put_contents($fixture['root'].'/previous', "not a symlink\n");
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --previous
+            parse_rollback_args --target parity-target --previous
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('previous symlink does not exist');
@@ -1218,17 +1120,20 @@ it('rejects a nested release path', function () {
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         $nestedId = 'v1.0.0-20260101-000000-aaa1111';
         mkdir($fixture['root'].'/releases/subdir/'.$nestedId, 0o755, true);
         symlink($fixture['root'].'/releases/subdir/'.$nestedId, $fixture['root'].'/current');
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --previous
+            parse_rollback_args --target parity-target --previous
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('current release is not a direct child of the releases root');
@@ -1243,16 +1148,19 @@ it('rejects an invalid release ID basename', function () {
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         mkdir($fixture['root'].'/releases/not-a-valid-release-id', 0o755, true);
         symlink($fixture['root'].'/releases/not-a-valid-release-id', $fixture['root'].'/current');
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --previous
+            parse_rollback_args --target parity-target --previous
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('invalid release ID');
@@ -1267,16 +1175,19 @@ it('rejects a missing release target', function () {
 
     try {
         $fixture = rollbackOpsBareFixture($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
 
         // A dangling symlink: the target directory is never created.
         symlink($fixture['root'].'/releases/v1.0.0-20260101-000000-missing0', $fixture['root'].'/current');
 
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
-            parse_rollback_args --environment staging --previous
+            parse_rollback_args --target parity-target --previous
             resolve_target
             perform_rollback
-            BASH, rollbackOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
+            BASH, rollbackOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+        ]));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('current release does not exist');
@@ -1290,101 +1201,83 @@ it('rejects a missing release target', function () {
 // End-to-end scratch parity: identical rollback through both selectors
 // =============================================================================
 
-it('rolls back identically through --environment and --target for --previous: new current/previous, history, PHP-FPM reload, health selector', function () {
+it('rolls back via --target for --previous: new current/previous, history, PHP-FPM reload, health selector', function () {
     $scratch = rollbackOpsScratchDir();
 
     try {
-        $envResult = rollbackOpsRunFullRollback($scratch, useTarget: false, explicitRelease: null);
-        expect($envResult['exit'])->toBe(0, $envResult['output']);
+        $result = rollbackOpsRunFullRollback($scratch, null);
+        expect($result['exit'])->toBe(0, $result['output']);
 
-        $targetResult = rollbackOpsRunFullRollback($scratch, useTarget: true, explicitRelease: null);
-        expect($targetResult['exit'])->toBe(0, $targetResult['output']);
+        $root = $result['fixture']['root'];
+        $oldReleaseRoot = $root.'/releases/'.$result['fixture']['old'];
+        $currentReleaseRoot = $root.'/releases/'.$result['fixture']['current'];
 
-        foreach (['env' => $envResult, 'target' => $targetResult] as $label => $result) {
-            $root = $result['fixture']['root'];
-            $oldReleaseRoot = $root.'/releases/'.$result['fixture']['old'];
-            $currentReleaseRoot = $root.'/releases/'.$result['fixture']['current'];
+        expect(realpath($root.'/current'))->toBe(realpath($oldReleaseRoot), 'current must now point at the former previous release');
+        expect(realpath($root.'/previous'))->toBe(realpath($currentReleaseRoot), 'previous must now point at the former current release');
 
-            expect(realpath($root.'/current'))->toBe(realpath($oldReleaseRoot), "{$label}: current must now point at the former previous release");
-            expect(realpath($root.'/previous'))->toBe(realpath($currentReleaseRoot), "{$label}: previous must now point at the former current release");
+        $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
+        expect($history)->toHaveCount(2, 'rollback-started + rollback-finished');
+        $started = json_decode($history[0], true, 512, JSON_THROW_ON_ERROR);
+        $finished = json_decode($history[1], true, 512, JSON_THROW_ON_ERROR);
+        expect($started['event'])->toBe('rollback-started');
+        expect($started['status'])->toBe('running');
+        expect($finished['event'])->toBe('rollback-finished');
+        expect($finished['status'])->toBe('success');
+        expect($finished['release'])->toBe($result['fixture']['old']);
 
-            $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
-            expect($history)->toHaveCount(2, "{$label}: rollback-started + rollback-finished");
-            $started = json_decode($history[0], true, 512, JSON_THROW_ON_ERROR);
-            $finished = json_decode($history[1], true, 512, JSON_THROW_ON_ERROR);
-            expect($started['event'])->toBe('rollback-started');
-            expect($started['status'])->toBe('running');
-            expect($finished['event'])->toBe('rollback-finished');
-            expect($finished['status'])->toBe('success');
-            expect($finished['release'])->toBe($result['fixture']['old']);
+        expect(substr_count(trim(file_get_contents($result['systemctlLog'])), 'reload'))->toBe(1, 'exactly one PHP-FPM reload for a successful, non-recovering rollback');
 
-            expect(substr_count(trim(file_get_contents($result['systemctlLog'])), 'reload'))->toBe(1, "{$label}: exactly one PHP-FPM reload for a successful, non-recovering rollback");
+        expect(file_exists($root.'/current.new'))->toBeFalse('temporary current symlink must be cleaned up');
+        expect(file_exists($root.'/previous.new'))->toBeFalse('temporary previous symlink must be cleaned up');
 
-            expect(file_exists($root.'/current.new'))->toBeFalse("{$label}: temporary current symlink must be cleaned up");
-            expect(file_exists($root.'/previous.new'))->toBeFalse("{$label}: temporary previous symlink must be cleaned up");
-        }
-
-        expect(trim(File::get($envResult['healthCheckLog'])))->toBe('--environment staging');
-        expect(trim(File::get($targetResult['healthCheckLog'])))->toBe('--target parity-target');
-
-        expect($envResult['output'])->toContain('staging rolled back to');
-        expect($targetResult['output'])->toContain('parity-target rolled back to');
+        expect(trim(File::get($result['healthCheckLog'])))->toBe('--target parity-target');
+        expect($result['output'])->toContain('parity-target rolled back to');
     } finally {
         rollbackOpsCleanup($scratch);
     }
 });
 
-it('rolls back identically through --environment and --target for an explicit --release', function () {
+it('rolls back via --target for an explicit --release', function () {
     $scratch = rollbackOpsScratchDir();
 
     try {
         // Read the canonical "explicit" release ID from the fixture builder
         // itself (a throwaway peek fixture), rather than duplicating its
-        // literal value here — the ID handed to both rollback invocations
-        // below is guaranteed to match what each run's own fixture actually
-        // contains, since both come from the same rollbackOpsBuildFixture()
-        // source of truth.
+        // literal value here.
         $explicitRelease = rollbackOpsBuildFixture($scratch.'/peek')['explicit'];
 
-        $envResult = rollbackOpsRunFullRollback($scratch, useTarget: false, explicitRelease: $explicitRelease);
-        expect($envResult['exit'])->toBe(0, $envResult['output']);
-        expect($envResult['fixture']['explicit'])->toBe($explicitRelease);
+        $result = rollbackOpsRunFullRollback($scratch, $explicitRelease);
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['fixture']['explicit'])->toBe($explicitRelease);
 
-        $targetResult = rollbackOpsRunFullRollback($scratch, useTarget: true, explicitRelease: $explicitRelease);
-        expect($targetResult['exit'])->toBe(0, $targetResult['output']);
-        expect($targetResult['fixture']['explicit'])->toBe($explicitRelease);
+        $root = $result['fixture']['root'];
+        $explicitReleaseRoot = $root.'/releases/'.$explicitRelease;
+        $currentReleaseRoot = $root.'/releases/'.$result['fixture']['current'];
 
-        foreach (['env' => $envResult, 'target' => $targetResult] as $label => $result) {
-            $root = $result['fixture']['root'];
-            $explicitReleaseRoot = $root.'/releases/'.$explicitRelease;
-            $currentReleaseRoot = $root.'/releases/'.$result['fixture']['current'];
+        expect(realpath($root.'/current'))->toBe(realpath($explicitReleaseRoot), 'current must point at the explicit release');
+        expect(realpath($root.'/previous'))->toBe(realpath($currentReleaseRoot), 'previous must point at the former current release');
 
-            expect(realpath($root.'/current'))->toBe(realpath($explicitReleaseRoot), "{$label}: current must point at the explicit release");
-            expect(realpath($root.'/previous'))->toBe(realpath($currentReleaseRoot), "{$label}: previous must point at the former current release");
+        $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
+        $finished = json_decode(end($history), true, 512, JSON_THROW_ON_ERROR);
+        expect($finished['event'])->toBe('rollback-finished');
+        expect($finished['status'])->toBe('success');
+        expect($finished['release'])->toBe($explicitRelease);
 
-            $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
-            $finished = json_decode(end($history), true, 512, JSON_THROW_ON_ERROR);
-            expect($finished['event'])->toBe('rollback-finished');
-            expect($finished['status'])->toBe('success');
-            expect($finished['release'])->toBe($explicitRelease);
-        }
-
-        expect(trim(File::get($envResult['healthCheckLog'])))->toBe('--environment staging');
-        expect(trim(File::get($targetResult['healthCheckLog'])))->toBe('--target parity-target');
+        expect(trim(File::get($result['healthCheckLog'])))->toBe('--target parity-target');
     } finally {
         rollbackOpsCleanup($scratch);
     }
 });
 
 // =============================================================================
-// Failure recovery, for both selectors
+// Failure recovery
 // =============================================================================
 
-it('recovers correctly from a failed post-switch health check in legacy mode', function () {
+it('recovers correctly from a failed post-switch health check', function () {
     $scratch = rollbackOpsScratchDir();
 
     try {
-        $result = rollbackOpsRunFullRollback($scratch, useTarget: false, explicitRelease: null, failHealthCheck: true);
+        $result = rollbackOpsRunFullRollback($scratch, null, failHealthCheck: true);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('rollback health check failed');
@@ -1410,49 +1303,10 @@ it('recovers correctly from a failed post-switch health check in legacy mode', f
         // The normal and recovery health-check calls use the identical
         // selector — two identical lines in the log.
         $healthCheckCalls = array_values(array_filter(explode("\n", trim(File::get($result['healthCheckLog'])))));
-        expect($healthCheckCalls)->toBe(['--environment staging', '--environment staging']);
+        expect($healthCheckCalls)->toBe(['--target parity-target', '--target parity-target']);
 
         // PHP-FPM reload happens once for the initial switch, once during
         // recovery.
-        expect(substr_count(trim(file_get_contents($result['systemctlLog'])), 'reload'))->toBe(2);
-
-        expect(file_exists($root.'/current.new'))->toBeFalse();
-        expect(file_exists($root.'/current.recovery'))->toBeFalse();
-        expect(file_exists($root.'/previous.new'))->toBeFalse();
-        expect(file_exists($root.'/previous.recovery'))->toBeFalse();
-    } finally {
-        rollbackOpsCleanup($scratch);
-    }
-});
-
-it('recovers correctly from a failed post-switch health check in target mode', function () {
-    $scratch = rollbackOpsScratchDir();
-
-    try {
-        $result = rollbackOpsRunFullRollback($scratch, useTarget: true, explicitRelease: null, failHealthCheck: true);
-
-        expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('rollback health check failed');
-
-        $root = $result['fixture']['root'];
-        $originalCurrent = realpath($root.'/releases/'.$result['fixture']['current']);
-        $originalPrevious = realpath($root.'/releases/'.$result['fixture']['old']);
-
-        expect(realpath($root.'/current'))->toBe($originalCurrent, 'current must be restored to its original release');
-        expect(realpath($root.'/previous'))->toBe($originalPrevious, 'previous must be restored to its original release');
-
-        expect(is_dir($root.'/releases/'.$result['fixture']['old']))->toBeTrue('the target release must never be deleted, only the symlinks are touched');
-
-        $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
-        expect($history)->toHaveCount(2);
-        $finished = json_decode(end($history), true, 512, JSON_THROW_ON_ERROR);
-        expect($finished['event'])->toBe('rollback-finished');
-        expect($finished['status'])->toBe('failed-health-check');
-        expect($finished['release'])->toBe($result['fixture']['old']);
-
-        $healthCheckCalls = array_values(array_filter(explode("\n", trim(File::get($result['healthCheckLog'])))));
-        expect($healthCheckCalls)->toBe(['--target parity-target', '--target parity-target']);
-
         expect(substr_count(trim(file_get_contents($result['systemctlLog'])), 'reload'))->toBe(2);
 
         expect(file_exists($root.'/current.new'))->toBeFalse();
@@ -1469,7 +1323,7 @@ it('leaves previous absent after a restored recovery, when it did not exist befo
 
     try {
         $fixture = rollbackOpsBuildFixtureNoPrevious($scratch);
-        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
         rollbackOpsInstallSystemctlStub($scratch);
 
         $healthCheckLog = $scratch.'/hc.log';
@@ -1478,9 +1332,10 @@ it('leaves previous absent after a restored recovery, when it did not exist befo
 
         [$exit, $output] = rollbackOpsRunHarness(
             $scratch,
-            "parse_rollback_args --environment staging --release {$fixture['target']}\nresolve_target\nperform_rollback",
+            "parse_rollback_args --target parity-target --release {$fixture['target']}\nresolve_target\nperform_rollback",
             rollbackOpsBaseEnv($scratch, [
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
                 'RATEGURU_HEALTH_CHECK_BIN' => $failingStub,
             ]),
         );
@@ -1571,46 +1426,16 @@ it('ignores RATEGURU_HEALTH_CHECK_BIN without the opt-in flag, and honors it wit
 
 // =============================================================================
 // Out of scope: nothing else changed
+//
+// A prior version of this file had its own "leaves deploy and workflows
+// untouched" test here, checking infrastructure/scripts/deploy against
+// origin/develop. deploy.sh legitimately changed in Phase 4's legacy
+// --environment removal slice too (see DeployTest.php for its own coverage),
+// leaving that test with a false premise — it was deleted outright rather
+// than left checking a file that now genuinely differs, matching the
+// precedent DeployTest.php itself already set for scripts that graduate out
+// of "still unchanged".
 // =============================================================================
-
-it('leaves deploy and workflows untouched', function () {
-    exec('git rev-parse --verify -q origin/develop >/dev/null 2>&1', $probeOutput, $probeExit);
-
-    if ($probeExit !== 0) {
-        test()->markTestSkipped('origin/develop is not available in this checkout (shallow clone) — run locally for full history to exercise this check.');
-    }
-
-    // infrastructure/scripts/backup and restore-test graduated to
-    // target-awareness in Phase 4 slice 7.1, offsite-backup/
-    // offsite-retention/offsite-restore-test in slice 7.2, and backup-cycle
-    // in slice 7.3 — all six are deliberately absent here; see
-    // BackupTest.php/RestoreTest.php,
-    // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
-    // and BackupCycleTest.php for their own behavioral coverage. The sudoers
-    // rule and the staging deploy workflow legitimately graduated to the
-    // generic wrappers/--target staging-main in Phase 4 slice 8 — see
-    // TargetPerimeterTest.php — and are deliberately absent here too.
-    $unchanged = [
-        'infrastructure/scripts/deploy',
-    ];
-
-    foreach ($unchanged as $path) {
-        $full = base_path($path);
-        expect(File::exists($full))->toBeTrue("expected file to exist: {$path}");
-
-        $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = proc_open('git show origin/develop:'.escapeshellarg($path), $descriptors, $pipes);
-        expect($process)->not->toBeFalse();
-        $developContent = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $ok = proc_close($process) === 0;
-
-        expect($ok)->toBeTrue("origin/develop is unavailable for {$path}: {$stderr}");
-        expect(File::get($full))->toBe($developContent, "{$path} must be byte-identical to origin/develop in this slice");
-    }
-});
 
 it('does not add queue restart to rollback', function () {
     // Explicitly out of scope for this slice — a separate future change, not

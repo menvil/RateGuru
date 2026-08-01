@@ -64,7 +64,6 @@ fi
 usage() {
     cat <<'USAGE'
 Usage:
-  restore-test --environment staging|production
   restore-test --target TARGET_ID
 USAGE
 }
@@ -73,7 +72,7 @@ USAGE
 # this file, is constants and function definitions only — nothing runs until
 # main is called, mirroring backup's own structure exactly.
 
-# --- selector parsing (mirrors backup) ---------------------------------------
+# --- target parsing (mirrors backup) -----------------------------------------
 
 # require_flag_value <flag-name> <remaining-arg-count> <next-token>
 require_flag_value() {
@@ -89,9 +88,7 @@ require_flag_value() {
 
 parse_restore_args() {
     TARGET_ID=""
-    ENVIRONMENT=""
     TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -100,13 +97,6 @@ parse_restore_args() {
                 require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
-                shift 2
-                ;;
-            --environment)
-                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                require_flag_value "--environment" "$#" "${2-}"
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
                 shift 2
                 ;;
             --help|-h)
@@ -119,32 +109,20 @@ parse_restore_args() {
         esac
     done
 
-    assert_selector_state
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
 
-# --- selector resolution (mirrors backup) ------------------------------------
+# --- target resolution (mirrors backup) --------------------------------------
 #
-# require_active_target runs first thing in the target branch — before
-# BACKUP_ROOT, the lock file, the manifest, or any database work is ever
-# computed or touched.
+# require_active_target runs first thing — before BACKUP_ROOT, the lock file,
+# the manifest, or any database work is ever computed or touched.
 resolve_restore_subject() {
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        require_active_target "${TARGET_ID}"
+    require_active_target "${TARGET_ID}"
 
-        DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
-        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
-        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
-        LABEL="${TARGET_ID}"
-        SELECTOR_TYPE="target"
-    else
-        validate_environment "${ENVIRONMENT}"
-
-        DATABASE_NAME="$(environment_database_name "${ENVIRONMENT}")"
-        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
-        ENVIRONMENT_CLASS="${ENVIRONMENT}"
-        LABEL="${ENVIRONMENT}"
-        SELECTOR_TYPE="environment"
-    fi
+    DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
 }
 
 # --- manifest validation ------------------------------------------------
@@ -153,13 +131,11 @@ resolve_restore_subject() {
 # point of creating a temporary database. project/environment/database are
 # required on every backup this repository has ever produced, schema 1 or
 # schema 2 alike. backup_namespace is only demanded for schema 2, because
-# schema 1 backups (everything produced before this slice) never had that
-# field, and a pre-existing, valid staging backup must stay restorable
-# through both "restore-test --environment staging" and
-# "restore-test --target staging-main" unchanged. A schema 2 backup whose
-# target is non-null must match TARGET_ID when the selector itself is
-# --target; a null target (every legacy-mode backup) or a legacy-mode
-# selector never triggers that check.
+# schema 1 backups (everything produced before schema 2 was introduced)
+# never had that field. A schema 2 backup whose target is non-null must
+# match TARGET_ID; a null target (every backup produced before this cutover,
+# when the operational selector was not yet target-only) never triggers that
+# check — historical manifest content is immutable and stays restorable.
 validate_backup_manifest() {
     local manifest_path="$1"
 
@@ -227,24 +203,21 @@ validate_backup_manifest() {
         [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
             || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
 
-        if [[ "${SELECTOR_TYPE}" == "target" ]]; then
-            local manifest_target
-            manifest_target="$(jq -r '.target // empty' "${manifest_path}")"
+        local manifest_target
+        manifest_target="$(jq -r '.target // empty' "${manifest_path}")"
 
-            if [[ -n "${manifest_target}" ]] && [[ "${manifest_target}" != "${TARGET_ID}" ]]; then
-                fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
-            fi
+        if [[ -n "${manifest_target}" ]] && [[ "${manifest_target}" != "${TARGET_ID}" ]]; then
+            fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
         fi
     fi
 }
 
-# --- restore-test pipeline: one shared code path for both selectors ---------
+# --- restore-test pipeline -------------------------------------------------
 
 perform_restore_test() {
     # Keyed on BACKUP_NAMESPACE, never on LABEL — see the identical comment in
-    # backup's perform_backup: "restore-test --environment staging" and
-    # "restore-test --target staging-main" must resolve to the identical
-    # namespace, backup root and lock file.
+    # backup's perform_backup: two targets sharing a backup namespace must
+    # resolve to the identical namespace, backup root and lock file.
     BACKUP_ROOT="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
     LOCK_FILE="${RUN_ROOT}/restore-test-${BACKUP_NAMESPACE}.lock"
 
@@ -372,19 +345,13 @@ perform_restore_test() {
     cleanup
     trap - EXIT
 
-    local target_arg=""
-
-    if [[ "${SELECTOR_TYPE}" == "target" ]]; then
-        target_arg="${TARGET_ID}"
-    fi
-
     RESULT="$(
         jq \
             --null-input \
             --compact-output \
             --arg tested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg selector "${SELECTOR_TYPE}" \
-            --arg target "${target_arg}" \
+            --arg selector "target" \
+            --arg target "${TARGET_ID}" \
             --arg environment "${ENVIRONMENT_CLASS}" \
             --arg backup_namespace "${BACKUP_NAMESPACE}" \
             --arg backup "${LATEST_BACKUP}" \
@@ -394,7 +361,7 @@ perform_restore_test() {
                 status: "ok",
                 tested_at: $tested_at,
                 selector: $selector,
-                target: (if $selector == "target" then $target else null end),
+                target: $target,
                 environment: $environment,
                 backup_namespace: $backup_namespace,
                 backup: $backup,

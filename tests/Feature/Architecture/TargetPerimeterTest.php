@@ -4,10 +4,11 @@ use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * Phase 4 slice 8: the target-aware perimeter — the three generic sudo
- * wrappers (infrastructure/config/wrappers/rateguru-{deploy,rollback,cleanup}),
- * the GitHub composite action and staging workflow that invoke them through
- * SSH, the sudoers rule, and the backup cron entries.
+ * The target-only operational perimeter — the three generic sudo wrappers
+ * (infrastructure/config/wrappers/rateguru-{deploy,rollback,cleanup}), the
+ * GitHub composite action and staging workflow that invoke them through SSH,
+ * the sudoers rule, and the backup cron entries. The legacy per-environment
+ * wrappers and sudoers rules no longer exist anywhere in this perimeter.
  *
  * Wrapper tests run the real, shipped wrapper scripts — never a
  * reimplementation — by sourcing them (the BASH_SOURCE[0] != $0 guard means
@@ -201,14 +202,27 @@ it('requires --target', function () {
     }
 });
 
-it('rejects --environment explicitly', function () {
+it('treats --environment as an ordinary operation argument, for the underlying binary to reject', function () {
+    // The legacy selector no longer exists for this wrapper at all — not
+    // even a dedicated rejection branch. --environment is unrecognized by
+    // parse_wrapper_args, so it is collected into OPERATION_ARGS like any
+    // other flag the wrapper doesn't interpret, and forwarded unexamined —
+    // the underlying deploy/rollback/cleanup binary's own "unknown
+    // argument: --environment" is what ultimately rejects it.
     $scratch = perimeterScratchDir();
 
     try {
-        [$exit, $output] = perimeterRunHarness('rateguru-deploy', $scratch, 'parse_wrapper_args --environment staging', perimeterBaseEnv());
+        [$exit, $output] = perimeterRunHarness('rateguru-deploy', $scratch, <<<'BASH'
+            parse_wrapper_args --target staging-main --environment staging
+            printf 'TARGET=%s\n' "${TARGET_ID}"
+            printf 'OPS:'
+            for a in "${OPERATION_ARGS[@]}"; do printf ' [%s]' "$a"; done
+            printf '\n'
+            BASH, perimeterBaseEnv());
 
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('--environment is not supported by rateguru-deploy; use --target');
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('TARGET=staging-main');
+        expect($output)->toContain('OPS: [--environment] [staging]');
     } finally {
         perimeterCleanup($scratch);
     }
@@ -266,7 +280,7 @@ it('rejects a flag-shaped --target value', function () {
     }
 });
 
-it('rejects the equals-joined --target=VALUE and --environment=VALUE forms', function () {
+it('rejects the equals-joined --target=VALUE form', function () {
     $scratch = perimeterScratchDir();
 
     try {
@@ -275,11 +289,6 @@ it('rejects the equals-joined --target=VALUE and --environment=VALUE forms', fun
 
             expect($exit)->not->toBe(0);
             expect($output)->toContain("--target must be given as '--target VALUE', not '--target=VALUE'");
-
-            [$exit, $output] = perimeterRunHarness($wrapper, $scratch, 'parse_wrapper_args --environment=staging', perimeterBaseEnv());
-
-            expect($exit)->not->toBe(0);
-            expect($output)->toContain("--environment is not supported by {$wrapper}; use --target");
         }
     } finally {
         perimeterCleanup($scratch);
@@ -329,7 +338,7 @@ it('--help prints a target-only usage form and never runs the underlying operati
 
             expect($exit)->toBe(0, $output);
             expect($output)->toContain("{$wrapper} --target TARGET_ID");
-            expect($output)->not->toContain('--environment staging');
+            expect($output)->not->toContain('--environment');
         }
     } finally {
         perimeterCleanup($scratch);
@@ -728,18 +737,18 @@ it('grants the staging deploy user access to the three generic wrappers only', f
         ->not->toContain('deploy-rateguru-tits-guru');
 });
 
-it('preserves the temporary legacy per-environment sudoers rules, marked deprecated', function () {
+it('never grants access through any legacy per-environment sudoers rule', function () {
     $source = File::get(base_path('infrastructure/config/sudoers/rateguru-deploy'));
 
     expect($source)
-        ->toContain('/usr/local/sbin/rateguru-staging-deploy')
-        ->toContain('/usr/local/sbin/rateguru-staging-rollback')
-        ->toContain('/usr/local/sbin/rateguru-staging-cleanup')
-        ->toContain('/usr/local/sbin/rateguru-production-deploy')
-        ->toContain('/usr/local/sbin/rateguru-production-rollback')
-        ->toContain('/usr/local/sbin/rateguru-production-cleanup')
-        ->toContain('Temporary legacy compatibility')
-        ->toContain('do not add a new caller');
+        ->not->toContain('/usr/local/sbin/rateguru-staging-deploy')
+        ->not->toContain('/usr/local/sbin/rateguru-staging-rollback')
+        ->not->toContain('/usr/local/sbin/rateguru-staging-cleanup')
+        ->not->toContain('/usr/local/sbin/rateguru-production-deploy')
+        ->not->toContain('/usr/local/sbin/rateguru-production-rollback')
+        ->not->toContain('/usr/local/sbin/rateguru-production-cleanup')
+        ->not->toContain('deploy-rateguru-production')
+        ->not->toContain('Defaults:deploy-rateguru-production');
 });
 
 // =============================================================================

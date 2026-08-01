@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 #
 # rateguru-deploy — generic, target-aware sudo wrapper installed at
-# /usr/local/sbin/rateguru-deploy (Phase 4 slice 8). Replaces the legacy,
-# per-environment /usr/local/sbin/rateguru-staging-deploy /
-# rateguru-production-deploy wrappers with a single wrapper that accepts only
-# --target TARGET_ID, authorizes the caller against the target's own
-# registered deploy user, and execs the real deploy binary with a completely
-# scrubbed environment. deploy itself is untouched by this slice — it already
-# supports --target since Phase 4 slice 5.
+# /usr/local/sbin/rateguru-deploy. Accepts only --target TARGET_ID,
+# authorizes the caller against the target's own registered deploy user, and
+# execs the real deploy binary with a completely scrubbed environment.
 
 set -Eeuo pipefail
 
@@ -67,10 +63,9 @@ print_wrapper_usage() {
 Usage:
   ${WRAPPER_NAME} --target TARGET_ID [operation arguments...]
 
-This wrapper accepts only a --target selector; --environment is not
-supported here. Every other argument is passed through, unexamined and in
-order, to the underlying deploy operation (e.g. --release, --artifact,
---checksum, --migrate).
+Every other argument is passed through, unexamined and in order, to the
+underlying deploy operation (e.g. --release, --artifact, --checksum,
+--migrate).
 USAGE
 }
 
@@ -85,14 +80,16 @@ USAGE
 
 # --- argument parsing --------------------------------------------------------
 #
-# Extracts exactly one --target selector and rejects --environment,
-# duplicate/missing/empty/flag-shaped targets, and any lone short flag other
-# than -h/--help (every real operation flag in this codebase — --release,
-# --artifact, --checksum, --migrate, --keep, --dry-run, --apply, --previous —
-# is long-form; a lone short flag can never legitimately be one of them, so it
-# is rejected here rather than silently forwarded). Everything else is
-# collected into OPERATION_ARGS, untouched and in order, for the underlying
-# binary — this wrapper never interprets operation-specific flags itself.
+# Extracts exactly one --target, rejecting duplicate/missing/empty/
+# flag-shaped values, and any lone short flag other than -h/--help (every
+# real operation flag in this codebase — --release, --artifact, --checksum,
+# --migrate, --keep, --dry-run, --apply, --previous — is long-form; a lone
+# short flag can never legitimately be one of them, so it is rejected here
+# rather than silently forwarded). Everything else — including an
+# unrecognized long flag — is collected into OPERATION_ARGS, untouched and in
+# order, for the underlying binary — this wrapper never interprets
+# operation-specific flags itself, so an unknown long flag surfaces as that
+# binary's own "unknown argument" rejection.
 parse_wrapper_args() {
     TARGET_ID=""
     TARGET_SEEN=false
@@ -125,12 +122,6 @@ parse_wrapper_args() {
                 ;;
             --target=*)
                 fail "--target must be given as '--target VALUE', not '--target=VALUE'"
-                ;;
-            --environment)
-                fail "--environment is not supported by ${WRAPPER_NAME}; use --target"
-                ;;
-            --environment=*)
-                fail "--environment is not supported by ${WRAPPER_NAME}; use --target"
                 ;;
             --help|-h)
                 print_wrapper_usage

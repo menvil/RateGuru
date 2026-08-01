@@ -318,8 +318,8 @@ it('deploy delegates its release-side CLI executable-bit guard to the shared ver
 
     // Phase 4 slice 5: the hardcoded absolute path became the gated
     // VERIFY_REQUIRED_CLIS_BIN constant (defaulting to the exact same path),
-    // so both --target and --environment deploys can be pointed at a stub in
-    // tests via RATEGURU_VERIFY_REQUIRED_CLIS_BIN — see DeployTest.php.
+    // so deploys can be pointed at a stub in tests via
+    // RATEGURU_VERIFY_REQUIRED_CLIS_BIN — see DeployTest.php.
     expect(trim($matches[1]))->toBe(
         '"${VERIFY_REQUIRED_CLIS_BIN}" --release-root "${TEMP_RELEASE_ROOT}"',
     );

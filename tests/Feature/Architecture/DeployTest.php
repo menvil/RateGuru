@@ -170,9 +170,9 @@ function deployOpsBaseEnv(string $scratch, array $overrides = []): array
 }
 
 /**
- * A stub matching health-check's real --environment/--target CLI shape
- * closely enough for deploy's own purposes: logs its argv, exits 0 (or 1 to
- * simulate a failed post-switch health check).
+ * A stub matching health-check's real --target CLI shape closely enough for
+ * deploy's own purposes: logs its argv, exits 0 (or 1 to simulate a failed
+ * post-switch health check).
  */
 function deployOpsHealthCheckStub(string $scratch, string $logFile, bool $fail = false): string
 {
@@ -282,30 +282,25 @@ function deployOpsBuildFixture(string $scratch, bool $laravel = false): array
 }
 
 /**
- * A deployment.conf fixture derived from the real committed template, with
- * the staging fields needed for a real, successful deployment overridden.
- * RUNTIME_USER/DEPLOY_ACCOUNT/CODE_GROUP are the current test process's own
- * numeric uid/gid, so chown/install succeed without root.
+ * A scratch, writable copy of the real committed deployment.conf.example,
+ * verbatim. Formerly rewrote STAGING_ROOT/STAGING_RUNTIME_USER/
+ * STAGING_CODE_GROUP/STAGING_DEPLOY_USER/STAGING_INCOMING_ARTIFACTS to point
+ * at each fixture's own paths — but the template no longer carries any
+ * target-specific field at all (see
+ * infrastructure/templates/deployment.conf.example's own header comment):
+ * every one of those values now comes exclusively from the target registry,
+ * via deployOpsParityRegistry(), which already derives them from this same
+ * fixture's own root/incoming plus the current account/group. $fixture is
+ * accepted only for call-site compatibility with every existing caller; its
+ * contents are no longer read. Still returns a fresh scratch copy (rather
+ * than the template path itself) so callers that mutate it afterward — e.g.
+ * the Laravel-prep test's own PHP_BIN override — never touch the
+ * repository's own source file.
  */
 function deployOpsDeploymentConfForFixture(string $scratch, array $fixture): string
 {
-    $account = deployOpsCurrentAccount();
-    $group = deployOpsCurrentGroup();
-
-    $conf = File::get(deployOpsDeploymentConfPath());
-
-    foreach ([
-        'STAGING_ROOT' => $fixture['root'],
-        'STAGING_RUNTIME_USER' => $account,
-        'STAGING_CODE_GROUP' => $group,
-        'STAGING_DEPLOY_USER' => $account,
-        'STAGING_INCOMING_ARTIFACTS' => $fixture['incoming'],
-    ] as $key => $value) {
-        $conf = preg_replace('/^'.$key.'=.*$/m', $key.'='.$value, $conf);
-    }
-
     $path = $scratch.'/deployment-'.uniqid('', true).'.conf';
-    file_put_contents($path, $conf);
+    file_put_contents($path, File::get(deployOpsDeploymentConfPath()));
 
     return $path;
 }
@@ -316,8 +311,11 @@ function deployOpsDeploymentConfForFixture(string $scratch, array $fixture): str
  * application root — the same technique CleanupTest.php established,
  * re-derived here rather than shared, per this codebase's convention of each
  * test file owning its own helper namespace. runtime_user/deploy_user/
- * runtime_group/code_group are the current test process's own numeric
- * uid/gid, matching deployOpsDeploymentConfForFixture().
+ * runtime_group/code_group are the current test process's own account/
+ * primary group name (deployOpsCurrentAccount()/deployOpsCurrentGroup()) —
+ * the registry is the only source of these values in target mode now;
+ * deployment.conf no longer carries any target-specific field at all (see
+ * deployOpsDeploymentConfForFixture()).
  *
  * @return array{0: string, 1: string} [registryPath, targetsCliPath]
  */
@@ -461,32 +459,6 @@ function deployOpsCurrentGroup(): string
 // Selector contract
 // =============================================================================
 
-it('supports the legacy --environment selector', function () {
-    // resolve_target's own readlink -f of the incoming-artifacts directory
-    // requires all but its final path component to actually exist (GNU
-    // readlink -f's documented contract), so this needs a real fixture even
-    // for a selector-only assertion — the committed deployment.conf.example's
-    // default STAGING_INCOMING_ARTIFACTS points at a deploy account home
-    // directory that only exists once that account is actually provisioned.
-    $scratch = deployOpsScratchDir();
-
-    try {
-        $fixture = deployOpsBuildFixture($scratch);
-        $confPath = deployOpsDeploymentConfForFixture($scratch, $fixture);
-
-        [$exit, $output] = deployOpsRunHarness($scratch, <<<'BASH'
-            parse_deploy_args --environment staging --release v1.0.0-20260101-000000-abc1234 --artifact /tmp/whatever.tar.gz
-            resolve_target
-            printf 'LABEL=%s\n' "${LABEL}"
-            BASH, deployOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('LABEL=staging');
-    } finally {
-        deployOpsCleanup($scratch);
-    }
-});
-
 it('supports the --target selector', function () {
     $scratch = deployOpsScratchDir();
 
@@ -510,24 +482,7 @@ it('supports the --target selector', function () {
     }
 });
 
-it('rejects --target and --environment used together', function () {
-    $scratch = deployOpsScratchDir();
-
-    try {
-        [$exit, $output] = deployOpsRunHarness(
-            $scratch,
-            'parse_deploy_args --target staging-main --environment staging --release v1 --artifact /tmp/x.tar.gz',
-            deployOpsBaseEnv($scratch),
-        );
-
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('cannot be combined');
-    } finally {
-        deployOpsCleanup($scratch);
-    }
-});
-
-it('requires exactly one selector', function () {
+it('requires --target', function () {
     $scratch = deployOpsScratchDir();
 
     try {
@@ -538,47 +493,51 @@ it('requires exactly one selector', function () {
         );
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('exactly one of --target or --environment is required');
+        expect($output)->toContain('--target is required');
     } finally {
         deployOpsCleanup($scratch);
     }
 });
 
-it('rejects duplicate selectors', function () {
+it('rejects duplicate --target', function () {
     $scratch = deployOpsScratchDir();
 
     try {
-        [$targetExit, $targetOutput] = deployOpsRunHarness(
+        [$exit, $output] = deployOpsRunHarness(
             $scratch,
             'parse_deploy_args --target a --target b --release v1 --artifact /tmp/x.tar.gz',
             deployOpsBaseEnv($scratch),
         );
-        expect($targetExit)->not->toBe(0);
-        expect($targetOutput)->toContain('--target given more than once');
-
-        [$envExit, $envOutput] = deployOpsRunHarness(
-            $scratch,
-            'parse_deploy_args --environment staging --environment production --release v1 --artifact /tmp/x.tar.gz',
-            deployOpsBaseEnv($scratch),
-        );
-        expect($envExit)->not->toBe(0);
-        expect($envOutput)->toContain('--environment given more than once');
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target given more than once');
     } finally {
         deployOpsCleanup($scratch);
     }
 });
 
-it('rejects a selector given without a value', function () {
+it('rejects a removed --environment flag exactly like any other unknown argument', function () {
+    // --environment is no longer a recognized flag at all — there is no
+    // special deprecation message, just the same generic rejection any
+    // other bogus flag gets.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        [$exit, $output] = deployOpsRunHarness($scratch, 'parse_deploy_args --environment staging', deployOpsBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('unknown argument: --environment');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('rejects --target given without a value', function () {
     $scratch = deployOpsScratchDir();
 
     try {
         [$exit, $output] = deployOpsRunHarness($scratch, 'parse_deploy_args --target', deployOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a value');
-
-        [$exit, $output] = deployOpsRunHarness($scratch, 'parse_deploy_args --environment', deployOpsBaseEnv($scratch));
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('--environment requires a value');
     } finally {
         deployOpsCleanup($scratch);
     }
@@ -590,13 +549,13 @@ it('rejects --release, --artifact or --checksum given without a value, instead o
     // when no second argument existed. `shift 2` with only one positional
     // parameter left fails under `set -e`, aborting with no message at all
     // instead of a clear "requires a value" error — exactly the failure mode
-    // --target/--environment were already guarded against.
+    // --target was already guarded against.
     $scratch = deployOpsScratchDir();
 
     try {
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            'parse_deploy_args --environment staging --release',
+            'parse_deploy_args --target staging-main --release',
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -604,7 +563,7 @@ it('rejects --release, --artifact or --checksum given without a value, instead o
 
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            'parse_deploy_args --environment staging --artifact',
+            'parse_deploy_args --target staging-main --artifact',
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -616,7 +575,7 @@ it('rejects --release, --artifact or --checksum given without a value, instead o
         // value, exactly like --release/--artifact.
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            'parse_deploy_args --environment staging --release RELEASE --artifact ARTIFACT --checksum',
+            'parse_deploy_args --target staging-main --release RELEASE --artifact ARTIFACT --checksum',
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -638,7 +597,7 @@ it('rejects an explicitly empty value for --release, --artifact or --checksum', 
     try {
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            "parse_deploy_args --environment staging --release '' --artifact /tmp/x.tar.gz",
+            "parse_deploy_args --target staging-main --release '' --artifact /tmp/x.tar.gz",
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -646,7 +605,7 @@ it('rejects an explicitly empty value for --release, --artifact or --checksum', 
 
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            "parse_deploy_args --environment staging --release v1 --artifact ''",
+            "parse_deploy_args --target staging-main --release v1 --artifact ''",
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -659,7 +618,7 @@ it('rejects an explicitly empty value for --release, --artifact or --checksum', 
         // for.
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            "parse_deploy_args --environment staging --release v1 --artifact /tmp/x.tar.gz --checksum ''",
+            "parse_deploy_args --target staging-main --release v1 --artifact /tmp/x.tar.gz --checksum ''",
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -669,21 +628,20 @@ it('rejects an explicitly empty value for --release, --artifact or --checksum', 
     }
 });
 
-it('rejects --release, --artifact, --checksum, --target or --environment swallowing the next flag as their value', function () {
+it('rejects --release, --artifact, --checksum or --target swallowing the next flag as their value', function () {
     // Regression test: every value-taking flag used to blindly take
     // whatever token followed it, including another flag — e.g.
     // `--release --migrate` set RELEASE_ID to the literal string
     // "--migrate" and silently shifted past --migrate itself, leaving
     // RUN_MIGRATIONS false with no error at all. require_flag_value now
     // rejects any next-token starting with "-" by name, for every
-    // value-taking flag deploy parses (not just --release/--artifact/
-    // --checksum — --target/--environment get the identical protection).
+    // value-taking flag deploy parses.
     $scratch = deployOpsScratchDir();
 
     try {
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            'parse_deploy_args --environment staging --release --migrate --artifact /tmp/x.tar.gz',
+            'parse_deploy_args --target staging-main --release --migrate --artifact /tmp/x.tar.gz',
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -691,7 +649,7 @@ it('rejects --release, --artifact, --checksum, --target or --environment swallow
 
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            'parse_deploy_args --environment staging --release v1 --artifact --migrate',
+            'parse_deploy_args --target staging-main --release v1 --artifact --migrate',
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -699,7 +657,7 @@ it('rejects --release, --artifact, --checksum, --target or --environment swallow
 
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            'parse_deploy_args --environment staging --release v1 --artifact /tmp/x.tar.gz --checksum --migrate',
+            'parse_deploy_args --target staging-main --release v1 --artifact /tmp/x.tar.gz --checksum --migrate',
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -712,14 +670,6 @@ it('rejects --release, --artifact, --checksum, --target or --environment swallow
         );
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a value, not another option: --migrate');
-
-        [$exit, $output] = deployOpsRunHarness(
-            $scratch,
-            'parse_deploy_args --environment --migrate',
-            deployOpsBaseEnv($scratch),
-        );
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('--environment requires a value, not another option: --migrate');
     } finally {
         deployOpsCleanup($scratch);
     }
@@ -734,7 +684,7 @@ it('still parses valid values that happen to follow --migrate or precede it', fu
     try {
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            'parse_deploy_args --environment staging --release v1.0.0-20260101-000000-abc1234 --artifact /tmp/x.tar.gz --migrate'
+            'parse_deploy_args --target staging-main --release v1.0.0-20260101-000000-abc1234 --artifact /tmp/x.tar.gz --migrate'
             .'; printf "RELEASE_ID=[%s]\nARTIFACT=[%s]\nRUN_MIGRATIONS=[%s]\n" "${RELEASE_ID}" "${ARTIFACT}" "${RUN_MIGRATIONS}"',
             deployOpsBaseEnv($scratch),
         );
@@ -765,7 +715,7 @@ it('rejects an explicitly empty selector value', function () {
     }
 });
 
-it('shows both selector forms on --help and exits 0', function () {
+it('shows only the --target form on --help and exits 0', function () {
     // A real subprocess (`bash deploy --help`) still requires root first,
     // unchanged from before this slice — see "requires root before anything
     // else" below. This proves --help's own content via parse_deploy_args
@@ -778,8 +728,8 @@ it('shows both selector forms on --help and exits 0', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)
-            ->toContain('--environment staging|production')
-            ->toContain('--target TARGET_ID');
+            ->toContain('--target TARGET_ID')
+            ->not->toContain('--environment');
     } finally {
         deployOpsCleanup($scratch);
     }
@@ -804,7 +754,7 @@ it('preserves the existing --release/--artifact required-value behavior unchange
     try {
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            'parse_deploy_args --environment staging --artifact /tmp/x.tar.gz',
+            'parse_deploy_args --target staging-main --artifact /tmp/x.tar.gz',
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -812,7 +762,7 @@ it('preserves the existing --release/--artifact required-value behavior unchange
 
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            'parse_deploy_args --environment staging --release v1',
+            'parse_deploy_args --target staging-main --release v1',
             deployOpsBaseEnv($scratch),
         );
         expect($exit)->not->toBe(0);
@@ -1018,22 +968,22 @@ it('rejects a checksum located outside the target incoming-artifacts directory',
 });
 
 // =============================================================================
-// End-to-end scratch parity: identical deployment through both selectors
+// End-to-end scratch: a full deployment through --target
 // =============================================================================
 
 /**
  * Runs one full, real deployment (extraction, symlinks, ownership/mode
  * normalization, verify-required-clis, atomic switch, health-check, history)
- * against a fresh fixture, using either --environment staging or --target
- * parity-target with an equivalent scratch configuration.
+ * against a fresh fixture, via --target parity-target.
  *
  * @return array{exit: int, output: string, fixture: array, healthCheckLog: string, verifyCliLog: string, releaseId: string}
  */
-function deployOpsRunFullDeployment(string $scratch, bool $useTarget, ?bool $failHealthCheck = false): array
+function deployOpsRunFullDeployment(string $scratch, ?bool $failHealthCheck = false): array
 {
     $fixture = deployOpsBuildFixture($scratch);
     $confPath = deployOpsDeploymentConfForFixture($scratch, $fixture);
     deployOpsInstallCoreStubs($scratch);
+    [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
 
     $healthCheckLog = $scratch.'/health-check-'.uniqid('', true).'.log';
     touch($healthCheckLog);
@@ -1047,22 +997,15 @@ function deployOpsRunFullDeployment(string $scratch, bool $useTarget, ?bool $fai
 
     $env = deployOpsBaseEnv($scratch, [
         'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+        'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+        'RATEGURU_TARGETS_CLI' => $targetsPath,
         'RATEGURU_HEALTH_CHECK_BIN' => $healthCheckStub,
         'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyCliStub,
     ]);
 
-    if ($useTarget) {
-        [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
-        $env['RATEGURU_TARGET_REGISTRY_FILE'] = $registryPath;
-        $env['RATEGURU_TARGETS_CLI'] = $targetsPath;
-        $selectorArgs = '--target parity-target';
-    } else {
-        $selectorArgs = '--environment staging';
-    }
-
     [$exit, $output] = deployOpsRunHarness(
         $scratch,
-        "parse_deploy_args {$selectorArgs} --release {$releaseId} --artifact {$fixture['artifact']}\nresolve_target\nperform_deploy",
+        "parse_deploy_args --target parity-target --release {$releaseId} --artifact {$fixture['artifact']}\nresolve_target\nperform_deploy",
         $env,
     );
 
@@ -1076,53 +1019,45 @@ function deployOpsRunFullDeployment(string $scratch, bool $useTarget, ?bool $fai
     ];
 }
 
-it('deploys identically through --environment and --target: content, ownership, symlinks, links, history, health selector', function () {
+it('deploys via --target: content, ownership, symlinks, links, history, health selector', function () {
     $scratch = deployOpsScratchDir();
 
     try {
-        $envResult = deployOpsRunFullDeployment($scratch, useTarget: false);
-        expect($envResult['exit'])->toBe(0, $envResult['output']);
+        $result = deployOpsRunFullDeployment($scratch);
+        expect($result['exit'])->toBe(0, $result['output']);
 
-        $targetResult = deployOpsRunFullDeployment($scratch, useTarget: true);
-        expect($targetResult['exit'])->toBe(0, $targetResult['output']);
+        $root = $result['fixture']['root'];
+        $releaseRoot = $root.'/releases/'.$result['releaseId'];
 
-        foreach (['env' => $envResult, 'target' => $targetResult] as $label => $result) {
-            $root = $result['fixture']['root'];
-            $releaseRoot = $root.'/releases/'.$result['releaseId'];
+        expect(is_dir($releaseRoot))->toBeTrue('release directory must exist');
+        expect(file_get_contents($releaseRoot.'/public/index.php'))->toBe("<?php // fixture\n", 'release content');
 
-            expect(is_dir($releaseRoot))->toBeTrue("{$label}: release directory must exist");
-            expect(file_get_contents($releaseRoot.'/public/index.php'))->toBe("<?php // fixture\n", "{$label}: release content");
+        clearstatcache(true, $releaseRoot);
+        $stat = stat($releaseRoot);
+        expect($stat['uid'])->toBe(getmyuid(), 'release owned by DEPLOY_ACCOUNT');
+        expect($stat['gid'])->toBe(getmygid(), 'release group is CODE_GROUP');
 
-            clearstatcache(true, $releaseRoot);
-            $stat = stat($releaseRoot);
-            expect($stat['uid'])->toBe(getmyuid(), "{$label}: release owned by DEPLOY_ACCOUNT");
-            expect($stat['gid'])->toBe(getmygid(), "{$label}: release group is CODE_GROUP");
+        expect(readlink($releaseRoot.'/.env'))->toBe($root.'/shared/.env', '.env symlink');
+        expect(readlink($releaseRoot.'/storage'))->toBe($root.'/shared/storage', 'storage symlink');
+        expect(readlink($releaseRoot.'/public/storage'))->toBe($root.'/shared/storage/app/public', 'public/storage symlink');
 
-            expect(readlink($releaseRoot.'/.env'))->toBe($root.'/shared/.env', "{$label}: .env symlink");
-            expect(readlink($releaseRoot.'/storage'))->toBe($root.'/shared/storage', "{$label}: storage symlink");
-            expect(readlink($releaseRoot.'/public/storage'))->toBe($root.'/shared/storage/app/public', "{$label}: public/storage symlink");
+        expect(readlink($root.'/current'))->toBe($releaseRoot, 'current symlink');
+        expect(is_link($root.'/previous'))->toBeFalse('previous must be absent (first deployment)');
 
-            expect(readlink($root.'/current'))->toBe($releaseRoot, "{$label}: current symlink");
-            expect(is_link($root.'/previous'))->toBeFalse("{$label}: previous must be absent (first deployment)");
+        $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
+        expect($history)->toHaveCount(2, 'deployment-started + deployment-finished');
+        $started = json_decode($history[0], true, 512, JSON_THROW_ON_ERROR);
+        $finished = json_decode($history[1], true, 512, JSON_THROW_ON_ERROR);
+        expect($started['event'])->toBe('deployment-started');
+        expect($started['status'])->toBe('running');
+        expect($finished['event'])->toBe('deployment-finished');
+        expect($finished['status'])->toBe('success');
+        expect($finished['release'])->toBe($result['releaseId']);
 
-            $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
-            expect($history)->toHaveCount(2, "{$label}: deployment-started + deployment-finished");
-            $started = json_decode($history[0], true, 512, JSON_THROW_ON_ERROR);
-            $finished = json_decode($history[1], true, 512, JSON_THROW_ON_ERROR);
-            expect($started['event'])->toBe('deployment-started');
-            expect($started['status'])->toBe('running');
-            expect($finished['event'])->toBe('deployment-finished');
-            expect($finished['status'])->toBe('success');
-            expect($finished['release'])->toBe($result['releaseId']);
+        expect(trim(file_get_contents($scratch.'/systemctl.log')))->toContain('reload');
 
-            expect(trim(file_get_contents($scratch.'/systemctl.log')))->toContain('reload');
-        }
-
-        expect(trim(File::get($envResult['healthCheckLog'])))->toBe('--environment staging');
-        expect(trim(File::get($targetResult['healthCheckLog'])))->toBe('--target parity-target');
-
-        expect($envResult['output'])->toContain('staging deployed successfully');
-        expect($targetResult['output'])->toContain('parity-target deployed successfully');
+        expect(trim(File::get($result['healthCheckLog'])))->toBe('--target parity-target');
+        expect($result['output'])->toContain('parity-target deployed successfully');
 
         // No artisan in this fixture, so queue:restart must never run.
         expect(File::exists($scratch.'/runuser.log'))->toBeFalse();
@@ -1136,7 +1071,7 @@ it('deploys identically through --environment and --target: content, ownership, 
 // member of a real www-data group, not merely have one exist on the host)
 // =============================================================================
 
-it('runs the Laravel artisan command sequence with the correct --expected-host per selector', function () {
+it('runs the Laravel artisan command sequence with the correct --expected-host', function () {
     if (! deployOpsWwwDataAvailable()) {
         test()->markTestSkipped('no www-data group on this host, or this account is not a member of it — Laravel prep\'s shared/app ownership (install -g www-data, as this non-root test process) needs both');
     }
@@ -1144,131 +1079,69 @@ it('runs the Laravel artisan command sequence with the correct --expected-host p
     $scratch = deployOpsScratchDir();
 
     try {
-        foreach ([false, true] as $useTarget) {
-            $label = $useTarget ? 'target' : 'env';
-            $fixture = deployOpsBuildFixture($scratch, laravel: true);
-            $confPath = deployOpsDeploymentConfForFixture($scratch, $fixture);
-            deployOpsInstallCoreStubs($scratch);
-            deployOpsFakePhpBin($scratch);
-            $conf = preg_replace('/^PHP_BIN=.*$/m', 'PHP_BIN='.$scratch.'/bin/fake-php', File::get($confPath));
-            file_put_contents($confPath, $conf);
-
-            $healthCheckLog = $scratch.'/hc-'.$label.'.log';
-            touch($healthCheckLog);
-            $healthCheckStub = deployOpsHealthCheckStub($scratch, $healthCheckLog);
-            $verifyCliLog = $scratch.'/vc-'.$label.'.log';
-            touch($verifyCliLog);
-            $verifyCliStub = deployOpsVerifyRequiredClisStub($scratch, $verifyCliLog);
-            $artisanLog = $scratch.'/artisan.log';
-            @unlink($artisanLog);
-
-            $env = deployOpsBaseEnv($scratch, [
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
-                'RATEGURU_HEALTH_CHECK_BIN' => $healthCheckStub,
-                'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyCliStub,
-            ]);
-
-            $releaseId = 'v1.0.0-2026010'.random_int(1, 9).'-000000-abc'.random_int(1000, 9999);
-            $expectedHost = 'rateguru.staging.myprojects.pp.ua';
-
-            if ($useTarget) {
-                [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
-                $env['RATEGURU_TARGET_REGISTRY_FILE'] = $registryPath;
-                $env['RATEGURU_TARGETS_CLI'] = $targetsPath;
-                $selectorArgs = '--target parity-target --migrate';
-                $expectedHost = 'parity.example';
-            } else {
-                $selectorArgs = '--environment staging --migrate';
-            }
-
-            [$exit, $output] = deployOpsRunHarness(
-                $scratch,
-                "parse_deploy_args {$selectorArgs} --release {$releaseId} --artifact {$fixture['artifact']}\nresolve_target\nperform_deploy",
-                $env,
-            );
-
-            expect($exit)->toBe(0, "{$label}: {$output}");
-
-            $artisanCalls = array_values(array_filter(explode("\n", trim(File::get($artisanLog)))));
-            expect($artisanCalls)->toHaveCount(5, "{$label}: config:cache, sharing:verify, view:cache, migrate, queue:restart");
-            expect($artisanCalls[0])->toContain('artisan config:cache');
-            expect($artisanCalls[1])->toContain('artisan rateguru:sharing:verify')->toContain("--expected-host={$expectedHost}");
-            expect($artisanCalls[2])->toContain('artisan view:cache');
-            expect($artisanCalls[3])->toContain('artisan migrate --force');
-            expect($artisanCalls[4])->toContain('artisan queue:restart');
-
-            $verifyLog = trim(File::get($verifyCliLog));
-
-            expect($verifyLog)
-                ->toContain('--release-root')
-                ->toContain($fixture['root'].'/releases/.'.$releaseId.'.tmp-');
-        }
-    } finally {
-        deployOpsCleanup($scratch);
-    }
-});
-
-// =============================================================================
-// Failure recovery, for both selectors
-// =============================================================================
-
-it('recovers correctly from a failed post-switch health check in legacy mode', function () {
-    $scratch = deployOpsScratchDir();
-
-    try {
-        $first = deployOpsRunFullDeployment($scratch, useTarget: false);
-        expect($first['exit'])->toBe(0, $first['output']);
-
-        $root = $first['fixture']['root'];
-        // realpath(), not readlink(): deploy itself canonicalizes via
-        // readlink -f when capturing/restoring ORIGINAL_CURRENT_PATH (resolving
-        // e.g. /var -> /private/var on macOS), so comparing against a raw,
-        // uncanonicalized readlink() here would be a false mismatch, not a real one.
-        $originalCurrent = realpath($root.'/current');
-
-        $confPath = deployOpsDeploymentConfForFixture($scratch, $first['fixture']);
+        $fixture = deployOpsBuildFixture($scratch, laravel: true);
+        $confPath = deployOpsDeploymentConfForFixture($scratch, $fixture);
         deployOpsInstallCoreStubs($scratch);
-        $failingHealthCheckLog = $scratch.'/failing-hc.log';
-        touch($failingHealthCheckLog);
-        $failingHealthCheckStub = deployOpsHealthCheckStub($scratch, $failingHealthCheckLog, fail: true);
-        $verifyCliLog = $scratch.'/verify-cli-2.log';
+        deployOpsFakePhpBin($scratch);
+        $conf = preg_replace('/^PHP_BIN=.*$/m', 'PHP_BIN='.$scratch.'/bin/fake-php', File::get($confPath));
+        file_put_contents($confPath, $conf);
+        [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
+
+        $healthCheckLog = $scratch.'/hc.log';
+        touch($healthCheckLog);
+        $healthCheckStub = deployOpsHealthCheckStub($scratch, $healthCheckLog);
+        $verifyCliLog = $scratch.'/vc.log';
         touch($verifyCliLog);
         $verifyCliStub = deployOpsVerifyRequiredClisStub($scratch, $verifyCliLog);
+        $artisanLog = $scratch.'/artisan.log';
+        @unlink($artisanLog);
 
-        $secondReleaseId = 'v1.0.1-20260102-000000-def5678';
+        $env = deployOpsBaseEnv($scratch, [
+            'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+            'RATEGURU_HEALTH_CHECK_BIN' => $healthCheckStub,
+            'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyCliStub,
+        ]);
+
+        $releaseId = 'v1.0.0-2026010'.random_int(1, 9).'-000000-abc'.random_int(1000, 9999);
+        $expectedHost = 'parity.example';
 
         [$exit, $output] = deployOpsRunHarness(
             $scratch,
-            "parse_deploy_args --environment staging --release {$secondReleaseId} --artifact {$first['fixture']['artifact']}\nresolve_target\nperform_deploy",
-            deployOpsBaseEnv($scratch, [
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
-                'RATEGURU_HEALTH_CHECK_BIN' => $failingHealthCheckStub,
-                'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyCliStub,
-            ]),
+            "parse_deploy_args --target parity-target --migrate --release {$releaseId} --artifact {$fixture['artifact']}\nresolve_target\nperform_deploy",
+            $env,
         );
 
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('deployment health check failed');
+        expect($exit)->toBe(0, $output);
 
-        expect(realpath($root.'/current'))->toBe($originalCurrent, 'current must be restored to the prior release');
-        expect(is_link($root.'/previous'))->toBeFalse('previous must not have been created by the failed deployment');
-        expect(is_dir($root.'/releases/'.$secondReleaseId))->toBeFalse('the failed release directory must be removed');
+        $artisanCalls = array_values(array_filter(explode("\n", trim(File::get($artisanLog)))));
+        expect($artisanCalls)->toHaveCount(5, 'config:cache, sharing:verify, view:cache, migrate, queue:restart');
+        expect($artisanCalls[0])->toContain('artisan config:cache');
+        expect($artisanCalls[1])->toContain('artisan rateguru:sharing:verify')->toContain("--expected-host={$expectedHost}");
+        expect($artisanCalls[2])->toContain('artisan view:cache');
+        expect($artisanCalls[3])->toContain('artisan migrate --force');
+        expect($artisanCalls[4])->toContain('artisan queue:restart');
 
-        $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
-        $last = json_decode(end($history), true, 512, JSON_THROW_ON_ERROR);
-        expect($last['event'])->toBe('deployment-finished');
-        expect($last['status'])->toBe('failed-health-check');
-        expect($last['release'])->toBe($secondReleaseId);
+        $verifyLog = trim(File::get($verifyCliLog));
+
+        expect($verifyLog)
+            ->toContain('--release-root')
+            ->toContain($fixture['root'].'/releases/.'.$releaseId.'.tmp-');
     } finally {
         deployOpsCleanup($scratch);
     }
 });
 
-it('recovers correctly from a failed post-switch health check in target mode', function () {
+// =============================================================================
+// Failure recovery
+// =============================================================================
+
+it('recovers correctly from a failed post-switch health check', function () {
     $scratch = deployOpsScratchDir();
 
     try {
-        $first = deployOpsRunFullDeployment($scratch, useTarget: true);
+        $first = deployOpsRunFullDeployment($scratch);
         expect($first['exit'])->toBe(0, $first['output']);
 
         $root = $first['fixture']['root'];
@@ -1315,9 +1188,9 @@ it('recovers correctly from a failed post-switch health check in target mode', f
         expect($last['status'])->toBe('failed-health-check');
         expect($last['release'])->toBe($secondReleaseId);
 
-        // Recovery uses the same selector deploy was invoked with — proven
-        // by the fact the failing stub itself was only ever reached via
-        // HEALTH_SELECTOR=(--target parity-target); the recovery path here
+        // Recovery uses the same target deploy was invoked with — proven by
+        // the fact the failing stub itself was only ever reached via
+        // HEALTH_CHECK_ARGS=(--target parity-target); the recovery path here
         // does not invoke health-check a second time (deploy's own recovery,
         // unlike rollback's, never re-checks health — see
         // restore_deployment_links).

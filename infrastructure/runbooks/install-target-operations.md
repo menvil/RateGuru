@@ -1,13 +1,11 @@
 # Installing the target-aware operations
 
-Phase 4 slices 2b-7.3. This runbook covers
-`infrastructure/scripts/install-target-operations`, which installs the
-deployment target registry and the target-aware scripts on the staging VPS:
-`targets`, `common`, `health-check` and `status` (read-only, slice 2b), plus
-`cleanup` (slice 4), `deploy` (slice 5), `rollback` (slice 6), `backup` /
-`restore-test` (slice 7.1), `offsite-backup` / `offsite-retention` /
-`offsite-restore-test` (slice 7.2), and `backup-cycle` (slice 7.3) — the
-mutating operations this installer manages.
+This runbook covers `infrastructure/scripts/install-target-operations`, which
+installs the deployment target registry, the host-global `deployment.conf`,
+and the full set of target-aware operational scripts onto the staging VPS:
+`targets`, `common`, `health-check`, `status`, `cleanup`, `deploy`,
+`rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
+`offsite-restore-test`, and `backup-cycle`.
 
 For what the registry and the target-aware commands themselves are, see
 [`deployment-targets.md`](deployment-targets.md). This document is only about
@@ -15,11 +13,12 @@ getting them onto the host safely.
 
 ## What this installer owns — and does not
 
-Exactly fourteen files:
+Exactly fifteen files:
 
 | Source (this repo) | Destination |
 |---|---|
 | `infrastructure/config/deployment-targets.json` | `/home/www/rateguru/config/deployment-targets.json` |
+| `infrastructure/templates/deployment.conf.example` | `/home/www/rateguru/config/deployment.conf` |
 | `infrastructure/scripts/targets` | `/home/www/rateguru/bin/targets` |
 | `infrastructure/scripts/common` | `/home/www/rateguru/bin/common` |
 | `infrastructure/scripts/health-check` | `/home/www/rateguru/bin/health-check` |
@@ -36,14 +35,16 @@ Exactly fourteen files:
 
 These destinations are **fixed, hardcoded constants** in the installer — not
 configurable by environment variable or CLI argument, on purpose. This
-installer's entire job is putting these fourteen files in these fourteen
-places with these exact permissions. Nothing else.
+installer's entire job is putting these fifteen files in these fifteen
+places with these exact permissions. Nothing else. It never sources or
+evaluates `deployment.conf` as shell — it installs it as plain file content,
+identically to every other file it manages.
 
 ### The two destination directories must already exist
 
 `/home/www/rateguru/config` and `/home/www/rateguru/bin` are **not** owned by
 this installer, and it never creates, `chown`s or `chmod`s either one — only
-the fourteen files inside them. `--apply` validates both directories before
+the fifteen files inside them. `--apply` validates both directories before
 it creates a backup or changes anything: each must exist, be a real
 directory (not a symlink), owned by `root:root`, and not group- or
 other-writable. `--apply` refuses to proceed — before touching anything — if
@@ -53,59 +54,46 @@ live on) belongs to a VPS bootstrap step outside this installer's scope.
 
 **Not touched, by this or any other change here:**
 
-- `/home/www/rateguru/config/deployment.conf` — the target helpers already
-  default to the registry's installed path above, so nothing there needs to
-  change;
 - cron, GitHub Actions workflows, sudoers rules, the three generic sudo
-  wrappers — that perimeter migrated to `--target staging-main` in Phase 4
-  slice 8 (`infrastructure/scripts/install-target-perimeter`), a separate
-  installer from this one; see
+  wrappers — that perimeter is a separate installer,
+  `infrastructure/scripts/install-target-perimeter`; see
   [`target-perimeter.md`](target-perimeter.md);
 - systemd timers;
 - any Nginx, PHP-FPM, Supervisor or cron configuration;
 - the registry's own contents — `staging-main` and `tits-guru` keep the exact
-  values slice 1 and slice 2 committed.
+  values committed to this repository.
 
 ### Why tits-guru remains planned
 
 Installing `health-check`, `status`, `cleanup`, `deploy`, `rollback`,
 `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
 `offsite-restore-test` and `backup-cycle` on the VPS does **not** provision
-`tits-guru`. It
-has `lifecycle: planned` in the registry, and every target-aware command
-rejects it — before any URL is built, any `curl` runs, or any filesystem
-path, database, lock or history is touched — via `require_active_target`,
-which only lets `lifecycle: active` targets through. `staging-main` is the
-only target with that lifecycle. Nothing in this installer, or in the
-scripts it installs, creates a `tits-guru` directory, database, service, or
-DNS record; those all belong to a future slice that provisions the target
-for real, and only then would its lifecycle be reviewed and changed to
-`active`.
+`tits-guru`. It has `lifecycle: planned` in the registry, and every
+target-aware command rejects it — before any URL is built, any `curl` runs,
+or any filesystem path, database, lock or history is touched — via
+`require_active_target`, which only lets `lifecycle: active` targets through.
+`staging-main` is the only target with that lifecycle. Nothing in this
+installer, or in the scripts it installs, creates a `tits-guru` directory,
+database, service, or DNS record; those all belong to a future slice that
+provisions the target for real, and only then would its lifecycle be
+reviewed and changed to `active`.
 
-### backup-cycle orchestration (slice 7.3)
+### backup-cycle orchestration
 
-`backup-cycle` graduated to target-awareness in this slice, the last of the
-three backup-path increments (7.1 local backup/restore-test, 7.2 offsite
-backup/retention/restore-test, 7.3 the orchestrator itself). It never touches
-a database, filesystem, or Backblaze B2 directly — it only invokes the five
-scripts installed above (`backup`, `restore-test`, `offsite-backup`,
-`offsite-retention --apply`, `offsite-restore-test`), strictly in that order,
-stopping at the first failure. Each of those five is already gated behind the
-same per-selector protections `cleanup`, `deploy` and `rollback` rely on: in
-target mode, the `require_active_target` lifecycle check (checked immediately
-after root authorization, before any filesystem, database, remote-listing or
-lock work); in legacy `--environment` mode, the equivalent
-`validate_environment` check at the same point — plus, either way, a shared
-backup namespace/lock so the legacy and target selectors can never write into
-the same namespace concurrently. `backup-cycle` itself now carries the
-identical lifecycle check and shares the same namespace/lock contract, and
-additionally appends one compact JSON record per cycle to
+`backup-cycle` never touches a database, filesystem, or Backblaze B2
+directly — it only invokes the five scripts installed above (`backup`,
+`restore-test`, `offsite-backup`, `offsite-retention --apply`,
+`offsite-restore-test`), strictly in that order, stopping at the first
+failure. Each of those five is already gated behind the same
+`require_active_target` lifecycle check `cleanup`, `deploy` and `rollback`
+rely on — checked immediately after root authorization, before any
+filesystem, database, remote-listing or lock work — plus a shared backup
+namespace/lock. `backup-cycle` itself carries the identical lifecycle check
+and shares the same namespace/lock contract, and additionally appends one
+compact JSON record per cycle to
 `/home/www/rateguru/backups/backup-cycles.jsonl` — see
-[Target-aware backup cycle](deployment-targets.md#target-aware-backup-cycle-slice-73-completed)
+[Target-aware backup cycle](deployment-targets.md#target-aware-backup-cycle)
 in `deployment-targets.md` for the full pipeline and history schema.
-`--environment` is kept working, temporarily, alongside `--target` — it will
-be removed only in a dedicated future slice, once `--target` parity has been
-proven end to end.
 
 ## Modes
 
@@ -122,19 +110,20 @@ clear error before anything else runs.
 
 ### `--check` — repository-only, no root
 
-Validates the fourteen source files (exist, regular, not a symlink), runs
-`bash -n` on the thirteen shell scripts, confirms `jq` can parse the registry,
-runs the *committed* `targets` CLI against the *committed* registry and
-confirms it both validates and lists `staging-main` as `active`/`staging` and
-`tits-guru` as `planned`/`production`, and confirms every required host tool
-is present (`bash`, `jq`, `curl`, `install`, `stat`, `cmp`, `diff`, `awk`,
-`mv`, `cp`, `mktemp`, `readlink`, `tail`, `env`, `find`, `sort`, `cut`, `sed`,
-`rm`, `flock` — the last six for `cleanup`). `rclone` itself is **not**
-required on this list: this installer never calls it — the offsite scripts'
-staged and runtime-parity checks below only reach `--help` and the
-`lifecycle=planned` rejection path, both of which return before any `rclone`
-config check or remote call. Makes no changes anywhere. Safe to run from a
-laptop checkout, in CI, or on the VPS before ever touching it as root.
+Validates the fifteen source files (exist, regular, not a symlink), runs
+`bash -n` on the thirteen shell scripts (every source file except the
+registry and `deployment.conf`, neither of which is shell), confirms `jq`
+can parse the registry, runs the *committed* `targets` CLI against the
+*committed* registry and confirms it both validates and lists `staging-main`
+as `active`/`staging` and `tits-guru` as `planned`/`production`, and confirms
+every required host tool is present (`bash`, `jq`, `curl`, `install`, `stat`,
+`cmp`, `diff`, `awk`, `mv`, `cp`, `mktemp`, `readlink`, `tail`, `env`, `find`,
+`sort`, `cut`, `sed`, `rm`, `flock` — the last six for `cleanup`). `rclone`
+itself is **not** required on this list: this installer never calls it — the
+offsite scripts' staged and runtime-parity checks below only reach `--help`
+and the `lifecycle=planned` rejection path, both of which return before any
+`rclone` config check or remote call. Makes no changes anywhere. Safe to run
+from a laptop checkout, in CI, or on the VPS before ever touching it as root.
 
 ### `--apply` — requires root, transactional
 
@@ -142,56 +131,48 @@ laptop checkout, in CI, or on the VPS before ever touching it as root.
 sudo infrastructure/scripts/install-target-operations --apply
 ```
 
-1. Everything `--check` does, plus: the *installed* `deployment.conf` is
-   validated (regular file, not a symlink, root-owned, not group- or
-   other-writable) — this installer depends on that file's protection without
-   ever touching its contents.
+1. Everything `--check` does.
 2. Both destination directories are validated — exist, are real directories,
    not symlinks, `root:root`-owned, not group- or other-writable (see
    [above](#the-two-destination-directories-must-already-exist)) — before a
    backup directory is created or a single destination file changes.
-3. The **currently installed** legacy staging health check is proven to work
-   — `health-check --environment staging`, with every `RATEGURU_*` test
+3. The **currently installed** `staging-main` health check is proven to work
+   — `health-check --target staging-main`, with every `RATEGURU_*` test
    override explicitly unset — before a single destination file changes. If
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-4. The fourteen source files are copied into a private, root-only temporary
+4. The fifteen source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
-   override contract from slice 2, and **only** here — to prove the candidate
-   set is internally consistent before anything real is touched: `targets
-   validate`, `health-check --environment staging`,
-   `health-check --target staging-main`, `status --environment staging`,
-   `status --target staging-main`,
-   `cleanup --environment staging --dry-run`,
-   `cleanup --target staging-main --dry-run` (asserting both select the same
-   candidate release IDs), `deploy --help`, `rollback --help`,
-   `backup --help`, `restore-test --help`, `offsite-backup --help`,
-   `offsite-retention --help`, `offsite-restore-test --help`,
-   `backup-cycle --help`, and that
-   `health-check --target tits-guru`, `cleanup --target tits-guru --dry-run`,
-   `deploy --target tits-guru` (with a deliberately unusable artifact path),
-   `rollback --target tits-guru` (with a deliberately unusable release ID),
-   `backup --target tits-guru`, `restore-test --target tits-guru`,
-   `offsite-backup --target tits-guru`, `offsite-retention --target tits-guru`,
-   `offsite-restore-test --target tits-guru` and
-   `backup-cycle --target tits-guru` still correctly fail with
-   `lifecycle=planned`. Every staged `cleanup` invocation here is `--dry-run`
-   only, and neither `deploy`, `rollback`, `backup`, `restore-test`,
-   `offsite-backup`, `offsite-retention`, `offsite-restore-test` nor
-   `backup-cycle` is ever invoked for real (a deployment, a rollback, a
-   database dump, a restore, a remote upload, a remote deletion, a remote
-   restore test, or a full backup cycle), so this step never mutates the real
-   staging target and never contacts Backblaze B2.
+   override contract, and **only** here — to prove the candidate set is
+   internally consistent before anything real is touched: `targets validate`;
+   every script's `--help` output is checked to mention `--target` and never
+   the retired legacy selector; `health-check --target staging-main`;
+   `status --target staging-main`; `cleanup --target staging-main --dry-run`;
+   and that `health-check`, `cleanup --dry-run`, `deploy` (with a deliberately
+   unusable release/artifact combination), `rollback` (with a deliberately
+   unusable release ID), `backup`, `restore-test`, `offsite-backup`,
+   `offsite-retention`, `offsite-restore-test` and `backup-cycle` all still
+   correctly fail against `--target tits-guru` with `lifecycle=planned`.
+   Every staged `cleanup` invocation here is `--dry-run` only, and neither
+   `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`,
+   `offsite-retention`, `offsite-restore-test` nor `backup-cycle` is ever
+   invoked for real (a deployment, a rollback, a database dump, a restore, a
+   remote upload, a remote deletion, a remote restore test, or a full backup
+   cycle), so this step never mutates the real staging target and never
+   contacts Backblaze B2.
 5. A timestamped backup directory is created (see below), and each
    destination is installed in dependency order — registry, `targets`,
    `common`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`,
    `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
-   `offsite-restore-test`, `backup-cycle` — via stage-in-place-then-atomic-rename into a
-   same-directory, `mktemp`-created temporary file, never a direct overwrite
-   and never a predictable temporary path. An existing destination that is
-   anything other than absent or a plain regular file — a symlink, directory,
-   FIFO, socket or device — is refused outright, never followed, entered or
+   `offsite-restore-test`, `backup-cycle`, then `deployment.conf` last — via
+   stage-in-place-then-atomic-rename into a same-directory, `mktemp`-created
+   temporary file, never a direct overwrite and never a predictable temporary
+   path. `deployment.conf` is installed last so every script sourcing it
+   either atomically sees the old config or the new one, never a
+   half-installed bundle in between. An existing destination that is anything
+   other than absent or a plain regular file — a symlink, directory, FIFO,
+   socket or device — is refused outright, never followed, entered or
    silently replaced; a rejected destination is left untouched and is never
    backed up.
 6. The installed result is verified: exact ownership, exact mode, byte-for-byte
@@ -218,11 +199,10 @@ install. Reports each phase separately:
 ```
 --- source validation ---
 --- installed-file validation ---
---- legacy staging health ---
---- target staging health ---
---- status parity ---
+--- staging-main health ---
+--- status ---
 --- planned-target rejection ---
---- cleanup dry-run parity ---
+--- cleanup dry-run ---
 --- cleanup planned-target rejection ---
 --- deploy help ---
 --- deploy planned-target rejection ---
@@ -252,16 +232,14 @@ line — `--verify` never claims success after a step it didn't actually pass.
 | | Owner | Mode | Notes |
 |---|---|---|---|
 | `deployment-targets.json` | `root:root` | `0640` | registry — non-secret, but not world-readable |
+| `deployment.conf` | `root:root` | `0640` | host-global settings — non-secret, but not world-readable, same protection as the registry |
 | `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle` | `root:root` | `0755` | executable scripts |
 | `common` | `root:root` | `0644` | sourced library, never a CLI — must never be executable |
 
-`common` was previously installed at `0755`, the same mode as the CLIs beside
-it; that was wrong; it is a sourced library, never invoked directly, and this
-installer now corrects it. None of the fourteen may be group- or
-world-writable, and none may be a symlink — enforced both when installing
-and when verifying.
-Existing destinations must also be a plain regular file or absent — a
-directory, FIFO, socket or device is refused the same way a symlink is.
+None of the fifteen may be group- or world-writable, and none may be a
+symlink — enforced both when installing and when verifying. Existing
+destinations must also be a plain regular file or absent — a directory,
+FIFO, socket or device is refused the same way a symlink is.
 
 The two containing directories, `/home/www/rateguru/config` and
 `/home/www/rateguru/bin`, must be `root:root`, `0755` or stricter, and are
@@ -283,7 +261,7 @@ its original ownership, mode and timestamps exactly.
 **This installer never deletes old backup directories.** They accumulate
 across every apply run and are left for an operator to prune manually if
 disk space becomes a concern — deciding what's safe to discard is a judgement
-call this slice deliberately doesn't automate.
+call this installer deliberately doesn't automate.
 
 ## Rollback
 
@@ -293,11 +271,10 @@ restored: a destination that existed before is restored from its backup;
 a destination that didn't exist before is removed. This happens automatically,
 via a trap, without a second command.
 
-After a rollback, the installer re-confirms
-`health-check --environment staging` still succeeds against the *restored*
-files, and reports that confirmation explicitly — so a failed apply doesn't
-just claim "rolled back," it proves the host is genuinely back to working
-order.
+After a rollback, the installer re-confirms `health-check --target
+staging-main` still succeeds against the *restored* files, and reports that
+confirmation explicitly — so a failed apply doesn't just claim "rolled
+back," it proves the host is genuinely back to working order.
 
 **Rollback failure is reported, never hidden.** If any single file can't be
 restored, the installer says so explicitly, names the backup directory, and
@@ -323,7 +300,7 @@ sudo cp -a \
     /home/www/rateguru/bin/common
 ```
 
-Repeat for each of the fourteen destinations that need restoring. Confirm with:
+Repeat for each of the fifteen destinations that need restoring. Confirm with:
 
 ```bash
 sudo infrastructure/scripts/install-target-operations --verify
@@ -338,82 +315,73 @@ sudo rm -f /home/www/rateguru/bin/common
 
 ## Runtime parity checks
 
-Every one of these runs with `RATEGURU_ALLOW_TEST_OVERRIDES`,
-`RATEGURU_COMMON_FILE`, `RATEGURU_DEPLOYMENT_CONF_FILE`,
-`RATEGURU_TARGET_REGISTRY_FILE`, `RATEGURU_TARGETS_CLI` and
-`RATEGURU_HEALTH_CHECK_CLI` all explicitly unset — this is what makes the
-check genuine proof of real host behaviour rather than a rehearsal against
-overridden paths:
+Every one of these runs with the full `RATEGURU_*` override set explicitly
+unset — `RATEGURU_ALLOW_TEST_OVERRIDES`, `RATEGURU_COMMON_FILE`,
+`RATEGURU_DEPLOYMENT_CONF_FILE`, `RATEGURU_TARGET_REGISTRY_FILE`,
+`RATEGURU_TARGETS_CLI`, `RATEGURU_HEALTH_CHECK_CLI`, and every
+script-specific binary-override variable each operational script defines —
+this is what makes the check genuine proof of real host behaviour rather than
+a rehearsal against overridden paths:
 
-1. `health-check --environment staging` succeeds;
-2. `health-check --target staging-main` succeeds;
-3. `status --environment staging` runs;
-4. `status --target staging-main` runs;
-5. the target status output contains `Target: staging-main`,
-   `Lifecycle: active`, `Environment class: staging`;
-6. the legacy status output contains `Environment: staging`;
-7. both status modes report the **same** current release, previous release,
-   `release.json` metadata, and deployment history — proven by comparing
-   everything after each mode's own header, since both resolve the identical
-   `application_root`. Timestamps and the header lines themselves differ by
-   design and are excluded from that comparison;
-8. `health-check --target tits-guru` **fails**, and its error names
-   `lifecycle=planned`;
-9. nothing about `tits-guru` — no directory, database, service, or hostname —
-   is created or contacted, because step 8 rejects it before any of those
-   would ever be touched;
-10. `cleanup --environment staging --dry-run` and
-    `cleanup --target staging-main --dry-run` both succeed and select the
-    **same** candidate release IDs — proven by comparing every
-    `DRY RUN would delete: ...` line, timestamps and log prefixes excluded;
-11. `cleanup --target tits-guru --dry-run` **fails**, and its error names
-    `lifecycle=planned` — `cleanup` never contacts `tits-guru` either;
-12. `deploy --help` succeeds;
-13. `deploy --target tits-guru`, given a deliberately unusable release/artifact
-    combination, **fails**, and its error names `lifecycle=planned` — proving
-    the installed `deploy`'s ordering is root authorization →
-    `lifecycle=planned` rejection → no artifact or filesystem validation ever
-    reached. `deploy` is never invoked with a real artifact by this installer,
-    at any point — a real deployment is always a separate, explicit,
-    human-triggered action;
-14. `rollback --help` succeeds;
-15. `rollback --target tits-guru`, given a deliberately unusable release ID,
-    **fails**, and its error names `lifecycle=planned` — proving the
-    installed `rollback`'s ordering is root authorization →
-    `lifecycle=planned` rejection → no filesystem, lock or history work ever
-    reached. `rollback` is never invoked for a real rollback by this
-    installer, at any point — a real rollback is always a separate,
-    explicit, human-triggered action;
-16. `backup --help` succeeds;
-17. `backup --target tits-guru` **fails**, and its error names
+1. `health-check --target staging-main` succeeds;
+2. `status --target staging-main` succeeds, and its output contains
+   `Target: staging-main`, `Lifecycle: active`, `Environment class: staging`,
+   exactly one occurrence each of the four standard sections (`Releases`,
+   `Current release metadata`, `Health`, `Recent deployment history`), and
+   `Status: healthy`;
+3. `health-check --target tits-guru` **fails**, and its error names
+   `lifecycle=planned` — nothing about `tits-guru` (no directory, database,
+   service, or hostname) is created or contacted, because this rejects it
+   before any of those would ever be touched;
+4. `cleanup --target staging-main --dry-run` succeeds;
+5. `cleanup --target tits-guru --dry-run` **fails**, and its error names
+   `lifecycle=planned` — `cleanup` never contacts `tits-guru` either;
+6. `deploy --help` succeeds;
+7. `deploy --target tits-guru`, given a deliberately unusable release/artifact
+   combination, **fails**, and its error names `lifecycle=planned` — proving
+   the installed `deploy`'s ordering is root authorization →
+   `lifecycle=planned` rejection → no artifact or filesystem validation ever
+   reached. `deploy` is never invoked with a real artifact by this installer,
+   at any point — a real deployment is always a separate, explicit,
+   human-triggered action;
+8. `rollback --help` succeeds;
+9. `rollback --target tits-guru`, given a deliberately unusable release ID,
+   **fails**, and its error names `lifecycle=planned` — proving the
+   installed `rollback`'s ordering is root authorization →
+   `lifecycle=planned` rejection → no filesystem, lock or history work ever
+   reached. `rollback` is never invoked for a real rollback by this
+   installer, at any point — a real rollback is always a separate,
+   explicit, human-triggered action;
+10. `backup --help` succeeds;
+11. `backup --target tits-guru` **fails**, and its error names
     `lifecycle=planned` — proving the installed `backup`'s ordering is root
     authorization → `lifecycle=planned` rejection → no backup root, lock,
     database binary or filesystem work ever reached. `backup` is never
     invoked for a real backup by this installer, at any point;
-18. `restore-test --help` succeeds;
-19. `restore-test --target tits-guru` **fails**, and its error names
+12. `restore-test --help` succeeds;
+13. `restore-test --target tits-guru` **fails**, and its error names
     `lifecycle=planned` — proving the installed `restore-test`'s ordering is
     root authorization → `lifecycle=planned` rejection → no filesystem, lock
     or database work ever reached. `restore-test` is never invoked for a
     real restore test by this installer, at any point — a real backup or
     restore test is always a separate, explicit, human-triggered action;
-20. `offsite-backup --help` succeeds;
-21. `offsite-backup --target tits-guru` **fails**, and its error names
+14. `offsite-backup --help` succeeds;
+15. `offsite-backup --target tits-guru` **fails**, and its error names
     `lifecycle=planned` — proving the installed `offsite-backup`'s ordering
     is root authorization → `lifecycle=planned` rejection → no `rclone`
     config check, remote listing, local backup root, lock, temp directory or
     database work ever reached. `offsite-backup` is never invoked for a real
     upload by this installer, at any point, and never contacts Backblaze B2;
-22. `offsite-retention --help` succeeds;
-23. `offsite-retention --target tits-guru` **fails**, and its error names
+16. `offsite-retention --help` succeeds;
+17. `offsite-retention --target tits-guru` **fails**, and its error names
     `lifecycle=planned` — proving the installed `offsite-retention`'s
     ordering is root authorization → `lifecycle=planned` rejection → no
     `rclone` config check, remote listing or lock work ever reached, in
     either its default dry-run mode or `--apply`. `offsite-retention` is
     never invoked for a real deletion by this installer, at any point, and
     never contacts Backblaze B2;
-24. `offsite-restore-test --help` succeeds;
-25. `offsite-restore-test --target tits-guru` **fails**, and its error names
+18. `offsite-restore-test --help` succeeds;
+19. `offsite-restore-test --target tits-guru` **fails**, and its error names
     `lifecycle=planned` — proving the installed `offsite-restore-test`'s
     ordering is root authorization → `lifecycle=planned` rejection → no
     `rclone` config check, remote listing, lock, temp directory or database
@@ -421,8 +389,8 @@ overridden paths:
     restore test by this installer, at any point, and never contacts
     Backblaze B2 — a real offsite backup, retention run, or offsite restore
     test is always a separate, explicit, human-triggered action;
-26. `backup-cycle --help` succeeds;
-27. `backup-cycle --target tits-guru` **fails**, and its error names
+20. `backup-cycle --help` succeeds;
+21. `backup-cycle --target tits-guru` **fails**, and its error names
     `lifecycle=planned` — proving the installed `backup-cycle`'s ordering is
     root authorization → `lifecycle=planned` rejection → no lock root, lock
     file, or child-command work ever reached. `backup-cycle` is never
@@ -441,26 +409,14 @@ sudo infrastructure/scripts/install-target-operations --verify
 # Routine health check, any time after install:
 sudo infrastructure/scripts/install-target-operations --verify
 
-# cleanup dry-run, either selector — always safe, never mutates anything:
-/home/www/rateguru/bin/cleanup --environment staging --dry-run
+# cleanup dry-run — always safe, never mutates anything:
 /home/www/rateguru/bin/cleanup --target staging-main --dry-run
 
-# The legacy interface keeps working throughout and afterward, unchanged:
-/home/www/rateguru/bin/health-check --environment staging
-/home/www/rateguru/bin/status --environment staging
-/home/www/rateguru/bin/deploy --environment staging --release ... --artifact ...
-/home/www/rateguru/bin/rollback --environment staging --previous
-sudo /home/www/rateguru/bin/backup --environment staging
-sudo /home/www/rateguru/bin/restore-test --environment staging
-sudo /home/www/rateguru/bin/offsite-backup --environment staging
-sudo /home/www/rateguru/bin/offsite-retention --environment staging
-sudo /home/www/rateguru/bin/offsite-retention --environment staging --apply
-sudo /home/www/rateguru/bin/offsite-restore-test --environment staging
-sudo /home/www/rateguru/bin/backup-cycle --environment staging
-
-# The new interface becomes available once installed:
+# Read-only operations:
 /home/www/rateguru/bin/health-check --target staging-main
 /home/www/rateguru/bin/status --target staging-main
+
+# Mutating operations:
 /home/www/rateguru/bin/deploy --target staging-main --release ... --artifact ...
 /home/www/rateguru/bin/rollback --target staging-main --previous
 sudo /home/www/rateguru/bin/backup --target staging-main
@@ -472,24 +428,14 @@ sudo /home/www/rateguru/bin/offsite-restore-test --target staging-main
 sudo /home/www/rateguru/bin/backup-cycle --target staging-main
 ```
 
-Both selectors above resolve to the identical remote namespace,
-`rateguru-b2:rateguru-database-backups/rateguru/staging` — see
-[Target-aware offsite backup](deployment-targets.md#target-aware-offsite-backup-slice-72-completed)
-in `deployment-targets.md` for the shared-namespace/lock model. `backup-cycle
---environment staging` and `backup-cycle --target staging-main` additionally
-share the identical cycle lock — see
-[Target-aware backup cycle](deployment-targets.md#target-aware-backup-cycle-slice-73-completed).
-
 This installer never touches the GitHub Actions deploy workflow, sudoers, or
 any server wrapper — see [Not touched](#what-this-installer-owns--and-does-not)
-above. Phase 4 slice 8 adds the generic `/usr/local/sbin/rateguru-deploy`
-wrapper and switches the real staging perimeter to call `deploy --target
-staging-main` through it — but only once its own installer has been run on
-the VPS and the `DEPLOY_WRAPPER` GitHub variable has been switched by hand;
-see [`target-perimeter.md`](target-perimeter.md#pre-merge-bootstrap-sequence--do-not-merge-before-completing-this)
-for that pre-merge bootstrap requirement — it must happen **before** slice 8
-is merged into `develop`, not after, or every subsequent deployment
-deadlocks.
+above. Real staging traffic reaches these binaries only through the generic
+`/usr/local/sbin/rateguru-deploy`/`rateguru-rollback`/`rateguru-cleanup`
+wrappers and the backup cron entries, installed and managed by a separate
+installer; see
+[`target-perimeter.md`](target-perimeter.md) for that perimeter's own
+contract.
 
 ## Troubleshooting
 
@@ -498,8 +444,8 @@ deadlocks.
   real directory, isn't `root:root`, or is group- or other-writable. Fix the
   directory itself on the host — this installer will not create, `chown` or
   `chmod` either one for you.
-- **`--apply` refuses immediately with a legacy health check failure**: staging
-  is already unhealthy before this install touched anything. Fix that first —
+- **`--apply` refuses immediately with a health check failure**: staging is
+  already unhealthy before this install touched anything. Fix that first —
   `install-target-operations` will not proceed while it can't tell whether a
   later failure is its own doing.
 - **`--apply` fails during staged candidate verification**: the *candidate*
@@ -515,6 +461,5 @@ deadlocks.
   above, then re-run `--verify`.
 - **`--verify` fails on an already-installed host**: read the phase label it
   stopped at — `--- installed-file validation ---` points at a file that was
-  modified or has drifted from its source; `--- legacy staging health ---` or
-  `--- target staging health ---` point at the application itself, not this
-  installer.
+  modified or has drifted from its source; `--- staging-main health ---`
+  points at the application itself, not this installer.
