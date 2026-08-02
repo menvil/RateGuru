@@ -68,7 +68,6 @@ fi
 usage() {
     cat <<'USAGE'
 Usage:
-  backup --environment staging|production
   backup --target TARGET_ID
 USAGE
 }
@@ -82,30 +81,11 @@ USAGE
 # tests that legitimately need the full root-gated flow — the same technique
 # already established for deploy and rollback.
 
-# --- selector parsing (mirrors health-check/status/cleanup/deploy/rollback) --
-
-# require_flag_value <flag-name> <remaining-arg-count> <next-token>
-#
-# <remaining-arg-count> is "$#" from the caller's while loop, taken *before*
-# any shift — i.e. it counts the flag itself plus everything after it, so
-# "at least 2" means a following token genuinely exists. <next-token> is
-# "${2-}" from the same call site (nounset-safe whether or not $2 exists).
-require_flag_value() {
-    local flag="$1" remaining="$2" value="${3-}"
-
-    [[ "${remaining}" -ge 2 ]] || fail "${flag} requires a value"
-    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
-
-    case "${value}" in
-        -*) fail "${flag} requires a value, not another option: ${value}" ;;
-    esac
-}
+# --- target parsing (mirrors health-check/status/cleanup/deploy/rollback) ---
 
 parse_backup_args() {
     TARGET_ID=""
-    ENVIRONMENT=""
     TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -114,13 +94,6 @@ parse_backup_args() {
                 require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
-                shift 2
-                ;;
-            --environment)
-                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                require_flag_value "--environment" "$#" "${2-}"
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
                 shift 2
                 ;;
             --help|-h)
@@ -133,95 +106,56 @@ parse_backup_args() {
         esac
     done
 
-    assert_selector_state
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
 
-# --- selector resolution (mirrors cleanup/deploy/rollback) ------------------
+# --- target resolution (mirrors cleanup/deploy/rollback) --------------------
 #
-# require_active_target runs first thing in the target branch — before
-# BACKUP_ROOT, the lock file, any database binary, rclone, or filesystem
-# mutation is ever computed or touched. main() already called require_root
-# before this function runs, so the full ordering for --target is: root
-# authorization -> lifecycle=planned rejection -> (only if active)
-# filesystem/database/lock work.
+# require_active_target runs first thing — before BACKUP_ROOT, the lock file,
+# any database binary, rclone, or filesystem mutation is ever computed or
+# touched. main() already called require_root before this function runs, so
+# the full ordering is: root authorization -> lifecycle=planned rejection ->
+# (only if active) filesystem/database/lock work.
 resolve_backup_subject() {
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        require_active_target "${TARGET_ID}"
+    require_active_target "${TARGET_ID}"
 
-        ENVIRONMENT_ROOT="$(target_root "${TARGET_ID}")"
-        DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
-        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
-        RETENTION_DAYS="$(target_local_backup_retention "${TARGET_ID}")"
-        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
-        LABEL="${TARGET_ID}"
-        SELECTOR_TYPE="target"
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    RETENTION_DAYS="$(target_local_backup_retention "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
 
-        # Only needed by the target-specific server-configuration snapshot
-        # below (build_server_configuration_archive) — never read by legacy
-        # mode, which keeps its own fixed, byte-for-byte-preserved path list.
-        NGINX_SITE_NAME="$(target_nginx_site_name "${TARGET_ID}")"
-        PHP_FPM_POOL="$(target_php_fpm_pool "${TARGET_ID}")"
-        SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
-        SCHEDULER_NAME="$(target_scheduler_name "${TARGET_ID}")"
-        DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
-    else
-        validate_environment "${ENVIRONMENT}"
-
-        ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
-        DATABASE_NAME="$(environment_database_name "${ENVIRONMENT}")"
-        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
-        RETENTION_DAYS="$(environment_local_backup_retention "${ENVIRONMENT}")"
-        ENVIRONMENT_CLASS="${ENVIRONMENT}"
-        LABEL="${ENVIRONMENT}"
-        SELECTOR_TYPE="environment"
-    fi
+    # Only needed by the server-configuration snapshot below
+    # (build_server_configuration_archive).
+    NGINX_SITE_NAME="$(target_nginx_site_name "${TARGET_ID}")"
+    PHP_FPM_POOL="$(target_php_fpm_pool "${TARGET_ID}")"
+    SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
+    SCHEDULER_NAME="$(target_scheduler_name "${TARGET_ID}")"
+    DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
 }
 
 # --- server configuration snapshot -------------------------------------------
 #
-# Target mode archives only this target's own configuration files — never
-# another target's authorized_keys, htpasswd, PHP-FPM pool, Supervisor unit or
-# cron entry. Legacy mode keeps the exact same fixed path list it always has,
-# covering both staging and production files regardless of which one is being
-# backed up (unchanged behaviour, preserved on purpose). Both modes additionally
-# search /etc/sudoers.d and /etc/ssh/sshd_config.d for any RateGuru-named file,
-# exactly as before. Paths are relative to SYSTEM_ROOT (production always "/"),
-# which is what lets tests exercise this against a scratch fixture tree.
+# Archives only this target's own configuration files — never another
+# target's authorized_keys, htpasswd, PHP-FPM pool, Supervisor unit or cron
+# entry. Additionally searches /etc/sudoers.d and /etc/ssh/sshd_config.d for
+# any RateGuru-named file. Paths are relative to SYSTEM_ROOT (production
+# always "/"), which is what lets tests exercise this against a scratch
+# fixture tree.
 build_server_configuration_archive() {
-    local -a infra_paths=()
-
-    if [[ "${SELECTOR_TYPE}" == "target" ]]; then
-        infra_paths=(
-            "home/www/rateguru/bin"
-            "home/www/rateguru/config"
-            "home/www/rateguru/DEPLOYMENT_POLICY"
-            "home/www/rateguru/runbooks"
-            "etc/nginx/sites-available/${NGINX_SITE_NAME}"
-            "etc/nginx/${NGINX_SITE_NAME}.htpasswd"
-            "etc/php/8.5/fpm/pool.d/${PHP_FPM_POOL}.conf"
-            "etc/supervisor/conf.d/${SUPERVISOR_PROGRAM}.conf"
-            "etc/cron.d/${SCHEDULER_NAME}"
-            "home/${DEPLOY_ACCOUNT}/.ssh/authorized_keys"
-        )
-    else
-        infra_paths=(
-            "home/www/rateguru/bin"
-            "home/www/rateguru/config"
-            "home/www/rateguru/DEPLOYMENT_POLICY"
-            "home/www/rateguru/runbooks"
-            "etc/nginx/sites-available/rateguru-staging"
-            "etc/nginx/sites-available/rateguru-production"
-            "etc/nginx/rateguru-staging.htpasswd"
-            "etc/php/8.5/fpm/pool.d/rateguru-staging.conf"
-            "etc/php/8.5/fpm/pool.d/rateguru-production.conf"
-            "etc/supervisor/conf.d/rateguru-staging-queue.conf"
-            "etc/supervisor/conf.d/rateguru-production-queue.conf"
-            "etc/cron.d/rateguru-staging-scheduler"
-            "etc/cron.d/rateguru-production-scheduler"
-            "home/deploy-rateguru-staging/.ssh/authorized_keys"
-            "home/deploy-rateguru-production/.ssh/authorized_keys"
-        )
-    fi
+    local -a infra_paths=(
+        "home/www/rateguru/bin"
+        "home/www/rateguru/config"
+        "home/www/rateguru/DEPLOYMENT_POLICY"
+        "home/www/rateguru/runbooks"
+        "etc/nginx/sites-available/${NGINX_SITE_NAME}"
+        "etc/nginx/${NGINX_SITE_NAME}.htpasswd"
+        "etc/php/8.5/fpm/pool.d/${PHP_FPM_POOL}.conf"
+        "etc/supervisor/conf.d/${SUPERVISOR_PROGRAM}.conf"
+        "etc/cron.d/${SCHEDULER_NAME}"
+        "home/${DEPLOY_ACCOUNT}/.ssh/authorized_keys"
+    )
 
     local system_root_prefix="${SYSTEM_ROOT%/}/"
 
@@ -266,22 +200,11 @@ build_server_configuration_archive() {
 
 # --- manifest -----------------------------------------------------------
 #
-# manifest_schema_version 2 for both selectors — backward compatible with
-# schema 1 (the format every backup on disk before this slice used, with no
+# manifest_schema_version 2, backward compatible with schema 1 (the format
+# every backup on disk before schema 2 was introduced used, with no
 # manifest_schema_version/selector/target/backup_namespace fields at all):
-# restore-test still accepts those, see its own manifest validation. Legacy
-# mode's target is always JSON null, never an empty string, so a consumer can
-# tell "legacy backup" apart from "target backup naming an empty target" (which
-# can never legitimately happen — validate_target_id rejects an empty ID).
+# restore-test still accepts those, see its own manifest validation.
 build_manifest() {
-    local target_arg="null"
-    local selector_arg="environment"
-
-    if [[ "${SELECTOR_TYPE}" == "target" ]]; then
-        target_arg="${TARGET_ID}"
-        selector_arg="target"
-    fi
-
     # Captured into their own assignments — not inline inside the jq
     # invocation — so that a failure of either command (e.g. a broken
     # PG_DUMP_BIN/PHP_BIN override) is the exit status of the assignment
@@ -294,8 +217,8 @@ build_manifest() {
     jq \
         --null-input \
         --arg project "rateguru" \
-        --arg selector "${selector_arg}" \
-        --arg target "${target_arg}" \
+        --arg selector "target" \
+        --arg target "${TARGET_ID}" \
         --arg environment "${ENVIRONMENT_CLASS}" \
         --arg backup_namespace "${BACKUP_NAMESPACE}" \
         --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -309,7 +232,7 @@ build_manifest() {
             manifest_schema_version: $manifest_schema_version,
             project: $project,
             selector: $selector,
-            target: (if $selector == "target" then $target else null end),
+            target: $target,
             environment: $environment,
             backup_namespace: $backup_namespace,
             created_at: $created_at,
@@ -322,19 +245,17 @@ build_manifest() {
         > "${TEMP_ROOT}/manifest.json"
 }
 
-# --- backup pipeline: one shared code path for both selectors ---------------
+# --- backup pipeline ------------------------------------------------------
 
 perform_backup() {
     BACKUP_ROOT="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
     TIMESTAMP="$(date -u +%Y%m%d-%H%M%S)"
     TEMP_ROOT="${BACKUP_ROOT}/.${TIMESTAMP}.tmp"
     FINAL_ROOT="${BACKUP_ROOT}/${TIMESTAMP}"
-    # Keyed on BACKUP_NAMESPACE, never on LABEL (the selector-specific target
-    # ID or environment name): "backup --environment staging" and
-    # "backup --target staging-main" resolve to the identical namespace
-    # "staging", so they must also resolve to the identical lock file and
-    # backup root — otherwise both selectors could write into the same
-    # namespace concurrently.
+    # Keyed on BACKUP_NAMESPACE, never on LABEL (the target ID): two targets
+    # sharing a backup namespace must resolve to the identical lock file and
+    # backup root, so they can never write into the same namespace
+    # concurrently.
     LOCK_FILE="${RUN_ROOT}/backup-${BACKUP_NAMESPACE}.lock"
 
     install -d -o root -g root -m 0700 \
@@ -357,10 +278,10 @@ perform_backup() {
 
     CURRENT_RELEASE="unknown"
 
-    if [[ -L "${ENVIRONMENT_ROOT}/current" ]]; then
+    if [[ -L "${TARGET_ROOT}/current" ]]; then
         CURRENT_RELEASE="$(
             basename "$(
-                readlink -f "${ENVIRONMENT_ROOT}/current"
+                readlink -f "${TARGET_ROOT}/current"
             )"
         )"
     fi
@@ -379,7 +300,7 @@ perform_backup() {
     log "Backing up application storage"
 
     tar \
-        -C "${ENVIRONMENT_ROOT}/shared/storage" \
+        -C "${TARGET_ROOT}/shared/storage" \
         -czf "${TEMP_ROOT}/storage-app.tar.gz" \
         app
 
@@ -389,15 +310,15 @@ perform_backup() {
         -o root \
         -g root \
         -m 0600 \
-        "${ENVIRONMENT_ROOT}/shared/.env" \
+        "${TARGET_ROOT}/shared/.env" \
         "${TEMP_ROOT}/environment.env"
 
-    if [[ -f "${ENVIRONMENT_ROOT}/current/release.json" ]]; then
+    if [[ -f "${TARGET_ROOT}/current/release.json" ]]; then
         install \
             -o root \
             -g root \
             -m 0600 \
-            "${ENVIRONMENT_ROOT}/current/release.json" \
+            "${TARGET_ROOT}/current/release.json" \
             "${TEMP_ROOT}/release.json"
     else
         printf '{}\n' > "${TEMP_ROOT}/release.json"

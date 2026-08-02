@@ -1,36 +1,30 @@
 #!/usr/bin/env bash
 #
-# install-target-operations — install/verify the target-aware operational
-# tooling (Phase 4 slices 2b-7.2).
+# install-target-operations — install/verify the target-only operational
+# tooling.
 #
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry and the thirteen target-aware
-#             scripts (targets, common, health-check, status, cleanup,
-#             deploy, rollback, backup, restore-test, offsite-backup,
-#             offsite-retention, offsite-restore-test, backup-cycle), verify
-#             a staged copy before touching anything, install
-#             transactionally, then verify the installed result against the
-#             real host before committing.
+#   --apply   Install the target registry, the thirteen target-only scripts
+#             (targets, common, health-check, status, cleanup, deploy,
+#             rollback, backup, restore-test, offsite-backup,
+#             offsite-retention, offsite-restore-test, backup-cycle) and the
+#             host-global deployment.conf, verify a staged copy before
+#             touching anything, install transactionally, then verify the
+#             installed result against the real host before committing.
 #   --verify  Re-run the installed-file and runtime-parity checks against
 #             whatever is currently installed. Makes NO changes, creates NO
 #             backup.
 #
 # What this installs — and does not:
-#   * Only fourteen files: the registry and thirteen scripts — targets,
-#     common, health-check and status (read-only), plus cleanup (Phase 4
-#     slice 4), deploy (Phase 4 slice 5), rollback (Phase 4 slice 6), backup /
-#     restore-test (Phase 4 slice 7.1), offsite-backup / offsite-retention /
-#     offsite-restore-test (Phase 4 slice 7.2), and backup-cycle (Phase 4
-#     slice 7.3) — the mutating operations this installer manages, each
-#     gated behind its own lifecycle/lock/path-containment protections.
+#   * Fifteen files: the registry, the thirteen scripts — targets, common,
+#     health-check and status (read-only), cleanup, deploy, rollback,
+#     backup, restore-test, offsite-backup, offsite-retention,
+#     offsite-restore-test, backup-cycle — and deployment.conf, the
+#     host-global (non-target-specific) configuration those scripts source.
 #     Every perimeter file (cron, systemd timers, GitHub Actions workflows,
-#     sudoers, server wrappers) stays untouched by this installer and remains
-#     --environment-only.
-#   * Never touches /home/www/rateguru/config/deployment.conf. The target
-#     helpers already default to the registry's installed path, so nothing
-#     there needs to change.
+#     sudoers, server wrappers) stays untouched by this installer.
 #   * tits-guru is not provisioned by this or any other script: it has
 #     lifecycle=planned in the registry, and every target-aware command
 #     rejects it before touching the network or the filesystem. Installing
@@ -38,12 +32,12 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these fourteen files in these
-# fourteen places with these exact permissions, nothing else.
+# this installer's whole job is to put these fifteen files in these fifteen
+# places with these exact permissions, nothing else.
 #
-# This script never sources infrastructure/scripts/common or
-# deployment.conf. It reads deployment.conf's *metadata* (ownership, mode)
-# without parsing its contents, and never reads it as shell.
+# This script never sources infrastructure/scripts/common. It installs
+# deployment.conf as plain file content and never reads or parses it as
+# shell.
 
 set -Eeuo pipefail
 umask 022
@@ -68,6 +62,7 @@ SRC_OFFSITE_BACKUP="${REPO_ROOT}/infrastructure/scripts/offsite-backup"
 SRC_OFFSITE_RETENTION="${REPO_ROOT}/infrastructure/scripts/offsite-retention"
 SRC_OFFSITE_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/offsite-restore-test"
 SRC_BACKUP_CYCLE="${REPO_ROOT}/infrastructure/scripts/backup-cycle"
+SRC_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
 
 DST_CONFIG_ROOT="/home/www/rateguru/config"
 DST_BIN_ROOT="/home/www/rateguru/bin"
@@ -86,8 +81,7 @@ DST_OFFSITE_BACKUP="${DST_BIN_ROOT}/offsite-backup"
 DST_OFFSITE_RETENTION="${DST_BIN_ROOT}/offsite-retention"
 DST_OFFSITE_RESTORE_TEST="${DST_BIN_ROOT}/offsite-restore-test"
 DST_BACKUP_CYCLE="${DST_BIN_ROOT}/backup-cycle"
-
-DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
+DST_DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
 
 BACKUP_ROOT="/var/backups/rateguru-target-operations"
 
@@ -99,13 +93,17 @@ REGISTRY_MODE="0640"
 # distinction impossible to blur at a single call site by accident.
 COMMON_MODE="0644"
 CLI_MODE="0755"
+# Matches REGISTRY_MODE numerically (both root:root, non-group/other-writable
+# non-secret configuration), kept as its own named constant since the two
+# describe unrelated files that happen to share a mode today.
+DEPLOYMENT_CONF_MODE="0640"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the fourteen files it installs, and the deployment.conf it reads but
-# never writes. A named constant (not a literal "root"/0 at each call site)
-# so the whole apply/verify flow can be exercised against non-root scratch
-# paths in tests, by reassigning these alongside DST_*/SRC_*/BACKUP_ROOT —
-# production always runs with the values below.
+# about: the fifteen files it installs. A named constant (not a literal
+# "root"/0 at each call site) so the whole apply/verify flow can be
+# exercised against non-root scratch paths in tests, by reassigning these
+# alongside DST_*/SRC_*/BACKUP_ROOT — production always runs with the values
+# below.
 INSTALL_OWNER="root"
 INSTALL_GROUP="root"
 INSTALL_OWNER_ID=0
@@ -198,13 +196,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_DEPLOYMENT_CONF}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all fourteen source files are present regular files"
+    log "all fifteen source files are present regular files"
 }
 
 # Catches the exact regression that made this installer unusable after a bad
@@ -230,6 +228,13 @@ validate_source_syntax() {
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
     log "bash -n passed for all thirteen source shell scripts"
+
+    # deployment.conf is never executed directly — common sources it — but it
+    # is still bash-syntax content (KEY=value assignments), and bash -n
+    # parses that exactly as well as a script, catching a syntax error before
+    # this installer ever stages or installs it.
+    bash -n "${SRC_DEPLOYMENT_CONF}" || fail "bash -n failed for source file: ${SRC_DEPLOYMENT_CONF}"
+    log "bash -n passed for source deployment.conf"
 }
 
 validate_source_registry() {
@@ -267,6 +272,21 @@ run_source_validation() {
 # for the final runtime-parity verification below, which explicitly unsets
 # every one of them.
 
+# Static, read-only proof over a captured --help output: shows --target,
+# never shows --environment. Checked against every staged script before any
+# of them is invoked for real, so a regression that resurrects the legacy
+# selector is caught at the earliest possible point.
+assert_usage_target_only() {
+    local help_output="$1" label="$2"
+
+    grep -Fq -- '--target' <<<"${help_output}" \
+        || fail "${label} --help does not mention --target: ${help_output}"
+
+    if grep -Fq -- '--environment' <<<"${help_output}"; then
+        fail "${label} --help still mentions --environment: ${help_output}"
+    fi
+}
+
 verify_staged_candidates() {
     local stage_dir="$1"
     local staged_registry="${stage_dir}/deployment-targets.json"
@@ -283,6 +303,7 @@ verify_staged_candidates() {
     local staged_offsite_retention="${stage_dir}/offsite-retention"
     local staged_offsite_restore_test="${stage_dir}/offsite-restore-test"
     local staged_backup_cycle="${stage_dir}/backup-cycle"
+    local staged_deployment_conf="${stage_dir}/deployment.conf"
 
     log "verifying staged candidates before installation"
 
@@ -290,7 +311,7 @@ verify_staged_candidates() {
         env
         RATEGURU_ALLOW_TEST_OVERRIDES=true
         "RATEGURU_COMMON_FILE=${staged_common}"
-        "RATEGURU_DEPLOYMENT_CONF_FILE=${DEPLOYMENT_CONF}"
+        "RATEGURU_DEPLOYMENT_CONF_FILE=${staged_deployment_conf}"
         "RATEGURU_TARGET_REGISTRY_FILE=${staged_registry}"
         "RATEGURU_TARGETS_CLI=${staged_targets}"
         "RATEGURU_HEALTH_CHECK_CLI=${staged_health_check}"
@@ -300,17 +321,30 @@ verify_staged_candidates() {
         || fail "staged targets CLI did not validate the staged registry"
     log "  staged targets validate: OK"
 
-    "${override_env[@]}" bash "${staged_health_check}" --environment staging >/dev/null 2>&1 \
-        || fail "staged health-check --environment staging failed"
-    log "  staged health-check --environment staging: OK"
+    local script entry help_output
+    for entry in \
+        "${staged_health_check}:health-check" \
+        "${staged_status}:status" \
+        "${staged_cleanup}:cleanup" \
+        "${staged_deploy}:deploy" \
+        "${staged_rollback}:rollback" \
+        "${staged_backup}:backup" \
+        "${staged_restore_test}:restore-test" \
+        "${staged_offsite_backup}:offsite-backup" \
+        "${staged_offsite_retention}:offsite-retention" \
+        "${staged_offsite_restore_test}:offsite-restore-test" \
+        "${staged_backup_cycle}:backup-cycle"
+    do
+        script="${entry%%:*}"
+        help_output="$("${override_env[@]}" bash "${script}" --help 2>&1)" \
+            || fail "staged ${entry#*:} --help failed"
+        assert_usage_target_only "${help_output}" "staged ${entry#*:}"
+    done
+    log "  staged usage: every script shows --target only, none mention --environment"
 
     "${override_env[@]}" bash "${staged_health_check}" --target staging-main >/dev/null 2>&1 \
         || fail "staged health-check --target staging-main failed"
     log "  staged health-check --target staging-main: OK"
-
-    "${override_env[@]}" bash "${staged_status}" --environment staging >/dev/null 2>&1 \
-        || fail "staged status --environment staging failed"
-    log "  staged status --environment staging: OK"
 
     "${override_env[@]}" bash "${staged_status}" --target staging-main >/dev/null 2>&1 \
         || fail "staged status --target staging-main failed"
@@ -321,34 +355,19 @@ verify_staged_candidates() {
     # source), which is exactly what makes it safe to run against the real
     # staging-main target root before anything else in this apply run is
     # touched.
-    local staged_cleanup_env_output staged_cleanup_target_output
-    staged_cleanup_env_output="$("${override_env[@]}" bash "${staged_cleanup}" --environment staging --dry-run 2>&1)" \
-        || fail "staged cleanup --environment staging --dry-run failed:"$'\n'"${staged_cleanup_env_output}"
-    log "  staged cleanup --environment staging --dry-run: OK"
-
+    local staged_cleanup_target_output
     staged_cleanup_target_output="$("${override_env[@]}" bash "${staged_cleanup}" --target staging-main --dry-run 2>&1)" \
         || fail "staged cleanup --target staging-main --dry-run failed:"$'\n'"${staged_cleanup_target_output}"
     log "  staged cleanup --target staging-main --dry-run: OK"
 
-    local staged_cleanup_env_candidates staged_cleanup_target_candidates
-    staged_cleanup_env_candidates="$(grep -o 'DRY RUN would delete: .*' <<<"${staged_cleanup_env_output}" | sort || true)"
-    staged_cleanup_target_candidates="$(grep -o 'DRY RUN would delete: .*' <<<"${staged_cleanup_target_output}" | sort || true)"
-
-    [[ "${staged_cleanup_env_candidates}" == "${staged_cleanup_target_candidates}" ]] \
-        || fail "staged cleanup candidate parity mismatch between --environment staging and --target staging-main"
-    log "  staged cleanup legacy/target dry-run candidate parity: OK"
-
     # deploy is never run for real here — no artifact exists to deploy, and
     # doing so would mutate the real staging target during what must stay a
-    # read-only preflight. Only --help (no root-gated mutation reachable) and
-    # the tits-guru lifecycle rejection (fails before any filesystem access)
-    # are safe to prove against the staged candidate. This whole apply run
-    # already runs as root (perform_apply is only reached via run_apply,
-    # which requires root), so staged_deploy's own require_root passes here
-    # exactly as it would in production.
-    "${override_env[@]}" bash "${staged_deploy}" --help >/dev/null 2>&1 \
-        || fail "staged deploy --help failed"
-    log "  staged deploy --help: OK"
+    # read-only preflight. --help was already proven above (no root-gated
+    # mutation reachable); only the tits-guru lifecycle rejection (fails
+    # before any filesystem access) remains to prove against the staged
+    # candidate. This whole apply run already runs as root (perform_apply is
+    # only reached via run_apply, which requires root), so staged_deploy's
+    # own require_root passes here exactly as it would in production.
 
     # This command is *expected* to fail. The trap armed by perform_apply is
     # still inherited into this subshell (see the MAIN_BASHPID comment on
@@ -386,14 +405,11 @@ verify_staged_candidates() {
 
     # rollback is never run for real here either — no releases exist to roll
     # back to, and doing so would mutate the real staging target during what
-    # must stay a read-only preflight. Only --help and the tits-guru lifecycle
-    # rejection are safe to prove, mirroring deploy's own staged checks above
-    # exactly. This apply run already runs as root, so staged_rollback's own
-    # require_root passes here exactly as it would in production.
-    "${override_env[@]}" bash "${staged_rollback}" --help >/dev/null 2>&1 \
-        || fail "staged rollback --help failed"
-    log "  staged rollback --help: OK"
-
+    # must stay a read-only preflight. --help was already proven above; only
+    # the tits-guru lifecycle rejection remains, mirroring deploy's own
+    # staged checks above exactly. This apply run already runs as root, so
+    # staged_rollback's own require_root passes here exactly as it would in
+    # production.
     local staged_rollback_planned_output
     if staged_rollback_planned_output="$("${override_env[@]}" bash "${staged_rollback}" --target tits-guru --release v0.0.0-20260101-000000-abc0000 2>&1)"; then
         fail "staged rollback --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
@@ -405,14 +421,11 @@ verify_staged_candidates() {
     # backup and restore-test are never run for real here either — no local
     # backup exists yet, and doing so would mutate the real staging target's
     # database dump/storage archive/backup namespace during what must stay a
-    # read-only preflight. Only --help and the tits-guru lifecycle rejection
-    # are safe to prove, mirroring deploy/rollback's own staged checks above
-    # exactly. This apply run already runs as root, so both staged scripts'
-    # own require_root passes here exactly as it would in production.
-    "${override_env[@]}" bash "${staged_backup}" --help >/dev/null 2>&1 \
-        || fail "staged backup --help failed"
-    log "  staged backup --help: OK"
-
+    # read-only preflight. --help was already proven above; only the
+    # tits-guru lifecycle rejection remains, mirroring deploy/rollback's own
+    # staged checks above exactly. This apply run already runs as root, so
+    # both staged scripts' own require_root passes here exactly as it would
+    # in production.
     local staged_backup_planned_output
     if staged_backup_planned_output="$("${override_env[@]}" bash "${staged_backup}" --target tits-guru 2>&1)"; then
         fail "staged backup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
@@ -420,10 +433,6 @@ verify_staged_candidates() {
     grep -q 'lifecycle=planned' <<<"${staged_backup_planned_output}" \
         || fail "staged backup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_backup_planned_output}"
     log "  staged backup --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    "${override_env[@]}" bash "${staged_restore_test}" --help >/dev/null 2>&1 \
-        || fail "staged restore-test --help failed"
-    log "  staged restore-test --help: OK"
 
     local staged_restore_test_planned_output
     if staged_restore_test_planned_output="$("${override_env[@]}" bash "${staged_restore_test}" --target tits-guru 2>&1)"; then
@@ -435,13 +444,9 @@ verify_staged_candidates() {
 
     # offsite-backup, offsite-retention and offsite-restore-test are never run
     # for real here either — no B2 access, no remote listing, no local backup
-    # mutation, no database work — only --help and the tits-guru lifecycle
-    # rejection are safe to prove, mirroring backup/restore-test's own staged
-    # checks above exactly.
-    "${override_env[@]}" bash "${staged_offsite_backup}" --help >/dev/null 2>&1 \
-        || fail "staged offsite-backup --help failed"
-    log "  staged offsite-backup --help: OK"
-
+    # mutation, no database work. --help was already proven above; only the
+    # tits-guru lifecycle rejection remains, mirroring backup/restore-test's
+    # own staged checks above exactly.
     local staged_offsite_backup_planned_output
     if staged_offsite_backup_planned_output="$("${override_env[@]}" bash "${staged_offsite_backup}" --target tits-guru 2>&1)"; then
         fail "staged offsite-backup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
@@ -449,10 +454,6 @@ verify_staged_candidates() {
     grep -q 'lifecycle=planned' <<<"${staged_offsite_backup_planned_output}" \
         || fail "staged offsite-backup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_offsite_backup_planned_output}"
     log "  staged offsite-backup --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    "${override_env[@]}" bash "${staged_offsite_retention}" --help >/dev/null 2>&1 \
-        || fail "staged offsite-retention --help failed"
-    log "  staged offsite-retention --help: OK"
 
     local staged_offsite_retention_planned_output
     if staged_offsite_retention_planned_output="$("${override_env[@]}" bash "${staged_offsite_retention}" --target tits-guru 2>&1)"; then
@@ -462,10 +463,6 @@ verify_staged_candidates() {
         || fail "staged offsite-retention --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_offsite_retention_planned_output}"
     log "  staged offsite-retention --target tits-guru: correctly rejected (lifecycle=planned)"
 
-    "${override_env[@]}" bash "${staged_offsite_restore_test}" --help >/dev/null 2>&1 \
-        || fail "staged offsite-restore-test --help failed"
-    log "  staged offsite-restore-test --help: OK"
-
     local staged_offsite_restore_test_planned_output
     if staged_offsite_restore_test_planned_output="$("${override_env[@]}" bash "${staged_offsite_restore_test}" --target tits-guru 2>&1)"; then
         fail "staged offsite-restore-test --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
@@ -474,17 +471,13 @@ verify_staged_candidates() {
         || fail "staged offsite-restore-test --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_offsite_restore_test_planned_output}"
     log "  staged offsite-restore-test --target tits-guru: correctly rejected (lifecycle=planned)"
 
-    # Phase 4 slice 7.3: backup-cycle is never run for real here either — a
-    # real cycle would create a local backup, run a restore test, upload
-    # offsite and apply real retention against the real staging-main target,
-    # which must stay untouched by what is meant to be a read-only preflight.
-    # Only --help and the tits-guru lifecycle rejection are safe to prove,
+    # backup-cycle is never run for real here either — a real cycle would
+    # create a local backup, run a restore test, upload offsite and apply
+    # real retention against the real staging-main target, which must stay
+    # untouched by what is meant to be a read-only preflight. --help was
+    # already proven above; only the tits-guru lifecycle rejection remains,
     # mirroring every other mutating operational script's own staged checks
     # above exactly.
-    "${override_env[@]}" bash "${staged_backup_cycle}" --help >/dev/null 2>&1 \
-        || fail "staged backup-cycle --help failed"
-    log "  staged backup-cycle --help: OK"
-
     local staged_backup_cycle_planned_output
     if staged_backup_cycle_planned_output="$("${override_env[@]}" bash "${staged_backup_cycle}" --target tits-guru 2>&1)"; then
         fail "staged backup-cycle --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
@@ -702,67 +695,6 @@ assert_status_sections_present() {
     done
 }
 
-# Extracts exactly the sections that must be identical between --target and
-# --environment status output for the same application_root: Releases through
-# Current release metadata, then Recent deployment history through the end
-# of output. The entire Health section is deliberately excluded — health-check
-# --environment staging and health-check --target staging-main are already
-# verified independently (verify_legacy_environment_health/verify_target_health),
-# and status runs health-check without suppressing its own log output, so
-# Health legitimately differs between modes: the selector label ("staging-main
-# health check passed" vs. "staging health check passed") and the log
-# timestamp both vary by design. Comparing the whole body after the header
-# used to compare this section too, producing a false parity failure on the
-# real staging VPS even though current release, previous release,
-# release.json and history were all genuinely identical.
-status_deployment_state() {
-    local output="$1"
-
-    awk '
-        /^Releases$/ {
-            capture = 1
-        }
-
-        /^Health$/ {
-            capture = 0
-        }
-
-        /^Recent deployment history$/ {
-            capture = 1
-        }
-
-        capture {
-            print
-        }
-    ' <<<"${output}"
-}
-
-# Prints a diff -u diagnostic between two differing canonical deployment-state
-# bodies. Called only after a mismatch is already known; never decides
-# pass/fail itself. Status output contains only release metadata and
-# deployment history (no secrets), so this is safe to log in full. The temp
-# files this creates are root-only (mktemp's default 0600) and are removed by
-# a RETURN trap regardless of how this function's caller proceeds afterward.
-log_status_state_diff() {
-    local target_state="$1" legacy_state="$2"
-    local target_file legacy_file
-    target_file="$(mktemp)"
-    legacy_file="$(mktemp)"
-    # SC2064: the paths are meant to expand now, not when the trap fires —
-    # they are local to this call and never reassigned afterward.
-    # shellcheck disable=SC2064
-    trap "rm -f '${target_file}' '${legacy_file}'" RETURN
-
-    printf '%s\n' "${target_state}" > "${target_file}"
-    printf '%s\n' "${legacy_state}" > "${legacy_file}"
-
-    log "target vs. legacy deployment-state diff (diff -u target legacy):"
-    local line
-    while IFS= read -r line; do
-        log "  ${line}"
-    done < <(diff -u "${target_file}" "${legacy_file}" || true)
-}
-
 verify_installed_files() {
     log "verifying installed files"
 
@@ -780,7 +712,8 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_OFFSITE_RETENTION}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_RETENTION}"
     verify_installed_regular_file "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_RESTORE_TEST}"
     verify_installed_regular_file "${DST_BACKUP_CYCLE}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_BACKUP_CYCLE}"
-    log "  ownership, mode and content: OK for all fourteen files"
+    verify_installed_regular_file "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${DEPLOYMENT_CONF_MODE}" "${SRC_DEPLOYMENT_CONF}"
+    log "  ownership, mode and content: OK for all fifteen files"
 
     # common is a sourced library, never a CLI — verify_installed_regular_file
     # already proved its mode is exactly COMMON_MODE (0644), which has no
@@ -796,6 +729,13 @@ verify_installed_files() {
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
     log "  bash -n: OK for all thirteen installed scripts"
+
+    # deployment.conf is never executed directly — common sources it — but it
+    # is still bash-syntax content (KEY=value assignments), and bash -n
+    # parses that exactly as well as a script, catching a syntax error (an
+    # unescaped quote, for example) before it is ever actually sourced.
+    bash -n "${DST_DEPLOYMENT_CONF}" || fail "bash -n failed for installed file: ${DST_DEPLOYMENT_CONF}"
+    log "  bash -n: OK for installed deployment.conf"
 
     "${DST_TARGETS}" validate --file "${DST_REGISTRY}" >/dev/null \
         || fail "installed targets CLI could not validate the installed registry"
@@ -813,66 +753,35 @@ verify_installed_files() {
     log "installed-file verification passed"
 }
 
-verify_legacy_environment_health() {
-    no_overrides_env "${DST_HEALTH_CHECK}" --environment staging >/dev/null \
-        || fail "installed health-check --environment staging failed"
-    log "health-check --environment staging: OK"
-}
-
 verify_target_health() {
     no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null \
         || fail "installed health-check --target staging-main failed"
     log "health-check --target staging-main: OK"
 }
 
-verify_status_parity() {
-    local target_status legacy_status
-
-    target_status="$(no_overrides_env "${DST_STATUS}" --target staging-main)" \
+verify_status() {
+    local status_output
+    status_output="$(no_overrides_env "${DST_STATUS}" --target staging-main)" \
         || fail "installed status --target staging-main failed"
-    legacy_status="$(no_overrides_env "${DST_STATUS}" --environment staging)" \
-        || fail "installed status --environment staging failed"
-    log "status --target staging-main and status --environment staging both ran"
+    log "status --target staging-main: OK"
 
-    grep -Fq 'Target:      staging-main' <<<"${target_status}" \
-        || fail "target status output is missing 'Target: staging-main'"
-    grep -Fq 'Lifecycle:   active' <<<"${target_status}" \
-        || fail "target status output is missing 'Lifecycle: active'"
-    grep -Fq 'Environment class: staging' <<<"${target_status}" \
-        || fail "target status output is missing 'Environment class: staging'"
-    grep -Fq 'Environment: staging' <<<"${legacy_status}" \
-        || fail "legacy status output is missing 'Environment: staging'"
-    log "target and legacy status headers: OK"
+    grep -Fq 'Target:      staging-main' <<<"${status_output}" \
+        || fail "status output is missing 'Target: staging-main'"
+    grep -Fq 'Lifecycle:   active' <<<"${status_output}" \
+        || fail "status output is missing 'Lifecycle: active'"
+    grep -Fq 'Environment class: staging' <<<"${status_output}" \
+        || fail "status output is missing 'Environment class: staging'"
+    log "status header: OK"
 
-    # Validated before anything else is read out of either output: a status
-    # output missing a whole section is a malformed/broken output in its own
-    # right, and deserves its own specific diagnostic naming the missing
-    # section — not a downstream symptom like a missing Status: healthy line.
-    assert_status_sections_present "${target_status}" "target"
-    assert_status_sections_present "${legacy_status}" "legacy"
+    # A status output missing a whole section is a malformed/broken output in
+    # its own right, and deserves its own specific diagnostic naming the
+    # missing section — not a downstream symptom like a missing
+    # Status: healthy line.
+    assert_status_sections_present "${status_output}" "status"
 
-    grep -Fxq 'Status: healthy' <<<"${target_status}" \
-        || fail "target status output does not report 'Status: healthy'"
-    grep -Fxq 'Status: healthy' <<<"${legacy_status}" \
-        || fail "legacy status output does not report 'Status: healthy'"
-    log "target and legacy status both report Status: healthy"
-
-    # Releases, Current release metadata, and Recent deployment history must
-    # be identical between the two modes — same current release, same
-    # previous release, same release.json, same history file — because both
-    # resolve the identical application_root. Health is deliberately excluded
-    # (see status_deployment_state); its own Status: healthy line is already
-    # required above, independently, for each mode.
-    local target_state legacy_state
-    target_state="$(status_deployment_state "${target_status}")"
-    legacy_state="$(status_deployment_state "${legacy_status}")"
-
-    if [[ "${target_state}" != "${legacy_state}" ]]; then
-        log_status_state_diff "${target_state}" "${legacy_state}"
-        fail "target and legacy status disagree in deployment state (current/previous release, release.json or history mismatch)"
-    fi
-
-    log "current release, previous release, release.json and history: identical between modes"
+    grep -Fxq 'Status: healthy' <<<"${status_output}" \
+        || fail "status output does not report 'Status: healthy'"
+    log "status reports Status: healthy"
 }
 
 verify_planned_target_rejected() {
@@ -890,26 +799,14 @@ verify_planned_target_rejected() {
     log "health-check --target tits-guru: correctly rejected (lifecycle=planned)"
 }
 
-# Phase 4 slice 4: cleanup --dry-run only, exactly like verify_staged_candidates
-# above — dry-run makes no changes to the real target, so this genuinely
-# proves candidate-selection parity against the real host without risking it.
-verify_cleanup_dry_run_parity() {
-    local env_output target_output
-
-    env_output="$(no_overrides_env "${DST_CLEANUP}" --environment staging --dry-run 2>&1)" \
-        || fail "installed cleanup --environment staging --dry-run failed:"$'\n'"${env_output}"
-    target_output="$(no_overrides_env "${DST_CLEANUP}" --target staging-main --dry-run 2>&1)" \
-        || fail "installed cleanup --target staging-main --dry-run failed:"$'\n'"${target_output}"
-    log "cleanup --environment staging --dry-run and cleanup --target staging-main --dry-run both ran"
-
-    local env_candidates target_candidates
-    env_candidates="$(grep -o 'DRY RUN would delete: .*' <<<"${env_output}" | sort || true)"
-    target_candidates="$(grep -o 'DRY RUN would delete: .*' <<<"${target_output}" | sort || true)"
-
-    [[ "${env_candidates}" == "${target_candidates}" ]] \
-        || fail "installed cleanup candidate parity mismatch between --environment staging and --target staging-main"
-
-    log "cleanup --environment staging and --target staging-main dry-run candidate parity: OK"
+# cleanup --dry-run only, exactly like verify_staged_candidates above —
+# dry-run makes no changes to the real target, so this genuinely proves the
+# installed cleanup runs cleanly against the real host without risking it.
+verify_cleanup_dry_run() {
+    local output
+    output="$(no_overrides_env "${DST_CLEANUP}" --target staging-main --dry-run 2>&1)" \
+        || fail "installed cleanup --target staging-main --dry-run failed:"$'\n'"${output}"
+    log "cleanup --target staging-main --dry-run: OK"
 }
 
 verify_cleanup_planned_target_rejected() {
@@ -1102,14 +999,13 @@ verify_backup_cycle_planned_target_rejected() {
 
 # Thin wrapper used by apply's post-install check, which wants one pass/fail
 # outcome rather than the phase-by-phase banners --verify prints — see
-# run_verify below, which calls the same twenty functions individually.
+# run_verify below, which calls the same functions individually.
 verify_runtime_parity() {
-    log "verifying runtime parity against the real host (no test overrides)"
-    verify_legacy_environment_health
+    log "verifying runtime behaviour against the real host (no test overrides)"
     verify_target_health
-    verify_status_parity
+    verify_status
     verify_planned_target_rejected
-    verify_cleanup_dry_run_parity
+    verify_cleanup_dry_run
     verify_cleanup_planned_target_rejected
     verify_deploy_help
     verify_deploy_planned_target_rejected
@@ -1154,12 +1050,13 @@ run_check() {
     log "  ${DST_OFFSITE_RETENTION}"
     log "  ${DST_OFFSITE_RESTORE_TEST}"
     log "  ${DST_BACKUP_CYCLE}"
+    log "  ${DST_DEPLOYMENT_CONF}"
 
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The two directories every one of the fourteen destinations lives under. This
-# installer owns exactly fourteen *files* — it never creates, chowns or chmods
+# The two directories every one of the fifteen destinations lives under. This
+# installer owns exactly fifteen *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -1191,29 +1088,10 @@ validate_destination_directories() {
     log "destination directories exist, are root-owned, non-writable-by-others directories (unchanged by this installer)"
 }
 
-validate_installed_deployment_conf() {
-    [[ -e "${DEPLOYMENT_CONF}" ]] || fail "installed deployment.conf is missing: ${DEPLOYMENT_CONF}"
-    [[ ! -L "${DEPLOYMENT_CONF}" ]] || fail "installed deployment.conf must not be a symlink: ${DEPLOYMENT_CONF}"
-    [[ -f "${DEPLOYMENT_CONF}" ]] || fail "installed deployment.conf must be a regular file: ${DEPLOYMENT_CONF}"
-
-    local owner
-    owner="$(stat -c '%u:%g' "${DEPLOYMENT_CONF}")"
-    [[ "${owner}" == "${INSTALL_OWNER_ID}:${INSTALL_GROUP_ID}" ]] \
-        || fail "installed deployment.conf must be owned by root:root, is ${owner}: ${DEPLOYMENT_CONF}"
-
-    local mode
-    mode="$(stat -c '%a' "${DEPLOYMENT_CONF}")"
-    if (( (8#${mode} & 8#022) != 0 )); then
-        fail "installed deployment.conf must not be group- or other-writable (mode ${mode}): ${DEPLOYMENT_CONF}"
-    fi
-
-    log "installed deployment.conf is a root-owned, non-writable-by-others regular file (unchanged by this installer)"
-}
-
-verify_legacy_staging_health() {
-    no_overrides_env "${DST_HEALTH_CHECK}" --environment staging >/dev/null \
-        || fail "currently installed legacy staging health check failed — refusing to install anything (${DST_HEALTH_CHECK} --environment staging)"
-    log "currently installed legacy staging health check: OK"
+verify_preflight_target_health() {
+    no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null \
+        || fail "currently installed staging-main health check failed — refusing to install anything (${DST_HEALTH_CHECK} --target staging-main)"
+    log "currently installed staging-main health check: OK"
 }
 
 APPLY_COMMITTED=false
@@ -1247,10 +1125,10 @@ on_apply_error() {
     if [[ "${APPLY_COMMITTED}" == false ]] && [[ -n "${BACKUP_DIR}" ]]; then
         if rollback_installed_files; then
             log "rollback complete: previous files restored"
-            if no_overrides_env "${DST_HEALTH_CHECK}" --environment staging >/dev/null 2>&1; then
-                log "confirmed: legacy staging health check still succeeds after rollback"
+            if no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null 2>&1; then
+                log "confirmed: staging-main health check still succeeds after rollback"
             else
-                log "ERROR: legacy staging health check FAILED even after rollback — manual intervention required"
+                log "ERROR: staging-main health check FAILED even after rollback — manual intervention required"
             fi
         else
             log "ERROR: rollback INCOMPLETE — some files may not have been restored"
@@ -1289,9 +1167,8 @@ perform_apply() {
     log "mode: apply"
 
     run_source_validation
-    validate_installed_deployment_conf
     validate_destination_directories
-    verify_legacy_staging_health
+    verify_preflight_target_health
 
     # The ERR/EXIT trap is armed from here on, so stage_dir is cleaned up (and,
     # once BACKUP_DIR exists below, any already-touched destination is rolled
@@ -1314,6 +1191,7 @@ perform_apply() {
     install -m 0700 "${SRC_OFFSITE_RETENTION}" "${STAGE_DIR}/offsite-retention"
     install -m 0700 "${SRC_OFFSITE_RESTORE_TEST}" "${STAGE_DIR}/offsite-restore-test"
     install -m 0700 "${SRC_BACKUP_CYCLE}" "${STAGE_DIR}/backup-cycle"
+    install -m 0700 "${SRC_DEPLOYMENT_CONF}" "${STAGE_DIR}/deployment.conf"
 
     verify_staged_candidates "${STAGE_DIR}"
 
@@ -1326,7 +1204,9 @@ perform_apply() {
     # targets validator before common (which invokes it), common before the
     # eleven scripts that source it (health-check, status, cleanup, deploy,
     # rollback, backup, restore-test, offsite-backup, offsite-retention,
-    # offsite-restore-test, backup-cycle).
+    # offsite-restore-test, backup-cycle), and the host-global deployment.conf
+    # last — every script sourcing it either atomically sees the old config
+    # or the new one, never a half-installed bundle in between.
     install_regular_file_transactional "${STAGE_DIR}/deployment-targets.json" "${DST_REGISTRY}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${REGISTRY_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/targets" "${DST_TARGETS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/common" "${DST_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${COMMON_MODE}"
@@ -1341,6 +1221,7 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/offsite-retention" "${DST_OFFSITE_RETENTION}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/offsite-restore-test" "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/backup-cycle" "${DST_BACKUP_CYCLE}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/deployment.conf" "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${DEPLOYMENT_CONF_MODE}"
 
     log "files installed; verifying before committing"
 
@@ -1354,6 +1235,7 @@ perform_apply() {
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
     log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}"
+    log "  deployment.conf: ${DST_DEPLOYMENT_CONF}"
     log "  backups      : ${BACKUP_DIR}"
     log "Run 'install-target-operations --verify' at any time to re-check the installed result."
 }
@@ -1393,20 +1275,17 @@ perform_verify() {
     log "--- installed-file validation ---"
     verify_installed_files
 
-    log "--- legacy staging health ---"
-    verify_legacy_environment_health
-
-    log "--- target staging health ---"
+    log "--- staging-main health ---"
     verify_target_health
 
-    log "--- status parity ---"
-    verify_status_parity
+    log "--- status ---"
+    verify_status
 
     log "--- planned-target rejection ---"
     verify_planned_target_rejected
 
-    log "--- cleanup dry-run parity ---"
-    verify_cleanup_dry_run_parity
+    log "--- cleanup dry-run ---"
+    verify_cleanup_dry_run
 
     log "--- cleanup planned-target rejection ---"
     verify_cleanup_planned_target_rejected

@@ -415,13 +415,21 @@ function offsiteRestoreOpsBuildRemoteBackup(string $bucketRoot, string $namespac
  * root-bypassed patched script, genuine local-backend rclone, and stubbed
  * database binaries) against a purpose-built remote backup.
  *
- * @return array{exit: int, output: string, bucketRoot: string, remoteDir: string, resultFile: string, createdbLog: string, dropdbLog: string, pgRestoreLog: string, psqlLog: string, backupBase: string}
+ * $useParityTarget selects which target's registry values populate the
+ * fixture: false uses staging-main's own committed registry values
+ * (namespace "staging", database "rateguru_staging") against the real
+ * committed registry; true uses a synthetic parity-target with independently
+ * chosen defaults (namespace "parity", database "parity_db") via
+ * offsiteRestoreOpsParityRegistry() — e.g. for schema-2 target-mismatch
+ * coverage, which needs a target ID distinct from the manifest's own.
+ *
+ * @return array{exit: int, output: string, bucketRoot: string, remoteDir: string, resultFile: string, createdbLog: string, dropdbLog: string, pgRestoreLog: string, psqlLog: string, backupBase: string, targetId: string}
  */
-function offsiteRestoreOpsRunFullOffsiteRestoreTest(string $scratch, bool $useTarget, ?array $manifest, array $options = []): array
+function offsiteRestoreOpsRunFullOffsiteRestoreTest(string $scratch, bool $useParityTarget, ?array $manifest, array $options = []): array
 {
     $backupBase = $scratch.'/backups-'.uniqid('', true);
-    $namespace = $options['namespace'] ?? ($useTarget ? 'parity' : 'staging');
-    $databaseName = $options['database_name'] ?? ($useTarget ? 'parity_db' : 'rateguru_staging');
+    $namespace = $options['namespace'] ?? ($useParityTarget ? 'parity' : 'staging');
+    $databaseName = $options['database_name'] ?? ($useParityTarget ? 'parity_db' : 'rateguru_staging');
     $bucketRoot = $scratch.'/bucket-'.uniqid('', true);
     mkdir($bucketRoot, 0o755, true);
 
@@ -462,18 +470,18 @@ function offsiteRestoreOpsRunFullOffsiteRestoreTest(string $scratch, bool $useTa
         'RESTORE_STUB_MIGRATION_COUNT' => (string) ($options['migration_count'] ?? 12),
     ]);
 
-    if ($useTarget) {
+    if ($useParityTarget) {
+        $targetId = 'parity-target';
         [$registryPath, $targetsPath] = offsiteRestoreOpsParityRegistry($scratch, $namespace, $databaseName);
         $env['RATEGURU_TARGET_REGISTRY_FILE'] = $registryPath;
         $env['RATEGURU_TARGETS_CLI'] = $targetsPath;
-        $selectorArgs = '--target parity-target';
     } else {
-        $selectorArgs = '--environment staging';
+        $targetId = 'staging-main';
     }
 
     [$exit, $output] = offsiteRestoreOpsRunHarness(
         $scratch,
-        "parse_offsite_restore_args {$selectorArgs}\nresolve_offsite_restore_subject\nperform_offsite_restore_test",
+        "parse_offsite_restore_args --target {$targetId}\nresolve_offsite_restore_subject\nperform_offsite_restore_test",
         $env,
         offsiteRestoreOpsPatchedScript($scratch),
     );
@@ -489,29 +497,13 @@ function offsiteRestoreOpsRunFullOffsiteRestoreTest(string $scratch, bool $useTa
         'pgRestoreLog' => $pgRestoreLog,
         'psqlLog' => $psqlLog,
         'backupBase' => $backupBase,
+        'targetId' => $targetId,
     ];
 }
 
 // =============================================================================
 // Selector contract
 // =============================================================================
-
-it('supports the legacy --environment selector', function () {
-    $scratch = offsiteRestoreOpsScratchDir();
-
-    try {
-        [$exit, $output] = offsiteRestoreOpsRunHarness($scratch, <<<'BASH'
-            parse_offsite_restore_args --environment staging
-            resolve_offsite_restore_subject
-            printf 'LABEL=%s\n' "${LABEL}"
-            BASH, offsiteRestoreOpsBaseEnv($scratch));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('LABEL=staging');
-    } finally {
-        offsiteRestoreOpsCleanup($scratch);
-    }
-});
 
 it('supports the --target selector', function () {
     $scratch = offsiteRestoreOpsScratchDir();
@@ -535,55 +527,46 @@ it('supports the --target selector', function () {
     }
 });
 
-it('rejects --target and --environment used together', function () {
-    $scratch = offsiteRestoreOpsScratchDir();
-
-    try {
-        [$exit, $output] = offsiteRestoreOpsRunHarness(
-            $scratch,
-            'parse_offsite_restore_args --target staging-main --environment staging',
-            offsiteRestoreOpsBaseEnv($scratch),
-        );
-
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('cannot be combined');
-    } finally {
-        offsiteRestoreOpsCleanup($scratch);
-    }
-});
-
-it('requires exactly one selector', function () {
+it('requires --target', function () {
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
         [$exit, $output] = offsiteRestoreOpsRunHarness($scratch, 'parse_offsite_restore_args', offsiteRestoreOpsBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('exactly one of --target or --environment is required');
+        expect($output)->toContain('--target is required');
     } finally {
         offsiteRestoreOpsCleanup($scratch);
     }
 });
 
-it('rejects duplicate selectors', function () {
+it('rejects a removed --environment flag exactly like any other unknown argument', function () {
+    // --environment is no longer a recognized flag at all — there is no
+    // special deprecation message, just the same generic rejection any
+    // other bogus flag gets.
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        [$targetExit, $targetOutput] = offsiteRestoreOpsRunHarness(
+        [$exit, $output] = offsiteRestoreOpsRunHarness($scratch, 'parse_offsite_restore_args --environment staging', offsiteRestoreOpsBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('unknown argument: --environment');
+    } finally {
+        offsiteRestoreOpsCleanup($scratch);
+    }
+});
+
+it('rejects duplicate --target', function () {
+    $scratch = offsiteRestoreOpsScratchDir();
+
+    try {
+        [$exit, $output] = offsiteRestoreOpsRunHarness(
             $scratch,
             'parse_offsite_restore_args --target a --target b',
             offsiteRestoreOpsBaseEnv($scratch),
         );
-        expect($targetExit)->not->toBe(0);
-        expect($targetOutput)->toContain('--target given more than once');
-
-        [$envExit, $envOutput] = offsiteRestoreOpsRunHarness(
-            $scratch,
-            'parse_offsite_restore_args --environment staging --environment production',
-            offsiteRestoreOpsBaseEnv($scratch),
-        );
-        expect($envExit)->not->toBe(0);
-        expect($envOutput)->toContain('--environment given more than once');
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target given more than once');
     } finally {
         offsiteRestoreOpsCleanup($scratch);
     }
@@ -601,15 +584,15 @@ it('rejects a selector given without a value, with an empty value, or with a fla
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a non-empty value');
 
-        [$exit, $output] = offsiteRestoreOpsRunHarness($scratch, 'parse_offsite_restore_args --target --environment staging', offsiteRestoreOpsBaseEnv($scratch));
+        [$exit, $output] = offsiteRestoreOpsRunHarness($scratch, 'parse_offsite_restore_args --target --help', offsiteRestoreOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('--target requires a value, not another option: --environment');
+        expect($output)->toContain('--target requires a value, not another option: --help');
     } finally {
         offsiteRestoreOpsCleanup($scratch);
     }
 });
 
-it('shows both selector forms on --help and exits 0', function () {
+it('shows only the --target form on --help and exits 0', function () {
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
@@ -617,8 +600,8 @@ it('shows both selector forms on --help and exits 0', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)
-            ->toContain('--environment staging|production')
-            ->toContain('--target TARGET_ID');
+            ->toContain('--target TARGET_ID')
+            ->not->toContain('--environment');
     } finally {
         offsiteRestoreOpsCleanup($scratch);
     }
@@ -700,7 +683,7 @@ it('rejects an unknown target clearly', function () {
 // Value resolution and source isolation
 // =============================================================================
 
-it('target mode resolves values only from the registry, never from deployment.conf', function () {
+it('resolves values only from the registry', function () {
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
@@ -729,87 +712,26 @@ it('target mode resolves values only from the registry, never from deployment.co
     }
 });
 
-it('legacy mode resolves values only from environment helpers, never from the registry', function () {
-    $scratch = offsiteRestoreOpsScratchDir();
-
-    try {
-        $missingRegistryPath = $scratch.'/definitely-missing-registry.json';
-
-        [$exit, $output] = offsiteRestoreOpsRunHarness($scratch, <<<'BASH'
-            parse_offsite_restore_args --environment staging
-            resolve_offsite_restore_subject
-            printf 'ENVIRONMENT_CLASS=%s\n' "${ENVIRONMENT_CLASS}"
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, offsiteRestoreOpsBaseEnv($scratch, [
-            'RATEGURU_TARGET_REGISTRY_FILE' => $missingRegistryPath,
-        ]));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)
-            ->toContain('ENVIRONMENT_CLASS=staging')
-            ->toContain('BACKUP_NAMESPACE=staging');
-    } finally {
-        offsiteRestoreOpsCleanup($scratch);
-    }
-});
-
-it('resolve_offsite_restore_subject never calls the legacy helper in target mode, and never calls the target helper in legacy mode', function () {
+it('resolve_offsite_restore_subject resolves values only through require_active_target and the target_* accessors', function () {
     $source = offsiteRestoreOpsSource();
 
     expect(preg_match(
-        '/^resolve_offsite_restore_subject\(\) \{\n'
-        .'    if \[\[ "\$\{TARGET_SEEN\}" == true \]\]; then\n'
-        .'(.*?)'
-        .'    else\n'
-        .'(.*?)'
-        .'    fi\n'
-        .'\}\n/ms',
+        '/^resolve_offsite_restore_subject\(\) \{\n(.*?)\n\}\n/ms',
         $source,
         $matches,
-    ))->toBe(1, 'could not locate the expected if/else structure of resolve_offsite_restore_subject() in scripts/offsite-restore-test');
+    ))->toBe(1, 'could not locate resolve_offsite_restore_subject() in scripts/offsite-restore-test');
 
-    [, $targetBranch, $legacyBranch] = $matches;
-
-    expect($targetBranch)
+    expect($matches[1])
+        ->toContain('require_active_target')
         ->toContain('target_environment_class')
         ->toContain('target_backup_namespace')
         ->not->toContain('environment_backup_namespace')
         ->not->toContain('validate_environment');
-
-    expect($legacyBranch)
-        ->toContain('environment_backup_namespace')
-        ->not->toContain('target_backup_namespace')
-        ->not->toContain('require_active_target');
 });
 
 // =============================================================================
-// Shared namespace and lock across selectors
+// Namespace-keyed lock and remote root
 // =============================================================================
-
-it('the real committed staging-main target and staging environment resolve the identical backup namespace', function () {
-    $scratch = offsiteRestoreOpsScratchDir();
-
-    try {
-        [$exit, $legacyOutput] = offsiteRestoreOpsRunHarness($scratch, <<<'BASH'
-            parse_offsite_restore_args --environment staging
-            resolve_offsite_restore_subject
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, offsiteRestoreOpsBaseEnv($scratch));
-        expect($exit)->toBe(0, $legacyOutput);
-
-        [$exit, $targetOutput] = offsiteRestoreOpsRunHarness($scratch, <<<'BASH'
-            parse_offsite_restore_args --target staging-main
-            resolve_offsite_restore_subject
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, offsiteRestoreOpsBaseEnv($scratch));
-        expect($exit)->toBe(0, $targetOutput);
-
-        expect($legacyOutput)->toContain('BACKUP_NAMESPACE=staging');
-        expect($targetOutput)->toContain('BACKUP_NAMESPACE=staging');
-    } finally {
-        offsiteRestoreOpsCleanup($scratch);
-    }
-});
 
 it('the lock filename and remote root are built from the backup namespace, never from the selector label', function () {
     $source = offsiteRestoreOpsSource();
@@ -819,7 +741,7 @@ it('the lock filename and remote root are built from the backup namespace, never
     expect($source)->not->toContain('offsite-restore-test-${LABEL}.lock');
 });
 
-it('cannot run --environment staging and --target staging-main offsite restore tests concurrently against the same namespace', function () {
+it('cannot run two offsite restore tests concurrently against the same namespace lock', function () {
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
@@ -882,7 +804,7 @@ it('selects the latest remote backup only within the resolved namespace', functi
         // itself creates (via the extra_backups option) — an older one in
         // the resolved "staging" namespace, and an even newer one in an
         // unrelated namespace that must be ignored.
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
             'timestamp' => '20260115-120000',
             'extra_backups' => [
                 ['staging', '20260101-000000', offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging')],
@@ -902,7 +824,7 @@ it('runs checksum validation before creating the temporary database', function (
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
             'corrupt_checksum' => true,
         ]);
 
@@ -917,7 +839,7 @@ it('runs storage archive validation before creating the temporary database', fun
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
             'corrupt_storage_archive' => true,
         ]);
 
@@ -932,7 +854,7 @@ it('rejects a remote backup with no manifest.json at all before creating the tem
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: null);
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: null);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('missing downloaded backup file: manifest.json');
@@ -942,11 +864,11 @@ it('rejects a remote backup with no manifest.json at all before creating the tem
     }
 });
 
-it('validates a schema 1 (legacy) manifest and remains restorable through --environment', function () {
+it('validates a schema 1 (legacy) manifest and remains restorable through --target staging-main', function () {
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'));
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'));
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect(File::get($result['createdbLog']))->not->toBe('');
@@ -959,7 +881,7 @@ it('validates a schema 1 (legacy) manifest and remains restorable through --targ
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: true, manifest: offsiteRestoreOpsManifestSchema1('staging', 'parity_db'));
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: offsiteRestoreOpsManifestSchema1('staging', 'parity_db'));
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect(File::get($result['createdbLog']))->not->toBe('');
@@ -974,7 +896,7 @@ it('rejects a schema 2 manifest with the wrong environment before creating the t
     try {
         $manifest = offsiteRestoreOpsManifestSchema2('environment', null, 'production', 'staging', 'rateguru_staging');
 
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: $manifest);
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('environment mismatch');
@@ -990,7 +912,7 @@ it('rejects a schema 2 manifest with the wrong backup_namespace before creating 
     try {
         $manifest = offsiteRestoreOpsManifestSchema2('environment', null, 'staging', 'some-other-namespace', 'rateguru_staging');
 
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: $manifest);
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('backup_namespace mismatch');
@@ -1006,7 +928,7 @@ it('rejects a schema 2 target-selector manifest naming a different target before
     try {
         $manifest = offsiteRestoreOpsManifestSchema2('target', 'some-other-target', 'staging', 'parity', 'parity_db');
 
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: true, manifest: $manifest);
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('target mismatch');
@@ -1023,7 +945,7 @@ it('rejects an unsupported numeric manifest schema_version before creating the t
         $manifest = offsiteRestoreOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
         $manifest['manifest_schema_version'] = 3;
 
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: $manifest);
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('unsupported backup manifest schema_version: 3');
@@ -1040,7 +962,7 @@ it('rejects a string manifest schema_version of "2" before creating the temporar
         $manifest = offsiteRestoreOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
         $manifest['manifest_schema_version'] = '2';
 
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: $manifest);
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('unsupported backup manifest schema_version: "2"');
@@ -1054,7 +976,7 @@ it('sanitizes the temporary database name from a namespace containing characters
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: true, manifest: offsiteRestoreOpsManifestSchema2('target', 'parity-target', 'staging', 'tits-guru', 'rateguru_tits_guru'), options: [
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: offsiteRestoreOpsManifestSchema2('target', 'parity-target', 'staging', 'tits-guru', 'rateguru_tits_guru'), options: [
             'namespace' => 'tits-guru',
             'database_name' => 'rateguru_tits_guru',
         ]);
@@ -1073,7 +995,7 @@ it('createdb, pg_restore, psql and dropdb all receive the exact same temporary d
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'));
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'));
         expect($result['exit'])->toBe(0, $result['output']);
 
         preg_match('/rateguru_offsite_restore_staging_\d{14}_\d+/', File::get($result['createdbLog']), $matches);
@@ -1092,7 +1014,7 @@ it('rejects a restored database with zero public tables, still drops the tempora
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
             'table_count' => 0,
         ]);
 
@@ -1109,7 +1031,7 @@ it('rejects an unparseable migrations count before writing history', function ()
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'), options: [
             'migration_count' => 'not-a-number',
         ]);
 
@@ -1125,7 +1047,7 @@ it('drops the temporary database and removes the temp directory on success too',
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'));
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'));
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect(File::get($result['dropdbLog']))->not->toBe('');
@@ -1142,7 +1064,7 @@ it('writes history only after a successful restore, including selector/target/en
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: true, manifest: offsiteRestoreOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db'), options: [
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: offsiteRestoreOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db'), options: [
             'migration_count' => 7,
             'table_count' => 9,
         ]);
@@ -1171,19 +1093,19 @@ it('writes history only after a successful restore, including selector/target/en
     }
 });
 
-it('writes legacy-selector history with a null target', function () {
+it('writes history with the real target ID, even when the restored manifest is a schema 1 (legacy) manifest with no target field of its own', function () {
     $scratch = offsiteRestoreOpsScratchDir();
 
     try {
-        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'));
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: offsiteRestoreOpsManifestSchema1('staging', 'rateguru_staging'));
 
         expect($result['exit'])->toBe(0, $result['output']);
 
         $lines = array_values(array_filter(explode("\n", trim(File::get($result['resultFile'])))));
         $entry = json_decode($lines[0], true);
 
-        expect($entry['selector'])->toBe('environment');
-        expect($entry['target'])->toBeNull();
+        expect($entry['selector'])->toBe('target');
+        expect($entry['target'])->toBe($result['targetId']);
         expect($entry['backup_namespace'])->toBe('staging');
     } finally {
         offsiteRestoreOpsCleanup($scratch);

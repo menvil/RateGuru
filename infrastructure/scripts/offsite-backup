@@ -66,7 +66,6 @@ fi
 usage() {
     cat <<'USAGE'
 Usage:
-  offsite-backup --environment staging|production
   offsite-backup --target TARGET_ID
 USAGE
 }
@@ -75,16 +74,14 @@ USAGE
 # this file, is constants and function definitions only — nothing runs until
 # main is called, mirroring backup/restore-test's own structure exactly.
 
-# --- selector parsing (mirrors backup/restore-test) --------------------------
+# --- target parsing (mirrors backup/restore-test) ----------------------------
 #
 # require_flag_value is defined in common (shared with offsite-retention and
 # offsite-restore-test — see the comment there).
 
 parse_offsite_backup_args() {
     TARGET_ID=""
-    ENVIRONMENT=""
     TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -93,13 +90,6 @@ parse_offsite_backup_args() {
                 require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
-                shift 2
-                ;;
-            --environment)
-                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                require_flag_value "--environment" "$#" "${2-}"
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
                 shift 2
                 ;;
             --help|-h)
@@ -112,30 +102,20 @@ parse_offsite_backup_args() {
         esac
     done
 
-    assert_selector_state
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
 
-# --- selector resolution (mirrors backup/restore-test) -----------------------
+# --- target resolution (mirrors backup/restore-test) -------------------------
 #
-# require_active_target runs first thing in the target branch — before the
-# rclone config check, remote listing, local backup root, lock, or any
-# filesystem/database work is ever computed or touched.
+# require_active_target runs first thing — before the rclone config check,
+# remote listing, local backup root, lock, or any filesystem/database work is
+# ever computed or touched.
 resolve_offsite_backup_subject() {
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        require_active_target "${TARGET_ID}"
+    require_active_target "${TARGET_ID}"
 
-        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
-        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
-        LABEL="${TARGET_ID}"
-        SELECTOR_TYPE="target"
-    else
-        validate_environment "${ENVIRONMENT}"
-
-        ENVIRONMENT_CLASS="${ENVIRONMENT}"
-        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
-        LABEL="${ENVIRONMENT}"
-        SELECTOR_TYPE="environment"
-    fi
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
 }
 
 # --- manifest validation ------------------------------------------------
@@ -149,13 +129,12 @@ resolve_offsite_backup_subject() {
 # against (unlike restore-test, which does) — `database` is only required to
 # be present and non-empty.
 
-# --- offsite backup pipeline: one shared code path for both selectors -------
+# --- offsite backup pipeline -----------------------------------------------
 
 perform_offsite_backup() {
-    # Keyed on BACKUP_NAMESPACE, never on LABEL — "offsite-backup --environment
-    # staging" and "offsite-backup --target staging-main" must resolve to the
-    # identical namespace, local root, remote root and lock file, exactly like
-    # backup/restore-test.
+    # Keyed on BACKUP_NAMESPACE, never on LABEL — two targets sharing a
+    # backup namespace must resolve to the identical local root, remote root
+    # and lock file, exactly like backup/restore-test.
     LOCAL_ROOT="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
     REMOTE_ROOT="${RCLONE_REMOTE}:${BUCKET}/rateguru/${BACKUP_NAMESPACE}"
     LOCK_FILE="${RUN_ROOT}/offsite-backup-${BACKUP_NAMESPACE}.lock"
@@ -278,21 +257,13 @@ perform_offsite_backup() {
         jq -r '.bytes' <<<"${REMOTE_SIZE_JSON}"
     )"
 
-    local target_arg="null"
-    local selector_arg="environment"
-
-    if [[ "${SELECTOR_TYPE}" == "target" ]]; then
-        target_arg="${TARGET_ID}"
-        selector_arg="target"
-    fi
-
     jq \
         --null-input \
         --compact-output \
         --arg status "ok" \
         --arg uploaded_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --arg selector "${selector_arg}" \
-        --arg target "${target_arg}" \
+        --arg selector "target" \
+        --arg target "${TARGET_ID}" \
         --arg environment "${ENVIRONMENT_CLASS}" \
         --arg backup_namespace "${BACKUP_NAMESPACE}" \
         --arg backup "${LATEST_BACKUP}" \
@@ -303,7 +274,7 @@ perform_offsite_backup() {
             status: $status,
             uploaded_at: $uploaded_at,
             selector: $selector,
-            target: (if $selector == "target" then $target else null end),
+            target: $target,
             environment: $environment,
             backup_namespace: $backup_namespace,
             backup: $backup,

@@ -57,9 +57,21 @@ See `runbooks/mail-capture.md`.
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. The first nine (through 7.3) are completed and accepted
-on the real staging VPS; slice 8 (perimeter) is current. The phase stays
-**current**.
+Slices, in order. Slices 1 through 8 are completed; slices 3 through 8 are
+additionally accepted on the real staging VPS (slices 1-2 declared the target
+registry and added read-only `--target` support only — neither installed
+anything on the VPS). Slice 9 (complete legacy-selector removal) is current.
+The phase stays **current**.
+
+<!-- legacy-environment-history:start -->
+<!--
+  Slices 1-8 below are a historical record of the migration while it ran the
+  old and new operational selectors in parallel. They accurately describe
+  what shipped at each step, including the legacy selector's own name; see
+  slice 9 for its removal. Everything between the two markers around this
+  block is exempted from LegacyEnvironmentRemovalTest.php as one explicitly
+  marked historical entry; nothing outside it is.
+-->
 
 1. **Deployment target registry — completed.** Non-secret JSON registry of
    deployable targets (`staging-main`, `tits-guru`), a validation CLI, and lazy
@@ -214,26 +226,63 @@ on the real staging VPS; slice 8 (perimeter) is current. The phase stays
       succeeded; the cycle was recorded in
       `/home/www/rateguru/backups/backup-cycles.jsonl`; the final staging
       health-check passed.
-8. **Perimeter — current.** `infrastructure/scripts/install-target-perimeter`
+8. **Perimeter — completed.** `infrastructure/scripts/install-target-perimeter`
    installs three generic, target-aware sudo wrappers
    (`rateguru-deploy`/`rateguru-rollback`/`rateguru-cleanup`), a sudoers rule
    granting the staging deploy user access to them, and switches the
    `rateguru-backups` cron entry and the GitHub Actions staging deploy
-   workflow from `--environment staging` to `--target staging-main`.
-   `deploy`/`rollback`/`cleanup`/`backup-cycle`/`restore-test`/
+   workflow from the legacy per-environment selector to `--target
+   staging-main`. `deploy`/`rollback`/`cleanup`/`backup-cycle`/`restore-test`/
    `offsite-restore-test` themselves are unchanged — they already support
    `--target` from earlier slices. The temporary legacy per-environment
-   wrappers and sudoers rules remain installed, for rollback safety, until a
-   dedicated legacy-removal slice deletes them.
+   wrappers and sudoers rules remained installed, for rollback safety, until
+   slice 9 below deletes them. See `runbooks/target-perimeter.md`.
 
-   **Do not merge this slice before completing its pre-merge bootstrap
-   sequence** (deploy the feature-branch artifact through the still-legacy
-   action, install and verify the perimeter on the VPS, switch
-   `DEPLOY_WRAPPER` to the generic wrapper) — merging first checks out the
-   new deployment action onto `develop` before the VPS is ready for it,
-   deadlocking every subsequent deployment. See `runbooks/target-perimeter.md`.
-9. Remove the `--environment` interface, only after `staging-main` parity is
-   proven end to end across every slice above.
+   **Accepted on the real staging VPS:** `install-target-perimeter
+   --check`/`--apply`/`--verify` all passed after fixing a static-wrapper
+   validation false positive — five perimeter source files present, wrapper
+   Bash syntax valid, target registry valid, the installed fourteen-file
+   target operations bundle matched the committed repository sources, the
+   sudoers candidate passed `visudo -cf`, the cron candidate passed
+   validation, installation was transactional, and final verification
+   passed. The three generic wrappers were installed
+   `root:root 0755` at `/usr/local/sbin/rateguru-{deploy,rollback,cleanup}`;
+   the sudoers file was installed `root:root 0440` at
+   `/etc/sudoers.d/rateguru-deploy`, parsed clean, and granted the staging
+   deploy user passwordless access to only those three wrappers; the cron
+   file was installed `root:root 0644` at `/etc/cron.d/rateguru-backups`
+   with its existing schedules and log paths preserved and every operational
+   call switched to `--target staging-main`, with no per-environment selector
+   left in the active cron. The staging deploy user successfully ran the
+   generic cleanup wrapper (`--target staging-main --dry-run`) and got the
+   expected release-cleanup plan without deleting anything; the same generic
+   wrapper correctly rejected `tits-guru` with `lifecycle=planned, not
+   active` before any mutation. The GitHub Actions staging deployment was
+   switched to `DEPLOY_WRAPPER=/usr/local/sbin/rateguru-deploy` and
+   `DEPLOY_INCOMING=/home/deploy-rateguru-staging/incoming`, and a real
+   `develop` deployment completed end to end through the generic wrapper
+   (`deploy --target staging-main`, `deployment-target: staging-main`). The
+   final target-aware health check passed on the real staging VPS.
+
+<!-- legacy-environment-history:end -->
+
+9. **Complete legacy-selector removal — current.** Removes the legacy
+   per-environment operational selector entirely from every script, `common`,
+   `deployment.conf`, and the perimeter, now that `staging-main` parity has
+   been proven end to end across every slice above and accepted on the real
+   staging VPS. `--target TARGET_ID` becomes the sole interface everywhere.
+   `common` loses its selector-dispatch and per-selector helper functions;
+   `deployment.conf` becomes host-global only (no more per-target fields);
+   the six temporary per-environment sudo wrappers and their sudoers grants
+   are deleted by `install-target-perimeter`, transactionally, with backup
+   and rollback on failure. Physical values the legacy interface used to
+   name (paths, database names, backup namespaces, deploy account names) are
+   preserved verbatim as `staging-main`'s own registry values — nothing
+   physical is renamed. Backup format and history compatibility (schema 1
+   manifests, existing JSONL history files) is preserved unchanged and stays
+   readable regardless of which selector originally wrote it.
+   `LegacyEnvironmentRemovalTest.php` guards against the removed interface
+   ever reappearing.
 
 ## 5. Infrastructure installer and clean-VPS bootstrap — planned
 

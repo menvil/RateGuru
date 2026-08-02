@@ -43,10 +43,6 @@ usage() {
 Usage:
 
   rollback \
-    --environment staging|production \
-    (--release RELEASE_ID | --previous)
-
-  rollback \
     --target TARGET_ID \
     (--release RELEASE_ID | --previous)
 USAGE
@@ -65,17 +61,15 @@ USAGE
 # require_root must stay the unconditional first action, unchanged from
 # before this slice.
 
-# --- selector, destination and execution-mode parsing ------------------------
+# --- target, destination and execution-mode parsing ---------------------------
 #
-# rollback cannot reuse common's parse_selector_args directly — it has extra
+# rollback cannot reuse common's parse_target_args directly — it has extra
 # flags (--release, --previous) that function does not know about — so it
-# runs its own loop for --target/--environment/--release/--previous, then
-# calls assert_selector_state for the exact same mutual-exclusion /
-# exactly-one-required / non-empty validation health-check/status/cleanup/
-# deploy already get. Every value-taking flag below validates its value
-# through require_flag_value before assignment or shifting, so a missing,
-# empty, or flag-shaped value fails closed with a message naming the specific
-# flag, matching deploy's own contract exactly.
+# runs its own loop for --target/--release/--previous. Every value-taking
+# flag below validates its value through require_flag_value before
+# assignment or shifting, so a missing, empty, or flag-shaped value fails
+# closed with a message naming the specific flag, matching deploy's own
+# contract exactly.
 
 # require_flag_value <flag-name> <remaining-arg-count> <next-token>
 #
@@ -96,9 +90,7 @@ require_flag_value() {
 
 parse_rollback_args() {
     TARGET_ID=""
-    ENVIRONMENT=""
     TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
     RELEASE_ID=""
     RELEASE_SEEN=false
     USE_PREVIOUS=false
@@ -111,13 +103,6 @@ parse_rollback_args() {
                 require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
-                shift 2
-                ;;
-            --environment)
-                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                require_flag_value "--environment" "$#" "${2-}"
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
                 shift 2
                 ;;
             --release)
@@ -145,7 +130,7 @@ parse_rollback_args() {
         esac
     done
 
-    assert_selector_state
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 
     if [[ "${RELEASE_SEEN}" != true ]] && [[ "${PREVIOUS_SEEN}" != true ]]; then
         fail "--release or --previous is required"
@@ -155,27 +140,18 @@ parse_rollback_args() {
 # --- target resolution (mirrors health-check/status/cleanup/deploy) ----------
 
 resolve_target() {
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        # require_active_target validates the target ID, the whole registry,
-        # that the target exists, and that it is lifecycle=active — all
-        # before target_root, the current/previous symlinks, the releases
-        # directory, the deployment lock, history, systemctl or health-check
-        # are ever touched. main() already called require_root before this
-        # function runs, so the full ordering for --target is: root
-        # authorization -> lifecycle=planned rejection -> (only if active)
-        # filesystem/lock work.
-        require_active_target "${TARGET_ID}"
+    # require_active_target validates the target ID, the whole registry, that
+    # the target exists, and that it is lifecycle=active — all before
+    # target_root, the current/previous symlinks, the releases directory, the
+    # deployment lock, history, systemctl or health-check are ever touched.
+    # main() already called require_root before this function runs, so the
+    # full ordering is: root authorization -> lifecycle=planned rejection ->
+    # (only if active) filesystem/lock work.
+    require_active_target "${TARGET_ID}"
 
-        ENVIRONMENT_ROOT="$(target_root "${TARGET_ID}")"
-        LABEL="${TARGET_ID}"
-        HEALTH_SELECTOR=(--target "${TARGET_ID}")
-    else
-        validate_environment "${ENVIRONMENT}"
-
-        ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
-        LABEL="${ENVIRONMENT}"
-        HEALTH_SELECTOR=(--environment "${ENVIRONMENT}")
-    fi
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+    HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
 }
 
 # --- release path safety -----------------------------------------------------
@@ -199,11 +175,11 @@ validate_releases_root() {
     [[ -d "${RELEASES_ROOT}" ]] \
         || fail "releases root must be a real directory: ${RELEASES_ROOT}"
 
-    local canonical_environment_root
+    local canonical_target_root
     CANONICAL_RELEASES_ROOT="$(readlink -f "${RELEASES_ROOT}")"
-    canonical_environment_root="$(readlink -f "${ENVIRONMENT_ROOT}")"
+    canonical_target_root="$(readlink -f "${TARGET_ROOT}")"
 
-    [[ "$(dirname "${CANONICAL_RELEASES_ROOT}")" == "${canonical_environment_root}" ]] \
+    [[ "$(dirname "${CANONICAL_RELEASES_ROOT}")" == "${canonical_target_root}" ]] \
         || fail "releases root does not canonically resolve under the target root: ${RELEASES_ROOT}"
 }
 
@@ -272,7 +248,7 @@ validate_pointer_release() {
 
     case "${immediate_target}" in
         /*) ;;
-        *) immediate_target="${ENVIRONMENT_ROOT}/${immediate_target}" ;;
+        *) immediate_target="${TARGET_ROOT}/${immediate_target}" ;;
     esac
 
     validate_release_directory "${immediate_target}" "${label}"
@@ -336,12 +312,11 @@ restore_original_links() {
         recovery_failed=true
     fi
 
-    # Recovery health-check uses the exact same selector rollback was invoked
-    # with (HEALTH_SELECTOR, resolved once in resolve_target) — never a second,
-    # independently-derived selector — so target mode and legacy mode are
-    # verified identically on both the normal and the recovery path.
+    # Recovery health-check uses the exact same target rollback was invoked
+    # with (HEALTH_CHECK_ARGS, resolved once in resolve_target) — never a
+    # second, independently-derived target.
     if [[ "${current_restored}" == true ]]; then
-        if ! "${HEALTH_CHECK_BIN}" "${HEALTH_SELECTOR[@]}"; then
+        if ! "${HEALTH_CHECK_BIN}" "${HEALTH_CHECK_ARGS[@]}"; then
             recovery_failed=true
         fi
     fi
@@ -367,7 +342,7 @@ handle_rollback_exit() {
 
         if [[ "${TERMINAL_HISTORY_WRITTEN}" == false ]]; then
             if append_history \
-                "${ENVIRONMENT_ROOT}" \
+                "${TARGET_ROOT}" \
                 "rollback-finished" \
                 "${TARGET_RELEASE}" \
                 "${FAILURE_STATUS}"
@@ -389,14 +364,14 @@ handle_rollback_exit() {
     exit "${exit_code}"
 }
 
-# --- rollback pipeline: one shared code path for both selectors -------------
+# --- rollback pipeline --------------------------------------------------------
 
 perform_rollback() {
-    RELEASES_ROOT="${ENVIRONMENT_ROOT}/releases"
-    CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
-    PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
+    RELEASES_ROOT="${TARGET_ROOT}/releases"
+    CURRENT_LINK="${TARGET_ROOT}/current"
+    PREVIOUS_LINK="${TARGET_ROOT}/previous"
 
-    acquire_deployment_lock "${ENVIRONMENT_ROOT}"
+    acquire_deployment_lock "${TARGET_ROOT}"
 
     validate_releases_root
 
@@ -453,7 +428,7 @@ perform_rollback() {
     trap handle_rollback_exit EXIT
 
     append_history \
-        "${ENVIRONMENT_ROOT}" \
+        "${TARGET_ROOT}" \
         "rollback-started" \
         "${TARGET_RELEASE}" \
         "running"
@@ -479,7 +454,7 @@ perform_rollback() {
 
     systemctl reload "${PHP_FPM_SERVICE}"
 
-    if ! "${HEALTH_CHECK_BIN}" "${HEALTH_SELECTOR[@]}"; then
+    if ! "${HEALTH_CHECK_BIN}" "${HEALTH_CHECK_ARGS[@]}"; then
         FAILURE_STATUS="failed-health-check"
         fail "rollback health check failed; restoring ${ORIGINAL_CURRENT_ID}"
     fi
@@ -487,7 +462,7 @@ perform_rollback() {
     log "${LABEL} rolled back to ${TARGET_RELEASE}"
 
     append_history \
-        "${ENVIRONMENT_ROOT}" \
+        "${TARGET_ROOT}" \
         "rollback-finished" \
         "${TARGET_RELEASE}" \
         "success"

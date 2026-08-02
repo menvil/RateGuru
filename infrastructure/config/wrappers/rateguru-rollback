@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 #
 # rateguru-rollback — generic, target-aware sudo wrapper installed at
-# /usr/local/sbin/rateguru-rollback (Phase 4 slice 8). Replaces the legacy,
-# per-environment /usr/local/sbin/rateguru-staging-rollback /
-# rateguru-production-rollback wrappers with a single wrapper that accepts
-# only --target TARGET_ID, authorizes the caller against the target's own
-# registered deploy user, and execs the real rollback binary with a
-# completely scrubbed environment. rollback itself is untouched by this
-# slice — it already supports --target since Phase 4 slice 6.
+# /usr/local/sbin/rateguru-rollback. Accepts only --target TARGET_ID,
+# authorizes the caller against the target's own registered deploy user, and
+# execs the real rollback binary with a completely scrubbed environment.
 #
 # See infrastructure/config/wrappers/rateguru-deploy for the full rationale
 # behind every design decision below — this file mirrors it exactly, with
@@ -54,9 +50,8 @@ print_wrapper_usage() {
 Usage:
   ${WRAPPER_NAME} --target TARGET_ID [operation arguments...]
 
-This wrapper accepts only a --target selector; --environment is not
-supported here. Every other argument is passed through, unexamined and in
-order, to the underlying rollback operation (e.g. --release, --previous).
+Every other argument is passed through, unexamined and in order, to the
+underlying rollback operation (e.g. --release, --previous).
 USAGE
 }
 
@@ -92,12 +87,6 @@ parse_wrapper_args() {
                 ;;
             --target=*)
                 fail "--target must be given as '--target VALUE', not '--target=VALUE'"
-                ;;
-            --environment)
-                fail "--environment is not supported by ${WRAPPER_NAME}; use --target"
-                ;;
-            --environment=*)
-                fail "--environment is not supported by ${WRAPPER_NAME}; use --target"
                 ;;
             --help|-h)
                 print_wrapper_usage

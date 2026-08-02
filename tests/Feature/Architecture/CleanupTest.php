@@ -240,27 +240,6 @@ function cleanupOpsBuildFixture(
 }
 
 /**
- * A deployment.conf fixture derived from the real committed template, with
- * STAGING_ROOT and STAGING_RELEASE_RETENTION overridden — the same
- * transformation technique targetOpsDeploymentConfPath()'s sibling test
- * already uses in TargetAwareOperationsTest.php.
- */
-function cleanupOpsDeploymentConfForRoot(string $scratch, string $root, int $retention = 5): string
-{
-    $conf = str_replace(
-        'STAGING_ROOT=/home/www/rateguru/staging',
-        'STAGING_ROOT='.$root,
-        File::get(cleanupOpsDeploymentConfPath()),
-    );
-    $conf = preg_replace('/^STAGING_RELEASE_RETENTION=\d+$/m', 'STAGING_RELEASE_RETENTION='.$retention, $conf);
-
-    $path = $scratch.'/deployment-'.uniqid('', true).'.conf';
-    file_put_contents($path, $conf);
-
-    return $path;
-}
-
-/**
  * Extracts every "DRY RUN would delete: RELEASE_ID" line from cleanup output
  * as a sorted list of release IDs — the stable comparison surface the spec
  * pins, deliberately excluding timestamps and selector-specific labels.
@@ -300,20 +279,15 @@ function cleanupOpsRawCandidates(string $output): array
  * staging-main itself untestable against scratch content in this suite (its
  * real application_root, /home/www/rateguru/staging, does not exist here).
  * This builds a throwaway, test-only copy of `targets` with just those two
- * constraints relaxed for one synthetic target ID, so legacy/target
- * candidate-selection parity can be verified against real, controlled
- * fixture content rather than only against real-VPS runtime parity (which
+ * constraints relaxed for one synthetic target ID, so cleanup's target-mode
+ * candidate selection can be verified against real, controlled fixture
+ * content rather than only against real-VPS runtime parity (which
  * install-target-operations already proves separately, for the one real
  * scenario the actual host is in).
  *
  * $releaseRetention becomes the fixture's own targets.parity-target.
- * release_retention — the value cleanup's target mode now reads directly
- * (target_release_retention), independent of whatever deployment.conf's
- * STAGING_RELEASE_RETENTION says. Defaults to 3, matching the value
- * cleanupOpsRunParity's own deployment.conf fixture uses, so every existing
- * caller of this function keeps testing "both sources happen to agree" —
- * see the dedicated mismatched-retention test below for "target mode reads
- * its own value, not the legacy one".
+ * release_retention — the value cleanup's target mode reads directly
+ * (target_release_retention). Defaults to 3.
  *
  * @return array{0: string, 1: string} [registryPath, targetsCliPath]
  */
@@ -373,49 +347,42 @@ function cleanupOpsParityRegistry(string $scratch, string $applicationRoot, int 
 }
 
 /**
- * Runs the same fixture through both `--environment staging` and
- * `--target parity-target`, dry-run only, and returns both raw outputs.
- * Deployment.conf's STAGING_RELEASE_RETENTION and the registry's
- * release_retention are deliberately set to the same value (3) here, so
- * this proves parity given *matching* retention configuration — not that
- * target mode derives its retention from legacy settings. See the dedicated
- * mismatched-retention test for proof they are read from independent
- * sources.
+ * Runs the given fixture through `--target parity-target`, dry-run only, and
+ * returns the raw output plus exit code. Formerly ran the identical fixture
+ * through both `--environment staging` and `--target parity-target` and
+ * asserted the two outputs matched — legacy selector support is gone, so
+ * only the target-mode run remains; every caller's hardcoded candidate-list
+ * assertion below is exactly what that parity comparison already proved
+ * correct for target mode.
  *
  * @param  array<string, string|null>  $releases
  * @param  list<string>  $pinned
- * @return array{0: string, 1: string, 2: int, 3: int} [envOutput, targetOutput, envExit, targetExit]
+ * @return array{0: int, 1: string} [exit, output]
  */
-function cleanupOpsRunParity(
+function cleanupOpsRunTargetDryRun(
     string $scratch,
     array $releases,
     ?string $current = null,
     ?string $previous = null,
     array $pinned = [],
     ?int $keep = null,
+    int $releaseRetention = 3,
 ): array {
     $root = cleanupOpsBuildFixture($scratch, $releases, $current, $previous, $pinned);
-    $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, 3);
-    [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
+    [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root, $releaseRetention);
 
     $env = cleanupOpsBaseEnv($scratch, [
-        'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
         'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
         'RATEGURU_TARGETS_CLI' => $targetsPath,
     ]);
 
-    $envArgs = ['--environment', 'staging', '--dry-run'];
-    $targetArgs = ['--target', 'parity-target', '--dry-run'];
+    $args = ['--target', 'parity-target', '--dry-run'];
 
     if ($keep !== null) {
-        $envArgs = array_merge($envArgs, ['--keep', (string) $keep]);
-        $targetArgs = array_merge($targetArgs, ['--keep', (string) $keep]);
+        $args = array_merge($args, ['--keep', (string) $keep]);
     }
 
-    [$envExit, $envOutput] = cleanupOpsRunScript($envArgs, $env);
-    [$targetExit, $targetOutput] = cleanupOpsRunScript($targetArgs, $env);
-
-    return [$envOutput, $targetOutput, $envExit, $targetExit];
+    return cleanupOpsRunScript($args, $env);
 }
 
 /**
@@ -504,37 +471,16 @@ function cleanupOpsSnapshotShallow(string $root): array
 // Argument parsing
 // =============================================================================
 
-it('supports the legacy --environment selector', function () {
-    $scratch = cleanupOpsScratchDir();
-
-    try {
-        $root = cleanupOpsBuildFixture($scratch, []);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
-
-        [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
-        );
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('cleanup dry run finished');
-    } finally {
-        cleanupOpsCleanup($scratch);
-    }
-});
-
 it('supports the --target selector', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
         $root = cleanupOpsBuildFixture($scratch, []);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
         [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
             ['--target', 'parity-target', '--dry-run'],
             cleanupOpsBaseEnv($scratch, [
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,
             ]),
@@ -547,52 +493,29 @@ it('supports the --target selector', function () {
     }
 });
 
-it('rejects --target and --environment used together', function () {
-    $scratch = cleanupOpsScratchDir();
-
-    try {
-        [$exit, $output] = cleanupOpsRunScript(
-            ['--target', 'staging-main', '--environment', 'staging'],
-            cleanupOpsBaseEnv($scratch),
-        );
-
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('cannot be combined');
-    } finally {
-        cleanupOpsCleanup($scratch);
-    }
-});
-
-it('requires exactly one selector', function () {
+it('requires --target', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
         [$exit, $output] = cleanupOpsRunScript([], cleanupOpsBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('exactly one of --target or --environment is required');
+        expect($output)->toContain('--target is required');
     } finally {
         cleanupOpsCleanup($scratch);
     }
 });
 
-it('rejects duplicate selectors', function () {
+it('rejects duplicate --target', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
-        [$targetExit, $targetOutput] = cleanupOpsRunScript(
+        [$exit, $output] = cleanupOpsRunScript(
             ['--target', 'staging-main', '--target', 'staging-main'],
             cleanupOpsBaseEnv($scratch),
         );
-        expect($targetExit)->not->toBe(0);
-        expect($targetOutput)->toContain('--target given more than once');
-
-        [$envExit, $envOutput] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--environment', 'staging'],
-            cleanupOpsBaseEnv($scratch),
-        );
-        expect($envExit)->not->toBe(0);
-        expect($envOutput)->toContain('--environment given more than once');
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target given more than once');
     } finally {
         cleanupOpsCleanup($scratch);
     }
@@ -603,7 +526,7 @@ it('rejects duplicate --keep', function () {
 
     try {
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--keep', '1', '--keep', '2'],
+            ['--target', 'staging-main', '--keep', '1', '--keep', '2'],
             cleanupOpsBaseEnv($scratch),
         );
 
@@ -619,7 +542,7 @@ it('rejects conflicting execution modes', function () {
 
     try {
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run', '--apply'],
+            ['--target', 'staging-main', '--dry-run', '--apply'],
             cleanupOpsBaseEnv($scratch),
         );
 
@@ -635,14 +558,14 @@ it('rejects duplicate execution modes', function () {
 
     try {
         [$dryExit, $dryOutput] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run', '--dry-run'],
+            ['--target', 'staging-main', '--dry-run', '--dry-run'],
             cleanupOpsBaseEnv($scratch),
         );
         expect($dryExit)->not->toBe(0);
         expect($dryOutput)->toContain('--dry-run given more than once');
 
         [$applyExit, $applyOutput] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--apply', '--apply'],
+            ['--target', 'staging-main', '--apply', '--apply'],
             cleanupOpsBaseEnv($scratch),
         );
         expect($applyExit)->not->toBe(0);
@@ -652,13 +575,17 @@ it('rejects duplicate execution modes', function () {
     }
 });
 
-it('rejects an invalid --keep value', function () {
+it('rejects a semantically invalid --keep value', function () {
+    // Not '-1' or '': those are syntactically invalid — a flag-shaped or
+    // empty value — and require_flag_value now rejects them before this
+    // semantic check is ever reached; see the dedicated syntactic test
+    // below.
     $scratch = cleanupOpsScratchDir();
 
     try {
-        foreach (['-1', 'abc', '1.5', ''] as $invalid) {
+        foreach (['abc', '1.5'] as $invalid) {
             [$exit, $output] = cleanupOpsRunScript(
-                ['--environment', 'staging', '--keep', $invalid],
+                ['--target', 'staging-main', '--keep', $invalid],
                 cleanupOpsBaseEnv($scratch),
             );
 
@@ -670,7 +597,29 @@ it('rejects an invalid --keep value', function () {
     }
 });
 
-it('rejects a selector or --keep given without a value', function () {
+it('rejects a syntactically invalid --keep value before ever reaching the semantic check', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        [$exit, $output] = cleanupOpsRunScript(
+            ['--target', 'staging-main', '--keep', ''],
+            cleanupOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--keep requires a non-empty value');
+
+        [$exit, $output] = cleanupOpsRunScript(
+            ['--target', 'staging-main', '--keep', '-1'],
+            cleanupOpsBaseEnv($scratch),
+        );
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--keep requires a value, not another option: -1');
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('rejects --target or --keep given without a value', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
@@ -678,13 +627,33 @@ it('rejects a selector or --keep given without a value', function () {
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a value');
 
-        [$exit, $output] = cleanupOpsRunScript(['--environment'], cleanupOpsBaseEnv($scratch));
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('--environment requires a value');
-
-        [$exit, $output] = cleanupOpsRunScript(['--environment', 'staging', '--keep'], cleanupOpsBaseEnv($scratch));
+        [$exit, $output] = cleanupOpsRunScript(['--target', 'staging-main', '--keep'], cleanupOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--keep requires a value');
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('rejects an explicitly empty --target value', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        [$exit, $output] = cleanupOpsRunScript(['--target', '', '--dry-run'], cleanupOpsBaseEnv($scratch));
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target requires a non-empty value');
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('rejects --target swallowing the next flag as its value', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        [$exit, $output] = cleanupOpsRunScript(['--target', '--dry-run'], cleanupOpsBaseEnv($scratch));
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target requires a value, not another option: --dry-run');
     } finally {
         cleanupOpsCleanup($scratch);
     }
@@ -703,11 +672,27 @@ it('rejects unknown arguments', function () {
     }
 });
 
+it('rejects a removed --environment flag exactly like any other unknown argument', function () {
+    // --environment is no longer a recognized flag at all — there is no
+    // special deprecation message, just the same generic rejection any
+    // other bogus flag gets.
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        [$exit, $output] = cleanupOpsRunScript(['--environment', 'staging'], cleanupOpsBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('unknown argument: --environment');
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
 it('rejects extra positional arguments', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
-        [$exit, $output] = cleanupOpsRunScript(['--environment', 'staging', 'extra'], cleanupOpsBaseEnv($scratch));
+        [$exit, $output] = cleanupOpsRunScript(['--target', 'staging-main', 'extra'], cleanupOpsBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unknown argument: extra');
@@ -716,7 +701,7 @@ it('rejects extra positional arguments', function () {
     }
 });
 
-it('shows both selector forms on --help without requiring a selector', function () {
+it('shows only the --target form on --help without requiring a target', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
@@ -725,9 +710,9 @@ it('shows both selector forms on --help without requiring a selector', function 
         expect($exit)->toBe(0, $output);
         expect($output)
             ->toContain('--target TARGET_ID')
-            ->toContain('--environment staging|production')
             ->toContain('--keep NUMBER')
-            ->toContain('--dry-run|--apply');
+            ->toContain('--dry-run|--apply')
+            ->not->toContain('--environment');
     } finally {
         cleanupOpsCleanup($scratch);
     }
@@ -811,13 +796,11 @@ it('lets an active target through lifecycle validation and reach real fixture co
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
         ]);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
         [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
             ['--target', 'parity-target', '--dry-run'],
             cleanupOpsBaseEnv($scratch, [
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,
             ]),
@@ -843,13 +826,18 @@ it('performs no writes at all during dry-run', function () {
             'v1.0.2-20260102-000000-abc1232' => 'failed-health-check',
             'v1.0.3-20260103-000000-abc1233' => 'success',
         ], current: 'v1.0.3-20260103-000000-abc1233', previous: 'v1.0.2-20260102-000000-abc1232');
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, retention: 0);
+        // release_retention must be a positive integer in the registry
+        // schema — --keep 0 is how a zero-retention run is expressed now.
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         $before = cleanupOpsSnapshotShallow($root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--keep', '0', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -869,14 +857,17 @@ it('never invokes rm during dry-run', function () {
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
         ]);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         $markerFile = $scratch.'/rm-invoked';
         cleanupOpsForbiddenRmStub($scratch, $markerFile);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -893,11 +884,14 @@ it('does not acquire a mutating lock during dry-run', function () {
 
     try {
         $root = cleanupOpsBuildFixture($scratch, []);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -914,13 +908,16 @@ it('treats a missing pinned-releases file as empty and never creates it during d
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
         ]);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, retention: 0);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         expect(file_exists($root.'/deployments/pinned-releases'))->toBeFalse();
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--keep', '0', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -938,7 +935,7 @@ it('never touches or chmods a pre-existing pinned-releases file during dry-run',
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
         ], pinned: ['v1.0.1-20260101-000000-abc1231']);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         $pinnedPath = $root.'/deployments/pinned-releases';
         chmod($pinnedPath, 0o644);
@@ -949,8 +946,11 @@ it('never touches or chmods a pre-existing pinned-releases file during dry-run',
         $beforeMtime = filemtime($pinnedPath);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -971,13 +971,16 @@ it('never appends deployment history during dry-run', function () {
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
         ]);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         $historyBefore = file_get_contents($root.'/deployments/history.jsonl');
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -1006,11 +1009,14 @@ it('lists candidates newest-mtime-first, breaking ties by name, in the raw dry-r
         $tiedMtime = filemtime($root.'/releases/v1.0.2-20260102-000000-abc1232');
         touch($root.'/releases/v1.0.3-20260103-000000-abc1233', $tiedMtime);
 
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -1026,14 +1032,14 @@ it('lists candidates newest-mtime-first, breaking ties by name, in the raw dry-r
 });
 
 // =============================================================================
-// Legacy/target dry-run candidate parity
+// Target dry-run candidate selection
 // =============================================================================
 
-it('selects identical candidates for legacy and target selectors at default retention', function () {
+it('selects the expected candidates at default retention', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
-        [$envOutput, $targetOutput, $envExit, $targetExit] = cleanupOpsRunParity($scratch, [
+        [$exit, $output] = cleanupOpsRunTargetDryRun($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
             'v1.0.2-20260102-000000-abc1232' => 'success',
             'v1.0.3-20260103-000000-abc1233' => 'failed-health-check',
@@ -1041,159 +1047,133 @@ it('selects identical candidates for legacy and target selectors at default rete
             'v1.0.5-20260105-000000-abc1235' => 'success',
         ], current: 'v1.0.5-20260105-000000-abc1235', previous: 'v1.0.4-20260104-000000-abc1234');
 
-        expect($envExit)->toBe(0, $envOutput);
-        expect($targetExit)->toBe(0, $targetOutput);
+        expect($exit)->toBe(0, $output);
 
-        $envCandidates = cleanupOpsCandidates($envOutput);
-        $targetCandidates = cleanupOpsCandidates($targetOutput);
-
-        expect($targetCandidates)->not->toBe([]);
-        expect($targetCandidates)->toBe($envCandidates);
-        // Default retention here is 3 (cleanupOpsRunParity's fixed
-        // deployment.conf fixture): v5/v4 are protected (current/previous),
-        // leaving v3 (failed) as a candidate and v1/v2 (2 successful
-        // releases, both <= 3) both retained.
-        expect($targetCandidates)->toBe(['v1.0.3-20260103-000000-abc1233']);
+        // Default retention here is 3 (cleanupOpsRunTargetDryRun's fixed
+        // registry fixture): v5/v4 are protected (current/previous), leaving
+        // v3 (failed) as a candidate and v1/v2 (2 successful releases, both
+        // <= 3) both retained.
+        expect(cleanupOpsCandidates($output))->toBe(['v1.0.3-20260103-000000-abc1233']);
     } finally {
         cleanupOpsCleanup($scratch);
     }
 });
 
-it('selects identical candidates for legacy and target selectors with --keep 0', function () {
+it('selects the expected candidates with --keep 0', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
-        [$envOutput, $targetOutput] = cleanupOpsRunParity($scratch, [
+        [$exit, $output] = cleanupOpsRunTargetDryRun($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
             'v1.0.2-20260102-000000-abc1232' => 'success',
             'v1.0.3-20260103-000000-abc1233' => 'success',
         ], current: 'v1.0.3-20260103-000000-abc1233', keep: 0);
 
-        $envCandidates = cleanupOpsCandidates($envOutput);
-        $targetCandidates = cleanupOpsCandidates($targetOutput);
-
-        expect($targetCandidates)->toBe($envCandidates);
+        expect($exit)->toBe(0, $output);
         // current is always protected even at --keep 0.
-        expect($targetCandidates)->toBe(['v1.0.1-20260101-000000-abc1231', 'v1.0.2-20260102-000000-abc1232']);
+        expect(cleanupOpsCandidates($output))->toBe(['v1.0.1-20260101-000000-abc1231', 'v1.0.2-20260102-000000-abc1232']);
     } finally {
         cleanupOpsCleanup($scratch);
     }
 });
 
-it('selects identical candidates for legacy and target selectors with --keep 1', function () {
+it('selects the expected candidates with --keep 1', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
-        [$envOutput, $targetOutput] = cleanupOpsRunParity($scratch, [
+        [$exit, $output] = cleanupOpsRunTargetDryRun($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
             'v1.0.2-20260102-000000-abc1232' => 'success',
             'v1.0.3-20260103-000000-abc1233' => 'success',
         ], keep: 1);
 
-        $envCandidates = cleanupOpsCandidates($envOutput);
-        $targetCandidates = cleanupOpsCandidates($targetOutput);
-
-        expect($targetCandidates)->toBe($envCandidates);
-        expect($targetCandidates)->toBe(['v1.0.1-20260101-000000-abc1231', 'v1.0.2-20260102-000000-abc1232']);
+        expect($exit)->toBe(0, $output);
+        expect(cleanupOpsCandidates($output))->toBe(['v1.0.1-20260101-000000-abc1231', 'v1.0.2-20260102-000000-abc1232']);
     } finally {
         cleanupOpsCleanup($scratch);
     }
 });
 
-it('selects identical candidates for legacy and target selectors with no pinned file', function () {
+it('selects the expected candidates with no pinned file', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
-        [$envOutput, $targetOutput] = cleanupOpsRunParity($scratch, [
+        [$exit, $output] = cleanupOpsRunTargetDryRun($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
             'v1.0.2-20260102-000000-abc1232' => 'success',
         ], keep: 0);
 
-        expect(cleanupOpsCandidates($targetOutput))->toBe(cleanupOpsCandidates($envOutput));
-        expect(cleanupOpsCandidates($targetOutput))->toBe(['v1.0.1-20260101-000000-abc1231', 'v1.0.2-20260102-000000-abc1232']);
+        expect($exit)->toBe(0, $output);
+        expect(cleanupOpsCandidates($output))->toBe(['v1.0.1-20260101-000000-abc1231', 'v1.0.2-20260102-000000-abc1232']);
     } finally {
         cleanupOpsCleanup($scratch);
     }
 });
 
-it('selects identical candidates for legacy and target selectors with pinned releases', function () {
+it('selects the expected candidates with pinned releases', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
-        [$envOutput, $targetOutput] = cleanupOpsRunParity($scratch, [
+        [$exit, $output] = cleanupOpsRunTargetDryRun($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
             'v1.0.2-20260102-000000-abc1232' => 'success',
             'v1.0.3-20260103-000000-abc1233' => 'success',
         ], pinned: ['v1.0.1-20260101-000000-abc1231'], keep: 0);
 
-        $envCandidates = cleanupOpsCandidates($envOutput);
-        $targetCandidates = cleanupOpsCandidates($targetOutput);
-
-        expect($targetCandidates)->toBe($envCandidates);
-        expect($targetCandidates)->toBe(['v1.0.2-20260102-000000-abc1232', 'v1.0.3-20260103-000000-abc1233']);
+        expect($exit)->toBe(0, $output);
+        expect(cleanupOpsCandidates($output))->toBe(['v1.0.2-20260102-000000-abc1232', 'v1.0.3-20260103-000000-abc1233']);
     } finally {
         cleanupOpsCleanup($scratch);
     }
 });
 
-it('selects identical candidates for legacy and target selectors with current and previous set', function () {
+it('selects the expected candidates with current and previous set', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
-        [$envOutput, $targetOutput] = cleanupOpsRunParity($scratch, [
+        [$exit, $output] = cleanupOpsRunTargetDryRun($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
             'v1.0.2-20260102-000000-abc1232' => 'success',
             'v1.0.3-20260103-000000-abc1233' => 'success',
         ], current: 'v1.0.3-20260103-000000-abc1233', previous: 'v1.0.2-20260102-000000-abc1232', keep: 0);
 
-        $envCandidates = cleanupOpsCandidates($envOutput);
-        $targetCandidates = cleanupOpsCandidates($targetOutput);
-
-        expect($targetCandidates)->toBe($envCandidates);
-        expect($targetCandidates)->toBe(['v1.0.1-20260101-000000-abc1231']);
+        expect($exit)->toBe(0, $output);
+        expect(cleanupOpsCandidates($output))->toBe(['v1.0.1-20260101-000000-abc1231']);
     } finally {
         cleanupOpsCleanup($scratch);
     }
 });
 
-it('selects identical candidates for legacy and target selectors across mixed history states', function () {
+it('selects the expected candidates across mixed history states', function () {
     $scratch = cleanupOpsScratchDir();
 
     try {
-        [$envOutput, $targetOutput] = cleanupOpsRunParity($scratch, [
+        [$exit, $output] = cleanupOpsRunTargetDryRun($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
             'v1.0.2-20260102-000000-abc1232' => 'failed-health-check',
             'v1.0.3-20260103-000000-abc1233' => null,
             'v1.0.4-20260104-000000-abc1234' => 'success',
         ], keep: 0);
 
-        $envCandidates = cleanupOpsCandidates($envOutput);
-        $targetCandidates = cleanupOpsCandidates($targetOutput);
-
-        expect($targetCandidates)->toBe($envCandidates);
+        expect($exit)->toBe(0, $output);
         // v1.0.3 has no history entry at all — unknown/untracked, retained.
-        expect($targetCandidates)->toBe([
+        expect(cleanupOpsCandidates($output))->toBe([
             'v1.0.1-20260101-000000-abc1231',
             'v1.0.2-20260102-000000-abc1232',
             'v1.0.4-20260104-000000-abc1234',
         ]);
-        expect($envOutput)->toContain('KEEP unknown/untracked release: v1.0.3-20260103-000000-abc1233');
+        expect($output)->toContain('KEEP unknown/untracked release: v1.0.3-20260103-000000-abc1233');
     } finally {
         cleanupOpsCleanup($scratch);
     }
 });
 
-it('reads default retention from independent sources per selector, not one derived from the other', function () {
-    // STAGING_RELEASE_RETENTION and the registry's release_retention are
-    // deliberately set to *different* values here — 3 vs 7 — proving target
-    // mode reads target_release_retention(TARGET_ID) from the registry, not
-    // environment_release_retention(target_environment_class(TARGET_ID))
-    // from deployment.conf. A prior implementation derived target mode's
-    // default from the environment class, which made the registry's own
-    // per-target release_retention field silently unused. Both expected
-    // sets are asserted exactly (not just "the two differ") so a swapped-
-    // source bug — legacy accidentally reading 7, target accidentally
-    // reading 3 — could not pass by accident.
+it('reads default retention from the target registry, not a hardcoded default', function () {
+    // release_retention=7 on the fixture target, applied against eight
+    // successful releases: newest 7 (v2-v8) are retained, only the oldest
+    // (v1) is a candidate — proving default_keep genuinely comes from
+    // target_release_retention(TARGET_ID) reading the registry, not some
+    // other hardcoded or derived value.
     $scratch = cleanupOpsScratchDir();
 
     try {
@@ -1209,34 +1189,17 @@ it('reads default retention from independent sources per selector, not one deriv
         ];
 
         $root = cleanupOpsBuildFixture($scratch, $releases);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, retention: 3);
         [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root, releaseRetention: 7);
 
         $env = cleanupOpsBaseEnv($scratch, [
-            'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
             'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
             'RATEGURU_TARGETS_CLI' => $targetsPath,
         ]);
 
-        [$envExit, $envOutput] = cleanupOpsRunScript(['--environment', 'staging', '--dry-run'], $env);
-        [$targetExit, $targetOutput] = cleanupOpsRunScript(['--target', 'parity-target', '--dry-run'], $env);
+        [$exit, $output] = cleanupOpsRunScript(['--target', 'parity-target', '--dry-run'], $env);
 
-        expect($envExit)->toBe(0, $envOutput);
-        expect($targetExit)->toBe(0, $targetOutput);
-
-        // STAGING_RELEASE_RETENTION=3: newest 3 (v6,v7,v8) retained, the
-        // older 5 (v1-v5) are candidates.
-        expect(cleanupOpsCandidates($envOutput))->toBe([
-            'v1.0.1-20260101-000000-abc1231',
-            'v1.0.2-20260102-000000-abc1232',
-            'v1.0.3-20260103-000000-abc1233',
-            'v1.0.4-20260104-000000-abc1234',
-            'v1.0.5-20260105-000000-abc1235',
-        ]);
-
-        // parity-target.release_retention=7: newest 7 (v2-v8) retained,
-        // only the oldest (v1) is a candidate.
-        expect(cleanupOpsCandidates($targetOutput))->toBe([
+        expect($exit)->toBe(0, $output);
+        expect(cleanupOpsCandidates($output))->toBe([
             'v1.0.1-20260101-000000-abc1231',
         ]);
     } finally {
@@ -1255,11 +1218,14 @@ it('never selects current as a candidate, even when it would otherwise be eligib
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
         ], current: 'v1.0.1-20260101-000000-abc1231');
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -1278,11 +1244,14 @@ it('never selects previous as a candidate, even when it would otherwise be eligi
             'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
             'v1.0.2-20260102-000000-abc1232' => 'success',
         ], current: 'v1.0.2-20260102-000000-abc1232', previous: 'v1.0.1-20260101-000000-abc1231');
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -1300,11 +1269,14 @@ it('never selects a pinned release as a candidate even beyond retention', functi
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
         ], pinned: ['v1.0.1-20260101-000000-abc1231']);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, retention: 0);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--keep', '0', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -1322,11 +1294,14 @@ it('retains unknown/untracked releases that have no matching history entry', fun
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => null,
         ]);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, retention: 0);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--keep', '0', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -1346,11 +1321,14 @@ it('retains a directory whose name does not match the release ID pattern', funct
         ]);
         mkdir($root.'/releases/not-a-release-id', 0o755, true);
 
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, retention: 0);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--keep', '0', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->toBe(0, $output);
@@ -1372,13 +1350,16 @@ it('fails closed on a release-looking symlink instead of silently ignoring or de
         file_put_contents($outsideTarget, 'do not delete me');
         symlink($outsideTarget, $root.'/releases/v9.9.9-20260909-000000-fedcba9');
 
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, retention: 0);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
         $markerFile = $scratch.'/rm-invoked';
         cleanupOpsForbiddenRmStub($scratch, $markerFile);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--keep', '0', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->not->toBe(0);
@@ -1403,11 +1384,14 @@ it('rejects current when it is a real directory rather than a symlink', function
         ]);
         mkdir($root.'/current');
 
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->not->toBe(0);
@@ -1428,11 +1412,14 @@ it('rejects current when it resolves outside the releases root', function () {
         mkdir($escape);
         symlink($escape, $root.'/current');
 
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->not->toBe(0);
@@ -1452,11 +1439,14 @@ it('rejects previous when it resolves to a name that does not match the release 
         mkdir($root.'/releases/not-a-release-id');
         symlink($root.'/releases/not-a-release-id', $root.'/previous');
 
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
 
         [$exit, $output] = cleanupOpsRunScript(
-            ['--environment', 'staging', '--dry-run'],
-            cleanupOpsBaseEnv($scratch, ['RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath]),
+            ['--target', 'parity-target', '--dry-run'],
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ]),
         );
 
         expect($exit)->not->toBe(0);
@@ -1477,7 +1467,7 @@ it('recomputes candidates fresh under the lock rather than reusing an earlier sn
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
         ]);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
         $uid = (string) getmyuid();
         $gid = (string) getmygid();
 
@@ -1485,7 +1475,7 @@ it('recomputes candidates fresh under the lock rather than reusing an earlier sn
             'PINNED_FILE_OWNER' => $uid,
             'PINNED_FILE_GROUP' => $gid,
         ], <<<BASH
-            parse_cleanup_args --environment staging --apply
+            parse_cleanup_args --target parity-target --apply
             resolve_target
             validate_target_tree
 
@@ -1503,7 +1493,13 @@ it('recomputes candidates fresh under the lock rather than reusing an earlier sn
 
             printf 'STALE_COUNT:%d\n' "\${stale_count}"
             BASH,
-            ['RATEGURU_ALLOW_TEST_OVERRIDES' => 'true', 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(), 'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath],
+            [
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ],
         );
 
         expect($exit)->toBe(0, $output);
@@ -1526,7 +1522,9 @@ it('deletes only validated candidates, leaving protected releases in place', fun
             'v1.0.2-20260102-000000-abc1232' => 'success',
             'v1.0.3-20260103-000000-abc1233' => 'success',
         ], current: 'v1.0.3-20260103-000000-abc1233', pinned: ['v1.0.2-20260102-000000-abc1232']);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root, retention: 0);
+        // release_retention must be a positive integer in the registry
+        // schema — --keep 0 is how a zero-retention run is expressed now.
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
         $uid = (string) getmyuid();
         $gid = (string) getmygid();
 
@@ -1534,12 +1532,18 @@ it('deletes only validated candidates, leaving protected releases in place', fun
             'PINNED_FILE_OWNER' => $uid,
             'PINNED_FILE_GROUP' => $gid,
         ], <<<'BASH'
-            parse_cleanup_args --environment staging --apply
+            parse_cleanup_args --target parity-target --keep 0 --apply
             resolve_target
             validate_target_tree
             perform_apply
             BASH,
-            ['RATEGURU_ALLOW_TEST_OVERRIDES' => 'true', 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(), 'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath],
+            [
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ],
         );
 
         expect($exit)->toBe(0, $output);
@@ -1558,7 +1562,7 @@ it('appends release-cleaned to history only after a successful deletion', functi
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
         ]);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
         $uid = (string) getmyuid();
         $gid = (string) getmygid();
 
@@ -1566,12 +1570,18 @@ it('appends release-cleaned to history only after a successful deletion', functi
             'PINNED_FILE_OWNER' => $uid,
             'PINNED_FILE_GROUP' => $gid,
         ], <<<'BASH'
-            parse_cleanup_args --environment staging --apply
+            parse_cleanup_args --target parity-target --apply
             resolve_target
             validate_target_tree
             perform_apply
             BASH,
-            ['RATEGURU_ALLOW_TEST_OVERRIDES' => 'true', 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(), 'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath],
+            [
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ],
         );
 
         expect($exit)->toBe(0, $output);
@@ -1597,7 +1607,7 @@ it('stops on the first failed deletion without deleting subsequent candidates or
             'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
             'v1.0.2-20260102-000000-abc1232' => 'failed-health-check',
         ]);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
         $uid = (string) getmyuid();
         $gid = (string) getmygid();
 
@@ -1612,12 +1622,18 @@ it('stops on the first failed deletion without deleting subsequent candidates or
             'PINNED_FILE_OWNER' => $uid,
             'PINNED_FILE_GROUP' => $gid,
         ], <<<'BASH'
-            parse_cleanup_args --environment staging --apply
+            parse_cleanup_args --target parity-target --apply
             resolve_target
             validate_target_tree
             perform_apply
             BASH,
-            ['RATEGURU_ALLOW_TEST_OVERRIDES' => 'true', 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(), 'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath],
+            [
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ],
         );
 
         expect($exit)->not->toBe(0);
@@ -1665,7 +1681,7 @@ it('creates a missing pinned-releases file with exactly the configured owner, gr
 
     try {
         $root = cleanupOpsBuildFixture($scratch, []);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
         $uid = (string) getmyuid();
         $gid = (string) getmygid();
 
@@ -1676,12 +1692,18 @@ it('creates a missing pinned-releases file with exactly the configured owner, gr
             'PINNED_FILE_GROUP' => $gid,
             'PINNED_FILE_MODE' => '0640',
         ], <<<'BASH'
-            parse_cleanup_args --environment staging --apply
+            parse_cleanup_args --target parity-target --apply
             resolve_target
             validate_target_tree
             perform_apply
             BASH,
-            ['RATEGURU_ALLOW_TEST_OVERRIDES' => 'true', 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(), 'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath],
+            [
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ],
         );
 
         expect($exit)->toBe(0, $output);
@@ -1706,7 +1728,7 @@ it('leaves a pre-existing valid pinned-releases file byte-for-byte and timestamp
         $root = cleanupOpsBuildFixture($scratch, [
             'v1.0.1-20260101-000000-abc1231' => 'success',
         ], pinned: ['v1.0.1-20260101-000000-abc1231']);
-        $confPath = cleanupOpsDeploymentConfForRoot($scratch, $root);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
         $uid = (string) getmyuid();
         $gid = (string) getmygid();
 
@@ -1726,12 +1748,18 @@ it('leaves a pre-existing valid pinned-releases file byte-for-byte and timestamp
             'PINNED_FILE_GROUP' => $gid,
             'PINNED_FILE_MODE' => '0640',
         ], <<<'BASH'
-            parse_cleanup_args --environment staging --apply
+            parse_cleanup_args --target parity-target --apply
             resolve_target
             validate_target_tree
             perform_apply
             BASH,
-            ['RATEGURU_ALLOW_TEST_OVERRIDES' => 'true', 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(), 'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath],
+            [
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+            ],
         );
 
         expect($exit)->toBe(0, $output);
@@ -1740,22 +1768,6 @@ it('leaves a pre-existing valid pinned-releases file byte-for-byte and timestamp
         expect(file_get_contents($pinnedPath))->toBe($beforeContent);
         expect(fileperms($pinnedPath) & 0o7777)->toBe($beforeMode, 'a pre-existing pinned-releases file must keep its own mode, not PINNED_FILE_MODE');
         expect(filemtime($pinnedPath))->toBe($beforeMtime, 'a pre-existing pinned-releases file must never be rewritten');
-    } finally {
-        cleanupOpsCleanup($scratch);
-    }
-});
-
-// =============================================================================
-// out of scope: --environment behaviour is untouched
-// =============================================================================
-
-it('keeps --environment production distinct from any tits-guru path', function () {
-    $scratch = cleanupOpsScratchDir();
-
-    try {
-        $source = cleanupOpsSource();
-
-        expect($source)->not->toMatch('/production.{0,40}tits-guru|tits-guru.{0,40}production/is');
     } finally {
         cleanupOpsCleanup($scratch);
     }

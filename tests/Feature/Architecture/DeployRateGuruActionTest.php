@@ -63,3 +63,36 @@ it('defines a hardened reusable RateGuru deployment action', function () {
             ->and(data_get($step, 'run'))->not->toContain('${{ inputs.');
     }
 });
+
+it('is called with an explicit, validly-shaped deployment-target by every workflow that consumes it', function () {
+    $workflowFiles = glob(base_path('.github/workflows/*.yml'));
+    expect($workflowFiles)->not->toBeEmpty();
+
+    $consumers = [];
+
+    foreach ($workflowFiles as $path) {
+        $workflow = Yaml::parse(File::get($path));
+
+        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
+            foreach ((array) data_get($job, 'steps', []) as $step) {
+                if (data_get($step, 'uses') !== './.github/actions/deploy-rateguru') {
+                    continue;
+                }
+
+                $label = basename($path).":{$jobName}:".(data_get($step, 'name') ?? '(unnamed step)');
+                $consumers[] = $label;
+
+                $target = data_get($step, 'with.deployment-target');
+                expect($target)
+                    ->not->toBeNull("missing deployment-target in {$label}")
+                    ->not->toBe('');
+                expect($target)->toMatch('/^[a-z0-9]+(-[a-z0-9]+)*$/', "deployment-target in {$label} is not a validly-shaped target ID: {$target}");
+            }
+        }
+    }
+
+    // Proves this scan actually found real call sites, not trivially
+    // passing against zero consumers — and forces this test to be updated
+    // the moment a new workflow adds a fourth one.
+    expect($consumers)->toHaveCount(3, 'expected exactly three deploy-rateguru call sites (deploy-staging.yml, release.yml staging, release.yml production); found: '.implode(', ', $consumers));
+});

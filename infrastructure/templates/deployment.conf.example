@@ -1,25 +1,13 @@
-# Non-secret deployment settings installed as:
+# Non-secret, host-global deployment settings installed as:
 # /home/www/rateguru/config/deployment.conf
+#
+# Target-specific values (application root, runtime user, deploy user,
+# database name, retention, ...) live in the target registry
+# (deployment-targets.json), never here — this file only carries settings
+# that apply to the whole host regardless of which target is being operated
+# on.
 
 RELEASE_ID_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
 
 PHP_BIN=/usr/bin/php8.5
 PHP_FPM_SERVICE=php8.5-fpm
-
-STAGING_ROOT=/home/www/rateguru/staging
-STAGING_RUNTIME_USER=rateguru-staging
-# Distinct from the runtime user's own group: rateguru-staging is the runtime
-# group, rateguru-staging-code is the shared group that owns release files
-# (members include the deploy user and www-data). Confirmed against the
-# installed deployment.conf and current release ownership on the staging VPS.
-STAGING_CODE_GROUP=rateguru-staging-code
-STAGING_DEPLOY_USER=deploy-rateguru-staging
-STAGING_INCOMING_ARTIFACTS=/home/deploy-rateguru-staging/incoming
-STAGING_RELEASE_RETENTION=5
-
-PRODUCTION_ROOT=/home/www/rateguru/production
-PRODUCTION_RUNTIME_USER=rateguru-production
-PRODUCTION_CODE_GROUP=rateguru-production
-PRODUCTION_DEPLOY_USER=deploy-rateguru-production
-PRODUCTION_INCOMING_ARTIFACTS=/home/deploy-rateguru-production/incoming
-PRODUCTION_RELEASE_RETENTION=10

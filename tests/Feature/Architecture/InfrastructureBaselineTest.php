@@ -33,17 +33,24 @@ it('keeps staging maintenance active without enabling production prematurely', f
 it('keeps common free of removed legacy helpers', function () {
     $common = infrastructureSource('scripts/common');
 
-    // backup and restore-test graduated to target-awareness in Phase 4 slice
-    // 7.1, offsite-backup/offsite-retention/offsite-restore-test in slice
-    // 7.2, and backup-cycle in slice 7.3 — every operational script now
-    // deliberately sources common (for target_*/environment_* helpers,
-    // require_root, and the selector-parsing contract). See
+    // Every operational script sources common for target_* helpers,
+    // require_root, and the target-only parsing contract. The environment_*
+    // selector helpers and the dual-selector parser are gone entirely —
+    // this is the final Phase 4 cutover slice. See
     // BackupTest.php/RestoreTest.php,
     // OffsiteBackupTest.php/OffsiteRetentionTest.php/OffsiteRestoreTest.php
     // and BackupCycleTest.php for their own coverage.
     expect($common)
         ->not->toContain('parse_environment_argument()')
-        ->not->toContain('acquire_operation_lock()');
+        ->not->toContain('parse_environment_argument')
+        ->not->toContain('acquire_operation_lock()')
+        ->not->toContain('acquire_operation_lock')
+        ->not->toContain('validate_environment()')
+        ->not->toContain('environment_root()')
+        ->not->toContain('environment_public_hostname()')
+        ->not->toContain('parse_selector_args()')
+        ->not->toContain('assert_selector_state()')
+        ->toContain('parse_target_args()');
 
     expect(infrastructureSource('scripts/restore-test'))
         ->toContain('exec 9>"${LOCK_FILE}"')
@@ -61,15 +68,25 @@ it('validates deployment configuration security before sourcing', function () {
         ->toContain('source "${CONFIG_FILE}"');
 });
 
-it('provides a deployable non-secret deployment configuration template', function () {
+it('provides a deployable, host-global, non-secret deployment configuration template', function () {
     expect(infrastructureSource('templates/deployment.conf.example'))
-        ->toContain('STAGING_ROOT=/home/www/rateguru/staging')
-        ->toContain('PRODUCTION_ROOT=/home/www/rateguru/production')
-        ->toContain('STAGING_RUNTIME_USER=rateguru-staging')
-        ->toContain('PRODUCTION_RUNTIME_USER=rateguru-production')
         ->toContain('RELEASE_ID_REGEX=')
         ->toContain('PHP_BIN=/usr/bin/php8.5')
-        ->toContain('PHP_FPM_SERVICE=php8.5-fpm');
+        ->toContain('PHP_FPM_SERVICE=php8.5-fpm')
+        // Target-specific values live only in the target registry now — this
+        // template must never resurrect the legacy per-environment settings.
+        ->not->toContain('STAGING_ROOT')
+        ->not->toContain('STAGING_RUNTIME_USER')
+        ->not->toContain('STAGING_CODE_GROUP')
+        ->not->toContain('STAGING_DEPLOY_USER')
+        ->not->toContain('STAGING_INCOMING_ARTIFACTS')
+        ->not->toContain('STAGING_RELEASE_RETENTION')
+        ->not->toContain('PRODUCTION_ROOT')
+        ->not->toContain('PRODUCTION_RUNTIME_USER')
+        ->not->toContain('PRODUCTION_CODE_GROUP')
+        ->not->toContain('PRODUCTION_DEPLOY_USER')
+        ->not->toContain('PRODUCTION_INCOMING_ARTIFACTS')
+        ->not->toContain('PRODUCTION_RELEASE_RETENTION');
 });
 
 it('keeps deployment failure recovery active until terminal history is written', function () {
@@ -91,17 +108,16 @@ it('keeps deployment failure recovery active until terminal history is written',
 });
 
 it('blocks deployment when sharing urls do not match the public hostname', function () {
-    $common = infrastructureSource('scripts/common');
     $deploy = infrastructureSource('scripts/deploy');
+    $registry = infrastructureSource('config/deployment-targets.json');
 
-    expect($common)
-        ->toContain('environment_public_hostname()')
-        ->toContain('"rateguru.staging.myprojects.pp.ua"')
-        ->toContain('"tits.guru"')
-        ->and($deploy)
-        ->toContain('PUBLIC_HOSTNAME="$(environment_public_hostname "${ENVIRONMENT}")"')
+    expect($deploy)
+        ->toContain('PUBLIC_HOSTNAME="$(target_primary_public_hostname "${TARGET_ID}")"')
         ->toContain('artisan rateguru:sharing:verify')
-        ->toContain('--expected-host="${PUBLIC_HOSTNAME}"');
+        ->toContain('--expected-host="${PUBLIC_HOSTNAME}"')
+        ->and($registry)
+        ->toContain('"rateguru.staging.myprojects.pp.ua"')
+        ->toContain('"tits.guru"');
 });
 
 it('normalizes release permissions while preserving the executable bit', function () {
@@ -230,14 +246,13 @@ it('restores both original links for every failed rollback switch', function () 
         ->toContain('FAILURE_STATUS="failed-health-check"')
         ->and(substr_count($rollback, '"rollback-finished"'))->toBe(2)
         ->and(substr_count($rollback, 'trap - EXIT'))->toBe(1)
-        // Phase 4 slice 6: both the normal and recovery health-check calls go
-        // through the gated HEALTH_CHECK_BIN override with the selector
-        // resolved once in resolve_target (HEALTH_SELECTOR), rather than a
-        // hardcoded --environment-only path — the same pattern deploy already
-        // established for its own health-check call. toContain would only
-        // prove one occurrence exists; substr_count proves both call sites
-        // (normal switch and recovery) use it.
-        ->and(substr_count($rollback, '"${HEALTH_CHECK_BIN}" "${HEALTH_SELECTOR[@]}"'))->toBe(2);
+        // Both the normal and recovery health-check calls go through the
+        // gated HEALTH_CHECK_BIN override with the target resolved once in
+        // resolve_target (HEALTH_CHECK_ARGS), the same pattern deploy
+        // already establishes for its own health-check call. toContain
+        // would only prove one occurrence exists; substr_count proves both
+        // call sites (normal switch and recovery) use it.
+        ->and(substr_count($rollback, '"${HEALTH_CHECK_BIN}" "${HEALTH_CHECK_ARGS[@]}"'))->toBe(2);
 });
 
 it('continues status output when release metadata or history is malformed', function () {

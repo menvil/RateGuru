@@ -70,18 +70,6 @@ require_root() {
     fi
 }
 
-validate_environment() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging|production)
-            ;;
-        *)
-            fail "invalid environment: ${environment}"
-            ;;
-    esac
-}
-
 validate_release_id() {
     local release_id="$1"
 
@@ -90,88 +78,10 @@ validate_release_id() {
     fi
 }
 
-environment_root() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "${STAGING_ROOT}"
-            ;;
-        production)
-            printf '%s\n' "${PRODUCTION_ROOT}"
-            ;;
-    esac
-}
-
-environment_runtime_user() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "${STAGING_RUNTIME_USER}"
-            ;;
-        production)
-            printf '%s\n' "${PRODUCTION_RUNTIME_USER}"
-            ;;
-    esac
-}
-
-environment_code_group() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "${STAGING_CODE_GROUP}"
-            ;;
-        production)
-            printf '%s\n' "${PRODUCTION_CODE_GROUP}"
-            ;;
-    esac
-}
-
-environment_url() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "http://127.0.0.1/"
-            ;;
-        production)
-            printf '%s\n' "http://127.0.0.1/"
-            ;;
-    esac
-}
-
-environment_host_header() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "rateguru-staging.internal"
-            ;;
-        production)
-            printf '%s\n' "rateguru-production.internal"
-            ;;
-    esac
-}
-
-environment_public_hostname() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "rateguru.staging.myprojects.pp.ua"
-            ;;
-        production)
-            printf '%s\n' "tits.guru"
-            ;;
-    esac
-}
-
 acquire_deployment_lock() {
-    local environment_root="$1"
+    local application_root="$1"
 
-    exec 200>"${environment_root}/locks/deployment.lock"
+    exec 200>"${application_root}/locks/deployment.lock"
 
     if ! flock -n 200; then
         fail "another deployment operation is already running"
@@ -179,7 +89,7 @@ acquire_deployment_lock() {
 }
 
 append_history() {
-    local environment_root="$1"
+    local application_root="$1"
     local event="$2"
     local release_id="${3:-null}"
     local status="${4:-unknown}"
@@ -191,140 +101,15 @@ append_history() {
         "${release_id}" \
         "${status}" \
         "${SUDO_USER:-$(id -un)}" \
-        >> "${environment_root}/deployments/history.jsonl"
+        >> "${application_root}/deployments/history.jsonl"
 }
 
-environment_deploy_user() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "${STAGING_DEPLOY_USER}"
-            ;;
-        production)
-            printf '%s\n' "${PRODUCTION_DEPLOY_USER}"
-            ;;
-    esac
-}
-
-environment_incoming_artifacts() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "${STAGING_INCOMING_ARTIFACTS}"
-            ;;
-        production)
-            printf '%s\n' "${PRODUCTION_INCOMING_ARTIFACTS}"
-            ;;
-    esac
-}
-
-# Phase 4 slice 4: cleanup's legacy (--environment) default retention only.
-# Kept for --environment compatibility — deployment.conf's
-# STAGING_RELEASE_RETENTION/PRODUCTION_RELEASE_RETENTION are host-level
-# settings, not the registry's per-target release_retention field. Target
-# mode does NOT call this: it reads target_release_retention(TARGET_ID)
-# instead, because release_retention is a required per-target registry
-# field precisely so two targets sharing an environment_class (e.g. two
-# production targets) can retain a different number of releases. Legacy and
-# target mode currently resolve the same number for staging/staging-main
-# only because the registry and deployment.conf happen to agree today — see
-# target_release_retention below and cleanup's own resolve_target().
-#
-# No default/error case for an unrecognized environment, matching every
-# other environment_* helper in this block (environment_root,
-# environment_runtime_user, environment_code_group, ...): none of them have
-# one. Every real call site runs validate_environment first, so this is
-# never reached with anything but "staging"/"production" — adding a check
-# here alone would be inconsistent with its siblings for no safety gain. If
-# this contract is ever revisited, do it for every environment_* helper
-# together, not one at a time.
-environment_release_retention() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "${STAGING_RELEASE_RETENTION}"
-            ;;
-        production)
-            printf '%s\n' "${PRODUCTION_RELEASE_RETENTION}"
-            ;;
-    esac
-}
-
-# Phase 4 slice 7.1: legacy (--environment) backup helpers, mirroring
-# environment_public_hostname/environment_host_header — literal per-class
-# values, not sourced from deployment.conf, because these three are
-# deliberately declared here rather than added as new deployment.conf
-# settings. Same contract as every other environment_* helper in this block:
-# no default/error case, because every real call site runs
-# validate_environment first. Target mode never calls these — it reads
-# target_database_name/target_backup_namespace/target_local_backup_retention
-# (already defined below) from the registry instead.
-environment_database_name() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "rateguru_staging"
-            ;;
-        production)
-            printf '%s\n' "rateguru_production"
-            ;;
-    esac
-}
-
-environment_backup_namespace() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "staging"
-            ;;
-        production)
-            printf '%s\n' "production"
-            ;;
-    esac
-}
-
-environment_local_backup_retention() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "14"
-            ;;
-        production)
-            printf '%s\n' "30"
-            ;;
-    esac
-}
-
-# Phase 4 slice 7.2: legacy (--environment) offsite retention, same contract
-# as environment_local_backup_retention above (no default/error case; every
-# real call site runs validate_environment first). Target mode never calls
-# this — it reads target_offsite_backup_retention (already defined below)
-# from the registry instead.
-environment_offsite_backup_retention() {
-    local environment="$1"
-
-    case "${environment}" in
-        staging)
-            printf '%s\n' "30"
-            ;;
-        production)
-            printf '%s\n' "90"
-            ;;
-    esac
-}
-
-# Phase 4 slice 7.2: shared, strict backup-manifest schema classifier for
-# offsite-backup and offsite-restore-test. infrastructure/scripts/restore-test
-# (local restore-test) already established this exact contract inline and is
-# out of scope for this slice — it is not touched, and does not call this
-# function — but the contract must stay identical, so it is extracted here
-# rather than re-derived with different semantics per caller.
+# Shared, strict backup-manifest schema classifier for offsite-backup and
+# offsite-restore-test. infrastructure/scripts/restore-test (local
+# restore-test) established this exact contract inline, independently, and
+# does not call this function — but the contract must stay identical, so it
+# is extracted here rather than re-derived with different semantics per
+# caller.
 #
 # Never classify by `jq -r '.manifest_schema_version // empty'` alone: raw
 # output loses JSON type, so a schema_version of 3, 0, the JSON *string* "2"
@@ -340,7 +125,7 @@ environment_offsite_backup_retention() {
 #                     for an array/object) — callers turn this into their own
 #                     `fail "unsupported backup manifest schema_version: ..."`
 #
-# Never calls fail itself, and has no dependency on any selector-resolved
+# Never calls fail itself, and has no dependency on any target-resolved
 # variable (ENVIRONMENT_CLASS, BACKUP_NAMESPACE, TARGET_ID, ...) — safe to
 # call before those exist.
 manifest_schema_classify() {
@@ -370,20 +155,27 @@ manifest_schema_classify() {
     esac
 }
 
-# Phase 4 slice 7.2 (review follow-up): shared manifest validator for
-# offsite-backup and offsite-restore-test — both scripts had this exact,
-# byte-identical implementation; extracted here to remove the duplication.
-# infrastructure/scripts/restore-test (local restore-test) has a materially
-# different contract (it also checks `database` against its own
-# independently resolved database name) and stays untouched, exactly as
-# before — this function is never called by it.
+# Shared manifest validator for offsite-backup and offsite-restore-test —
+# both scripts had this exact, byte-identical implementation; extracted here
+# to remove the duplication. infrastructure/scripts/restore-test (local
+# restore-test) has a materially different contract (it also checks
+# `database` against its own independently resolved database name) and
+# stays untouched — this function is never called by it.
 #
 # Runs before any rclone command — checksum validation only proves the
 # selected backup's own files are internally consistent; this proves the
-# backup actually belongs to the resolved selector. Operates on
-# ENVIRONMENT_CLASS, BACKUP_NAMESPACE, SELECTOR_TYPE and TARGET_ID, set by
-# the caller's own resolve_* step before this runs — same convention as
-# require_active_target and parse_selector_args below.
+# backup actually belongs to the resolved target. Operates on
+# ENVIRONMENT_CLASS, BACKUP_NAMESPACE and TARGET_ID, set by the caller's own
+# resolve_* step before this runs — same convention as require_active_target
+# and parse_target_args below.
+#
+# A schema 2 manifest whose own target field is absent or JSON null (every
+# manifest produced before this cutover, when the operational selector was
+# not yet target-only) is accepted without a target comparison — historical
+# manifest content is immutable and stays restorable. An explicit empty
+# string is not treated the same as absent: it is rejected outright, the
+# same way an unexpected type is, since a real manifest this script writes
+# itself never produces one.
 validate_backup_manifest() {
     local manifest_path="$1"
 
@@ -417,14 +209,30 @@ validate_backup_manifest() {
             [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
                 || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
 
-            if [[ "${SELECTOR_TYPE}" == "target" ]]; then
-                local manifest_target
-                manifest_target="$(jq -r '.target // empty' "${manifest_path}")"
+            local manifest_target_type
+            manifest_target_type="$(jq -r '.target | type' "${manifest_path}")"
 
-                if [[ -n "${manifest_target}" ]] && [[ "${manifest_target}" != "${TARGET_ID}" ]]; then
-                    fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
-                fi
-            fi
+            case "${manifest_target_type}" in
+                null)
+                    # Absent or explicit JSON null — a schema 2 manifest
+                    # predating the target-only cutover; no target to compare.
+                    ;;
+                string)
+                    local manifest_target
+                    manifest_target="$(jq -r '.target' "${manifest_path}")"
+
+                    [[ -n "${manifest_target}" ]] \
+                        || fail "backup manifest target is an empty string"
+
+                    [[ "${manifest_target}" == "${TARGET_ID}" ]] \
+                        || fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
+                    ;;
+                *)
+                    local manifest_target_value
+                    manifest_target_value="$(jq -c '.target' "${manifest_path}")"
+                    fail "backup manifest target has unexpected type: ${manifest_target_value}"
+                    ;;
+            esac
             ;;
         invalid:*)
             fail "unsupported backup manifest schema_version: ${manifest_schema_status#invalid:}"
@@ -760,104 +568,12 @@ require_active_target() {
     fi
 }
 
-# Shared --target/--environment selector parsing for target-aware operational
-# commands (health-check, status). Runs in the caller's own shell — never a
-# subshell — so it sets TARGET_ID, ENVIRONMENT, TARGET_SEEN and
-# ENVIRONMENT_SEEN directly in the caller's scope rather than returning them.
-#
-# Call as: parse_selector_args "$0" "$@"  (or an explicit program name in
-# place of "$0", since callers invoke this via `bash script`, not `./script`).
-#
-# Enforces: exactly one of --target/--environment; the two together fail;
-# duplicate --target or duplicate --environment fails; a selector given with no
-# value, or an explicitly empty value, fails; an unrecognized argument fails;
-# --help prints both forms and exits 0. It does not perform target/environment
-# *semantic* validation (require_active_target, validate_environment) — that
-# stays with the caller, since what happens with a validated selector differs
-# per command.
-parse_selector_args() {
-    local program_name="$1"
-    shift
-
-    TARGET_ID=""
-    ENVIRONMENT=""
-    TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --target)
-                if [[ "${TARGET_SEEN}" == true ]]; then
-                    fail "--target given more than once"
-                fi
-
-                [[ $# -ge 2 ]] || fail "--target requires a value"
-
-                TARGET_ID="$2"
-                TARGET_SEEN=true
-                shift 2
-                ;;
-            --environment)
-                if [[ "${ENVIRONMENT_SEEN}" == true ]]; then
-                    fail "--environment given more than once"
-                fi
-
-                [[ $# -ge 2 ]] || fail "--environment requires a value"
-
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
-                shift 2
-                ;;
-            --help|-h)
-                cat <<USAGE
-Usage:
-  ${program_name} --target TARGET
-  ${program_name} --environment staging|production
-USAGE
-                exit 0
-                ;;
-            *)
-                fail "unknown argument: $1"
-                ;;
-        esac
-    done
-
-    assert_selector_state
-}
-
-# Phase 4 slice 4: extracted from parse_selector_args's own tail so cleanup
-# can reuse it too. cleanup cannot use parse_selector_args directly — it has
-# extra flags (--keep, --dry-run, --apply) that function doesn't know about —
-# so it runs its own argument loop for --target/--environment/--keep/
-# --dry-run/--apply, then calls this function for the exact same
-# mutual-exclusion / exactly-one-required / non-empty validation
-# health-check and status already get from parse_selector_args. Operates on
-# the same TARGET_ID/ENVIRONMENT/TARGET_SEEN/ENVIRONMENT_SEEN globals, set
-# directly in the caller's own shell — never a subshell — same convention as
-# every other function in this block.
-assert_selector_state() {
-    if [[ "${TARGET_SEEN}" == true ]] && [[ "${ENVIRONMENT_SEEN}" == true ]]; then
-        fail "--target and --environment cannot be combined"
-    fi
-
-    if [[ "${TARGET_SEEN}" != true ]] && [[ "${ENVIRONMENT_SEEN}" != true ]]; then
-        fail "exactly one of --target or --environment is required"
-    fi
-
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        [[ -n "${TARGET_ID}" ]] || fail "--target requires a non-empty value"
-    else
-        [[ -n "${ENVIRONMENT}" ]] || fail "--environment requires a non-empty value"
-    fi
-}
-
-# Phase 4 slice 7.2 (review follow-up): shared flag-value validator for the
-# offsite-* scripts' own hand-rolled --target/--environment (and
-# offsite-retention's --apply) argument loops — offsite-backup,
-# offsite-retention and offsite-restore-test had this exact, byte-identical
-# implementation; extracted here to remove the duplication. backup/deploy/
-# rollback keep their own separate copies untouched (out of scope for this
-# slice) — bash's normal function-shadowing means a script defining its own
+# Shared flag-value validator, used by every operational script's own
+# argument loop (including parse_target_args below) — offsite-backup,
+# offsite-retention and offsite-restore-test originally had this exact,
+# byte-identical implementation inline; extracted here to remove the
+# duplication. deploy/rollback/restore-test keep their own separate copies,
+# since bash's normal function-shadowing means a script defining its own
 # require_flag_value after sourcing this file is unaffected either way.
 #
 # require_flag_value <flag-name> <remaining-arg-count> <next-token>
@@ -870,5 +586,59 @@ require_flag_value() {
     case "${value}" in
         -*) fail "${flag} requires a value, not another option: ${value}" ;;
     esac
+}
+
+# Shared --target parsing for target-only operational commands with no
+# operation-specific flags of their own (health-check, status). Runs in the
+# caller's own shell — never a subshell — so it sets TARGET_ID and
+# TARGET_SEEN directly in the caller's scope rather than returning them.
+#
+# Call as: parse_target_args "$0" "$@"  (or an explicit program name in
+# place of "$0", since callers invoke this via `bash script`, not `./script`).
+#
+# Enforces: exactly one --target; duplicate --target fails; a --target given
+# with no value, an explicitly empty value, or a flag-shaped value all fail;
+# an unrecognized argument fails; --help prints usage and exits 0. It does
+# not perform lifecycle validation (require_active_target) — that stays with
+# the caller, since what happens with a resolved target differs per command.
+#
+# Scripts with their own operation-specific flags (deploy, rollback, cleanup,
+# backup, restore-test, offsite-backup, offsite-retention,
+# offsite-restore-test, backup-cycle) run their own argument loop instead —
+# this function only fits a script whose sole flag is --target.
+parse_target_args() {
+    local program_name="$1"
+    shift
+
+    TARGET_ID=""
+    TARGET_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                require_flag_value "--target" "$#" "${2-}"
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                cat <<USAGE
+Usage:
+  ${program_name} --target TARGET_ID
+USAGE
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
 # --- deployment target registry (end) ---

@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 #
 # rateguru-cleanup — generic, target-aware sudo wrapper installed at
-# /usr/local/sbin/rateguru-cleanup (Phase 4 slice 8). Replaces the legacy,
-# per-environment /usr/local/sbin/rateguru-staging-cleanup /
-# rateguru-production-cleanup wrappers with a single wrapper that accepts
-# only --target TARGET_ID, authorizes the caller against the target's own
-# registered deploy user, and execs the real cleanup binary with a
-# completely scrubbed environment. cleanup itself is untouched by this
-# slice — it already supports --target since Phase 4 slice 4.
+# /usr/local/sbin/rateguru-cleanup. Accepts only --target TARGET_ID,
+# authorizes the caller against the target's own registered deploy user, and
+# execs the real cleanup binary with a completely scrubbed environment.
 #
 # See infrastructure/config/wrappers/rateguru-deploy for the full rationale
 # behind every design decision below — this file mirrors it exactly, with
@@ -54,9 +50,8 @@ print_wrapper_usage() {
 Usage:
   ${WRAPPER_NAME} --target TARGET_ID [operation arguments...]
 
-This wrapper accepts only a --target selector; --environment is not
-supported here. Every other argument is passed through, unexamined and in
-order, to the underlying cleanup operation (e.g. --keep, --dry-run, --apply).
+Every other argument is passed through, unexamined and in order, to the
+underlying cleanup operation (e.g. --keep, --dry-run, --apply).
 USAGE
 }
 
@@ -92,12 +87,6 @@ parse_wrapper_args() {
                 ;;
             --target=*)
                 fail "--target must be given as '--target VALUE', not '--target=VALUE'"
-                ;;
-            --environment)
-                fail "--environment is not supported by ${WRAPPER_NAME}; use --target"
-                ;;
-            --environment=*)
-                fail "--environment is not supported by ${WRAPPER_NAME}; use --target"
                 ;;
             --help|-h)
                 print_wrapper_usage

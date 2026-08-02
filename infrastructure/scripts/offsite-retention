@@ -58,7 +58,6 @@ fi
 usage() {
     cat <<'USAGE'
 Usage:
-  offsite-retention --environment staging|production [--apply]
   offsite-retention --target TARGET_ID [--apply]
 
 Without --apply, offsite-retention performs a dry run: it lists candidates
@@ -71,16 +70,14 @@ USAGE
 # this file, is constants and function definitions only — nothing runs until
 # main is called.
 
-# --- selector and execution-mode parsing -------------------------------------
+# --- target and execution-mode parsing ---------------------------------------
 #
 # require_flag_value is defined in common (shared with offsite-backup and
 # offsite-restore-test — see the comment there).
 
 parse_offsite_retention_args() {
     TARGET_ID=""
-    ENVIRONMENT=""
     TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
     APPLY=false
 
     while [[ $# -gt 0 ]]; do
@@ -90,13 +87,6 @@ parse_offsite_retention_args() {
                 require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
-                shift 2
-                ;;
-            --environment)
-                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                require_flag_value "--environment" "$#" "${2-}"
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
                 shift 2
                 ;;
             --apply)
@@ -113,32 +103,20 @@ parse_offsite_retention_args() {
         esac
     done
 
-    assert_selector_state
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
 
-# --- selector resolution (mirrors offsite-backup) ----------------------------
+# --- target resolution (mirrors offsite-backup) ------------------------------
 #
-# require_active_target runs first thing in the target branch — before the
-# rclone config check, any remote listing, the lock, or any candidate
-# computation or purge.
+# require_active_target runs first thing — before the rclone config check,
+# any remote listing, the lock, or any candidate computation or purge.
 resolve_offsite_retention_subject() {
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        require_active_target "${TARGET_ID}"
+    require_active_target "${TARGET_ID}"
 
-        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
-        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
-        OFFSITE_RETENTION_DAYS="$(target_offsite_backup_retention "${TARGET_ID}")"
-        LABEL="${TARGET_ID}"
-        SELECTOR_TYPE="target"
-    else
-        validate_environment "${ENVIRONMENT}"
-
-        ENVIRONMENT_CLASS="${ENVIRONMENT}"
-        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
-        OFFSITE_RETENTION_DAYS="$(environment_offsite_backup_retention "${ENVIRONMENT}")"
-        LABEL="${ENVIRONMENT}"
-        SELECTOR_TYPE="environment"
-    fi
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    OFFSITE_RETENTION_DAYS="$(target_offsite_backup_retention "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
 }
 
 # --- candidate computation (read-only; shared by dry-run and apply) ---------
@@ -300,7 +278,7 @@ run_apply() {
     log "Retention candidates: ${#DELETE_CANDIDATES[@]}"
 }
 
-# --- offsite retention pipeline: one shared code path for both selectors ---
+# --- offsite retention pipeline ---------------------------------------------
 
 perform_offsite_retention() {
     # Keyed on BACKUP_NAMESPACE, never on LABEL — matching offsite-backup's
@@ -311,7 +289,7 @@ perform_offsite_retention() {
     [[ -f "${RCLONE_CONFIG}" ]] || fail "rclone configuration not found: ${RCLONE_CONFIG}"
 
     log "${LABEL} offsite retention"
-    log "Selector:          ${SELECTOR_TYPE}"
+    log "Target:            ${TARGET_ID}"
     log "Environment class: ${ENVIRONMENT_CLASS}"
     log "Retention:         ${OFFSITE_RETENTION_DAYS} days"
     log "Mode:              $([[ "${APPLY}" == true ]] && printf apply || printf dry-run)"

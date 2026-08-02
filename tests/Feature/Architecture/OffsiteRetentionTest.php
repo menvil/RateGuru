@@ -348,23 +348,6 @@ function offsiteRetentionOpsTimestampDaysAgo(int $days): string
 // Selector contract
 // =============================================================================
 
-it('supports the legacy --environment selector', function () {
-    $scratch = offsiteRetentionOpsScratchDir();
-
-    try {
-        [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
-            parse_offsite_retention_args --environment staging
-            resolve_offsite_retention_subject
-            printf 'LABEL=%s\n' "${LABEL}"
-            BASH, offsiteRetentionOpsBaseEnv($scratch));
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('LABEL=staging');
-    } finally {
-        offsiteRetentionOpsCleanup($scratch);
-    }
-});
-
 it('supports the --target selector', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
@@ -387,55 +370,46 @@ it('supports the --target selector', function () {
     }
 });
 
-it('rejects --target and --environment used together', function () {
-    $scratch = offsiteRetentionOpsScratchDir();
-
-    try {
-        [$exit, $output] = offsiteRetentionOpsRunHarness(
-            $scratch,
-            'parse_offsite_retention_args --target staging-main --environment staging',
-            offsiteRetentionOpsBaseEnv($scratch),
-        );
-
-        expect($exit)->not->toBe(0);
-        expect($output)->toContain('cannot be combined');
-    } finally {
-        offsiteRetentionOpsCleanup($scratch);
-    }
-});
-
-it('requires exactly one selector', function () {
+it('requires --target', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
     try {
         [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, 'parse_offsite_retention_args', offsiteRetentionOpsBaseEnv($scratch));
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('exactly one of --target or --environment is required');
+        expect($output)->toContain('--target is required');
     } finally {
         offsiteRetentionOpsCleanup($scratch);
     }
 });
 
-it('rejects duplicate selectors', function () {
+it('rejects a removed --environment flag exactly like any other unknown argument', function () {
+    // --environment is no longer a recognized flag at all — there is no
+    // special deprecation message, just the same generic rejection any
+    // other bogus flag gets.
     $scratch = offsiteRetentionOpsScratchDir();
 
     try {
-        [$targetExit, $targetOutput] = offsiteRetentionOpsRunHarness(
+        [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, 'parse_offsite_retention_args --environment staging', offsiteRetentionOpsBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('unknown argument: --environment');
+    } finally {
+        offsiteRetentionOpsCleanup($scratch);
+    }
+});
+
+it('rejects duplicate --target', function () {
+    $scratch = offsiteRetentionOpsScratchDir();
+
+    try {
+        [$exit, $output] = offsiteRetentionOpsRunHarness(
             $scratch,
             'parse_offsite_retention_args --target a --target b',
             offsiteRetentionOpsBaseEnv($scratch),
         );
-        expect($targetExit)->not->toBe(0);
-        expect($targetOutput)->toContain('--target given more than once');
-
-        [$envExit, $envOutput] = offsiteRetentionOpsRunHarness(
-            $scratch,
-            'parse_offsite_retention_args --environment staging --environment production',
-            offsiteRetentionOpsBaseEnv($scratch),
-        );
-        expect($envExit)->not->toBe(0);
-        expect($envOutput)->toContain('--environment given more than once');
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--target given more than once');
     } finally {
         offsiteRetentionOpsCleanup($scratch);
     }
@@ -453,15 +427,15 @@ it('rejects a selector given without a value, with an empty value, or with a fla
         expect($exit)->not->toBe(0);
         expect($output)->toContain('--target requires a non-empty value');
 
-        [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, 'parse_offsite_retention_args --target --environment staging', offsiteRetentionOpsBaseEnv($scratch));
+        [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, 'parse_offsite_retention_args --target --apply', offsiteRetentionOpsBaseEnv($scratch));
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('--target requires a value, not another option: --environment');
+        expect($output)->toContain('--target requires a value, not another option: --apply');
     } finally {
         offsiteRetentionOpsCleanup($scratch);
     }
 });
 
-it('shows both selector forms on --help and exits 0', function () {
+it('shows only the --target form on --help and exits 0', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
     try {
@@ -469,8 +443,8 @@ it('shows both selector forms on --help and exits 0', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)
-            ->toContain('--environment staging|production')
-            ->toContain('--target TARGET_ID');
+            ->toContain('--target TARGET_ID')
+            ->not->toContain('--environment');
     } finally {
         offsiteRetentionOpsCleanup($scratch);
     }
@@ -549,27 +523,16 @@ it('rejects an unknown target clearly', function () {
 });
 
 // =============================================================================
-// Target-specific retention: deliberate divergence from legacy staging
+// Target-specific retention
 // =============================================================================
 
-it('resolves target retention from the registry, independently of the legacy value, even when they deliberately differ', function () {
+it('resolves retention from the registry', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
     try {
-        // legacy staging = 30 days (common's environment_offsite_backup_retention);
-        // target = 17 days, deliberately different, proving each selector
-        // reads its own source rather than the other's.
         [$registryPath, $targetsPath] = offsiteRetentionOpsParityRegistry($scratch, 'parity', 17);
 
-        [$legacyExit, $legacyOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
-            parse_offsite_retention_args --environment staging
-            resolve_offsite_retention_subject
-            printf 'RETENTION=%s\n' "${OFFSITE_RETENTION_DAYS}"
-            BASH, offsiteRetentionOpsBaseEnv($scratch));
-        expect($legacyExit)->toBe(0, $legacyOutput);
-        expect($legacyOutput)->toContain('RETENTION=30');
-
-        [$targetExit, $targetOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
+        [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
             parse_offsite_retention_args --target parity-target
             resolve_offsite_retention_subject
             printf 'RETENTION=%s\n' "${OFFSITE_RETENTION_DAYS}"
@@ -577,88 +540,80 @@ it('resolves target retention from the registry, independently of the legacy val
             'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
             'RATEGURU_TARGETS_CLI' => $targetsPath,
         ]));
-        expect($targetExit)->toBe(0, $targetOutput);
-        expect($targetOutput)->toContain('RETENTION=17');
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('RETENTION=17');
     } finally {
         offsiteRetentionOpsCleanup($scratch);
     }
 });
 
-it('purges a 20-day-old backup under the 17-day target cutoff but retains the same-age backup under the 30-day legacy cutoff', function () {
+it('purges a 20-day-old backup under a 17-day retention cutoff but retains the same-age backup under a 30-day cutoff', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
     try {
         [$registryPath, $targetsPath] = offsiteRetentionOpsParityRegistry($scratch, 'parity', 17);
 
-        // Independent bucket roots per selector — a 20-day-old backup and a
-        // 1-day-old "latest" so the old one is a genuine deletion candidate
-        // rather than being unconditionally protected as the latest.
-        $targetBucketRoot = $scratch.'/bucket-target';
-        mkdir($targetBucketRoot, 0o755, true);
-        $targetOldTs = offsiteRetentionOpsTimestampDaysAgo(20);
-        offsiteRetentionOpsBuildRemoteBackup($targetBucketRoot, 'parity', $targetOldTs);
-        offsiteRetentionOpsBuildRemoteBackup($targetBucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(1));
+        // Independent bucket roots per retention window — a 20-day-old backup
+        // and a 1-day-old "latest" so the old one is a genuine deletion
+        // candidate rather than being unconditionally protected as the latest.
+        $shortBucketRoot = $scratch.'/bucket-short';
+        mkdir($shortBucketRoot, 0o755, true);
+        $shortOldTs = offsiteRetentionOpsTimestampDaysAgo(20);
+        offsiteRetentionOpsBuildRemoteBackup($shortBucketRoot, 'parity', $shortOldTs);
+        offsiteRetentionOpsBuildRemoteBackup($shortBucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(1));
 
-        [$targetExit, $targetOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
+        [$shortExit, $shortOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
             parse_offsite_retention_args --target parity-target --apply
             resolve_offsite_retention_subject
             perform_offsite_retention
             BASH, offsiteRetentionOpsBaseEnv($scratch, [
             'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
             'RATEGURU_TARGETS_CLI' => $targetsPath,
-            'RATEGURU_RCLONE_BUCKET' => $targetBucketRoot,
-            'RATEGURU_RUN_ROOT' => $scratch.'/run-target',
+            'RATEGURU_RCLONE_BUCKET' => $shortBucketRoot,
+            'RATEGURU_RUN_ROOT' => $scratch.'/run-short',
         ]), offsiteRetentionOpsPatchedScript($scratch));
 
-        expect($targetExit)->toBe(0, $targetOutput);
-        expect($targetOutput)->toContain('DELETE: ')->toContain($targetOldTs);
-        expect(is_dir("{$targetBucketRoot}/rateguru/parity/{$targetOldTs}"))
-            ->toBeFalse('a 20-day-old backup must be purged under the 17-day target retention window');
+        expect($shortExit)->toBe(0, $shortOutput);
+        expect($shortOutput)->toContain('DELETE: ')->toContain($shortOldTs);
+        expect(is_dir("{$shortBucketRoot}/rateguru/parity/{$shortOldTs}"))
+            ->toBeFalse('a 20-day-old backup must be purged under a 17-day retention window');
 
-        $legacyBucketRoot = $scratch.'/bucket-legacy';
-        mkdir($legacyBucketRoot, 0o755, true);
-        $legacyOldTs = offsiteRetentionOpsTimestampDaysAgo(20);
-        offsiteRetentionOpsBuildRemoteBackup($legacyBucketRoot, 'staging', $legacyOldTs);
-        offsiteRetentionOpsBuildRemoteBackup($legacyBucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
+        // staging-main's committed registry retention is 30 days.
+        $longBucketRoot = $scratch.'/bucket-long';
+        mkdir($longBucketRoot, 0o755, true);
+        $longOldTs = offsiteRetentionOpsTimestampDaysAgo(20);
+        offsiteRetentionOpsBuildRemoteBackup($longBucketRoot, 'staging', $longOldTs);
+        offsiteRetentionOpsBuildRemoteBackup($longBucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
 
-        [$legacyExit, $legacyOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
-            parse_offsite_retention_args --environment staging --apply
+        [$longExit, $longOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
+            parse_offsite_retention_args --target staging-main --apply
             resolve_offsite_retention_subject
             perform_offsite_retention
             BASH, offsiteRetentionOpsBaseEnv($scratch, [
-            'RATEGURU_RCLONE_BUCKET' => $legacyBucketRoot,
-            'RATEGURU_RUN_ROOT' => $scratch.'/run-legacy',
+            'RATEGURU_RCLONE_BUCKET' => $longBucketRoot,
+            'RATEGURU_RUN_ROOT' => $scratch.'/run-long',
         ]), offsiteRetentionOpsPatchedScript($scratch));
 
-        expect($legacyExit)->toBe(0, $legacyOutput);
-        expect($legacyOutput)->toContain("KEEP recent: {$legacyOldTs}");
-        expect(is_dir("{$legacyBucketRoot}/rateguru/staging/{$legacyOldTs}"))
-            ->toBeTrue('the same-age backup must be retained under the 30-day legacy retention window');
+        expect($longExit)->toBe(0, $longOutput);
+        expect($longOutput)->toContain("KEEP recent: {$longOldTs}");
+        expect(is_dir("{$longBucketRoot}/rateguru/staging/{$longOldTs}"))
+            ->toBeTrue('the same-age backup must be retained under a 30-day retention window');
     } finally {
         offsiteRetentionOpsCleanup($scratch);
     }
 });
 
-it('legacy and target selectors of the same namespace use the same remote root and lock, despite different retention', function () {
+it('locks and lists the remote namespace by the resolved BACKUP_NAMESPACE', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
     try {
-        [$exit, $legacyOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
-            parse_offsite_retention_args --environment staging
-            resolve_offsite_retention_subject
-            printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
-            BASH, offsiteRetentionOpsBaseEnv($scratch));
-        expect($exit)->toBe(0, $legacyOutput);
-
-        [$exit, $targetOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
+        [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
             parse_offsite_retention_args --target staging-main
             resolve_offsite_retention_subject
             printf 'BACKUP_NAMESPACE=%s\n' "${BACKUP_NAMESPACE}"
             BASH, offsiteRetentionOpsBaseEnv($scratch));
-        expect($exit)->toBe(0, $targetOutput);
-
-        expect($legacyOutput)->toContain('BACKUP_NAMESPACE=staging');
-        expect($targetOutput)->toContain('BACKUP_NAMESPACE=staging');
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('BACKUP_NAMESPACE=staging');
 
         $source = offsiteRetentionOpsSource();
         expect($source)->toContain('LOCK_FILE="${RUN_ROOT}/offsite-retention-${BACKUP_NAMESPACE}.lock"');
@@ -668,7 +623,7 @@ it('legacy and target selectors of the same namespace use the same remote root a
     }
 });
 
-it('cannot run --environment staging and --target staging-main offsite retention concurrently against the same namespace', function () {
+it('cannot run two offsite retentions concurrently against the same namespace lock', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
     try {
@@ -734,7 +689,7 @@ it('protects the latest backup regardless of age, protects recent backups, and s
 
         [$exit, $output] = offsiteRetentionOpsRunHarness(
             $scratch,
-            "parse_offsite_retention_args --environment staging\nresolve_offsite_retention_subject\nperform_offsite_retention",
+            "parse_offsite_retention_args --target staging-main\nresolve_offsite_retention_subject\nperform_offsite_retention",
             $env,
         );
 
@@ -783,7 +738,7 @@ it('produces deterministic candidate ordering across repeated runs', function ()
         for ($i = 0; $i < 2; $i++) {
             [$exit, $output] = offsiteRetentionOpsRunHarness(
                 $scratch,
-                "parse_offsite_retention_args --environment staging\nresolve_offsite_retention_subject\nperform_offsite_retention",
+                "parse_offsite_retention_args --target staging-main\nresolve_offsite_retention_subject\nperform_offsite_retention",
                 $env,
             );
             expect($exit)->toBe(0, $output);
@@ -828,7 +783,7 @@ it('dry-run never invokes rclone purge, not even with --dry-run, and acquires no
 
         [$exit, $output] = offsiteRetentionOpsRunHarness(
             $scratch,
-            "parse_offsite_retention_args --environment staging\nresolve_offsite_retention_subject\nperform_offsite_retention",
+            "parse_offsite_retention_args --target staging-main\nresolve_offsite_retention_subject\nperform_offsite_retention",
             $env,
         );
 
@@ -869,7 +824,7 @@ it('apply lists remote backups twice — an unlocked preview, then a locked, aut
 
         [$exit, $output] = offsiteRetentionOpsRunHarness(
             $scratch,
-            "parse_offsite_retention_args --environment staging --apply\nresolve_offsite_retention_subject\nperform_offsite_retention",
+            "parse_offsite_retention_args --target staging-main --apply\nresolve_offsite_retention_subject\nperform_offsite_retention",
             $env,
             offsiteRetentionOpsPatchedScript($scratch),
         );
@@ -916,7 +871,7 @@ it('protects a backup uploaded concurrently between the preview pass and the loc
 
         [$exit, $output] = offsiteRetentionOpsRunHarness(
             $scratch,
-            "parse_offsite_retention_args --environment staging --apply\nresolve_offsite_retention_subject\nperform_offsite_retention",
+            "parse_offsite_retention_args --target staging-main --apply\nresolve_offsite_retention_subject\nperform_offsite_retention",
             $env,
             offsiteRetentionOpsPatchedScript($scratch),
         );
@@ -952,7 +907,7 @@ it('only apply ever invokes rclone purge — dry-run never does, under any circu
 
         [$dryRunExit] = offsiteRetentionOpsRunHarness(
             $scratch,
-            "parse_offsite_retention_args --environment staging\nresolve_offsite_retention_subject\nperform_offsite_retention",
+            "parse_offsite_retention_args --target staging-main\nresolve_offsite_retention_subject\nperform_offsite_retention",
             $dryRunEnv,
         );
         expect($dryRunExit)->toBe(0);
@@ -967,7 +922,7 @@ it('only apply ever invokes rclone purge — dry-run never does, under any circu
 
         [$applyExit] = offsiteRetentionOpsRunHarness(
             $scratch,
-            "parse_offsite_retention_args --environment staging --apply\nresolve_offsite_retention_subject\nperform_offsite_retention",
+            "parse_offsite_retention_args --target staging-main --apply\nresolve_offsite_retention_subject\nperform_offsite_retention",
             $applyEnv,
             offsiteRetentionOpsPatchedScript($scratch),
         );
@@ -991,7 +946,7 @@ it('reports no candidates when every remote backup is either the latest or withi
 
         [$exit, $output] = offsiteRetentionOpsRunHarness(
             $scratch,
-            "parse_offsite_retention_args --environment staging\nresolve_offsite_retention_subject\nperform_offsite_retention",
+            "parse_offsite_retention_args --target staging-main\nresolve_offsite_retention_subject\nperform_offsite_retention",
             $env,
         );
 
@@ -1013,7 +968,7 @@ it('reports no timestamped remote backups found without failing when the namespa
 
         [$exit, $output] = offsiteRetentionOpsRunHarness(
             $scratch,
-            "parse_offsite_retention_args --environment staging\nresolve_offsite_retention_subject\nperform_offsite_retention",
+            "parse_offsite_retention_args --target staging-main\nresolve_offsite_retention_subject\nperform_offsite_retention",
             $env,
         );
 

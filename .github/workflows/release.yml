@@ -212,7 +212,7 @@ jobs:
             --arg built_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg workflow_run_id "${GITHUB_RUN_ID}" \
             --arg workflow_run_number "${GITHUB_RUN_NUMBER}" \
-            --argjson targets '["staging", "production"]' \
+            --argjson targets '["staging-main", "tits-guru"]' \
             '{
               project: $project,
               source_ref: $source_ref,
@@ -282,6 +282,8 @@ jobs:
       - name: Deploy release artifact to staging
         uses: ./.github/actions/deploy-rateguru
         with:
+          deployment-target: staging-main
+
           deploy-host: ${{ vars.DEPLOY_HOST }}
           deploy-port: ${{ vars.DEPLOY_PORT }}
           deploy-user: ${{ vars.DEPLOY_USER }}
@@ -337,9 +339,17 @@ jobs:
           name: ${{ needs.validate.outputs.workflow-artifact-name }}
           path: ${{ runner.temp }}/rateguru-production-release
 
+      # tits-guru intentionally remains lifecycle=planned and unprovisioned —
+      # activation is explicitly out of scope for this Phase 4 cutover. This
+      # job is pinned to its real target ID so it fails closed, before
+      # touching anything, until the target is provisioned and activated in
+      # a later phase. Routing production to staging-main or activating
+      # tits-guru here would violate the accepted rollout plan.
       - name: Deploy verified artifact to production
         uses: ./.github/actions/deploy-rateguru
         with:
+          deployment-target: tits-guru
+
           deploy-host: ${{ vars.DEPLOY_HOST }}
           deploy-port: ${{ vars.DEPLOY_PORT }}
           deploy-user: ${{ vars.DEPLOY_USER }}

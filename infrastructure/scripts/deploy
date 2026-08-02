@@ -52,13 +52,6 @@ usage() {
 Usage:
 
   deploy \
-    --environment staging|production \
-    --release v1.4.0-20260717-151500-a81d7f2 \
-    --artifact /path/to/release.tar.gz \
-    [--checksum /path/to/release.tar.gz.sha256] \
-    [--migrate]
-
-  deploy \
     --target TARGET_ID \
     --release v1.4.0-20260717-151500-a81d7f2 \
     --artifact /path/to/release.tar.gz \
@@ -79,21 +72,19 @@ USAGE
 # of a thin run_*() wrapper specifically so require_root can stay the very
 # first thing a real invocation does, unchanged from today.
 
-# --- selector and deployment-flag parsing ------------------------------------
+# --- target and deployment-flag parsing --------------------------------------
 #
-# deploy cannot reuse common's parse_selector_args directly — it has extra
+# deploy cannot reuse common's parse_target_args directly — it has extra
 # flags (--release, --artifact, --checksum, --migrate) that function doesn't
-# know about — so it runs its own loop for --target/--environment plus those,
-# then calls assert_selector_state for the exact same mutual-exclusion /
-# exactly-one-required / non-empty validation health-check/status/cleanup
-# already get. Every value-taking flag below (--target, --environment,
-# --release, --artifact, --checksum) validates its value through
-# require_flag_value before assignment or shifting, so a missing, empty, or
-# flag-shaped value (e.g. `--release --migrate`, which used to silently take
-# the literal string "--migrate" as the release ID and leave --migrate
-# itself unparsed) fails closed with a message naming the specific flag,
-# rather than surfacing later as an unrelated error or, for --checksum,
-# silently substituting a default the caller never asked for.
+# know about — so it runs its own loop for --target plus those. Every
+# value-taking flag below (--target, --release, --artifact, --checksum)
+# validates its value through require_flag_value before assignment or
+# shifting, so a missing, empty, or flag-shaped value (e.g.
+# `--release --migrate`, which used to silently take the literal string
+# "--migrate" as the release ID and leave --migrate itself unparsed) fails
+# closed with a message naming the specific flag, rather than surfacing
+# later as an unrelated error or, for --checksum, silently substituting a
+# default the caller never asked for.
 
 # require_flag_value <flag-name> <remaining-arg-count> <next-token>
 #
@@ -114,9 +105,7 @@ require_flag_value() {
 
 parse_deploy_args() {
     TARGET_ID=""
-    ENVIRONMENT=""
     TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
     RELEASE_ID=""
     ARTIFACT=""
     CHECKSUM_FILE=""
@@ -129,13 +118,6 @@ parse_deploy_args() {
                 require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
-                shift 2
-                ;;
-            --environment)
-                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                require_flag_value "--environment" "$#" "${2-}"
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
                 shift 2
                 ;;
             --release)
@@ -167,7 +149,7 @@ parse_deploy_args() {
         esac
     done
 
-    assert_selector_state
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 
     [[ -n "${RELEASE_ID}" ]] \
         || fail "--release is required"
@@ -179,36 +161,23 @@ parse_deploy_args() {
 # --- target resolution (mirrors health-check/status/cleanup) -----------------
 
 resolve_target() {
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        # require_active_target validates the target ID, the whole registry,
-        # that the target exists, and that it is lifecycle=active — all
-        # before artifact/checksum canonicalization, the target filesystem
-        # root, the deployment lock, or any mutation. main() already called
-        # require_root before this function runs, so the full ordering for
-        # --target is: root authorization -> lifecycle=planned rejection ->
-        # (only if active) artifact/filesystem validation.
-        require_active_target "${TARGET_ID}"
+    # require_active_target validates the target ID, the whole registry, that
+    # the target exists, and that it is lifecycle=active — all before
+    # artifact/checksum canonicalization, the target filesystem root, the
+    # deployment lock, or any mutation. main() already called require_root
+    # before this function runs, so the full ordering is: root authorization
+    # -> lifecycle=planned rejection -> (only if active) artifact/filesystem
+    # validation.
+    require_active_target "${TARGET_ID}"
 
-        ENVIRONMENT_ROOT="$(target_root "${TARGET_ID}")"
-        RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
-        CODE_GROUP="$(target_code_group "${TARGET_ID}")"
-        DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
-        PUBLIC_HOSTNAME="$(target_primary_public_hostname "${TARGET_ID}")"
-        INCOMING_ROOT="$(readlink -f "$(target_incoming_artifacts "${TARGET_ID}")")"
-        LABEL="${TARGET_ID}"
-        HEALTH_SELECTOR=(--target "${TARGET_ID}")
-    else
-        validate_environment "${ENVIRONMENT}"
-
-        ENVIRONMENT_ROOT="$(environment_root "${ENVIRONMENT}")"
-        RUNTIME_USER="$(environment_runtime_user "${ENVIRONMENT}")"
-        CODE_GROUP="$(environment_code_group "${ENVIRONMENT}")"
-        DEPLOY_ACCOUNT="$(environment_deploy_user "${ENVIRONMENT}")"
-        PUBLIC_HOSTNAME="$(environment_public_hostname "${ENVIRONMENT}")"
-        INCOMING_ROOT="$(readlink -f "$(environment_incoming_artifacts "${ENVIRONMENT}")")"
-        LABEL="${ENVIRONMENT}"
-        HEALTH_SELECTOR=(--environment "${ENVIRONMENT}")
-    fi
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+    CODE_GROUP="$(target_code_group "${TARGET_ID}")"
+    DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
+    PUBLIC_HOSTNAME="$(target_primary_public_hostname "${TARGET_ID}")"
+    INCOMING_ROOT="$(readlink -f "$(target_incoming_artifacts "${TARGET_ID}")")"
+    LABEL="${TARGET_ID}"
+    HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
 }
 
 # --- deployment recovery (unchanged internals; process-global trap, not
@@ -288,7 +257,7 @@ handle_deployment_exit() {
 
         if [[ "${TERMINAL_HISTORY_WRITTEN}" == false ]]; then
             if append_history \
-                "${ENVIRONMENT_ROOT}" \
+                "${TARGET_ROOT}" \
                 "deployment-finished" \
                 "${RELEASE_ID}" \
                 "${FAILURE_STATUS}"
@@ -314,7 +283,7 @@ handle_deployment_exit() {
     exit "${exit_code}"
 }
 
-# --- deployment pipeline: one shared code path for both selectors -----------
+# --- deployment pipeline -------------------------------------------------------
 
 perform_deploy() {
     validate_release_id "${RELEASE_ID}"
@@ -349,14 +318,14 @@ perform_deploy() {
             ;;
     esac
 
-    RELEASES_ROOT="${ENVIRONMENT_ROOT}/releases"
+    RELEASES_ROOT="${TARGET_ROOT}/releases"
     RELEASE_ROOT="${RELEASES_ROOT}/${RELEASE_ID}"
     TEMP_RELEASE_ROOT="${RELEASES_ROOT}/.${RELEASE_ID}.tmp-$$"
 
-    CURRENT_LINK="${ENVIRONMENT_ROOT}/current"
-    PREVIOUS_LINK="${ENVIRONMENT_ROOT}/previous"
+    CURRENT_LINK="${TARGET_ROOT}/current"
+    PREVIOUS_LINK="${TARGET_ROOT}/previous"
 
-    acquire_deployment_lock "${ENVIRONMENT_ROOT}"
+    acquire_deployment_lock "${TARGET_ROOT}"
 
     ORIGINAL_CURRENT_PRESENT=false
     ORIGINAL_CURRENT_PATH=""
@@ -419,7 +388,7 @@ perform_deploy() {
     fi
 
     append_history \
-        "${ENVIRONMENT_ROOT}" \
+        "${TARGET_ROOT}" \
         "deployment-started" \
         "${RELEASE_ID}" \
         "running"
@@ -457,11 +426,11 @@ perform_deploy() {
     fi
 
     ln -s \
-        "${ENVIRONMENT_ROOT}/shared/.env" \
+        "${TARGET_ROOT}/shared/.env" \
         "${TEMP_RELEASE_ROOT}/.env"
 
     ln -s \
-        "${ENVIRONMENT_ROOT}/shared/storage" \
+        "${TARGET_ROOT}/shared/storage" \
         "${TEMP_RELEASE_ROOT}/storage"
 
     if [[ -e "${TEMP_RELEASE_ROOT}/public/storage" ]] \
@@ -471,7 +440,7 @@ perform_deploy() {
     fi
 
     ln -s \
-        "${ENVIRONMENT_ROOT}/shared/storage/app/public" \
+        "${TARGET_ROOT}/shared/storage/app/public" \
         "${TEMP_RELEASE_ROOT}/public/storage"
 
     chown -R \
@@ -530,7 +499,7 @@ perform_deploy() {
     if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
         log "preparing Laravel release"
 
-        SHARED_STORAGE="${ENVIRONMENT_ROOT}/shared/storage"
+        SHARED_STORAGE="${TARGET_ROOT}/shared/storage"
 
         install \
             -d \
@@ -641,7 +610,7 @@ perform_deploy() {
     systemctl reload "${PHP_FPM_SERVICE}"
 
     if ! "${HEALTH_CHECK_BIN}" \
-        "${HEALTH_SELECTOR[@]}"
+        "${HEALTH_CHECK_ARGS[@]}"
     then
         FAILURE_STATUS="failed-health-check"
         fail "deployment health check failed"
@@ -672,7 +641,7 @@ perform_deploy() {
     log "${LABEL} deployed successfully: ${RELEASE_ID}"
 
     append_history \
-        "${ENVIRONMENT_ROOT}" \
+        "${TARGET_ROOT}" \
         "deployment-finished" \
         "${RELEASE_ID}" \
         "success"

@@ -3,6 +3,16 @@
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
+/**
+ * The exact --argjson literal release.yml uses to embed the release
+ * metadata's target IDs — shared so a future target rename only needs
+ * updating here, not independently in every test that checks for it.
+ */
+function releaseWorkflowTargetsArgJson(): string
+{
+    return '--argjson targets \'["staging-main", "tits-guru"]\'';
+}
+
 beforeEach(function () {
     $path = base_path('.github/workflows/release.yml');
 
@@ -74,6 +84,24 @@ it('wires release steps to reuse one immutable artifact', function () {
         ->toBe('${{ needs.validate.outputs.workflow-artifact-name }}');
 });
 
+it('passes deployment-target: staging-main to the staging job and tits-guru to the production job', function () {
+    expect(data_get($this->stagingSteps->get('Deploy release artifact to staging'), 'with.deployment-target'))
+        ->toBe('staging-main')
+        ->and(data_get($this->productionSteps->get('Deploy verified artifact to production'), 'with.deployment-target'))
+        ->toBe('tits-guru');
+});
+
+it('never references the operational --environment selector anywhere in the release workflow', function () {
+    expect($this->releaseWorkflowSource)->not->toContain('--environment');
+});
+
+it('records target IDs, not environment classes, in the release metadata targets array', function () {
+    expect($this->releaseWorkflowSource)
+        ->toContain(releaseWorkflowTargetsArgJson())
+        ->not->toContain('"staging"')
+        ->not->toContain('"production"');
+});
+
 it('pins every external release action to a commit SHA', function () {
     $externalActions = $this->validateSteps
         ->merge($this->buildSteps)
@@ -99,7 +127,8 @@ it('retains required production release script safeguards', function () {
         ->toContain('git merge-base \\')
         ->toContain('--is-ancestor \\')
         ->toContain('release_id="${version}-${timestamp}-${short_sha}"')
-        ->toContain('--argjson targets \'["staging", "production"]\'')
+        ->toContain(releaseWorkflowTargetsArgJson())
+        ->not->toContain('["staging", "production"]')
         ->toContain('--classmap-authoritative')
         ->toContain("--exclude='.env.*'")
         ->toContain("--exclude='database/database.sqlite'")

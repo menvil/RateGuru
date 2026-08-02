@@ -155,12 +155,12 @@ function targetOpsFakeTargetsCli(string $scratchDir, string $logFile): string
 
 /**
  * A "malicious" common fixture: fully self-contained (defines its own
- * fail/log/parse_selector_args/environment_*), so it never needs a real
- * deployment.conf, and records a marker every time it is sourced. Used to
- * prove RATEGURU_COMMON_FILE is never sourced without the opt-in flag — with
- * the flag, health-check runs to completion entirely on this fixture's fake
- * environment_url/environment_host_header, proving genuine sourcing rather
- * than a coincidental side effect.
+ * fail/log/parse_target_args/target_*), so it never needs a real
+ * deployment.conf or target registry, and records a marker every time it is
+ * sourced. Used to prove RATEGURU_COMMON_FILE is never sourced without the
+ * opt-in flag — with the flag, health-check runs to completion entirely on
+ * this fixture's fake target_health_url/target_health_host_header, proving
+ * genuine sourcing rather than a coincidental side effect.
  */
 function targetOpsMaliciousCommon(string $scratchDir, string $markerLog): string
 {
@@ -170,11 +170,11 @@ function targetOpsMaliciousCommon(string $scratchDir, string $markerLog): string
         .'fail() { printf "[ERR] %s\n" "$*" >&2; exit 1; }'."\n"
         .'log() { printf "[log] %s\n" "$*"; }'."\n"
         // Minimal stand-in: the real one is far more thorough, but this test
-        // only ever calls `--environment staging` against this fixture.
-        .'parse_selector_args() { TARGET_ID=""; ENVIRONMENT="staging"; TARGET_SEEN=false; ENVIRONMENT_SEEN=true; }'."\n"
-        .'validate_environment() { :; }'."\n"
-        .'environment_url() { echo "http://127.0.0.1/"; }'."\n"
-        .'environment_host_header() { echo "marker-fixture.internal"; }'."\n");
+        // only ever calls `--target staging-main` against this fixture.
+        .'parse_target_args() { TARGET_ID="staging-main"; TARGET_SEEN=true; }'."\n"
+        .'require_active_target() { :; }'."\n"
+        .'target_health_url() { echo "http://127.0.0.1/"; }'."\n"
+        .'target_health_host_header() { echo "marker-fixture.internal"; }'."\n");
     chmod($path, 0o755);
 
     return $path;
@@ -285,14 +285,82 @@ function targetOpsRegistryWithDisabledTarget(string $scratchDir): string
     return $path;
 }
 
-// --- health-check: target vs legacy parity ----------------------------------
+/**
+ * A registry + patched `targets` validator declaring a single, fully valid
+ * `parity-target` with lifecycle=active pointing at an arbitrary scratch
+ * application root — the same technique Backup/Cleanup/DeployTest.php
+ * already establish, needed here because the real committed registry
+ * hardcodes staging-main's application_root under /home/www/rateguru (which
+ * does not exist on this test machine) and `targets`' own validator rejects
+ * any active target outside that prefix.
+ *
+ * @return array{0: string, 1: string} [registryPath, targetsCliPath]
+ */
+function targetOpsParityRegistry(string $scratch, string $applicationRoot): array
+{
+    $patchedTargets = str_replace(
+        'ACTIVE_ALLOWLIST="staging-main"',
+        'ACTIVE_ALLOWLIST="parity-target"',
+        File::get(targetOpsTargetsCli()),
+    );
+    $patchedTargets = str_replace(
+        'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
+        'elif false; then',
+        $patchedTargets,
+    );
+    $patchedTargets = str_replace(
+        'elif [[ "${incoming}" != /home/* ]]; then',
+        'elif false; then',
+        $patchedTargets,
+    );
 
-it('resolves --target staging-main to the identical request as --environment staging', function () {
+    $targetsPath = $scratch.'/parity-targets';
+    file_put_contents($targetsPath, $patchedTargets);
+    chmod($targetsPath, 0o755);
+
+    $registry = [
+        'schema_version' => 1,
+        'targets' => [
+            'parity-target' => [
+                'id' => 'parity-target',
+                'lifecycle' => 'active',
+                'environment_class' => 'staging',
+                'application_root' => $applicationRoot,
+                'runtime_user' => 'parity-runtime',
+                'runtime_group' => 'parity-runtime',
+                'deploy_user' => 'parity-deploy',
+                'code_group' => 'parity-code',
+                'incoming_artifacts' => $scratch.'/incoming-unused',
+                'release_retention' => 5,
+                'database' => ['name' => 'parity_db', 'application_role' => 'parity_app'],
+                'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
+                'public_hostnames' => ['parity.example'],
+                'backup' => ['namespace' => 'parity', 'local_retention_days' => 1, 'offsite_retention_days' => 1],
+                'php_fpm' => ['pool' => 'parity', 'socket' => '/run/php/parity.sock'],
+                'supervisor' => ['program' => 'parity-queue', 'queue' => 'parity'],
+                'scheduler' => ['name' => 'parity-scheduler'],
+                'nginx' => ['site_name' => 'parity', 'internal_hostname' => 'parity.internal'],
+                'environment_template' => 'infrastructure/templates/environment/staging.env.example',
+            ],
+        ],
+    ];
+
+    $registryPath = $scratch.'/parity-registry.json';
+    file_put_contents($registryPath, json_encode($registry, JSON_PRETTY_PRINT));
+
+    exec(escapeshellarg($targetsPath).' validate --file '.escapeshellarg($registryPath).' 2>&1', $validateOutput, $validateExit);
+    expect($validateExit)->toBe(0, "parity-target fixture failed validation:\n".implode("\n", $validateOutput));
+
+    return [$registryPath, $targetsPath];
+}
+
+// --- health-check: target selector -----------------------------------------
+
+it('resolves --target staging-main to the expected health-check request', function () {
     $scratch = targetOpsScratchDir();
 
     try {
         $targetLog = $scratch.'/curl-target.log';
-        $envLog = $scratch.'/curl-env.log';
 
         targetOpsFakeCurl($scratch, $targetLog);
         [$targetExit, $targetOutput] = targetOpsRun(
@@ -302,30 +370,17 @@ it('resolves --target staging-main to the identical request as --environment sta
             $scratch,
         );
 
-        targetOpsFakeCurl($scratch, $envLog);
-        [$envExit, $envOutput] = targetOpsRun(
-            targetOpsHealthCheckScript(),
-            ['--environment', 'staging'],
-            targetOpsBaseEnv(['CURL_LOG' => $envLog]),
-            $scratch,
-        );
-
         expect($targetExit)->toBe(0, $targetOutput);
-        expect($envExit)->toBe(0, $envOutput);
 
         $targetInvocation = trim(File::get($targetLog));
-        $envInvocation = trim(File::get($envLog));
-
         expect($targetInvocation)->not->toBe('');
-        expect($targetInvocation)->toBe($envInvocation);
 
-        // Pin the exact expected request, not just "the two match each other".
+        // Pin the exact expected request.
         expect($targetInvocation)
             ->toContain('Host: rateguru-staging.internal')
             ->toContain('http://127.0.0.1/up');
 
         expect($targetOutput)->toContain('staging-main health check passed: http://127.0.0.1/up');
-        expect($envOutput)->toContain('staging health check passed: http://127.0.0.1/up');
     } finally {
         targetOpsCleanup($scratch);
     }
@@ -437,27 +492,7 @@ it('rejects an invalid target ID before any curl call', function () {
 
 // --- selector contract: CLI argument handling -------------------------------
 
-it('rejects --target and --environment used together', function () {
-    $scratch = targetOpsScratchDir();
-
-    try {
-        foreach ([targetOpsHealthCheckScript(), targetOpsStatusScript()] as $script) {
-            [$exit, $output] = targetOpsRun(
-                $script,
-                ['--target', 'staging-main', '--environment', 'staging'],
-                targetOpsBaseEnv(),
-                $scratch,
-            );
-
-            expect($exit)->not->toBe(0, basename($script));
-            expect($output)->toContain('cannot be combined');
-        }
-    } finally {
-        targetOpsCleanup($scratch);
-    }
-});
-
-it('requires exactly one selector', function () {
+it('requires --target', function () {
     $scratch = targetOpsScratchDir();
 
     try {
@@ -465,42 +500,33 @@ it('requires exactly one selector', function () {
             [$exit, $output] = targetOpsRun($script, [], targetOpsBaseEnv(), $scratch);
 
             expect($exit)->not->toBe(0, basename($script));
-            expect($output)->toContain('exactly one of --target or --environment is required');
+            expect($output)->toContain('--target is required');
         }
     } finally {
         targetOpsCleanup($scratch);
     }
 });
 
-it('rejects duplicate selectors', function () {
+it('rejects duplicate --target', function () {
     $scratch = targetOpsScratchDir();
 
     try {
         foreach ([targetOpsHealthCheckScript(), targetOpsStatusScript()] as $script) {
-            [$targetExit, $targetOutput] = targetOpsRun(
+            [$exit, $output] = targetOpsRun(
                 $script,
                 ['--target', 'staging-main', '--target', 'staging-main'],
                 targetOpsBaseEnv(),
                 $scratch,
             );
-            expect($targetExit)->not->toBe(0, basename($script));
-            expect($targetOutput)->toContain('--target given more than once');
-
-            [$envExit, $envOutput] = targetOpsRun(
-                $script,
-                ['--environment', 'staging', '--environment', 'staging'],
-                targetOpsBaseEnv(),
-                $scratch,
-            );
-            expect($envExit)->not->toBe(0, basename($script));
-            expect($envOutput)->toContain('--environment given more than once');
+            expect($exit)->not->toBe(0, basename($script));
+            expect($output)->toContain('--target given more than once');
         }
     } finally {
         targetOpsCleanup($scratch);
     }
 });
 
-it('rejects a selector given without a value', function () {
+it('rejects --target given without a value', function () {
     $scratch = targetOpsScratchDir();
 
     try {
@@ -508,10 +534,6 @@ it('rejects a selector given without a value', function () {
             [$exit, $output] = targetOpsRun($script, ['--target'], targetOpsBaseEnv(), $scratch);
             expect($exit)->not->toBe(0, basename($script));
             expect($output)->toContain('--target requires a value');
-
-            [$exit, $output] = targetOpsRun($script, ['--environment'], targetOpsBaseEnv(), $scratch);
-            expect($exit)->not->toBe(0, basename($script));
-            expect($output)->toContain('--environment requires a value');
         }
     } finally {
         targetOpsCleanup($scratch);
@@ -532,7 +554,21 @@ it('rejects unknown arguments', function () {
     }
 });
 
-it('shows both interfaces on --help', function () {
+it('rejects a removed --environment flag exactly like any other unknown argument', function () {
+    $scratch = targetOpsScratchDir();
+
+    try {
+        foreach ([targetOpsHealthCheckScript(), targetOpsStatusScript()] as $script) {
+            [$exit, $output] = targetOpsRun($script, ['--environment', 'staging'], targetOpsBaseEnv(), $scratch);
+            expect($exit)->not->toBe(0, basename($script));
+            expect($output)->toContain('unknown argument: --environment');
+        }
+    } finally {
+        targetOpsCleanup($scratch);
+    }
+});
+
+it('shows only the --target form on --help', function () {
     $scratch = targetOpsScratchDir();
 
     try {
@@ -541,7 +577,7 @@ it('shows both interfaces on --help', function () {
             expect($exit)->toBe(0, basename($script));
             expect($output)
                 ->toContain('--target TARGET')
-                ->toContain('--environment staging|production');
+                ->not->toContain('--environment');
         }
     } finally {
         targetOpsCleanup($scratch);
@@ -550,7 +586,7 @@ it('shows both interfaces on --help', function () {
 
 // --- status: path parity and delegation -------------------------------------
 
-it('resolves status --target staging-main to the identical paths as legacy staging', function () {
+it('resolves status --target staging-main to the expected paths and header', function () {
     $scratch = targetOpsScratchDir();
 
     try {
@@ -566,14 +602,6 @@ it('resolves status --target staging-main to the identical paths as legacy stagi
         );
 
         expect($exit)->toBe(0, $output);
-
-        // The registry's application_root for staging-main and legacy
-        // STAGING_ROOT are both /home/www/rateguru/staging (proven in slice 1),
-        // so status computes the identical current/previous/history paths in
-        // both modes — provable without writing to that real, non-existent
-        // path: absence is handled identically in both modes (see the next
-        // test), and this test additionally pins the header fields target mode
-        // adds on top.
         expect($output)
             ->toContain('Target:      staging-main')
             ->toContain('Lifecycle:   active')
@@ -587,57 +615,12 @@ it('resolves status --target staging-main to the identical paths as legacy stagi
     }
 });
 
-it('produces identical release, health and history sections between target and legacy staging', function () {
-    $scratch = targetOpsScratchDir();
-
-    try {
-        $targetHcLog = $scratch.'/hc-target.log';
-        $envHcLog = $scratch.'/hc-env.log';
-        touch($targetHcLog);
-        touch($envHcLog);
-
-        [$targetExit, $targetOutput] = targetOpsRun(
-            targetOpsStatusScript(),
-            ['--target', 'staging-main'],
-            targetOpsBaseEnv(['RATEGURU_HEALTH_CHECK_CLI' => targetOpsFakeHealthCheck($scratch, $targetHcLog)]),
-            $scratch,
-        );
-
-        [$envExit, $envOutput] = targetOpsRun(
-            targetOpsStatusScript(),
-            ['--environment', 'staging'],
-            targetOpsBaseEnv(['RATEGURU_HEALTH_CHECK_CLI' => targetOpsFakeHealthCheck($scratch, $envHcLog)]),
-            $scratch,
-        );
-
-        expect($targetExit)->toBe(0, $targetOutput);
-        expect($envExit)->toBe(0, $envOutput);
-
-        // Strip each mode's own header block (Target/Lifecycle/Environment
-        // class vs Environment) and compare everything after "Checked at:" —
-        // release, metadata, health and history sections must be identical.
-        $afterHeader = fn (string $output): string => substr($output, (int) strpos($output, 'Checked at:'));
-
-        // Both "Checked at:" timestamps are seconds apart; normalize before
-        // comparing so the assertion isn't flaky.
-        $normalize = fn (string $section): string => preg_replace('/Checked at:\s+\S+/', 'Checked at: NORMALIZED', $section);
-
-        expect($normalize($afterHeader($targetOutput)))->toBe($normalize($afterHeader($envOutput)));
-    } finally {
-        targetOpsCleanup($scratch);
-    }
-});
-
-it('displays real release, metadata and history content identically for both modes', function () {
-    // application_root must stay under /home/www/rateguru for the registry to
-    // validate, so target mode cannot point at a writable temp directory.
-    // Legacy --environment has no such constraint (STAGING_ROOT is a plain
-    // deployment.conf value), so this proves the *shared* display logic — the
-    // same print_link/release.json/history code both modes execute — renders
-    // real content correctly. Combined with the two tests above (identical
-    // paths, identical output with absent content), this closes the loop:
-    // target mode uses the same paths, and those paths' content renders
-    // through the same code target mode also runs.
+it('displays real release, metadata and history content', function () {
+    // The real committed registry hardcodes staging-main's application_root
+    // under /home/www/rateguru, which does not exist on this test machine —
+    // targetOpsParityRegistry supplies a synthetic active target pointing at
+    // a scratch content root instead, so this proves the real print_link/
+    // release.json/history rendering code against genuine content.
     $scratch = targetOpsScratchDir();
 
     try {
@@ -655,22 +638,17 @@ it('displays real release, metadata and history content identically for both mod
             json_encode(['event' => 'deployment-finished', 'release' => 'v1.0.0', 'status' => 'success'])."\n",
         );
 
-        $conf = str_replace(
-            'STAGING_ROOT=/home/www/rateguru/staging',
-            'STAGING_ROOT='.$contentRoot,
-            File::get(targetOpsDeploymentConfPath()),
-        );
-        $confPath = $scratch.'/deployment-content.conf';
-        file_put_contents($confPath, $conf);
+        [$registryPath, $targetsPath] = targetOpsParityRegistry($scratch, $contentRoot);
 
         $hcLog = $scratch.'/hc.log';
         touch($hcLog);
 
         [$exit, $output] = targetOpsRun(
             targetOpsStatusScript(),
-            ['--environment', 'staging'],
+            ['--target', 'parity-target'],
             targetOpsBaseEnv([
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
                 'RATEGURU_HEALTH_CHECK_CLI' => targetOpsFakeHealthCheck($scratch, $hcLog),
             ]),
             $scratch,
@@ -688,7 +666,7 @@ it('displays real release, metadata and history content identically for both mod
     }
 });
 
-it('delegates to health-check --target TARGET in target mode', function () {
+it('delegates to health-check --target TARGET', function () {
     $scratch = targetOpsScratchDir();
 
     try {
@@ -704,27 +682,6 @@ it('delegates to health-check --target TARGET in target mode', function () {
 
         expect($exit)->toBe(0, $output);
         expect(trim(File::get($hcLog)))->toBe('--target staging-main');
-    } finally {
-        targetOpsCleanup($scratch);
-    }
-});
-
-it('delegates to health-check --environment ENVIRONMENT in legacy mode', function () {
-    $scratch = targetOpsScratchDir();
-
-    try {
-        $hcLog = $scratch.'/hc.log';
-        touch($hcLog);
-
-        [$exit, $output] = targetOpsRun(
-            targetOpsStatusScript(),
-            ['--environment', 'staging'],
-            targetOpsBaseEnv(['RATEGURU_HEALTH_CHECK_CLI' => targetOpsFakeHealthCheck($scratch, $hcLog)]),
-            $scratch,
-        );
-
-        expect($exit)->toBe(0, $output);
-        expect(trim(File::get($hcLog)))->toBe('--environment staging');
     } finally {
         targetOpsCleanup($scratch);
     }
@@ -797,7 +754,7 @@ it('rejects an unknown target in status before any path is inspected', function 
 
 // --- registry absence isolation ---------------------------------------------
 
-it('lets a missing or invalid registry break target mode without breaking legacy staging', function () {
+it('fails closed on a missing registry, for both health-check and status', function () {
     $scratch = targetOpsScratchDir();
 
     try {
@@ -819,36 +776,8 @@ it('lets a missing or invalid registry break target mode without breaking legacy
         expect($targetExit)->not->toBe(0);
         expect($targetOutput)->toContain('unavailable');
 
-        // The VPS does not have the registry installed yet, and deploy still
-        // calls this exact invocation — it must keep working regardless.
-        [$envExit, $envOutput] = targetOpsRun(
-            targetOpsHealthCheckScript(),
-            ['--environment', 'staging'],
-            targetOpsBaseEnv([
-                'RATEGURU_TARGET_REGISTRY_FILE' => $missingRegistry,
-                'CURL_LOG' => $curlLog,
-            ]),
-            $scratch,
-        );
-
-        expect($envExit)->toBe(0, $envOutput);
-        expect($envOutput)->toContain('staging health check passed');
-
-        // Same for status.
         $hcLog = $scratch.'/hc.log';
         touch($hcLog);
-
-        [$statusEnvExit, $statusEnvOutput] = targetOpsRun(
-            targetOpsStatusScript(),
-            ['--environment', 'staging'],
-            targetOpsBaseEnv([
-                'RATEGURU_TARGET_REGISTRY_FILE' => $missingRegistry,
-                'RATEGURU_HEALTH_CHECK_CLI' => targetOpsFakeHealthCheck($scratch, $hcLog),
-            ]),
-            $scratch,
-        );
-
-        expect($statusEnvExit)->toBe(0, $statusEnvOutput);
 
         [$statusTargetExit] = targetOpsRun(
             targetOpsStatusScript(),
@@ -866,7 +795,7 @@ it('lets a missing or invalid registry break target mode without breaking legacy
     }
 });
 
-it('lets malformed registry JSON break target mode without breaking legacy staging', function () {
+it('fails closed on malformed registry JSON', function () {
     $scratch = targetOpsScratchDir();
 
     try {
@@ -884,14 +813,6 @@ it('lets malformed registry JSON break target mode without breaking legacy stagi
             $scratch,
         );
         expect($targetExit)->not->toBe(0);
-
-        [$envExit, $envOutput] = targetOpsRun(
-            targetOpsHealthCheckScript(),
-            ['--environment', 'staging'],
-            targetOpsBaseEnv(['RATEGURU_TARGET_REGISTRY_FILE' => $malformed, 'CURL_LOG' => $curlLog]),
-            $scratch,
-        );
-        expect($envExit)->toBe(0, $envOutput);
     } finally {
         targetOpsCleanup($scratch);
     }
@@ -903,11 +824,11 @@ it('ignores RATEGURU_COMMON_FILE without the opt-in flag, and sources it with th
     // A stray RATEGURU_COMMON_FILE surviving in a real root shell (a leftover
     // export, a shared profile) must never silently redirect a privileged
     // script at an attacker- or operator-controlled file to source. The fixture
-    // is fully self-contained (defines its own fail/log/parse_selector_args/
-    // environment_*), so this proves sourcing specifically — with the gate on,
+    // is fully self-contained (defines its own fail/log/parse_target_args/
+    // target_*), so this proves sourcing specifically — with the gate on,
     // health-check runs to completion entirely on the fixture's fake
-    // environment_url/environment_host_header, which only happens if it was
-    // genuinely sourced, not coincidentally.
+    // target_health_url/target_health_host_header, which only happens if it
+    // was genuinely sourced, not coincidentally.
     $scratch = targetOpsScratchDir();
 
     try {
@@ -921,7 +842,7 @@ it('ignores RATEGURU_COMMON_FILE without the opt-in flag, and sources it with th
 
         [$deniedExit, $deniedOutput] = targetOpsRun(
             targetOpsHealthCheckScript(),
-            ['--environment', 'staging'],
+            ['--target', 'staging-main'],
             [
                 // Deliberately no RATEGURU_ALLOW_TEST_OVERRIDES here.
                 'RATEGURU_COMMON_FILE' => $maliciousCommon,
@@ -937,7 +858,7 @@ it('ignores RATEGURU_COMMON_FILE without the opt-in flag, and sources it with th
 
         [$grantedExit, $grantedOutput] = targetOpsRun(
             targetOpsHealthCheckScript(),
-            ['--environment', 'staging'],
+            ['--target', 'staging-main'],
             [
                 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
                 'RATEGURU_COMMON_FILE' => $maliciousCommon,
@@ -985,7 +906,7 @@ it('ignores RATEGURU_DEPLOYMENT_CONF_FILE, RATEGURU_TARGET_REGISTRY_FILE, RATEGU
 
         [$deniedExit, $deniedOutput] = targetOpsRun(
             targetOpsStatusScript(),
-            ['--environment', 'staging'],
+            ['--target', 'staging-main'],
             $deniedEnv,
             $scratch,
         );
@@ -1254,44 +1175,9 @@ it('builds jq programs only through --arg, never from interpolated target input'
     }
 });
 
-// --- legacy production is not aliased to tits-guru --------------------------
-
-it('keeps legacy production on rateguru-production.internal, never tits-guru', function () {
-    $scratch = targetOpsScratchDir();
-
-    try {
-        $curlLog = $scratch.'/curl.log';
-        targetOpsFakeCurl($scratch, $curlLog);
-
-        [$exit, $output] = targetOpsRun(
-            targetOpsHealthCheckScript(),
-            ['--environment', 'production'],
-            targetOpsBaseEnv(['CURL_LOG' => $curlLog]),
-            $scratch,
-        );
-
-        expect($exit)->toBe(0, $output);
-        expect($output)->toContain('production health check passed');
-
-        $invocation = File::get($curlLog);
-        expect($invocation)
-            ->toContain('Host: rateguru-production.internal')
-            ->not->toContain('tits-guru');
-    } finally {
-        targetOpsCleanup($scratch);
-    }
-
-    // No source-level mapping exists either.
-    foreach (['infrastructure/scripts/health-check', 'infrastructure/scripts/status', 'infrastructure/scripts/common'] as $path) {
-        $source = File::get(base_path($path));
-
-        expect($source)->not->toMatch('/production.{0,40}tits-guru|tits-guru.{0,40}production/is');
-    }
-});
-
 // --- roadmap and runbook -----------------------------------------------------
 
-it('records slices 1-7.3 completed, slice 8 (perimeter) current, without completing Phase 4', function () {
+it('records slices 1-9 completed, without completing Phase 4', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
@@ -1305,33 +1191,25 @@ it('records slices 1-7.3 completed, slice 8 (perimeter) current, without complet
         ->toContain('Local backup and local restore-test — completed')
         ->toContain('Offsite backup path — completed')
         ->toContain('Backup-cycle orchestration — completed')
-        ->toContain('Perimeter — current')
+        ->toContain('Perimeter — completed')
+        ->toContain('Complete legacy-selector removal — current')
         ->not->toContain('## 4. Multi-target production model — completed')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m');
 
     expect(substr_count($roadmap, '🚧 current'))->toBe(1);
 });
 
-it('documents the read-only target operations added in slice 2', function () {
+it('documents the read-only target operations in the deployment-targets runbook', function () {
     $runbook = File::get(base_path('infrastructure/runbooks/deployment-targets.md'));
 
     expect($runbook)
-        ->toContain('Read-only target-aware operations (slice 2, completed)')
+        ->toContain('Read-only operations: health-check and status')
         ->toContain('health-check --target staging-main')
         ->toContain('status --target staging-main')
         ->toContain('require_active_target')
         ->toContain('Only active targets may be operated on')
         ->toContain('tits-guru')
-        // Slice 2b (this PR) documents the installer separately — this
-        // section states slice 2 itself changed no VPS state.
-        ->toContain('Installing on the VPS (slice 2b)')
-        ->toContain('health-check --environment staging');
-
-    // Legacy support is stated explicitly. Whitespace-normalized so a markdown
-    // re-wrap of the paragraph (a different line-break position) cannot break
-    // this assertion the way it has before in this codebase.
-    $normalized = preg_replace('/\s+/', ' ', $runbook);
-    expect($normalized)->toContain("with **no change to that path's behaviour**");
+        ->not->toContain('--environment');
 });
 
 // --- lifecycle=active allowlist untouched by this slice ---------------------
@@ -1360,15 +1238,12 @@ it('leaves every other operational script and workflow byte-identical to develop
     }
 
     $unchanged = [
-        // infrastructure/scripts/cleanup, deploy and rollback graduated in
-        // Phase 4 slices 4, 5 and 6 respectively, backup/restore-test in
-        // slice 7.1, offsite-backup/offsite-retention/offsite-restore-test in
-        // slice 7.2, and backup-cycle in slice 7.3 — none of them is
-        // --environment-only anymore, so all nine are deliberately absent
-        // here. infrastructure/config/sudoers/rateguru-deploy and
-        // infrastructure/config/cron/rateguru-backups graduated to
-        // --target/staging-main in Phase 4 slice 8 — see
-        // TargetPerimeterTest.php — and are deliberately absent here too.
+        // Every operational script, common, both installers, the three
+        // generic wrappers, sudoers and deployment.conf.example are all
+        // deliberately absent here — this is the final Phase 4 cutover
+        // slice, and all of them change. Only the genuinely static host
+        // configs and the target registry itself (untouched by the selector
+        // migration from the start) are asserted unchanged.
         'infrastructure/config/ssh/70-rateguru-deploy.conf',
         'infrastructure/config/nginx/rateguru-staging',
         'infrastructure/config/nginx/rateguru-production',
@@ -1376,7 +1251,6 @@ it('leaves every other operational script and workflow byte-identical to develop
         'infrastructure/config/php-fpm/rateguru-production.conf',
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',
-        'infrastructure/templates/deployment.conf.example',
         'infrastructure/config/deployment-targets.json',
         // Both workflow files are deliberately excluded here: a later slice
         // (the infrastructure CLI executable-mode fix) legitimately adds an

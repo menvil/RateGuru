@@ -93,19 +93,19 @@ function installPerimeterWriteWrapperStub(string $path, string $titsGuru = 'reje
     // The literal strings below are never executed — they exist solely so
     // this stub also satisfies verify_wrapper_static_contract's static
     // content checks (which grep for the generic installed operation path
-    // each real wrapper references, the explicit --environment rejection
-    // message, and — this exact phrase, verbatim, is the real incident this
-    // stub now deliberately reproduces — a comment mentioning "no eval, no
-    // bash -c" that a naive whole-file grep once mistook for an executable
-    // eval/bash -c), exactly as the real wrapper source does.
+    // each real wrapper references, and — this exact phrase, verbatim, is
+    // the real incident this stub now deliberately reproduces — a comment
+    // mentioning "no eval, no bash -c" that a naive whole-file grep once
+    // mistook for an executable eval/bash -c), exactly as the real wrapper
+    // source does. It deliberately never mentions the legacy selector at
+    // all, matching the real wrapper's own source exactly.
     $script = <<<SH
 #!/usr/bin/env bash
 # Stub wrapper for install-target-perimeter tests only — never a real
 # deploy/rollback/cleanup operation. Mimics the real wrapper's own reference
 # to /home/www/rateguru/bin/deploy, /home/www/rateguru/bin/rollback and
-# /home/www/rateguru/bin/cleanup, its explicit rejection message:
-# --environment is not supported by this wrapper, and its own comment: no
-# eval, no bash -c, no string-built command.
+# /home/www/rateguru/bin/cleanup, and its own comment: no eval, no bash -c,
+# no string-built command.
 if [[ "\$*" == "--help" ]]; then
     echo "Usage: stub-wrapper --target TARGET_ID"
     exit 0
@@ -125,14 +125,14 @@ SH;
 }
 
 /**
- * Creates a fully current, byte-identical-to-committed-source fourteen-file
+ * Creates a fully current, byte-identical-to-committed-source fifteen-file
  * operations bundle under $scratch/ops/home/www/rateguru/..., matching
  * exactly what install-target-operations installs for real — modes 0640
- * (registry), 0644 (common), 0755 (every CLI). This is what makes every
- * existing perform_apply/perform_verify/run_check test below pass
- * validate_installed_operations_bundle without needing to know it exists;
- * only the tests in the "installed operations bundle staleness guard"
- * section below deliberately break one piece of it afterward.
+ * (registry, deployment.conf), 0644 (common), 0755 (every CLI). This is what
+ * makes every existing perform_apply/perform_verify/run_check test below
+ * pass validate_installed_operations_bundle without needing to know it
+ * exists; only the tests in the "installed operations bundle staleness
+ * guard" section below deliberately break one piece of it afterward.
  *
  * @return array<string, string> DST_OPS_* var name => path
  */
@@ -151,6 +151,9 @@ function installPerimeterWriteOperationsBundle(string $scratch): array
 
     $registry = $configDir.'/deployment-targets.json';
     $copy('infrastructure/config/deployment-targets.json', $registry, 0o640);
+
+    $deploymentConf = $configDir.'/deployment.conf';
+    $copy('infrastructure/templates/deployment.conf.example', $deploymentConf, 0o640);
 
     $common = $binDir.'/common';
     $copy('infrastructure/scripts/common', $common, 0o644);
@@ -173,6 +176,7 @@ function installPerimeterWriteOperationsBundle(string $scratch): array
     $vars = [
         'DST_OPS_REGISTRY' => $registry,
         'DST_OPS_COMMON' => $common,
+        'DST_OPS_DEPLOYMENT_CONF' => $deploymentConf,
     ];
 
     foreach ($cliMap as $varName => $scriptName) {
@@ -284,13 +288,13 @@ it('check passes against the real committed source files', function () {
 
         expect($exit)->toBe(0, $output);
         expect($output)->toContain('check passed');
-        // Proves the wrapper static contract (underlying path, --environment
-        // rejection, no executable eval/bash -c) ran and passed against the
-        // real, committed infrastructure/config/wrappers/* files — not a
+        // Proves the wrapper static contract (underlying path, no mention of
+        // --environment, no executable eval/bash -c) ran and passed against
+        // the real, committed infrastructure/config/wrappers/* files — not a
         // synthetic fixture — which is what genuinely proves the false
         // positive fix, since the real rateguru-deploy source contains the
         // exact "no eval, no bash -c" comment that used to trip this check.
-        expect($output)->toContain('source wrappers reference generic installed operation paths, explicitly reject --environment, and contain no executable eval/bash -c');
+        expect($output)->toContain('source wrappers reference generic installed operation paths, never mention --environment, and contain no executable eval/bash -c');
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -360,6 +364,63 @@ it('check fails when the sudoers candidate grants access to tits-guru\'s deploy 
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('tits-guru');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when the sudoers candidate mentions a legacy wrapper name', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $bad = $scratch.'/bad-sudoers';
+        file_put_contents($bad, <<<'SUDOERS'
+            Defaults:deploy-rateguru-staging !requiretty
+
+            deploy-rateguru-staging ALL=(root) NOPASSWD: \
+                /usr/local/sbin/rateguru-deploy, \
+                /usr/local/sbin/rateguru-rollback, \
+                /usr/local/sbin/rateguru-cleanup, \
+                /usr/local/sbin/rateguru-staging-deploy
+            SUDOERS);
+
+        $vars = installPerimeterBaseVars($scratch);
+        $vars['SRC_SUDOERS'] = $bad;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('still mentions the legacy wrapper rateguru-staging-deploy');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when the sudoers candidate grants a production deploy user access', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $bad = $scratch.'/bad-sudoers';
+        file_put_contents($bad, <<<'SUDOERS'
+            Defaults:deploy-rateguru-staging !requiretty
+            Defaults:deploy-rateguru-production !requiretty
+
+            deploy-rateguru-staging ALL=(root) NOPASSWD: \
+                /usr/local/sbin/rateguru-deploy, \
+                /usr/local/sbin/rateguru-rollback, \
+                /usr/local/sbin/rateguru-cleanup
+
+            deploy-rateguru-production ALL=(root) NOPASSWD: \
+                /usr/local/sbin/rateguru-deploy
+            SUDOERS);
+
+        $vars = installPerimeterBaseVars($scratch);
+        $vars['SRC_SUDOERS'] = $bad;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('must not grant a production deploy user any access');
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -542,10 +603,9 @@ function installPerimeterWriteStaticContractFixture(string $path, string $underl
     // variables, no reserved-word collisions.
     $script = <<<SH
 #!/usr/bin/env bash
-# References {$underlyingPath} and explicitly rejects --environment,
+# References {$underlyingPath} and never mentions the legacy selector,
 # matching every real wrapper's own static contract.
 echo "{$underlyingPath}" >/dev/null
-# --environment is not supported by this fixture; use --target
 {$extraLine}
 echo finished
 SH;
@@ -661,7 +721,7 @@ it('source, staged, and installed validation all call the one shared static cont
 // =============================================================================
 // Installed operations bundle staleness guard
 //
-// install-target-perimeter must confirm the real installed fourteen-file
+// install-target-perimeter must confirm the real installed fifteen-file
 // operations bundle (install-target-operations' own responsibility) is
 // present and current — for --check, --apply's own preflight, and
 // --verify alike — before ever creating a staging directory, a backup
@@ -675,7 +735,7 @@ it('check passes when the installed operations bundle is fully current', functio
         [$exit, $output] = installPerimeterRunHarness($scratch, installPerimeterBaseVars($scratch), 'run_check');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('installed target operations bundle (fourteen files) matches this repository\'s committed sources');
+        expect($output)->toContain('installed target operations bundle (fifteen files) matches this repository\'s committed sources');
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -1135,6 +1195,284 @@ it('apply refuses to install over an existing symlink destination, and never bac
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('refusing to install over an existing symlink');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Legacy wrapper removal (six required-absent files)
+// =============================================================================
+
+/** @return list<string> */
+function installPerimeterLegacyWrapperNames(): array
+{
+    return [
+        'rateguru-staging-deploy',
+        'rateguru-staging-rollback',
+        'rateguru-staging-cleanup',
+        'rateguru-production-deploy',
+        'rateguru-production-rollback',
+        'rateguru-production-cleanup',
+    ];
+}
+
+it('check reports every legacy wrapper as present, without touching the filesystem', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+
+        foreach (installPerimeterLegacyWrapperNames() as $name) {
+            $path = $vars['DST_SBIN_DIR'].'/'.$name;
+            file_put_contents($path, "old {$name}\n");
+            chmod($path, 0o755);
+        }
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->toBe(0, $output);
+
+        foreach (installPerimeterLegacyWrapperNames() as $name) {
+            $path = $vars['DST_SBIN_DIR'].'/'.$name;
+            expect($output)->toContain("legacy wrapper present, would be removed by --apply: {$path}");
+            expect(file_exists($path))->toBeTrue("{$name} must still exist — --check never touches the filesystem");
+        }
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check reports every legacy wrapper as already absent when none exist', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->toBe(0, $output);
+
+        foreach (installPerimeterLegacyWrapperNames() as $name) {
+            expect($output)->toContain("legacy wrapper already absent: {$vars['DST_SBIN_DIR']}/{$name}");
+        }
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails and reports a directory at a legacy wrapper path as a blocker, not as an ordinary removal candidate', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $names = installPerimeterLegacyWrapperNames();
+
+        $obstacleName = $names[count($names) - 1];
+        $obstacle = $vars['DST_SBIN_DIR'].'/'.$obstacleName;
+        mkdir($obstacle, 0o750);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("legacy wrapper BLOCKS --apply, not a regular file or symlink: {$obstacle}");
+        expect($output)->not->toContain("legacy wrapper present, would be removed by --apply: {$obstacle}");
+        expect(is_dir($obstacle))->toBeTrue('--check must never touch the filesystem');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('apply removes every existing legacy wrapper, backing each up first', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $names = installPerimeterLegacyWrapperNames();
+
+        foreach ($names as $name) {
+            $path = $vars['DST_SBIN_DIR'].'/'.$name;
+            file_put_contents($path, "old {$name} content\n");
+            chmod($path, 0o755);
+        }
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+
+        $backupDirs = glob($vars['BACKUP_ROOT'].'/*', GLOB_ONLYDIR);
+        expect($backupDirs)->not->toBeEmpty();
+        sort($backupDirs);
+        $latestBackup = end($backupDirs);
+
+        foreach ($names as $name) {
+            $path = $vars['DST_SBIN_DIR'].'/'.$name;
+            expect(file_exists($path))->toBeFalse("{$name} must be removed by apply");
+            expect($output)->toContain("removed legacy wrapper: {$path}");
+
+            $backedUp = $latestBackup.$path;
+            expect(file_exists($backedUp))->toBeTrue("{$name} must have been backed up before removal");
+            expect(file_get_contents($backedUp))->toBe("old {$name} content\n");
+        }
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('apply fails closed, before backing anything up or removing it, when a legacy wrapper path is a directory instead of a file', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $names = installPerimeterLegacyWrapperNames();
+
+        // A regular-file survivor earlier in the list, so a real backup
+        // directory does get created this run — proving the directory
+        // obstacle is rejected before record_target ever runs for it, not
+        // merely before rm -f, and that nothing it would have touched (its
+        // own backup, its own removal) ever happens.
+        $survivorName = $names[0];
+        $survivor = $vars['DST_SBIN_DIR'].'/'.$survivorName;
+        file_put_contents($survivor, "pre-existing legacy wrapper\n");
+        chmod($survivor, 0o750);
+
+        $obstacleName = $names[count($names) - 1];
+        $obstacle = $vars['DST_SBIN_DIR'].'/'.$obstacleName;
+        mkdir($obstacle, 0o750);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("refusing to remove a legacy wrapper path that is not a regular file or symlink: {$obstacle}");
+        expect(is_dir($obstacle))->toBeTrue('the directory obstacle must be left exactly as found');
+        expect(file_get_contents($survivor))->toBe("pre-existing legacy wrapper\n", 'the earlier survivor must be restored, not left removed');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('apply never creates a legacy wrapper that was already absent', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+
+        foreach (installPerimeterLegacyWrapperNames() as $name) {
+            expect(file_exists($vars['DST_SBIN_DIR'].'/'.$name))->toBeFalse();
+        }
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('verify fails when a legacy wrapper is still present', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        [$applyExit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0);
+
+        // Simulate a legacy wrapper resurrected out-of-band after a
+        // successful apply.
+        $resurrected = $vars['DST_SBIN_DIR'].'/rateguru-staging-deploy';
+        file_put_contents($resurrected, "resurrected\n");
+        chmod($resurrected, 0o755);
+
+        [$verifyExit, $verifyOutput] = installPerimeterRunHarness($scratch, $vars, 'perform_verify');
+
+        expect($verifyExit)->not->toBe(0);
+        expect($verifyOutput)->toContain("legacy wrapper still present: {$resurrected}");
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('a successful verify confirms all six legacy wrapper paths are absent', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        [$applyExit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0);
+
+        [$verifyExit, $verifyOutput] = installPerimeterRunHarness($scratch, $vars, 'perform_verify');
+
+        expect($verifyExit)->toBe(0, $verifyOutput);
+        expect($verifyOutput)->toContain('all six legacy wrapper paths are absent');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('a failed apply restores a legacy wrapper that existed before, with its original content and mode', function () {
+    // A broken wrapper/sudoers/cron *candidate* (e.g. the 'wrong-reason'
+    // stub used above) always fails during verify_staged_candidates, which
+    // runs before BACKUP_DIR is even set and before any destination is
+    // touched — proving nothing about restoring a removed legacy wrapper.
+    // To reach remove_legacy_wrappers with a genuine, still-real failure
+    // afterward, pre-seed the *last* legacy wrapper slot
+    // (rateguru-production-cleanup) as a directory: record_target backs it
+    // up successfully, but `rm -f` (no -r) refuses to remove a directory,
+    // failing partway through remove_legacy_wrappers — well after
+    // BACKUP_DIR is set and the five real files are already transactionally
+    // installed, and after every earlier legacy wrapper in the list
+    // (including our real survivor, rateguru-staging-deploy, first in the
+    // list) has already been backed up and removed.
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+
+        $survivor = $vars['DST_SBIN_DIR'].'/rateguru-staging-deploy';
+        file_put_contents($survivor, "pre-existing legacy wrapper\n");
+        chmod($survivor, 0o750);
+        $originalPerms = fileperms($survivor);
+
+        $obstacle = $vars['DST_SBIN_DIR'].'/rateguru-production-cleanup';
+        mkdir($obstacle, 0o750);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        // Proves remove_legacy_wrappers actually reached and removed the
+        // survivor before the later obstacle failed the run — not merely
+        // that the final restored state looks right, which would also hold
+        // if wrapper ordering changed and the survivor were never removed
+        // (and so never needed restoring) in the first place.
+        expect($output)->toContain("removed legacy wrapper: {$survivor}");
+        expect($output)->toContain('rollback complete');
+        expect(file_exists($survivor))->toBeTrue('a legacy wrapper that existed before this run must be restored on rollback');
+        expect(is_dir($survivor))->toBeFalse();
+        expect(file_get_contents($survivor))->toBe("pre-existing legacy wrapper\n");
+        expect(fileperms($survivor))->toBe($originalPerms);
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('a failed apply never leaves behind a legacy wrapper that did not exist before this run', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $wrongReasonStub = $scratch.'/wrong-reason-wrapper';
+        installPerimeterWriteWrapperStub($wrongReasonStub, 'wrong-reason');
+        $vars['SRC_WRAPPER_DEPLOY'] = $wrongReasonStub;
+        $vars['SRC_WRAPPER_ROLLBACK'] = $wrongReasonStub;
+        $vars['SRC_WRAPPER_CLEANUP'] = $wrongReasonStub;
+
+        [$exit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+
+        foreach (installPerimeterLegacyWrapperNames() as $name) {
+            expect(file_exists($vars['DST_SBIN_DIR'].'/'.$name))->toBeFalse("{$name} was absent before this run and must stay absent after a failed apply");
+        }
     } finally {
         installPerimeterCleanup($scratch);
     }

@@ -1,55 +1,68 @@
 #!/usr/bin/env bash
 #
-# install-target-perimeter — install/verify the target-aware operational
-# perimeter (Phase 4 slice 8): the three generic sudo wrappers, the sudoers
-# rule granting the staging deploy user access to them, and the backup cron
-# entry.
+# install-target-perimeter — install/verify the target-only operational
+# perimeter: the three generic sudo wrappers, the sudoers rule granting the
+# staging deploy user access to them, the backup cron entry, and the
+# transactional removal of the six legacy per-environment sudo wrappers.
 #
 # Modes:
 #   --check   Validate the committed source files, host tooling, AND that
-#             the real installed fourteen-file target operations bundle
+#             the real installed fifteen-file target operations bundle
 #             (install-target-operations' own responsibility, a prerequisite
 #             this installer depends on but does not own) is present,
 #             correctly owned/moded, and byte-identical to this repository's
-#             committed sources. Read-only: makes NO changes to the system.
+#             committed sources. Reports which of the six legacy wrappers
+#             are currently present and would be removed by --apply.
+#             Read-only: makes NO changes to the system.
 #   --apply   Everything --check does, as its own preflight, then installs
 #             the three wrappers, the sudoers rule and the backup cron
-#             entry: verifies a staged copy before touching anything,
-#             installs transactionally, then verifies the installed result
-#             against the real host before committing.
+#             entry, and removes the six legacy wrappers: verifies a staged
+#             copy before touching anything, installs transactionally, then
+#             verifies the installed result against the real host before
+#             committing. On any failure, restores the generic perimeter
+#             files, sudoers, cron, and every legacy wrapper that existed
+#             before this run, each with its original owner/group/mode/
+#             content — a legacy wrapper that was already absent stays
+#             absent.
 #   --verify  Re-run the installed-file and runtime-parity checks against
-#             whatever is currently installed, including the fourteen-file
-#             operations bundle check above. Makes NO changes, creates NO
-#             backup.
+#             whatever is currently installed, including the operations
+#             bundle check above and confirming all six legacy wrapper paths
+#             are absent. Makes NO changes, creates NO backup.
 #
 # What this installs — and does not:
-#   * Only five files: the three generic wrappers (rateguru-deploy,
+#   * Five files: the three generic wrappers (rateguru-deploy,
 #     rateguru-rollback, rateguru-cleanup), the sudoers rule that grants the
 #     staging deploy user access to them, and the backup-cycle/restore-test/
 #     offsite-restore-test cron entries. deploy, rollback, cleanup,
-#     backup-cycle, restore-test, offsite-restore-test, and the other seven
-#     files in the fourteen-file operations bundle are untouched by this
-#     installer — they already support --target from earlier Phase 4 slices
-#     (installed by install-target-operations, a prerequisite this installer
-#     depends on but does not own). This installer only ever *verifies* that
-#     bundle is current — see "Installed operations bundle staleness guard"
-#     below — never installs, modifies, or takes ownership of any of it.
+#     backup-cycle, restore-test, offsite-restore-test, and the other files
+#     in the operations bundle are untouched by this installer — they
+#     already support --target (installed by install-target-operations, a
+#     prerequisite this installer depends on but does not own). This
+#     installer only ever *verifies* that bundle is current — see "Installed
+#     operations bundle staleness guard" below — never installs, modifies,
+#     or takes ownership of any of it.
+#   * Six required-absent files: the legacy per-environment wrappers
+#     (rateguru-staging-deploy/rollback/cleanup,
+#     rateguru-production-deploy/rollback/cleanup). --apply removes any of
+#     these still present on the host. --check never fails merely because
+#     one is present — it only reports the removal plan, read-only. --verify
+#     is different: it fails closed if any of the six is still present,
+#     since it is meant to run only after a successful --apply has already
+#     removed them — do not run --verify to "check" presence the way --check
+#     does.
 #   * Never touches deployment.conf or the target registry.
 #   * Never adds a sudoers rule for tits-guru's deploy user: tits-guru stays
 #     lifecycle=planned, and this installer does not provision it.
-#   * Never removes the temporary legacy per-environment wrappers or sudoers
-#     rules (rateguru-staging-*, rateguru-production-*) — a future
-#     legacy-removal slice does that.
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below — save
 # for two deliberate test seams, both gated behind
 # RATEGURU_ALLOW_TEST_OVERRIDES=true: RATEGURU_PERIMETER_ROOT prefixes every
-# destination path this installer actually owns, plus the backup root;
-# RATEGURU_INSTALLED_OPERATIONS_ROOT separately prefixes the read-only
-# fourteen-file operations bundle this installer only ever verifies. Either
-# lets the relevant logic be exercised end to end against a private scratch
-# tree. Production never sets any of these, so both resolve to the exact
-# real absolute destinations below.
+# destination path this installer actually owns (including the six legacy
+# wrapper paths), plus the backup root; RATEGURU_INSTALLED_OPERATIONS_ROOT
+# separately prefixes the read-only operations bundle this installer only
+# ever verifies. Either lets the relevant logic be exercised end to end
+# against a private scratch tree. Production never sets any of these, so
+# both resolve to the exact real absolute destinations below.
 
 set -Eeuo pipefail
 umask 022
@@ -118,12 +131,29 @@ DST_SBIN_DIR="${PERIMETER_ROOT}/usr/local/sbin"
 DST_SUDOERS_DIR="${PERIMETER_ROOT}/etc/sudoers.d"
 DST_CRON_DIR="${PERIMETER_ROOT}/etc/cron.d"
 
+# The six legacy, per-environment sudo wrappers this installer requires
+# absent on the host — see the file header. Named here, once, so every
+# check/apply/verify code path below iterates the identical list rather than
+# re-enumerating it.
+LEGACY_WRAPPER_NAMES=(
+    rateguru-staging-deploy
+    rateguru-staging-rollback
+    rateguru-staging-cleanup
+    rateguru-production-deploy
+    rateguru-production-rollback
+    rateguru-production-cleanup
+)
+
+legacy_wrapper_path() {
+    printf '%s/%s\n' "${DST_SBIN_DIR}" "$1"
+}
+
 BACKUP_ROOT="${PERIMETER_ROOT}/var/backups/rateguru-target-perimeter"
 
 # A second, independently gated test seam — never conflated with
 # PERIMETER_ROOT above, which prefixes destinations this installer actually
 # owns and installs. INSTALLED_OPERATIONS_ROOT instead prefixes the
-# fourteen-file operations bundle install-target-operations owns: a
+# fifteen-file operations bundle install-target-operations owns: a
 # read-only dependency this installer only ever verifies, never installs or
 # modifies. Empty by default, so production resolves to the exact real
 # absolute /home/www/rateguru paths below.
@@ -146,6 +176,7 @@ DST_OPS_OFFSITE_BACKUP="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/offsi
 DST_OPS_OFFSITE_RETENTION="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/offsite-retention"
 DST_OPS_OFFSITE_RESTORE_TEST="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/offsite-restore-test"
 DST_OPS_BACKUP_CYCLE="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/backup-cycle"
+DST_OPS_DEPLOYMENT_CONF="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/config/deployment.conf"
 
 VISUDO_BIN_DEFAULT="$(command -v visudo || true)"
 VISUDO_BIN="${VISUDO_BIN_DEFAULT}"
@@ -158,13 +189,14 @@ SUDOERS_MODE="0440"
 CRON_MODE="0644"
 
 # The exact modes install-target-operations itself enforces for the same
-# fourteen files (see its own REGISTRY_MODE/COMMON_MODE/CLI_MODE) — kept as
-# separate OPS_-prefixed constants here, never reused from WRAPPER_MODE/etc
-# above, since these describe a dependency this installer only reads, not
-# one it owns.
+# fifteen files (see its own REGISTRY_MODE/COMMON_MODE/CLI_MODE/
+# DEPLOYMENT_CONF_MODE) — kept as separate OPS_-prefixed constants here,
+# never reused from WRAPPER_MODE/etc above, since these describe a
+# dependency this installer only reads, not one it owns.
 OPS_REGISTRY_MODE="0640"
 OPS_COMMON_MODE="0644"
 OPS_CLI_MODE="0755"
+OPS_DEPLOYMENT_CONF_MODE="0640"
 
 # The ownership this installer enforces on every file and directory it cares
 # about. Plain, freely reassignable constants (not gated env overrides) — the
@@ -205,7 +237,7 @@ Usage:
   install-target-perimeter --help
 
   --check   Validate committed source files, host tooling, and that the
-            installed fourteen-file target operations bundle is current.
+            installed fifteen-file target operations bundle is current.
             Read-only; makes no changes.
   --apply   Install the three wrappers, the sudoers rule and the cron
             entry (requires root). Transactional: verifies a staged copy
@@ -340,13 +372,12 @@ verify_wrapper_static_contract() {
     grep -Fq "${underlying_path}" "${wrapper_path}" \
         || fail "${label} does not reference the generic installed operation path ${underlying_path}: ${wrapper_path}"
 
-    # The wrapper's own source legitimately mentions the string
-    # "--environment" once, to explicitly reject it — so the proof here is
-    # that the rejection message is present, never a blanket "the substring
-    # --environment must not appear anywhere" (which would also flag the
-    # rejection itself).
-    grep -Fq -- '--environment is not supported by' "${wrapper_path}" \
-        || fail "${label} does not explicitly reject --environment: ${wrapper_path}"
+    # The legacy selector no longer exists for this wrapper at all — not even
+    # as a rejection branch. An unrecognized --environment now falls through
+    # to the wrapper's own generic unknown-argument path.
+    if grep -Fq -- '--environment' "${wrapper_path}"; then
+        fail "${label} still mentions --environment: ${wrapper_path}"
+    fi
 
     # Comment-only lines (and blank lines) are excluded before scanning for
     # eval/bash -c: a documentation comment that merely *mentions* either —
@@ -389,9 +420,9 @@ validate_source_registry() {
 # --- Installed operations bundle staleness guard ----------------------------
 #
 # install-target-perimeter depends on install-target-operations having
-# already installed a fully current fourteen-file bundle at
+# already installed a fully current fifteen-file bundle at
 # /home/www/rateguru — this installer never installs, modifies, or takes
-# ownership of any of those fourteen files itself (see the file header).
+# ownership of any of those fifteen files itself (see the file header).
 # Before this installer ever creates a staging directory, a backup
 # directory, or touches a single destination file, it confirms that bundle
 # is not missing, incomplete, drifted, or otherwise stale relative to this
@@ -449,8 +480,9 @@ validate_installed_operations_bundle() {
     check_installed_operation_file "${DST_OPS_OFFSITE_RETENTION}" "${SRC_OFFSITE_RETENTION}" "${OPS_CLI_MODE}" "offsite-retention"
     check_installed_operation_file "${DST_OPS_OFFSITE_RESTORE_TEST}" "${SRC_OFFSITE_RESTORE_TEST}" "${OPS_CLI_MODE}" "offsite-restore-test"
     check_installed_operation_file "${DST_OPS_BACKUP_CYCLE}" "${SRC_BACKUP_CYCLE}" "${OPS_CLI_MODE}" "backup-cycle"
+    check_installed_operation_file "${DST_OPS_DEPLOYMENT_CONF}" "${SRC_DEPLOYMENT_CONF}" "${OPS_DEPLOYMENT_CONF_MODE}" "deployment.conf"
 
-    log "installed target operations bundle (fourteen files) matches this repository's committed sources"
+    log "installed target operations bundle (fifteen files) matches this repository's committed sources"
 }
 
 validate_sudoers_syntax() {
@@ -460,9 +492,10 @@ validate_sudoers_syntax() {
 }
 
 # Confirms the sudoers content grants the staging deploy user access to the
-# three generic wrappers, and — the one thing this installer must never do —
-# never grants tits-guru's own (unprovisioned) deploy user any access at all,
-# since tits-guru stays lifecycle=planned.
+# three generic wrappers only — the one thing this installer must never do
+# is grant tits-guru's own (unprovisioned) deploy user any access at all,
+# since tits-guru stays lifecycle=planned, or mention any of the six legacy
+# per-environment wrapper names it is responsible for removing.
 validate_sudoers_content() {
     local path="$1"
 
@@ -478,6 +511,20 @@ validate_sudoers_content() {
     if grep -Fq 'deploy-rateguru-tits-guru' "${path}"; then
         fail "sudoers file must not grant tits-guru's deploy user any access — tits-guru remains lifecycle=planned: ${path}"
     fi
+
+    # No production deploy user of any kind (planned tits-guru above, or any
+    # other production-class identity) may appear — the sudoers rule grants
+    # only the staging deploy user access to the three generic wrappers.
+    if grep -Fq 'deploy-rateguru-production' "${path}"; then
+        fail "sudoers file must not grant a production deploy user any access: ${path}"
+    fi
+
+    local legacy_name
+    for legacy_name in "${LEGACY_WRAPPER_NAMES[@]}"; do
+        if grep -Fq "${legacy_name}" "${path}"; then
+            fail "sudoers file still mentions the legacy wrapper ${legacy_name}: ${path}"
+        fi
+    done
 }
 
 # Shared by --check (against the committed source) and --verify (against the
@@ -537,7 +584,7 @@ run_source_validation() {
     verify_wrapper_static_contract "${SRC_WRAPPER_DEPLOY}" "/home/www/rateguru/bin/deploy" "source rateguru-deploy"
     verify_wrapper_static_contract "${SRC_WRAPPER_ROLLBACK}" "/home/www/rateguru/bin/rollback" "source rateguru-rollback"
     verify_wrapper_static_contract "${SRC_WRAPPER_CLEANUP}" "/home/www/rateguru/bin/cleanup" "source rateguru-cleanup"
-    log "source wrappers reference generic installed operation paths, explicitly reject --environment, and contain no executable eval/bash -c"
+    log "source wrappers reference generic installed operation paths, never mention --environment, and contain no executable eval/bash -c"
 
     # Shared by --check, --apply's own preflight, and --verify (this
     # function's only three callers) — runs last, after every other
@@ -705,6 +752,47 @@ rollback_installed_files() {
 
 # --- installer core (end) ---
 
+# --- Legacy wrapper removal (transactional; reuses the installer core above)
+#
+# A legacy wrapper path must be either absent, a symlink (rm -f unlinks it
+# regardless of what it points to), or a regular file — never a directory or
+# other special type. `rm -f` without `-r` cannot remove a directory, and
+# fails silently enough (unguarded, but inside remove_legacy_wrappers rather
+# than a tested context) that a later rollback would then try to cp -a its
+# backed-up copy *into* the still-existing directory rather than replacing
+# it, succeeding at a nested, non-transactional "restore" instead of failing
+# closed. Rejecting the unsafe type up front, before it is ever backed up or
+# touched, keeps this the same fail-closed contract
+# reject_unsafe_existing_destination already gives the install side.
+reject_unsafe_legacy_wrapper_path() {
+    local path="$1"
+
+    if [[ -e "${path}" ]] && [[ ! -f "${path}" ]] && [[ ! -L "${path}" ]]; then
+        fail "refusing to remove a legacy wrapper path that is not a regular file or symlink: ${path}"
+    fi
+}
+
+# Backs up (via record_target — the identical helper every install_regular_
+# file_transactional call above already uses) and removes each of the six
+# legacy wrapper paths that currently exists. A path already absent before
+# this run is recorded into ROLLBACK_REMOVE by record_target; on a rollback,
+# rollback_installed_files runs a harmless `rm -f` against it — a legacy
+# wrapper that was never there stays absent after a rollback, exactly as the
+# file header promises.
+remove_legacy_wrappers() {
+    local name path
+    for name in "${LEGACY_WRAPPER_NAMES[@]}"; do
+        path="$(legacy_wrapper_path "${name}")"
+        reject_unsafe_legacy_wrapper_path "${path}"
+        record_target "${path}"
+
+        if [[ -e "${path}" || -L "${path}" ]]; then
+            rm -f "${path}"
+            log "removed legacy wrapper: ${path}"
+        fi
+    done
+}
+
 # --- Runtime verification helpers (extractable) -----------------------------
 
 # --- runtime verification (begin) ---
@@ -757,7 +845,7 @@ verify_installed_files() {
     verify_wrapper_static_contract "${DST_WRAPPER_DEPLOY}" "/home/www/rateguru/bin/deploy" "installed rateguru-deploy"
     verify_wrapper_static_contract "${DST_WRAPPER_ROLLBACK}" "/home/www/rateguru/bin/rollback" "installed rateguru-rollback"
     verify_wrapper_static_contract "${DST_WRAPPER_CLEANUP}" "/home/www/rateguru/bin/cleanup" "installed rateguru-cleanup"
-    log "  installed wrappers reference generic installed operation paths, explicitly reject --environment, and contain no executable eval/bash -c"
+    log "  installed wrappers reference generic installed operation paths, never mention --environment, and contain no executable eval/bash -c"
 
     "${VISUDO_BIN}" -cf "${DST_SUDOERS}" >/dev/null \
         || fail "installed sudoers file failed visudo -cf: ${DST_SUDOERS}"
@@ -766,6 +854,8 @@ verify_installed_files() {
 
     validate_cron_format "${DST_CRON}"
     log "  installed cron: format OK (three target-aware lines, schedule and log paths unchanged)"
+
+    verify_legacy_wrappers_absent
 
     log "installed-file verification passed"
 }
@@ -781,6 +871,21 @@ verify_runtime_parity() {
     verify_wrapper_planned_target_rejected "${DST_WRAPPER_CLEANUP}" "rateguru-cleanup"
 
     log "runtime parity verification passed"
+}
+
+# Fails closed if any of the six legacy per-environment wrapper paths still
+# exist on the host — used by --verify (which only ever runs after --apply
+# is expected to have already removed them) and by --apply's own post-removal
+# check, before APPLY_COMMITTED is ever set.
+verify_legacy_wrappers_absent() {
+    local name path
+    for name in "${LEGACY_WRAPPER_NAMES[@]}"; do
+        path="$(legacy_wrapper_path "${name}")"
+        if [[ -e "${path}" || -L "${path}" ]]; then
+            fail "legacy wrapper still present: ${path}"
+        fi
+    done
+    log "all six legacy wrapper paths are absent"
 }
 
 # --- runtime verification (end) ---
@@ -805,7 +910,7 @@ verify_staged_candidates() {
     verify_wrapper_static_contract "${staged_deploy}" "/home/www/rateguru/bin/deploy" "staged rateguru-deploy"
     verify_wrapper_static_contract "${staged_rollback}" "/home/www/rateguru/bin/rollback" "staged rateguru-rollback"
     verify_wrapper_static_contract "${staged_cleanup}" "/home/www/rateguru/bin/cleanup" "staged rateguru-cleanup"
-    log "  staged wrappers reference generic installed operation paths, explicitly reject --environment, and contain no executable eval/bash -c"
+    log "  staged wrappers reference generic installed operation paths, never mention --environment, and contain no executable eval/bash -c"
 
     verify_wrapper_help "${staged_deploy}" "staged rateguru-deploy"
     verify_wrapper_planned_target_rejected "${staged_deploy}" "staged rateguru-deploy"
@@ -838,6 +943,31 @@ run_check() {
     log "  ${DST_WRAPPER_CLEANUP}"
     log "  ${DST_SUDOERS}"
     log "  ${DST_CRON}"
+
+    # Read-only report of which legacy wrappers --apply would remove. Neither
+    # a present nor an absent legacy wrapper is a --check failure — the
+    # filesystem is never touched in this mode. A present path that is not a
+    # regular file or symlink is different: --apply's own
+    # reject_unsafe_legacy_wrapper_path would refuse to remove it, so
+    # reporting it as an ordinary "would be removed" candidate would be
+    # actively misleading — flag it as a blocker instead, and fail the
+    # check, so this surfaces before a real --apply run hits it.
+    local name path unsafe_legacy_wrapper_found=false
+    for name in "${LEGACY_WRAPPER_NAMES[@]}"; do
+        path="$(legacy_wrapper_path "${name}")"
+        if [[ -e "${path}" ]] && [[ ! -f "${path}" ]] && [[ ! -L "${path}" ]]; then
+            log "  legacy wrapper BLOCKS --apply, not a regular file or symlink: ${path}"
+            unsafe_legacy_wrapper_found=true
+        elif [[ -e "${path}" || -L "${path}" ]]; then
+            log "  legacy wrapper present, would be removed by --apply: ${path}"
+        else
+            log "  legacy wrapper already absent: ${path}"
+        fi
+    done
+
+    if [[ "${unsafe_legacy_wrapper_found}" == true ]]; then
+        fail "one or more legacy wrapper paths are not a regular file or symlink; --apply would refuse to remove them — see the BLOCKS lines above"
+    fi
 
     log "check passed: source files, host tooling, target registry, sudoers candidate, cron format, and the installed operations bundle are all valid"
 }
@@ -921,6 +1051,8 @@ perform_apply() {
 
     install_regular_file_transactional "${STAGE_DIR}/rateguru-backups.cron" "${DST_CRON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CRON_MODE}"
 
+    remove_legacy_wrappers
+
     log "files installed; verifying before committing"
 
     verify_installed_files
@@ -934,6 +1066,7 @@ perform_apply() {
     log "  wrappers : ${DST_WRAPPER_DEPLOY}, ${DST_WRAPPER_ROLLBACK}, ${DST_WRAPPER_CLEANUP}"
     log "  sudoers  : ${DST_SUDOERS}"
     log "  cron     : ${DST_CRON}"
+    log "  legacy wrappers removed: ${LEGACY_WRAPPER_NAMES[*]}"
     log "  backups  : ${BACKUP_DIR}"
     log "Run 'install-target-perimeter --verify' at any time to re-check the installed result."
 }

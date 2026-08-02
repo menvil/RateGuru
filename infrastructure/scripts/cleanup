@@ -47,8 +47,7 @@ DELETE_CANDIDATES=()
 usage() {
     cat <<'USAGE'
 Usage:
-  cleanup --environment staging|production [--keep NUMBER] [--dry-run|--apply]
-  cleanup --target TARGET_ID             [--keep NUMBER] [--dry-run|--apply]
+  cleanup --target TARGET_ID [--keep NUMBER] [--dry-run|--apply]
 
 Without --apply or --dry-run, cleanup performs a dry run — this is the
 existing default; --dry-run is a readable alias for it. --apply is required
@@ -66,19 +65,14 @@ USAGE
 # infrastructure/scripts/install-target-operations
 # (installOpsFunctionsSection() in its test suite).
 
-# --- selector and execution-mode parsing ------------------------------------
+# --- target and execution-mode parsing ---------------------------------------
 #
-# cleanup cannot reuse common's parse_selector_args directly — it has extra
+# cleanup cannot reuse common's parse_target_args directly — it has extra
 # flags (--keep, --dry-run, --apply) that function does not know about — so
-# it runs its own loop for every flag, then calls common's
-# assert_selector_state for the exact same mutual-exclusion /
-# exactly-one-required / non-empty validation health-check and status already
-# get from parse_selector_args.
+# it runs its own loop for every flag.
 parse_cleanup_args() {
     TARGET_ID=""
-    ENVIRONMENT=""
     TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
     KEEP=""
     KEEP_SEEN=false
     APPLY=false
@@ -88,21 +82,14 @@ parse_cleanup_args() {
         case "$1" in
             --target)
                 [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
-                [[ $# -ge 2 ]] || fail "--target requires a value"
+                require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
                 shift 2
                 ;;
-            --environment)
-                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                [[ $# -ge 2 ]] || fail "--environment requires a value"
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
-                shift 2
-                ;;
             --keep)
                 [[ "${KEEP_SEEN}" != true ]] || fail "--keep given more than once"
-                [[ $# -ge 2 ]] || fail "--keep requires a value"
+                require_flag_value "--keep" "$#" "${2-}"
                 KEEP="$2"
                 KEEP_SEEN=true
                 shift 2
@@ -135,7 +122,7 @@ parse_cleanup_args() {
         esac
     done
 
-    assert_selector_state
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
 
 # --- target resolution (mirrors health-check/status) ------------------------
@@ -143,36 +130,22 @@ parse_cleanup_args() {
 resolve_target() {
     local default_keep
 
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        # require_active_target validates the target ID, the whole registry,
-        # that the target exists, and that it is lifecycle=active — all
-        # before TARGET_ROOT is computed below or any filesystem path,
-        # lock, find, stat, touch, chmod, rm or history access happens. A
-        # planned target (e.g. tits-guru today) or an unknown one is
-        # rejected here.
-        require_active_target "${TARGET_ID}"
+    # require_active_target validates the target ID, the whole registry, that
+    # the target exists, and that it is lifecycle=active — all before
+    # TARGET_ROOT is computed below or any filesystem path, lock, find, stat,
+    # touch, chmod, rm or history access happens. A planned target (e.g.
+    # tits-guru today) or an unknown one is rejected here.
+    require_active_target "${TARGET_ID}"
 
-        TARGET_ROOT="$(target_root "${TARGET_ID}")"
-        # The registry's own per-target release_retention field, not a value
-        # derived from environment_class. deployment-targets.md is explicit
-        # that whatever differs per instance belongs in the registry —
-        # release_retention is one of its required fields precisely so two
-        # targets sharing an environment_class (e.g. two production targets)
-        # can retain a different number of releases. staging-main and
-        # tits-guru currently carry the same numbers as
-        # STAGING_RELEASE_RETENTION/PRODUCTION_RELEASE_RETENTION, which is
-        # why legacy/target parity holds for the real, committed registry —
-        # but that is the registry agreeing with deployment.conf today, not
-        # a rule this script enforces.
-        default_keep="$(target_release_retention "${TARGET_ID}")"
-        LABEL="${TARGET_ID}"
-    else
-        validate_environment "${ENVIRONMENT}"
-
-        TARGET_ROOT="$(environment_root "${ENVIRONMENT}")"
-        default_keep="$(environment_release_retention "${ENVIRONMENT}")"
-        LABEL="${ENVIRONMENT}"
-    fi
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    # The registry's own per-target release_retention field, not a value
+    # derived from environment_class. deployment-targets.md is explicit that
+    # whatever differs per instance belongs in the registry —
+    # release_retention is one of its required fields precisely so two
+    # targets sharing an environment_class (e.g. two production targets) can
+    # retain a different number of releases.
+    default_keep="$(target_release_retention "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
 
     RELEASES_ROOT="${TARGET_ROOT}/releases"
     HISTORY_FILE="${TARGET_ROOT}/deployments/history.jsonl"

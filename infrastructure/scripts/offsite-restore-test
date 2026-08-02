@@ -86,7 +86,6 @@ fi
 usage() {
     cat <<'USAGE'
 Usage:
-  offsite-restore-test --environment staging|production
   offsite-restore-test --target TARGET_ID
 USAGE
 }
@@ -95,16 +94,14 @@ USAGE
 # this file, is constants and function definitions only — nothing runs until
 # main is called.
 
-# --- selector parsing (mirrors offsite-backup/offsite-retention) ------------
+# --- target parsing (mirrors offsite-backup/offsite-retention) --------------
 #
 # require_flag_value is defined in common (shared with offsite-backup and
 # offsite-retention — see the comment there).
 
 parse_offsite_restore_args() {
     TARGET_ID=""
-    ENVIRONMENT=""
     TARGET_SEEN=false
-    ENVIRONMENT_SEEN=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -113,13 +110,6 @@ parse_offsite_restore_args() {
                 require_flag_value "--target" "$#" "${2-}"
                 TARGET_ID="$2"
                 TARGET_SEEN=true
-                shift 2
-                ;;
-            --environment)
-                [[ "${ENVIRONMENT_SEEN}" != true ]] || fail "--environment given more than once"
-                require_flag_value "--environment" "$#" "${2-}"
-                ENVIRONMENT="$2"
-                ENVIRONMENT_SEEN=true
                 shift 2
                 ;;
             --help|-h)
@@ -132,30 +122,19 @@ parse_offsite_restore_args() {
         esac
     done
 
-    assert_selector_state
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
 
-# --- selector resolution (mirrors offsite-backup) ----------------------------
+# --- target resolution (mirrors offsite-backup) ------------------------------
 #
-# require_active_target runs first thing in the target branch — before the
-# rclone config check, any remote listing, the lock, temporary directories or
-# database work.
+# require_active_target runs first thing — before the rclone config check,
+# any remote listing, the lock, temporary directories or database work.
 resolve_offsite_restore_subject() {
-    if [[ "${TARGET_SEEN}" == true ]]; then
-        require_active_target "${TARGET_ID}"
+    require_active_target "${TARGET_ID}"
 
-        ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
-        BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
-        LABEL="${TARGET_ID}"
-        SELECTOR_TYPE="target"
-    else
-        validate_environment "${ENVIRONMENT}"
-
-        ENVIRONMENT_CLASS="${ENVIRONMENT}"
-        BACKUP_NAMESPACE="$(environment_backup_namespace "${ENVIRONMENT}")"
-        LABEL="${ENVIRONMENT}"
-        SELECTOR_TYPE="environment"
-    fi
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
 }
 
 # --- manifest validation (identical contract to offsite-backup's own) -------
@@ -166,7 +145,7 @@ resolve_offsite_restore_subject() {
 # compare against (unlike local restore-test) — `database` is only required
 # to be present and non-empty.
 
-# --- offsite restore-test pipeline: one shared code path for both selectors -
+# --- offsite restore-test pipeline ------------------------------------------
 
 perform_offsite_restore_test() {
     # Keyed on BACKUP_NAMESPACE, never on LABEL — matching offsite-backup/
@@ -399,22 +378,14 @@ print(max(names) if names else "")
     TEMP_DIRECTORY=""
     trap - EXIT
 
-    local target_arg="null"
-    local selector_arg="environment"
-
-    if [[ "${SELECTOR_TYPE}" == "target" ]]; then
-        target_arg="${TARGET_ID}"
-        selector_arg="target"
-    fi
-
     RESULT="$(
         jq \
             --null-input \
             --compact-output \
             --arg status "ok" \
             --arg tested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg selector "${selector_arg}" \
-            --arg target "${target_arg}" \
+            --arg selector "target" \
+            --arg target "${TARGET_ID}" \
             --arg environment "${ENVIRONMENT_CLASS}" \
             --arg backup_namespace "${BACKUP_NAMESPACE}" \
             --arg backup "${LATEST_BACKUP}" \
@@ -425,7 +396,7 @@ print(max(names) if names else "")
                 status: $status,
                 tested_at: $tested_at,
                 selector: $selector,
-                target: (if $selector == "target" then $target else null end),
+                target: $target,
                 environment: $environment,
                 backup_namespace: $backup_namespace,
                 backup: $backup,
