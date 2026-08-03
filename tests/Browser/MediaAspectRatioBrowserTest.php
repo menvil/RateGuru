@@ -89,7 +89,7 @@ function imageFitGeometry(mixed $page, string $selector): array
 it('does not crop a portrait image in the desktop feed and keeps it narrower than the card', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Portrait Feed Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16)->id,
     ]);
 
     $page = visit(route('feed'))
@@ -107,7 +107,7 @@ it('does not crop a portrait image in the desktop feed and keeps it narrower tha
 it('lets a landscape image use the available card width in the desktop feed', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Landscape Feed Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::LANDSCAPE_16X9),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::LANDSCAPE_16X9)->id,
     ]);
 
     $page = visit(route('feed'))
@@ -125,7 +125,7 @@ it('lets a landscape image use the available card width in the desktop feed', fu
 it('does not crop a panorama image in the desktop feed', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Panorama Feed Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::PANORAMA),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::PANORAMA)->id,
     ]);
 
     $page = visit(route('feed'))
@@ -141,7 +141,7 @@ it('does not crop a panorama image in the desktop feed', function () {
 it('does not horizontally overflow the mobile feed with a portrait image', function () {
     Post::factory()->published()->create([
         'title' => 'Mobile Portrait Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16)->id,
     ]);
 
     $page = visit(route('feed'))
@@ -159,7 +159,7 @@ it('does not horizontally overflow the mobile feed with a portrait image', funct
 it('does not horizontally overflow the tablet feed with a panorama image', function () {
     Post::factory()->published()->create([
         'title' => 'Tablet Panorama Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::PANORAMA),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::PANORAMA)->id,
     ]);
 
     $page = visit(route('feed'))
@@ -177,7 +177,7 @@ it('does not horizontally overflow the tablet feed with a panorama image', funct
 it('shows the full image in the desktop split-view drawer without cropping or page overflow', function () {
     Post::factory()->published()->create([
         'title' => 'Drawer Portrait Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::PORTRAIT_3X4),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::PORTRAIT_3X4)->id,
     ]);
 
     $page = visit(route('feed'))
@@ -202,7 +202,7 @@ it('shows the full image in the desktop split-view drawer without cropping or pa
 it('does not crop the standalone post image and does not overflow the viewport', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Standalone Portrait Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16)->id,
     ]);
 
     $page = visit(route('posts.show', $post))
@@ -220,7 +220,7 @@ it('does not crop the standalone post image and does not overflow the viewport',
 it('preserves contain behavior for the fullscreen image and does not stretch it', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Fullscreen Panorama Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::PANORAMA),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::PANORAMA)->id,
     ]);
 
     $page = visit(route('posts.show', $post))
@@ -240,7 +240,7 @@ it('does not crop post images in the profile feed', function () {
     $author = User::factory()->create(['username' => 'media_profile_author']);
     Post::factory()->published()->for($author)->create([
         'title' => 'Profile Feed Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::LANDSCAPE_3X2),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::LANDSCAPE_3X2)->id,
     ]);
 
     $page = visit(route('profile.show', 'media_profile_author'))
@@ -257,7 +257,7 @@ it('does not crop post images on the saved posts page', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'title' => 'Saved Portrait Post',
-        'image_url' => ImageFixtures::write(...ImageFixtures::PORTRAIT_3X4),
+        'image_asset_id' => ImageFixtures::write(...ImageFixtures::PORTRAIT_3X4)->id,
     ]);
     PostSave::factory()->create(['user_id' => $user->id, 'post_id' => $post->id]);
 

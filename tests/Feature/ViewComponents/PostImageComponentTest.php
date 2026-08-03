@@ -2,9 +2,10 @@
 
 use App\Models\Post;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Storage;
 
-it('renders nothing when there is no image url', function () {
-    $post = Post::factory()->published()->make(['image_url' => null, 'image_path' => null]);
+it('renders nothing when there is no image asset', function () {
+    $post = Post::factory()->published()->make(['image_asset_id' => null]);
 
     $html = Blade::render('<x-media.post-image :post="$post" context="feed" />', ['post' => $post]);
 
@@ -12,9 +13,8 @@ it('renders nothing when there is no image url', function () {
 });
 
 it('renders the feed context without cropping classes', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Blade::render(
@@ -23,7 +23,7 @@ it('renders the feed context without cropping classes', function () {
     );
 
     expect($html)
-        ->toContain('/storage/posts/1/dish.jpg')
+        ->toContain(Storage::disk('public')->url('posts/1/dish.jpg'))
         ->toContain('alt="Dish"')
         ->toContain('object-contain')
         ->toContain('max-h-[75vh]')
@@ -35,9 +35,8 @@ it('renders the feed context without cropping classes', function () {
 });
 
 it('renders the drawer context without cropping classes', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Blade::render(
@@ -54,9 +53,8 @@ it('renders the drawer context without cropping classes', function () {
 });
 
 it('renders the standalone context without a fixed aspect ratio or crop', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Blade::render(
@@ -72,9 +70,8 @@ it('renders the standalone context without a fixed aspect ratio or crop', functi
 });
 
 it('renders the fullscreen context with contain behavior and no click wrapper', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Blade::render(
@@ -100,9 +97,8 @@ it('falls back to a neutral alt text when the post has no title', function () {
 });
 
 it('falls back to a neutral alt text when the post title is blank', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => '   ',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Blade::render('<x-media.post-image :post="$post" context="feed" />', ['post' => $post]);
@@ -111,9 +107,8 @@ it('falls back to a neutral alt text when the post title is blank', function () 
 });
 
 it('applies the loading attribute only when explicitly provided', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $lazy = Blade::render(

@@ -49,9 +49,6 @@ final class VerifySharingConfigurationCommand extends Command
         if ($errors === []) {
             $post = new Post([
                 'title' => 'Sharing deployment check',
-                'image_path' => null,
-                'image_url' => null,
-                'og_image_path' => null,
             ]);
             $post->id = 1;
 

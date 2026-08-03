@@ -9,6 +9,7 @@ use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 uses(TestCase::class, RefreshDatabase::class);
@@ -30,13 +31,12 @@ it('resolves api user resource to array', function () {
 });
 
 it('returns expected api user resource shape', function () {
-    $user = User::factory()->create([
+    $user = User::factory()->withAvatar(path: 'avatars/alice.jpg')->create([
         'username' => 'alice',
         'name' => 'Alice Demo',
         'email' => 'alice@example.test',
         'role' => UserRole::Admin,
         'status' => UserStatus::Banned,
-        'avatar_url' => 'https://example.test/avatar.jpg',
     ]);
 
     $data = (new ApiUserResource($user))->resolve();
@@ -49,11 +49,14 @@ it('returns expected api user resource shape', function () {
         'profile_url',
     ]);
 
+    // Computed independently from the storage disk rather than reusing the
+    // model's own resolved_avatar_url accessor, so this doesn't just compare
+    // the resource against the exact value it was implemented to return.
     expect($data)->toMatchArray([
         'id' => $user->id,
         'username' => 'alice',
         'display_name' => 'Alice Demo',
-        'avatar_url' => 'https://example.test/avatar.jpg',
+        'avatar_url' => Storage::disk('public')->url('avatars/alice.jpg'),
     ]);
 
     expect($data)->not->toHaveKey('email');

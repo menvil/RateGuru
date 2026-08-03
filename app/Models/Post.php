@@ -12,14 +12,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
  * @property PostStatus $status
  * @property-read int $score
  * @property-read string|null $public_image_url
- * @property string|null $og_image_path
- * @property string|null $thumbnail_url
  * @property Carbon|null $created_at
  * @property Carbon|null $published_at
  */
@@ -86,6 +85,12 @@ class Post extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** @return BelongsTo<MediaAsset, $this> */
+    public function imageAsset(): BelongsTo
+    {
+        return $this->belongsTo(MediaAsset::class, 'image_asset_id');
+    }
+
     /** @return HasMany<Comment, $this> */
     public function comments(): HasMany
     {
@@ -142,19 +147,24 @@ class Post extends Model
         );
     }
 
+    /**
+     * Temporary URL-compatibility accessor for views/API that predate the
+     * MediaAsset model. Resolves through the asset's own disk — never a
+     * hardcoded '/storage/' prefix or the default disk — so it stays correct
+     * if the asset lives on a non-default disk. Superseded by PR-03's
+     * MediaUrlResolver.
+     */
     protected function publicImageUrl(): Attribute
     {
         return Attribute::make(
             get: function (): ?string {
-                $path = trim((string) $this->image_path);
+                $asset = $this->imageAsset;
 
-                if ($path !== '') {
-                    return '/storage/'.ltrim($path, '/');
+                if ($asset === null) {
+                    return null;
                 }
 
-                $url = trim((string) $this->image_url);
-
-                return $url !== '' ? $url : null;
+                return Storage::disk($asset->disk)->url($asset->path);
             },
         );
     }

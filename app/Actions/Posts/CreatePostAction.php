@@ -4,18 +4,20 @@ namespace App\Actions\Posts;
 
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Data\Posts\CreatePostData;
+use App\Enums\MediaKind;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
-use App\Jobs\ProcessUploadedImageJob;
 use App\Models\Category;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
 use App\Services\Images\ImageStorage;
+use App\Services\Images\StoredMediaCleaner;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Media\MediaAssetCreator;
 use App\Support\Observability\DomainLogger;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Database\Eloquent\Collection;
@@ -30,6 +32,8 @@ final class CreatePostAction
         private readonly ActionRateLimiter $rateLimiter,
         private readonly DomainLogger $logger,
         private readonly RatingConfigurationManager $ratingConfiguration,
+        private readonly MediaAssetCreator $mediaAssetCreator,
+        private readonly StoredMediaCleaner $storedMediaCleaner,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
@@ -55,45 +59,56 @@ final class CreatePostAction
         $categoryId = $this->validatedCategoryId($data->categoryId);
         $authorAnswers = $this->validatedAuthorAnswers($data->authorAnswerOptionIds, $ratingGroups);
 
-        $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers) {
-            $storedImage = $data->image !== null
-                ? $this->imageStorage->storePostImage($data->image, $user)
-                : null;
+        // Storing the file is slow, external I/O that doesn't belong inside a
+        // DB transaction — do it first, then only touch the database below.
+        $storedImage = $data->image !== null
+            ? $this->imageStorage->storePostImage($data->image, $user)
+            : null;
 
-            $post = Post::create([
-                'user_id' => $user->id,
-                'title' => $data->title,
-                'description' => $data->description,
-                'source_url' => $data->sourceUrl,
-                'category_id' => $categoryId,
-                'status' => $status,
-                'published_at' => $publishedAt,
-                'image_path' => $storedImage?->path,
-                'image_url' => $storedImage?->url,
-                'thumbnail_url' => $storedImage?->thumbnailUrl,
-            ]);
+        try {
+            $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers, $storedImage) {
+                $imageAsset = $storedImage !== null
+                    ? $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)
+                    : null;
 
-            if ($data->tagIds !== []) {
-                $post->tags()->sync($data->tagIds);
+                $post = Post::create([
+                    'user_id' => $user->id,
+                    'title' => $data->title,
+                    'description' => $data->description,
+                    'source_url' => $data->sourceUrl,
+                    'category_id' => $categoryId,
+                    'status' => $status,
+                    'published_at' => $publishedAt,
+                    'image_asset_id' => $imageAsset?->id,
+                ]);
+
+                if ($data->tagIds !== []) {
+                    $post->tags()->sync($data->tagIds);
+                }
+
+                if ($authorAnswers !== []) {
+                    $post->authorAnswers()->createMany($authorAnswers);
+                }
+
+                return $post;
+            });
+        } catch (Throwable $exception) {
+            // The file was already written before the transaction started; a
+            // DB failure past that point (asset insert, post insert, tag
+            // sync, author answers) must not leave it orphaned on disk.
+            if ($storedImage !== null) {
+                $this->storedMediaCleaner->deleteIfUnclaimed($storedImage);
             }
 
-            if ($authorAnswers !== []) {
-                $post->authorAnswers()->createMany($authorAnswers);
-            }
-
-            return $post;
-        });
+            throw $exception;
+        }
 
         $this->logger->info('posts.created', [
             'post_id' => $post->id,
             'user_id' => $user->id,
             'status' => $post->status->value,
-            'has_image' => $post->image_path !== null,
+            'has_image' => $post->image_asset_id !== null,
         ]);
-
-        if ($post->image_path !== null) {
-            ProcessUploadedImageJob::dispatch($post->id);
-        }
 
         if ($post->status === PostStatus::Published) {
             try {

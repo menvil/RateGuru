@@ -44,10 +44,7 @@ it('does not expose create or edit pages in this phase', function () {
 
 it('renders an image column in the post resource table', function () {
     $admin = User::factory()->admin()->create();
-    $post = Post::factory()->published()->create([
-        'image_path' => 'posts/demo.jpg',
-        'image_url' => null,
-    ]);
+    $post = Post::factory()->published()->withImage(path: 'posts/demo.jpg')->create();
 
     $this->actingAs($admin);
 

@@ -10,6 +10,7 @@ use App\Models\User;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Storage;
 
 it('renders post voting component in post card', function () {
     $post = Post::factory()->published()->create();
@@ -27,33 +28,19 @@ it('renders post card title', function () {
     expect($html)->toContain('Sample Post');
 });
 
-it('renders post image when image url exists', function () {
-    $post = Post::factory()->published()->make([
+it('renders post image when an image asset exists', function () {
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('/storage/posts/1/dish.jpg');
+    expect($html)->toContain(Storage::disk('public')->url('posts/1/dish.jpg'));
 });
 
-it('renders post image from image path when image url is missing', function () {
+it('renders image placeholder when there is no image asset', function () {
     $post = Post::factory()->published()->make([
-        'title' => 'Dish',
-        'image_path' => 'posts/1/dish.jpg',
-        'image_url' => null,
-    ]);
-
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
-
-    expect($html)->toContain('/storage/posts/1/dish.jpg');
-});
-
-it('renders image placeholder when image url is missing', function () {
-    $post = Post::factory()->published()->make([
-        'image_path' => null,
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
@@ -109,17 +96,16 @@ it('renders an inactive category as non-navigable post metadata', function () {
 });
 
 it('renders post description under the title before the image', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/tacos.jpg')->create([
         'title' => 'Street Tacos',
         'description' => 'Corn tortillas, salsa, cilantro, and a street-food presentation',
-        'image_url' => '/storage/posts/1/tacos.jpg',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     $titlePosition = strpos($html, 'Street Tacos');
     $descriptionPosition = strpos($html, 'Corn tortillas, salsa, cilantro, and a street-food presentation');
-    $imagePosition = strpos($html, '/storage/posts/1/tacos.jpg');
+    $imagePosition = strpos($html, Storage::disk('public')->url('posts/1/tacos.jpg'));
 
     expect($titlePosition)->not->toBeFalse()
         ->and($descriptionPosition)->not->toBeFalse()
@@ -430,24 +416,22 @@ it('hides save button on post card when feature is disabled', function () {
 });
 
 it('does not crop the feed post image to a fixed aspect ratio', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)
-        ->toContain('/storage/posts/1/dish.jpg')
+        ->toContain(Storage::disk('public')->url('posts/1/dish.jpg'))
         ->toContain('object-contain')
         ->not->toContain('aspect-[16/10]')
         ->not->toContain('object-cover');
 });
 
 it('renders the feed fullscreen image with contain behavior', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
@@ -459,9 +443,8 @@ it('renders the feed fullscreen image with contain behavior', function () {
 });
 
 it('lazy loads the feed image by default and eager loads it when marked as the first card', function () {
-    $post = Post::factory()->published()->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $lazyHtml = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
@@ -474,11 +457,9 @@ it('lazy loads the feed image by default and eager loads it when marked as the f
 });
 
 it('resolves post author avatar via the resolved avatar accessor', function () {
-    $author = User::factory()->make([
+    $author = User::factory()->withAvatar()->create([
         'name' => 'Demo Chef',
         'username' => 'demo_chef',
-        'avatar_path' => null,
-        'avatar_url' => 'https://example.test/avatar.jpg',
     ]);
 
     $post = Post::factory()->published()->make(['title' => 'Dish']);
@@ -486,5 +467,5 @@ it('resolves post author avatar via the resolved avatar accessor', function () {
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('https://example.test/avatar.jpg');
+    expect($html)->toContain($author->resolved_avatar_url);
 });

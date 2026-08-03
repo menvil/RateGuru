@@ -22,16 +22,14 @@ class DemoHiddenPostsSeeder extends Seeder
 
         foreach ($this->posts() as $index => $demoPost) {
             $author = User::query()->where('email', $demoPost['author'])->firstOrFail();
-            app(DemoPostMediaGenerator::class)->create($demoPost['image_path'], $index + 17);
+            $imageAsset = app(DemoPostMediaGenerator::class)->create($demoPost['image_path'], $index + 17);
 
             $post = Post::query()->updateOrCreate(
                 ['title' => $demoPost['title']],
                 [
                     'user_id' => $author->id,
                     'description' => $demoPost['description'],
-                    'image_path' => $demoPost['image_path'],
-                    'image_url' => null,
-                    'thumbnail_url' => null,
+                    'image_asset_id' => $imageAsset->id,
                     'source_url' => null,
                     'status' => PostStatus::Hidden,
                     'published_at' => CarbonImmutable::parse(self::PUBLISHED_AT),

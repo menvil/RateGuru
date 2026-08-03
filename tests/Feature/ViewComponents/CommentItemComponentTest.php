@@ -26,10 +26,7 @@ it('renders report button in comment item for persisted comment', function () {
 it('resolves comment author avatar via the resolved avatar accessor', function () {
     Storage::fake('public');
 
-    $author = User::factory()->create([
-        'avatar_path' => 'avatars/comment-author.jpg',
-        'avatar_url' => 'https://example.test/avatar.jpg',
-    ]);
+    $author = User::factory()->withAvatar(path: 'avatars/comment-author.jpg')->create();
     $comment = Comment::factory()->for($author, 'user')->create([
         'status' => CommentStatus::Visible,
     ]);
@@ -38,9 +35,7 @@ it('resolves comment author avatar via the resolved avatar accessor', function (
         'comment' => $comment,
     ]);
 
-    expect($html)
-        ->toContain('/storage/avatars/comment-author.jpg')
-        ->not->toContain('https://example.test/avatar.jpg');
+    expect($html)->toContain('avatars/comment-author.jpg');
 });
 
 it('renders comment actions menu in the comment header', function () {

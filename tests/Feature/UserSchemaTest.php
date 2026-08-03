@@ -36,20 +36,25 @@ it('creates username from factory', function () {
     expect($user->username)->toBeString()->not->toBe('');
 });
 
-it('has avatar_url column on users table', function () {
-    expect(Schema::hasColumn('users', 'avatar_url'))->toBeTrue();
+it('has avatar_asset_id column on users table', function () {
+    expect(Schema::hasColumn('users', 'avatar_asset_id'))->toBeTrue();
 });
 
-it('persists user avatar url', function () {
-    $user = User::factory()->create(['avatar_url' => 'https://example.com/a.jpg']);
-
-    expect($user->fresh()->avatar_url)->toBe('https://example.com/a.jpg');
+it('does not have the legacy avatar columns replaced by media_assets', function () {
+    expect(Schema::hasColumn('users', 'avatar_path'))->toBeFalse();
+    expect(Schema::hasColumn('users', 'avatar_url'))->toBeFalse();
 });
 
-it('allows nullable avatar url', function () {
-    $user = User::factory()->create(['avatar_url' => null]);
+it('persists user avatar asset id', function () {
+    $user = User::factory()->withAvatar()->create();
 
-    expect($user->fresh()->avatar_url)->toBeNull();
+    expect($user->fresh()->avatar_asset_id)->toBe($user->avatar_asset_id);
+});
+
+it('allows nullable avatar asset id', function () {
+    $user = User::factory()->create(['avatar_asset_id' => null]);
+
+    expect($user->fresh()->avatar_asset_id)->toBeNull();
 });
 
 it('has role column on users table', function () {

@@ -6,17 +6,22 @@ use App\Actions\Counters\RecalculateCommentCountersAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
+use App\Enums\MediaKind;
+use App\Enums\MediaStatus;
+use App\Enums\MediaVisibility;
 use App\Enums\PostStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Enums\VoteType;
 use App\Models\Category;
 use App\Models\Comment;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Models\User;
+use App\Support\Media\ImageOrientationClassifier;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
@@ -24,10 +29,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
+use Throwable;
 
 class DemoFillSeeder extends Seeder
 {
     private const USER_COUNT = 500;
+
+    private const IMAGE_WIDTH = 800;
+
+    private const IMAGE_HEIGHT = 600;
 
     private const VOTE_RATIO = 0.85;  // 85% of users vote per post
 
@@ -215,33 +225,67 @@ class DemoFillSeeder extends Seeder
 
         foreach ($titles as $index => $title) {
             $author = $authors[$index % $authors->count()];
-            $imagePath = $this->generatePostImage($author->id, $index + 1);
+
+            // This seeder regenerates the same deterministic path on every
+            // rerun, so on a failure below the file may belong to an
+            // already-seeded, still-referenced post rather than to this
+            // attempt. Look up before writing: only a path with no existing
+            // media_assets row is "new" and safe to delete on failure —
+            // otherwise compensating would break an existing post's image.
+            // The id found here is passed into ensurePostImageMediaAsset()
+            // below so it doesn't have to repeat the same lookup.
+            $imagePath = $this->postImagePath($author->id, $index + 1);
+            $existingImageAssetId = MediaAsset::withTrashed()
+                ->where(['disk' => 'public', 'path' => $imagePath])
+                ->value('id');
+            $isNewImage = $existingImageAssetId === null;
+
+            // The image file is written to disk first (slow, external I/O
+            // that doesn't belong inside a DB transaction). If the DB work
+            // below then fails, a newly-created file is removed as
+            // compensation — it isn't covered by the transaction rollback.
+            $this->generatePostImage($author->id, $index + 1);
             $categoryId = $categoryIds === [] || $index % 3 === 2
                 ? null
                 : $categoryIds[$index % count($categoryIds)];
 
-            DB::table('posts')->updateOrInsert(
-                ['title' => $title],
-                [
-                    'user_id' => $author->id,
-                    'description' => fake()->paragraph(3),
-                    'image_path' => $imagePath,
-                    'image_url' => null,
-                    'thumbnail_url' => null,
-                    'source_url' => null,
-                    'category_id' => $categoryId,
-                    'status' => PostStatus::Published->value,
-                    // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
-                    'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),
-                    'deleted_at' => null, // clear any previous soft-delete so Eloquent finds the row
-                    'upvotes_count' => 0,
-                    'downvotes_count' => 0,
-                    'comments_count' => 0,
-                    'hot_score' => 0,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ],
-            );
+            try {
+                DB::transaction(function () use ($author, $title, $imagePath, $existingImageAssetId, $categoryId, $baseTime, $index, $now): void {
+                    $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id, $existingImageAssetId);
+
+                    // Raw query builder (not Eloquent) is intentional here:
+                    // this loop runs once per demo post title (up to ~99) on
+                    // every re-seed, and updateOrInsert() keeps that bulk
+                    // upsert fast without instantiating/hydrating a model per
+                    // row.
+                    DB::table('posts')->updateOrInsert(
+                        ['title' => $title],
+                        [
+                            'user_id' => $author->id,
+                            'description' => fake()->paragraph(3),
+                            'image_asset_id' => $imageAssetId,
+                            'source_url' => null,
+                            'category_id' => $categoryId,
+                            'status' => PostStatus::Published->value,
+                            // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
+                            'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),
+                            'deleted_at' => null, // clear any previous soft-delete so Eloquent finds the row
+                            'upvotes_count' => 0,
+                            'downvotes_count' => 0,
+                            'comments_count' => 0,
+                            'hot_score' => 0,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ],
+                    );
+                });
+            } catch (Throwable $exception) {
+                if ($isNewImage) {
+                    Storage::disk('public')->delete($imagePath);
+                }
+
+                throw $exception;
+            }
 
             $this->command->getOutput()->write('.');
         }
@@ -263,8 +307,8 @@ class DemoFillSeeder extends Seeder
         $style = ($index - 1) % 5;
         [$r1,$g1,$b1] = $this->hexToRgb($palette[0]);
         [$r2,$g2,$b2] = $this->hexToRgb($palette[1]);
-        $w = 800;
-        $h = 600;
+        $w = self::IMAGE_WIDTH;
+        $h = self::IMAGE_HEIGHT;
         $im = imagecreatetruecolor($w, $h);
         imagealphablending($im, true);
 
@@ -278,8 +322,7 @@ class DemoFillSeeder extends Seeder
 
         $this->drawVignette($im, $w, $h);
 
-        $filename = 'fill_post_'.str_pad((string) $index, 3, '0', STR_PAD_LEFT).'.jpg';
-        $path = "posts/{$userId}/{$filename}";
+        $path = $this->postImagePath($userId, $index);
         ob_start();
         $encoded = imagejpeg($im, null, 85);
         $contents = ob_get_clean();
@@ -290,6 +333,72 @@ class DemoFillSeeder extends Seeder
         }
 
         return $path;
+    }
+
+    private function postImagePath(int $userId, int $index): string
+    {
+        $filename = 'fill_post_'.str_pad((string) $index, 3, '0', STR_PAD_LEFT).'.jpg';
+
+        return "posts/{$userId}/{$filename}";
+    }
+
+    /**
+     * Reuses the media_assets row already at this (disk, path) instead of
+     * inserting a new one on every re-seed — otherwise each rerun would leave
+     * the previous run's row behind, active but no longer referenced by any
+     * post. generatePostImage() always writes an IMAGE_WIDTH x IMAGE_HEIGHT
+     * JPEG, so dimensions are fixed rather than re-derived from the file.
+     *
+     * $existingId is looked up once by the caller (which also needs it to
+     * decide whether the file is safe to delete on failure) rather than
+     * being re-queried here.
+     */
+    private function ensurePostImageMediaAsset(string $path, int $userId, ?int $existingId): int
+    {
+        if ($existingId !== null) {
+            // The row may have been previously soft-deleted — the caller's
+            // withTrashed() lookup finds it regardless. Restore it
+            // unconditionally (a no-op when it wasn't trashed) — otherwise a
+            // post would point at a soft-deleted asset that its imageAsset
+            // relation excludes, leaving it with no resolvable image. The
+            // file was just regenerated above, so refresh
+            // byte_size/owner/updated_at too, not only deleted_at —
+            // otherwise a restored row can carry stale metadata from
+            // whichever run first created it.
+            DB::table('media_assets')
+                ->where('id', $existingId)
+                ->update([
+                    'deleted_at' => null,
+                    'owner_user_id' => $userId,
+                    'byte_size' => Storage::disk('public')->size($path),
+                    'updated_at' => now()->toDateTimeString(),
+                ]);
+
+            return $existingId;
+        }
+
+        $width = self::IMAGE_WIDTH;
+        $height = self::IMAGE_HEIGHT;
+        $now = now()->toDateTimeString();
+
+        return DB::table('media_assets')->insertGetId([
+            'owner_user_id' => $userId,
+            'kind' => MediaKind::PostImage->value,
+            'disk' => 'public',
+            'path' => $path,
+            'original_filename' => basename($path),
+            'mime_type' => 'image/jpeg',
+            'extension' => 'jpg',
+            'byte_size' => Storage::disk('public')->size($path),
+            'width' => $width,
+            'height' => $height,
+            'aspect_ratio' => round($width / $height, 6),
+            'orientation' => app(ImageOrientationClassifier::class)->classify($width, $height)->value,
+            'status' => MediaStatus::Ready->value,
+            'visibility' => MediaVisibility::Public->value,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
     }
 
     private function hexToRgb(int $hex): array

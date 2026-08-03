@@ -46,20 +46,13 @@ final class PostOpenGraph
         };
     }
 
+    /**
+     * No dedicated Open Graph variant is generated yet (PR-06): this falls
+     * straight back to the post's master image, architecturally the same
+     * fallback as when there's no image at all. See docs/architecture/media.md.
+     */
     public function image(Post $post): OpenGraphImageData
     {
-        $ogImagePath = trim((string) $post->og_image_path);
-
-        if ($ogImagePath !== '') {
-            return new OpenGraphImageData(
-                url: $this->absoluteAsset('/storage/'.$ogImagePath),
-                mimeType: (string) config('share.open_graph.mime_type', 'image/jpeg'),
-                width: (int) config('share.open_graph.width', 1200),
-                height: (int) config('share.open_graph.height', 630),
-                alt: $this->title($post),
-            );
-        }
-
         $imageUrl = trim((string) $post->public_image_url);
 
         if ($imageUrl !== '') {

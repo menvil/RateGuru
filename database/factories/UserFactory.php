@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Models\MediaAsset;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -31,7 +32,7 @@ class UserFactory extends Factory
             'name' => fake()->name(),
             'username' => fake()->unique()->userName(),
             'email' => fake()->unique()->safeEmail(),
-            'avatar_url' => null,
+            'avatar_asset_id' => null,
             'role' => UserRole::User,
             'status' => UserStatus::Active,
             'trust_level' => MarkUserTrustedAction::TRUSTED_LEVEL,
@@ -80,5 +81,23 @@ class UserFactory extends Factory
             'trust_level' => MarkUserTrustedAction::TRUSTED_LEVEL,
             'status' => UserStatus::Active,
         ]);
+    }
+
+    /**
+     * Attaches a real MediaAsset (kind: avatar) as this user's avatar.
+     * Pass path/disk to control the exact identity assertions in a test rely
+     * on. The asset is only created in afterCreating() — a state closure runs
+     * for make() too, and make() must not touch the database.
+     */
+    public function withAvatar(?string $path = null, ?string $disk = null): static
+    {
+        return $this->afterCreating(function (User $user) use ($path, $disk): void {
+            $asset = MediaAsset::factory()->avatar()->create([
+                'disk' => $disk ?? 'public',
+                'path' => $path ?? 'avatars/'.Str::uuid()->toString().'.jpg',
+            ]);
+
+            $user->update(['avatar_asset_id' => $asset->id]);
+        });
     }
 }

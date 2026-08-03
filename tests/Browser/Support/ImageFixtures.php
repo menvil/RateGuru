@@ -2,6 +2,11 @@
 
 namespace Tests\Browser\Support;
 
+use App\Enums\MediaKind;
+use App\Enums\MediaStatus;
+use App\Enums\MediaVisibility;
+use App\Models\MediaAsset;
+use App\Support\Media\ImageOrientationClassifier;
 use Illuminate\Support\Facades\ParallelTesting;
 
 /**
@@ -18,12 +23,14 @@ use Illuminate\Support\Facades\ParallelTesting;
  * written straight under public/test-fixtures/ so they're reachable that way
  * with no dependency on the storage:link symlink existing — which it does
  * not in CI (the workflow never runs `artisan storage:link`), only on dev
- * machines that ran it during project setup. No Storage::fake (also
- * invisible to that fast path) and no upload pipeline involved. Call
- * cleanup() after each test that uses write().
+ * machines that ran it during project setup. A dedicated filesystem disk is
+ * registered at runtime pointing at that same directory, so the written file
+ * has a real disk + path identity a MediaAsset can reference — no
+ * Storage::fake (also invisible to that fast path) and no upload pipeline
+ * involved. Call cleanup() after each test that uses write().
  *
  * Usage in browser tests:
- *   'image_url' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16),
+ *   'image_asset_id' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16)->id,
  */
 final class ImageFixtures
 {
@@ -64,17 +71,32 @@ final class ImageFixtures
         return public_path('test-fixtures/'.self::worker());
     }
 
+    private static function diskName(): string
+    {
+        return 'test_fixtures_'.self::worker();
+    }
+
     /**
-     * Writes a synthetic fixture PNG under the public/ directory and returns
-     * the absolute image_url value to assign on a Post.
+     * Writes a synthetic fixture PNG under public/ and registers a
+     * throwaway filesystem disk rooted at that same directory, then creates
+     * and returns a MediaAsset (kind: post_image) with disk + path pointing
+     * at it.
      */
-    public static function write(int $width, int $height): string
+    public static function write(int $width, int $height): MediaAsset
     {
         $directory = self::directory();
 
         if (! is_dir($directory)) {
             mkdir($directory, 0o755, true);
         }
+
+        $diskName = self::diskName();
+        config()->set("filesystems.disks.{$diskName}", [
+            'driver' => 'local',
+            'root' => $directory,
+            'url' => '/test-fixtures/'.self::worker(),
+            'visibility' => 'public',
+        ]);
 
         $image = imagecreatetruecolor($width, $height);
 
@@ -85,10 +107,25 @@ final class ImageFixtures
         imagefilledrectangle($image, 0, 0, (int) ($width / 5), (int) ($height / 5), $accent);
 
         $filename = 'fixture-'.$width.'x'.$height.'-'.bin2hex(random_bytes(4)).'.png';
-        imagepng($image, $directory.'/'.$filename);
+        $path = $directory.'/'.$filename;
+        imagepng($image, $path);
         imagedestroy($image);
 
-        return '/test-fixtures/'.self::worker().'/'.$filename;
+        return MediaAsset::create([
+            'kind' => MediaKind::PostImage,
+            'disk' => $diskName,
+            'path' => $filename,
+            'original_filename' => $filename,
+            'mime_type' => 'image/png',
+            'extension' => 'png',
+            'byte_size' => filesize($path) ?: 0,
+            'width' => $width,
+            'height' => $height,
+            'aspect_ratio' => round($width / $height, 6),
+            'orientation' => app(ImageOrientationClassifier::class)->classify($width, $height),
+            'status' => MediaStatus::Ready,
+            'visibility' => MediaVisibility::Public,
+        ]);
     }
 
     /**

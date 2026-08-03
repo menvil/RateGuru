@@ -13,6 +13,7 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -25,7 +26,7 @@ use Illuminate\Support\Facades\Storage;
  * @property int|null $trust_level
  * @property ProfileActivityVisibility|null $rating_activity_visibility
  */
-#[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_url', 'avatar_path', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
+#[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_asset_id', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 {
@@ -137,18 +138,32 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
         return $this->belongsToMany(User::class, 'follows', 'author_id', 'follower_id')->withTimestamps();
     }
 
+    /** @return BelongsTo<MediaAsset, $this> */
+    public function avatarAsset(): BelongsTo
+    {
+        return $this->belongsTo(MediaAsset::class, 'avatar_asset_id');
+    }
+
     public function getResolvedDisplayNameAttribute(): string
     {
         return $this->display_name ?: ($this->name ?: $this->username);
     }
 
+    /**
+     * Temporary URL-compatibility accessor for views that predate the
+     * MediaAsset model. Resolves through the asset's own disk — never a
+     * hardcoded default disk — so it stays correct if the asset lives on a
+     * non-default disk. Superseded by PR-03's MediaUrlResolver.
+     */
     public function getResolvedAvatarUrlAttribute(): ?string
     {
-        if ($this->avatar_path) {
-            return Storage::disk('public')->url($this->avatar_path);
+        $asset = $this->avatarAsset;
+
+        if ($asset === null) {
+            return null;
         }
 
-        return $this->avatar_url;
+        return Storage::disk($asset->disk)->url($asset->path);
     }
 
     public function canAccessPanel(Panel $panel): bool

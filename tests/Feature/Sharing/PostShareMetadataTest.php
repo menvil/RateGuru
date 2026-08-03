@@ -26,8 +26,7 @@ it('uses the raster fallback image when post has no image', function () {
     config(['app.url' => 'https://rateguru.test']);
 
     $post = Post::factory()->published()->create([
-        'image_path' => null,
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $metadata = app(PostShareMetadata::class)->forPost($post);
@@ -36,12 +35,17 @@ it('uses the raster fallback image when post has no image', function () {
         ->toBe('https://rateguru.test/images/og/rateguru-post-placeholder.png');
 });
 
-it('returns absolute image url when post has relative image url', function () {
-    config(['app.url' => 'https://rateguru.test']);
+it('returns an absolute image url resolved through the asset disk', function () {
+    // The image's absolute URL comes from Storage::disk($asset->disk)->url(),
+    // resolved against the disk's own url config, not config('app.url').
+    config(['filesystems.disks.cdn_test' => [
+        'driver' => 'local',
+        'root' => storage_path('app/cdn_test'),
+        'url' => 'https://rateguru.test/storage',
+        'visibility' => 'public',
+    ]]);
 
-    $post = Post::factory()->published()->create([
-        'image_url' => '/storage/posts/test.jpg',
-    ]);
+    $post = Post::factory()->published()->withImage(path: 'posts/test.jpg', disk: 'cdn_test')->create();
 
     $metadata = app(PostShareMetadata::class)->forPost($post);
 
@@ -49,10 +53,15 @@ it('returns absolute image url when post has relative image url', function () {
     expect($metadata->imageUrl)->toContain('/storage/posts/test.jpg');
 });
 
-it('returns absolute image url when post has absolute image url', function () {
-    $post = Post::factory()->published()->create([
-        'image_url' => 'https://cdn.example.com/image.jpg',
-    ]);
+it('returns the asset disk url as-is when it already points off-origin', function () {
+    config(['filesystems.disks.cdn_test' => [
+        'driver' => 'local',
+        'root' => storage_path('app/cdn_test'),
+        'url' => 'https://cdn.example.com',
+        'visibility' => 'public',
+    ]]);
+
+    $post = Post::factory()->published()->withImage(path: 'image.jpg', disk: 'cdn_test')->create();
 
     $metadata = app(PostShareMetadata::class)->forPost($post);
 
