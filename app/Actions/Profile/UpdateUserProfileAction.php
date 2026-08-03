@@ -5,7 +5,7 @@ namespace App\Actions\Profile;
 use App\Enums\MediaKind;
 use App\Models\User;
 use App\Services\Images\ImageStorage;
-use App\Services\Images\StoredMedia;
+use App\Services\Images\StoredMediaCleaner;
 use App\Support\Media\MediaAssetCreator;
 use App\Support\Observability\DomainLogger;
 use Illuminate\Http\UploadedFile;
@@ -18,6 +18,7 @@ final class UpdateUserProfileAction
         private readonly DomainLogger $logger,
         private readonly ImageStorage $imageStorage,
         private readonly MediaAssetCreator $mediaAssetCreator,
+        private readonly StoredMediaCleaner $storedMediaCleaner,
     ) {}
 
     public function execute(User $user, array $validatedData, ?UploadedFile $avatar): void
@@ -69,7 +70,7 @@ final class UpdateUserProfileAction
             // The file was already written before the transaction started; a
             // DB failure past that point must not leave it orphaned on disk.
             if ($storedAvatar !== null) {
-                $this->deleteStoredMediaSafely($storedAvatar);
+                $this->storedMediaCleaner->deleteIfUnclaimed($storedAvatar);
             }
 
             throw $exception;
@@ -79,18 +80,5 @@ final class UpdateUserProfileAction
             $avatar !== null ? 'profile.avatar.updated' : 'profile.updated',
             ['user_id' => $user->id],
         );
-    }
-
-    /**
-     * Best-effort compensation: a cleanup failure is reported but never
-     * replaces (or suppresses) the original exception that triggered it.
-     */
-    private function deleteStoredMediaSafely(StoredMedia $media): void
-    {
-        try {
-            $this->imageStorage->delete($media);
-        } catch (Throwable $cleanupException) {
-            report($cleanupException);
-        }
     }
 }

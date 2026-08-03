@@ -166,6 +166,11 @@ it('leaves the previous avatar untouched when the database transaction fails dur
     // The newly stored file must be cleaned up; only the previous avatar's
     // asset remains.
     expect(MediaAsset::query()->count())->toBe(1);
+
+    // The previous avatar's own physical file was never written to fake
+    // storage by the factory, so an empty directory here confirms the
+    // failed upload's new file was actually deleted, not merely absent.
+    expect(Storage::disk('public')->allFiles('avatars'))->toBeEmpty();
 });
 
 it('does not orphan an intermediate avatar asset when two replacements race on stale user instances', function () {

@@ -22,7 +22,7 @@ it('renders the feed context without cropping classes', function () {
     );
 
     expect($html)
-        ->toContain('posts/1/dish.jpg')
+        ->toContain($post->public_image_url)
         ->toContain('alt="Dish"')
         ->toContain('object-contain')
         ->toContain('max-h-[75vh]')

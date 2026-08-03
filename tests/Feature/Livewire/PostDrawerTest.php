@@ -220,7 +220,7 @@ it('renders drawer description under title before image', function () {
     $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
 
     expect(strpos($html, 'Drawer Tacos'))->toBeLessThan(strpos($html, 'Description should sit below the title'));
-    expect(strpos($html, 'Description should sit below the title'))->toBeLessThan(strpos($html, 'posts/1/drawer-tacos.jpg'));
+    expect(strpos($html, 'Description should sit below the title'))->toBeLessThan(strpos($html, $post->public_image_url));
 });
 
 it('does not break when drawer post description is missing', function () {
@@ -373,7 +373,7 @@ it('does not crop the drawer post image to a fixed aspect ratio', function () {
     $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
 
     expect($html)
-        ->toContain('posts/1/dish.jpg')
+        ->toContain($post->public_image_url)
         ->toContain('object-contain')
         ->not->toContain('aspect-[4/3]')
         ->not->toContain('object-cover');

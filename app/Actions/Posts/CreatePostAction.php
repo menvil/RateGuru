@@ -14,7 +14,7 @@ use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
 use App\Services\Images\ImageStorage;
-use App\Services\Images\StoredMedia;
+use App\Services\Images\StoredMediaCleaner;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Media\MediaAssetCreator;
@@ -33,6 +33,7 @@ final class CreatePostAction
         private readonly DomainLogger $logger,
         private readonly RatingConfigurationManager $ratingConfiguration,
         private readonly MediaAssetCreator $mediaAssetCreator,
+        private readonly StoredMediaCleaner $storedMediaCleaner,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
@@ -96,7 +97,7 @@ final class CreatePostAction
             // DB failure past that point (asset insert, post insert, tag
             // sync, author answers) must not leave it orphaned on disk.
             if ($storedImage !== null) {
-                $this->deleteStoredMediaSafely($storedImage);
+                $this->storedMediaCleaner->deleteIfUnclaimed($storedImage);
             }
 
             throw $exception;
@@ -123,19 +124,6 @@ final class CreatePostAction
         }
 
         return $post;
-    }
-
-    /**
-     * Best-effort compensation: a cleanup failure is reported but never
-     * replaces (or suppresses) the original exception that triggered it.
-     */
-    private function deleteStoredMediaSafely(StoredMedia $media): void
-    {
-        try {
-            $this->imageStorage->delete($media);
-        } catch (Throwable $cleanupException) {
-            report($cleanupException);
-        }
     }
 
     private function validatedCategoryId(?int $categoryId): ?int

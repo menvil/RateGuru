@@ -53,12 +53,17 @@ it('rejects a second media asset at the same disk and path', function () {
     ]))->toThrow(QueryException::class);
 });
 
-it('stores an aspect ratio beyond what decimal(10,6) could hold', function () {
+it('stores the widest aspect ratio the width/height columns can produce', function () {
+    // 2147483647 = PHP_INT32_MAX, the largest value Postgres's `integer`
+    // column can hold (Laravel's unsignedInteger() has no native unsigned
+    // type to map to there, unlike MariaDB). width/height carry no
+    // validation bounds of their own, so this is the true worst case across
+    // every supported database, not just an "unusually wide photo".
     $asset = MediaAsset::factory()->create([
-        'width' => 15_000,
+        'width' => 2_147_483_647,
         'height' => 1,
-        'aspect_ratio' => 15_000.0,
+        'aspect_ratio' => 2_147_483_647.0,
     ]);
 
-    expect($asset->fresh()->aspect_ratio)->toBe(15_000.0);
+    expect($asset->fresh()->aspect_ratio)->toBe(2_147_483_647.0);
 });

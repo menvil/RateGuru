@@ -6,7 +6,6 @@ use App\Actions\Counters\RecalculateCommentCountersAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
-use App\Enums\ImageOrientation;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
 use App\Enums\MediaVisibility;
@@ -16,11 +15,13 @@ use App\Enums\UserStatus;
 use App\Enums\VoteType;
 use App\Models\Category;
 use App\Models\Comment;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Models\User;
+use App\Support\Media\ImageOrientationClassifier;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
@@ -33,6 +34,10 @@ use Throwable;
 class DemoFillSeeder extends Seeder
 {
     private const USER_COUNT = 500;
+
+    private const IMAGE_WIDTH = 800;
+
+    private const IMAGE_HEIGHT = 600;
 
     private const VOTE_RATIO = 0.85;  // 85% of users vote per post
 
@@ -228,7 +233,7 @@ class DemoFillSeeder extends Seeder
             // media_assets row is "new" and safe to delete on failure —
             // otherwise compensating would break an existing post's image.
             $imagePath = $this->postImagePath($author->id, $index + 1);
-            $isNewImage = ! DB::table('media_assets')
+            $isNewImage = ! MediaAsset::withTrashed()
                 ->where(['disk' => 'public', 'path' => $imagePath])
                 ->exists();
 
@@ -299,8 +304,8 @@ class DemoFillSeeder extends Seeder
         $style = ($index - 1) % 5;
         [$r1,$g1,$b1] = $this->hexToRgb($palette[0]);
         [$r2,$g2,$b2] = $this->hexToRgb($palette[1]);
-        $w = 800;
-        $h = 600;
+        $w = self::IMAGE_WIDTH;
+        $h = self::IMAGE_HEIGHT;
         $im = imagecreatetruecolor($w, $h);
         imagealphablending($im, true);
 
@@ -338,8 +343,8 @@ class DemoFillSeeder extends Seeder
      * Reuses the media_assets row already at this (disk, path) instead of
      * inserting a new one on every re-seed — otherwise each rerun would leave
      * the previous run's row behind, active but no longer referenced by any
-     * post. generatePostImage() always writes an 800x600 JPEG, so dimensions
-     * are fixed rather than re-derived from the file.
+     * post. generatePostImage() always writes an IMAGE_WIDTH x IMAGE_HEIGHT
+     * JPEG, so dimensions are fixed rather than re-derived from the file.
      */
     private function ensurePostImageMediaAsset(string $path, int $userId): int
     {
@@ -347,7 +352,10 @@ class DemoFillSeeder extends Seeder
         // finds the row even if it was previously soft-deleted. Restore it
         // unconditionally (a no-op when it wasn't trashed) — otherwise a
         // post would point at a soft-deleted asset that its imageAsset
-        // relation excludes, leaving it with no resolvable image.
+        // relation excludes, leaving it with no resolvable image. The file
+        // was just regenerated above, so refresh byte_size/owner/updated_at
+        // too, not only deleted_at — otherwise a restored row can carry
+        // stale metadata from whichever run first created it.
         $existingId = DB::table('media_assets')
             ->where(['disk' => 'public', 'path' => $path])
             ->value('id');
@@ -355,13 +363,18 @@ class DemoFillSeeder extends Seeder
         if ($existingId !== null) {
             DB::table('media_assets')
                 ->where('id', $existingId)
-                ->update(['deleted_at' => null]);
+                ->update([
+                    'deleted_at' => null,
+                    'owner_user_id' => $userId,
+                    'byte_size' => Storage::disk('public')->size($path),
+                    'updated_at' => now()->toDateTimeString(),
+                ]);
 
             return $existingId;
         }
 
-        $width = 800;
-        $height = 600;
+        $width = self::IMAGE_WIDTH;
+        $height = self::IMAGE_HEIGHT;
         $now = now()->toDateTimeString();
 
         return DB::table('media_assets')->insertGetId([
@@ -376,7 +389,7 @@ class DemoFillSeeder extends Seeder
             'width' => $width,
             'height' => $height,
             'aspect_ratio' => round($width / $height, 6),
-            'orientation' => ImageOrientation::Landscape->value,
+            'orientation' => app(ImageOrientationClassifier::class)->classify($width, $height)->value,
             'status' => MediaStatus::Ready->value,
             'visibility' => MediaVisibility::Public->value,
             'created_at' => $now,

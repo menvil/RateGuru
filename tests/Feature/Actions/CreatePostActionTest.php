@@ -283,10 +283,81 @@ it('deletes the newly stored post image file when the database transaction fails
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
 
-    // Force a genuine DB failure after the file has already been written but
-    // before the post commits, by colliding with the unique(disk, path)
-    // constraint on media_assets — the exact failure mode the compensation
-    // logic exists to handle.
+    // Force a genuine DB failure after the image asset has already been
+    // created (so the file has no other owner) but before the post commits,
+    // via a tag id that violates post_tag's foreign key constraint.
+    $post = app(CreatePostAction::class);
+
+    expect(fn () => $post->handle($user, new CreatePostData(
+        title: 'Dish with image',
+        image: $file,
+        tagIds: [999_999],
+    )))->toThrow(QueryException::class);
+
+    expect(Post::query()->count())->toBe(0);
+    expect(MediaAsset::query()->count())->toBe(0);
+    Storage::disk('public')->assertDirectoryEmpty('posts');
+});
+
+it('propagates the original database exception and separately reports a cleanup failure', function () {
+    Storage::fake('public');
+    Exceptions::fake();
+
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
+
+    $fakeStorage = new class implements ImageStorage
+    {
+        public function storePostImage(UploadedFile $file, User $user): StoredMedia
+        {
+            return new StoredMedia(
+                disk: 'public',
+                path: 'posts/1/dish.jpg',
+                originalFilename: 'dish.jpg',
+                mimeType: 'image/jpeg',
+                extension: 'jpg',
+                byteSize: 100,
+                width: 800,
+                height: 600,
+            );
+        }
+
+        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
+        {
+            throw new RuntimeException('Not used in this test.');
+        }
+
+        public function delete(StoredMedia $media): void
+        {
+            throw new RuntimeException('Simulated cleanup failure.');
+        }
+    };
+
+    app()->instance(ImageStorage::class, $fakeStorage);
+
+    // The original database exception must be what propagates — the
+    // cleanup failure must never replace or suppress it. A nonexistent tag
+    // id forces a genuine FK failure with no path collision involved.
+    expect(fn () => app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish with image',
+        image: $file,
+        tagIds: [999_999],
+    )))->toThrow(QueryException::class);
+
+    expect(Post::query()->count())->toBe(0);
+    Exceptions::assertReported(RuntimeException::class);
+});
+
+it('does not delete another asset\'s file when the new upload collides on its path', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
+
+    // Simulates a path collision: some other, already-committed upload
+    // legitimately owns this exact (disk, path) — its file must survive
+    // even though this request's own insert fails because of it.
+    Storage::disk('public')->put('posts/1/dish.jpg', 'existing-owner-bytes');
     MediaAsset::factory()->create([
         'disk' => 'public',
         'path' => 'posts/1/dish.jpg',
@@ -296,8 +367,6 @@ it('deletes the newly stored post image file when the database transaction fails
     {
         public function storePostImage(UploadedFile $file, User $user): StoredMedia
         {
-            Storage::disk('public')->put('posts/1/dish.jpg', 'fake-bytes');
-
             return new StoredMedia(
                 disk: 'public',
                 path: 'posts/1/dish.jpg',
@@ -330,57 +399,6 @@ it('deletes the newly stored post image file when the database transaction fails
 
     expect(Post::query()->count())->toBe(0);
     expect(MediaAsset::query()->count())->toBe(1);
-    Storage::disk('public')->assertMissing('posts/1/dish.jpg');
-});
-
-it('propagates the original database exception and separately reports a cleanup failure', function () {
-    Storage::fake('public');
-    Exceptions::fake();
-
-    $user = User::factory()->create();
-    $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
-
-    MediaAsset::factory()->create([
-        'disk' => 'public',
-        'path' => 'posts/1/dish.jpg',
-    ]);
-
-    $fakeStorage = new class implements ImageStorage
-    {
-        public function storePostImage(UploadedFile $file, User $user): StoredMedia
-        {
-            return new StoredMedia(
-                disk: 'public',
-                path: 'posts/1/dish.jpg',
-                originalFilename: 'dish.jpg',
-                mimeType: 'image/jpeg',
-                extension: 'jpg',
-                byteSize: 100,
-                width: 800,
-                height: 600,
-            );
-        }
-
-        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
-        {
-            throw new RuntimeException('Not used in this test.');
-        }
-
-        public function delete(StoredMedia $media): void
-        {
-            throw new RuntimeException('Simulated cleanup failure.');
-        }
-    };
-
-    app()->instance(ImageStorage::class, $fakeStorage);
-
-    // The original database exception must be what propagates — the
-    // cleanup failure must never replace or suppress it.
-    expect(fn () => app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Dish with image',
-        image: $file,
-    )))->toThrow(QueryException::class);
-
-    expect(Post::query()->count())->toBe(0);
-    Exceptions::assertReported(RuntimeException::class);
+    Storage::disk('public')->assertExists('posts/1/dish.jpg');
+    expect(Storage::disk('public')->get('posts/1/dish.jpg'))->toBe('existing-owner-bytes');
 });
