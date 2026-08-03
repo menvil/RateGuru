@@ -99,6 +99,17 @@ it('falls back to a neutral alt text when the post has no title', function () {
     expect($html)->toContain('alt="Post image"');
 });
 
+it('falls back to a neutral alt text when the post title is blank', function () {
+    $post = Post::factory()->published()->make([
+        'title' => '   ',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $html = Blade::render('<x-media.post-image :post="$post" context="feed" />', ['post' => $post]);
+
+    expect($html)->toContain('alt="Post image"');
+});
+
 it('applies the loading attribute only when explicitly provided', function () {
     $post = Post::factory()->published()->make([
         'title' => 'Dish',

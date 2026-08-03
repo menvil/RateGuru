@@ -18,7 +18,10 @@ afterEach(function () {
  * actually decoded the image would yield 0/0 → a NaN ratio that fails the
  * assertion regardless of fit, nondeterministically depending on load
  * timing (worse under CI's --parallel, where workers compete for CPU).
- * Poll until the image reports as loaded before measuring it.
+ * `complete` can turn true slightly before pixel decoding has actually
+ * finished, so each poll also awaits image.decode() itself (Pest's
+ * $page->script() awaits a returned Promise, same as Playwright's
+ * page.evaluate) rather than trusting the synchronous flags alone.
  */
 function waitForImageLoaded(mixed $page, string $selector, float $timeoutSeconds = 5.0): void
 {
@@ -26,9 +29,17 @@ function waitForImageLoaded(mixed $page, string $selector, float $timeoutSeconds
 
     while (microtime(true) < $deadline) {
         $loaded = $page->script(<<<JS
-            (() => {
+            (async () => {
                 const img = document.querySelector('{$selector}');
-                return !!img && img.complete && img.naturalWidth > 0;
+                if (!img || !img.complete || img.naturalWidth === 0) {
+                    return false;
+                }
+                try {
+                    await img.decode();
+                } catch (e) {
+                    return false;
+                }
+                return true;
             })()
         JS);
 

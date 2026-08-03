@@ -11,7 +11,7 @@
 
 @php
     $imageUrl = $src ?? $post?->public_image_url;
-    $altText = $alt ?? $post?->title ?? __('ui.post.image_alt_fallback');
+    $altText = $alt ?? (filled($post?->title) ? $post->title : __('ui.post.image_alt_fallback'));
 
     $maxHeightClass = match ($context) {
         'fullscreen' => 'max-h-[80vh]',
