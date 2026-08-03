@@ -4,18 +4,23 @@ namespace App\Actions\Posts;
 
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Data\Posts\CreatePostData;
+use App\Enums\MediaKind;
+use App\Enums\MediaStatus;
+use App\Enums\MediaVisibility;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
-use App\Jobs\ProcessUploadedImageJob;
 use App\Models\Category;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
 use App\Services\Images\ImageStorage;
+use App\Services\Images\StoredMedia;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Media\ImageOrientationClassifier;
 use App\Support\Observability\DomainLogger;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Database\Eloquent\Collection;
@@ -30,6 +35,7 @@ final class CreatePostAction
         private readonly ActionRateLimiter $rateLimiter,
         private readonly DomainLogger $logger,
         private readonly RatingConfigurationManager $ratingConfiguration,
+        private readonly ImageOrientationClassifier $orientationClassifier,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
@@ -56,8 +62,8 @@ final class CreatePostAction
         $authorAnswers = $this->validatedAuthorAnswers($data->authorAnswerOptionIds, $ratingGroups);
 
         $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers) {
-            $storedImage = $data->image !== null
-                ? $this->imageStorage->storePostImage($data->image, $user)
+            $imageAsset = $data->image !== null
+                ? $this->createImageAsset($this->imageStorage->storePostImage($data->image, $user), $user)
                 : null;
 
             $post = Post::create([
@@ -68,9 +74,7 @@ final class CreatePostAction
                 'category_id' => $categoryId,
                 'status' => $status,
                 'published_at' => $publishedAt,
-                'image_path' => $storedImage?->path,
-                'image_url' => $storedImage?->url,
-                'thumbnail_url' => $storedImage?->thumbnailUrl,
+                'image_asset_id' => $imageAsset?->id,
             ]);
 
             if ($data->tagIds !== []) {
@@ -88,12 +92,8 @@ final class CreatePostAction
             'post_id' => $post->id,
             'user_id' => $user->id,
             'status' => $post->status->value,
-            'has_image' => $post->image_path !== null,
+            'has_image' => $post->image_asset_id !== null,
         ]);
-
-        if ($post->image_path !== null) {
-            ProcessUploadedImageJob::dispatch($post->id);
-        }
 
         if ($post->status === PostStatus::Published) {
             try {
@@ -109,6 +109,32 @@ final class CreatePostAction
         }
 
         return $post;
+    }
+
+    private function createImageAsset(StoredMedia $stored, User $user): MediaAsset
+    {
+        $orientation = $stored->width !== null && $stored->height !== null
+            ? $this->orientationClassifier->classify($stored->width, $stored->height)
+            : null;
+
+        return MediaAsset::create([
+            'owner_user_id' => $user->id,
+            'kind' => MediaKind::PostImage,
+            'disk' => $stored->disk,
+            'path' => $stored->path,
+            'original_filename' => $stored->originalFilename,
+            'mime_type' => $stored->mimeType,
+            'extension' => $stored->extension,
+            'byte_size' => $stored->byteSize,
+            'width' => $stored->width,
+            'height' => $stored->height,
+            'aspect_ratio' => $stored->width !== null && $stored->height !== null
+                ? round($stored->width / $stored->height, 6)
+                : null,
+            'orientation' => $orientation,
+            'status' => MediaStatus::Ready,
+            'visibility' => MediaVisibility::Public,
+        ]);
     }
 
     private function validatedCategoryId(?int $categoryId): ?int

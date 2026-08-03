@@ -4,20 +4,34 @@ namespace App\Services\Images;
 
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 
 final class LocalImageStorage implements ImageStorage
 {
-    public function storePostImage(UploadedFile $file, User $user): StoredImage
+    public function storePostImage(UploadedFile $file, User $user): StoredMedia
+    {
+        return $this->store($file, "posts/{$user->id}");
+    }
+
+    public function storeAvatar(UploadedFile $file, User $user): StoredMedia
+    {
+        return $this->store($file, 'avatars');
+    }
+
+    private function store(UploadedFile $file, string $directory): StoredMedia
     {
         $disk = config('rateguru.images.disk', 'public');
-        $path = $file->storePublicly("posts/{$user->id}", $disk);
+        $dimensions = @getimagesize($file->getRealPath());
+        $path = $file->storePublicly($directory, $disk);
 
-        return new StoredImage(
-            path: $path,
-            url: Storage::disk($disk)->url($path),
-            thumbnailUrl: null,
+        return new StoredMedia(
             disk: $disk,
+            path: $path,
+            originalFilename: $file->getClientOriginalName(),
+            mimeType: $file->getMimeType() ?? 'application/octet-stream',
+            extension: $file->extension(),
+            byteSize: $file->getSize() ?: 0,
+            width: $dimensions[0] ?? null,
+            height: $dimensions[1] ?? null,
         );
     }
 }

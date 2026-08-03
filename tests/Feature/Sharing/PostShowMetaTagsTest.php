@@ -46,8 +46,7 @@ it('renders canonical link tag on post show', function () {
 
 it('uses the large twitter card with the raster fallback when post has no image', function () {
     $post = Post::factory()->published()->create([
-        'image_path' => null,
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $this->get(route('posts.show', $post))
@@ -57,9 +56,16 @@ it('uses the large twitter card with the raster fallback when post has no image'
 });
 
 it('uses summary_large_image twitter card when post has image', function () {
-    $post = Post::factory()->published()->create([
-        'image_url' => 'https://cdn.example.com/image.jpg',
-    ]);
+    // The asset's own disk can resolve to any absolute URL (e.g. a CDN) —
+    // exercised here via a disk whose url config points off-origin.
+    config(['filesystems.disks.cdn_test' => [
+        'driver' => 'local',
+        'root' => storage_path('app/cdn_test'),
+        'url' => 'https://cdn.example.com',
+        'visibility' => 'public',
+    ]]);
+
+    $post = Post::factory()->published()->withImage(path: 'image.jpg', disk: 'cdn_test')->create();
 
     $this->get(route('posts.show', $post))
         ->assertOk()
@@ -67,9 +73,14 @@ it('uses summary_large_image twitter card when post has image', function () {
 });
 
 it('does not emit og secure image url for an insecure external image', function () {
-    $post = Post::factory()->published()->create([
-        'image_url' => 'http://cdn.example.com/image.jpg',
-    ]);
+    config(['filesystems.disks.cdn_test' => [
+        'driver' => 'local',
+        'root' => storage_path('app/cdn_test'),
+        'url' => 'http://cdn.example.com',
+        'visibility' => 'public',
+    ]]);
+
+    $post = Post::factory()->published()->withImage(path: 'image.jpg', disk: 'cdn_test')->create();
 
     $this->get(route('posts.show', $post))
         ->assertOk()

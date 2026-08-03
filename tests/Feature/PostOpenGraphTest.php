@@ -6,7 +6,7 @@ it('renders open graph image for post show page', function () {
     config(['app.url' => 'https://rateguru.test']);
 
     $post = Post::factory()->published()->create([
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $this->get(route('posts.show', $post))
@@ -16,11 +16,12 @@ it('renders open graph image for post show page', function () {
 });
 
 it('uses post image as open graph image when available', function () {
-    config(['app.url' => 'https://rateguru.test']);
+    // The image's absolute URL comes from Storage::disk($asset->disk)->url(),
+    // which resolves against filesystems.disks.public.url (baked in at boot
+    // from APP_URL) — not the runtime config('app.url') override above.
+    config(['filesystems.disks.public.url' => 'https://rateguru.test/storage']);
 
-    $post = Post::factory()->published()->create([
-        'image_url' => '/storage/posts/demo.jpg',
-    ]);
+    $post = Post::factory()->published()->withImage(path: 'posts/demo.jpg')->create();
 
     $this->get(route('posts.show', $post))
         ->assertOk()

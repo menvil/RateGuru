@@ -7,7 +7,6 @@ use App\Models\Category;
 use App\Models\Tag;
 use App\Policies\ModerationPolicy;
 use App\Policies\ProjectSettingsPolicy;
-use App\Services\Images\CloudinaryImageStorage;
 use App\Services\Images\ImageStorage;
 use App\Services\Images\LocalImageStorage;
 use App\Support\Settings\ProjectSettingsManager;
@@ -33,9 +32,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(ImageStorage::class, function () {
             $driver = config('rateguru.images.driver');
 
+            // 'local' is the only supported driver. Anything else — including
+            // 'cloudinary', which was previously wired to a stub that always
+            // threw at call time — fails fast at resolution instead.
             return match ($driver) {
                 'local' => $this->app->make(LocalImageStorage::class),
-                'cloudinary' => $this->app->make(CloudinaryImageStorage::class),
                 default => throw new \InvalidArgumentException("Unsupported image driver: [{$driver}]."),
             };
         });

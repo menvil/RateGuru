@@ -2,16 +2,18 @@
 
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
+use App\Enums\ImageOrientation;
+use App\Enums\MediaKind;
+use App\Enums\MediaStatus;
+use App\Enums\MediaVisibility;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
-use App\Jobs\ProcessUploadedImageJob;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
 use App\Services\Images\ImageStorage;
-use App\Services\Images\StoredImage;
+use App\Services\Images\StoredMedia;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Bus;
 
 it('creates a published post for default trusted user', function () {
     $user = User::factory()->create();
@@ -94,26 +96,44 @@ it('attaches tags to created post', function () {
         ->toEqualCanonicalizing($tags->pluck('id')->all());
 });
 
-it('calls image storage when image is provided', function () {
-    Bus::fake([ProcessUploadedImageJob::class]);
-
+it('does not create a media asset when no image is provided', function () {
     $user = User::factory()->create();
-    $file = UploadedFile::fake()->image('dish.jpg');
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish without an image',
+        image: null,
+    ));
+
+    expect($post->fresh()->image_asset_id)->toBeNull();
+});
+
+it('creates a post_image media asset from the stored file when an image is provided', function () {
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('dish.jpg', 1600, 900);
 
     $fakeStorage = new class implements ImageStorage
     {
-        public bool $called = false;
+        public bool $storePostImageCalled = false;
 
-        public function storePostImage(UploadedFile $file, User $user): StoredImage
+        public function storePostImage(UploadedFile $file, User $user): StoredMedia
         {
-            $this->called = true;
+            $this->storePostImageCalled = true;
 
-            return new StoredImage(
-                path: 'posts/1/dish.jpg',
-                url: '/storage/posts/1/dish.jpg',
-                thumbnailUrl: null,
+            return new StoredMedia(
                 disk: 'public',
+                path: 'posts/1/dish.jpg',
+                originalFilename: 'dish.jpg',
+                mimeType: 'image/jpeg',
+                extension: 'jpg',
+                byteSize: 123_456,
+                width: 1600,
+                height: 900,
             );
+        }
+
+        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
+        {
+            throw new RuntimeException('Not used in this test.');
         }
     };
 
@@ -124,73 +144,61 @@ it('calls image storage when image is provided', function () {
         image: $file,
     ));
 
-    expect($fakeStorage->called)->toBeTrue();
-    expect($post->fresh()->image_path)->toBe('posts/1/dish.jpg');
-    expect($post->fresh()->image_url)->toBe('/storage/posts/1/dish.jpg');
+    expect($fakeStorage->storePostImageCalled)->toBeTrue();
+
+    $post = $post->fresh();
+    expect($post->image_asset_id)->not->toBeNull();
+
+    $asset = $post->imageAsset;
+    expect($asset->kind)->toBe(MediaKind::PostImage)
+        ->and($asset->owner_user_id)->toBe($user->id)
+        ->and($asset->disk)->toBe('public')
+        ->and($asset->path)->toBe('posts/1/dish.jpg')
+        ->and($asset->mime_type)->toBe('image/jpeg')
+        ->and($asset->byte_size)->toBe(123_456)
+        ->and($asset->width)->toBe(1600)
+        ->and($asset->height)->toBe(900)
+        ->and($asset->orientation)->toBe(ImageOrientation::Landscape)
+        ->and($asset->status)->toBe(MediaStatus::Ready)
+        ->and($asset->visibility)->toBe(MediaVisibility::Public);
 });
 
-it('allows created post to have null thumbnail url', function () {
-    $user = User::factory()->create();
-
-    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Dish without thumbnail',
-        image: null,
-    ));
-
-    expect($post->fresh()->thumbnail_url)->toBeNull();
-});
-
-it('stores null thumbnail url when image storage returns no thumbnail', function () {
-    Bus::fake([ProcessUploadedImageJob::class]);
-
+it('creates a media asset with null dimensions and orientation when the file cannot be measured', function () {
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg');
 
     $fakeStorage = new class implements ImageStorage
     {
-        public function storePostImage(UploadedFile $file, User $user): StoredImage
+        public function storePostImage(UploadedFile $file, User $user): StoredMedia
         {
-            return new StoredImage(
-                path: 'posts/1/dish.jpg',
-                thumbnailUrl: null,
+            return new StoredMedia(
                 disk: 'public',
+                path: 'posts/1/dish.jpg',
+                originalFilename: 'dish.jpg',
+                mimeType: 'image/jpeg',
+                extension: 'jpg',
+                byteSize: 100,
+                width: null,
+                height: null,
             );
+        }
+
+        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
+        {
+            throw new RuntimeException('Not used in this test.');
         }
     };
 
     app()->instance(ImageStorage::class, $fakeStorage);
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Dish with image but no thumbnail',
+        title: 'Dish with unmeasurable image',
         image: $file,
     ));
 
-    expect($post->fresh()->thumbnail_url)->toBeNull();
-});
-
-it('dispatches process uploaded image job after post with image is created', function () {
-    Bus::fake();
-
-    $user = User::factory()->create();
-    $file = UploadedFile::fake()->image('dish.jpg');
-
-    app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Dish',
-        image: $file,
-    ));
-
-    Bus::assertDispatched(ProcessUploadedImageJob::class);
-});
-
-it('does not dispatch process uploaded image job when no image is provided', function () {
-    Bus::fake();
-
-    $user = User::factory()->create();
-
-    app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Dish',
-        image: null,
-    ));
-
-    Bus::assertNotDispatched(ProcessUploadedImageJob::class);
+    $asset = $post->fresh()->imageAsset;
+    expect($asset->width)->toBeNull()
+        ->and($asset->height)->toBeNull()
+        ->and($asset->aspect_ratio)->toBeNull()
+        ->and($asset->orientation)->toBeNull();
 });

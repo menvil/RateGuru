@@ -40,9 +40,7 @@ it('renders email share link', function () {
 
 it('renders pinterest share link when image exists', function () {
     config(['app.url' => 'https://rateguru.test']);
-    $post = Post::factory()->published()->create([
-        'image_url' => 'https://rateguru.test/storage/posts/test.jpg',
-    ]);
+    $post = Post::factory()->published()->withImage(path: 'posts/test.jpg')->create();
 
     $metadata = app(PostShareMetadata::class)->forPost($post);
     $url = app(ShareUrlBuilder::class)->build('pinterest', $metadata);
@@ -60,8 +58,7 @@ it('uses the fallback social image for pinterest when post has no image', functi
     config(['app.url' => 'https://rateguru.test']);
 
     $post = Post::factory()->published()->create([
-        'image_path' => null,
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $metadata = app(PostShareMetadata::class)->forPost($post);
