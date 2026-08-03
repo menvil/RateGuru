@@ -42,7 +42,6 @@ Route::get('/dev/ui-kit', function () {
         'upvotes_count' => 128,
         'downvotes_count' => 12,
         'comments_count' => 24,
-        'image_url' => null,
     ]);
     $demoPost->setRelation('user', new User([
         'name' => 'Demo Author',

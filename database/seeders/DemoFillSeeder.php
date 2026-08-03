@@ -6,6 +6,10 @@ use App\Actions\Counters\RecalculateCommentCountersAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
+use App\Enums\ImageOrientation;
+use App\Enums\MediaKind;
+use App\Enums\MediaStatus;
+use App\Enums\MediaVisibility;
 use App\Enums\PostStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
@@ -215,7 +219,7 @@ class DemoFillSeeder extends Seeder
 
         foreach ($titles as $index => $title) {
             $author = $authors[$index % $authors->count()];
-            $imagePath = $this->generatePostImage($author->id, $index + 1);
+            $imageAssetId = $this->generatePostImage($author->id, $index + 1);
             $categoryId = $categoryIds === [] || $index % 3 === 2
                 ? null
                 : $categoryIds[$index % count($categoryIds)];
@@ -225,9 +229,7 @@ class DemoFillSeeder extends Seeder
                 [
                     'user_id' => $author->id,
                     'description' => fake()->paragraph(3),
-                    'image_path' => $imagePath,
-                    'image_url' => null,
-                    'thumbnail_url' => null,
+                    'image_asset_id' => $imageAssetId,
                     'source_url' => null,
                     'category_id' => $categoryId,
                     'status' => PostStatus::Published->value,
@@ -257,7 +259,7 @@ class DemoFillSeeder extends Seeder
     // Image generation (5 visual styles)
     // -------------------------------------------------------------------------
 
-    private function generatePostImage(int $userId, int $index): string
+    private function generatePostImage(int $userId, int $index): int
     {
         $palette = self::PALETTES[($index - 1) % count(self::PALETTES)];
         $style = ($index - 1) % 5;
@@ -289,7 +291,26 @@ class DemoFillSeeder extends Seeder
             throw new RuntimeException("Unable to create demo fill image at [{$path}].");
         }
 
-        return $path;
+        $now = now()->toDateTimeString();
+
+        return DB::table('media_assets')->insertGetId([
+            'owner_user_id' => $userId,
+            'kind' => MediaKind::PostImage->value,
+            'disk' => 'public',
+            'path' => $path,
+            'original_filename' => $filename,
+            'mime_type' => 'image/jpeg',
+            'extension' => 'jpg',
+            'byte_size' => strlen($contents),
+            'width' => $w,
+            'height' => $h,
+            'aspect_ratio' => round($w / $h, 6),
+            'orientation' => ImageOrientation::Landscape->value,
+            'status' => MediaStatus::Ready->value,
+            'visibility' => MediaVisibility::Public->value,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
     }
 
     private function hexToRgb(int $hex): array

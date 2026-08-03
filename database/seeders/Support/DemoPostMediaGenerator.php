@@ -2,11 +2,20 @@
 
 namespace Database\Seeders\Support;
 
+use App\Enums\ImageOrientation;
+use App\Enums\MediaKind;
+use App\Enums\MediaStatus;
+use App\Enums\MediaVisibility;
+use App\Models\MediaAsset;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
 final class DemoPostMediaGenerator
 {
+    private const WIDTH = 800;
+
+    private const HEIGHT = 600;
+
     /** @var list<array{from: string, to: string, accent: string}> */
     private const PALETTES = [
         ['from' => '#312e81', 'to' => '#7c3aed', 'accent' => '#c4b5fd'],
@@ -16,7 +25,7 @@ final class DemoPostMediaGenerator
         ['from' => '#701a75', 'to' => '#c026d3', 'accent' => '#f5d0fe'],
     ];
 
-    public function create(string $path, int $index): void
+    public function create(string $path, int $index): MediaAsset
     {
         $palette = self::PALETTES[$index % count(self::PALETTES)];
         $label = strtoupper(str_replace(['-', '_'], ' ', pathinfo($path, PATHINFO_FILENAME)));
@@ -25,6 +34,22 @@ final class DemoPostMediaGenerator
         if (! Storage::disk('public')->put($path, $svg)) {
             throw new RuntimeException("Unable to create demo media at [{$path}].");
         }
+
+        return MediaAsset::create([
+            'kind' => MediaKind::PostImage,
+            'disk' => 'public',
+            'path' => $path,
+            'original_filename' => basename($path),
+            'mime_type' => 'image/svg+xml',
+            'extension' => 'svg',
+            'byte_size' => strlen($svg),
+            'width' => self::WIDTH,
+            'height' => self::HEIGHT,
+            'aspect_ratio' => round(self::WIDTH / self::HEIGHT, 6),
+            'orientation' => ImageOrientation::Landscape,
+            'status' => MediaStatus::Ready,
+            'visibility' => MediaVisibility::Public,
+        ]);
     }
 
     /** @param array{from: string, to: string, accent: string} $palette */

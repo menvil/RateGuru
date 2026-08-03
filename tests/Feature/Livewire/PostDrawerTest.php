@@ -191,13 +191,12 @@ it('renders drawer author metadata', function () {
 });
 
 it('renders large post image in drawer', function () {
-    $post = Post::factory()->published()->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('/storage/posts/1/dish.jpg')
+        ->assertSee('posts/1/dish.jpg')
         ->assertSee('alt="Dish"', false);
 });
 
@@ -213,16 +212,15 @@ it('renders drawer post title and description', function () {
 });
 
 it('renders drawer description under title before image', function () {
-    $post = Post::factory()->published()->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/drawer-tacos.jpg')->create([
         'title' => 'Drawer Tacos',
         'description' => 'Description should sit below the title',
-        'image_url' => '/storage/posts/1/drawer-tacos.jpg',
     ]);
 
     $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
 
     expect(strpos($html, 'Drawer Tacos'))->toBeLessThan(strpos($html, 'Description should sit below the title'));
-    expect(strpos($html, 'Description should sit below the title'))->toBeLessThan(strpos($html, '/storage/posts/1/drawer-tacos.jpg'));
+    expect(strpos($html, 'Description should sit below the title'))->toBeLessThan(strpos($html, 'posts/1/drawer-tacos.jpg'));
 });
 
 it('does not break when drawer post description is missing', function () {
@@ -240,7 +238,7 @@ it('does not break when drawer post description is missing', function () {
 it('renders image placeholder when drawer post has no image', function () {
     $post = Post::factory()->published()->create([
         'title' => 'Dish',
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
@@ -368,24 +366,22 @@ it('hides save button in post drawer when feature is disabled', function () {
 });
 
 it('does not crop the drawer post image to a fixed aspect ratio', function () {
-    $post = Post::factory()->published()->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
 
     expect($html)
-        ->toContain('/storage/posts/1/dish.jpg')
+        ->toContain('posts/1/dish.jpg')
         ->toContain('object-contain')
         ->not->toContain('aspect-[4/3]')
         ->not->toContain('object-cover');
 });
 
 it('renders the drawer fullscreen image with contain behavior', function () {
-    $post = Post::factory()->published()->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
@@ -397,14 +393,12 @@ it('renders the drawer fullscreen image with contain behavior', function () {
 });
 
 it('resolves drawer author avatar via the resolved avatar accessor', function () {
-    $author = User::factory()->create([
+    $author = User::factory()->withAvatar()->create([
         'name' => 'Demo Chef',
-        'avatar_path' => null,
-        'avatar_url' => 'https://example.test/avatar.jpg',
     ]);
     $post = Post::factory()->published()->for($author)->create();
 
     $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
 
-    expect($html)->toContain('https://example.test/avatar.jpg');
+    expect($html)->toContain($author->resolved_avatar_url);
 });

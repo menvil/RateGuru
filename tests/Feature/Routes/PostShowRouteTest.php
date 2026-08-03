@@ -39,14 +39,13 @@ it('renders published post show page', function () {
 });
 
 it('renders post hero image', function () {
-    $post = Post::factory()->published()->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('/storage/posts/1/dish.jpg')
+        ->assertSee('posts/1/dish.jpg')
         ->assertSee('alt="Dish"', false)
         ->assertSee('data-testid="post-show-image-open"', false)
         ->assertSee('data-testid="post-fullscreen-image"', false);
@@ -58,10 +57,9 @@ it('renders post show content in feed card order', function () {
         'username' => 'demo_chef',
     ]);
 
-    $post = Post::factory()->published()->for($user)->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/ordered.jpg')->for($user)->create([
         'title' => 'Ordered Dish',
         'description' => 'Description should sit below title',
-        'image_url' => '/storage/posts/1/ordered.jpg',
     ]);
 
     $response = $this->get(route('posts.show', $post))->assertOk();
@@ -79,7 +77,7 @@ it('renders post show content in feed card order', function () {
 
 it('renders hero image placeholder when image is missing', function () {
     $post = Post::factory()->published()->create([
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $this->get(route('posts.show', $post))
@@ -88,25 +86,23 @@ it('renders hero image placeholder when image is missing', function () {
 });
 
 it('does not crop the standalone hero image to a fixed aspect ratio', function () {
-    $post = Post::factory()->published()->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $response = $this->get(route('posts.show', $post))->assertOk();
     $html = $response->getContent();
 
     expect($html)
-        ->toContain('/storage/posts/1/dish.jpg')
+        ->toContain('posts/1/dish.jpg')
         ->toContain('object-contain')
         ->not->toContain('aspect-[16/10]')
         ->not->toContain('object-cover');
 });
 
 it('renders the standalone fullscreen image with contain behavior', function () {
-    $post = Post::factory()->published()->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $response = $this->get(route('posts.show', $post))->assertOk();
@@ -119,16 +115,14 @@ it('renders the standalone fullscreen image with contain behavior', function () 
 });
 
 it('resolves standalone author avatar via the resolved avatar accessor', function () {
-    $author = User::factory()->create([
+    $author = User::factory()->withAvatar()->create([
         'name' => 'Demo Chef',
-        'avatar_path' => null,
-        'avatar_url' => 'https://example.test/avatar.jpg',
     ]);
     $post = Post::factory()->published()->for($author)->create();
 
     $response = $this->get(route('posts.show', $post))->assertOk();
 
-    expect($response->getContent())->toContain('https://example.test/avatar.jpg');
+    expect($response->getContent())->toContain($author->resolved_avatar_url);
 });
 
 it('renders post metadata', function () {
@@ -207,10 +201,9 @@ it('renders seo title for post page', function () {
 });
 
 it('renders open graph metadata for post page', function () {
-    $post = Post::factory()->published()->create([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Sample Post',
         'description' => 'Creamy pasta with pepper',
-        'image_url' => '/storage/posts/1/dish.jpg',
     ]);
 
     $this->get(route('posts.show', $post))

@@ -21,7 +21,10 @@ final class PostResource extends JsonResource
             'title' => $this->title,
             'description' => $this->description,
             'image_url' => $this->public_image_url,
-            'thumbnail_url' => $this->thumbnail_url,
+            // No dedicated thumbnail variant is generated yet (PR-06);
+            // this field is kept for API-contract stability and was already
+            // always null under the previous schema.
+            'thumbnail_url' => null,
             'canonical_url' => $this->canonicalUrl(),
             'author' => $this->whenLoaded(
                 'user',

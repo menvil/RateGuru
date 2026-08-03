@@ -45,36 +45,23 @@ it('renders profile header section', function () {
 });
 
 it('renders user avatar on profile page', function () {
-    User::factory()->create([
-        'username' => 'chef_ivan',
-        'avatar_url' => 'https://example.test/avatar.jpg',
-    ]);
-
-    Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
-        ->assertSee('data-testid="profile-avatar"', false)
-        ->assertSee('https://example.test/avatar.jpg', false);
-});
-
-it('prefers the stored avatar file over an external avatar url on profile page', function () {
     Storage::fake('public');
 
-    User::factory()->create([
+    User::factory()->withAvatar(path: 'avatars/chef_ivan.jpg')->create([
         'username' => 'chef_ivan',
-        'avatar_path' => 'avatars/chef_ivan.jpg',
-        'avatar_url' => 'https://example.test/avatar.jpg',
     ]);
 
     $html = Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])->html();
 
     expect($html)
-        ->toContain('/storage/avatars/chef_ivan.jpg')
-        ->not->toContain('https://example.test/avatar.jpg');
+        ->toContain('data-testid="profile-avatar"')
+        ->toContain('avatars/chef_ivan.jpg');
 });
 
-it('renders avatar fallback when user has no avatar url', function () {
+it('renders avatar fallback when user has no avatar asset', function () {
     User::factory()->create([
         'username' => 'chef_ivan',
-        'avatar_url' => null,
+        'avatar_asset_id' => null,
     ]);
 
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
@@ -180,8 +167,7 @@ it('renders generic profile copy', function () {
 
     Post::factory()->for($user)->published()->create([
         'title' => 'Generic profile post',
-        'image_path' => null,
-        'image_url' => null,
+        'image_asset_id' => null,
     ]);
 
     $this->get(route('profile.show', $user->username))

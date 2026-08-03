@@ -23,7 +23,6 @@ class DemoUsersSeeder extends Seeder
                 [
                     'name' => $user['name'],
                     'username' => $user['username'],
-                    'avatar_url' => null,
                     'role' => UserRole::User,
                     'status' => $user['status'],
                     'trust_level' => $user['trust_level'],

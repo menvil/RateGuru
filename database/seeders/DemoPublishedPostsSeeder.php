@@ -26,7 +26,7 @@ class DemoPublishedPostsSeeder extends Seeder
 
         foreach ($this->posts() as $index => $demoPost) {
             $author = User::query()->where('email', $demoPost['author'])->firstOrFail();
-            app(DemoPostMediaGenerator::class)->create($demoPost['image_path'], $index);
+            $imageAsset = app(DemoPostMediaGenerator::class)->create($demoPost['image_path'], $index);
             $category = $categories->isEmpty() || $index % 3 === 2
                 ? null
                 : $categories[$index % $categories->count()];
@@ -36,9 +36,7 @@ class DemoPublishedPostsSeeder extends Seeder
                 [
                     'user_id' => $author->id,
                     'description' => $demoPost['description'],
-                    'image_path' => $demoPost['image_path'],
-                    'image_url' => null,
-                    'thumbnail_url' => null,
+                    'image_asset_id' => $imageAsset->id,
                     'source_url' => null,
                     'category_id' => $category?->id,
                     'status' => PostStatus::Published,

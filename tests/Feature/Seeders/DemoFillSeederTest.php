@@ -82,7 +82,8 @@ it('creates a mix of categorized and uncategorized large demo posts with media',
         ->and(Category::query()->active()->count())->toBeGreaterThan(0);
 
     foreach ($posts as $post) {
-        Storage::disk('public')->assertExists($post->image_path);
+        expect($post->image_asset_id)->not->toBeNull();
+        Storage::disk('public')->assertExists($post->imageAsset->path);
     }
 });
 

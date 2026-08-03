@@ -87,16 +87,11 @@ it('renders authenticated header actions without changing guest header behavior'
 it('resolves header user menu avatar via the resolved avatar accessor', function () {
     Storage::fake('public');
 
-    $user = User::factory()->create([
-        'avatar_path' => 'avatars/header-user.jpg',
-        'avatar_url' => 'https://example.test/avatar.jpg',
-    ]);
+    $user = User::factory()->withAvatar(path: 'avatars/header-user.jpg')->create();
 
     $html = $this->actingAs($user)->get('/')->getContent();
 
-    expect($html)
-        ->toContain('/storage/avatars/header-user.jpg')
-        ->not->toContain('https://example.test/avatar.jpg');
+    expect($html)->toContain('avatars/header-user.jpg');
 });
 
 it('listens for post uploaded event to close upload modal', function () {

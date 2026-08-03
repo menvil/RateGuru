@@ -30,13 +30,12 @@ it('resolves api user resource to array', function () {
 });
 
 it('returns expected api user resource shape', function () {
-    $user = User::factory()->create([
+    $user = User::factory()->withAvatar()->create([
         'username' => 'alice',
         'name' => 'Alice Demo',
         'email' => 'alice@example.test',
         'role' => UserRole::Admin,
         'status' => UserStatus::Banned,
-        'avatar_url' => 'https://example.test/avatar.jpg',
     ]);
 
     $data = (new ApiUserResource($user))->resolve();
@@ -53,7 +52,7 @@ it('returns expected api user resource shape', function () {
         'id' => $user->id,
         'username' => 'alice',
         'display_name' => 'Alice Demo',
-        'avatar_url' => 'https://example.test/avatar.jpg',
+        'avatar_url' => $user->resolved_avatar_url,
     ]);
 
     expect($data)->not->toHaveKey('email');

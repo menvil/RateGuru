@@ -19,7 +19,7 @@ final class UserResource extends JsonResource
             'id' => $this->id,
             'username' => $this->username,
             'display_name' => $this->name,
-            'avatar_url' => $this->avatar_url,
+            'avatar_url' => $this->resolved_avatar_url,
             'profile_url' => $this->profileUrl(),
         ];
     }

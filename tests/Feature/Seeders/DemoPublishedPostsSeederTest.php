@@ -42,8 +42,10 @@ it('creates public media files for every seeded post image path', function () {
     $this->seed(DemoDatabaseSeeder::class);
 
     $imagePaths = Post::query()
-        ->whereNotNull('image_path')
-        ->pluck('image_path');
+        ->whereNotNull('image_asset_id')
+        ->with('imageAsset')
+        ->get()
+        ->pluck('imageAsset.path');
 
     expect($imagePaths)->toHaveCount(19);
 
