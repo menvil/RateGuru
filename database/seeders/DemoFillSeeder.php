@@ -229,13 +229,16 @@ class DemoFillSeeder extends Seeder
             // This seeder regenerates the same deterministic path on every
             // rerun, so on a failure below the file may belong to an
             // already-seeded, still-referenced post rather than to this
-            // attempt. Check before writing: only a path with no existing
+            // attempt. Look up before writing: only a path with no existing
             // media_assets row is "new" and safe to delete on failure —
             // otherwise compensating would break an existing post's image.
+            // The id found here is passed into ensurePostImageMediaAsset()
+            // below so it doesn't have to repeat the same lookup.
             $imagePath = $this->postImagePath($author->id, $index + 1);
-            $isNewImage = ! MediaAsset::withTrashed()
+            $existingImageAssetId = MediaAsset::withTrashed()
                 ->where(['disk' => 'public', 'path' => $imagePath])
-                ->exists();
+                ->value('id');
+            $isNewImage = $existingImageAssetId === null;
 
             // The image file is written to disk first (slow, external I/O
             // that doesn't belong inside a DB transaction). If the DB work
@@ -247,8 +250,8 @@ class DemoFillSeeder extends Seeder
                 : $categoryIds[$index % count($categoryIds)];
 
             try {
-                DB::transaction(function () use ($author, $title, $imagePath, $categoryId, $baseTime, $index, $now): void {
-                    $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id);
+                DB::transaction(function () use ($author, $title, $imagePath, $existingImageAssetId, $categoryId, $baseTime, $index, $now): void {
+                    $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id, $existingImageAssetId);
 
                     // Raw query builder (not Eloquent) is intentional here:
                     // this loop runs once per demo post title (up to ~99) on
@@ -345,22 +348,23 @@ class DemoFillSeeder extends Seeder
      * the previous run's row behind, active but no longer referenced by any
      * post. generatePostImage() always writes an IMAGE_WIDTH x IMAGE_HEIGHT
      * JPEG, so dimensions are fixed rather than re-derived from the file.
+     *
+     * $existingId is looked up once by the caller (which also needs it to
+     * decide whether the file is safe to delete on failure) rather than
+     * being re-queried here.
      */
-    private function ensurePostImageMediaAsset(string $path, int $userId): int
+    private function ensurePostImageMediaAsset(string $path, int $userId, ?int $existingId): int
     {
-        // Raw query builder bypasses the model's SoftDeletes scope, so this
-        // finds the row even if it was previously soft-deleted. Restore it
-        // unconditionally (a no-op when it wasn't trashed) — otherwise a
-        // post would point at a soft-deleted asset that its imageAsset
-        // relation excludes, leaving it with no resolvable image. The file
-        // was just regenerated above, so refresh byte_size/owner/updated_at
-        // too, not only deleted_at — otherwise a restored row can carry
-        // stale metadata from whichever run first created it.
-        $existingId = DB::table('media_assets')
-            ->where(['disk' => 'public', 'path' => $path])
-            ->value('id');
-
         if ($existingId !== null) {
+            // The row may have been previously soft-deleted — the caller's
+            // withTrashed() lookup finds it regardless. Restore it
+            // unconditionally (a no-op when it wasn't trashed) — otherwise a
+            // post would point at a soft-deleted asset that its imageAsset
+            // relation excludes, leaving it with no resolvable image. The
+            // file was just regenerated above, so refresh
+            // byte_size/owner/updated_at too, not only deleted_at —
+            // otherwise a restored row can carry stale metadata from
+            // whichever run first created it.
             DB::table('media_assets')
                 ->where('id', $existingId)
                 ->update([

@@ -47,7 +47,7 @@ it('renders profile header section', function () {
 it('renders user avatar on profile page', function () {
     Storage::fake('public');
 
-    $user = User::factory()->withAvatar(path: 'avatars/chef_ivan.jpg')->create([
+    User::factory()->withAvatar(path: 'avatars/chef_ivan.jpg')->create([
         'username' => 'chef_ivan',
     ]);
 
@@ -55,7 +55,7 @@ it('renders user avatar on profile page', function () {
 
     expect($html)
         ->toContain('data-testid="profile-avatar"')
-        ->toContain($user->resolved_avatar_url);
+        ->toContain(Storage::disk('public')->url('avatars/chef_ivan.jpg'));
 });
 
 it('renders avatar fallback when user has no avatar asset', function () {

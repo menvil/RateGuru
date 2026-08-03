@@ -10,6 +10,7 @@ use App\Models\User;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Storage;
 
 it('renders post voting component in post card', function () {
     $post = Post::factory()->published()->create();
@@ -34,7 +35,7 @@ it('renders post image when an image asset exists', function () {
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain($post->public_image_url);
+    expect($html)->toContain(Storage::disk('public')->url('posts/1/dish.jpg'));
 });
 
 it('renders image placeholder when there is no image asset', function () {
@@ -104,7 +105,7 @@ it('renders post description under the title before the image', function () {
 
     $titlePosition = strpos($html, 'Street Tacos');
     $descriptionPosition = strpos($html, 'Corn tortillas, salsa, cilantro, and a street-food presentation');
-    $imagePosition = strpos($html, $post->public_image_url);
+    $imagePosition = strpos($html, Storage::disk('public')->url('posts/1/tacos.jpg'));
 
     expect($titlePosition)->not->toBeFalse()
         ->and($descriptionPosition)->not->toBeFalse()
@@ -422,7 +423,7 @@ it('does not crop the feed post image to a fixed aspect ratio', function () {
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)
-        ->toContain($post->public_image_url)
+        ->toContain(Storage::disk('public')->url('posts/1/dish.jpg'))
         ->toContain('object-contain')
         ->not->toContain('aspect-[16/10]')
         ->not->toContain('object-cover');

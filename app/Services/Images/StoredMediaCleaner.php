@@ -13,26 +13,29 @@ final class StoredMediaCleaner
 
     /**
      * Best-effort compensation for a database failure that happens after a
-     * file has already been written. Best-effort: a cleanup failure is
-     * reported but never replaces (or suppresses) the original exception
-     * that triggered it.
+     * file has already been written. Best-effort: a cleanup failure — in
+     * either the ownership check or the delete itself — is reported but
+     * never replaces (or suppresses) the original exception that triggered
+     * it, since a DB-connectivity failure (the scenario this exists for) is
+     * exactly the kind of failure the ownership query can also hit.
      *
-     * Skips deletion when another MediaAsset already legitimately owns this
-     * exact (disk, path) — otherwise, on the rare path collision, cleaning
-     * up after this failed upload would delete a file a different,
-     * successfully-committed asset now depends on.
+     * Skips deletion when another MediaAsset — active or soft-deleted —
+     * already legitimately owns this exact (disk, path). A soft-deleted
+     * avatar asset deliberately keeps its physical file on disk (orphan
+     * cleanup is deferred to PR-07), so excluding trashed rows here could
+     * delete that retained file out from under it on a path collision.
      */
     public function deleteIfUnclaimed(StoredMedia $media): void
     {
-        $claimed = MediaAsset::query()
-            ->where(['disk' => $media->disk, 'path' => $media->path])
-            ->exists();
-
-        if ($claimed) {
-            return;
-        }
-
         try {
+            $claimed = MediaAsset::withTrashed()
+                ->where(['disk' => $media->disk, 'path' => $media->path])
+                ->exists();
+
+            if ($claimed) {
+                return;
+            }
+
             $this->imageStorage->delete($media);
         } catch (Throwable $cleanupException) {
             report($cleanupException);

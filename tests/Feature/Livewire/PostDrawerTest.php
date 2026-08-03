@@ -9,6 +9,7 @@ use App\Models\RatingVote;
 use App\Models\User;
 use App\Support\Urls\PostUrl;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 it('can render post drawer component', function () {
@@ -196,7 +197,7 @@ it('renders large post image in drawer', function () {
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee($post->public_image_url)
+        ->assertSee(Storage::disk('public')->url('posts/1/dish.jpg'))
         ->assertSee('alt="Dish"', false);
 });
 
@@ -220,7 +221,7 @@ it('renders drawer description under title before image', function () {
     $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
 
     expect(strpos($html, 'Drawer Tacos'))->toBeLessThan(strpos($html, 'Description should sit below the title'));
-    expect(strpos($html, 'Description should sit below the title'))->toBeLessThan(strpos($html, $post->public_image_url));
+    expect(strpos($html, 'Description should sit below the title'))->toBeLessThan(strpos($html, Storage::disk('public')->url('posts/1/drawer-tacos.jpg')));
 });
 
 it('does not break when drawer post description is missing', function () {
@@ -373,7 +374,7 @@ it('does not crop the drawer post image to a fixed aspect ratio', function () {
     $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
 
     expect($html)
-        ->toContain($post->public_image_url)
+        ->toContain(Storage::disk('public')->url('posts/1/dish.jpg'))
         ->toContain('object-contain')
         ->not->toContain('aspect-[4/3]')
         ->not->toContain('object-cover');

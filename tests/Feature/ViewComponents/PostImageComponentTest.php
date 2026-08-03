@@ -2,6 +2,7 @@
 
 use App\Models\Post;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Storage;
 
 it('renders nothing when there is no image asset', function () {
     $post = Post::factory()->published()->make(['image_asset_id' => null]);
@@ -22,7 +23,7 @@ it('renders the feed context without cropping classes', function () {
     );
 
     expect($html)
-        ->toContain($post->public_image_url)
+        ->toContain(Storage::disk('public')->url('posts/1/dish.jpg'))
         ->toContain('alt="Dish"')
         ->toContain('object-contain')
         ->toContain('max-h-[75vh]')

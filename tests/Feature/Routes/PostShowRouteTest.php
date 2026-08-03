@@ -4,6 +4,7 @@ use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
+use Illuminate\Support\Facades\Storage;
 
 it('has posts show route', function () {
     $post = Post::factory()->published()->create();
@@ -45,7 +46,7 @@ it('renders post hero image', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee($post->public_image_url)
+        ->assertSee(Storage::disk('public')->url('posts/1/dish.jpg'))
         ->assertSee('alt="Dish"', false)
         ->assertSee('data-testid="post-show-image-open"', false)
         ->assertSee('data-testid="post-fullscreen-image"', false);

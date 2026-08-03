@@ -87,8 +87,10 @@ function seederCommandForTesting(): Command
  * DB::partialMock() alone produces a mock with none of the real
  * DatabaseManager's internal state (its constructor never runs), so any
  * unstubbed method it falls through to — table(), connection(), etc. —
- * breaks. Copy that state over from the real, already-booted instance so
- * only transaction() actually behaves differently.
+ * breaks. Copy every instance property over from the real, already-booted
+ * instance (rather than a curated list of names) so this doesn't silently
+ * start producing a broken mock the next time the framework adds or
+ * renames internal state — only transaction() actually behaves differently.
  */
 function forceNextDbTransactionToThrow(Throwable $exception): void
 {
@@ -98,12 +100,13 @@ function forceNextDbTransactionToThrow(Throwable $exception): void
 
     $reflection = new ReflectionClass($realDb);
 
-    foreach (['app', 'factory', 'connections', 'dynamicConnectionConfigurations', 'extensions', 'reconnector'] as $property) {
-        if ($reflection->hasProperty($property)) {
-            $reflectionProperty = $reflection->getProperty($property);
-            $reflectionProperty->setAccessible(true);
-            $reflectionProperty->setValue($mock, $reflectionProperty->getValue($realDb));
+    foreach ($reflection->getProperties() as $property) {
+        if ($property->isStatic()) {
+            continue;
         }
+
+        $property->setAccessible(true);
+        $property->setValue($mock, $property->getValue($realDb));
     }
 }
 
@@ -204,11 +207,11 @@ it('restores a soft-deleted media asset instead of leaving a post pointing at a 
     $path = 'posts/'.$userId.'/fill_post_001.jpg';
     Storage::disk('public')->put($path, 'fake-bytes');
 
-    $firstId = $method->invoke($seeder, $path, $userId);
+    $firstId = $method->invoke($seeder, $path, $userId, null);
     MediaAsset::query()->find($firstId)->delete();
     expect(MediaAsset::query()->find($firstId))->toBeNull();
 
-    $secondId = $method->invoke($seeder, $path, $userId);
+    $secondId = $method->invoke($seeder, $path, $userId, $firstId);
 
     expect($secondId)->toBe($firstId)
         ->and(MediaAsset::query()->find($firstId))->not->toBeNull();
