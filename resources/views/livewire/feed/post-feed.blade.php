@@ -41,6 +41,7 @@
                     :can-delete-post="$deletePermissions[$post->id] ?? false"
                     :can-report-post="$reportPermissions[$post->id] ?? false"
                     :can-moderate-post="$moderationPermissions[$post->id] ?? false"
+                    :eager-image="$loop->first"
                     wire:key="{{ $post->id }}"
                 />
             @endforeach

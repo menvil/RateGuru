@@ -22,6 +22,22 @@ it('renders report button in comment item for persisted comment', function () {
         ->toContain('Report');
 });
 
+it('resolves comment author avatar via the resolved avatar accessor', function () {
+    $author = User::factory()->create([
+        'avatar_path' => null,
+        'avatar_url' => 'https://example.test/avatar.jpg',
+    ]);
+    $comment = Comment::factory()->for($author, 'user')->create([
+        'status' => CommentStatus::Visible,
+    ]);
+
+    $html = Blade::render('<x-comments.comment-item :comment="$comment" />', [
+        'comment' => $comment,
+    ]);
+
+    expect($html)->toContain('https://example.test/avatar.jpg');
+});
+
 it('renders comment actions menu in the comment header', function () {
     $user = User::factory()->create();
     $comment = Comment::factory()->create([

@@ -108,7 +108,7 @@
                                     class="cursor-pointer rounded-full transition hover:ring-2 hover:ring-rg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                                 >
                                     <x-ui.avatar
-                                        :src="auth()->user()->avatar_url"
+                                        :src="auth()->user()->resolved_avatar_url"
                                         :name="auth()->user()->name ?: auth()->user()->username"
                                         color="purple"
                                         size="lg"

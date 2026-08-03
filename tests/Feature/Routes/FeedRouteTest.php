@@ -83,6 +83,17 @@ it('renders authenticated header actions without changing guest header behavior'
         ->assertSee('Log out');
 });
 
+it('resolves header user menu avatar via the resolved avatar accessor', function () {
+    $user = User::factory()->create([
+        'avatar_path' => null,
+        'avatar_url' => 'https://example.test/avatar.jpg',
+    ]);
+
+    $html = $this->actingAs($user)->get('/')->getContent();
+
+    expect($html)->toContain('https://example.test/avatar.jpg');
+});
+
 it('listens for post uploaded event to close upload modal', function () {
     $user = User::factory()->create();
 

@@ -87,6 +87,50 @@ it('renders hero image placeholder when image is missing', function () {
         ->assertSee('Image preview');
 });
 
+it('does not crop the standalone hero image to a fixed aspect ratio', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $response = $this->get(route('posts.show', $post))->assertOk();
+    $html = $response->getContent();
+
+    expect($html)
+        ->toContain('/storage/posts/1/dish.jpg')
+        ->toContain('object-contain')
+        ->not->toContain('aspect-[16/10]')
+        ->not->toContain('object-cover');
+});
+
+it('renders the standalone fullscreen image with contain behavior', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $response = $this->get(route('posts.show', $post))->assertOk();
+    $html = $response->getContent();
+
+    expect($html)
+        ->toContain('data-testid="post-fullscreen-image"')
+        ->toContain('max-h-[80vh]')
+        ->toContain('object-contain');
+});
+
+it('resolves standalone author avatar via the resolved avatar accessor', function () {
+    $author = User::factory()->create([
+        'name' => 'Demo Chef',
+        'avatar_path' => null,
+        'avatar_url' => 'https://example.test/avatar.jpg',
+    ]);
+    $post = Post::factory()->published()->for($author)->create();
+
+    $response = $this->get(route('posts.show', $post))->assertOk();
+
+    expect($response->getContent())->toContain('https://example.test/avatar.jpg');
+});
+
 it('renders post metadata', function () {
     $user = User::factory()->create([
         'name' => 'Demo Chef',

@@ -59,6 +59,7 @@ return [
         'delete_confirm_title' => 'Изтриване на поста?',
         'delete_confirm_description' => 'Постът ще бъде премахнат от публичните ленти.',
         'share_title' => 'Сподели поста',
+        'image_alt_fallback' => 'Снимка на публикацията',
     ],
     'comments' => [
         'title' => 'Коментари',

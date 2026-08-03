@@ -428,3 +428,63 @@ it('hides save button on post card when feature is disabled', function () {
 
     expect($html)->not->toContain('data-testid="save-post-button"');
 });
+
+it('does not crop the feed post image to a fixed aspect ratio', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('/storage/posts/1/dish.jpg')
+        ->toContain('object-contain')
+        ->not->toContain('aspect-[16/10]')
+        ->not->toContain('object-cover');
+});
+
+it('renders the feed fullscreen image with contain behavior', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)
+        ->toContain('data-testid="post-card-fullscreen-image"')
+        ->toContain('max-h-[80vh]')
+        ->toContain('object-contain');
+});
+
+it('lazy loads the feed image by default and eager loads it when marked as the first card', function () {
+    $post = Post::factory()->published()->make([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $lazyHtml = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+    $eagerHtml = Blade::render('<x-feed.post-card :post="$post" :eager-image="true" />', ['post' => $post]);
+
+    // The fullscreen modal image is always lazy (it stays hidden until opened),
+    // so compare counts rather than presence to isolate the visible feed image.
+    expect(substr_count($lazyHtml, 'loading="lazy"'))->toBe(2);
+    expect(substr_count($eagerHtml, 'loading="lazy"'))->toBe(1);
+});
+
+it('resolves post author avatar via the resolved avatar accessor', function () {
+    $author = User::factory()->make([
+        'name' => 'Demo Chef',
+        'username' => 'demo_chef',
+        'avatar_path' => null,
+        'avatar_url' => 'https://example.test/avatar.jpg',
+    ]);
+
+    $post = Post::factory()->published()->make(['title' => 'Dish']);
+    $post->setRelation('user', $author);
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('https://example.test/avatar.jpg');
+});

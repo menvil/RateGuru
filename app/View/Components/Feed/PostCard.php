@@ -26,6 +26,7 @@ final class PostCard extends Component
     public function __construct(
         public Post $post,
         public bool $selected = false,
+        public bool $eagerImage = false,
         array $ratingVotingState = [],
         ?Collection $ratingGroups = null,
         bool $canDeletePost = false,

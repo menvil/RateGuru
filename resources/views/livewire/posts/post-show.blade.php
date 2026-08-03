@@ -53,10 +53,10 @@
                 <div class="flex min-w-0 items-start gap-3">
                     @if($post->user?->username)
                         <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                            <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user->name" size="lg" />
+                            <x-ui.avatar :src="$post->user?->resolved_avatar_url" :name="$post->user->name" size="lg" />
                         </a>
                     @else
-                        <x-ui.avatar :src="$post->user?->avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
+                        <x-ui.avatar :src="$post->user?->resolved_avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
                     @endif
 
                     <div class="min-w-0">
@@ -96,19 +96,12 @@
 
             <div class="mt-4" data-testid="post-show-hero">
             @if($post->public_image_url)
-                <button
-                    type="button"
-                    class="block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                    x-on:click.stop="imageOpen = true"
-                    data-testid="post-show-image-open"
-                    aria-label="{{ __('ui.a11y.open_image') }}"
-                >
-                    <img
-                        src="{{ $post->public_image_url }}"
-                        alt="{{ $post->title }}"
-                        class="aspect-[16/10] w-full rounded-rgMedia object-cover"
-                    >
-                </button>
+                <x-media.post-image
+                    :post="$post"
+                    context="standalone"
+                    open-fullscreen="imageOpen = true"
+                    testid="post-show-image-open"
+                />
             @else
                 <x-ui.image-placeholder label="Image preview" ratio="video" />
             @endif
@@ -241,12 +234,12 @@
 
             @if($post->public_image_url)
                 <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
-                    <img
-                        src="{{ $post->public_image_url }}"
-                        alt="{{ $post->title }}"
-                        class="max-h-[80vh] w-full rounded-rgMedia object-contain"
-                        data-testid="post-fullscreen-image"
-                    >
+                    <x-media.post-image
+                        :post="$post"
+                        context="fullscreen"
+                        image-testid="post-fullscreen-image"
+                        loading="lazy"
+                    />
                 </x-ui.modal>
             @endif
 

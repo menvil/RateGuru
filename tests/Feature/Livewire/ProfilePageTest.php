@@ -7,6 +7,7 @@ use App\Models\RatingOption;
 use App\Models\Report;
 use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 it('can render profile page component', function () {
@@ -52,6 +53,22 @@ it('renders user avatar on profile page', function () {
     Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])
         ->assertSee('data-testid="profile-avatar"', false)
         ->assertSee('https://example.test/avatar.jpg', false);
+});
+
+it('prefers the stored avatar file over an external avatar url on profile page', function () {
+    Storage::fake('public');
+
+    User::factory()->create([
+        'username' => 'chef_ivan',
+        'avatar_path' => 'avatars/chef_ivan.jpg',
+        'avatar_url' => 'https://example.test/avatar.jpg',
+    ]);
+
+    $html = Livewire::test(ProfilePage::class, ['username' => 'chef_ivan'])->html();
+
+    expect($html)
+        ->toContain('/storage/avatars/chef_ivan.jpg')
+        ->not->toContain('https://example.test/avatar.jpg');
 });
 
 it('renders avatar fallback when user has no avatar url', function () {
