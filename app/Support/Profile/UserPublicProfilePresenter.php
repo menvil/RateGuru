@@ -3,7 +3,6 @@
 namespace App\Support\Profile;
 
 use App\Models\User;
-use Illuminate\Support\Facades\Storage;
 
 final class UserPublicProfilePresenter
 {
@@ -13,7 +12,7 @@ final class UserPublicProfilePresenter
             id: $user->id,
             username: $user->username,
             displayName: $this->resolveDisplayName($user),
-            avatarUrl: $this->resolveAvatarUrl($user),
+            avatarUrl: $user->resolved_avatar_url,
             bio: $user->bio,
             websiteUrl: $user->profile_website_url,
             joinedAt: $user->created_at,
@@ -24,14 +23,5 @@ final class UserPublicProfilePresenter
     {
         return $user->display_name
             ?: ($user->name ?: $user->username);
-    }
-
-    private function resolveAvatarUrl(User $user): ?string
-    {
-        if ($user->avatar_path) {
-            return Storage::disk('public')->url($user->avatar_path);
-        }
-
-        return $user->avatar_url;
     }
 }

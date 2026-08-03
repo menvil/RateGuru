@@ -7,33 +7,29 @@ use Tests\TestCase;
 
 uses(TestCase::class, RefreshDatabase::class);
 
-it('resolves avatar url from avatar_path when both avatar_path and avatar_url are set', function () {
+it('resolves the avatar url through the avatar asset disk and path', function () {
     Storage::fake('public');
 
-    $user = User::factory()->create([
-        'avatar_path' => 'avatars/test.jpg',
-        'avatar_url' => 'https://example.test/avatar.jpg',
-    ]);
+    $user = User::factory()->withAvatar(path: 'avatars/test.jpg', disk: 'public')->create();
 
-    expect($user->resolved_avatar_url)
-        ->toContain('/storage/avatars/test.jpg')
-        ->not->toContain('example.test');
+    expect($user->resolved_avatar_url)->toContain('/storage/avatars/test.jpg');
 });
 
-it('falls back to avatar_url when avatar_path is null', function () {
-    $user = User::factory()->create([
-        'avatar_path' => null,
-        'avatar_url' => 'https://example.test/avatar.jpg',
-    ]);
-
-    expect($user->resolved_avatar_url)->toBe('https://example.test/avatar.jpg');
-});
-
-it('returns null when neither avatar_path nor avatar_url is set', function () {
-    $user = User::factory()->create([
-        'avatar_path' => null,
-        'avatar_url' => null,
-    ]);
+it('returns null when there is no avatar asset', function () {
+    $user = User::factory()->create(['avatar_asset_id' => null]);
 
     expect($user->resolved_avatar_url)->toBeNull();
+});
+
+it('resolves through the asset\'s own disk rather than a hardcoded default disk', function () {
+    config()->set('filesystems.disks.cdn_test', [
+        'driver' => 'local',
+        'root' => storage_path('app/cdn_test'),
+        'url' => 'https://cdn.example.test',
+        'visibility' => 'public',
+    ]);
+
+    $user = User::factory()->withAvatar(path: 'avatars/test.jpg', disk: 'cdn_test')->create();
+
+    expect($user->resolved_avatar_url)->toBe('https://cdn.example.test/avatars/test.jpg');
 });

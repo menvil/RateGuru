@@ -13,10 +13,7 @@ it('creates posts table with required columns', function () {
         'user_id',
         'title',
         'description',
-        'image_path',
-        'image_url',
-        'thumbnail_url',
-        'og_image_path',
+        'image_asset_id',
         'source_url',
         'status',
         'upvotes_count',
@@ -32,4 +29,11 @@ it('creates posts table with required columns', function () {
     ]))->toBeTrue();
 
     expect(Schema::hasColumn('posts', 'category_option_id'))->toBeFalse();
+});
+
+it('does not have the legacy image columns replaced by media_assets', function () {
+    expect(Schema::hasColumn('posts', 'image_path'))->toBeFalse();
+    expect(Schema::hasColumn('posts', 'image_url'))->toBeFalse();
+    expect(Schema::hasColumn('posts', 'thumbnail_url'))->toBeFalse();
+    expect(Schema::hasColumn('posts', 'og_image_path'))->toBeFalse();
 });

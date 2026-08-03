@@ -3,6 +3,7 @@
 use App\Models\User;
 use App\Support\Profile\UserPublicProfile;
 use App\Support\Profile\UserPublicProfilePresenter;
+use Illuminate\Support\Facades\Storage;
 
 it('builds public profile without private fields', function () {
     $user = User::factory()->create([
@@ -61,24 +62,20 @@ it('falls back to username when both name and display_name are null', function (
     expect($profile->displayName)->toBe('fallback_user');
 });
 
-it('resolves avatar url from avatar_path when set', function () {
-    $user = User::factory()->create([
-        'avatar_path' => 'avatars/test.jpg',
-        'avatar_url' => null,
-    ]);
+it('resolves avatar url through the avatar asset when set', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->withAvatar(path: 'avatars/test.jpg')->create();
 
     $profile = app(UserPublicProfilePresenter::class)->forUser($user);
 
     expect($profile->avatarUrl)->toContain('avatars/test.jpg');
 });
 
-it('returns avatar_url when avatar_path is null', function () {
-    $user = User::factory()->create([
-        'avatar_path' => null,
-        'avatar_url' => 'https://cdn.example.com/avatar.jpg',
-    ]);
+it('returns null avatar url when the user has no avatar asset', function () {
+    $user = User::factory()->create(['avatar_asset_id' => null]);
 
     $profile = app(UserPublicProfilePresenter::class)->forUser($user);
 
-    expect($profile->avatarUrl)->toBe('https://cdn.example.com/avatar.jpg');
+    expect($profile->avatarUrl)->toBeNull();
 });
