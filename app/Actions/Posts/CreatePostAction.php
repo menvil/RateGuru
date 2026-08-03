@@ -61,9 +61,15 @@ final class CreatePostAction
         $categoryId = $this->validatedCategoryId($data->categoryId);
         $authorAnswers = $this->validatedAuthorAnswers($data->authorAnswerOptionIds, $ratingGroups);
 
-        $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers) {
-            $imageAsset = $data->image !== null
-                ? $this->createImageAsset($this->imageStorage->storePostImage($data->image, $user), $user)
+        // Storing the file is slow, external I/O that doesn't belong inside a
+        // DB transaction — do it first, then only touch the database below.
+        $storedImage = $data->image !== null
+            ? $this->imageStorage->storePostImage($data->image, $user)
+            : null;
+
+        $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers, $storedImage) {
+            $imageAsset = $storedImage !== null
+                ? $this->createImageAsset($storedImage, $user)
                 : null;
 
             $post = Post::create([
@@ -113,9 +119,10 @@ final class CreatePostAction
 
     private function createImageAsset(StoredMedia $stored, User $user): MediaAsset
     {
-        $orientation = $stored->width !== null && $stored->height !== null
-            ? $this->orientationClassifier->classify($stored->width, $stored->height)
-            : null;
+        $hasValidDimensions = $stored->width !== null
+            && $stored->height !== null
+            && $stored->width > 0
+            && $stored->height > 0;
 
         return MediaAsset::create([
             'owner_user_id' => $user->id,
@@ -128,10 +135,12 @@ final class CreatePostAction
             'byte_size' => $stored->byteSize,
             'width' => $stored->width,
             'height' => $stored->height,
-            'aspect_ratio' => $stored->width !== null && $stored->height !== null
+            'aspect_ratio' => $hasValidDimensions
                 ? round($stored->width / $stored->height, 6)
                 : null,
-            'orientation' => $orientation,
+            'orientation' => $hasValidDimensions
+                ? $this->orientationClassifier->classify($stored->width, $stored->height)
+                : null,
             'status' => MediaStatus::Ready,
             'visibility' => MediaVisibility::Public,
         ]);

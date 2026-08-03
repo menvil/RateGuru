@@ -35,21 +35,25 @@ final class DemoPostMediaGenerator
             throw new RuntimeException("Unable to create demo media at [{$path}].");
         }
 
-        return MediaAsset::create([
-            'kind' => MediaKind::PostImage,
-            'disk' => 'public',
-            'path' => $path,
-            'original_filename' => basename($path),
-            'mime_type' => 'image/svg+xml',
-            'extension' => 'svg',
-            'byte_size' => strlen($svg),
-            'width' => self::WIDTH,
-            'height' => self::HEIGHT,
-            'aspect_ratio' => round(self::WIDTH / self::HEIGHT, 6),
-            'orientation' => ImageOrientation::Landscape,
-            'status' => MediaStatus::Ready,
-            'visibility' => MediaVisibility::Public,
-        ]);
+        // Demo seeders are commonly re-run in local dev; reuse the asset
+        // already at this (disk, path) instead of leaving the previous run's
+        // row behind, unreferenced, every time.
+        return MediaAsset::query()->firstOrCreate(
+            ['disk' => 'public', 'path' => $path],
+            [
+                'kind' => MediaKind::PostImage,
+                'original_filename' => basename($path),
+                'mime_type' => 'image/svg+xml',
+                'extension' => 'svg',
+                'byte_size' => strlen($svg),
+                'width' => self::WIDTH,
+                'height' => self::HEIGHT,
+                'aspect_ratio' => round(self::WIDTH / self::HEIGHT, 6),
+                'orientation' => ImageOrientation::Landscape,
+                'status' => MediaStatus::Ready,
+                'visibility' => MediaVisibility::Public,
+            ],
+        );
     }
 
     /** @param array{from: string, to: string, accent: string} $palette */

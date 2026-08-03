@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\PostStatus;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Queries\Feed\FeedQuery;
 use Database\Seeders\DemoDatabaseSeeder;
@@ -61,6 +62,24 @@ it('seeded published posts are visible through feed query', function () {
 
     expect($posts)->not->toBeEmpty();
     expect($posts->every(fn (Post $post) => $post->status === PostStatus::Published))->toBeTrue();
+});
+
+it('reuses the same media assets instead of accumulating rows when re-seeded', function () {
+    Storage::fake('public');
+
+    $this->seed(DemoUsersSeeder::class);
+    $this->seed(DemoTagsSeeder::class);
+    $this->seed(DemoPublishedPostsSeeder::class);
+
+    $assetIdsAfterFirstRun = Post::query()->whereNotNull('image_asset_id')->pluck('image_asset_id')->sort()->values();
+    $mediaAssetCountAfterFirstRun = MediaAsset::query()->count();
+
+    $this->seed(DemoPublishedPostsSeeder::class);
+
+    $assetIdsAfterSecondRun = Post::query()->whereNotNull('image_asset_id')->pluck('image_asset_id')->sort()->values();
+
+    expect(MediaAsset::query()->count())->toBe($mediaAssetCountAfterFirstRun)
+        ->and($assetIdsAfterSecondRun)->toEqual($assetIdsAfterFirstRun);
 });
 
 it('seeds generic demo posts without food-specific titles', function () {

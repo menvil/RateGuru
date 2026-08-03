@@ -202,3 +202,43 @@ it('creates a media asset with null dimensions and orientation when the file can
         ->and($asset->aspect_ratio)->toBeNull()
         ->and($asset->orientation)->toBeNull();
 });
+
+it('creates a media asset with null aspect ratio and orientation instead of dividing by zero for a degenerate height', function () {
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('dish.jpg');
+
+    $fakeStorage = new class implements ImageStorage
+    {
+        public function storePostImage(UploadedFile $file, User $user): StoredMedia
+        {
+            return new StoredMedia(
+                disk: 'public',
+                path: 'posts/1/dish.jpg',
+                originalFilename: 'dish.jpg',
+                mimeType: 'image/jpeg',
+                extension: 'jpg',
+                byteSize: 100,
+                width: 800,
+                height: 0,
+            );
+        }
+
+        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
+        {
+            throw new RuntimeException('Not used in this test.');
+        }
+    };
+
+    app()->instance(ImageStorage::class, $fakeStorage);
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish with degenerate dimensions',
+        image: $file,
+    ));
+
+    $asset = $post->fresh()->imageAsset;
+    expect($asset->width)->toBe(800)
+        ->and($asset->height)->toBe(0)
+        ->and($asset->aspect_ratio)->toBeNull()
+        ->and($asset->orientation)->toBeNull();
+});

@@ -12,6 +12,9 @@ use App\Services\Images\StoredMedia;
 use App\Support\Media\ImageOrientationClassifier;
 use App\Support\Observability\DomainLogger;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 final class UpdateUserProfileAction
 {
@@ -30,19 +33,44 @@ final class UpdateUserProfileAction
             'rating_activity_visibility' => $validatedData['rating_activity_visibility'] ?? null,
         ];
 
-        $previousAvatarAsset = null;
+        // Storing the file is slow, external I/O that doesn't belong inside a
+        // DB transaction — do it first, then only touch the database below.
+        $storedAvatar = $avatar !== null
+            ? $this->imageStorage->storeAvatar($avatar, $user)
+            : null;
 
-        if ($avatar !== null) {
-            $previousAvatarAsset = $user->avatarAsset;
-            $asset = $this->createAvatarAsset($this->imageStorage->storeAvatar($avatar, $user), $user);
-            $update['avatar_asset_id'] = $asset->id;
+        try {
+            DB::transaction(function () use ($user, $update, $storedAvatar): void {
+                // Lock the row so two concurrent avatar replacements can't both
+                // read the same "previous" asset — without this, the second
+                // request to commit would soft-delete the original asset again
+                // and leave the first request's new asset orphaned (referenced
+                // by nobody, never cleaned up).
+                $previousAvatarAsset = User::query()
+                    ->whereKey($user->id)
+                    ->lockForUpdate()
+                    ->firstOrFail()
+                    ->avatarAsset;
+
+                if ($storedAvatar !== null) {
+                    $asset = $this->createAvatarAsset($storedAvatar, $user);
+                    $update['avatar_asset_id'] = $asset->id;
+                }
+
+                $user->update($update);
+
+                // The previous avatar asset is soft-deleted, but its physical
+                // file is intentionally left on disk — orphan cleanup is
+                // deferred to PR-07.
+                $previousAvatarAsset?->delete();
+            });
+        } catch (Throwable $exception) {
+            if ($storedAvatar !== null) {
+                Storage::disk($storedAvatar->disk)->delete($storedAvatar->path);
+            }
+
+            throw $exception;
         }
-
-        $user->update($update);
-
-        // The previous avatar asset is soft-deleted, but its physical file is
-        // intentionally left on disk — orphan cleanup is deferred to PR-07.
-        $previousAvatarAsset?->delete();
 
         $this->logger->info(
             $avatar !== null ? 'profile.avatar.updated' : 'profile.updated',
@@ -52,9 +80,10 @@ final class UpdateUserProfileAction
 
     private function createAvatarAsset(StoredMedia $stored, User $user): MediaAsset
     {
-        $orientation = $stored->width !== null && $stored->height !== null
-            ? $this->orientationClassifier->classify($stored->width, $stored->height)
-            : null;
+        $hasValidDimensions = $stored->width !== null
+            && $stored->height !== null
+            && $stored->width > 0
+            && $stored->height > 0;
 
         return MediaAsset::create([
             'owner_user_id' => $user->id,
@@ -67,10 +96,12 @@ final class UpdateUserProfileAction
             'byte_size' => $stored->byteSize,
             'width' => $stored->width,
             'height' => $stored->height,
-            'aspect_ratio' => $stored->width !== null && $stored->height !== null
+            'aspect_ratio' => $hasValidDimensions
                 ? round($stored->width / $stored->height, 6)
                 : null,
-            'orientation' => $orientation,
+            'orientation' => $hasValidDimensions
+                ? $this->orientationClassifier->classify($stored->width, $stored->height)
+                : null,
             'status' => MediaStatus::Ready,
             'visibility' => MediaVisibility::Public,
         ]);

@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
+use Throwable;
 
 class DemoFillSeeder extends Seeder
 {
@@ -219,31 +220,51 @@ class DemoFillSeeder extends Seeder
 
         foreach ($titles as $index => $title) {
             $author = $authors[$index % $authors->count()];
-            $imageAssetId = $this->generatePostImage($author->id, $index + 1);
+
+            // The image file is written to disk first (slow, external I/O
+            // that doesn't belong inside a DB transaction). If the DB work
+            // below then fails, the file is removed as compensation — it
+            // isn't covered by the transaction rollback.
+            $imagePath = $this->generatePostImage($author->id, $index + 1);
             $categoryId = $categoryIds === [] || $index % 3 === 2
                 ? null
                 : $categoryIds[$index % count($categoryIds)];
 
-            DB::table('posts')->updateOrInsert(
-                ['title' => $title],
-                [
-                    'user_id' => $author->id,
-                    'description' => fake()->paragraph(3),
-                    'image_asset_id' => $imageAssetId,
-                    'source_url' => null,
-                    'category_id' => $categoryId,
-                    'status' => PostStatus::Published->value,
-                    // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
-                    'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),
-                    'deleted_at' => null, // clear any previous soft-delete so Eloquent finds the row
-                    'upvotes_count' => 0,
-                    'downvotes_count' => 0,
-                    'comments_count' => 0,
-                    'hot_score' => 0,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ],
-            );
+            try {
+                DB::transaction(function () use ($author, $title, $imagePath, $categoryId, $baseTime, $index, $now): void {
+                    $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id);
+
+                    // Raw query builder (not Eloquent) is intentional here:
+                    // this loop runs once per demo post title (up to ~99) on
+                    // every re-seed, and updateOrInsert() keeps that bulk
+                    // upsert fast without instantiating/hydrating a model per
+                    // row.
+                    DB::table('posts')->updateOrInsert(
+                        ['title' => $title],
+                        [
+                            'user_id' => $author->id,
+                            'description' => fake()->paragraph(3),
+                            'image_asset_id' => $imageAssetId,
+                            'source_url' => null,
+                            'category_id' => $categoryId,
+                            'status' => PostStatus::Published->value,
+                            // 14 h × 99 posts = 1386 h = 57.75 days — always within the 60-day window
+                            'published_at' => $baseTime->addHours($index * 14)->toDateTimeString(),
+                            'deleted_at' => null, // clear any previous soft-delete so Eloquent finds the row
+                            'upvotes_count' => 0,
+                            'downvotes_count' => 0,
+                            'comments_count' => 0,
+                            'hot_score' => 0,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ],
+                    );
+                });
+            } catch (Throwable $exception) {
+                Storage::disk('public')->delete($imagePath);
+
+                throw $exception;
+            }
 
             $this->command->getOutput()->write('.');
         }
@@ -259,7 +280,7 @@ class DemoFillSeeder extends Seeder
     // Image generation (5 visual styles)
     // -------------------------------------------------------------------------
 
-    private function generatePostImage(int $userId, int $index): int
+    private function generatePostImage(int $userId, int $index): string
     {
         $palette = self::PALETTES[($index - 1) % count(self::PALETTES)];
         $style = ($index - 1) % 5;
@@ -291,6 +312,28 @@ class DemoFillSeeder extends Seeder
             throw new RuntimeException("Unable to create demo fill image at [{$path}].");
         }
 
+        return $path;
+    }
+
+    /**
+     * Reuses the media_assets row already at this (disk, path) instead of
+     * inserting a new one on every re-seed — otherwise each rerun would leave
+     * the previous run's row behind, active but no longer referenced by any
+     * post. generatePostImage() always writes an 800x600 JPEG, so dimensions
+     * are fixed rather than re-derived from the file.
+     */
+    private function ensurePostImageMediaAsset(string $path, int $userId): int
+    {
+        $existingId = DB::table('media_assets')
+            ->where(['disk' => 'public', 'path' => $path])
+            ->value('id');
+
+        if ($existingId !== null) {
+            return $existingId;
+        }
+
+        $width = 800;
+        $height = 600;
         $now = now()->toDateTimeString();
 
         return DB::table('media_assets')->insertGetId([
@@ -298,13 +341,13 @@ class DemoFillSeeder extends Seeder
             'kind' => MediaKind::PostImage->value,
             'disk' => 'public',
             'path' => $path,
-            'original_filename' => $filename,
+            'original_filename' => basename($path),
             'mime_type' => 'image/jpeg',
             'extension' => 'jpg',
-            'byte_size' => strlen($contents),
-            'width' => $w,
-            'height' => $h,
-            'aspect_ratio' => round($w / $h, 6),
+            'byte_size' => Storage::disk('public')->size($path),
+            'width' => $width,
+            'height' => $height,
+            'aspect_ratio' => round($width / $height, 6),
             'orientation' => ImageOrientation::Landscape->value,
             'status' => MediaStatus::Ready->value,
             'visibility' => MediaVisibility::Public->value,

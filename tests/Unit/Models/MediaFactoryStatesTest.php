@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MediaKind;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -32,4 +33,14 @@ it('attaches an avatar media asset via the withAvatar state', function () {
 
     expect($user->avatar_asset_id)->not->toBeNull()
         ->and($user->avatarAsset->kind)->toBe(MediaKind::Avatar);
+});
+
+it('creates no database records when withAvatar is combined with make', function () {
+    $mediaAssetCountBefore = MediaAsset::query()->count();
+
+    $user = User::factory()->withAvatar()->make();
+
+    expect($user->exists)->toBeFalse()
+        ->and(User::query()->where('username', $user->username)->exists())->toBeFalse()
+        ->and(MediaAsset::query()->count())->toBe($mediaAssetCountBefore);
 });

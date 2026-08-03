@@ -85,15 +85,19 @@ class UserFactory extends Factory
 
     /**
      * Attaches a real MediaAsset (kind: avatar) as this user's avatar.
-     * Pass path/disk to control the exact identity assertions in a test rely on.
+     * Pass path/disk to control the exact identity assertions in a test rely
+     * on. The asset is only created in afterCreating() — a state closure runs
+     * for make() too, and make() must not touch the database.
      */
     public function withAvatar(?string $path = null, ?string $disk = null): static
     {
-        return $this->state(fn (): array => [
-            'avatar_asset_id' => MediaAsset::factory()->avatar()->create([
+        return $this->afterCreating(function (User $user) use ($path, $disk): void {
+            $asset = MediaAsset::factory()->avatar()->create([
                 'disk' => $disk ?? 'public',
                 'path' => $path ?? 'avatars/'.Str::uuid()->toString().'.jpg',
-            ])->id,
-        ]);
+            ]);
+
+            $user->update(['avatar_asset_id' => $asset->id]);
+        });
     }
 }

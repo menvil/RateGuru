@@ -5,6 +5,7 @@ namespace Tests\Feature\Seeders;
 use App\Models\Category;
 use App\Models\Comment;
 use App\Models\CommentVote;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\RatingVote;
@@ -89,7 +90,20 @@ it('creates a mix of categorized and uncategorized large demo posts with media',
 
 it('rebuilds generated interactions and media without accumulating rows', function () {
     $this->seed(SmallDemoFillSeeder::class);
+
+    $mediaAssetIdsAfterFirstRun = Post::query()
+        ->where('title', 'like', 'Large Demo Sample %')
+        ->pluck('image_asset_id')
+        ->sort()
+        ->values();
+
     $this->seed(SmallDemoFillSeeder::class);
+
+    $mediaAssetIdsAfterSecondRun = Post::query()
+        ->where('title', 'like', 'Large Demo Sample %')
+        ->pluck('image_asset_id')
+        ->sort()
+        ->values();
 
     expect(User::query()->where('email', 'like', 'fill%@demo.test')->count())->toBe(6)
         ->and(Post::query()->where('title', 'like', 'Large Demo Sample %')->count())->toBe(3)
@@ -97,5 +111,7 @@ it('rebuilds generated interactions and media without accumulating rows', functi
         ->and(RatingVote::query()->count())->toBe(18)
         ->and(Comment::withTrashed()->count())->toBe(15)
         ->and(CommentVote::query()->count())->toBe(45)
-        ->and(Storage::disk('public')->allFiles('posts'))->toHaveCount(3);
+        ->and(Storage::disk('public')->allFiles('posts'))->toHaveCount(3)
+        ->and(MediaAsset::query()->count())->toBe(3)
+        ->and($mediaAssetIdsAfterSecondRun)->toEqual($mediaAssetIdsAfterFirstRun);
 });

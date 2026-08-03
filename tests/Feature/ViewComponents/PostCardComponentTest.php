@@ -456,7 +456,7 @@ it('lazy loads the feed image by default and eager loads it when marked as the f
 });
 
 it('resolves post author avatar via the resolved avatar accessor', function () {
-    $author = User::factory()->withAvatar()->make([
+    $author = User::factory()->withAvatar()->create([
         'name' => 'Demo Chef',
         'username' => 'demo_chef',
     ]);
