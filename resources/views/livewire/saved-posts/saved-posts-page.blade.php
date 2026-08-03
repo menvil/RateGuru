@@ -14,6 +14,7 @@
                     :post="$post"
                     :rating-groups="$ratingGroups"
                     :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
+                    :eager-image="$loop->first"
                 />
             @endforeach
         </div>

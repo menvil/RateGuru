@@ -10,7 +10,7 @@
             <div class="flex min-w-0 items-center gap-4">
                 <div data-testid="profile-avatar">
                     <x-ui.avatar
-                        :src="$profileUser->avatar_path ? \Illuminate\Support\Facades\Storage::disk('public')->url($profileUser->avatar_path) : $profileUser->avatar_url"
+                        :src="$profileUser->resolved_avatar_url"
                         :name="$this->displayName"
                         size="xl"
                     />
@@ -148,6 +148,7 @@
                                 <x-feed.post-card
                                     :post="$post"
                                     :rating-groups="$ratingGroups"
+                                    :eager-image="$loop->first"
                                     wire:key="profile-post-{{ $post->id }}"
                                 />
                             @endforeach
@@ -205,6 +206,7 @@
                                 <x-feed.post-card
                                     :post="$post"
                                     :rating-groups="$ratingGroups"
+                                    :eager-image="$loop->first"
                                     wire:key="profile-saved-post-{{ $post->id }}"
                                 />
                             @endforeach

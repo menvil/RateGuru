@@ -366,3 +366,45 @@ it('hides save button in post drawer when feature is disabled', function () {
 
     expect($html)->not->toContain('data-testid="save-post-button"');
 });
+
+it('does not crop the drawer post image to a fixed aspect ratio', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
+
+    expect($html)
+        ->toContain('/storage/posts/1/dish.jpg')
+        ->toContain('object-contain')
+        ->not->toContain('aspect-[4/3]')
+        ->not->toContain('object-cover');
+});
+
+it('renders the drawer fullscreen image with contain behavior', function () {
+    $post = Post::factory()->published()->create([
+        'title' => 'Dish',
+        'image_url' => '/storage/posts/1/dish.jpg',
+    ]);
+
+    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
+
+    expect($html)
+        ->toContain('data-testid="post-fullscreen-image"')
+        ->toContain('max-h-[80vh]')
+        ->toContain('object-contain');
+});
+
+it('resolves drawer author avatar via the resolved avatar accessor', function () {
+    $author = User::factory()->create([
+        'name' => 'Demo Chef',
+        'avatar_path' => null,
+        'avatar_url' => 'https://example.test/avatar.jpg',
+    ]);
+    $post = Post::factory()->published()->for($author)->create();
+
+    $html = Livewire::test(PostDrawer::class, ['postId' => $post->id])->html();
+
+    expect($html)->toContain('https://example.test/avatar.jpg');
+});

@@ -50,6 +50,7 @@
 /public/storage
 /public/hot
 /public/build
+/public/test-fixtures
 
 /plans
 /.claude/worktrees

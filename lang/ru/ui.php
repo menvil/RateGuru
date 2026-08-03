@@ -59,6 +59,7 @@ return [
         'delete_confirm_title' => 'Удалить пост?',
         'delete_confirm_description' => 'Пост будет удалён из публичных лент.',
         'share_title' => 'Поделиться постом',
+        'image_alt_fallback' => 'Изображение поста',
     ],
     'comments' => [
         'title' => 'Комментарии',

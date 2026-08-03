@@ -126,7 +126,7 @@
                     />
 
                     <template x-if="previewUrl && imageTab === 'file'">
-                        <img :src="previewUrl" alt="Selected image preview" class="max-h-56 w-full rounded-rgMedia object-contain" />
+                        <img :src="previewUrl" alt="Selected image preview" decoding="async" class="max-h-56 w-full rounded-rgMedia object-contain" />
                     </template>
 
                     <div x-show="!previewUrl || imageTab !== 'file'" class="flex flex-col items-center gap-2">
@@ -158,7 +158,7 @@
                     x-on:input="previewUrl = $event.target.value || null"
                 />
                 <template x-if="previewUrl && imageTab === 'url'">
-                    <img :src="previewUrl" alt="Image preview" class="max-h-48 w-full rounded-rgMedia object-contain" />
+                    <img :src="previewUrl" alt="Image preview" decoding="async" class="max-h-48 w-full rounded-rgMedia object-contain" />
                 </template>
             </div>
             @endif

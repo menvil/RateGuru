@@ -30,10 +30,10 @@
         <div class="flex min-w-0 items-start gap-2">
             @if($post->user?->username)
                 <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate x-on:click.stop class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                    <x-ui.avatar :name="$post->user->name" size="md" />
+                    <x-ui.avatar :src="$post->user?->resolved_avatar_url" :name="$post->user->name" size="md" />
                 </a>
             @else
-                <x-ui.avatar :name="$post->user?->name ?? 'User'" size="md" />
+                <x-ui.avatar :src="$post->user?->resolved_avatar_url" :name="$post->user?->name ?? 'User'" size="md" />
             @endif
             <div class="min-w-0 flex-1">
                 @if($post->user?->username)
@@ -65,19 +65,15 @@
         @endif
 
         @if($post->public_image_url)
-            <button
-                type="button"
-                class="mt-3 block w-full cursor-zoom-in rounded-rgMedia focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                x-on:click.stop="imageOpen = true"
-                data-testid="post-card-image-open"
-                aria-label="{{ __('ui.a11y.open_image') }}"
-            >
-                <img
-                    src="{{ $post->public_image_url }}"
-                    alt="{{ $post->title }}"
-                    class="aspect-[16/10] w-full rounded-rgMedia object-cover"
-                >
-            </button>
+            <div class="mt-3">
+                <x-media.post-image
+                    :post="$post"
+                    context="feed"
+                    open-fullscreen="imageOpen = true"
+                    testid="post-card-image-open"
+                    :loading="$eagerImage ? null : 'lazy'"
+                />
+            </div>
         @else
             <div class="mt-3">
                 <x-ui.image-placeholder label="Post image" ratio="feed" />
@@ -210,12 +206,12 @@
 
             @if($post->public_image_url)
                 <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
-                    <img
-                        src="{{ $post->public_image_url }}"
-                        alt="{{ $post->title }}"
-                        class="max-h-[80vh] w-full rounded-rgMedia object-contain"
-                        data-testid="post-card-fullscreen-image"
-                    >
+                    <x-media.post-image
+                        :post="$post"
+                        context="fullscreen"
+                        image-testid="post-card-fullscreen-image"
+                        loading="lazy"
+                    />
                 </x-ui.modal>
             @endif
         </footer>

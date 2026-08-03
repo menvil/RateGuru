@@ -8,10 +8,10 @@
 >
     @if($comment->user?->username)
         <a href="{{ route('profile.show', $comment->user->username) }}" wire:navigate class="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-            <x-ui.avatar :src="$comment->user?->avatar_url" :name="$comment->user->name" size="md" />
+            <x-ui.avatar :src="$comment->user?->resolved_avatar_url" :name="$comment->user->name" size="md" />
         </a>
     @else
-        <x-ui.avatar :src="$comment->user?->avatar_url" :name="$comment->user?->name ?? __('ui.user.unknown')" size="md" />
+        <x-ui.avatar :src="$comment->user?->resolved_avatar_url" :name="$comment->user?->name ?? __('ui.user.unknown')" size="md" />
     @endif
 
     <div class="min-w-0">

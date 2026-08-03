@@ -59,6 +59,7 @@ return [
         'delete_confirm_title' => 'Delete post?',
         'delete_confirm_description' => 'This will remove the post from public feeds.',
         'share_title' => 'Share this post',
+        'image_alt_fallback' => 'Post image',
     ],
     'comments' => [
         'title' => 'Comments',
