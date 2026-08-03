@@ -69,7 +69,9 @@ it('uses summary_large_image twitter card when post has image', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('content="summary_large_image"', false);
+        ->assertSee('content="summary_large_image"', false)
+        ->assertSee('<meta property="og:image" content="https://cdn.example.com/image.jpg">', false)
+        ->assertSee('<meta property="og:image:secure_url" content="https://cdn.example.com/image.jpg">', false);
 });
 
 it('does not emit og secure image url for an insecure external image', function () {

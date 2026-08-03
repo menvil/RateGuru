@@ -44,3 +44,13 @@ it('creates no database records when withAvatar is combined with make', function
         ->and(User::query()->where('username', $user->username)->exists())->toBeFalse()
         ->and(MediaAsset::query()->count())->toBe($mediaAssetCountBefore);
 });
+
+it('creates no database records when withImage is combined with make', function () {
+    $mediaAssetCountBefore = MediaAsset::query()->count();
+
+    $post = Post::factory()->withImage()->make();
+
+    expect($post->exists)->toBeFalse()
+        ->and($post->image_asset_id)->toBeNull()
+        ->and(MediaAsset::query()->count())->toBe($mediaAssetCountBefore);
+});

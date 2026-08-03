@@ -31,7 +31,7 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
     ): Builder {
         $query = $this->base()
             ->published()
-            ->with(['user', 'tags', 'category']);
+            ->with(['user.avatarAsset', 'imageAsset', 'tags', 'category']);
 
         if ($followedByUserId !== null) {
             $query->whereIn(

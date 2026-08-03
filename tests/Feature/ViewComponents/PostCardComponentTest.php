@@ -28,13 +28,13 @@ it('renders post card title', function () {
 });
 
 it('renders post image when an image asset exists', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
-    expect($html)->toContain('posts/1/dish.jpg');
+    expect($html)->toContain($post->public_image_url);
 });
 
 it('renders image placeholder when there is no image asset', function () {
@@ -95,7 +95,7 @@ it('renders an inactive category as non-navigable post metadata', function () {
 });
 
 it('renders post description under the title before the image', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/tacos.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/tacos.jpg')->create([
         'title' => 'Street Tacos',
         'description' => 'Corn tortillas, salsa, cilantro, and a street-food presentation',
     ]);
@@ -104,7 +104,7 @@ it('renders post description under the title before the image', function () {
 
     $titlePosition = strpos($html, 'Street Tacos');
     $descriptionPosition = strpos($html, 'Corn tortillas, salsa, cilantro, and a street-food presentation');
-    $imagePosition = strpos($html, 'posts/1/tacos.jpg');
+    $imagePosition = strpos($html, $post->public_image_url);
 
     expect($titlePosition)->not->toBeFalse()
         ->and($descriptionPosition)->not->toBeFalse()
@@ -415,21 +415,21 @@ it('hides save button on post card when feature is disabled', function () {
 });
 
 it('does not crop the feed post image to a fixed aspect ratio', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 
     $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
 
     expect($html)
-        ->toContain('posts/1/dish.jpg')
+        ->toContain($post->public_image_url)
         ->toContain('object-contain')
         ->not->toContain('aspect-[16/10]')
         ->not->toContain('object-cover');
 });
 
 it('renders the feed fullscreen image with contain behavior', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 
@@ -442,7 +442,7 @@ it('renders the feed fullscreen image with contain behavior', function () {
 });
 
 it('lazy loads the feed image by default and eager loads it when marked as the first card', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 

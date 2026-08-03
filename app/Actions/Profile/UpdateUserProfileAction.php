@@ -3,17 +3,13 @@
 namespace App\Actions\Profile;
 
 use App\Enums\MediaKind;
-use App\Enums\MediaStatus;
-use App\Enums\MediaVisibility;
-use App\Models\MediaAsset;
 use App\Models\User;
 use App\Services\Images\ImageStorage;
 use App\Services\Images\StoredMedia;
-use App\Support\Media\ImageOrientationClassifier;
+use App\Support\Media\MediaAssetCreator;
 use App\Support\Observability\DomainLogger;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 final class UpdateUserProfileAction
@@ -21,7 +17,7 @@ final class UpdateUserProfileAction
     public function __construct(
         private readonly DomainLogger $logger,
         private readonly ImageStorage $imageStorage,
-        private readonly ImageOrientationClassifier $orientationClassifier,
+        private readonly MediaAssetCreator $mediaAssetCreator,
     ) {}
 
     public function execute(User $user, array $validatedData, ?UploadedFile $avatar): void
@@ -53,20 +49,27 @@ final class UpdateUserProfileAction
                     ->avatarAsset;
 
                 if ($storedAvatar !== null) {
-                    $asset = $this->createAvatarAsset($storedAvatar, $user);
+                    $asset = $this->mediaAssetCreator->create($storedAvatar, MediaKind::Avatar, $user);
                     $update['avatar_asset_id'] = $asset->id;
                 }
 
                 $user->update($update);
 
-                // The previous avatar asset is soft-deleted, but its physical
-                // file is intentionally left on disk — orphan cleanup is
-                // deferred to PR-07.
-                $previousAvatarAsset?->delete();
+                if ($storedAvatar !== null) {
+                    // The previous avatar asset is soft-deleted, but its
+                    // physical file is intentionally left on disk — orphan
+                    // cleanup is deferred to PR-07. Only run this when a
+                    // replacement was actually stored — otherwise an
+                    // ordinary profile edit with no new avatar would
+                    // soft-delete the user's current, unchanged avatar.
+                    $previousAvatarAsset?->delete();
+                }
             });
         } catch (Throwable $exception) {
+            // The file was already written before the transaction started; a
+            // DB failure past that point must not leave it orphaned on disk.
             if ($storedAvatar !== null) {
-                Storage::disk($storedAvatar->disk)->delete($storedAvatar->path);
+                $this->deleteStoredMediaSafely($storedAvatar);
             }
 
             throw $exception;
@@ -78,32 +81,16 @@ final class UpdateUserProfileAction
         );
     }
 
-    private function createAvatarAsset(StoredMedia $stored, User $user): MediaAsset
+    /**
+     * Best-effort compensation: a cleanup failure is reported but never
+     * replaces (or suppresses) the original exception that triggered it.
+     */
+    private function deleteStoredMediaSafely(StoredMedia $media): void
     {
-        $hasValidDimensions = $stored->width !== null
-            && $stored->height !== null
-            && $stored->width > 0
-            && $stored->height > 0;
-
-        return MediaAsset::create([
-            'owner_user_id' => $user->id,
-            'kind' => MediaKind::Avatar,
-            'disk' => $stored->disk,
-            'path' => $stored->path,
-            'original_filename' => $stored->originalFilename,
-            'mime_type' => $stored->mimeType,
-            'extension' => $stored->extension,
-            'byte_size' => $stored->byteSize,
-            'width' => $stored->width,
-            'height' => $stored->height,
-            'aspect_ratio' => $hasValidDimensions
-                ? round($stored->width / $stored->height, 6)
-                : null,
-            'orientation' => $hasValidDimensions
-                ? $this->orientationClassifier->classify($stored->width, $stored->height)
-                : null,
-            'status' => MediaStatus::Ready,
-            'visibility' => MediaVisibility::Public,
-        ]);
+        try {
+            $this->imageStorage->delete($media);
+        } catch (Throwable $cleanupException) {
+            report($cleanupException);
+        }
     }
 }

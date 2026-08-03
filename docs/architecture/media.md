@@ -28,7 +28,8 @@ Neither `media_assets` nor `media_variants` stores `url`, `public_url`,
 `public`, later `s3`) plus the path inside that disk is the only identity a
 file has. This is what makes it possible to move from local storage to S3/CDN
 later without rewriting stored data: existing rows already carry everything
-needed to resolve a URL under whatever disk they name.
+needed to resolve a URL under whatever disk they name. `(disk, path)` is
+unique across `media_assets`, matching the fact that it *is* the identity.
 
 Where a URL is genuinely needed right now (Blade views and the public API
 built before this PR), `Post::public_image_url` and `User::resolved_avatar_url`
@@ -50,6 +51,23 @@ Deleting a `Post` or `User` does not cascade-delete their asset — the FK just
 goes null, leaving the (soft-deleted where applicable) asset row and its
 physical file in place. Full lifecycle management — deciding when an
 orphaned asset's file should actually be removed — is PR-07's job.
+
+## Filesystem writes are not transactional with the database
+
+Storing a file and writing the database rows that reference it are two
+separate operations, and only the second one can be rolled back. Upload
+actions (`CreatePostAction`, `UpdateUserProfileAction`) always write the file
+*first*, outside any `DB::transaction()`, then perform the `MediaAsset` insert
+and the owning row's update inside a transaction. If that transaction fails
+for any reason, the action compensates by deleting the just-written file
+through `ImageStorage::delete()` — best-effort, and a failure during that
+cleanup is reported but never replaces or suppresses the original exception
+that triggered it.
+
+Avatar replacement additionally locks the user row (`lockForUpdate()`) before
+reading and replacing the current `avatar_asset_id`, so two concurrent
+replacements can't both read the same "previous" asset and leave one of them
+orphaned. This is still not full lifecycle management — see PR-07 below.
 
 ## Open Graph is a variant, not a post column
 

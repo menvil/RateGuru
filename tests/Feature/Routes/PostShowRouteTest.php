@@ -45,7 +45,7 @@ it('renders post hero image', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
-        ->assertSee('posts/1/dish.jpg')
+        ->assertSee($post->public_image_url)
         ->assertSee('alt="Dish"', false)
         ->assertSee('data-testid="post-show-image-open"', false)
         ->assertSee('data-testid="post-fullscreen-image"', false);

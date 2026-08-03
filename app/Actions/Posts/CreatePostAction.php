@@ -5,14 +5,11 @@ namespace App\Actions\Posts;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaKind;
-use App\Enums\MediaStatus;
-use App\Enums\MediaVisibility;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Models\Category;
-use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
@@ -20,7 +17,7 @@ use App\Services\Images\ImageStorage;
 use App\Services\Images\StoredMedia;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
-use App\Support\Media\ImageOrientationClassifier;
+use App\Support\Media\MediaAssetCreator;
 use App\Support\Observability\DomainLogger;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Database\Eloquent\Collection;
@@ -35,7 +32,7 @@ final class CreatePostAction
         private readonly ActionRateLimiter $rateLimiter,
         private readonly DomainLogger $logger,
         private readonly RatingConfigurationManager $ratingConfiguration,
-        private readonly ImageOrientationClassifier $orientationClassifier,
+        private readonly MediaAssetCreator $mediaAssetCreator,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
@@ -67,32 +64,43 @@ final class CreatePostAction
             ? $this->imageStorage->storePostImage($data->image, $user)
             : null;
 
-        $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers, $storedImage) {
-            $imageAsset = $storedImage !== null
-                ? $this->createImageAsset($storedImage, $user)
-                : null;
+        try {
+            $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers, $storedImage) {
+                $imageAsset = $storedImage !== null
+                    ? $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)
+                    : null;
 
-            $post = Post::create([
-                'user_id' => $user->id,
-                'title' => $data->title,
-                'description' => $data->description,
-                'source_url' => $data->sourceUrl,
-                'category_id' => $categoryId,
-                'status' => $status,
-                'published_at' => $publishedAt,
-                'image_asset_id' => $imageAsset?->id,
-            ]);
+                $post = Post::create([
+                    'user_id' => $user->id,
+                    'title' => $data->title,
+                    'description' => $data->description,
+                    'source_url' => $data->sourceUrl,
+                    'category_id' => $categoryId,
+                    'status' => $status,
+                    'published_at' => $publishedAt,
+                    'image_asset_id' => $imageAsset?->id,
+                ]);
 
-            if ($data->tagIds !== []) {
-                $post->tags()->sync($data->tagIds);
+                if ($data->tagIds !== []) {
+                    $post->tags()->sync($data->tagIds);
+                }
+
+                if ($authorAnswers !== []) {
+                    $post->authorAnswers()->createMany($authorAnswers);
+                }
+
+                return $post;
+            });
+        } catch (Throwable $exception) {
+            // The file was already written before the transaction started; a
+            // DB failure past that point (asset insert, post insert, tag
+            // sync, author answers) must not leave it orphaned on disk.
+            if ($storedImage !== null) {
+                $this->deleteStoredMediaSafely($storedImage);
             }
 
-            if ($authorAnswers !== []) {
-                $post->authorAnswers()->createMany($authorAnswers);
-            }
-
-            return $post;
-        });
+            throw $exception;
+        }
 
         $this->logger->info('posts.created', [
             'post_id' => $post->id,
@@ -117,33 +125,17 @@ final class CreatePostAction
         return $post;
     }
 
-    private function createImageAsset(StoredMedia $stored, User $user): MediaAsset
+    /**
+     * Best-effort compensation: a cleanup failure is reported but never
+     * replaces (or suppresses) the original exception that triggered it.
+     */
+    private function deleteStoredMediaSafely(StoredMedia $media): void
     {
-        $hasValidDimensions = $stored->width !== null
-            && $stored->height !== null
-            && $stored->width > 0
-            && $stored->height > 0;
-
-        return MediaAsset::create([
-            'owner_user_id' => $user->id,
-            'kind' => MediaKind::PostImage,
-            'disk' => $stored->disk,
-            'path' => $stored->path,
-            'original_filename' => $stored->originalFilename,
-            'mime_type' => $stored->mimeType,
-            'extension' => $stored->extension,
-            'byte_size' => $stored->byteSize,
-            'width' => $stored->width,
-            'height' => $stored->height,
-            'aspect_ratio' => $hasValidDimensions
-                ? round($stored->width / $stored->height, 6)
-                : null,
-            'orientation' => $hasValidDimensions
-                ? $this->orientationClassifier->classify($stored->width, $stored->height)
-                : null,
-            'status' => MediaStatus::Ready,
-            'visibility' => MediaVisibility::Public,
-        ]);
+        try {
+            $this->imageStorage->delete($media);
+        } catch (Throwable $cleanupException) {
+            report($cleanupException);
+        }
     }
 
     private function validatedCategoryId(?int $categoryId): ?int

@@ -23,7 +23,10 @@ return new class extends Migration
 
             $table->unsignedInteger('width')->nullable();
             $table->unsignedInteger('height')->nullable();
-            $table->decimal('aspect_ratio', 10, 6)->nullable();
+            // Wider than a "normal" photo ratio ever needs, because avatars
+            // have no width/height validation bounds and can carry extreme
+            // aspect ratios that decimal(10,6) (max ~9999.999999) can't hold.
+            $table->decimal('aspect_ratio', 12, 6)->nullable();
             $table->string('orientation')->nullable();
 
             $table->string('checksum_sha256')->nullable();
@@ -40,6 +43,7 @@ return new class extends Migration
             $table->index('status');
             $table->index('disk');
             $table->index('created_at');
+            $table->unique(['disk', 'path']);
         });
     }
 

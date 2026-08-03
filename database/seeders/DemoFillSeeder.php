@@ -221,11 +221,22 @@ class DemoFillSeeder extends Seeder
         foreach ($titles as $index => $title) {
             $author = $authors[$index % $authors->count()];
 
+            // This seeder regenerates the same deterministic path on every
+            // rerun, so on a failure below the file may belong to an
+            // already-seeded, still-referenced post rather than to this
+            // attempt. Check before writing: only a path with no existing
+            // media_assets row is "new" and safe to delete on failure —
+            // otherwise compensating would break an existing post's image.
+            $imagePath = $this->postImagePath($author->id, $index + 1);
+            $isNewImage = ! DB::table('media_assets')
+                ->where(['disk' => 'public', 'path' => $imagePath])
+                ->exists();
+
             // The image file is written to disk first (slow, external I/O
             // that doesn't belong inside a DB transaction). If the DB work
-            // below then fails, the file is removed as compensation — it
-            // isn't covered by the transaction rollback.
-            $imagePath = $this->generatePostImage($author->id, $index + 1);
+            // below then fails, a newly-created file is removed as
+            // compensation — it isn't covered by the transaction rollback.
+            $this->generatePostImage($author->id, $index + 1);
             $categoryId = $categoryIds === [] || $index % 3 === 2
                 ? null
                 : $categoryIds[$index % count($categoryIds)];
@@ -261,7 +272,9 @@ class DemoFillSeeder extends Seeder
                     );
                 });
             } catch (Throwable $exception) {
-                Storage::disk('public')->delete($imagePath);
+                if ($isNewImage) {
+                    Storage::disk('public')->delete($imagePath);
+                }
 
                 throw $exception;
             }
@@ -301,8 +314,7 @@ class DemoFillSeeder extends Seeder
 
         $this->drawVignette($im, $w, $h);
 
-        $filename = 'fill_post_'.str_pad((string) $index, 3, '0', STR_PAD_LEFT).'.jpg';
-        $path = "posts/{$userId}/{$filename}";
+        $path = $this->postImagePath($userId, $index);
         ob_start();
         $encoded = imagejpeg($im, null, 85);
         $contents = ob_get_clean();
@@ -315,6 +327,13 @@ class DemoFillSeeder extends Seeder
         return $path;
     }
 
+    private function postImagePath(int $userId, int $index): string
+    {
+        $filename = 'fill_post_'.str_pad((string) $index, 3, '0', STR_PAD_LEFT).'.jpg';
+
+        return "posts/{$userId}/{$filename}";
+    }
+
     /**
      * Reuses the media_assets row already at this (disk, path) instead of
      * inserting a new one on every re-seed — otherwise each rerun would leave
@@ -324,11 +343,20 @@ class DemoFillSeeder extends Seeder
      */
     private function ensurePostImageMediaAsset(string $path, int $userId): int
     {
+        // Raw query builder bypasses the model's SoftDeletes scope, so this
+        // finds the row even if it was previously soft-deleted. Restore it
+        // unconditionally (a no-op when it wasn't trashed) — otherwise a
+        // post would point at a soft-deleted asset that its imageAsset
+        // relation excludes, leaving it with no resolvable image.
         $existingId = DB::table('media_assets')
             ->where(['disk' => 'public', 'path' => $path])
             ->value('id');
 
         if ($existingId !== null) {
+            DB::table('media_assets')
+                ->where('id', $existingId)
+                ->update(['deleted_at' => null]);
+
             return $existingId;
         }
 

@@ -95,6 +95,12 @@ it('does not change the avatar asset when no avatar is uploaded', function () {
         ->assertHasNoErrors();
 
     expect($user->fresh()->avatar_asset_id)->toBe($existingAvatarAssetId);
+
+    // The FK staying the same isn't enough on its own — the referenced
+    // asset must also remain active, or resolved_avatar_url silently
+    // breaks because avatarAsset excludes soft-deleted rows.
+    expect(MediaAsset::query()->find($existingAvatarAssetId))->not->toBeNull();
+    expect($user->fresh()->resolved_avatar_url)->not->toBeNull();
 });
 
 it('soft-deletes the previous avatar asset on replacement but leaves the physical file on disk', function () {
@@ -138,6 +144,28 @@ it('deletes the newly stored avatar file when the database transaction fails', f
     // The file was written before the transaction failed; the action must
     // compensate by removing it instead of leaving an orphaned upload.
     expect(Storage::disk('public')->allFiles('avatars'))->toBeEmpty();
+});
+
+it('leaves the previous avatar untouched when the database transaction fails during replacement', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->withAvatar()->create();
+    $previousAssetId = $user->avatar_asset_id;
+    $file = UploadedFile::fake()->image('new-avatar.jpg', 400, 400);
+
+    expect(fn () => app(UpdateUserProfileAction::class)->execute(
+        $user,
+        ['rating_activity_visibility' => 'not_a_real_value'],
+        $file,
+    ))->toThrow(ValueError::class);
+
+    $user = $user->fresh();
+    expect($user->avatar_asset_id)->toBe($previousAssetId);
+    expect(MediaAsset::withTrashed()->find($previousAssetId)->trashed())->toBeFalse();
+
+    // The newly stored file must be cleaned up; only the previous avatar's
+    // asset remains.
+    expect(MediaAsset::query()->count())->toBe(1);
 });
 
 it('does not orphan an intermediate avatar asset when two replacements race on stale user instances', function () {

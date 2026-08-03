@@ -76,18 +76,22 @@ class PostFactory extends Factory
 
     /**
      * Attaches a real MediaAsset (kind: post_image) as this post's image.
-     * Pass path/disk to control the exact identity assertions in a test rely on.
+     * Pass path/disk to control the exact identity assertions in a test rely
+     * on. The asset is only created in afterCreating() — a state closure runs
+     * for make() too, and make() must not touch the database.
      */
     public function withImage(?string $path = null, ?string $disk = null, ?int $width = null, ?int $height = null): static
     {
-        return $this->state(fn (): array => [
-            'image_asset_id' => MediaAsset::factory()
+        return $this->afterCreating(function (Post $post) use ($path, $disk, $width, $height): void {
+            $asset = MediaAsset::factory()
                 ->postImage()
                 ->dimensions($width ?? 1600, $height ?? 900)
                 ->create([
                     'disk' => $disk ?? 'public',
                     'path' => $path ?? 'posts/'.fake()->uuid().'.jpg',
-                ])->id,
-        ]);
+                ]);
+
+            $post->update(['image_asset_id' => $asset->id]);
+        });
     }
 }

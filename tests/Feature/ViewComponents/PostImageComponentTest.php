@@ -12,7 +12,7 @@ it('renders nothing when there is no image asset', function () {
 });
 
 it('renders the feed context without cropping classes', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 
@@ -34,7 +34,7 @@ it('renders the feed context without cropping classes', function () {
 });
 
 it('renders the drawer context without cropping classes', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 
@@ -52,7 +52,7 @@ it('renders the drawer context without cropping classes', function () {
 });
 
 it('renders the standalone context without a fixed aspect ratio or crop', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 
@@ -69,7 +69,7 @@ it('renders the standalone context without a fixed aspect ratio or crop', functi
 });
 
 it('renders the fullscreen context with contain behavior and no click wrapper', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 
@@ -96,7 +96,7 @@ it('falls back to a neutral alt text when the post has no title', function () {
 });
 
 it('falls back to a neutral alt text when the post title is blank', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => '   ',
     ]);
 
@@ -106,7 +106,7 @@ it('falls back to a neutral alt text when the post title is blank', function () 
 });
 
 it('applies the loading attribute only when explicitly provided', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->make([
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 

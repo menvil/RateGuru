@@ -31,7 +31,7 @@ it('creates posts table with required columns', function () {
     expect(Schema::hasColumn('posts', 'category_option_id'))->toBeFalse();
 });
 
-it('does not have the legacy image columns replaced by media_assets', function () {
+it('does not have the legacy image columns', function () {
     expect(Schema::hasColumn('posts', 'image_path'))->toBeFalse();
     expect(Schema::hasColumn('posts', 'image_url'))->toBeFalse();
     expect(Schema::hasColumn('posts', 'thumbnail_url'))->toBeFalse();

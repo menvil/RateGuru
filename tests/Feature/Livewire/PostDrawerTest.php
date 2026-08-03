@@ -196,7 +196,7 @@ it('renders large post image in drawer', function () {
     ]);
 
     Livewire::test(PostDrawer::class, ['postId' => $post->id])
-        ->assertSee('posts/1/dish.jpg')
+        ->assertSee($post->public_image_url)
         ->assertSee('alt="Dish"', false);
 });
 

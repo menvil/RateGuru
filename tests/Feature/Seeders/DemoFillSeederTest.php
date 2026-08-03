@@ -13,7 +13,15 @@ use App\Models\User;
 use Database\Seeders\DefaultCategorySeeder;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Database\Seeders\DemoFillSeeder;
+use Illuminate\Console\Command;
+use Illuminate\Console\OutputStyle;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use ReflectionClass;
+use RuntimeException;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\NullOutput;
+use Throwable;
 
 class SmallDemoFillSeeder extends DemoFillSeeder
 {
@@ -59,6 +67,43 @@ class SmallDemoFillSeeder extends DemoFillSeeder
     protected function deepReplyCount(): int
     {
         return 1;
+    }
+}
+
+/**
+ * The private seeder methods invoked directly (via reflection) below write
+ * console progress output through $this->command — give them a real,
+ * silent one instead of leaving it null.
+ */
+function seederCommandForTesting(): Command
+{
+    $command = new Command;
+    $command->setOutput(new OutputStyle(new ArrayInput([]), new NullOutput));
+
+    return $command;
+}
+
+/**
+ * DB::partialMock() alone produces a mock with none of the real
+ * DatabaseManager's internal state (its constructor never runs), so any
+ * unstubbed method it falls through to — table(), connection(), etc. —
+ * breaks. Copy that state over from the real, already-booted instance so
+ * only transaction() actually behaves differently.
+ */
+function forceNextDbTransactionToThrow(Throwable $exception): void
+{
+    $realDb = app('db');
+    $mock = DB::partialMock();
+    $mock->shouldReceive('transaction')->andThrow($exception);
+
+    $reflection = new ReflectionClass($realDb);
+
+    foreach (['app', 'factory', 'connections', 'dynamicConnectionConfigurations', 'extensions', 'reconnector'] as $property) {
+        if ($reflection->hasProperty($property)) {
+            $reflectionProperty = $reflection->getProperty($property);
+            $reflectionProperty->setAccessible(true);
+            $reflectionProperty->setValue($mock, $reflectionProperty->getValue($realDb));
+        }
     }
 }
 
@@ -114,4 +159,57 @@ it('rebuilds generated interactions and media without accumulating rows', functi
         ->and(Storage::disk('public')->allFiles('posts'))->toHaveCount(3)
         ->and(MediaAsset::query()->count())->toBe(3)
         ->and($mediaAssetIdsAfterSecondRun)->toEqual($mediaAssetIdsAfterFirstRun);
+});
+
+it('does not delete an already-referenced image file when a rerun transaction fails', function () {
+    $this->seed(SmallDemoFillSeeder::class);
+
+    $existingPath = Post::query()
+        ->where('title', 'Large Demo Sample 01')
+        ->firstOrFail()
+        ->imageAsset
+        ->path;
+
+    Storage::disk('public')->assertExists($existingPath);
+
+    $seeder = new SmallDemoFillSeeder;
+    $seeder->setCommand(seederCommandForTesting());
+    $reflection = new ReflectionClass($seeder);
+
+    $createUsers = $reflection->getMethod('createUsers');
+    $createUsers->setAccessible(true);
+    $users = $createUsers->invoke($seeder);
+
+    $createPosts = $reflection->getMethod('createPosts');
+    $createPosts->setAccessible(true);
+
+    // This rerun regenerates the same deterministic image paths as the
+    // first run, so the failure below must not delete a file that an
+    // already-seeded post still references.
+    forceNextDbTransactionToThrow(new RuntimeException('Simulated seeder rerun failure.'));
+
+    expect(fn () => $createPosts->invoke($seeder, $users))
+        ->toThrow(RuntimeException::class, 'Simulated seeder rerun failure.');
+
+    Storage::disk('public')->assertExists($existingPath);
+});
+
+it('restores a soft-deleted media asset instead of leaving a post pointing at a trashed row', function () {
+    $seeder = new SmallDemoFillSeeder;
+    $reflection = new ReflectionClass($seeder);
+    $method = $reflection->getMethod('ensurePostImageMediaAsset');
+    $method->setAccessible(true);
+
+    $userId = User::factory()->create()->id;
+    $path = 'posts/'.$userId.'/fill_post_001.jpg';
+    Storage::disk('public')->put($path, 'fake-bytes');
+
+    $firstId = $method->invoke($seeder, $path, $userId);
+    MediaAsset::query()->find($firstId)->delete();
+    expect(MediaAsset::query()->find($firstId))->toBeNull();
+
+    $secondId = $method->invoke($seeder, $path, $userId);
+
+    expect($secondId)->toBe($firstId)
+        ->and(MediaAsset::query()->find($firstId))->not->toBeNull();
 });
