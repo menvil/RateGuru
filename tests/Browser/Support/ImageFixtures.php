@@ -11,14 +11,19 @@ use Illuminate\Support\Facades\ParallelTesting;
  * exact aspect ratio implied by their name, since these tests assert on
  * rendered aspect ratio, not resolution.
  *
- * Pest's browser driver serves the app in-process against the real
- * storage/app/public directory (via the public/storage symlink), so fixtures
- * are written there directly under a dedicated test-fixtures/ subdirectory —
- * no Storage::fake (invisible to the static-file fast path) and no upload
- * pipeline involved. Call cleanup() after each test that uses write().
+ * Pest's browser driver serves the app in-process, and for any request path
+ * that isn't handled by Laravel routing it first checks
+ * file_exists(public_path($path)) and serves it directly from disk (see
+ * Pest\Browser\Drivers\LaravelHttpServer::handleRequest). Fixtures are
+ * written straight under public/test-fixtures/ so they're reachable that way
+ * with no dependency on the storage:link symlink existing — which it does
+ * not in CI (the workflow never runs `artisan storage:link`), only on dev
+ * machines that ran it during project setup. No Storage::fake (also
+ * invisible to that fast path) and no upload pipeline involved. Call
+ * cleanup() after each test that uses write().
  *
  * Usage in browser tests:
- *   'image_path' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16),
+ *   'image_url' => ImageFixtures::write(...ImageFixtures::PORTRAIT_9X16),
  */
 final class ImageFixtures
 {
@@ -56,12 +61,12 @@ final class ImageFixtures
 
     private static function directory(): string
     {
-        return storage_path('app/public/test-fixtures/'.self::worker());
+        return public_path('test-fixtures/'.self::worker());
     }
 
     /**
-     * Writes a synthetic fixture PNG to the public disk and returns the
-     * relative image_path value to assign on a Post.
+     * Writes a synthetic fixture PNG under the public/ directory and returns
+     * the absolute image_url value to assign on a Post.
      */
     public static function write(int $width, int $height): string
     {
@@ -83,7 +88,7 @@ final class ImageFixtures
         imagepng($image, $directory.'/'.$filename);
         imagedestroy($image);
 
-        return 'test-fixtures/'.self::worker().'/'.$filename;
+        return '/test-fixtures/'.self::worker().'/'.$filename;
     }
 
     /**
