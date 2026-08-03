@@ -21,19 +21,16 @@
     };
 
     // No width/height metadata is stored for post images (out of scope for
-    // this pass — see the media-rendering task notes), so the exact box size
-    // can't be reserved before the image loads. A modest min-height keeps
-    // lazy-loaded images from collapsing to ~0px and then jumping to full
-    // size; it's a heuristic, not a guarantee of zero layout shift.
-    $minHeightClass = match ($context) {
-        'fullscreen' => '',
-        'drawer' => 'min-h-[16vh]',
-        default => 'min-h-[20vh]',
-    };
-
+    // this pass — see the media-rendering task notes), so the exact box
+    // size can't be reserved before the image loads, and a static min-height
+    // can't be un-set once the real (possibly shorter) image has rendered —
+    // it was tried and reverted: it left permanent empty background bars
+    // under short/wide images (e.g. a panorama on a narrow card) instead of
+    // only covering the brief pre-load window. Full CLS elimination needs
+    // stored dimensions; left for a follow-up.
     $containerClasses = $context === 'fullscreen'
         ? 'flex w-full items-center justify-center'
-        : trim("flex w-full items-center justify-center overflow-hidden rounded-rgMedia bg-rg-card2 {$minHeightClass}");
+        : 'flex w-full items-center justify-center overflow-hidden rounded-rgMedia bg-rg-card2';
 
     $imageClasses = "block h-auto w-auto max-w-full {$maxHeightClass} rounded-rgMedia object-contain mx-auto";
 @endphp
