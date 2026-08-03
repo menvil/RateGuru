@@ -12,12 +12,29 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
-use App\Services\Images\ImageStorage;
-use App\Services\Images\StoredMedia;
+use App\Services\Media\MediaStorage;
+use App\Services\Media\StoredMedia;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
+
+function fakeStoredPostImage(
+    string $path = 'posts/1/dish.jpg',
+    ?int $width = 1600,
+    ?int $height = 900,
+): StoredMedia {
+    return new StoredMedia(
+        disk: 'public',
+        path: $path,
+        originalFilename: 'dish.jpg',
+        mimeType: 'image/jpeg',
+        extension: 'jpg',
+        byteSize: 123_456,
+        width: $width,
+        height: $height,
+    );
+}
 
 it('creates a published post for default trusted user', function () {
     $user = User::factory()->create();
@@ -115,45 +132,17 @@ it('creates a post_image media asset from the stored file when an image is provi
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg', 1600, 900);
 
-    $fakeStorage = new class implements ImageStorage
-    {
-        public bool $storePostImageCalled = false;
-
-        public function storePostImage(UploadedFile $file, User $user): StoredMedia
-        {
-            $this->storePostImageCalled = true;
-
-            return new StoredMedia(
-                disk: 'public',
-                path: 'posts/1/dish.jpg',
-                originalFilename: 'dish.jpg',
-                mimeType: 'image/jpeg',
-                extension: 'jpg',
-                byteSize: 123_456,
-                width: 1600,
-                height: 900,
-            );
-        }
-
-        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
-        {
-            throw new RuntimeException('Not used in this test.');
-        }
-
-        public function delete(StoredMedia $media): void
-        {
-            //
-        }
-    };
-
-    app()->instance(ImageStorage::class, $fakeStorage);
+    $mediaStorage = Mockery::mock(MediaStorage::class);
+    $mediaStorage->shouldReceive('store')
+        ->once()
+        ->with($file, Mockery::on(fn ($request) => $request->ownerUserId === $user->id))
+        ->andReturn(fakeStoredPostImage());
+    app()->instance(MediaStorage::class, $mediaStorage);
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Dish with image',
         image: $file,
     ));
-
-    expect($fakeStorage->storePostImageCalled)->toBeTrue();
 
     $post = $post->fresh();
     expect($post->image_asset_id)->not->toBeNull();
@@ -176,34 +165,11 @@ it('creates a media asset with null dimensions and orientation when the file can
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg');
 
-    $fakeStorage = new class implements ImageStorage
-    {
-        public function storePostImage(UploadedFile $file, User $user): StoredMedia
-        {
-            return new StoredMedia(
-                disk: 'public',
-                path: 'posts/1/dish.jpg',
-                originalFilename: 'dish.jpg',
-                mimeType: 'image/jpeg',
-                extension: 'jpg',
-                byteSize: 100,
-                width: null,
-                height: null,
-            );
-        }
-
-        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
-        {
-            throw new RuntimeException('Not used in this test.');
-        }
-
-        public function delete(StoredMedia $media): void
-        {
-            //
-        }
-    };
-
-    app()->instance(ImageStorage::class, $fakeStorage);
+    $mediaStorage = Mockery::mock(MediaStorage::class);
+    $mediaStorage->shouldReceive('store')->once()->andReturn(
+        fakeStoredPostImage(width: null, height: null),
+    );
+    app()->instance(MediaStorage::class, $mediaStorage);
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Dish with unmeasurable image',
@@ -221,34 +187,11 @@ it('creates a media asset with null aspect ratio and orientation instead of divi
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg');
 
-    $fakeStorage = new class implements ImageStorage
-    {
-        public function storePostImage(UploadedFile $file, User $user): StoredMedia
-        {
-            return new StoredMedia(
-                disk: 'public',
-                path: 'posts/1/dish.jpg',
-                originalFilename: 'dish.jpg',
-                mimeType: 'image/jpeg',
-                extension: 'jpg',
-                byteSize: 100,
-                width: 800,
-                height: 0,
-            );
-        }
-
-        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
-        {
-            throw new RuntimeException('Not used in this test.');
-        }
-
-        public function delete(StoredMedia $media): void
-        {
-            //
-        }
-    };
-
-    app()->instance(ImageStorage::class, $fakeStorage);
+    $mediaStorage = Mockery::mock(MediaStorage::class);
+    $mediaStorage->shouldReceive('store')->once()->andReturn(
+        fakeStoredPostImage(width: 800, height: 0),
+    );
+    app()->instance(MediaStorage::class, $mediaStorage);
 
     $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Dish with degenerate dimensions',
@@ -306,34 +249,14 @@ it('propagates the original database exception and separately reports a cleanup 
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
 
-    $fakeStorage = new class implements ImageStorage
-    {
-        public function storePostImage(UploadedFile $file, User $user): StoredMedia
-        {
-            return new StoredMedia(
-                disk: 'public',
-                path: 'posts/1/dish.jpg',
-                originalFilename: 'dish.jpg',
-                mimeType: 'image/jpeg',
-                extension: 'jpg',
-                byteSize: 100,
-                width: 800,
-                height: 600,
-            );
-        }
-
-        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
-        {
-            throw new RuntimeException('Not used in this test.');
-        }
-
-        public function delete(StoredMedia $media): void
-        {
-            throw new RuntimeException('Simulated cleanup failure.');
-        }
-    };
-
-    app()->instance(ImageStorage::class, $fakeStorage);
+    $mediaStorage = Mockery::mock(MediaStorage::class);
+    $mediaStorage->shouldReceive('store')->once()->andReturn(
+        fakeStoredPostImage(width: 800, height: 600),
+    );
+    $mediaStorage->shouldReceive('delete')->once()->andThrow(
+        new RuntimeException('Simulated cleanup failure.'),
+    );
+    app()->instance(MediaStorage::class, $mediaStorage);
 
     // The original database exception must be what propagates — the
     // cleanup failure must never replace or suppress it. A nonexistent tag
@@ -363,34 +286,12 @@ it('does not delete another asset\'s file when the new upload collides on its pa
         'path' => 'posts/1/dish.jpg',
     ]);
 
-    $fakeStorage = new class implements ImageStorage
-    {
-        public function storePostImage(UploadedFile $file, User $user): StoredMedia
-        {
-            return new StoredMedia(
-                disk: 'public',
-                path: 'posts/1/dish.jpg',
-                originalFilename: 'dish.jpg',
-                mimeType: 'image/jpeg',
-                extension: 'jpg',
-                byteSize: 100,
-                width: 800,
-                height: 600,
-            );
-        }
-
-        public function storeAvatar(UploadedFile $file, User $user): StoredMedia
-        {
-            throw new RuntimeException('Not used in this test.');
-        }
-
-        public function delete(StoredMedia $media): void
-        {
-            Storage::disk($media->disk)->delete($media->path);
-        }
-    };
-
-    app()->instance(ImageStorage::class, $fakeStorage);
+    $mediaStorage = Mockery::mock(MediaStorage::class);
+    $mediaStorage->shouldReceive('store')->once()->andReturn(
+        fakeStoredPostImage(width: 800, height: 600),
+    );
+    $mediaStorage->shouldReceive('delete')->never();
+    app()->instance(MediaStorage::class, $mediaStorage);
 
     expect(fn () => app(CreatePostAction::class)->handle($user, new CreatePostData(
         title: 'Dish with image',

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\Images;
+namespace App\Services\Media;
 
 use App\Models\MediaAsset;
 use Throwable;
@@ -8,7 +8,7 @@ use Throwable;
 final class StoredMediaCleaner
 {
     public function __construct(
-        private readonly ImageStorage $imageStorage,
+        private readonly MediaStorage $mediaStorage,
     ) {}
 
     /**
@@ -36,7 +36,7 @@ final class StoredMediaCleaner
                 return;
             }
 
-            $this->imageStorage->delete($media);
+            $this->mediaStorage->delete($media->location());
         } catch (Throwable $cleanupException) {
             report($cleanupException);
         }

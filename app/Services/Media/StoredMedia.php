@@ -1,10 +1,11 @@
 <?php
 
-namespace App\Services\Images;
+namespace App\Services\Media;
 
 /**
  * Everything needed to build a MediaAsset for a just-stored file. No
- * canonical URL: disk + path are the identity, resolved at read time.
+ * canonical URL: disk + path are the identity, resolved at read time by
+ * MediaUrlResolver.
  */
 final readonly class StoredMedia
 {
@@ -18,4 +19,9 @@ final readonly class StoredMedia
         public ?int $width,
         public ?int $height,
     ) {}
+
+    public function location(): MediaLocation
+    {
+        return new MediaLocation($this->disk, $this->path);
+    }
 }

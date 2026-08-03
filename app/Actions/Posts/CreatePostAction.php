@@ -13,8 +13,9 @@ use App\Models\Category;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
-use App\Services\Images\ImageStorage;
-use App\Services\Images\StoredMediaCleaner;
+use App\Services\Media\MediaStorage;
+use App\Services\Media\MediaStoreRequest;
+use App\Services\Media\StoredMediaCleaner;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Media\MediaAssetCreator;
@@ -28,7 +29,7 @@ use Throwable;
 final class CreatePostAction
 {
     public function __construct(
-        private readonly ImageStorage $imageStorage,
+        private readonly MediaStorage $mediaStorage,
         private readonly ActionRateLimiter $rateLimiter,
         private readonly DomainLogger $logger,
         private readonly RatingConfigurationManager $ratingConfiguration,
@@ -62,7 +63,7 @@ final class CreatePostAction
         // Storing the file is slow, external I/O that doesn't belong inside a
         // DB transaction — do it first, then only touch the database below.
         $storedImage = $data->image !== null
-            ? $this->imageStorage->storePostImage($data->image, $user)
+            ? $this->mediaStorage->store($data->image, MediaStoreRequest::forPostImage($user->id))
             : null;
 
         try {

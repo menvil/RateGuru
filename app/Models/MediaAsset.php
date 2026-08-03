@@ -16,6 +16,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * Master identity for an uploaded media file (a post image or a user
  * avatar). Canonical identity is disk + path; no absolute/canonical URL is
  * stored here — see docs/architecture/media.md.
+ *
+ * @property MediaVisibility $visibility
+ * @property string $disk
+ * @property string $path
  */
 class MediaAsset extends Model
 {

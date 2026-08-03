@@ -33,3 +33,11 @@ it('resolves through the asset\'s own disk rather than a hardcoded default disk'
 
     expect($user->resolved_avatar_url)->toBe('https://cdn.example.test/avatars/test.jpg');
 });
+
+it('does not reference the filesystem directly from the model', function () {
+    $source = file_get_contents(app_path('Models/User.php'));
+
+    expect($source)
+        ->not->toContain('Storage::')
+        ->not->toContain('Storage\\Facades\\Storage');
+});

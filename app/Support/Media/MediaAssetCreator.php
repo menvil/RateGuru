@@ -7,7 +7,7 @@ use App\Enums\MediaStatus;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\User;
-use App\Services\Images\StoredMedia;
+use App\Services\Media\StoredMedia;
 
 /**
  * Builds the MediaAsset row for a just-stored file. Shared by post-image and

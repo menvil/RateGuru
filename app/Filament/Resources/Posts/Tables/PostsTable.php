@@ -24,7 +24,7 @@ class PostsTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('user'))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['user', 'imageAsset']))
             ->columns([
                 ImageColumn::make('public_image_url')
                     ->label('Image')

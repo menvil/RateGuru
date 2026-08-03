@@ -6,6 +6,7 @@ use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Support\Media\AvatarUrlResolver;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
@@ -18,7 +19,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\Storage;
 
 /**
  * @property UserRole|null $role
@@ -150,20 +150,16 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
     }
 
     /**
-     * Temporary URL-compatibility accessor for views that predate the
-     * MediaAsset model. Resolves through the asset's own disk — never a
-     * hardcoded default disk — so it stays correct if the asset lives on a
-     * non-default disk. Superseded by PR-03's MediaUrlResolver.
+     * Temporary compatibility accessor kept only because Blade views and API
+     * resources already call it in many places — removing it would ripple
+     * across the presentation layer for no behavioral gain. It carries no
+     * filesystem knowledge of its own: it just delegates to
+     * AvatarUrlResolver, which delegates to MediaUrlResolver. New code
+     * should prefer injecting AvatarUrlResolver directly.
      */
     public function getResolvedAvatarUrlAttribute(): ?string
     {
-        $asset = $this->avatarAsset;
-
-        if ($asset === null) {
-            return null;
-        }
-
-        return Storage::disk($asset->disk)->url($asset->path);
+        return app(AvatarUrlResolver::class)->url($this);
     }
 
     public function canAccessPanel(Panel $panel): bool
