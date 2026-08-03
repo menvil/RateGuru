@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Support\Facades\Storage;
 
 it('serves feed page on home route', function () {
     $this->get('/')
@@ -84,14 +85,18 @@ it('renders authenticated header actions without changing guest header behavior'
 });
 
 it('resolves header user menu avatar via the resolved avatar accessor', function () {
+    Storage::fake('public');
+
     $user = User::factory()->create([
-        'avatar_path' => null,
+        'avatar_path' => 'avatars/header-user.jpg',
         'avatar_url' => 'https://example.test/avatar.jpg',
     ]);
 
     $html = $this->actingAs($user)->get('/')->getContent();
 
-    expect($html)->toContain('https://example.test/avatar.jpg');
+    expect($html)
+        ->toContain('/storage/avatars/header-user.jpg')
+        ->not->toContain('https://example.test/avatar.jpg');
 });
 
 it('listens for post uploaded event to close upload modal', function () {

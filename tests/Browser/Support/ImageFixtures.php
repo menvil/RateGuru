@@ -2,6 +2,8 @@
 
 namespace Tests\Browser\Support;
 
+use Illuminate\Support\Facades\ParallelTesting;
+
 /**
  * Synthetic post-image fixtures for media rendering browser tests.
  *
@@ -42,9 +44,19 @@ final class ImageFixtures
     /** @var array{0:int,1:int} */
     public const PANORAMA = [1920, 640];
 
+    /**
+     * Namespaced per parallel-testing worker (CI runs `php artisan test
+     * --parallel`) so cleanup() never deletes fixtures a sibling worker is
+     * still using — each worker only ever touches its own subdirectory.
+     */
+    private static function worker(): string
+    {
+        return (string) (ParallelTesting::token() ?: 'main');
+    }
+
     private static function directory(): string
     {
-        return storage_path('app/public/test-fixtures');
+        return storage_path('app/public/test-fixtures/'.self::worker());
     }
 
     /**
@@ -71,7 +83,7 @@ final class ImageFixtures
         imagepng($image, $directory.'/'.$filename);
         imagedestroy($image);
 
-        return 'test-fixtures/'.$filename;
+        return 'test-fixtures/'.self::worker().'/'.$filename;
     }
 
     /**

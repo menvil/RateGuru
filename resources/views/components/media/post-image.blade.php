@@ -20,9 +20,20 @@
         default => 'max-h-[75vh]',
     };
 
+    // No width/height metadata is stored for post images (out of scope for
+    // this pass — see the media-rendering task notes), so the exact box size
+    // can't be reserved before the image loads. A modest min-height keeps
+    // lazy-loaded images from collapsing to ~0px and then jumping to full
+    // size; it's a heuristic, not a guarantee of zero layout shift.
+    $minHeightClass = match ($context) {
+        'fullscreen' => '',
+        'drawer' => 'min-h-[16vh]',
+        default => 'min-h-[20vh]',
+    };
+
     $containerClasses = $context === 'fullscreen'
         ? 'flex w-full items-center justify-center'
-        : 'flex w-full items-center justify-center overflow-hidden rounded-rgMedia bg-rg-card2';
+        : trim("flex w-full items-center justify-center overflow-hidden rounded-rgMedia bg-rg-card2 {$minHeightClass}");
 
     $imageClasses = "block h-auto w-auto max-w-full {$maxHeightClass} rounded-rgMedia object-contain mx-auto";
 @endphp

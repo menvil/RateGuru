@@ -13,6 +13,36 @@ afterEach(function () {
 });
 
 /**
+ * Several contexts (drawer, fullscreen, non-first feed cards) render
+ * loading="lazy". Reading naturalWidth/naturalHeight before the browser has
+ * actually decoded the image would yield 0/0 → a NaN ratio that fails the
+ * assertion regardless of fit, nondeterministically depending on load
+ * timing (worse under CI's --parallel, where workers compete for CPU).
+ * Poll until the image reports as loaded before measuring it.
+ */
+function waitForImageLoaded(mixed $page, string $selector, float $timeoutSeconds = 5.0): void
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    while (microtime(true) < $deadline) {
+        $loaded = $page->script(<<<JS
+            (() => {
+                const img = document.querySelector('{$selector}');
+                return !!img && img.complete && img.naturalWidth > 0;
+            })()
+        JS);
+
+        if ($loaded) {
+            return;
+        }
+
+        usleep(100_000);
+    }
+
+    throw new RuntimeException("Image [{$selector}] did not finish loading within {$timeoutSeconds}s.");
+}
+
+/**
  * Compares the rendered <img> box ratio against the image's own natural
  * ratio. object-fit: cover would force the box toward the *container's*
  * ratio instead, so a mismatch here is exactly what would catch a
@@ -22,6 +52,8 @@ afterEach(function () {
  */
 function imageFitGeometry(mixed $page, string $selector): array
 {
+    waitForImageLoaded($page, $selector);
+
     $geometry = $page->script(<<<JS
         (() => {
             const img = document.querySelector('{$selector}');
