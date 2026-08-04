@@ -26,25 +26,33 @@ final class FilesystemMediaStorage implements MediaStorage
     {
         $extension = $file->extension() ?: ($file->getClientOriginalExtension() ?: null);
         $path = $this->pathGenerator->generate($request, $extension);
-        // Only a freshly generated path is safe to delete on a later
-        // failure — an explicit (deterministic, seeder-reused) path may
-        // already have an existing, still-referenced asset sitting at it,
-        // and deleting its file out from under it would corrupt that asset.
-        $isNewPath = $request->explicitPath === null;
-        $dimensions = @getimagesize($file->getRealPath());
 
-        // Read once into memory rather than streaming: byteSize below is
-        // strlen() of this exact same string, so the recorded size can
-        // never diverge from what's actually written — there's no separate
-        // measurement step (of the temp file, or of the disk after the
-        // fact) that could disagree with it. Uploads are capped in the
-        // low single-digit megabytes (see config/uploads.php), so holding
-        // one in memory isn't a concern.
-        $contents = file_get_contents($file->getRealPath());
+        // Only a path with nothing sitting at it yet is safe to delete on a
+        // later failure. A freshly generated (UUID-based) path is always
+        // new, so it's never checked. A demo seeder's deterministic explicit
+        // path might be a first-time write (safe to clean up) or a rerun
+        // reusing an existing, still-referenced asset (must not be deleted
+        // out from under it) — that's the only case worth an existence check
+        // before writing.
+        $existedBeforeWrite = $request->explicitPath !== null
+            && $this->exists(new MediaLocation($request->disk, $path));
 
-        if ($contents === false) {
-            throw MediaStorageException::couldNotReadUploadedFile($file->getClientOriginalName());
+        // Read via UploadedFile::getContent() rather than
+        // file_get_contents($file->getRealPath()): it throws instead of
+        // silently returning false if the temp upload is missing or
+        // unreadable, so there's no separate realpath/false check to get
+        // wrong. Read once into memory rather than streaming: byteSize below
+        // is strlen() of this exact same string, and dimensions are read
+        // from the same bytes, so neither can diverge from what's actually
+        // written. Uploads are capped in the low single-digit megabytes (see
+        // config/uploads.php), so holding one in memory isn't a concern.
+        try {
+            $contents = $file->getContent();
+        } catch (Throwable $exception) {
+            throw MediaStorageException::couldNotReadUploadedFile($file->getClientOriginalName(), $exception);
         }
+
+        $dimensions = @getimagesizefromstring($contents);
 
         $written = $this->filesystem->disk($request->disk)->put(
             $path,
@@ -77,7 +85,7 @@ final class FilesystemMediaStorage implements MediaStorage
                 height: $dimensions[1] ?? null,
             );
         } catch (Throwable $exception) {
-            if ($isNewPath) {
+            if (! $existedBeforeWrite) {
                 $this->deleteQuietly(new MediaLocation($request->disk, $path));
             }
 

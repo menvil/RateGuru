@@ -253,3 +253,47 @@ it('does not delete the file when metadata extraction fails for a reused explici
     // path.
     Storage::disk('public')->assertExists('demo/posts/sample-01.jpg');
 });
+
+it('deletes the file when metadata extraction fails on a first-time explicit path', function () {
+    Storage::fake('public');
+
+    // Unlike a seeder rerun, nothing exists at this deterministic path yet
+    // — this is the first write, so it's just as safe to clean up as any
+    // freshly generated path.
+    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
+    $file->shouldReceive('getMimeType')->andThrow(new RuntimeException('Simulated metadata failure.'));
+
+    $request = new MediaStoreRequest(
+        disk: 'public',
+        directory: 'media/post-images',
+        kind: MediaKind::PostImage,
+        visibility: MediaVisibility::Public,
+        ownerUserId: null,
+        explicitPath: 'demo/posts/sample-01.jpg',
+    );
+
+    expect(fn () => app(MediaStorage::class)->store($file, $request))
+        ->toThrow(RuntimeException::class, 'Simulated metadata failure.');
+
+    Storage::disk('public')->assertMissing('demo/posts/sample-01.jpg');
+});
+
+it('maps an unreadable uploaded file to a narrow exception instead of touching the disk', function () {
+    Storage::fake('public');
+
+    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
+    $file->shouldReceive('getContent')->andThrow(new RuntimeException('Simulated unreadable temp file.'));
+
+    $request = new MediaStoreRequest(
+        disk: 'public',
+        directory: 'media/post-images',
+        kind: MediaKind::PostImage,
+        visibility: MediaVisibility::Public,
+        ownerUserId: 1,
+    );
+
+    expect(fn () => app(MediaStorage::class)->store($file, $request))
+        ->toThrow(MediaStorageException::class, 'Could not read uploaded file [dish.jpg].');
+
+    expect(Storage::disk('public')->allFiles('media/post-images'))->toBeEmpty();
+});
