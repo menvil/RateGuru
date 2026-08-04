@@ -58,8 +58,9 @@ RateGuru is a Laravel + Livewire + Alpine + Filament application.
   through Storage:: calls in models, Blade, or API resources — see docs/architecture/media.md.
 - Moving to S3/CDN/another disk is a `config/filesystems.php` disk change, not a code change.
   There is no "driver" concept to switch — do not reintroduce one (e.g. a cloudinary driver).
-- Default disks are both `local`-backed (MEDIA_PUBLIC_DISK=public, MEDIA_PRIVATE_DISK=local) in
-  .env.example.
+- One disk is configured, `local`-backed (MEDIA_PUBLIC_DISK=public) in .env.example — there is
+  no dedicated private-disk flow yet; do not reintroduce MEDIA_PRIVATE_DISK without a real
+  consumer.
 
 ## Forbidden without separate task
 - Adding React/Vue/Inertia.

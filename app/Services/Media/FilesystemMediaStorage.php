@@ -26,25 +26,31 @@ final class FilesystemMediaStorage implements MediaStorage
     {
         $extension = $file->extension() ?: ($file->getClientOriginalExtension() ?: null);
         $path = $this->pathGenerator->generate($request, $extension);
+        // Only a freshly generated path is safe to delete on a later
+        // failure — an explicit (deterministic, seeder-reused) path may
+        // already have an existing, still-referenced asset sitting at it,
+        // and deleting its file out from under it would corrupt that asset.
+        $isNewPath = $request->explicitPath === null;
         $dimensions = @getimagesize($file->getRealPath());
 
-        $stream = fopen($file->getRealPath(), 'r');
+        // Read once into memory rather than streaming: byteSize below is
+        // strlen() of this exact same string, so the recorded size can
+        // never diverge from what's actually written — there's no separate
+        // measurement step (of the temp file, or of the disk after the
+        // fact) that could disagree with it. Uploads are capped in the
+        // low single-digit megabytes (see config/uploads.php), so holding
+        // one in memory isn't a concern.
+        $contents = file_get_contents($file->getRealPath());
 
-        if ($stream === false) {
+        if ($contents === false) {
             throw MediaStorageException::couldNotReadUploadedFile($file->getClientOriginalName());
         }
 
-        try {
-            $written = $this->filesystem->disk($request->disk)->put(
-                $path,
-                $stream,
-                $request->visibility === MediaVisibility::Public ? 'public' : 'private',
-            );
-        } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
-            }
-        }
+        $written = $this->filesystem->disk($request->disk)->put(
+            $path,
+            $contents,
+            $request->visibility === MediaVisibility::Public ? 'public' : 'private',
+        );
 
         if (! $written) {
             throw MediaStorageException::couldNotStore($request->disk, $path);
@@ -53,7 +59,8 @@ final class FilesystemMediaStorage implements MediaStorage
         // The file now physically exists. Everything below is metadata
         // extraction, not the write itself — a failure here must delete the
         // just-written file rather than leave it orphaned, since no
-        // StoredMedia is ever returned for a caller to compensate with.
+        // StoredMedia is ever returned for a caller to compensate with —
+        // but only when this operation is the one that created it.
         try {
             $originalFilename = $file->getClientOriginalName();
 
@@ -65,17 +72,14 @@ final class FilesystemMediaStorage implements MediaStorage
                     : $originalFilename,
                 mimeType: $file->getMimeType() ?? 'application/octet-stream',
                 extension: $extension,
-                // The local temp upload's own size, not a second remote
-                // disk round trip — the raw stream we just wrote is exactly
-                // this many bytes, so there's nothing for size() to tell us
-                // that getSize() doesn't already know, and getSize() can't
-                // fail the way a second disk operation could.
-                byteSize: $file->getSize() ?: 0,
+                byteSize: strlen($contents),
                 width: $dimensions[0] ?? null,
                 height: $dimensions[1] ?? null,
             );
         } catch (Throwable $exception) {
-            $this->deleteQuietly(new MediaLocation($request->disk, $path));
+            if ($isNewPath) {
+                $this->deleteQuietly(new MediaLocation($request->disk, $path));
+            }
 
             throw $exception;
         }

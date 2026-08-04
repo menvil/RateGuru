@@ -92,7 +92,12 @@ separate, narrow contracts — never one combined "media manager":
   physically written, it deletes that file (best-effort — a cleanup failure
   is reported, never left to replace the original exception) before
   re-throwing, so a partial failure can't leave an orphaned file with no
-  `StoredMedia` ever returned for a caller to compensate with itself.
+  `StoredMedia` ever returned for a caller to compensate with itself — but
+  only when `store()` itself allocated that path. A demo seeder's explicit,
+  deterministic path may already have an existing, still-referenced file
+  sitting at it before the call even starts, so a metadata failure on a
+  *reused* path is left alone rather than deleted out from under that
+  existing asset.
 - **`MediaUrlResolver`** — `publicUrl(MediaLocation $location, MediaVisibility $visibility)`
   (throws `MediaIsNotPublicException` when visibility isn't public) and
   `publicUrlOrNull(?MediaLocation $location, ?MediaVisibility $visibility)`

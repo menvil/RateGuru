@@ -44,6 +44,36 @@ it('rejects a protocol-relative URL as a path', function () {
         ->toThrow(InvalidArgumentException::class);
 });
 
+it('rejects an uppercase scheme', function () {
+    expect(fn () => new MediaLocation('public', 'HTTP://cdn.example.test/file.jpg'))
+        ->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects a mixed-case scheme', function () {
+    expect(fn () => new MediaLocation('public', 'File://etc/passwd'))
+        ->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects an ftp scheme', function () {
+    expect(fn () => new MediaLocation('public', 'ftp://cdn.example.test/file.jpg'))
+        ->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects an s3 scheme', function () {
+    expect(fn () => new MediaLocation('public', 's3://bucket/file.jpg'))
+        ->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects a data uri', function () {
+    expect(fn () => new MediaLocation('public', 'data:image/png;base64,aGVsbG8='))
+        ->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects a javascript pseudo-scheme', function () {
+    expect(fn () => new MediaLocation('public', 'javascript:alert(1)'))
+        ->toThrow(InvalidArgumentException::class);
+});
+
 it('rejects a /storage/ prefixed path', function () {
     expect(fn () => new MediaLocation('public', '/storage/posts/file.jpg'))
         ->toThrow(InvalidArgumentException::class);

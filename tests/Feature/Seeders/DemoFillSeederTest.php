@@ -248,5 +248,10 @@ it('reports a cleanup failure but still propagates the original database excepti
     expect(fn () => $createPosts->invoke($seeder, $users, $mediaStorage))
         ->toThrow(RuntimeException::class, 'Simulated seeder rerun failure.');
 
-    Exceptions::assertReported(RuntimeException::class);
+    // Both the cleanup failure and the propagated database exception are
+    // plain RuntimeExceptions, so asserting on the class alone would pass
+    // even if the wrong one were reported — pin down the message too.
+    Exceptions::assertReported(
+        fn (RuntimeException $exception): bool => $exception->getMessage() === 'Simulated cleanup failure.',
+    );
 });

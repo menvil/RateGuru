@@ -179,7 +179,7 @@ it('deletes the newly written file when metadata extraction fails after a succes
     Storage::fake('public');
 
     $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
-    $file->shouldReceive('getSize')->andThrow(new RuntimeException('Simulated metadata failure.'));
+    $file->shouldReceive('getMimeType')->andThrow(new RuntimeException('Simulated metadata failure.'));
 
     $request = new MediaStoreRequest(
         disk: 'public',
@@ -208,7 +208,7 @@ it('reports a cleanup failure but still propagates the original metadata excepti
     $storage = new FilesystemMediaStorage($filesystem, new MediaPathGenerator);
 
     $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
-    $file->shouldReceive('getSize')->andThrow(new RuntimeException('Simulated metadata failure.'));
+    $file->shouldReceive('getMimeType')->andThrow(new RuntimeException('Simulated metadata failure.'));
 
     $request = new MediaStoreRequest(
         disk: 'public',
@@ -222,4 +222,34 @@ it('reports a cleanup failure but still propagates the original metadata excepti
         ->toThrow(RuntimeException::class, 'Simulated metadata failure.');
 
     Exceptions::assertReported(MediaStorageException::class);
+});
+
+it('does not delete the file when metadata extraction fails for a reused explicit path', function () {
+    Storage::fake('public');
+
+    // Simulates a demo seeder rerun: the deterministic path already has a
+    // real, still-referenced file sitting at it before this call even
+    // starts.
+    Storage::disk('public')->put('demo/posts/sample-01.jpg', 'existing-owner-bytes');
+
+    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
+    $file->shouldReceive('getMimeType')->andThrow(new RuntimeException('Simulated metadata failure.'));
+
+    $request = new MediaStoreRequest(
+        disk: 'public',
+        directory: 'media/post-images',
+        kind: MediaKind::PostImage,
+        visibility: MediaVisibility::Public,
+        ownerUserId: null,
+        explicitPath: 'demo/posts/sample-01.jpg',
+    );
+
+    expect(fn () => app(MediaStorage::class)->store($file, $request))
+        ->toThrow(RuntimeException::class, 'Simulated metadata failure.');
+
+    // The write itself (rewriting the same deterministic path) already
+    // happened and is fine to leave in place — what must not happen is
+    // deleting it as if this call had exclusive ownership of a brand new
+    // path.
+    Storage::disk('public')->assertExists('demo/posts/sample-01.jpg');
 });
