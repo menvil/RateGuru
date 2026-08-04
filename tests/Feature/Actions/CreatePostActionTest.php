@@ -12,12 +12,38 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
+use App\Services\Media\Exceptions\ImageIngestException;
 use App\Services\Media\MediaStorage;
+use App\Services\Media\NormalizedImage;
 use App\Services\Media\StoredMedia;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
+
+function fakeUploadWithBytes(string $bytes, string $originalName, string $mimeType): UploadedFile
+{
+    $tmpPath = sys_get_temp_dir().'/rg_test_'.uniqid().'.tmp';
+    file_put_contents($tmpPath, $bytes);
+
+    return new UploadedFile(
+        path: $tmpPath,
+        originalName: $originalName,
+        mimeType: $mimeType,
+        error: UPLOAD_ERR_OK,
+        test: true,
+    );
+}
+
+function tinyJpegBytes(int $width = 100, int $height = 80): string
+{
+    $im = imagecreatetruecolor($width, $height);
+    imagefill($im, 0, 0, imagecolorallocate($im, 10, 20, 30));
+    ob_start();
+    imagejpeg($im, null, 90);
+
+    return ob_get_clean();
+}
 
 function fakeStoredPostImage(
     string $path = 'posts/1/dish.jpg',
@@ -133,9 +159,13 @@ it('creates a post_image media asset from the stored file when an image is provi
     $file = UploadedFile::fake()->image('dish.jpg', 1600, 900);
 
     $mediaStorage = Mockery::mock(MediaStorage::class);
-    $mediaStorage->shouldReceive('store')
+    $mediaStorage->shouldReceive('storeNormalized')
         ->once()
-        ->with($file, Mockery::on(fn ($request) => $request->ownerUserId === $user->id))
+        ->with(
+            Mockery::type(NormalizedImage::class),
+            Mockery::on(fn ($request) => $request->ownerUserId === $user->id),
+            'dish.jpg',
+        )
         ->andReturn(fakeStoredPostImage());
     app()->instance(MediaStorage::class, $mediaStorage);
 
@@ -166,7 +196,7 @@ it('creates a media asset with null dimensions and orientation when the file can
     $file = UploadedFile::fake()->image('dish.jpg');
 
     $mediaStorage = Mockery::mock(MediaStorage::class);
-    $mediaStorage->shouldReceive('store')->once()->andReturn(
+    $mediaStorage->shouldReceive('storeNormalized')->once()->andReturn(
         fakeStoredPostImage(width: null, height: null),
     );
     app()->instance(MediaStorage::class, $mediaStorage);
@@ -188,7 +218,7 @@ it('creates a media asset with null aspect ratio and orientation instead of divi
     $file = UploadedFile::fake()->image('dish.jpg');
 
     $mediaStorage = Mockery::mock(MediaStorage::class);
-    $mediaStorage->shouldReceive('store')->once()->andReturn(
+    $mediaStorage->shouldReceive('storeNormalized')->once()->andReturn(
         fakeStoredPostImage(width: 800, height: 0),
     );
     app()->instance(MediaStorage::class, $mediaStorage);
@@ -250,7 +280,7 @@ it('propagates the original database exception and separately reports a cleanup 
     $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
 
     $mediaStorage = Mockery::mock(MediaStorage::class);
-    $mediaStorage->shouldReceive('store')->once()->andReturn(
+    $mediaStorage->shouldReceive('storeNormalized')->once()->andReturn(
         fakeStoredPostImage(width: 800, height: 600),
     );
     $mediaStorage->shouldReceive('delete')->once()->andThrow(
@@ -287,7 +317,7 @@ it('does not delete another asset\'s file when the new upload collides on its pa
     ]);
 
     $mediaStorage = Mockery::mock(MediaStorage::class);
-    $mediaStorage->shouldReceive('store')->once()->andReturn(
+    $mediaStorage->shouldReceive('storeNormalized')->once()->andReturn(
         fakeStoredPostImage(width: 800, height: 600),
     );
     $mediaStorage->shouldReceive('delete')->never();
@@ -302,4 +332,68 @@ it('does not delete another asset\'s file when the new upload collides on its pa
     expect(MediaAsset::query()->count())->toBe(1);
     Storage::disk('public')->assertExists('posts/1/dish.jpg');
     expect(Storage::disk('public')->get('posts/1/dish.jpg'))->toBe('existing-owner-bytes');
+});
+
+it('ignores a misleading client extension and determines the stored extension from actual content', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+    $file = fakeUploadWithBytes(tinyJpegBytes(), 'totally-a-photo.png', 'image/png');
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish with mislabeled image',
+        image: $file,
+    ));
+
+    $asset = $post->fresh()->imageAsset;
+    expect($asset->mime_type)->toBe('image/jpeg')
+        ->and($asset->extension)->toBe('jpg')
+        ->and($asset->path)->toEndWith('.jpg');
+});
+
+it('strips EXIF metadata from the stored post image', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+
+    $plain = tinyJpegBytes();
+    $tiffHeader = "II\x2A\x00".pack('V', 8);
+    $entry = pack('vvV', 0x0112, 3, 1).pack('v', 1)."\x00\x00";
+    $ifd0 = pack('v', 1).$entry.pack('V', 0);
+    $app1Payload = "Exif\x00\x00".$tiffHeader.$ifd0;
+    $app1 = "\xFF\xE1".pack('n', strlen($app1Payload) + 2).$app1Payload;
+    $withExif = substr($plain, 0, 2).$app1.substr($plain, 2);
+
+    $file = fakeUploadWithBytes($withExif, 'dish.jpg', 'image/jpeg');
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish with EXIF',
+        image: $file,
+    ));
+
+    $storedBytes = Storage::disk('public')->get($post->fresh()->imageAsset->path);
+
+    $stream = fopen('php://temp', 'r+');
+    fwrite($stream, $storedBytes);
+    rewind($stream);
+    $exif = @exif_read_data($stream);
+    fclose($stream);
+
+    expect($exif === false || ! isset($exif['Orientation']))->toBeTrue();
+});
+
+it('creates no post, asset, or file when the image cannot be ingested', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->create('not-an-image.jpg', 10);
+
+    expect(fn () => app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish with a broken image',
+        image: $file,
+    )))->toThrow(ImageIngestException::class);
+
+    expect(Post::query()->count())->toBe(0);
+    expect(MediaAsset::query()->count())->toBe(0);
+    Storage::disk('public')->assertDirectoryEmpty('posts');
 });

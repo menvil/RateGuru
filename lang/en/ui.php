@@ -178,6 +178,7 @@ return [
         'submitting' => 'Uploading...',
         'success_pending' => 'Your post has been submitted and will appear after moderation.',
         'error_generic' => 'Something went wrong while creating your post.',
+        'error_invalid_image' => 'This image could not be processed. Please try a different file.',
         'sign_up_required' => 'Create an account or sign in to upload a post.',
     ],
     'a11y' => [

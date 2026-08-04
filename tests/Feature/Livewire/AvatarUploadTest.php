@@ -7,6 +7,7 @@ use App\Enums\MediaVisibility;
 use App\Livewire\Profile\EditProfileForm;
 use App\Models\MediaAsset;
 use App\Models\User;
+use App\Services\Media\Exceptions\ImageIngestException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
@@ -204,4 +205,28 @@ it('does not orphan an intermediate avatar asset when two replacements race on s
     // active-but-unreferenced (orphaned).
     expect(MediaAsset::withTrashed()->find($originalAssetId)->trashed())->toBeTrue();
     expect(MediaAsset::withTrashed()->find($assetAId)->trashed())->toBeTrue();
+});
+
+it('creates no asset or file and leaves the previous avatar untouched when the avatar cannot be ingested', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->withAvatar()->create();
+    $previousAssetId = $user->avatar_asset_id;
+
+    // Passes Livewire's loose File::image() rule bounds (no explicit
+    // mimes/dimension checks there) but isn't a real, decodable image —
+    // calling the action directly, the same way the DB-failure tests above
+    // do, so the ingest boundary itself is what has to reject it.
+    $file = UploadedFile::fake()->create('broken-avatar.jpg', 10, 'image/jpeg');
+
+    expect(fn () => app(UpdateUserProfileAction::class)->execute(
+        $user,
+        ['rating_activity_visibility' => 'private'],
+        $file,
+    ))->toThrow(ImageIngestException::class);
+
+    $user = $user->fresh();
+    expect($user->avatar_asset_id)->toBe($previousAssetId);
+    expect(MediaAsset::query()->count())->toBe(1);
+    Storage::disk('public')->assertDirectoryEmpty('avatars');
 });

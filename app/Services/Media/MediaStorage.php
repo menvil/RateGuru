@@ -3,15 +3,18 @@
 namespace App\Services\Media;
 
 use App\Enums\MediaVisibility;
-use Illuminate\Http\UploadedFile;
 
 /**
  * Physical file I/O only — storing, reading, checking, and deleting bytes on
- * a disk. Never resolves a URL; that's MediaUrlResolver's job.
+ * a disk. Never resolves a URL; that's MediaUrlResolver's job. Never decodes
+ * or validates image content either — that's ImageIngestor's job, upstream
+ * of this class. There is no raw-UploadedFile store() here on purpose: every
+ * user-controlled image must go through ImageIngestor first, so this
+ * interface only accepts an already-normalized image.
  */
 interface MediaStorage
 {
-    public function store(UploadedFile $file, MediaStoreRequest $request): StoredMedia;
+    public function storeNormalized(NormalizedImage $image, MediaStoreRequest $request, ?string $originalFilename): StoredMedia;
 
     /**
      * For content generated in-process rather than uploaded (demo seeders'

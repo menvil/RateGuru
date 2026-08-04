@@ -9,6 +9,7 @@ use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Queries\Categories\ActiveCategoriesQuery;
+use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
@@ -109,6 +110,9 @@ final class UploadPostForm extends Component
             $this->tagSearch = '';
         } catch (RateLimitExceededException $e) {
             $this->submitError = $e->getMessage();
+        } catch (ImageIngestException $e) {
+            report($e);
+            $this->submitError = __('ui.upload.error_invalid_image');
         } catch (\Throwable $e) {
             report($e);
             $this->submitError = __('ui.upload.error_generic');

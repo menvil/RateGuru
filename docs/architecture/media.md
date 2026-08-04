@@ -85,19 +85,17 @@ variant pipeline (crop, size limits, queue reliability) is PR-06's job.
 `app/Services/Media/` splits physical file I/O from URL resolution into two
 separate, narrow contracts — never one combined "media manager":
 
-- **`MediaStorage`** — `store()`, `putContents()` (for in-process generated
-  content, e.g. demo seeders), `exists()`, `size()`, `readStream()`,
-  `delete()`. Never resolves a URL. `store()` compensates for its own
-  failures: if metadata extraction fails *after* the file has already been
-  physically written, it deletes that file (best-effort — a cleanup failure
-  is reported, never left to replace the original exception) before
-  re-throwing, so a partial failure can't leave an orphaned file with no
-  `StoredMedia` ever returned for a caller to compensate with itself — but
-  only when `store()` itself allocated that path. A demo seeder's explicit,
-  deterministic path may already have an existing, still-referenced file
-  sitting at it before the call even starts, so a metadata failure on a
-  *reused* path is left alone rather than deleted out from under that
-  existing asset.
+- **`MediaStorage`** — `storeNormalized()`, `putContents()` (for in-process
+  generated content, e.g. demo seeders), `exists()`, `size()`, `readStream()`,
+  `delete()`. Never resolves a URL, and never decodes or validates image
+  content — that's `ImageIngestor`'s job, upstream of this class (see below).
+  There is deliberately no method that accepts a raw, unprocessed upload:
+  `storeNormalized()` only takes an already-normalized `NormalizedImage`, so
+  there's no production path for a user-controlled image to reach disk
+  without going through the ingest pipeline first. A filesystem exception (not
+  just a `false` return) from the underlying disk's `put()` is normalized into
+  `MediaStorageException`, with the original exception preserved as
+  `$previous`, in both `storeNormalized()` and `putContents()`.
 - **`MediaUrlResolver`** — `publicUrl(MediaLocation $location, MediaVisibility $visibility)`
   (throws `MediaIsNotPublicException` when visibility isn't public) and
   `publicUrlOrNull(?MediaLocation $location, ?MediaVisibility $visibility)`
@@ -158,12 +156,135 @@ The previous `ImageStorage`/`LocalImageStorage` abstraction (including its
 always threw at call time) has been removed outright — there is exactly one
 storage/URL abstraction in this codebase now.
 
+## ImageIngestor: one normalization pipeline in front of MediaStorage
+
+Before PR-04, `MediaStorage` wrote a client's uploaded bytes to disk more or
+less verbatim — it read dimensions afterward purely as metadata, but never
+validated, decoded, or re-encoded anything. The app stored a user-supplied
+image as a trusted original blob: client MIME/extension weren't fully
+distrusted, EXIF orientation was never corrected, and EXIF/GPS/XMP metadata
+was never stripped.
+
+```
+any supported input (upload, URL import)
+  -> ImageInput (App\Services\Media\ImageInput)
+  -> ImageIngestor::ingest()
+  -> NormalizedImage (App\Services\Media\NormalizedImage)
+  -> MediaStorage::storeNormalized()
+  -> MediaAssetCreator -> MediaAsset
+```
+
+`ImageIngestor` (`app/Services/Media/ImageIngestor.php`, sole implementation
+`GdImageIngestor`) is the single boundary every user-controlled image passes
+through, for post uploads, avatar uploads, and URL-imported images alike —
+there is no `PostImageProcessor`/`AvatarImageProcessor`/`ImportedImageProcessor`
+split. `CreatePostAction` and `UpdateUserProfileAction` both build an
+`ImageInput` from the `UploadedFile` they already have (`ImageInput::fromUploadedFile()`),
+call `ImageIngestor::ingest()` with a policy built from `config('uploads.images')`
+(`ImageIngestPolicy::fromConfig()`), and pass the resulting `NormalizedImage`
+to `MediaStorage::storeNormalized()`. `ImageIngestor` never touches the
+filesystem itself — it's a pure transform from bytes to bytes, decoupled from
+`UploadedFile` entirely (it only knows about `ImageInput`), which is what lets
+`FilesystemMediaStorage::storeNormalized()` stay a plain "write these known,
+trusted bytes" operation with no decode step, and no post-write cleanup for a
+decode failure — there isn't one anymore, since decoding happens before a
+byte ever reaches storage.
+
+**Supported formats**: JPEG, PNG, and WebP only — in and out. A JPEG input
+produces a JPEG output, PNG stays PNG (alpha preserved), WebP stays WebP
+(alpha preserved); the ingestor never converts between formats. No AVIF, GIF,
+SVG, BMP, TIFF, or HEIC. Format is determined purely from the actual bytes
+(`getimagesizefromstring()` cross-checked against `finfo`) — a client's
+declared `Content-Type`, `getClientMimeType()`, and original filename/extension
+are never consulted for this. The saved extension is always the canonical one
+for the detected MIME (`image/jpeg`→`jpg`, `image/png`→`png`,
+`image/webp`→`webp`); `original_filename` is stored as metadata only, it never
+determines path, MIME, or output extension.
+
+**Limits** (`config/uploads.php`'s `images` array): a hard byte cap before any
+decode is attempted, `max_width`/`max_height`, and a `max_pixels` cap
+(default 16,000,000 — not the 36,000,000 a naive 6000×6000 might suggest).
+GD's truecolor bitmap costs 4 bytes/pixel, and an EXIF orientation correction
+needs a second buffer of the same size simultaneously (source + rotated/
+flipped destination), so peak ingest memory is roughly 8 bytes/pixel: 16MP
+peaks around 128MiB, comfortably under the 256M `memory_limit` configured for
+php-fpm in production/staging (`infrastructure/config/php-fpm/rateguru-{production,staging}.conf`),
+where 36MP's ~288MiB would already exceed it before accounting for any
+framework overhead. The pixel check runs on the header-parsed dimensions
+*before* the full decode — this doubles as the memory-safety guard; there's
+no separate dynamic budgeting mechanism. The normalized *output* is also
+capped against the same byte limit after re-encoding (no quality-reduction
+retry loop if it doesn't fit).
+
+**EXIF orientation**: read via `exif_read_data()` for JPEG only (PNG/WebP have
+no EXIF orientation concept). All 8 standard values are handled — not just
+the axis-aligned 3/6/8, but the mirrored 2/4/5/7 too — via `imageflip()`/
+`imagerotate()`. No EXIF data, or no `Orientation` tag, is the common, valid
+case for an image with no EXIF at all and is treated as orientation 1
+(normal); a tag that's *present* but not one of the 8 recognized values is an
+explicit rejection (`ImageOrientationException`), never a silent default.
+Width/height are re-derived after the transform, since orientations 5–8 swap
+them.
+
+**Metadata stripping** happens as an unavoidable consequence of the pipeline
+shape, not extra logic: `imagecreatefromstring()` decodes into a plain GD
+bitmap that carries no EXIF/GPS/XMP/comment/thumbnail data at all, and
+`imagejpeg()`/`imagepng()`/`imagewebp()` only ever write image data back out —
+there is no code path by which the re-encoded output could carry any of the
+input's original metadata forward. No color-profile (ICC) management is
+attempted; that stays out of scope.
+
+**Re-encode settings** come from the same `config('uploads.images')`:
+`jpeg_quality` (default 90, written progressive via `imageinterlace()`),
+`png_compression` (default 6), `webp_quality` (default 90).
+
+**Error handling**: a small `ImageIngestException` hierarchy
+(`UnsupportedImageFormatException`, `ImageTooLargeException`,
+`ImageDimensionsExceededException`, `ImagePixelLimitExceededException`,
+`ImageDecodeException`, `ImageEncodeException`, `ImageOrientationException`,
+all under `app/Services/Media/Exceptions/`) — each preserves the original
+exception as `$previous`, and messages never embed a filesystem path or raw
+GD warning text. GD warnings are converted to catchable exceptions with a
+*scoped* error handler (`set_error_handler()`/`restore_error_handler()`
+around just the relevant call), never a global one, so a bad image can never
+be silently trusted just because a caller forgot to check a return value.
+`UploadPostForm`/`EditProfileForm` catch `ImageIngestException` specifically
+and show a dedicated, safe validation message
+(`ui.upload.error_invalid_image`) rather than the fully generic upload-error
+message.
+
+**Trusted, server-generated content still bypasses the ingestor** —
+`DemoFillSeeder`'s raw-GD-drawn placeholder JPEGs and
+`DemoPostMediaGenerator`'s hand-built SVGs both call `MediaStorage::putContents()`
+directly, exactly as before. This is intentional: they're not user input,
+they're not photographs with EXIF/orientation concerns, and running them
+through the same decode/re-encode pipeline would add cost with no benefit.
+`putContents()` remains a real, un-gated method on `MediaStorage` for this
+reason — what changed is that the two *user-facing* entry points
+(`CreatePostAction`, `UpdateUserProfileAction`) can no longer reach it or any
+raw filesystem write directly, which
+`tests/Unit/Actions/UserFacingImageFlowsUseIngestorTest.php` enforces the same
+grep-based way `tests/Unit/Models/MediaModelsDoNotUseFilesystemTest.php`
+already enforced for the model layer.
+
+**URL-imported images converge on the same pipeline for free.**
+`StoreImportedImageAction::download()` still fetches bytes via the
+SSRF-protected `SafeImportHttpClient`/`UrlImportValidator` exactly as before —
+none of that changed — and still wraps the result as a real `UploadedFile` so
+it can flow through `UploadPostForm`'s existing `WithFileUploads` validation.
+By the time that `UploadedFile` reaches `CreatePostAction`, it's
+indistinguishable from a directly-uploaded file, so the same
+`ImageInput::fromUploadedFile()` → `ImageIngestor::ingest()` call already
+covers it. **PR-08's URL-import hardening (DNS pinning/rebinding protection,
+redirect-security redesign, streaming-downloader rewrite) has not happened
+yet** — this PR only changed what happens to the bytes once they're already
+downloaded, not how they're fetched.
+
 ## What this schema/storage work does not do
 
-No EXIF handling, autorotate, recompression, resizing, responsive variant
-generation, `srcset`, focal points, AI cropping, Imagick/libvips integration,
-an actual S3/CDN deployment, imgproxy, temporary signed URLs, legacy data
-backfill, or an orphan/cleanup command. New `MediaAsset` rows are created
+Responsive variant generation, `srcset`, focal points, AI cropping, an actual
+S3/CDN deployment, imgproxy, temporary signed URLs, legacy data backfill, or
+an orphan/cleanup command. New `MediaAsset` rows are created
 synchronously as `ready` the moment a file is stored and its metadata is read
 from the upload itself — there is no processing pipeline yet for anything to
 be `processing` or `failed` in normal operation (those statuses exist for
@@ -178,8 +299,12 @@ PR landed.
 
 ## Roadmap
 
-- **PR-04** — Normalization: whatever schema/data cleanup falls out of real
-  S3/CDN usage once it exists.
+- **PR-04** (done) — Image ingest/normalization: the `ImageIngestor` pipeline
+  described above. Format detection from actual bytes, byte/dimension/pixel
+  limits, full decode validation, EXIF orientation correction, re-encode,
+  metadata stripping — for post uploads, avatar uploads, and URL-imported
+  images alike. No variants, no resizing of already-valid images, no format
+  conversion.
 - **PR-05** — Responsive variants: actually generating the `MediaVariant`
   rows this schema and `MediaUrlResolver` already support.
 - **PR-06** — Open Graph variant generation: build the `open_graph`
@@ -187,4 +312,7 @@ PR landed.
 - **PR-07** — Asset lifecycle: orphan detection/cleanup, and actually
   deleting a replaced avatar's physical file (today it's soft-deleted in the
   database but deliberately left on disk).
-- **PR-08** — URL import security hardening.
+- **PR-08** — URL import security hardening: DNS pinning/rebinding
+  protection, redirect-security redesign, streaming-downloader rewrite. Not
+  started — PR-04 only changed what happens to bytes after they're
+  downloaded, not the download/fetch layer itself.
