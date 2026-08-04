@@ -275,7 +275,7 @@ it('provides required production environment settings', function () {
         ->toContain('MAIL_FROM_ADDRESS=')
         ->toContain('MAIL_FROM_NAME=')
         ->toContain('QUEUE_CONNECTION=redis')
-        ->toContain('RATEGURU_IMAGE_DRIVER=local')
+        ->toContain('MEDIA_PUBLIC_DISK=public')
         ->toContain('REDIS_QUEUE=')
         ->toContain('REDIS_QUEUE_CONNECTION=')
         ->toContain('REDIS_QUEUE_RETRY_AFTER=')
@@ -289,7 +289,6 @@ it('uses safe defaults in the staging environment template', function () {
         ->toContain('APP_LOCALE=en')
         ->toContain('APP_FALLBACK_LOCALE=en')
         ->toContain('QUEUE_CONNECTION=redis')
-        ->toContain('RATEGURU_IMAGE_DRIVER=local')
-        ->toContain('SESSION_SECURE_COOKIE=true')
-        ->not->toContain("RATEGURU_IMAGE_DRIVER=\n");
+        ->toContain('MEDIA_PUBLIC_DISK=')
+        ->toContain('SESSION_SECURE_COOKIE=true');
 });

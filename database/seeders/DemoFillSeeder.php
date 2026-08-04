@@ -21,6 +21,8 @@ use App\Models\PostVote;
 use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Models\User;
+use App\Services\Media\MediaLocation;
+use App\Services\Media\MediaStorage;
 use App\Support\Media\ImageOrientationClassifier;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
@@ -141,7 +143,7 @@ class DemoFillSeeder extends Seeder
         [0x3B82F6, 0xF97316],
     ];
 
-    public function run(): void
+    public function run(MediaStorage $mediaStorage): void
     {
         if (! app()->environment(['local', 'testing'])) {
             $this->command->warn('DemoFillSeeder only runs in local/testing environment.');
@@ -156,7 +158,7 @@ class DemoFillSeeder extends Seeder
         $this->clearGeneratedMedia();
 
         $this->command->info('Creating '.count($this->postTitles()).' posts with images...');
-        $posts = $this->createPosts($users);
+        $posts = $this->createPosts($users, $mediaStorage);
 
         $this->command->info('Removing previously generated interactions...');
         $this->clearGeneratedInteractions($users, $posts);
@@ -215,13 +217,15 @@ class DemoFillSeeder extends Seeder
     // Posts
     // -------------------------------------------------------------------------
 
-    private function createPosts(Collection $users): Collection
+    private function createPosts(Collection $users, MediaStorage $mediaStorage): Collection
     {
         $titles = $this->postTitles();
         $categoryIds = Category::query()->active()->ordered()->pluck('id')->all();
         $authors = $users->values();
         $baseTime = CarbonImmutable::now()->subDays(60);
         $now = now()->toDateTimeString();
+
+        $disk = (string) config('media.disks.public');
 
         foreach ($titles as $index => $title) {
             $author = $authors[$index % $authors->count()];
@@ -236,7 +240,7 @@ class DemoFillSeeder extends Seeder
             // below so it doesn't have to repeat the same lookup.
             $imagePath = $this->postImagePath($author->id, $index + 1);
             $existingImageAssetId = MediaAsset::withTrashed()
-                ->where(['disk' => 'public', 'path' => $imagePath])
+                ->where(['disk' => $disk, 'path' => $imagePath])
                 ->value('id');
             $isNewImage = $existingImageAssetId === null;
 
@@ -244,14 +248,14 @@ class DemoFillSeeder extends Seeder
             // that doesn't belong inside a DB transaction). If the DB work
             // below then fails, a newly-created file is removed as
             // compensation — it isn't covered by the transaction rollback.
-            $this->generatePostImage($author->id, $index + 1);
+            $this->generatePostImage($author->id, $index + 1, $mediaStorage);
             $categoryId = $categoryIds === [] || $index % 3 === 2
                 ? null
                 : $categoryIds[$index % count($categoryIds)];
 
             try {
-                DB::transaction(function () use ($author, $title, $imagePath, $existingImageAssetId, $categoryId, $baseTime, $index, $now): void {
-                    $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id, $existingImageAssetId);
+                DB::transaction(function () use ($author, $title, $imagePath, $existingImageAssetId, $categoryId, $baseTime, $index, $now, $mediaStorage): void {
+                    $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id, $existingImageAssetId, $mediaStorage);
 
                     // Raw query builder (not Eloquent) is intentional here:
                     // this loop runs once per demo post title (up to ~99) on
@@ -280,8 +284,15 @@ class DemoFillSeeder extends Seeder
                     );
                 });
             } catch (Throwable $exception) {
+                // Best-effort: a cleanup failure here is reported but must
+                // never replace the original database exception being
+                // propagated below.
                 if ($isNewImage) {
-                    Storage::disk('public')->delete($imagePath);
+                    try {
+                        $mediaStorage->delete(new MediaLocation($disk, $imagePath));
+                    } catch (Throwable $cleanupException) {
+                        report($cleanupException);
+                    }
                 }
 
                 throw $exception;
@@ -301,7 +312,16 @@ class DemoFillSeeder extends Seeder
     // Image generation (5 visual styles)
     // -------------------------------------------------------------------------
 
-    private function generatePostImage(int $userId, int $index): string
+    /**
+     * Raw GD, not Illuminate\Support\Facades\Image: procedurally drawing
+     * shapes/gradients onto a blank canvas has no equivalent in Laravel's
+     * Image component (or in Intervention/Image, which it wraps) — that API
+     * only transforms an existing image (resize/crop/rotate/etc). Even the
+     * final encode step below can't move to it either, since encoding a raw
+     * \GdImage through the facade requires its driver, and
+     * intervention/image isn't installed in this project.
+     */
+    private function generatePostImage(int $userId, int $index, MediaStorage $mediaStorage): string
     {
         $palette = self::PALETTES[($index - 1) % count(self::PALETTES)];
         $style = ($index - 1) % 5;
@@ -328,9 +348,15 @@ class DemoFillSeeder extends Seeder
         $contents = ob_get_clean();
         imagedestroy($im);
 
-        if (! $encoded || ! is_string($contents) || ! Storage::disk('public')->put($path, $contents)) {
+        if (! $encoded || ! is_string($contents)) {
             throw new RuntimeException("Unable to create demo fill image at [{$path}].");
         }
+
+        $mediaStorage->putContents(
+            new MediaLocation((string) config('media.disks.public'), $path),
+            $contents,
+            MediaVisibility::Public,
+        );
 
         return $path;
     }
@@ -353,8 +379,11 @@ class DemoFillSeeder extends Seeder
      * decide whether the file is safe to delete on failure) rather than
      * being re-queried here.
      */
-    private function ensurePostImageMediaAsset(string $path, int $userId, ?int $existingId): int
+    private function ensurePostImageMediaAsset(string $path, int $userId, ?int $existingId, MediaStorage $mediaStorage): int
     {
+        $disk = (string) config('media.disks.public');
+        $location = new MediaLocation($disk, $path);
+
         if ($existingId !== null) {
             // The row may have been previously soft-deleted — the caller's
             // withTrashed() lookup finds it regardless. Restore it
@@ -370,7 +399,7 @@ class DemoFillSeeder extends Seeder
                 ->update([
                     'deleted_at' => null,
                     'owner_user_id' => $userId,
-                    'byte_size' => Storage::disk('public')->size($path),
+                    'byte_size' => $mediaStorage->size($location),
                     'updated_at' => now()->toDateTimeString(),
                 ]);
 
@@ -384,12 +413,12 @@ class DemoFillSeeder extends Seeder
         return DB::table('media_assets')->insertGetId([
             'owner_user_id' => $userId,
             'kind' => MediaKind::PostImage->value,
-            'disk' => 'public',
+            'disk' => $disk,
             'path' => $path,
             'original_filename' => basename($path),
             'mime_type' => 'image/jpeg',
             'extension' => 'jpg',
-            'byte_size' => Storage::disk('public')->size($path),
+            'byte_size' => $mediaStorage->size($location),
             'width' => $width,
             'height' => $height,
             'aspect_ratio' => round($width / $height, 6),
@@ -801,9 +830,14 @@ class DemoFillSeeder extends Seeder
             ->delete();
     }
 
+    /**
+     * Bulk directory enumeration + deletion by filename pattern — outside
+     * MediaStorage's narrow, single-location contract (store/exists/size/
+     * read/delete), so this stays a direct Storage:: call.
+     */
     private function clearGeneratedMedia(): void
     {
-        $disk = Storage::disk('public');
+        $disk = Storage::disk((string) config('media.disks.public'));
         $paths = array_values(array_filter(
             $disk->allFiles('posts'),
             fn (string $path): bool => preg_match('#/fill_post_\d+\.jpg$#', $path) === 1,

@@ -33,3 +33,11 @@ it('resolves through the asset\'s own disk rather than a hardcoded default disk'
 
     expect($post->public_image_url)->toBe('https://cdn.example.test/posts/1/dish.jpg');
 });
+
+it('does not reference the filesystem directly from the model', function () {
+    $source = file_get_contents(app_path('Models/Post.php'));
+
+    expect($source)
+        ->not->toContain('Storage::')
+        ->not->toContain(Storage::class);
+});

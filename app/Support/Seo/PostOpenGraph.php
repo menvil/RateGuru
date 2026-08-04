@@ -4,6 +4,7 @@ namespace App\Support\Seo;
 
 use App\Data\Seo\OpenGraphImageData;
 use App\Models\Post;
+use App\Support\Media\PostImagePresenter;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Str;
 
@@ -11,6 +12,7 @@ final class PostOpenGraph
 {
     public function __construct(
         private readonly ProjectSettingsManager $settings,
+        private readonly PostImagePresenter $imagePresenter,
     ) {}
 
     public function title(Post $post): string
@@ -53,7 +55,7 @@ final class PostOpenGraph
      */
     public function image(Post $post): OpenGraphImageData
     {
-        $imageUrl = trim((string) $post->public_image_url);
+        $imageUrl = trim((string) $this->imagePresenter->url($post));
 
         if ($imageUrl !== '') {
             return new OpenGraphImageData(

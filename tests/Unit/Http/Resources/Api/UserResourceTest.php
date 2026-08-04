@@ -9,6 +9,7 @@ use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -113,4 +114,26 @@ it('uses user resource shape for post and comment authors', function () {
     expect(array_keys($commentAuthor))->toBe($expectedKeys);
     expect($postAuthor)->not->toHaveKey('email');
     expect($commentAuthor)->not->toHaveKey('email');
+});
+
+it('does not n+1 query avatar assets when serializing a collection', function () {
+    $users = User::factory()->withAvatar()->count(5)->create();
+    $users = User::query()->with('avatarAsset')->whereIn('id', $users->pluck('id'))->get();
+
+    $queryCount = 0;
+
+    DB::listen(function () use (&$queryCount): void {
+        $queryCount++;
+    });
+
+    $resolved = ApiUserResource::collection($users)->resolve();
+
+    foreach ($resolved as $user) {
+        expect($user['avatar_url'])->not->toBeNull();
+    }
+
+    // The resource must not add any query of its own on top of whatever the
+    // caller already eager-loaded — avatar_url reads straight from the
+    // already-loaded avatarAsset relation.
+    expect($queryCount)->toBe(0);
 });

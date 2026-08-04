@@ -6,9 +6,9 @@ use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
+use App\Services\Media\MediaLocation;
+use App\Services\Media\MediaStorage;
 use App\Support\Media\ImageOrientationClassifier;
-use Illuminate\Support\Facades\Storage;
-use RuntimeException;
 
 final class DemoPostMediaGenerator
 {
@@ -18,6 +18,7 @@ final class DemoPostMediaGenerator
 
     public function __construct(
         private readonly ImageOrientationClassifier $orientationClassifier,
+        private readonly MediaStorage $mediaStorage,
     ) {}
 
     /** @var list<array{from: string, to: string, accent: string}> */
@@ -34,16 +35,15 @@ final class DemoPostMediaGenerator
         $palette = self::PALETTES[$index % count(self::PALETTES)];
         $label = strtoupper(str_replace(['-', '_'], ' ', pathinfo($path, PATHINFO_FILENAME)));
         $svg = $this->svg($label, $palette);
+        $disk = (string) config('media.disks.public');
 
-        if (! Storage::disk('public')->put($path, $svg)) {
-            throw new RuntimeException("Unable to create demo media at [{$path}].");
-        }
+        $this->mediaStorage->putContents(new MediaLocation($disk, $path), $svg, MediaVisibility::Public);
 
         // Demo seeders are commonly re-run in local dev; reuse the asset
         // already at this (disk, path) instead of leaving the previous run's
         // row behind, unreferenced, every time.
         return MediaAsset::query()->firstOrCreate(
-            ['disk' => 'public', 'path' => $path],
+            ['disk' => $disk, 'path' => $path],
             [
                 'kind' => MediaKind::PostImage,
                 'original_filename' => basename($path),

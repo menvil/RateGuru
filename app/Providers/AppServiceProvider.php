@@ -7,8 +7,10 @@ use App\Models\Category;
 use App\Models\Tag;
 use App\Policies\ModerationPolicy;
 use App\Policies\ProjectSettingsPolicy;
-use App\Services\Images\ImageStorage;
-use App\Services\Images\LocalImageStorage;
+use App\Services\Media\FilesystemMediaStorage;
+use App\Services\Media\FilesystemMediaUrlResolver;
+use App\Services\Media\MediaStorage;
+use App\Services\Media\MediaUrlResolver;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Theme\ThemeManager;
 use App\Support\Translations\TranslatableField;
@@ -29,17 +31,8 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->bind(VisualScreenshotRunner::class, PestVisualScreenshotRunner::class);
 
-        $this->app->bind(ImageStorage::class, function () {
-            $driver = config('rateguru.images.driver');
-
-            // 'local' is the only supported driver. Anything else — including
-            // 'cloudinary', which was previously wired to a stub that always
-            // threw at call time — fails fast at resolution instead.
-            return match ($driver) {
-                'local' => $this->app->make(LocalImageStorage::class),
-                default => throw new \InvalidArgumentException("Unsupported image driver: [{$driver}]."),
-            };
-        });
+        $this->app->singleton(MediaStorage::class, FilesystemMediaStorage::class);
+        $this->app->singleton(MediaUrlResolver::class, FilesystemMediaUrlResolver::class);
     }
 
     /**

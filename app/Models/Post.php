@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PostStatus;
+use App\Support\Media\PostImagePresenter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,7 +13,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -148,24 +148,17 @@ class Post extends Model
     }
 
     /**
-     * Temporary URL-compatibility accessor for views/API that predate the
-     * MediaAsset model. Resolves through the asset's own disk — never a
-     * hardcoded '/storage/' prefix or the default disk — so it stays correct
-     * if the asset lives on a non-default disk. Superseded by PR-03's
-     * MediaUrlResolver.
+     * Temporary compatibility accessor kept only because Blade views and API
+     * resources already call it in many places — removing it would ripple
+     * across the presentation layer for no behavioral gain. It carries no
+     * filesystem knowledge of its own: it just delegates to
+     * PostImagePresenter, which delegates to MediaUrlResolver. New code
+     * should prefer injecting PostImagePresenter directly.
      */
     protected function publicImageUrl(): Attribute
     {
         return Attribute::make(
-            get: function (): ?string {
-                $asset = $this->imageAsset;
-
-                if ($asset === null) {
-                    return null;
-                }
-
-                return Storage::disk($asset->disk)->url($asset->path);
-            },
+            get: fn (): ?string => app(PostImagePresenter::class)->url($this),
         );
     }
 }
