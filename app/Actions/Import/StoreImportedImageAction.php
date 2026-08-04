@@ -5,6 +5,8 @@ namespace App\Actions\Import;
 use App\Exceptions\Import\ImportFetchException;
 use App\Support\Import\SafeImportHttpClient;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 class StoreImportedImageAction
 {
@@ -42,15 +44,17 @@ class StoreImportedImageAction
             default => 'jpg',
         };
 
-        $baseTmpPath = tempnam(sys_get_temp_dir(), 'rg_import_');
-        $tmpPath = $baseTmpPath.'.'.$extension;
+        // The OS temp directory is self-cleaning by design; there's no
+        // existing storage/app/tmp convention (or cleanup job) in this
+        // codebase to place this under instead. Str::uuid() matches the
+        // naming convention MediaPathGenerator already uses elsewhere, and
+        // building the extension into the name up front avoids the
+        // tempnam()+rename() dance tempnam() alone would otherwise need.
+        $tmpPath = sys_get_temp_dir().'/rg_import_'.Str::uuid()->toString().'.'.$extension;
 
-        if (! rename($baseTmpPath, $tmpPath)) {
-            @unlink($baseTmpPath);
-            throw new ImportFetchException('Failed to create temporary file for imported image.');
+        if (File::put($tmpPath, $body) === false) {
+            throw new ImportFetchException('Failed to write temporary file for imported image.');
         }
-
-        file_put_contents($tmpPath, $body);
 
         return new UploadedFile(
             path: $tmpPath,

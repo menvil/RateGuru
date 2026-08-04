@@ -6,6 +6,7 @@ use App\Enums\MediaVisibility;
 use App\Services\Media\Exceptions\MediaStorageException;
 use Illuminate\Filesystem\FilesystemManager;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Image\ImageManager;
 use Throwable;
 
 final class FilesystemMediaStorage implements MediaStorage
@@ -20,6 +21,7 @@ final class FilesystemMediaStorage implements MediaStorage
     public function __construct(
         private readonly FilesystemManager $filesystem,
         private readonly MediaPathGenerator $pathGenerator,
+        private readonly ImageManager $imageManager,
     ) {}
 
     public function store(UploadedFile $file, MediaStoreRequest $request): StoredMedia
@@ -52,13 +54,15 @@ final class FilesystemMediaStorage implements MediaStorage
             throw MediaStorageException::couldNotReadUploadedFile($file->getClientOriginalName(), $exception);
         }
 
-        $dimensions = @getimagesizefromstring($contents);
-
-        $written = $this->filesystem->disk($request->disk)->put(
-            $path,
-            $contents,
-            $request->visibility === MediaVisibility::Public ? 'public' : 'private',
-        );
+        try {
+            $written = $this->filesystem->disk($request->disk)->put(
+                $path,
+                $contents,
+                $request->visibility === MediaVisibility::Public ? 'public' : 'private',
+            );
+        } catch (Throwable $exception) {
+            throw MediaStorageException::couldNotStore($request->disk, $path, $exception);
+        }
 
         if (! $written) {
             throw MediaStorageException::couldNotStore($request->disk, $path);
@@ -68,8 +72,12 @@ final class FilesystemMediaStorage implements MediaStorage
         // extraction, not the write itself — a failure here must delete the
         // just-written file rather than leave it orphaned, since no
         // StoredMedia is ever returned for a caller to compensate with —
-        // but only when this operation is the one that created it.
+        // but only when this operation is the one that created it. This
+        // includes dimensions: an upload that can't be decoded as an image
+        // is a metadata-extraction failure like any other, not something to
+        // silently store with a null width/height.
         try {
+            [$width, $height] = $this->imageManager->fromBytes($contents)->dimensions();
             $originalFilename = $file->getClientOriginalName();
 
             return new StoredMedia(
@@ -81,8 +89,8 @@ final class FilesystemMediaStorage implements MediaStorage
                 mimeType: $file->getMimeType() ?? 'application/octet-stream',
                 extension: $extension,
                 byteSize: strlen($contents),
-                width: $dimensions[0] ?? null,
-                height: $dimensions[1] ?? null,
+                width: $width,
+                height: $height,
             );
         } catch (Throwable $exception) {
             if (! $existedBeforeWrite) {
@@ -108,11 +116,15 @@ final class FilesystemMediaStorage implements MediaStorage
 
     public function putContents(MediaLocation $location, string $contents, MediaVisibility $visibility): void
     {
-        $written = $this->filesystem->disk($location->disk)->put(
-            $location->path,
-            $contents,
-            $visibility === MediaVisibility::Public ? 'public' : 'private',
-        );
+        try {
+            $written = $this->filesystem->disk($location->disk)->put(
+                $location->path,
+                $contents,
+                $visibility === MediaVisibility::Public ? 'public' : 'private',
+            );
+        } catch (Throwable $exception) {
+            throw MediaStorageException::couldNotStore($location->disk, $location->path, $exception);
+        }
 
         if (! $written) {
             throw MediaStorageException::couldNotStore($location->disk, $location->path);

@@ -3,14 +3,13 @@
 use App\Enums\MediaKind;
 use App\Enums\MediaVisibility;
 use App\Services\Media\Exceptions\MediaStorageException;
-use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\MediaLocation;
-use App\Services\Media\MediaPathGenerator;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaStoreRequest;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Filesystem\FilesystemManager;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Image\ImageException;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 
@@ -156,7 +155,8 @@ it('throws a narrow exception when the underlying disk reports the delete failed
     $filesystem = Mockery::mock(FilesystemManager::class);
     $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
 
-    $storage = new FilesystemMediaStorage($filesystem, new MediaPathGenerator);
+    app()->instance(FilesystemManager::class, $filesystem);
+    $storage = app(MediaStorage::class);
 
     expect(fn () => $storage->delete(new MediaLocation('public', 'media/post-images/file.jpg')))
         ->toThrow(MediaStorageException::class);
@@ -173,6 +173,62 @@ it('writes in-process generated content at an explicit location via putContents'
 
     Storage::disk('public')->assertExists('demo/posts/generated.svg');
     expect(Storage::disk('public')->get('demo/posts/generated.svg'))->toBe('<svg></svg>');
+});
+
+it('normalizes a filesystem exception thrown during store() into a narrow exception', function () {
+    $diskAdapter = Mockery::mock(Filesystem::class);
+    $diskAdapter->shouldReceive('put')->once()->andThrow(new RuntimeException('Simulated disk outage.'));
+
+    $filesystem = Mockery::mock(FilesystemManager::class);
+    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
+
+    app()->instance(FilesystemManager::class, $filesystem);
+
+    $request = new MediaStoreRequest(
+        disk: 'public',
+        directory: 'media/post-images',
+        kind: MediaKind::PostImage,
+        visibility: MediaVisibility::Public,
+        ownerUserId: 1,
+    );
+
+    $caught = null;
+
+    try {
+        app(MediaStorage::class)->store(UploadedFile::fake()->image('dish.jpg', 800, 600), $request);
+    } catch (MediaStorageException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull()
+        ->and($caught->getPrevious())->toBeInstanceOf(RuntimeException::class)
+        ->and($caught->getPrevious()->getMessage())->toBe('Simulated disk outage.');
+});
+
+it('normalizes a filesystem exception thrown during putContents() into a narrow exception', function () {
+    $diskAdapter = Mockery::mock(Filesystem::class);
+    $diskAdapter->shouldReceive('put')->once()->andThrow(new RuntimeException('Simulated disk outage.'));
+
+    $filesystem = Mockery::mock(FilesystemManager::class);
+    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
+
+    app()->instance(FilesystemManager::class, $filesystem);
+
+    $caught = null;
+
+    try {
+        app(MediaStorage::class)->putContents(
+            new MediaLocation('public', 'demo/posts/generated.svg'),
+            '<svg></svg>',
+            MediaVisibility::Public,
+        );
+    } catch (MediaStorageException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull()
+        ->and($caught->getPrevious())->toBeInstanceOf(RuntimeException::class)
+        ->and($caught->getPrevious()->getMessage())->toBe('Simulated disk outage.');
 });
 
 it('deletes the newly written file when metadata extraction fails after a successful write', function () {
@@ -205,7 +261,8 @@ it('reports a cleanup failure but still propagates the original metadata excepti
     $filesystem = Mockery::mock(FilesystemManager::class);
     $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
 
-    $storage = new FilesystemMediaStorage($filesystem, new MediaPathGenerator);
+    app()->instance(FilesystemManager::class, $filesystem);
+    $storage = app(MediaStorage::class);
 
     $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
     $file->shouldReceive('getMimeType')->andThrow(new RuntimeException('Simulated metadata failure.'));
@@ -294,6 +351,28 @@ it('maps an unreadable uploaded file to a narrow exception instead of touching t
 
     expect(fn () => app(MediaStorage::class)->store($file, $request))
         ->toThrow(MediaStorageException::class, 'Could not read uploaded file [dish.jpg].');
+
+    expect(Storage::disk('public')->allFiles('media/post-images'))->toBeEmpty();
+});
+
+it('throws and cleans up when the uploaded file cannot be decoded as an image', function () {
+    Storage::fake('public');
+
+    // Garbage bytes rather than a real image — this bypasses the upstream
+    // 'image' validation rule the way a direct, unit-level store() call
+    // always does, so store() itself has to be the one that refuses it.
+    $file = UploadedFile::fake()->create('not-an-image.jpg', 10);
+
+    $request = new MediaStoreRequest(
+        disk: 'public',
+        directory: 'media/post-images',
+        kind: MediaKind::PostImage,
+        visibility: MediaVisibility::Public,
+        ownerUserId: 1,
+    );
+
+    expect(fn () => app(MediaStorage::class)->store($file, $request))
+        ->toThrow(ImageException::class);
 
     expect(Storage::disk('public')->allFiles('media/post-images'))->toBeEmpty();
 });

@@ -312,6 +312,15 @@ class DemoFillSeeder extends Seeder
     // Image generation (5 visual styles)
     // -------------------------------------------------------------------------
 
+    /**
+     * Raw GD, not Illuminate\Support\Facades\Image: procedurally drawing
+     * shapes/gradients onto a blank canvas has no equivalent in Laravel's
+     * Image component (or in Intervention/Image, which it wraps) — that API
+     * only transforms an existing image (resize/crop/rotate/etc). Even the
+     * final encode step below can't move to it either, since encoding a raw
+     * \GdImage through the facade requires its driver, and
+     * intervention/image isn't installed in this project.
+     */
     private function generatePostImage(int $userId, int $index, MediaStorage $mediaStorage): string
     {
         $palette = self::PALETTES[($index - 1) % count(self::PALETTES)];
