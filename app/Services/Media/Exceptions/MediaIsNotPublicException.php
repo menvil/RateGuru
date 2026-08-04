@@ -2,18 +2,13 @@
 
 namespace App\Services\Media\Exceptions;
 
-use App\Models\MediaAsset;
-use App\Models\MediaVariant;
+use App\Services\Media\MediaLocation;
 use RuntimeException;
 
 final class MediaIsNotPublicException extends RuntimeException
 {
-    public static function forMedia(MediaAsset|MediaVariant $media): self
+    public static function forLocation(MediaLocation $location): self
     {
-        $identity = $media instanceof MediaAsset
-            ? "media_assets.{$media->id}"
-            : "media_variants.{$media->id}";
-
-        return new self("Cannot resolve a public URL for private media [{$identity}].");
+        return new self("Cannot resolve a public URL for private media at [{$location->disk}:{$location->path}].");
     }
 }

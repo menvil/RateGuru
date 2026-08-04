@@ -23,7 +23,11 @@ final readonly class MediaLocation
             throw new InvalidArgumentException('Media path cannot be empty.');
         }
 
-        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://') || str_starts_with($path, '//')) {
+        // Matches any URI scheme (case-insensitively — http://, HTTP://,
+        // ftp://, file://, s3://, data:, javascript:, ...) or a
+        // protocol-relative URL, not just the http(s) cases we've actually
+        // seen — this is a hard boundary, not a best-effort denylist.
+        if (preg_match('#^(?:[a-z][a-z0-9+.-]*:|//)#i', $path) === 1) {
             throw new InvalidArgumentException("Media path cannot be a URL: [{$path}].");
         }
 

@@ -15,7 +15,6 @@ return [
 
     'disks' => [
         'public' => env('MEDIA_PUBLIC_DISK', 'public'),
-        'private' => env('MEDIA_PRIVATE_DISK', 'local'),
     ],
 
     /*

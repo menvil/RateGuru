@@ -39,5 +39,5 @@ it('does not reference the filesystem directly from the model', function () {
 
     expect($source)
         ->not->toContain('Storage::')
-        ->not->toContain('Storage\\Facades\\Storage');
+        ->not->toContain(Storage::class);
 });

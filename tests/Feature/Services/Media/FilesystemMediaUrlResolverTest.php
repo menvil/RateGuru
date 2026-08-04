@@ -4,24 +4,22 @@ use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Services\Media\Exceptions\MediaIsNotPublicException;
+use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaUrlResolver;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
-it('resolves a public asset\'s url through its own disk', function () {
+it('resolves a public location\'s url through its own disk', function () {
     Storage::fake('public');
 
-    $asset = MediaAsset::factory()->create([
-        'disk' => 'public',
-        'path' => 'media/post-images/dish.jpg',
-        'visibility' => MediaVisibility::Public,
-    ]);
+    $location = new MediaLocation('public', 'media/post-images/dish.jpg');
 
-    $url = app(MediaUrlResolver::class)->publicUrl($asset);
+    $url = app(MediaUrlResolver::class)->publicUrl($location, MediaVisibility::Public);
 
     expect($url)->toBe(Storage::disk('public')->url('media/post-images/dish.jpg'));
 });
 
-it('resolves a variant\'s url through its own disk and path', function () {
+it('resolves a variant\'s url using its own location and its parent\'s visibility', function () {
     Storage::fake('public');
 
     $variant = MediaVariant::factory()->create([
@@ -29,12 +27,17 @@ it('resolves a variant\'s url through its own disk and path', function () {
         'path' => 'media/post-images/variants/feed_640.jpg',
     ]);
 
-    $url = app(MediaUrlResolver::class)->publicUrl($variant);
+    // A future variant presenter would read these two independently — the
+    // resolver itself never touches $variant->asset.
+    $location = new MediaLocation($variant->disk, $variant->path);
+    $visibility = $variant->asset->visibility;
+
+    $url = app(MediaUrlResolver::class)->publicUrl($location, $visibility);
 
     expect($url)->toBe(Storage::disk('public')->url('media/post-images/variants/feed_640.jpg'));
 });
 
-it('resolves two assets on different disks to each disk\'s own url', function () {
+it('resolves two locations on different disks to each disk\'s own url', function () {
     config(['filesystems.disks.disk_a' => [
         'driver' => 'local',
         'root' => storage_path('app/disk_a'),
@@ -48,13 +51,12 @@ it('resolves two assets on different disks to each disk\'s own url', function ()
         'visibility' => 'public',
     ]]);
 
-    $assetA = MediaAsset::factory()->create(['disk' => 'disk_a', 'path' => 'file.jpg']);
-    $assetB = MediaAsset::factory()->create(['disk' => 'disk_b', 'path' => 'file.jpg']);
-
     $resolver = app(MediaUrlResolver::class);
 
-    expect($resolver->publicUrl($assetA))->toBe('https://disk-a.example.test/file.jpg')
-        ->and($resolver->publicUrl($assetB))->toBe('https://disk-b.example.test/file.jpg');
+    expect($resolver->publicUrl(new MediaLocation('disk_a', 'file.jpg'), MediaVisibility::Public))
+        ->toBe('https://disk-a.example.test/file.jpg')
+        ->and($resolver->publicUrl(new MediaLocation('disk_b', 'file.jpg'), MediaVisibility::Public))
+        ->toBe('https://disk-b.example.test/file.jpg');
 });
 
 it('resolves a custom disk url (cdn-style) instead of building /storage/ manually', function () {
@@ -65,52 +67,56 @@ it('resolves a custom disk url (cdn-style) instead of building /storage/ manuall
         'visibility' => 'public',
     ]]);
 
-    $asset = MediaAsset::factory()->create(['disk' => 'cdn_test', 'path' => 'dish.jpg']);
-
-    $url = app(MediaUrlResolver::class)->publicUrl($asset);
+    $url = app(MediaUrlResolver::class)->publicUrl(new MediaLocation('cdn_test', 'dish.jpg'), MediaVisibility::Public);
 
     expect($url)->toBe('https://cdn.example.test/media/dish.jpg')
         ->and($url)->not->toContain('/storage/');
 });
 
-it('throws when strictly resolving a private asset', function () {
-    $asset = MediaAsset::factory()->create(['visibility' => MediaVisibility::Private]);
-
-    expect(fn () => app(MediaUrlResolver::class)->publicUrl($asset))
+it('throws when strictly resolving private visibility', function () {
+    expect(fn () => app(MediaUrlResolver::class)->publicUrl(new MediaLocation('public', 'dish.jpg'), MediaVisibility::Private))
         ->toThrow(MediaIsNotPublicException::class);
 });
 
-it('returns null instead of throwing when nullably resolving a private asset', function () {
-    $asset = MediaAsset::factory()->create(['visibility' => MediaVisibility::Private]);
-
-    expect(app(MediaUrlResolver::class)->publicUrlOrNull($asset))->toBeNull();
+it('returns null instead of throwing when nullably resolving private visibility', function () {
+    expect(app(MediaUrlResolver::class)->publicUrlOrNull(new MediaLocation('public', 'dish.jpg'), MediaVisibility::Private))
+        ->toBeNull();
 });
 
-it('treats a variant as private when its parent asset is private', function () {
-    $variant = MediaVariant::factory()
-        ->for(MediaAsset::factory()->state(['visibility' => MediaVisibility::Private]), 'asset')
-        ->create();
-
-    expect(app(MediaUrlResolver::class)->publicUrlOrNull($variant))->toBeNull();
-    expect(fn () => app(MediaUrlResolver::class)->publicUrl($variant))
-        ->toThrow(MediaIsNotPublicException::class);
+it('returns null for a null location without throwing', function () {
+    expect(app(MediaUrlResolver::class)->publicUrlOrNull(null, MediaVisibility::Public))->toBeNull();
 });
 
-it('returns null for a null media without throwing', function () {
-    expect(app(MediaUrlResolver::class)->publicUrlOrNull(null))->toBeNull();
+it('returns null for a null visibility without throwing — the shape a missing/soft-deleted variant parent naturally produces', function () {
+    // A caller resolving a MediaVariant's url derives visibility from
+    // $variant->asset?->visibility — if the parent is missing or
+    // soft-deleted, that expression is already null by the time it reaches
+    // here, so the resolver just has to accept null cleanly, not fetch or
+    // check anything itself.
+    expect(app(MediaUrlResolver::class)->publicUrlOrNull(new MediaLocation('public', 'dish.jpg'), null))->toBeNull();
 });
 
 it('resolves a url without checking whether the file actually exists', function () {
     Storage::fake('public');
 
-    // No file was ever written at this path — resolving a URL is pure
-    // string construction from disk config, not a filesystem existence
-    // check.
-    $asset = MediaAsset::factory()->create([
-        'disk' => 'public',
-        'path' => 'media/post-images/never-written.jpg',
-        'visibility' => MediaVisibility::Public,
-    ]);
+    expect(fn () => app(MediaUrlResolver::class)->publicUrl(
+        new MediaLocation('public', 'media/post-images/never-written.jpg'),
+        MediaVisibility::Public,
+    ))->not->toThrow(Throwable::class);
+});
 
-    expect(fn () => app(MediaUrlResolver::class)->publicUrl($asset))->not->toThrow(Throwable::class);
+it('never queries the database while resolving a url', function () {
+    $asset = MediaAsset::factory()->create(['disk' => 'public', 'path' => 'dish.jpg']);
+    $location = new MediaLocation($asset->disk, $asset->path);
+    $visibility = $asset->visibility;
+
+    $queryCount = 0;
+    DB::listen(function () use (&$queryCount): void {
+        $queryCount++;
+    });
+
+    app(MediaUrlResolver::class)->publicUrl($location, $visibility);
+    app(MediaUrlResolver::class)->publicUrlOrNull($location, $visibility);
+
+    expect($queryCount)->toBe(0);
 });

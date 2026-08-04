@@ -10,13 +10,16 @@ use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\RatingVote;
 use App\Models\User;
+use App\Services\Media\MediaStorage;
 use Database\Seeders\DefaultCategorySeeder;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Database\Seeders\DemoFillSeeder;
 use Illuminate\Console\Command;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
+use Mockery;
 use ReflectionClass;
 use RuntimeException;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -191,7 +194,7 @@ it('does not delete an already-referenced image file when a rerun transaction fa
     // already-seeded post still references.
     forceNextDbTransactionToThrow(new RuntimeException('Simulated seeder rerun failure.'));
 
-    expect(fn () => $createPosts->invoke($seeder, $users))
+    expect(fn () => $createPosts->invoke($seeder, $users, app(MediaStorage::class)))
         ->toThrow(RuntimeException::class, 'Simulated seeder rerun failure.');
 
     Storage::disk('public')->assertExists($existingPath);
@@ -207,12 +210,43 @@ it('restores a soft-deleted media asset instead of leaving a post pointing at a 
     $path = 'posts/'.$userId.'/fill_post_001.jpg';
     Storage::disk('public')->put($path, 'fake-bytes');
 
-    $firstId = $method->invoke($seeder, $path, $userId, null);
+    $mediaStorage = app(MediaStorage::class);
+
+    $firstId = $method->invoke($seeder, $path, $userId, null, $mediaStorage);
     MediaAsset::query()->find($firstId)->delete();
     expect(MediaAsset::query()->find($firstId))->toBeNull();
 
-    $secondId = $method->invoke($seeder, $path, $userId, $firstId);
+    $secondId = $method->invoke($seeder, $path, $userId, $firstId, $mediaStorage);
 
     expect($secondId)->toBe($firstId)
         ->and(MediaAsset::query()->find($firstId))->not->toBeNull();
+});
+
+it('reports a cleanup failure but still propagates the original database exception', function () {
+    Exceptions::fake();
+
+    $seeder = new SmallDemoFillSeeder;
+    $seeder->setCommand(seederCommandForTesting());
+    $reflection = new ReflectionClass($seeder);
+
+    $createUsers = $reflection->getMethod('createUsers');
+    $createUsers->setAccessible(true);
+    $users = $createUsers->invoke($seeder);
+
+    $createPosts = $reflection->getMethod('createPosts');
+    $createPosts->setAccessible(true);
+
+    forceNextDbTransactionToThrow(new RuntimeException('Simulated seeder rerun failure.'));
+
+    // This is a fresh run with no prior successful seed, so the very first
+    // image is genuinely new — the compensation path will actually attempt
+    // to delete it, and that delete is made to fail too.
+    $mediaStorage = Mockery::mock(MediaStorage::class);
+    $mediaStorage->shouldReceive('putContents');
+    $mediaStorage->shouldReceive('delete')->once()->andThrow(new RuntimeException('Simulated cleanup failure.'));
+
+    expect(fn () => $createPosts->invoke($seeder, $users, $mediaStorage))
+        ->toThrow(RuntimeException::class, 'Simulated seeder rerun failure.');
+
+    Exceptions::assertReported(RuntimeException::class);
 });

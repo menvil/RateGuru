@@ -143,7 +143,7 @@ class DemoFillSeeder extends Seeder
         [0x3B82F6, 0xF97316],
     ];
 
-    public function run(): void
+    public function run(MediaStorage $mediaStorage): void
     {
         if (! app()->environment(['local', 'testing'])) {
             $this->command->warn('DemoFillSeeder only runs in local/testing environment.');
@@ -158,7 +158,7 @@ class DemoFillSeeder extends Seeder
         $this->clearGeneratedMedia();
 
         $this->command->info('Creating '.count($this->postTitles()).' posts with images...');
-        $posts = $this->createPosts($users);
+        $posts = $this->createPosts($users, $mediaStorage);
 
         $this->command->info('Removing previously generated interactions...');
         $this->clearGeneratedInteractions($users, $posts);
@@ -217,7 +217,7 @@ class DemoFillSeeder extends Seeder
     // Posts
     // -------------------------------------------------------------------------
 
-    private function createPosts(Collection $users): Collection
+    private function createPosts(Collection $users, MediaStorage $mediaStorage): Collection
     {
         $titles = $this->postTitles();
         $categoryIds = Category::query()->active()->ordered()->pluck('id')->all();
@@ -248,14 +248,14 @@ class DemoFillSeeder extends Seeder
             // that doesn't belong inside a DB transaction). If the DB work
             // below then fails, a newly-created file is removed as
             // compensation — it isn't covered by the transaction rollback.
-            $this->generatePostImage($author->id, $index + 1);
+            $this->generatePostImage($author->id, $index + 1, $mediaStorage);
             $categoryId = $categoryIds === [] || $index % 3 === 2
                 ? null
                 : $categoryIds[$index % count($categoryIds)];
 
             try {
-                DB::transaction(function () use ($author, $title, $imagePath, $existingImageAssetId, $categoryId, $baseTime, $index, $now): void {
-                    $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id, $existingImageAssetId);
+                DB::transaction(function () use ($author, $title, $imagePath, $existingImageAssetId, $categoryId, $baseTime, $index, $now, $mediaStorage): void {
+                    $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id, $existingImageAssetId, $mediaStorage);
 
                     // Raw query builder (not Eloquent) is intentional here:
                     // this loop runs once per demo post title (up to ~99) on
@@ -284,8 +284,15 @@ class DemoFillSeeder extends Seeder
                     );
                 });
             } catch (Throwable $exception) {
+                // Best-effort: a cleanup failure here is reported but must
+                // never replace the original database exception being
+                // propagated below.
                 if ($isNewImage) {
-                    app(MediaStorage::class)->delete(new MediaLocation($disk, $imagePath));
+                    try {
+                        $mediaStorage->delete(new MediaLocation($disk, $imagePath));
+                    } catch (Throwable $cleanupException) {
+                        report($cleanupException);
+                    }
                 }
 
                 throw $exception;
@@ -305,7 +312,7 @@ class DemoFillSeeder extends Seeder
     // Image generation (5 visual styles)
     // -------------------------------------------------------------------------
 
-    private function generatePostImage(int $userId, int $index): string
+    private function generatePostImage(int $userId, int $index, MediaStorage $mediaStorage): string
     {
         $palette = self::PALETTES[($index - 1) % count(self::PALETTES)];
         $style = ($index - 1) % 5;
@@ -336,7 +343,7 @@ class DemoFillSeeder extends Seeder
             throw new RuntimeException("Unable to create demo fill image at [{$path}].");
         }
 
-        app(MediaStorage::class)->putContents(
+        $mediaStorage->putContents(
             new MediaLocation((string) config('media.disks.public'), $path),
             $contents,
             MediaVisibility::Public,
@@ -363,7 +370,7 @@ class DemoFillSeeder extends Seeder
      * decide whether the file is safe to delete on failure) rather than
      * being re-queried here.
      */
-    private function ensurePostImageMediaAsset(string $path, int $userId, ?int $existingId): int
+    private function ensurePostImageMediaAsset(string $path, int $userId, ?int $existingId, MediaStorage $mediaStorage): int
     {
         $disk = (string) config('media.disks.public');
         $location = new MediaLocation($disk, $path);
@@ -383,7 +390,7 @@ class DemoFillSeeder extends Seeder
                 ->update([
                     'deleted_at' => null,
                     'owner_user_id' => $userId,
-                    'byte_size' => app(MediaStorage::class)->size($location),
+                    'byte_size' => $mediaStorage->size($location),
                     'updated_at' => now()->toDateTimeString(),
                 ]);
 
@@ -402,7 +409,7 @@ class DemoFillSeeder extends Seeder
             'original_filename' => basename($path),
             'mime_type' => 'image/jpeg',
             'extension' => 'jpg',
-            'byte_size' => app(MediaStorage::class)->size($location),
+            'byte_size' => $mediaStorage->size($location),
             'width' => $width,
             'height' => $height,
             'aspect_ratio' => round($width / $height, 6),

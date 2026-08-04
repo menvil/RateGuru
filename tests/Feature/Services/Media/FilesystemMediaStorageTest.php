@@ -11,6 +11,7 @@ use App\Services\Media\MediaStoreRequest;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Filesystem\FilesystemManager;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 
 it('stores the uploaded file on the requested disk, not a hardcoded one', function () {
@@ -172,4 +173,53 @@ it('writes in-process generated content at an explicit location via putContents'
 
     Storage::disk('public')->assertExists('demo/posts/generated.svg');
     expect(Storage::disk('public')->get('demo/posts/generated.svg'))->toBe('<svg></svg>');
+});
+
+it('deletes the newly written file when metadata extraction fails after a successful write', function () {
+    Storage::fake('public');
+
+    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
+    $file->shouldReceive('getSize')->andThrow(new RuntimeException('Simulated metadata failure.'));
+
+    $request = new MediaStoreRequest(
+        disk: 'public',
+        directory: 'media/post-images',
+        kind: MediaKind::PostImage,
+        visibility: MediaVisibility::Public,
+        ownerUserId: 1,
+    );
+
+    expect(fn () => app(MediaStorage::class)->store($file, $request))
+        ->toThrow(RuntimeException::class, 'Simulated metadata failure.');
+
+    expect(Storage::disk('public')->allFiles('media/post-images'))->toBeEmpty();
+});
+
+it('reports a cleanup failure but still propagates the original metadata exception', function () {
+    Exceptions::fake();
+
+    $diskAdapter = Mockery::mock(Filesystem::class);
+    $diskAdapter->shouldReceive('put')->once()->andReturn(true);
+    $diskAdapter->shouldReceive('delete')->once()->andReturn(false);
+
+    $filesystem = Mockery::mock(FilesystemManager::class);
+    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
+
+    $storage = new FilesystemMediaStorage($filesystem, new MediaPathGenerator);
+
+    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
+    $file->shouldReceive('getSize')->andThrow(new RuntimeException('Simulated metadata failure.'));
+
+    $request = new MediaStoreRequest(
+        disk: 'public',
+        directory: 'media/post-images',
+        kind: MediaKind::PostImage,
+        visibility: MediaVisibility::Public,
+        ownerUserId: 1,
+    );
+
+    expect(fn () => $storage->store($file, $request))
+        ->toThrow(RuntimeException::class, 'Simulated metadata failure.');
+
+    Exceptions::assertReported(MediaStorageException::class);
 });

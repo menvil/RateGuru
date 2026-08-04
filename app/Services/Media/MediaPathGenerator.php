@@ -31,7 +31,11 @@ final class MediaPathGenerator
         $directory = rtrim($request->directory, '/');
 
         return match ($request->kind) {
-            MediaKind::PostImage => "{$directory}/".now()->format('Y').'/'.now()->format('m')."/{$filename}",
+            // One instant, not two now() calls — otherwise a rollover
+            // between the year and month reads could split a path across
+            // two different months (e.g. .../2026/12/... then .../2027/01/...
+            // for the same file).
+            MediaKind::PostImage => "{$directory}/".now()->format('Y/m')."/{$filename}",
             MediaKind::Avatar => "{$directory}/{$request->ownerUserId}/{$filename}",
         };
     }

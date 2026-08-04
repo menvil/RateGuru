@@ -87,13 +87,24 @@ separate, narrow contracts — never one combined "media manager":
 
 - **`MediaStorage`** — `store()`, `putContents()` (for in-process generated
   content, e.g. demo seeders), `exists()`, `size()`, `readStream()`,
-  `delete()`. Never resolves a URL.
-- **`MediaUrlResolver`** — `publicUrl()` (throws `MediaIsNotPublicException`
-  for private media) and `publicUrlOrNull()` (returns `null` instead). Never
-  stores, reads content, creates variants, or touches the database beyond the
-  given model's own `disk`/`path`/`visibility`. A `MediaVariant` has no
-  visibility of its own — it inherits its parent asset's, since a variant is
-  never more permissive than the file it was derived from.
+  `delete()`. Never resolves a URL. `store()` compensates for its own
+  failures: if metadata extraction fails *after* the file has already been
+  physically written, it deletes that file (best-effort — a cleanup failure
+  is reported, never left to replace the original exception) before
+  re-throwing, so a partial failure can't leave an orphaned file with no
+  `StoredMedia` ever returned for a caller to compensate with itself.
+- **`MediaUrlResolver`** — `publicUrl(MediaLocation $location, MediaVisibility $visibility)`
+  (throws `MediaIsNotPublicException` when visibility isn't public) and
+  `publicUrlOrNull(?MediaLocation $location, ?MediaVisibility $visibility)`
+  (returns `null` instead, for a null location *or* null visibility). This is
+  a **pure data boundary**: it never touches the database, never lazy-loads a
+  relation, and never decides what a `MediaAsset` or `MediaVariant`'s own
+  visibility is. The caller — `PostImagePresenter`/`AvatarUrlResolver` today
+  — already has the asset loaded and passes its disk/path/visibility in
+  directly. A `MediaVariant` has no visibility column of its own; a future
+  variant presenter passes its *parent* asset's visibility (via
+  `$variant->asset?->visibility`, which is already `null` — not a crash — if
+  the parent is missing or soft-deleted), never the variant.
 
 Both are implemented by `Filesystem*` classes wrapping Laravel's
 `FilesystemManager` — there is no AWS SDK integration, no S3 deployment, and
@@ -102,22 +113,32 @@ front of it, or switching to any other Laravel filesystem disk is a
 `config/filesystems.php` disk change (driver/url), not a code change: neither
 class ever hardcodes a disk name, both always use whichever disk the caller
 specifies. `config/media.php` maps each media kind to a disk and base
-directory (`MEDIA_PUBLIC_DISK`, `MEDIA_PRIVATE_DISK`); there is deliberately
-no `MEDIA_DRIVER` — a Laravel disk name *is* the configuration surface.
+directory (`MEDIA_PUBLIC_DISK`); there is deliberately no `MEDIA_DRIVER` — a
+Laravel disk name *is* the configuration surface. There is no dedicated
+private-disk flow yet (no `MEDIA_PRIVATE_DISK` — it had zero consumers and
+was removed): `MediaVisibility::Private` and the not-public checks above
+exist and are exercised, but nothing in this codebase currently uploads
+anything as private, and there are no temporary/signed URLs.
 
 `MediaPathGenerator` builds the collision-resistant object key a file is
-stored at (a fresh UUID, never the client-supplied filename), nested by
-year/month for post images and by owner user id for avatars — except for
-demo seeders, which pass an explicit deterministic path so reruns land on the
-same key instead of accumulating one new asset per run.
+stored at (a fresh UUID, never the client-supplied filename) from a single
+`now()` instant (not two separate calls, which could straddle a
+year/month rollover), nested by year/month for post images and by owner
+user id for avatars — except for demo seeders, which pass an explicit
+deterministic path so reruns land on the same key instead of accumulating
+one new asset per run.
 
 `MediaAssetCreator`, `PostImagePresenter`, and `AvatarUrlResolver`
 (`app/Support/Media/`) are the only things that know a post's image comes
-from `imageAsset` or a user's avatar comes from `avatarAsset` — they delegate
-straight to `MediaUrlResolver`. Rendering a fallback when there's no avatar
-(initials, in this app) is a presentation concern
-(`resources/views/components/ui/avatar.blade.php`), not something either
-class or the resolver itself knows about.
+from `imageAsset` or a user's avatar comes from `avatarAsset`. The presenters
+read the asset's own disk/path/visibility and hand `MediaUrlResolver` plain
+data — the resolver itself never touches either relation. Rendering a
+fallback when there's no avatar (initials, in this app) is a presentation
+concern (`resources/views/components/ui/avatar.blade.php`), not something any
+of these classes know about. Every query that renders avatars or post images
+in a list (main feed, saved posts, comments, matched-user search results)
+eager-loads `imageAsset`/`user.avatarAsset` — the presenters read an
+already-loaded relation, they don't trigger the query themselves.
 
 `Post::public_image_url` and `User::resolved_avatar_url` remain as thin
 compatibility accessors — kept because Blade views and API resources already
