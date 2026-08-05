@@ -403,6 +403,8 @@ it('creates no post, asset, or file when the image cannot be ingested', function
 });
 
 it('passes the URL-import source through to ImageIngestor for an imported image', function () {
+    Storage::fake('public');
+
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
 
@@ -421,6 +423,8 @@ it('passes the URL-import source through to ImageIngestor for an imported image'
 });
 
 it('defaults to the Upload source when a post image is provided without an explicit source', function () {
+    Storage::fake('public');
+
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
 

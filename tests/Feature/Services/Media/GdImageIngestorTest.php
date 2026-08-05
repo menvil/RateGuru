@@ -158,12 +158,18 @@ function jpegCommentSegment(string $comment): string
     return "\xFF\xFE".pack('n', strlen($payload) + 2).$payload;
 }
 
+/** Minimal single-tag (Orientation) TIFF/IFD0 body, shared by the PNG/WebP chunk builders below. */
+function exifOrientationData(int $orientation = 6): string
+{
+    return "II\x2A\x00".pack('V', 8).pack('v', 1).pack('vvV', 0x0112, 3, 1).pack('v', $orientation)."\x00\x00".pack('V', 0);
+}
+
 /** Splices a minimal `eXIf` chunk (carrying an Orientation tag) into a PNG. */
 function pngWithExifChunk(int $width = 20, int $height = 10): string
 {
     $png = markerBytesWithAlpha('png', $width, $height);
 
-    $exifData = "II\x2A\x00".pack('V', 8).pack('v', 1).pack('vvV', 0x0112, 3, 1).pack('v', 6)."\x00\x00".pack('V', 0);
+    $exifData = exifOrientationData();
     $chunkType = 'eXIf';
     $chunk = pack('N', strlen($exifData)).$chunkType.$exifData.pack('N', crc32($chunkType.$exifData));
 
@@ -178,7 +184,7 @@ function webpWithExifChunk(int $width = 20, int $height = 10): string
 {
     $webp = markerBytesWithAlpha('webp', $width, $height);
 
-    $exifData = "II\x2A\x00".pack('V', 8).pack('v', 1).pack('vvV', 0x0112, 3, 1).pack('v', 6)."\x00\x00".pack('V', 0);
+    $exifData = exifOrientationData();
     $chunk = 'EXIF'.pack('V', strlen($exifData)).$exifData.(strlen($exifData) % 2 === 1 ? "\x00" : '');
 
     $riffSize = unpack('V', substr($webp, 4, 4))[1];

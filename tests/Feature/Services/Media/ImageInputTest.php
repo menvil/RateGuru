@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ImageInputSource;
+use App\Services\Media\Exceptions\ImageDecodeException;
 use App\Services\Media\Exceptions\ImageTooLargeException;
 use App\Services\Media\ImageInput;
 use Illuminate\Http\UploadedFile;
@@ -31,6 +32,16 @@ it('falls through to reading content when getSize() cannot determine a size', fu
     $input = ImageInput::fromUploadedFile($file, 5 * 1024 * 1024);
 
     expect($input->bytes)->not->toBeEmpty();
+});
+
+it('maps a getSize() stat failure to a narrow exception instead of letting it escape', function () {
+    // SplFileInfo::getSize() throws RuntimeException (not just false) when
+    // the underlying temp file can't be stat'd at all.
+    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
+    $file->shouldReceive('getSize')->andThrow(new RuntimeException('stat failed'));
+
+    expect(fn () => ImageInput::fromUploadedFile($file, 5 * 1024 * 1024))
+        ->toThrow(ImageDecodeException::class);
 });
 
 it('propagates the given source', function () {

@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\ImageInputSource;
 use App\Enums\MediaKind;
 use App\Enums\MediaVisibility;
 use App\Services\Media\MediaStoreRequest;
@@ -48,8 +47,8 @@ it('defaults to the Upload source when none is given', function () {
 
     // No behavioral difference is asserted here beyond "it still works" —
     // ImageInputSource isn't consumed by ingestion logic today; this only
-    // documents that omitting it is a valid call.
-    $stored = app(ImageUploadStorer::class)->store($file, $request, ImageInputSource::Upload);
+    // documents that the $source parameter is genuinely optional.
+    $stored = app(ImageUploadStorer::class)->store($file, $request);
 
     expect($stored->disk)->toBe('public');
 });
