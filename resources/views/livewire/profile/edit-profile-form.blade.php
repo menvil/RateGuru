@@ -74,6 +74,13 @@
             <x-input-error class="mt-2" :messages="$errors->get('rating_activity_visibility')" />
         </div>
 
+        @if($submitError)
+            <x-ui.error-message
+                :title="__('profile.error_generic')"
+                :message="$submitError"
+            />
+        @endif
+
         <div class="flex items-center gap-4">
             <x-ui.button type="submit">{{ __('Save') }}</x-ui.button>
 

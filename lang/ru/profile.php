@@ -27,4 +27,5 @@ return [
     'comments' => ':count комментариев',
     'post_image' => 'Изображение публикации',
     'username_url_hint' => 'URL вашего профиля: /u/:username.',
+    'error_generic' => 'При обновлении профиля произошла ошибка.',
 ];

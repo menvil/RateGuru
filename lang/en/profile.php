@@ -27,4 +27,5 @@ return [
     'comments' => ':count comments',
     'post_image' => 'Post image',
     'username_url_hint' => 'Your public profile URL is /u/:username.',
+    'error_generic' => 'Something went wrong while updating your profile.',
 ];

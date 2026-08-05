@@ -2,6 +2,7 @@
 
 namespace App\Data\Posts;
 
+use App\Enums\ImageInputSource;
 use Illuminate\Http\UploadedFile;
 
 final readonly class CreatePostData
@@ -13,6 +14,7 @@ final readonly class CreatePostData
         /** @var array<int> $tagIds */
         public array $tagIds = [],
         public ?UploadedFile $image = null,
+        public ImageInputSource $imageSource = ImageInputSource::Upload,
         // Optional standalone taxonomy selected by the author.
         public ?int $categoryId = null,
         /**

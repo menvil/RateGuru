@@ -8,12 +8,9 @@ use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaStoreRequest;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Filesystem\FilesystemManager;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Image\ImageException;
-use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 
-it('stores the uploaded file on the requested disk, not a hardcoded one', function () {
+it('stores a normalized image on the requested disk, not a hardcoded one', function () {
     Storage::fake('a_custom_disk_name');
 
     $request = new MediaStoreRequest(
@@ -24,13 +21,13 @@ it('stores the uploaded file on the requested disk, not a hardcoded one', functi
         ownerUserId: 1,
     );
 
-    $stored = app(MediaStorage::class)->store(UploadedFile::fake()->image('dish.jpg', 800, 600), $request);
+    $stored = app(MediaStorage::class)->storeNormalized(normalizedFixture(), $request, 'dish.jpg');
 
     expect($stored->disk)->toBe('a_custom_disk_name');
     Storage::disk('a_custom_disk_name')->assertExists($stored->path);
 });
 
-it('returns disk, path, dimensions, mime, and byte size, but no url property', function () {
+it('returns disk, path, dimensions, mime, extension, and byte size straight from the normalized image', function () {
     Storage::fake('public');
 
     $request = new MediaStoreRequest(
@@ -41,18 +38,41 @@ it('returns disk, path, dimensions, mime, and byte size, but no url property', f
         ownerUserId: 1,
     );
 
-    $stored = app(MediaStorage::class)->store(UploadedFile::fake()->image('dish.jpg', 1600, 900), $request);
+    $normalized = normalizedFixture();
+    $stored = app(MediaStorage::class)->storeNormalized($normalized, $request, 'dish.jpg');
 
     expect($stored->disk)->toBe('public')
         ->and($stored->path)->not->toBeEmpty()
         ->and($stored->originalFilename)->toBe('dish.jpg')
         ->and($stored->mimeType)->toBe('image/jpeg')
         ->and($stored->extension)->toBe('jpg')
-        ->and($stored->byteSize)->toBeGreaterThan(0)
-        ->and($stored->width)->toBe(1600)
-        ->and($stored->height)->toBe(900);
+        ->and($stored->byteSize)->toBe($normalized->byteSize)
+        ->and($stored->width)->toBe(800)
+        ->and($stored->height)->toBe(600);
 
-    expect(property_exists($stored, 'url'))->toBeFalse();
+    Storage::disk('public')->assertExists($stored->path);
+    expect(Storage::disk('public')->get($stored->path))->toBe($normalized->bytes);
+});
+
+it('truncates an unusually long original filename but leaves a null filename alone', function () {
+    Storage::fake('public');
+
+    $request = new MediaStoreRequest(
+        disk: 'public',
+        directory: 'media/post-images',
+        kind: MediaKind::PostImage,
+        visibility: MediaVisibility::Public,
+        ownerUserId: 1,
+    );
+
+    $storage = app(MediaStorage::class);
+    $longName = str_repeat('a', 300).'.jpg';
+
+    $stored = $storage->storeNormalized(normalizedFixture(), $request, $longName);
+    expect(mb_strlen($stored->originalFilename))->toBe(255);
+
+    $storedWithoutName = $storage->storeNormalized(normalizedFixture(), $request, null);
+    expect($storedWithoutName->originalFilename)->toBeNull();
 });
 
 it('stores an avatar nested under the owner user id', function () {
@@ -66,7 +86,7 @@ it('stores an avatar nested under the owner user id', function () {
         ownerUserId: 42,
     );
 
-    $stored = app(MediaStorage::class)->store(UploadedFile::fake()->image('face.jpg', 512, 512), $request);
+    $stored = app(MediaStorage::class)->storeNormalized(normalizedFixture(), $request, 'face.jpg');
 
     expect($stored->path)->toStartWith('media/avatars/42/');
     Storage::disk('public')->assertExists($stored->path);
@@ -84,7 +104,7 @@ it('respects an explicit deterministic path for seeders', function () {
         explicitPath: 'demo/posts/sample-01.jpg',
     );
 
-    $stored = app(MediaStorage::class)->store(UploadedFile::fake()->image('dish.jpg'), $request);
+    $stored = app(MediaStorage::class)->storeNormalized(normalizedFixture(), $request, 'dish.jpg');
 
     expect($stored->path)->toBe('demo/posts/sample-01.jpg');
 });
@@ -175,7 +195,7 @@ it('writes in-process generated content at an explicit location via putContents'
     expect(Storage::disk('public')->get('demo/posts/generated.svg'))->toBe('<svg></svg>');
 });
 
-it('normalizes a filesystem exception thrown during store() into a narrow exception', function () {
+it('normalizes a filesystem exception thrown during storeNormalized() into a narrow exception', function () {
     $diskAdapter = Mockery::mock(Filesystem::class);
     $diskAdapter->shouldReceive('put')->once()->andThrow(new RuntimeException('Simulated disk outage.'));
 
@@ -195,7 +215,7 @@ it('normalizes a filesystem exception thrown during store() into a narrow except
     $caught = null;
 
     try {
-        app(MediaStorage::class)->store(UploadedFile::fake()->image('dish.jpg', 800, 600), $request);
+        app(MediaStorage::class)->storeNormalized(normalizedFixture(), $request, 'dish.jpg');
     } catch (MediaStorageException $exception) {
         $caught = $exception;
     }
@@ -203,6 +223,27 @@ it('normalizes a filesystem exception thrown during store() into a narrow except
     expect($caught)->not->toBeNull()
         ->and($caught->getPrevious())->toBeInstanceOf(RuntimeException::class)
         ->and($caught->getPrevious()->getMessage())->toBe('Simulated disk outage.');
+});
+
+it('throws a narrow exception when the disk reports storeNormalized()\'s write failed', function () {
+    $diskAdapter = Mockery::mock(Filesystem::class);
+    $diskAdapter->shouldReceive('put')->once()->andReturn(false);
+
+    $filesystem = Mockery::mock(FilesystemManager::class);
+    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
+
+    app()->instance(FilesystemManager::class, $filesystem);
+
+    $request = new MediaStoreRequest(
+        disk: 'public',
+        directory: 'media/post-images',
+        kind: MediaKind::PostImage,
+        visibility: MediaVisibility::Public,
+        ownerUserId: 1,
+    );
+
+    expect(fn () => app(MediaStorage::class)->storeNormalized(normalizedFixture(), $request, 'dish.jpg'))
+        ->toThrow(MediaStorageException::class);
 });
 
 it('normalizes a filesystem exception thrown during putContents() into a narrow exception', function () {
@@ -229,150 +270,4 @@ it('normalizes a filesystem exception thrown during putContents() into a narrow 
     expect($caught)->not->toBeNull()
         ->and($caught->getPrevious())->toBeInstanceOf(RuntimeException::class)
         ->and($caught->getPrevious()->getMessage())->toBe('Simulated disk outage.');
-});
-
-it('deletes the newly written file when metadata extraction fails after a successful write', function () {
-    Storage::fake('public');
-
-    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
-    $file->shouldReceive('getMimeType')->andThrow(new RuntimeException('Simulated metadata failure.'));
-
-    $request = new MediaStoreRequest(
-        disk: 'public',
-        directory: 'media/post-images',
-        kind: MediaKind::PostImage,
-        visibility: MediaVisibility::Public,
-        ownerUserId: 1,
-    );
-
-    expect(fn () => app(MediaStorage::class)->store($file, $request))
-        ->toThrow(RuntimeException::class, 'Simulated metadata failure.');
-
-    expect(Storage::disk('public')->allFiles('media/post-images'))->toBeEmpty();
-});
-
-it('reports a cleanup failure but still propagates the original metadata exception', function () {
-    Exceptions::fake();
-
-    $diskAdapter = Mockery::mock(Filesystem::class);
-    $diskAdapter->shouldReceive('put')->once()->andReturn(true);
-    $diskAdapter->shouldReceive('delete')->once()->andReturn(false);
-
-    $filesystem = Mockery::mock(FilesystemManager::class);
-    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
-
-    app()->instance(FilesystemManager::class, $filesystem);
-    $storage = app(MediaStorage::class);
-
-    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
-    $file->shouldReceive('getMimeType')->andThrow(new RuntimeException('Simulated metadata failure.'));
-
-    $request = new MediaStoreRequest(
-        disk: 'public',
-        directory: 'media/post-images',
-        kind: MediaKind::PostImage,
-        visibility: MediaVisibility::Public,
-        ownerUserId: 1,
-    );
-
-    expect(fn () => $storage->store($file, $request))
-        ->toThrow(RuntimeException::class, 'Simulated metadata failure.');
-
-    Exceptions::assertReported(MediaStorageException::class);
-});
-
-it('does not delete the file when metadata extraction fails for a reused explicit path', function () {
-    Storage::fake('public');
-
-    // Simulates a demo seeder rerun: the deterministic path already has a
-    // real, still-referenced file sitting at it before this call even
-    // starts.
-    Storage::disk('public')->put('demo/posts/sample-01.jpg', 'existing-owner-bytes');
-
-    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
-    $file->shouldReceive('getMimeType')->andThrow(new RuntimeException('Simulated metadata failure.'));
-
-    $request = new MediaStoreRequest(
-        disk: 'public',
-        directory: 'media/post-images',
-        kind: MediaKind::PostImage,
-        visibility: MediaVisibility::Public,
-        ownerUserId: null,
-        explicitPath: 'demo/posts/sample-01.jpg',
-    );
-
-    expect(fn () => app(MediaStorage::class)->store($file, $request))
-        ->toThrow(RuntimeException::class, 'Simulated metadata failure.');
-
-    // The write itself (rewriting the same deterministic path) already
-    // happened and is fine to leave in place — what must not happen is
-    // deleting it as if this call had exclusive ownership of a brand new
-    // path.
-    Storage::disk('public')->assertExists('demo/posts/sample-01.jpg');
-});
-
-it('deletes the file when metadata extraction fails on a first-time explicit path', function () {
-    Storage::fake('public');
-
-    // Unlike a seeder rerun, nothing exists at this deterministic path yet
-    // — this is the first write, so it's just as safe to clean up as any
-    // freshly generated path.
-    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
-    $file->shouldReceive('getMimeType')->andThrow(new RuntimeException('Simulated metadata failure.'));
-
-    $request = new MediaStoreRequest(
-        disk: 'public',
-        directory: 'media/post-images',
-        kind: MediaKind::PostImage,
-        visibility: MediaVisibility::Public,
-        ownerUserId: null,
-        explicitPath: 'demo/posts/sample-01.jpg',
-    );
-
-    expect(fn () => app(MediaStorage::class)->store($file, $request))
-        ->toThrow(RuntimeException::class, 'Simulated metadata failure.');
-
-    Storage::disk('public')->assertMissing('demo/posts/sample-01.jpg');
-});
-
-it('maps an unreadable uploaded file to a narrow exception instead of touching the disk', function () {
-    Storage::fake('public');
-
-    $file = Mockery::mock(UploadedFile::fake()->image('dish.jpg', 800, 600))->makePartial();
-    $file->shouldReceive('getContent')->andThrow(new RuntimeException('Simulated unreadable temp file.'));
-
-    $request = new MediaStoreRequest(
-        disk: 'public',
-        directory: 'media/post-images',
-        kind: MediaKind::PostImage,
-        visibility: MediaVisibility::Public,
-        ownerUserId: 1,
-    );
-
-    expect(fn () => app(MediaStorage::class)->store($file, $request))
-        ->toThrow(MediaStorageException::class, 'Could not read uploaded file [dish.jpg].');
-
-    expect(Storage::disk('public')->allFiles('media/post-images'))->toBeEmpty();
-});
-
-it('throws and cleans up when the uploaded file cannot be decoded as an image', function () {
-    Storage::fake('public');
-
-    // Garbage bytes rather than a real image — this bypasses the upstream
-    // 'image' validation rule the way a direct, unit-level store() call
-    // always does, so store() itself has to be the one that refuses it.
-    $file = UploadedFile::fake()->create('not-an-image.jpg', 10);
-
-    $request = new MediaStoreRequest(
-        disk: 'public',
-        directory: 'media/post-images',
-        kind: MediaKind::PostImage,
-        visibility: MediaVisibility::Public,
-        ownerUserId: 1,
-    );
-
-    expect(fn () => app(MediaStorage::class)->store($file, $request))
-        ->toThrow(ImageException::class);
-
-    expect(Storage::disk('public')->allFiles('media/post-images'))->toBeEmpty();
 });
