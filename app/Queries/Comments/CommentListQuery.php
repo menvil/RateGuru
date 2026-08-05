@@ -17,11 +17,11 @@ final class CommentListQuery implements RawSqlPersistenceBoundary
         $query = $this->visibleForPost($postId)
             ->whereNull('parent_id')
             ->with([
-                'user.avatarAsset',
+                'user.avatarAsset.variants',
                 'replies' => static function (Relation $relation): void {
                     $relation->getQuery()
                         ->where('status', CommentStatus::Visible)
-                        ->with('user.avatarAsset')
+                        ->with('user.avatarAsset.variants')
                         ->oldest()
                         ->orderBy('id');
                 },

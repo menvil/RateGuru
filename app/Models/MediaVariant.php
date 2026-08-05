@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use App\Enums\MediaVariantName;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * A derived file produced from a MediaAsset (e.g. a future feed/detail/
- * avatar size, or an Open Graph crop). No variants are generated yet — see
- * docs/architecture/media.md.
+ * A derived file produced from a MediaAsset — a responsive feed/detail size
+ * (post images) or a square thumbnail (avatars). See docs/architecture/media.md.
+ *
+ * @property MediaVariantName $name
  */
 class MediaVariant extends Model
 {
@@ -20,6 +22,7 @@ class MediaVariant extends Model
     protected function casts(): array
     {
         return [
+            'name' => MediaVariantName::class,
             'byte_size' => 'integer',
             'width' => 'integer',
             'height' => 'integer',

@@ -10,7 +10,9 @@ use App\Policies\ProjectSettingsPolicy;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
 use App\Services\Media\GdImageIngestor;
+use App\Services\Media\GdImageVariantProcessor;
 use App\Services\Media\ImageIngestor;
+use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
 use App\Support\Settings\ProjectSettingsManager;
@@ -36,6 +38,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(MediaStorage::class, FilesystemMediaStorage::class);
         $this->app->singleton(MediaUrlResolver::class, FilesystemMediaUrlResolver::class);
         $this->app->singleton(ImageIngestor::class, GdImageIngestor::class);
+        $this->app->singleton(ImageVariantProcessor::class, GdImageVariantProcessor::class);
     }
 
     /**

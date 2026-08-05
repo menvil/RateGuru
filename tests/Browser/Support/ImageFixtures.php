@@ -6,6 +6,7 @@ use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
+use App\Services\Media\MediaVariantGenerator;
 use App\Support\Media\ImageOrientationClassifier;
 use Illuminate\Support\Facades\ParallelTesting;
 
@@ -129,7 +130,25 @@ final class ImageFixtures
     }
 
     /**
-     * Removes every fixture written by write() during the test run.
+     * Same as write(), but also synchronously generates every applicable
+     * responsive variant for the fixture, so browser tests can assert on
+     * srcset/fetchpriority behavior instead of always exercising the
+     * master-fallback path.
+     */
+    public static function writeWithVariants(int $width, int $height): MediaAsset
+    {
+        $asset = self::write($width, $height);
+
+        app(MediaVariantGenerator::class)->generateAll($asset);
+
+        return $asset->fresh();
+    }
+
+    /**
+     * Removes every fixture written by write()/writeWithVariants() during
+     * the test run, including nested variant subdirectories (variants are
+     * always nested one level under the master's own filename — see
+     * MediaVariantPathGenerator — so a flat glob would miss them).
      */
     public static function cleanup(): void
     {
@@ -139,8 +158,24 @@ final class ImageFixtures
             return;
         }
 
-        foreach (glob($directory.'/*.png') ?: [] as $file) {
-            unlink($file);
+        self::removeDirectoryContents($directory);
+    }
+
+    private static function removeDirectoryContents(string $directory): void
+    {
+        foreach (scandir($directory) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+
+            $path = $directory.'/'.$entry;
+
+            if (is_dir($path)) {
+                self::removeDirectoryContents($path);
+                rmdir($path);
+            } else {
+                unlink($path);
+            }
         }
     }
 }

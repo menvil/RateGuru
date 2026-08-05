@@ -47,6 +47,7 @@ it('returns expected api user resource shape', function () {
         'username',
         'display_name',
         'avatar_url',
+        'avatar_srcset',
         'profile_url',
     ]);
 
@@ -108,7 +109,7 @@ it('uses user resource shape for post and comment authors', function () {
 
     $postAuthor = (new ApiPostResource($post->load('user')))->resolve()['author'];
     $commentAuthor = (new ApiCommentResource($comment->load('user')))->resolve()['author'];
-    $expectedKeys = ['id', 'username', 'display_name', 'avatar_url', 'profile_url'];
+    $expectedKeys = ['id', 'username', 'display_name', 'avatar_url', 'avatar_srcset', 'profile_url'];
 
     expect(array_keys($postAuthor))->toBe($expectedKeys);
     expect(array_keys($commentAuthor))->toBe($expectedKeys);
@@ -118,7 +119,7 @@ it('uses user resource shape for post and comment authors', function () {
 
 it('does not n+1 query avatar assets when serializing a collection', function () {
     $users = User::factory()->withAvatar()->count(5)->create();
-    $users = User::query()->with('avatarAsset')->whereIn('id', $users->pluck('id'))->get();
+    $users = User::query()->with('avatarAsset.variants')->whereIn('id', $users->pluck('id'))->get();
 
     $queryCount = 0;
 
@@ -130,10 +131,13 @@ it('does not n+1 query avatar assets when serializing a collection', function ()
 
     foreach ($resolved as $user) {
         expect($user['avatar_url'])->not->toBeNull();
+        // No variants were ever generated for these factory-created assets,
+        // so srcset falls back to null rather than throwing or querying.
+        expect($user['avatar_srcset'])->toBeNull();
     }
 
     // The resource must not add any query of its own on top of whatever the
-    // caller already eager-loaded — avatar_url reads straight from the
-    // already-loaded avatarAsset relation.
+    // caller already eager-loaded — avatar_url/avatar_srcset both read
+    // straight from the already-loaded avatarAsset.variants relation.
     expect($queryCount)->toBe(0);
 });

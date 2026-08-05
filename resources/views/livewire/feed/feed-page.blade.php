@@ -91,6 +91,7 @@
                                 >
                                     <x-ui.avatar
                                         :src="$matchedUser->resolved_avatar_url"
+                                        :srcset="$matchedUser->resolved_avatar_srcset"
                                         :name="$matchedUser->resolved_display_name"
                                         color="purple"
                                     />

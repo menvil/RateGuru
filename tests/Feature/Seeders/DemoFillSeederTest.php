@@ -6,11 +6,13 @@ use App\Models\Category;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\MediaAsset;
+use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\RatingVote;
 use App\Models\User;
 use App\Services\Media\MediaStorage;
+use App\Services\Media\MediaVariantGenerator;
 use Database\Seeders\DefaultCategorySeeder;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Database\Seeders\DemoFillSeeder;
@@ -162,8 +164,12 @@ it('rebuilds generated interactions and media without accumulating rows', functi
         ->and(RatingVote::query()->count())->toBe(18)
         ->and(Comment::withTrashed()->count())->toBe(15)
         ->and(CommentVote::query()->count())->toBe(45)
-        ->and(Storage::disk('public')->allFiles('posts'))->toHaveCount(3)
+        // 3 master files + 3 responsive variants generated per post
+        // (post_feed_640/post_feed_1280/post_detail_1920, all Contain mode so
+        // none are skipped for size) = 3 + 3*3.
+        ->and(Storage::disk('public')->allFiles('posts'))->toHaveCount(12)
         ->and(MediaAsset::query()->count())->toBe(3)
+        ->and(MediaVariant::query()->count())->toBe(9)
         ->and($mediaAssetIdsAfterSecondRun)->toEqual($mediaAssetIdsAfterFirstRun);
 });
 
@@ -194,7 +200,7 @@ it('does not delete an already-referenced image file when a rerun transaction fa
     // already-seeded post still references.
     forceNextDbTransactionToThrow(new RuntimeException('Simulated seeder rerun failure.'));
 
-    expect(fn () => $createPosts->invoke($seeder, $users, app(MediaStorage::class)))
+    expect(fn () => $createPosts->invoke($seeder, $users, app(MediaStorage::class), app(MediaVariantGenerator::class)))
         ->toThrow(RuntimeException::class, 'Simulated seeder rerun failure.');
 
     Storage::disk('public')->assertExists($existingPath);
@@ -245,7 +251,7 @@ it('reports a cleanup failure but still propagates the original database excepti
     $mediaStorage->shouldReceive('putContents');
     $mediaStorage->shouldReceive('delete')->once()->andThrow(new RuntimeException('Simulated cleanup failure.'));
 
-    expect(fn () => $createPosts->invoke($seeder, $users, $mediaStorage))
+    expect(fn () => $createPosts->invoke($seeder, $users, $mediaStorage, app(MediaVariantGenerator::class)))
         ->toThrow(RuntimeException::class, 'Simulated seeder rerun failure.');
 
     // Both the cleanup failure and the propagated database exception are

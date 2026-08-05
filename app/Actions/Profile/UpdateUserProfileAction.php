@@ -3,6 +3,7 @@
 namespace App\Actions\Profile;
 
 use App\Enums\MediaKind;
+use App\Jobs\GenerateMediaVariantsJob;
 use App\Models\User;
 use App\Services\Media\MediaStoreRequest;
 use App\Services\Media\StoredMediaCleaner;
@@ -11,6 +12,7 @@ use App\Support\Media\MediaAssetCreator;
 use App\Support\Observability\DomainLogger;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 final class UpdateUserProfileAction
@@ -37,8 +39,10 @@ final class UpdateUserProfileAction
             ? $this->imageUploadStorer->store($avatar, MediaStoreRequest::forAvatar($user->id))
             : null;
 
+        $newAvatarAssetId = null;
+
         try {
-            DB::transaction(function () use ($user, $update, $storedAvatar): void {
+            DB::transaction(function () use ($user, $update, $storedAvatar, &$newAvatarAssetId): void {
                 // Lock the row so two concurrent avatar replacements can't both
                 // read the same "previous" asset — without this, the second
                 // request to commit would soft-delete the original asset again
@@ -53,6 +57,7 @@ final class UpdateUserProfileAction
                 if ($storedAvatar !== null) {
                     $asset = $this->mediaAssetCreator->create($storedAvatar, MediaKind::Avatar, $user);
                     $update['avatar_asset_id'] = $asset->id;
+                    $newAvatarAssetId = $asset->id;
                 }
 
                 $user->update($update);
@@ -81,5 +86,19 @@ final class UpdateUserProfileAction
             $avatar !== null ? 'profile.avatar.updated' : 'profile.updated',
             ['user_id' => $user->id],
         );
+
+        if ($newAvatarAssetId !== null) {
+            try {
+                GenerateMediaVariantsJob::dispatch($newAvatarAssetId);
+            } catch (Throwable $exception) {
+                report($exception);
+
+                Log::error('Failed to dispatch media variant generation job.', [
+                    'user_id' => $user->id,
+                    'media_asset_id' => $newAvatarAssetId,
+                    'exception' => $exception->getMessage(),
+                ]);
+            }
+        }
     }
 }

@@ -8,6 +8,7 @@ use App\Enums\MediaKind;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
+use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Models\Category;
 use App\Models\Post;
@@ -122,6 +123,20 @@ final class CreatePostAction
 
                 Log::error('Failed to dispatch follower notification job.', [
                     'post_id' => $post->id,
+                    'exception' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($post->image_asset_id !== null) {
+            try {
+                GenerateMediaVariantsJob::dispatch($post->image_asset_id);
+            } catch (Throwable $exception) {
+                report($exception);
+
+                Log::error('Failed to dispatch media variant generation job.', [
+                    'post_id' => $post->id,
+                    'media_asset_id' => $post->image_asset_id,
                     'exception' => $exception->getMessage(),
                 ]);
             }

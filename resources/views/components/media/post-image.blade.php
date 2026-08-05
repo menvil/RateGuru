@@ -1,6 +1,10 @@
 @props([
     'post' => null,
     'src' => null,
+    'srcset' => null,
+    'sizes' => null,
+    'width' => null,
+    'height' => null,
     'alt' => null,
     'context' => 'feed',
     'openFullscreen' => null,
@@ -20,19 +24,19 @@
         default => 'max-h-[75vh]',
     };
 
-    // No width/height metadata is stored for post images (out of scope for
-    // this pass — see the media-rendering task notes), so the exact box
-    // size can't be reserved before the image loads, and a static min-height
-    // can't be un-set once the real (possibly shorter) image has rendered —
-    // it was tried and reverted: it left permanent empty background bars
-    // under short/wide images (e.g. a panorama on a narrow card) instead of
-    // only covering the brief pre-load window. Full CLS elimination needs
-    // stored dimensions; left for a follow-up.
     $containerClasses = $context === 'fullscreen'
         ? 'flex w-full items-center justify-center'
         : 'flex w-full items-center justify-center overflow-hidden rounded-rgMedia bg-rg-card2';
 
     $imageClasses = "block h-auto w-auto max-w-full {$maxHeightClass} rounded-rgMedia object-contain mx-auto";
+
+    // A null $loading (eager) always means this is the one prioritized image
+    // for its view — the feed/saved-posts/profile loops' first card
+    // (:eager-image="$loop->first") or the standalone hero (which never
+    // passes $loading at all). Every other call site passes loading="lazy"
+    // explicitly, including every fullscreen instance (hidden in a closed
+    // modal until opened) — so this never fires for those.
+    $fetchPriority = $loading === null ? 'high' : null;
 @endphp
 
 @if($imageUrl)
@@ -47,9 +51,14 @@
             >
                 <img
                     src="{{ $imageUrl }}"
+                    @if($srcset) srcset="{{ $srcset }}" @endif
+                    @if($sizes) sizes="{{ $sizes }}" @endif
+                    @if($width) width="{{ $width }}" @endif
+                    @if($height) height="{{ $height }}" @endif
                     alt="{{ $altText }}"
                     decoding="async"
                     @if($loading) loading="{{ $loading }}" @endif
+                    @if($fetchPriority) fetchpriority="{{ $fetchPriority }}" @endif
                     @if($imageTestid) data-testid="{{ $imageTestid }}" @endif
                     class="{{ $imageClasses }}"
                 >
@@ -57,9 +66,14 @@
         @else
             <img
                 src="{{ $imageUrl }}"
+                @if($srcset) srcset="{{ $srcset }}" @endif
+                @if($sizes) sizes="{{ $sizes }}" @endif
+                @if($width) width="{{ $width }}" @endif
+                @if($height) height="{{ $height }}" @endif
                 alt="{{ $altText }}"
                 decoding="async"
                 @if($loading) loading="{{ $loading }}" @endif
+                @if($fetchPriority) fetchpriority="{{ $fetchPriority }}" @endif
                 @if($imageTestid) data-testid="{{ $imageTestid }}" @endif
                 class="{{ $imageClasses }}"
             >

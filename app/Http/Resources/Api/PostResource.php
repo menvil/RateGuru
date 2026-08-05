@@ -2,7 +2,9 @@
 
 namespace App\Http\Resources\Api;
 
+use App\Enums\PostImageContext;
 use App\Models\Post;
+use App\Support\Media\PostImagePresenter;
 use App\Support\Urls\PostUrl;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -16,11 +18,19 @@ final class PostResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        // Feed is the sensible generic default variant set for API
+        // consumers — never null/disk/path, only resolved URLs.
+        $responsiveImage = app(PostImagePresenter::class)->responsive($this->resource, PostImageContext::Feed);
+
         return [
             'id' => $this->id,
             'title' => $this->title,
             'description' => $this->description,
             'image_url' => $this->public_image_url,
+            'image_srcset' => $responsiveImage?->srcset,
+            'image_sizes' => $responsiveImage?->sizes,
+            'image_width' => $responsiveImage?->width,
+            'image_height' => $responsiveImage?->height,
             // No dedicated thumbnail variant is generated yet (PR-06);
             // this field is kept for API-contract stability and was already
             // always null under the previous schema.

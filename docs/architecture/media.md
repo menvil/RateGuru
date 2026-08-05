@@ -15,12 +15,11 @@ soft-deletable.
 ## MediaVariant is a derived file
 
 `media_variants` holds files produced *from* a master asset — a resized feed
-crop, a detail size, an avatar thumbnail, an Open Graph crop. Each variant
-belongs to one `MediaAsset`, has a `name` unique per asset, and its own
-`disk`/`path`/dimensions/mime/byte size. The table and model exist now so
-future variant generation (PR-05/PR-06) has somewhere to land, but **no
-variants are generated yet** — see "What this schema/storage work does not
-do" below.
+crop, a detail size, an avatar thumbnail, and (later, PR-06) an Open Graph
+crop. Each variant belongs to one `MediaAsset`, has a `name` unique per asset,
+and its own `disk`/`path`/dimensions/mime/byte size. As of PR-05, five variant
+names are actually generated for JPEG/PNG/WebP assets — see "Responsive media
+variants" below for what, how, and when.
 
 ## Canonical identity is disk + path, not a URL
 
@@ -140,8 +139,8 @@ fallback when there's no avatar (initials, in this app) is a presentation
 concern (`resources/views/components/ui/avatar.blade.php`), not something any
 of these classes know about. Every query that renders avatars or post images
 in a list (main feed, saved posts, comments, matched-user search results)
-eager-loads `imageAsset`/`user.avatarAsset` — the presenters read an
-already-loaded relation, they don't trigger the query themselves.
+eager-loads `imageAsset.variants`/`user.avatarAsset.variants` — the presenters
+read an already-loaded relation, they don't trigger the query themselves.
 
 `Post::public_image_url` and `User::resolved_avatar_url` remain as thin
 compatibility accessors — kept because Blade views and API resources already
@@ -294,17 +293,93 @@ redirect-security redesign, streaming-downloader rewrite) has not happened
 yet** — this PR only changed what happens to the bytes once they're already
 downloaded, not how they're fetched.
 
+## Responsive media variants
+
+PR-05 generates five fixed variants from the master image, stores them as
+`media_variants` rows, and switches post-image/avatar rendering to
+`srcset`/`sizes`/real `width`/`height` instead of always serving the master.
+
+**Variants** (`MediaVariantSpecificationRegistry`): three post-image variants
+(`post_feed_640`, `post_feed_1280`, `post_detail_1920`, all `Contain` mode —
+scaled down to fit within bounds preserving aspect ratio, capped at the
+source's own size, never upscaled) and two avatar variants (`avatar_128`,
+`avatar_256`, both `CoverSquare` mode — the largest centered square cropped
+out of the source, then resized to an exact size). A `CoverSquare` spec is
+skipped entirely when the source is smaller than the target size (never
+upscaled, never generated undersized-but-mislabeled); a `Contain` spec always
+generates, since capping at the source's own size *is* its no-upscale
+behavior.
+
+**Generation** (`GdImageVariantProcessor`, mirroring `GdImageIngestor`'s own
+scoped-error-handling and alpha-preservation idioms rather than sharing code
+that was never exported): decode the master, resample per spec in a single
+`imagecopyresampled()` call, re-encode, then re-derive and cross-check
+mime/dimensions from the output bytes before returning — the same
+belt-and-suspenders validation `GdImageIngestor` applies to its own output.
+
+**Storage and idempotency** (`MediaVariantPathGenerator`, `MediaVariantWriter`):
+a variant's path is derived deterministically from its master's own,
+already-immutable path (never a new UUID), so retrying a failed generation or
+regenerating an existing variant always lands on the same file. The DB row is
+upserted on `(media_asset_id, name)`. There's no atomic file-move primitive on
+`MediaStorage`, so ordering is best-effort rather than transactional: generate/
+encode/validate fully in memory first, write the file, then upsert the row. A
+DB failure after a *first-time* write deletes the now-orphaned file
+(best-effort, reported but never replacing the original exception, the same
+shape as `StoredMediaCleaner`); a DB failure after *overwriting* an existing
+variant does not delete the file — the previously-working file has already
+been replaced, so deleting would leave nothing, and the row's metadata may be
+transiently stale until a successful retry.
+
+**Dispatch** (`MediaVariantGenerator`, `GenerateMediaVariantsJob`): generation
+is a plain service (`MediaVariantGenerator::generateAll()`), not job logic
+itself, so both the queued job and `DemoFillSeeder` can call the identical
+code path — the seeder synchronously (this app's `QUEUE_CONNECTION=sync`
+locally makes a real dispatch pure indirection there), real uploads via
+`GenerateMediaVariantsJob::dispatch($mediaAssetId)`. As with
+`NotifyFollowersAboutNewPostJob`, "dispatch after commit" is achieved purely
+structurally — the dispatch call sits textually after `DB::transaction()`
+returns, not via `->afterCommit()`, which nothing in this codebase uses. A
+failure on any one spec inside `generateAll()` propagates immediately rather
+than being caught per-spec: `updateOrCreate()` makes redoing already-succeeded
+specs on a retry a safe, cheap no-op, so failing the whole call is a simple,
+deliberate tradeoff over partial-success bookkeeping.
+
+**Presentation** (`PostImagePresenter::responsive()`, `AvatarUrlResolver::responsive()`,
+`ResponsiveImage`): each reads the already-loaded `variants` relation only
+(no query) and returns a `src`/`srcset`/`sizes`/`width`/`height` DTO. Post
+images pick a different variant set per context (feed/drawer prefer
+`post_feed_640`/`post_feed_1280`; standalone prefers `post_feed_1280`/
+`post_detail_1920`; fullscreen prefers `post_detail_1920`, adding the master
+to its `srcset` only when the master isn't drastically larger). Avatars
+always prefer `avatar_128`/`avatar_256`, with `sizes` always `null` (both
+candidate widths are small enough that a default `100vw` selection never
+needs a hint). Whenever an expected variant hasn't been generated yet (e.g. an
+older or in-flight asset), presentation falls back to the master image
+gracefully — never a broken `<img>`. `width`/`height` on the rendered `<img>`
+always match whichever source was actually chosen, not always the master's.
+The first image in a feed/list loop gets `fetchpriority="high"` — derived
+from the same `loading === null` (eager) signal the `:eager-image="$loop->first"`
+mechanism already set, not a separate prop.
+
+**CLI**: `php artisan media:generate-variants {--asset=} {--kind=} {--missing-only} {--force} {--chunk=200}`
+backfills variants for existing assets — `--missing-only` (default) skips
+assets that already have every applicable variant, `--force` regenerates
+everything matching the filters. Runs synchronously, chunked, logging and
+continuing past a single asset's failure rather than aborting the run.
+
 ## What this schema/storage work does not do
 
-Responsive variant generation, `srcset`, focal points, AI cropping, an actual
-S3/CDN deployment, imgproxy, temporary signed URLs, legacy data backfill, or
-an orphan/cleanup command. New `MediaAsset` rows are created
-synchronously as `ready` the moment a file is stored and its metadata is read
-from the upload itself — there is no processing pipeline yet for anything to
+Open Graph variant generation (PR-06), focal points/AI cropping, a crop UI,
+AVIF or other format negotiation, `<picture>` markup, an actual S3/CDN
+deployment, imgproxy, temporary signed URLs, legacy data backfill beyond the
+CLI command above, an orphan/lifecycle scanner (PR-07), URL-import hardening
+(PR-08), video/GIF variants, or a general third-party media library/schema
+redesign. New `MediaAsset` rows are still created synchronously as `ready`
+the moment a file is stored — there is no processing pipeline for anything to
 be `processing` or `failed` in normal operation (those statuses exist for
-later use). `MediaVariant` rows are never generated yet, though
-`MediaUrlResolver` already resolves them once something does start creating
-them.
+later use); variant *generation* is what's now asynchronous (queued) or
+synchronous-by-design (seeders, the CLI command), not asset creation itself.
 
 The media domain schema change (PR-02) was destructive with no production
 data to protect (staging only); existing staging posts/avatars and their
@@ -319,8 +394,10 @@ PR landed.
   metadata stripping — for post uploads, avatar uploads, and URL-imported
   images alike. No variants, no resizing of already-valid images, no format
   conversion.
-- **PR-05** — Responsive variants: actually generating the `MediaVariant`
-  rows this schema and `MediaUrlResolver` already support.
+- **PR-05** (done) — Responsive variants: generating the five fixed
+  `MediaVariant` rows described above and switching post-image/avatar
+  rendering to `srcset`/`sizes`/real `width`/`height`. No Open Graph, no
+  format negotiation, no crop UI.
 - **PR-06** — Open Graph variant generation: build the `open_graph`
   `MediaVariant` pipeline this schema already has a home for.
 - **PR-07** — Asset lifecycle: orphan detection/cleanup, and actually

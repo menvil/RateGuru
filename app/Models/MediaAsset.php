@@ -17,6 +17,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * avatar). Canonical identity is disk + path; no absolute/canonical URL is
  * stored here — see docs/architecture/media.md.
  *
+ * @property MediaKind $kind
+ * @property MediaStatus $status
  * @property MediaVisibility $visibility
  * @property string $disk
  * @property string $path
