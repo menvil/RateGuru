@@ -230,6 +230,16 @@ rather than silently treating such a file as already correctly oriented, a
 lightweight chunk-type scan (not a full parse) detects the chunk's mere
 presence and rejects the image outright.
 
+**Known limitation**: that scan only detects whether an `eXIf`/`EXIF` chunk
+exists, not what it contains — a PNG/WebP whose chunk has no `Orientation`
+tag at all, or carries `Orientation: 1` (already normal, a no-op), is
+rejected exactly the same as one that would actually need correcting. A real
+parser for either container would resolve this, but isn't worth building for
+what's a rare case in practice (EXIF-in-PNG/WebP is uncommon outside tools
+that deliberately copy it over from a source JPEG); rejecting a technically
+harmless file is judged safer than the alternative of building a second,
+less-battle-tested metadata parser.
+
 **Metadata stripping** happens as an unavoidable consequence of the pipeline
 shape, not extra logic: `imagecreatefromstring()` decodes into a plain GD
 bitmap that carries no EXIF/GPS/XMP/comment/thumbnail data at all, and

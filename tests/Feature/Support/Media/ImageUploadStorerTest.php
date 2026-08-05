@@ -1,7 +1,10 @@
 <?php
 
+use App\Enums\ImageInputSource;
 use App\Enums\MediaKind;
 use App\Enums\MediaVisibility;
+use App\Services\Media\ImageIngestor;
+use App\Services\Media\ImageInput;
 use App\Services\Media\MediaStoreRequest;
 use App\Support\Media\ImageUploadStorer;
 use Illuminate\Http\UploadedFile;
@@ -45,9 +48,17 @@ it('defaults to the Upload source when none is given', function () {
         ownerUserId: 1,
     );
 
-    // No behavioral difference is asserted here beyond "it still works" —
-    // ImageInputSource isn't consumed by ingestion logic today; this only
-    // documents that the $source parameter is genuinely optional.
+    // Mocks ImageIngestor and inspects the ImageInput it's actually called
+    // with — asserting the storer's own default, not just that storing
+    // still works, so a future accidental default change (e.g. to
+    // UrlImport) would fail this test.
+    $imageIngestor = Mockery::mock(ImageIngestor::class);
+    $imageIngestor->shouldReceive('ingest')
+        ->once()
+        ->with(Mockery::on(fn (ImageInput $input): bool => $input->source === ImageInputSource::Upload), Mockery::any())
+        ->andReturn(normalizedFixture());
+    app()->instance(ImageIngestor::class, $imageIngestor);
+
     $stored = app(ImageUploadStorer::class)->store($file, $request);
 
     expect($stored->disk)->toBe('public');
