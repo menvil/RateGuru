@@ -15,4 +15,9 @@ final class ImageOrientationException extends ImageIngestException
     {
         return new self('Could not apply the EXIF orientation correction.', previous: $previous);
     }
+
+    public static function unsupportedContainerMetadata(string $mimeType): self
+    {
+        return new self("Cannot safely process EXIF orientation metadata embedded in a [{$mimeType}] image.");
+    }
 }

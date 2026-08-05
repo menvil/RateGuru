@@ -6,22 +6,9 @@ use App\Services\Media\Exceptions\MediaStorageException;
 use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaStoreRequest;
-use App\Services\Media\NormalizedImage;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Filesystem\FilesystemManager;
 use Illuminate\Support\Facades\Storage;
-
-function normalizedFixture(string $bytes = 'normalized-jpeg-bytes'): NormalizedImage
-{
-    return new NormalizedImage(
-        bytes: $bytes,
-        mimeType: 'image/jpeg',
-        extension: 'jpg',
-        byteSize: strlen($bytes),
-        width: 800,
-        height: 600,
-    );
-}
 
 it('stores a normalized image on the requested disk, not a hardcoded one', function () {
     Storage::fake('a_custom_disk_name');

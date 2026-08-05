@@ -165,7 +165,7 @@ image as a trusted original blob: client MIME/extension weren't fully
 distrusted, EXIF orientation was never corrected, and EXIF/GPS/XMP metadata
 was never stripped.
 
-```
+```text
 any supported input (upload, URL import)
   -> ImageInput (App\Services\Media\ImageInput)
   -> ImageIngestor::ingest()
@@ -216,15 +216,19 @@ no separate dynamic budgeting mechanism. The normalized *output* is also
 capped against the same byte limit after re-encoding (no quality-reduction
 retry loop if it doesn't fit).
 
-**EXIF orientation**: read via `exif_read_data()` for JPEG only (PNG/WebP have
-no EXIF orientation concept). All 8 standard values are handled — not just
-the axis-aligned 3/6/8, but the mirrored 2/4/5/7 too — via `imageflip()`/
+**EXIF orientation**: read via `exif_read_data()` for JPEG (the only format
+that function understands). All 8 standard values are handled — not just the
+axis-aligned 3/6/8, but the mirrored 2/4/5/7 too — via `imageflip()`/
 `imagerotate()`. No EXIF data, or no `Orientation` tag, is the common, valid
 case for an image with no EXIF at all and is treated as orientation 1
 (normal); a tag that's *present* but not one of the 8 recognized values is an
 explicit rejection (`ImageOrientationException`), never a silent default.
 Width/height are re-derived after the transform, since orientations 5–8 swap
-them.
+them. PNG (`eXIf` chunk) and WebP (`EXIF` RIFF chunk) can legally carry the
+same Orientation tag, but `exif_read_data()` can't parse either container —
+rather than silently treating such a file as already correctly oriented, a
+lightweight chunk-type scan (not a full parse) detects the chunk's mere
+presence and rejects the image outright.
 
 **Metadata stripping** happens as an unavoidable consequence of the pipeline
 shape, not extra logic: `imagecreatefromstring()` decodes into a plain GD

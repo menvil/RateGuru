@@ -21,9 +21,12 @@ function assertActionDoesNotBypassImageNormalization(string $relativeActionPath)
 
     expect($source)
         ->not->toContain('putContents(')
-        ->not->toContain('Storage::put(')
-        ->not->toContain('Storage::disk(')
-        ->not->toContain(Storage::class);
+        ->not->toContain('Storage::')
+        ->not->toContain(Storage::class)
+        ->not->toContain('Illuminate\Filesystem')
+        ->not->toContain('FilesystemManager')
+        ->not->toContain("app('filesystem')")
+        ->not->toContain('app("filesystem")');
 }
 
 it('does not bypass image normalization in CreatePostAction', function () {

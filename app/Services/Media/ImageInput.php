@@ -4,6 +4,7 @@ namespace App\Services\Media;
 
 use App\Enums\ImageInputSource;
 use App\Services\Media\Exceptions\ImageDecodeException;
+use App\Services\Media\Exceptions\ImageTooLargeException;
 use Illuminate\Http\UploadedFile;
 use Throwable;
 
@@ -20,8 +21,19 @@ final readonly class ImageInput
         public ImageInputSource $source,
     ) {}
 
-    public static function fromUploadedFile(UploadedFile $file, ImageInputSource $source = ImageInputSource::Upload): self
+    public static function fromUploadedFile(UploadedFile $file, int $maxBytes, ImageInputSource $source = ImageInputSource::Upload): self
     {
+        // Cheap size stat before the full read below — avoids buffering an
+        // oversized file into memory just to have GdImageIngestor's own
+        // byte-length check reject it a moment later. This matters most for
+        // callers that don't already sit behind a Livewire/form `max:` rule
+        // (e.g. an action invoked directly).
+        $size = $file->getSize();
+
+        if ($size !== false && $size > $maxBytes) {
+            throw ImageTooLargeException::exceedsMaxBytes($size, $maxBytes);
+        }
+
         try {
             $bytes = $file->getContent();
         } catch (Throwable $exception) {

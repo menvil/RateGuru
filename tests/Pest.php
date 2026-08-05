@@ -2,6 +2,7 @@
 
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Services\Media\NormalizedImage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -100,6 +101,23 @@ function releaseCliFixture(array $cliNames): string
     chmod($root.'/infrastructure/scripts/common', 0o644);
 
     return $root;
+}
+
+/**
+ * A minimal NormalizedImage fixture shared by every Media test that needs
+ * one to hand to MediaStorage::storeNormalized() without running a real
+ * image through GdImageIngestor first.
+ */
+function normalizedFixture(string $bytes = 'normalized-jpeg-bytes'): NormalizedImage
+{
+    return new NormalizedImage(
+        bytes: $bytes,
+        mimeType: 'image/jpeg',
+        extension: 'jpg',
+        byteSize: strlen($bytes),
+        width: 800,
+        height: 600,
+    );
 }
 
 /**

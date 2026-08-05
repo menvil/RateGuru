@@ -13,14 +13,11 @@ use App\Models\Category;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
-use App\Services\Media\ImageIngestor;
-use App\Services\Media\ImageIngestPolicy;
-use App\Services\Media\ImageInput;
-use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaStoreRequest;
 use App\Services\Media\StoredMediaCleaner;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Media\ImageUploadStorer;
 use App\Support\Media\MediaAssetCreator;
 use App\Support\Observability\DomainLogger;
 use App\Support\Rating\RatingConfigurationManager;
@@ -32,8 +29,7 @@ use Throwable;
 final class CreatePostAction
 {
     public function __construct(
-        private readonly MediaStorage $mediaStorage,
-        private readonly ImageIngestor $imageIngestor,
+        private readonly ImageUploadStorer $imageUploadStorer,
         private readonly ActionRateLimiter $rateLimiter,
         private readonly DomainLogger $logger,
         private readonly RatingConfigurationManager $ratingConfiguration,
@@ -66,23 +62,12 @@ final class CreatePostAction
 
         // Storing the file is slow, external I/O that doesn't belong inside a
         // DB transaction — do it first, then only touch the database below.
-        // ImageIngestor is the single boundary every user-controlled image
-        // (direct upload or URL-imported, both arrive here as an
-        // UploadedFile) passes through before MediaStorage ever sees a byte.
-        $storedImage = null;
-
-        if ($data->image !== null) {
-            $normalized = $this->imageIngestor->ingest(
-                ImageInput::fromUploadedFile($data->image),
-                ImageIngestPolicy::fromConfig(),
-            );
-
-            $storedImage = $this->mediaStorage->storeNormalized(
-                $normalized,
-                MediaStoreRequest::forPostImage($user->id),
-                $data->image->getClientOriginalName(),
-            );
-        }
+        // ImageUploadStorer routes every user-controlled image (direct
+        // upload or URL-imported, both arrive here as an UploadedFile)
+        // through ImageIngestor before MediaStorage ever sees a byte.
+        $storedImage = $data->image !== null
+            ? $this->imageUploadStorer->store($data->image, MediaStoreRequest::forPostImage($user->id), $data->imageSource)
+            : null;
 
         try {
             $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers, $storedImage) {

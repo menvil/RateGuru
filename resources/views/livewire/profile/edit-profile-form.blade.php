@@ -76,7 +76,7 @@
 
         @if($submitError)
             <x-ui.error-message
-                :title="__('ui.upload.error_generic')"
+                :title="__('profile.error_generic')"
                 :message="$submitError"
             />
         @endif

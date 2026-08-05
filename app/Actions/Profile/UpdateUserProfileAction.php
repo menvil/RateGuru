@@ -4,12 +4,9 @@ namespace App\Actions\Profile;
 
 use App\Enums\MediaKind;
 use App\Models\User;
-use App\Services\Media\ImageIngestor;
-use App\Services\Media\ImageIngestPolicy;
-use App\Services\Media\ImageInput;
-use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaStoreRequest;
 use App\Services\Media\StoredMediaCleaner;
+use App\Support\Media\ImageUploadStorer;
 use App\Support\Media\MediaAssetCreator;
 use App\Support\Observability\DomainLogger;
 use Illuminate\Http\UploadedFile;
@@ -20,8 +17,7 @@ final class UpdateUserProfileAction
 {
     public function __construct(
         private readonly DomainLogger $logger,
-        private readonly MediaStorage $mediaStorage,
-        private readonly ImageIngestor $imageIngestor,
+        private readonly ImageUploadStorer $imageUploadStorer,
         private readonly MediaAssetCreator $mediaAssetCreator,
         private readonly StoredMediaCleaner $storedMediaCleaner,
     ) {}
@@ -37,20 +33,9 @@ final class UpdateUserProfileAction
 
         // Storing the file is slow, external I/O that doesn't belong inside a
         // DB transaction — do it first, then only touch the database below.
-        $storedAvatar = null;
-
-        if ($avatar !== null) {
-            $normalized = $this->imageIngestor->ingest(
-                ImageInput::fromUploadedFile($avatar),
-                ImageIngestPolicy::fromConfig(),
-            );
-
-            $storedAvatar = $this->mediaStorage->storeNormalized(
-                $normalized,
-                MediaStoreRequest::forAvatar($user->id),
-                $avatar->getClientOriginalName(),
-            );
-        }
+        $storedAvatar = $avatar !== null
+            ? $this->imageUploadStorer->store($avatar, MediaStoreRequest::forAvatar($user->id))
+            : null;
 
         try {
             DB::transaction(function () use ($user, $update, $storedAvatar): void {

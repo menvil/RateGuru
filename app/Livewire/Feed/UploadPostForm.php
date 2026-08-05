@@ -5,6 +5,7 @@ namespace App\Livewire\Feed;
 use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
+use App\Enums\ImageInputSource;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Models\RatingGroup;
 use App\Models\Tag;
@@ -76,10 +77,12 @@ final class UploadPostForm extends Component
         $createPostAction = app(CreatePostAction::class);
 
         $this->submitError = null;
+        $imageSource = ImageInputSource::Upload;
 
         if ($this->importedImageUrl !== null && $this->image === null) {
             try {
                 $this->image = app(StoreImportedImageAction::class)->download($this->importedImageUrl);
+                $imageSource = ImageInputSource::UrlImport;
             } catch (\Throwable $e) {
                 report($e);
                 $this->submitError = __('import.errors.fetch_failed');
@@ -97,6 +100,7 @@ final class UploadPostForm extends Component
                 sourceUrl: $this->sourceUrl,
                 tagIds: $this->tagIds,
                 image: $this->image,
+                imageSource: $imageSource,
                 categoryId: $this->categoryId !== '' ? (int) $this->categoryId : null,
                 authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
             ));

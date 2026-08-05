@@ -2,6 +2,7 @@
 
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
+use App\Enums\ImageInputSource;
 use App\Enums\ImageOrientation;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
@@ -13,6 +14,8 @@ use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
 use App\Services\Media\Exceptions\ImageIngestException;
+use App\Services\Media\ImageIngestor;
+use App\Services\Media\ImageInput;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\NormalizedImage;
 use App\Services\Media\StoredMedia;
@@ -25,6 +28,7 @@ function fakeUploadWithBytes(string $bytes, string $originalName, string $mimeTy
 {
     $tmpPath = sys_get_temp_dir().'/rg_test_'.uniqid().'.tmp';
     file_put_contents($tmpPath, $bytes);
+    register_shutdown_function(static fn () => @unlink($tmpPath));
 
     return new UploadedFile(
         path: $tmpPath,
@@ -396,4 +400,39 @@ it('creates no post, asset, or file when the image cannot be ingested', function
     expect(Post::query()->count())->toBe(0);
     expect(MediaAsset::query()->count())->toBe(0);
     Storage::disk('public')->assertDirectoryEmpty('posts');
+});
+
+it('passes the URL-import source through to ImageIngestor for an imported image', function () {
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
+
+    $imageIngestor = Mockery::mock(ImageIngestor::class);
+    $imageIngestor->shouldReceive('ingest')
+        ->once()
+        ->with(Mockery::on(fn (ImageInput $input): bool => $input->source === ImageInputSource::UrlImport), Mockery::any())
+        ->andReturn(normalizedFixture());
+    app()->instance(ImageIngestor::class, $imageIngestor);
+
+    app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish from an imported url',
+        image: $file,
+        imageSource: ImageInputSource::UrlImport,
+    ));
+});
+
+it('defaults to the Upload source when a post image is provided without an explicit source', function () {
+    $user = User::factory()->create();
+    $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
+
+    $imageIngestor = Mockery::mock(ImageIngestor::class);
+    $imageIngestor->shouldReceive('ingest')
+        ->once()
+        ->with(Mockery::on(fn (ImageInput $input): bool => $input->source === ImageInputSource::Upload), Mockery::any())
+        ->andReturn(normalizedFixture());
+    app()->instance(ImageIngestor::class, $imageIngestor);
+
+    app(CreatePostAction::class)->handle($user, new CreatePostData(
+        title: 'Dish uploaded directly',
+        image: $file,
+    ));
 });

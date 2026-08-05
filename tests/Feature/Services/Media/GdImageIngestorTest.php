@@ -88,7 +88,8 @@ function jpegMarkerBytes(int $width = 20, int $height = 10, int $quality = 90): 
     return ob_get_clean();
 }
 
-function pngMarkerBytesWithAlpha(int $width = 20, int $height = 10): string
+/** @param 'png'|'webp' $format */
+function markerBytesWithAlpha(string $format, int $width = 20, int $height = 10): string
 {
     $im = imagecreatetruecolor($width, $height);
     imagealphablending($im, false);
@@ -98,22 +99,11 @@ function pngMarkerBytesWithAlpha(int $width = 20, int $height = 10): string
     imagesetpixel($im, $width - 1, 0, imagecolorallocatealpha($im, 0, 255, 0, 0));
     imagesetpixel($im, 0, $height - 1, imagecolorallocatealpha($im, 0, 0, 255, 0));
     ob_start();
-    imagepng($im);
 
-    return ob_get_clean();
-}
-
-function webpMarkerBytesWithAlpha(int $width = 20, int $height = 10): string
-{
-    $im = imagecreatetruecolor($width, $height);
-    imagealphablending($im, false);
-    imagesavealpha($im, true);
-    imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
-    imagesetpixel($im, 0, 0, imagecolorallocatealpha($im, 255, 0, 0, 0));
-    imagesetpixel($im, $width - 1, 0, imagecolorallocatealpha($im, 0, 255, 0, 0));
-    imagesetpixel($im, 0, $height - 1, imagecolorallocatealpha($im, 0, 0, 255, 0));
-    ob_start();
-    imagewebp($im);
+    match ($format) {
+        'png' => imagepng($im),
+        'webp' => imagewebp($im),
+    };
 
     return ob_get_clean();
 }
@@ -168,6 +158,35 @@ function jpegCommentSegment(string $comment): string
     return "\xFF\xFE".pack('n', strlen($payload) + 2).$payload;
 }
 
+/** Splices a minimal `eXIf` chunk (carrying an Orientation tag) into a PNG. */
+function pngWithExifChunk(int $width = 20, int $height = 10): string
+{
+    $png = markerBytesWithAlpha('png', $width, $height);
+
+    $exifData = "II\x2A\x00".pack('V', 8).pack('v', 1).pack('vvV', 0x0112, 3, 1).pack('v', 6)."\x00\x00".pack('V', 0);
+    $chunkType = 'eXIf';
+    $chunk = pack('N', strlen($exifData)).$chunkType.$exifData.pack('N', crc32($chunkType.$exifData));
+
+    // Splice right after the signature (8 bytes) + IHDR chunk (length+type+13-byte data+crc = 25 bytes).
+    $ihdrEnd = 8 + 25;
+
+    return substr($png, 0, $ihdrEnd).$chunk.substr($png, $ihdrEnd);
+}
+
+/** Splices a minimal `EXIF` RIFF chunk (carrying an Orientation tag) into a WebP. */
+function webpWithExifChunk(int $width = 20, int $height = 10): string
+{
+    $webp = markerBytesWithAlpha('webp', $width, $height);
+
+    $exifData = "II\x2A\x00".pack('V', 8).pack('v', 1).pack('vvV', 0x0112, 3, 1).pack('v', 6)."\x00\x00".pack('V', 0);
+    $chunk = 'EXIF'.pack('V', strlen($exifData)).$exifData.(strlen($exifData) % 2 === 1 ? "\x00" : '');
+
+    $riffSize = unpack('V', substr($webp, 4, 4))[1];
+    $webp = substr($webp, 0, 4).pack('V', $riffSize + strlen($chunk)).substr($webp, 8);
+
+    return $webp.$chunk;
+}
+
 // --- format detection --------------------------------------------------
 
 it('accepts a valid JPEG', function () {
@@ -178,14 +197,14 @@ it('accepts a valid JPEG', function () {
 });
 
 it('accepts a valid PNG', function () {
-    $result = (new GdImageIngestor)->ingest(ingestInput(pngMarkerBytesWithAlpha()), ingestPolicy());
+    $result = (new GdImageIngestor)->ingest(ingestInput(markerBytesWithAlpha('png')), ingestPolicy());
 
     expect($result->mimeType)->toBe('image/png')
         ->and($result->extension)->toBe('png');
 });
 
 it('accepts a valid WebP', function () {
-    $result = (new GdImageIngestor)->ingest(ingestInput(webpMarkerBytesWithAlpha()), ingestPolicy());
+    $result = (new GdImageIngestor)->ingest(ingestInput(markerBytesWithAlpha('webp')), ingestPolicy());
 
     expect($result->mimeType)->toBe('image/webp')
         ->and($result->extension)->toBe('webp');
@@ -245,11 +264,27 @@ it('rejects an image exceeding the byte limit', function () {
         ->toThrow(ImageTooLargeException::class);
 });
 
+it('accepts an image exactly at the byte limit', function () {
+    $bytes = jpegMarkerBytes(200, 200);
+
+    $result = (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy(['maxBytes' => strlen($bytes)]));
+
+    expect($result->byteSize)->toBeGreaterThan(0);
+});
+
 it('rejects an image exceeding the width limit', function () {
     $bytes = jpegMarkerBytes(100, 10);
 
     expect(fn () => (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy(['maxWidth' => 99])))
         ->toThrow(ImageDimensionsExceededException::class);
+});
+
+it('accepts an image exactly at the width limit', function () {
+    $bytes = jpegMarkerBytes(100, 10);
+
+    $result = (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy(['maxWidth' => 100]));
+
+    expect($result->width)->toBe(100);
 });
 
 it('rejects an image exceeding the height limit', function () {
@@ -259,11 +294,38 @@ it('rejects an image exceeding the height limit', function () {
         ->toThrow(ImageDimensionsExceededException::class);
 });
 
+it('accepts an image exactly at the height limit', function () {
+    $bytes = jpegMarkerBytes(10, 100);
+
+    $result = (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy(['maxHeight' => 100]));
+
+    expect($result->height)->toBe(100);
+});
+
+it('rejects an image whose EXIF-corrected dimensions exceed asymmetric limits even though the as-stored dimensions do not', function () {
+    // Stored as 100x50 (passes maxWidth=200/maxHeight=80 as-is), but
+    // orientation 6 (rotate 90 CW) swaps it to 50x100 — the corrected height
+    // of 100 now exceeds maxHeight=80, which the pre-decode check alone
+    // could never catch.
+    $bytes = jpegWithExifOrientation(6, 100, 50);
+
+    expect(fn () => (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy(['maxWidth' => 200, 'maxHeight' => 80])))
+        ->toThrow(ImageDimensionsExceededException::class);
+});
+
 it('rejects an image exceeding the total pixel limit even when each dimension is individually within bounds', function () {
     $bytes = jpegMarkerBytes(100, 100); // 10,000 px — under maxWidth/maxHeight, over a tight maxPixels
 
     expect(fn () => (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy(['maxWidth' => 200, 'maxHeight' => 200, 'maxPixels' => 9_999])))
         ->toThrow(ImagePixelLimitExceededException::class);
+});
+
+it('accepts an image exactly at the total pixel limit', function () {
+    $bytes = jpegMarkerBytes(100, 100); // exactly 10,000 px
+
+    $result = (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy(['maxWidth' => 200, 'maxHeight' => 200, 'maxPixels' => 10_000]));
+
+    expect($result->width * $result->height)->toBe(10_000);
 });
 
 it('rejects when the normalized output exceeds the byte limit', function () {
@@ -325,10 +387,24 @@ it('physically applies each EXIF orientation correction', function (int $orienta
         ->and(markerCorners($result->bytes))->toMatchArray($expectedCorners);
 })->with('exif orientations');
 
+it('rejects a PNG carrying EXIF orientation metadata rather than silently treating it as normal', function () {
+    $bytes = pngWithExifChunk();
+
+    expect(fn () => (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy()))
+        ->toThrow(ImageOrientationException::class);
+});
+
+it('rejects a WebP carrying EXIF orientation metadata rather than silently treating it as normal', function () {
+    $bytes = webpWithExifChunk();
+
+    expect(fn () => (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy()))
+        ->toThrow(ImageOrientationException::class);
+});
+
 // --- alpha preservation -----------------------------------------------
 
 it('preserves PNG alpha transparency', function () {
-    $result = (new GdImageIngestor)->ingest(ingestInput(pngMarkerBytesWithAlpha()), ingestPolicy());
+    $result = (new GdImageIngestor)->ingest(ingestInput(markerBytesWithAlpha('png')), ingestPolicy());
 
     $im = imagecreatefromstring($result->bytes);
     $center = imagecolorsforindex($im, imagecolorat($im, 10, 5));
@@ -337,7 +413,7 @@ it('preserves PNG alpha transparency', function () {
 });
 
 it('preserves WebP alpha transparency', function () {
-    $result = (new GdImageIngestor)->ingest(ingestInput(webpMarkerBytesWithAlpha()), ingestPolicy());
+    $result = (new GdImageIngestor)->ingest(ingestInput(markerBytesWithAlpha('webp')), ingestPolicy());
 
     $im = imagecreatefromstring($result->bytes);
     $center = imagecolorsforindex($im, imagecolorat($im, 10, 5));
@@ -379,7 +455,7 @@ it('never returns the original bytes verbatim', function () {
 });
 
 it('reports a byteSize that always equals strlen(bytes)', function () {
-    $result = (new GdImageIngestor)->ingest(ingestInput(pngMarkerBytesWithAlpha()), ingestPolicy());
+    $result = (new GdImageIngestor)->ingest(ingestInput(markerBytesWithAlpha('png')), ingestPolicy());
 
     expect($result->byteSize)->toBe(strlen($result->bytes));
 });

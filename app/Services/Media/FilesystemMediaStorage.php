@@ -47,7 +47,10 @@ final class FilesystemMediaStorage implements MediaStorage
                 : $originalFilename,
             mimeType: $image->mimeType,
             extension: $image->extension,
-            byteSize: $image->byteSize,
+            // Derived from the bytes just written, not trusted from the
+            // caller's NormalizedImage::$byteSize, so the persisted metadata
+            // can never disagree with what's actually on disk.
+            byteSize: strlen($image->bytes),
             width: $image->width,
             height: $image->height,
         );

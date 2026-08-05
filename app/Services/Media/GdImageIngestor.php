@@ -33,13 +33,18 @@ final class GdImageIngestor implements ImageIngestor
 
         $mimeType = $this->detectFormat($input->bytes, $policy);
 
+        $orientation = $this->resolveOrientation($input->bytes, $mimeType);
+
         $image = $this->decode($input->bytes);
 
-        $orientation = $mimeType === 'image/jpeg'
-            ? $this->readExifOrientation($input->bytes)
-            : 1;
-
         $image = $this->applyOrientation($image, $orientation);
+
+        // Orientations 5-8 swap width/height; under asymmetric maxWidth/
+        // maxHeight config, dimensions that passed the pre-decode check above
+        // (against the as-stored, pre-orientation values) could now violate
+        // it the other way around. Pixel count doesn't need re-checking — a
+        // swap doesn't change width * height.
+        $this->assertDimensionsWithinLimit(imagesx($image), imagesy($image), $policy);
 
         if ($mimeType === 'image/png' || $mimeType === 'image/webp') {
             imagealphablending($image, false);
@@ -86,10 +91,7 @@ final class GdImageIngestor implements ImageIngestor
             throw UnsupportedImageFormatException::unrecognizedFormat();
         }
 
-        if ($width > $policy->maxWidth || $height > $policy->maxHeight) {
-            throw ImageDimensionsExceededException::exceedsMaxDimensions($width, $height, $policy->maxWidth, $policy->maxHeight);
-        }
-
+        $this->assertDimensionsWithinLimit($width, $height, $policy);
         $this->assertPixelCountWithinLimit($width, $height, $policy->maxPixels);
 
         // Client Content-Type / getClientMimeType() / client extension are
@@ -102,6 +104,13 @@ final class GdImageIngestor implements ImageIngestor
         }
 
         return $mimeType;
+    }
+
+    private function assertDimensionsWithinLimit(int $width, int $height, ImageIngestPolicy $policy): void
+    {
+        if ($width > $policy->maxWidth || $height > $policy->maxHeight) {
+            throw ImageDimensionsExceededException::exceedsMaxDimensions($width, $height, $policy->maxWidth, $policy->maxHeight);
+        }
     }
 
     private function assertPixelCountWithinLimit(int $width, int $height, int $maxPixels): void
@@ -135,6 +144,80 @@ final class GdImageIngestor implements ImageIngestor
         }
 
         return $image;
+    }
+
+    /**
+     * exif_read_data() only understands JPEG/TIFF — PNG's `eXIf` chunk and
+     * WebP's `EXIF` RIFF chunk are both real, spec-legal places for an
+     * Orientation tag to live, but this class has no parser for either. Since
+     * silently ignoring one would store a physically wrong orientation with
+     * no way to ever recover the original intent (re-encoding strips the
+     * chunk regardless), an image carrying one is rejected outright rather
+     * than treated as if it were already normal.
+     */
+    private function resolveOrientation(string $bytes, string $mimeType): int
+    {
+        return match ($mimeType) {
+            'image/jpeg' => $this->readExifOrientation($bytes),
+            'image/png' => $this->pngHasExifChunk($bytes)
+                ? throw ImageOrientationException::unsupportedContainerMetadata($mimeType)
+                : 1,
+            'image/webp' => $this->webpHasExifChunk($bytes)
+                ? throw ImageOrientationException::unsupportedContainerMetadata($mimeType)
+                : 1,
+            default => 1,
+        };
+    }
+
+    /**
+     * A lightweight chunk-type scan, not a full PNG parse: walks the
+     * length-prefixed chunk stream looking for an `eXIf` chunk type, stopping
+     * at `IEND` or once the byte stream runs out.
+     */
+    private function pngHasExifChunk(string $bytes): bool
+    {
+        $length = strlen($bytes);
+        $offset = 8; // past the fixed 8-byte PNG signature
+
+        while ($offset + 8 <= $length) {
+            $chunkLength = unpack('N', substr($bytes, $offset, 4))[1];
+            $chunkType = substr($bytes, $offset + 4, 4);
+
+            if ($chunkType === 'eXIf') {
+                return true;
+            }
+
+            if ($chunkType === 'IEND') {
+                break;
+            }
+
+            $offset += 8 + $chunkLength + 4; // length + type + data + crc
+        }
+
+        return false;
+    }
+
+    /**
+     * Same idea as pngHasExifChunk(), for WebP's RIFF sub-chunk stream:
+     * scans for an `EXIF` FourCC.
+     */
+    private function webpHasExifChunk(string $bytes): bool
+    {
+        $length = strlen($bytes);
+        $offset = 12; // past "RIFF" + 4-byte size + "WEBP"
+
+        while ($offset + 8 <= $length) {
+            $fourCc = substr($bytes, $offset, 4);
+            $chunkSize = unpack('V', substr($bytes, $offset + 4, 4))[1];
+
+            if ($fourCc === 'EXIF') {
+                return true;
+            }
+
+            $offset += 8 + $chunkSize + ($chunkSize % 2); // padded to an even boundary
+        }
+
+        return false;
     }
 
     /**
