@@ -54,11 +54,23 @@ final class AvatarUrlResolver
 
         $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
 
+        // A non-public asset (e.g. MediaVisibility::Private) has no
+        // resolvable URL at all — bail out before any variant selection, so
+        // behavior doesn't depend on whether `variants` happens to be
+        // eager-loaded. Without this check, a private asset with variants
+        // loaded would fall through to publicUrl() below (the strict,
+        // throwing variant), while the exact same asset with variants NOT
+        // loaded would silently return null from the branch below instead —
+        // two different behaviors for the same underlying asset.
+        if ($masterUrl === null) {
+            return null;
+        }
+
         // Never lazy-load: a caller that forgot to eager-load
         // avatarAsset.variants gets the master-fallback DTO instead of an
         // N+1 query per user.
         if (! $asset->relationLoaded('variants')) {
-            return $masterUrl === null ? null : new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
+            return new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
         }
 
         $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
@@ -69,7 +81,7 @@ final class AvatarUrlResolver
         $chosen = $small ?? $large;
 
         if ($chosen === null) {
-            return $masterUrl === null ? null : new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
+            return new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
         }
 
         $srcUrl = $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility);

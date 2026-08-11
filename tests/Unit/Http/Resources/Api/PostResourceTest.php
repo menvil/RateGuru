@@ -9,6 +9,7 @@ use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 uses(TestCase::class, RefreshDatabase::class);
@@ -118,6 +119,8 @@ it('does not force-load author and tags in post resource', function () {
 });
 
 it('falls back to the master image and issues no query when imageAsset.variants is not eager-loaded', function () {
+    Storage::fake('public');
+
     $asset = MediaAsset::factory()->postImage()->dimensions(1600, 900)->create();
     MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create([
         'media_asset_id' => $asset->id,
@@ -133,6 +136,13 @@ it('falls back to the master image and issues no query when imageAsset.variants 
     });
 
     $data = (new ApiPostResource($post))->resolve();
+
+    // image_url is unaffected by variants either way (it always resolves the
+    // master via the untouched url() accessor) — pinned here to the asset's
+    // own master path so this test also rejects a null or variant-pointing
+    // URL, not just the srcset/sizes fields.
+    expect($data['image_url'])->toBe(Storage::disk('public')->url($asset->path))
+        ->and($data['image_url'])->not->toContain('post_feed_640');
 
     expect($queryCount)->toBe(0)
         ->and($data['image_srcset'])->toBeNull()

@@ -89,7 +89,10 @@ final class UpdateUserProfileAction
 
         if ($newAvatarAssetId !== null) {
             try {
-                GenerateMediaVariantsJob::dispatch($newAvatarAssetId);
+                // ->afterCommit(): see the identical comment in
+                // CreatePostAction — not a behavior change today (no outer
+                // transaction wraps this call), just correct if that changes.
+                GenerateMediaVariantsJob::dispatch($newAvatarAssetId)->afterCommit();
             } catch (Throwable $exception) {
                 report($exception);
 

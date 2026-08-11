@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MediaVariantName;
+use App\Enums\MediaVisibility;
 use App\Enums\PostImageContext;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
@@ -34,6 +35,22 @@ function postWithVariants(array $variantDimensionsByName): Post
 it('returns null when the post has no image asset', function () {
     $post = Post::factory()->published()->create(['image_asset_id' => null])->load('imageAsset.variants');
 
+    expect(app(PostImagePresenter::class)->responsive($post, PostImageContext::Feed))->toBeNull();
+});
+
+it('returns null for a private image asset even when its variants are already loaded, instead of throwing', function () {
+    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+        'visibility' => MediaVisibility::Private,
+    ]);
+    MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create([
+        'media_asset_id' => $asset->id,
+        'width' => 640,
+        'height' => 427,
+    ]);
+    $post = Post::factory()->published()->create(['image_asset_id' => $asset->id])
+        ->load('imageAsset.variants');
+
+    expect($post->imageAsset->relationLoaded('variants'))->toBeTrue();
     expect(app(PostImagePresenter::class)->responsive($post, PostImageContext::Feed))->toBeNull();
 });
 

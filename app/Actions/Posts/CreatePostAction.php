@@ -130,7 +130,13 @@ final class CreatePostAction
 
         if ($post->image_asset_id !== null) {
             try {
-                GenerateMediaVariantsJob::dispatch($post->image_asset_id);
+                // ->afterCommit(): the structural "after DB::transaction()
+                // returns" placement above is enough given how this action
+                // is called today (no outer transaction wraps it), but
+                // afterCommit() also makes it correct if that ever changes —
+                // Laravel simply runs it immediately when there's no open
+                // transaction, so this isn't a behavior change today.
+                GenerateMediaVariantsJob::dispatch($post->image_asset_id)->afterCommit();
             } catch (Throwable $exception) {
                 report($exception);
 

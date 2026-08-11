@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MediaVariantName;
+use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\User;
@@ -14,6 +15,21 @@ beforeEach(function () {
 it('returns null when the user has no avatar asset', function () {
     $user = User::factory()->create(['avatar_asset_id' => null])->load('avatarAsset.variants');
 
+    expect(app(AvatarUrlResolver::class)->responsive($user))->toBeNull();
+});
+
+it('returns null for a private avatar asset even when its variants are already loaded, instead of throwing', function () {
+    $asset = MediaAsset::factory()->avatar()->dimensions(512, 512)->create([
+        'visibility' => MediaVisibility::Private,
+    ]);
+    MediaVariant::factory()->named(MediaVariantName::Avatar128)->create([
+        'media_asset_id' => $asset->id,
+        'width' => 128,
+        'height' => 128,
+    ]);
+    $user = User::factory()->create(['avatar_asset_id' => $asset->id])->load('avatarAsset.variants');
+
+    expect($user->avatarAsset->relationLoaded('variants'))->toBeTrue();
     expect(app(AvatarUrlResolver::class)->responsive($user))->toBeNull();
 });
 

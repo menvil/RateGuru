@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\MediaVariantName;
+use App\Models\MediaVariant;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -95,10 +97,17 @@ it('resolves header user menu avatar via the resolved avatar accessor', function
     expect($html)->toContain('avatars/header-user.jpg');
 });
 
-it('preloads the header avatar variants relation with exactly one query, not one per relation access', function () {
+it('preloads the header avatar variants relation instead of leaving resolved_avatar_srcset stuck on the master fallback', function () {
     Storage::fake('public');
 
     $user = User::factory()->withAvatar(path: 'avatars/header-user.jpg')->create();
+    MediaVariant::factory()->named(MediaVariantName::Avatar128)->create([
+        'media_asset_id' => $user->avatar_asset_id,
+        'disk' => 'public',
+        'path' => 'avatars/header-user-128.jpg',
+        'width' => 128,
+        'height' => 128,
+    ]);
 
     $variantQueries = 0;
     DB::listen(function ($query) use (&$variantQueries): void {
@@ -107,12 +116,21 @@ it('preloads the header avatar variants relation with exactly one query, not one
         }
     });
 
-    $this->actingAs($user)->get('/')->assertOk();
+    $html = $this->actingAs($user)->get('/')->assertOk()->getContent();
 
-    // AvatarUrlResolver::responsive() never lazy-loads variants (it falls
-    // back to the master instead) — the only query against media_variants on
-    // this page comes from the layouts.app composer's single
-    // loadMissing('avatarAsset.variants') call, not one per accessor call
+    // AvatarUrlResolver::responsive() never lazy-loads variants — a caller
+    // that hasn't eager-loaded avatarAsset.variants gets the master-only
+    // fallback (no srcset) instead of an N+1 query. Asserting on the
+    // rendered srcset itself — not just the query count — is what actually
+    // catches layouts.app's loadMissing('avatarAsset.variants') being
+    // removed: without it, this page would still render fine and still cost
+    // some fixed, plausible-looking query count, just with the header
+    // avatar silently missing its srcset (asserted by AvatarUrlResolver's
+    // own unit tests, not visible here without checking the markup itself).
+    expect($html)->toContain('avatars/header-user-128.jpg');
+
+    // The only query against media_variants on this page comes from the
+    // composer's single loadMissing() call, not one per accessor call
     // (resolved_avatar_url / resolved_avatar_srcset are both read from the
     // header markup).
     expect($variantQueries)->toBe(1);
