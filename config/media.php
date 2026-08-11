@@ -52,4 +52,36 @@ return [
         'wait_seconds' => max(1, (int) env('MEDIA_VARIANT_LOCK_WAIT_SECONDS', 30)),
         'ttl_seconds' => max(1, (int) env('MEDIA_VARIANT_LOCK_TTL_SECONDS', 60)),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Media lifecycle
+    |--------------------------------------------------------------------------
+    |
+    | Soft-deleting a MediaAsset (avatar replacement, an unreferenced asset
+    | released after a user account is deleted) never removes its physical
+    | file immediately — purge_grace_days is how long it stays soft-deleted,
+    | still on disk, before media:purge is allowed to force-delete it (and
+    | only once it's also unreferenced — see MediaReferenceChecker). This is
+    | a recovery window, not a UI-facing undo feature.
+    |
+    | orphan_grace_hours guards physical-orphan detection specifically: a
+    | file on disk with no matching MediaAsset/MediaVariant row at all is
+    | only ever a *candidate* once it's older than this — an in-flight
+    | upload from moments ago must never be flagged mid-write.
+    |
+    | purge_lock mirrors variant_lock's Cache::store('database') pattern
+    | (see MediaVariantWriter), but media:purge takes a single non-blocking
+    | attempt per asset rather than waiting, so only a ttl_seconds knob is
+    | needed — see MediaLifecycleService::purgeLock().
+    |
+    */
+
+    'lifecycle' => [
+        'purge_grace_days' => max(0, (int) env('MEDIA_PURGE_GRACE_DAYS', 7)),
+        'orphan_grace_hours' => max(0, (int) env('MEDIA_ORPHAN_GRACE_HOURS', 24)),
+        'purge_lock' => [
+            'ttl_seconds' => max(1, (int) env('MEDIA_PURGE_LOCK_TTL_SECONDS', 60)),
+        ],
+    ],
 ];

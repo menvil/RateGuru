@@ -1,0 +1,193 @@
+<?php
+
+namespace App\Services\Media;
+
+use App\Enums\MediaPurgeOutcome;
+use App\Models\MediaAsset;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use RuntimeException;
+use Throwable;
+
+/**
+ * The single owner of every MediaAsset/MediaVariant delete decision and
+ * action. Nothing else in the app force-deletes a MediaAsset row or purges
+ * its physical files — StoredMediaCleaner and
+ * MediaVariantWriter::deleteQuietly() remain separate, pre-existing,
+ * narrowly-scoped create-flow compensation (deleting a just-written file
+ * after a DB failure moments earlier), not part of this lifecycle.
+ *
+ * Soft-delete (an asset becoming a "release candidate") happens elsewhere —
+ * avatar replacement already soft-deletes the previous asset inline
+ * (UpdateUserProfileAction, unchanged by this class), and
+ * releaseIfUnreferenced() is the hook DeleteUserAccountAction uses once a
+ * user's posts/avatar have just become unreferenced. This class only ever
+ * decides/executes what happens *after* an asset is already soft-deleted:
+ * whether it's purgeable yet, and performing the purge itself.
+ */
+final class MediaLifecycleService
+{
+    public function __construct(
+        private readonly MediaReferenceChecker $referenceChecker,
+        private readonly MediaStorage $storage,
+    ) {}
+
+    /**
+     * Pure decision, no lock, no I/O beyond the reference check's own
+     * queries — safe to call repeatedly for reporting (audit, --dry-run).
+     */
+    public function isPurgeable(MediaAsset $asset, ?int $graceDays = null): bool
+    {
+        if (! $asset->trashed()) {
+            return false;
+        }
+
+        $cutoff = now()->subDays($graceDays ?? (int) config('media.lifecycle.purge_grace_days'));
+
+        if ($asset->deleted_at === null || $asset->deleted_at->gt($cutoff)) {
+            return false;
+        }
+
+        return ! $this->referenceChecker->isReferenced($asset);
+    }
+
+    /**
+     * Reloads and re-verifies everything under a per-asset lock before
+     * touching anything — the caller's own $asset may be stale (e.g. read
+     * moments ago by a chunked query in media:purge, while a concurrent
+     * process already purged or restored it). All physical file I/O happens
+     * before the one-statement DB transaction, which force-deletes only the
+     * asset row: media_variants.media_asset_id has ->cascadeOnDelete() at
+     * the DB level, so the variant rows disappear as part of that same
+     * statement — no need to re-issue an explicit MediaVariant delete.
+     *
+     * The lock is a single non-blocking attempt (Lock::get()), not
+     * MediaVariantWriter's blocking Lock::block(): this runs as a chunked
+     * batch sweep over many assets, and blocking on one contended asset
+     * would stall the whole run. A failed attempt just means "skip this
+     * asset this pass" — purge reruns routinely, and eligibility, once
+     * earned, never expires.
+     */
+    public function purge(MediaAsset $asset, ?int $graceDays = null): MediaPurgeResult
+    {
+        $lock = $this->purgeLock($asset->id);
+
+        if (! $lock->get()) {
+            return MediaPurgeResult::skipped($asset->id, MediaPurgeOutcome::Locked);
+        }
+
+        try {
+            $fresh = MediaAsset::withTrashed()->with('variants')->find($asset->id);
+
+            if ($fresh === null) {
+                return MediaPurgeResult::skipped($asset->id, MediaPurgeOutcome::AlreadyGone);
+            }
+
+            if (! $this->isPurgeable($fresh, $graceDays)) {
+                return MediaPurgeResult::skipped($fresh->id, MediaPurgeOutcome::NotEligible);
+            }
+
+            foreach ($fresh->variants as $variant) {
+                try {
+                    $this->storage->deleteIfExists(new MediaLocation($variant->disk, $variant->path));
+                } catch (Throwable $exception) {
+                    Log::error('MediaLifecycleService: variant file delete failed.', [
+                        'media_asset_id' => $fresh->id,
+                        'media_variant_id' => $variant->id,
+                        'disk' => $variant->disk,
+                        'path' => $variant->path,
+                        'operation' => 'purge_variant',
+                        'exception_class' => $exception::class,
+                    ]);
+
+                    return MediaPurgeResult::failed($fresh->id, $exception);
+                }
+            }
+
+            try {
+                $this->storage->deleteIfExists(new MediaLocation($fresh->disk, $fresh->path));
+            } catch (Throwable $exception) {
+                Log::error('MediaLifecycleService: master file delete failed.', [
+                    'media_asset_id' => $fresh->id,
+                    'disk' => $fresh->disk,
+                    'path' => $fresh->path,
+                    'operation' => 'purge_master',
+                    'exception_class' => $exception::class,
+                ]);
+
+                return MediaPurgeResult::failed($fresh->id, $exception);
+            }
+
+            try {
+                DB::transaction(fn () => $fresh->forceDelete());
+            } catch (Throwable $exception) {
+                // Recoverable: the physical files are already gone, the row
+                // remains trashed. A subsequent purge() re-attempts this
+                // exact asset — deleteIfExists() above no-ops for the
+                // already-missing files, and only the DB step is retried.
+                Log::error('MediaLifecycleService: DB force-delete failed after file removal.', [
+                    'media_asset_id' => $fresh->id,
+                    'operation' => 'purge_force_delete',
+                    'exception_class' => $exception::class,
+                ]);
+
+                return MediaPurgeResult::failed($fresh->id, $exception);
+            }
+
+            return MediaPurgeResult::purged($fresh->id);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * The hook DeleteUserAccountAction calls, once, per asset id that may
+     * have just become unreferenced by a hard user delete (their avatar,
+     * their posts' images — the posts themselves are already gone by the
+     * time this runs). Best-effort and never throws: a cleanup hiccup here
+     * must never turn an already-successful account deletion into a
+     * reported failure. Soft-deletes only — physical purge still waits for
+     * the grace period via the normal media:purge sweep.
+     */
+    public function releaseIfUnreferenced(int $assetId): void
+    {
+        try {
+            $asset = MediaAsset::find($assetId);
+
+            if ($asset !== null && ! $this->referenceChecker->isReferenced($asset)) {
+                $asset->delete();
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    /**
+     * Deletes a physical file that has no matching MediaAsset/MediaVariant
+     * row at all (a true physical orphan, found by MediaOrphanScanner) — no
+     * DB row is involved by definition, so there's nothing else to do.
+     */
+    public function purgeOrphanFile(MediaLocation $location): void
+    {
+        $this->storage->deleteIfExists($location);
+    }
+
+    /**
+     * Same Cache::store('database')/LockProvider pattern as
+     * MediaVariantWriter::variantWriteLock() — see that class's docblock for
+     * why `database`, not Redis or config('cache.default').
+     */
+    private function purgeLock(int $assetId): Lock
+    {
+        $store = Cache::store('database')->getStore();
+
+        if (! $store instanceof LockProvider) {
+            throw new RuntimeException('The "database" cache store does not support locks.');
+        }
+
+        return $store->lock("media-purge:{$assetId}", (int) config('media.lifecycle.purge_lock.ttl_seconds'));
+    }
+}

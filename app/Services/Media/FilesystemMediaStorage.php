@@ -104,4 +104,27 @@ final class FilesystemMediaStorage implements MediaStorage
             throw MediaStorageException::couldNotDelete($location->disk, $location->path);
         }
     }
+
+    public function deleteIfExists(MediaLocation $location): void
+    {
+        if (! $this->exists($location)) {
+            return;
+        }
+
+        $this->delete($location);
+    }
+
+    public function allFiles(string $disk, string $directory): array
+    {
+        return $this->filesystem->disk($disk)->allFiles($directory);
+    }
+
+    public function lastModified(MediaLocation $location): int
+    {
+        if (! $this->exists($location)) {
+            throw MediaStorageException::notFound($location->disk, $location->path);
+        }
+
+        return $this->filesystem->disk($location->disk)->lastModified($location->path);
+    }
 }

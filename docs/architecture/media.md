@@ -43,10 +43,11 @@ polymorphic/many-to-many media library: only one primary post image and one
 primary avatar exist right now, so a direct FK is simpler than modeling a
 general attachment relationship nothing yet needs.
 
-Deleting a `Post` or `User` does not cascade-delete their asset — the FK just
-goes null, leaving the (soft-deleted where applicable) asset row and its
-physical file in place. Full lifecycle management — deciding when an
-orphaned asset's file should actually be removed — is PR-07's job.
+Deleting a `Post` or `User` does not cascade-delete their asset via this FK —
+the FK's `nullOnDelete()` only ever fires on a real SQL `DELETE`. Soft-
+deleting a `Post` (the only kind of post deletion that exists in this app)
+never touches `image_asset_id` at all — see "Media lifecycle" below for how
+PR-07 handles asset release and physical cleanup.
 
 ## Filesystem writes are not transactional with the database
 
@@ -66,7 +67,9 @@ destroy a file a different, already-committed upload depends on.
 Avatar replacement additionally locks the user row (`lockForUpdate()`) before
 reading and replacing the current `avatar_asset_id`, so two concurrent
 replacements can't both read the same "previous" asset and leave one of them
-orphaned. This is still not full lifecycle management — see PR-07 below.
+orphaned. It soft-deletes the previous avatar asset inline (unchanged by
+PR-07) — physical cleanup happens later, on its own schedule, once the grace
+period expires; see "Media lifecycle" below.
 
 ## Open Graph is a variant, not a post column
 
@@ -444,7 +447,8 @@ checks existence, but only for its own three OG-image candidates — never
 `responsive()`, and never on every page render for anything but that specific
 DTO. There is still no corruption/integrity scanner (a `media_variants` row
 whose file exists but is truncated or corrupted is not detected) — that
-remains deferred, along with orphan detection, to PR-07.
+remains deferred (PR-07 adds orphan detection and safe physical deletion,
+not integrity checking).
 
 **Operational recovery step**: if variants for existing assets are ever found
 missing or lost on staging/production, the fix is running
@@ -539,18 +543,187 @@ now `openGraph()`) silently fell back to the master image only, since PR-05
 shipped. Fixed by adding the same eager-load PR-05's list queries already
 use.
 
+## Media lifecycle
+
+PR-07 adds the other half of the lifecycle PR-05/06 never touched: actually
+deleting media, safely. `MediaAsset` has used `SoftDeletes` since the schema
+was introduced, but nothing physically removed a file until now — avatar
+replacement soft-deleted the previous asset and left its file on disk
+forever, and `MediaVariant` (no `SoftDeletes` at all) never had application-
+level cleanup of its own file when its parent was force-deleted (only the
+row auto-cascaded via the DB FK).
+
+**Lifecycle states**: active (not soft-deleted) → soft-deleted, within grace
+→ soft-deleted, grace-expired and unreferenced ("purgeable") → physically
+purged (row and files both gone). Soft-delete is never physical delete — a
+grace period (`MEDIA_PURGE_GRACE_DAYS`, default 7 days,
+`config('media.lifecycle.purge_grace_days')`) always sits between them. This
+is a recovery window against mistakes and races, not a user-facing undo
+feature.
+
+**`MediaReferenceChecker`** (`app/Services/Media/MediaReferenceChecker.php`)
+is the single source of truth for "is this asset still owned by anything" —
+checked against the only two real FK usages that exist anywhere in this app:
+`posts.image_asset_id` and `users.avatar_asset_id`. No reflection/schema
+scanning, no invented future relations. Critically, the post check uses
+`Post::withTrashed()`: a soft-deleted-but-restorable post must still count
+as referencing its image, or every soft-deleted post's image would look
+orphaned the instant the post itself is soft-deleted, even though both may
+still be restored.
+
+**`MediaLifecycleService`** (`app/Services/Media/MediaLifecycleService.php`)
+is the single owner of every purge decision and action — nothing else force-
+deletes a `MediaAsset`/`MediaVariant` row or purges its physical files.
+`StoredMediaCleaner` and `MediaVariantWriter::deleteQuietly()` remain
+separate, pre-existing, narrowly-scoped create-flow compensation (deleting a
+just-written file after a DB failure moments later), not part of this
+lifecycle — delete logic isn't smeared across actions/jobs/commands, but
+compensation and lifecycle purge are deliberately still two different
+things with two different triggers.
+
+- `isPurgeable(MediaAsset $asset, ?int $graceDays = null): bool` — a pure
+  decision (no lock, no mutation): trashed, `deleted_at` past the grace
+  cutoff, and unreferenced. Safe to call repeatedly for reporting
+  (`media:audit`, `media:purge --dry-run`).
+- `purge(MediaAsset $asset, ?int $graceDays = null): MediaPurgeResult` — the
+  real thing. See "Purge algorithm" below.
+- `releaseIfUnreferenced(int $assetId): void` — the hook
+  `DeleteUserAccountAction` calls once per asset id that may have just
+  become unreferenced by a hard user delete. Soft-deletes only (starts the
+  grace period; physical purge still waits for `media:purge`). Best-effort
+  and never throws — a cleanup hiccup here must never turn an
+  already-successful account deletion into a reported failure.
+- `purgeOrphanFile(MediaLocation $location): void` — deletes a physical
+  orphan found by `MediaOrphanScanner`. No DB row is involved by definition.
+
+**Purge algorithm**: acquire a per-asset lock → reload the asset (including
+trashed) fresh from the DB, since the caller's own copy may be stale by the
+time a chunked sweep reaches it → re-verify grace + references under the
+lock (the outer query in `media:purge` is just an efficient candidate
+filter, never the source of truth) → delete each variant's physical file →
+delete the master's physical file → one short `DB::transaction()` that
+force-deletes only the asset row (`media_variants.media_asset_id` has
+`->cascadeOnDelete()` at the DB level, so the variant rows disappear as part
+of that same statement — no separate variant-row delete needed) → release
+the lock. All physical file I/O happens *before* the one-statement DB
+transaction — no remote I/O inside a long-held transaction.
+
+**Locking**: the same `Cache::store('database')`/`LockProvider` pattern
+`MediaVariantWriter` already uses for variant writes (see "Responsive media
+variants" above), keyed `media-purge:{$assetId}`
+(`config('media.lifecycle.purge_lock.ttl_seconds')`, default 60s). Unlike
+the variant writer, purge takes a single **non-blocking** attempt
+(`Lock::get()`, not `Lock::block()`): purge runs as a chunked batch sweep
+over many assets, and blocking on one contended asset would stall the whole
+run. A failed attempt just skips that asset for this pass — purge reruns
+routinely (see "Scheduling" below), and eligibility, once earned, never
+expires. No additional coordination with `MediaVariantWriter`'s own
+per-variant lock is needed: `MediaVariantGenerator::generateAll()` already
+refuses to touch a trashed asset (a PR-05 guard), and purge eligibility
+requires several days soft-deleted by construction — no code path in this
+app dispatches generation anywhere near that late.
+
+**Idempotency and partial-failure recovery**: every physical delete goes
+through `MediaStorage::deleteIfExists()` (new in PR-07) — a missing file is
+a no-op success, never an exception, so re-running purge on a
+partially-completed asset only does the remaining work. A *real* storage
+failure (not just "already gone") still throws and aborts that asset's
+purge immediately: no DB row is force-deleted, the original exception is
+logged with `media_asset_id`/`media_variant_id`/`disk`/`path`/`operation`/
+`exception_class` (never bytes, never signed URLs), and the next
+`media:purge` run retries from scratch — already-deleted files simply
+no-op on the retry. The one state this can't fully protect against — files
+successfully deleted but the DB transaction itself then fails — is
+explicitly a recoverable, expected state: the row stays trashed, and the
+next purge run finishes the DB step alone (every file delete it attempts is
+already a no-op by then). This is a deliberate choice, not an oversight:
+building an actual distributed transaction between Postgres and the
+filesystem is out of scope, and "file gone, row pending" is always safely
+recoverable by a retry, unlike the reverse.
+
+**`media:audit`** (`app/Console/Commands/MediaAuditCommand.php`) — always
+read-only, always exits successfully (finding problems is its job, not a
+failure). Chunks every `MediaAsset` (including trashed) and reports counts
+for: healthy/referenced, active-but-unreferenced (a gap-state alarm — should
+never happen given the design, worth surfacing if it ever does),
+soft-deleted-within-grace, soft-deleted-purgeable, assets with a missing
+master file, variants with a missing physical file, and (via
+`MediaOrphanScanner`) physical-orphan candidates.
+
+**`media:purge`** (`app/Console/Commands/MediaPurgeCommand.php`) —
+`{--asset=} {--older-than=} {--dry-run} {--orphans} {--force} {--chunk=200}`.
+Two independent modes:
+- Default: soft-deleted, grace-expired, unreferenced assets — real and
+  destructive by default, since eligibility itself (re-verified under lock)
+  is the safety gate; no extra confirmation flag is needed on top of it.
+  `--older-than=` overrides the configured grace period (in days) for one
+  run; `--asset=` scopes to a single id; `--dry-run` reports via
+  `isPurgeable()` without calling `purge()`.
+- `--orphans`: switches to physical-orphan mode (see below) instead of the
+  DB-driven query. Deletion only ever happens with `--orphans --force`;
+  `--dry-run` always wins if both are somehow passed together.
+
+**Physical orphan detection** (`app/Services/Media/MediaOrphanScanner.php`)
+is deliberately separate from purge, and from "a DB row whose file is
+missing" (that's `media:generate-variants --missing-only` recovery
+territory, and `media:audit`'s missing-master/missing-variant counts) — a
+physical orphan is a file with **no matching row at all**. `MediaOrphanScanner`
+scans `config('media.disks.public')` (the only disk this app's config
+declares) across each `config('media.directories')` entry, builds a known-
+locations set from every `MediaAsset` (including trashed — a grace-period
+asset still legitimately owns its file) and every `MediaVariant`, and
+reports files absent from that set that are also older than
+`MEDIA_ORPHAN_GRACE_HOURS` (default 24h,
+`config('media.lifecycle.orphan_grace_hours')`) — an in-flight upload from
+moments ago is never flagged. Read-only by itself; `media:audit` only
+reports its findings, `media:purge --orphans --force` is the only thing that
+ever deletes what it finds, and that's always an explicit, human-triggered
+operational decision — there is no automatic physical-orphan deletion
+anywhere in this PR.
+
+**`DeleteUserAccountAction`** (`app/Actions/Profile/DeleteUserAccountAction.php`)
+is the one existing deletion flow this PR changes. `User` has no
+`SoftDeletes` — account deletion is a real hard `$user->delete()`, and
+`posts.user_id`/`comments.user_id` both `cascadeOnDelete()` at the DB level,
+bypassing `Post`'s own `SoftDeletes` entirely: every post a deleted user
+owned is hard-deleted outright, not soft-deleted, immediately making that
+post's image (and the user's own avatar) truly unreferenced with no prior
+cleanup hook anywhere. The action now captures the avatar/post-image asset
+ids *before* deleting the user, then calls
+`MediaLifecycleService::releaseIfUnreferenced()` once per id *after* the
+delete succeeds — soft-deleting each now-orphaned asset (starting its grace
+period), never throwing, never touching anything still referenced by
+something else. `DeletePostAction`/`DeletePostInAdminAction` are untouched:
+both are soft-delete-only (a post force-delete path doesn't exist anywhere
+in this app), and a restorable soft-deleted post correctly keeps "owning"
+its image per `MediaReferenceChecker`'s own `withTrashed()` check — there is
+nothing to hook there. Avatar replacement (`UpdateUserProfileAction`) is
+also untouched — its existing inline soft-delete-the-previous-asset
+behavior already does the right thing.
+
+**Scheduling**: `routes/console.php` registers
+`Schedule::command('media:purge')->daily()->withoutOverlapping()` — the
+first Laravel-scheduler entry in this repo (previously all periodic tasks
+were external bash scripts under `infrastructure/`), made possible because
+the staging/production cron already runs `php artisan schedule:run` every
+minute, so no infra/deploy change was needed for it to take effect. Only the
+safe, non-destructive-by-construction default mode is scheduled — never
+`--orphans`, never `--force`. Physical-orphan deletion stays a deliberate,
+human-triggered `--orphans --force` operation, on purpose.
+
 ## What this schema/storage work does not do
 
 Focal points/AI cropping, a crop UI, AVIF or other format negotiation,
 `<picture>` markup, an actual S3/CDN deployment, imgproxy, temporary signed
-URLs, legacy data backfill beyond the CLI command above, an orphan/lifecycle
-scanner (PR-07), URL-import hardening (PR-08), video/GIF variants, a general
-third-party media library/schema redesign, an outbox/durable event bus/
-workflow engine or any queue-infrastructure migration (Horizon, a custom
-failed-job UI, a corruption/integrity scanner), or observability/admin
-diagnostics for the media pipeline beyond structured failure logging
-(PR-09). New `MediaAsset` rows are still created synchronously as `ready`
-the moment a file is stored — there is no processing pipeline for anything to
+URLs, legacy data backfill beyond the CLI command above, URL-import hardening
+(PR-08), video/GIF variants, a general third-party media library/schema
+redesign, an outbox/durable event bus/workflow engine or any queue-
+infrastructure migration (Horizon, a custom failed-job UI, automatic repair
+of a missing master, a corruption/integrity scanner, storage tiering,
+backup integration, retention UI, polymorphic attachments), or
+observability/admin diagnostics for the media pipeline beyond structured
+failure logging (PR-09). New `MediaAsset` rows are still created synchronously
+as `ready` the moment a file is stored — there is no processing pipeline for anything to
 be `processing` or `failed` in normal operation (those statuses exist for
 later use); variant *generation* is what's now asynchronous (queued) or
 synchronous-by-design (seeders, the CLI command), not asset creation itself.
@@ -579,9 +752,15 @@ PR landed.
   both the job and generator layers, `--variant=`/missing-file recovery on
   the CLI). No outbox, no queue-infrastructure migration, no admin
   diagnostics — see "Open Graph media variant" and "Reliability" above.
-- **PR-07** — Asset lifecycle: orphan detection/cleanup, and actually
-  deleting a replaced avatar's physical file (today it's soft-deleted in the
-  database but deliberately left on disk).
+- **PR-07** (done) — Asset lifecycle: `MediaLifecycleService` owns every
+  purge decision/action, a grace period before any physical delete
+  (`MEDIA_PURGE_GRACE_DAYS`, default 7 days), reference checking against the
+  two real FK usages that exist (`posts.image_asset_id`,
+  `users.avatar_asset_id`), idempotent/retry-safe purge with a per-asset
+  lock, `media:audit` (read-only report) and `media:purge` (safe by default,
+  explicit `--orphans --force` for physical-orphan deletion). See "Media
+  lifecycle" above. No integrity/checksum scanner, no automatic repair of a
+  missing master, no admin dashboard — see PR-09.
 - **PR-08** — URL import security hardening: DNS pinning/rebinding
   protection, redirect-security redesign, streaming-downloader rewrite. Not
   started — PR-04 only changed what happens to bytes after they're
