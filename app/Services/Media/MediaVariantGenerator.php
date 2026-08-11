@@ -46,12 +46,12 @@ final class MediaVariantGenerator
             return;
         }
 
-        $masterBytes = $this->readMasterBytes($asset);
-
         $existingByName = $asset->relationLoaded('variants')
             ? $asset->variants
             : MediaVariant::query()->where('media_asset_id', $asset->id)->get();
         $existingByName = $existingByName->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
+
+        $specifications = [];
 
         foreach ($this->registry->for($asset->kind) as $specification) {
             if ($only !== null && $specification->name !== $only) {
@@ -70,6 +70,20 @@ final class MediaVariantGenerator
                 continue;
             }
 
+            $specifications[] = $specification;
+        }
+
+        if ($specifications === []) {
+            return;
+        }
+
+        // Deferred until here — opening and reading the (potentially large)
+        // master image is wasted I/O when every applicable spec already
+        // exists and is valid, which is the common case for a recovery
+        // command run repeatedly.
+        $masterBytes = $this->readMasterBytes($asset);
+
+        foreach ($specifications as $specification) {
             try {
                 $this->writer->write($asset, $masterBytes, $specification);
             } catch (Throwable $exception) {

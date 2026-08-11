@@ -1,17 +1,22 @@
 <?php
 
 use App\Enums\MediaVariantName;
+use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Services\Media\Exceptions\MediaStorageException;
 use App\Services\Media\GdImageVariantProcessor;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
+use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaStorage;
+use App\Services\Media\MediaStoreRequest;
 use App\Services\Media\MediaVariantGenerator;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\MediaVariantSpecificationRegistry;
 use App\Services\Media\MediaVariantWriter;
+use App\Services\Media\NormalizedImage;
+use App\Services\Media\StoredMedia;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -57,6 +62,51 @@ final class FailingReadStreamWrapper
     }
 
     public function stream_close(): void {}
+}
+
+/**
+ * Delegates every call to a real MediaStorage while counting readStream()
+ * calls specifically — lets a test assert the master image was never even
+ * opened, not just that the processor was never invoked (which alone
+ * wouldn't catch a wasted read of an otherwise-unused master file).
+ */
+final class MasterStreamReadSpy implements MediaStorage
+{
+    public int $readStreamCalls = 0;
+
+    public function __construct(private readonly MediaStorage $real) {}
+
+    public function storeNormalized(NormalizedImage $image, MediaStoreRequest $request, ?string $originalFilename): StoredMedia
+    {
+        return $this->real->storeNormalized($image, $request, $originalFilename);
+    }
+
+    public function putContents(MediaLocation $location, string $contents, MediaVisibility $visibility): void
+    {
+        $this->real->putContents($location, $contents, $visibility);
+    }
+
+    public function exists(MediaLocation $location): bool
+    {
+        return $this->real->exists($location);
+    }
+
+    public function size(MediaLocation $location): int
+    {
+        return $this->real->size($location);
+    }
+
+    public function readStream(MediaLocation $location)
+    {
+        $this->readStreamCalls++;
+
+        return $this->real->readStream($location);
+    }
+
+    public function delete(MediaLocation $location): void
+    {
+        $this->real->delete($location);
+    }
 }
 
 it('generates every applicable variant, including open graph, for a post image asset', function () {
@@ -238,7 +288,7 @@ it('preserves already-succeeded variants and invokes generation only for the mis
         ->and($afterSecondRun)->toHaveKey('open_graph');
 });
 
-it('does not invoke the processor at all when every applicable spec is already generated', function () {
+it('does not invoke the processor or open the master stream at all when every applicable spec is already generated', function () {
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
         'path' => 'posts/2026/08/master.jpg',
         'mime_type' => 'image/jpeg',
@@ -260,9 +310,18 @@ it('does not invoke the processor at all when every applicable spec is already g
     };
     $this->app->instance(ImageVariantProcessor::class, $countingProcessor);
 
+    // Not merely "the processor was never called" — the master file must
+    // never even be opened when nothing needs it, which the skip check
+    // alone doesn't prove: readMasterBytes() used to run unconditionally
+    // before the per-spec skip check, wasting a full storage read on every
+    // no-op recovery run.
+    $readStreamSpy = new MasterStreamReadSpy(app(MediaStorage::class));
+    $this->app->instance(MediaStorage::class, $readStreamSpy);
+
     app()->make(MediaVariantGenerator::class)->generateAll($asset->fresh());
 
-    expect($countingProcessor->calls)->toBe(0);
+    expect($countingProcessor->calls)->toBe(0)
+        ->and($readStreamSpy->readStreamCalls)->toBe(0);
 });
 
 it('regenerates every applicable spec when force is true, even though nothing is missing', function () {
