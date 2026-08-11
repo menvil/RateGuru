@@ -331,6 +331,11 @@ function variantSpec(
  * block comment above image-marker helpers for why a shared bare function
  * used by more than one test file must live here, not in either file).
  * Requires the caller to have already called Storage::fake('public').
+ *
+ * Leaves Carbon test time frozen at 2026-01-20 12:00:00 when it returns —
+ * callers must reset it themselves (e.g. `afterEach(fn () =>
+ * Carbon::setTestNow())`) rather than assuming "now" is real wall-clock
+ * time for the rest of the test.
  */
 function createPurgeableAsset(): MediaAsset
 {

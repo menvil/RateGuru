@@ -9,6 +9,7 @@ use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
@@ -41,17 +42,50 @@ final class MediaLifecycleService
      */
     public function isPurgeable(MediaAsset $asset, ?int $graceDays = null): bool
     {
-        if (! $asset->trashed()) {
-            return false;
-        }
-
-        $cutoff = now()->subDays($graceDays ?? (int) config('media.lifecycle.purge_grace_days'));
-
-        if ($asset->deleted_at === null || $asset->deleted_at->gt($cutoff)) {
+        if (! $this->isGraceExpired($asset, $graceDays)) {
             return false;
         }
 
         return ! $this->referenceChecker->isReferenced($asset);
+    }
+
+    /**
+     * The trashed/grace-period half of isPurgeable(), without also querying
+     * references — exposed separately for batch reporting callers
+     * (media:audit) that have already resolved a referenced-id set in bulk
+     * to avoid issuing MediaReferenceChecker's two queries per asset.
+     */
+    public function isGraceExpired(MediaAsset $asset, ?int $graceDays = null): bool
+    {
+        if (! $asset->trashed()) {
+            return false;
+        }
+
+        $cutoff = now()->subDays($this->resolveGraceDays($graceDays));
+
+        return $asset->deleted_at !== null && $asset->deleted_at->lte($cutoff);
+    }
+
+    /**
+     * A negative override would make the cutoff a future date, defeating
+     * the grace period entirely (every trashed asset, however recently
+     * deleted, would immediately read as grace-expired) — the CLI already
+     * rejects a negative --older-than before it gets here, but this is a
+     * public service method other callers could reach directly, so the
+     * invariant is enforced at the boundary rather than trusted from
+     * outside. config('media.lifecycle.purge_grace_days') is already
+     * clamped non-negative at the config layer, so only an explicit
+     * argument can trigger this.
+     */
+    private function resolveGraceDays(?int $graceDays): int
+    {
+        $days = $graceDays ?? (int) config('media.lifecycle.purge_grace_days');
+
+        if ($days < 0) {
+            throw new InvalidArgumentException("graceDays must not be negative, got [{$days}].");
+        }
+
+        return $days;
     }
 
     /**

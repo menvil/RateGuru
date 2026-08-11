@@ -101,6 +101,22 @@ it('rejects an invalid --older-than value', function () {
     $this->artisan('media:purge --older-than=not-a-number')->assertExitCode(1);
 });
 
+it('rejects a negative --older-than value', function () {
+    $this->artisan('media:purge --older-than=-1')->assertExitCode(1);
+});
+
+it('clamps an out-of-range --chunk to the minimum and still succeeds', function () {
+    $this->artisan('media:purge --chunk=0')
+        ->expectsOutputToContain('Invalid chunk size provided; using 1.')
+        ->assertExitCode(0);
+});
+
+it('clamps an out-of-range --chunk to the maximum and still succeeds', function () {
+    $this->artisan('media:purge --chunk=99999')
+        ->expectsOutputToContain('Chunk size exceeds maximum; using 1000.')
+        ->assertExitCode(0);
+});
+
 it('reports physical orphan candidates without deleting them when --orphans is passed without --force', function () {
     config(['media.lifecycle.orphan_grace_hours' => 0]);
     Storage::disk('public')->put('media/post-images/orphan.jpg', 'bytes');

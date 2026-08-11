@@ -73,6 +73,7 @@ final class FilesystemMediaStorage implements MediaStorage
         }
     }
 
+    /** @phpstan-impure see MediaStorage::exists() */
     public function exists(MediaLocation $location): bool
     {
         return $this->filesystem->disk($location->disk)->exists($location->path);
@@ -125,6 +126,24 @@ final class FilesystemMediaStorage implements MediaStorage
             throw MediaStorageException::notFound($location->disk, $location->path);
         }
 
-        return $this->filesystem->disk($location->disk)->lastModified($location->path);
+        try {
+            return $this->filesystem->disk($location->disk)->lastModified($location->path);
+        } catch (Throwable $exception) {
+            // The file existed a moment ago (checked above) but the actual
+            // metadata read just failed — most plausibly a real race (e.g.
+            // a concurrent media:purge --orphans --force deleting this
+            // exact file between the two calls, since MediaOrphanScanner's
+            // candidates are, by definition, files nothing else is
+            // supposed to be relying on). Re-check once more: if it's
+            // genuinely gone now, that's a clean, expected notFound(), not
+            // a surprising failure. If it still exists, this was some
+            // other, real storage problem — preserve and rethrow it
+            // as-is rather than mislabeling it as "not found".
+            if (! $this->exists($location)) {
+                throw MediaStorageException::notFound($location->disk, $location->path, $exception);
+            }
+
+            throw $exception;
+        }
     }
 }

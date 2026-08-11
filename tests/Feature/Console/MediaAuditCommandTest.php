@@ -43,7 +43,7 @@ it('classifies an active, unreferenced asset separately from healthy ones', func
     Storage::disk('public')->put($asset->path, 'bytes');
 
     $this->artisan('media:audit')
-        ->expectsOutputToContain('Active, but unreferenced')
+        ->expectsOutputToContain('Active, but unreferenced (unexpected — investigate): 1')
         ->assertExitCode(0);
 });
 

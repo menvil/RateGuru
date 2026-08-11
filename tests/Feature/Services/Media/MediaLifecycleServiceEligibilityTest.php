@@ -75,3 +75,16 @@ it('honors an explicit graceDays override instead of the configured default', fu
     expect(app(MediaLifecycleService::class)->isPurgeable($asset->fresh(), graceDays: 7))->toBeFalse()
         ->and(app(MediaLifecycleService::class)->isPurgeable($asset->fresh(), graceDays: 1))->toBeTrue();
 });
+
+it('rejects a negative graceDays override instead of silently defeating the grace period', function () {
+    // A negative override would push the cutoff into the future, making
+    // even an asset soft-deleted seconds ago read as grace-expired — the
+    // CLI already rejects a negative --older-than before it gets this far,
+    // but this is a public service method other callers could reach
+    // directly, so the invariant must hold at the boundary itself.
+    $asset = MediaAsset::factory()->postImage()->create();
+    $asset->delete();
+
+    expect(fn () => app(MediaLifecycleService::class)->isPurgeable($asset->fresh(), graceDays: -1))
+        ->toThrow(InvalidArgumentException::class);
+});

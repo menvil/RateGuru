@@ -85,3 +85,26 @@ it('only scans configured media directories, not the whole disk', function () {
 
     expect($orphans)->toBeEmpty();
 });
+
+it('does not misclassify any known file as an orphan once the known-locations scan crosses a chunk boundary', function () {
+    // knownLocations() chunks in pages of 500 — chunk()'s offset-based
+    // pagination can silently skip rows under concurrent writes, which
+    // chunkById()'s cursor-based pagination doesn't. This dataset is sized
+    // to exceed one page, so a regression back to chunk() (or a broken
+    // cursor column) would show up as spurious orphans here even without
+    // any concurrent writes, since a chunking bug that drops the "last row
+    // of a page" boundary would reproduce deterministically.
+    config(['media.lifecycle.orphan_grace_hours' => 0]);
+
+    $assets = MediaAsset::factory()->postImage()->count(510)
+        ->sequence(fn ($sequence) => ['path' => "media/post-images/known-{$sequence->index}.jpg"])
+        ->create();
+
+    foreach ($assets as $asset) {
+        Storage::disk('public')->put($asset->path, 'bytes');
+    }
+
+    $orphans = app(MediaOrphanScanner::class)->scan();
+
+    expect($orphans)->toBeEmpty();
+});

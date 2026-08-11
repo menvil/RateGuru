@@ -45,13 +45,22 @@ final class MediaAuditCommand extends Command
 
         MediaAsset::withTrashed()->with('variants')->orderBy('id')
             ->chunkById($this->chunkSize(), function ($assets) use (&$counts, $referenceChecker, $lifecycle, $storage, $progress): void {
+                // Two queries per chunk (via referencedAssetIds()), not two
+                // queries per asset: MediaReferenceChecker::isReferenced()
+                // is fine for the single-asset, lock-guarded checks purge()
+                // does, but calling it in this loop would mean 2*N queries
+                // for an audit run scanning the whole table.
+                $referencedIds = $referenceChecker->referencedAssetIds($assets->pluck('id'));
+
                 foreach ($assets as $asset) {
                     $progress?->advance();
 
+                    $isReferenced = $referencedIds->has($asset->id);
+
                     if ($asset->trashed()) {
-                        $counts[$lifecycle->isPurgeable($asset) ? 'soft_deleted_purgeable' : 'soft_deleted_within_grace']++;
+                        $counts[$lifecycle->isGraceExpired($asset) && ! $isReferenced ? 'soft_deleted_purgeable' : 'soft_deleted_within_grace']++;
                     } else {
-                        $counts[$referenceChecker->isReferenced($asset) ? 'healthy_referenced' : 'active_unreferenced']++;
+                        $counts[$isReferenced ? 'healthy_referenced' : 'active_unreferenced']++;
                     }
 
                     if (! $storage->exists(new MediaLocation($asset->disk, $asset->path))) {

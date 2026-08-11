@@ -689,7 +689,9 @@ bypassing `Post`'s own `SoftDeletes` entirely: every post a deleted user
 owned is hard-deleted outright, not soft-deleted, immediately making that
 post's image (and the user's own avatar) truly unreferenced with no prior
 cleanup hook anywhere. The action now captures the avatar/post-image asset
-ids *before* deleting the user, then calls
+ids *before* deleting the user (via `$user->posts()->withTrashed()`, since a
+post the user had already soft-deleted themselves is about to be
+hard-cascade-deleted too, and would never be captured otherwise), then calls
 `MediaLifecycleService::releaseIfUnreferenced()` once per id *after* the
 delete succeeds — soft-deleting each now-orphaned asset (starting its grace
 period), never throwing, never touching anything still referenced by
@@ -701,15 +703,36 @@ nothing to hook there. Avatar replacement (`UpdateUserProfileAction`) is
 also untouched — its existing inline soft-delete-the-previous-asset
 behavior already does the right thing.
 
+**Known gap**: `releaseIfUnreferenced()` is deliberately best-effort (it
+reports and swallows its own exceptions rather than ever failing the account
+deletion around it — see above). If it fails, or if the process crashes in
+the narrow window between `$user->delete()` succeeding and the release loop
+running, the affected asset is left **active** (not soft-deleted) but
+genuinely unreferenced — and `media:purge`'s normal sweep only ever
+considers `MediaAsset::onlyTrashed()` rows, so a purely active-but-orphaned
+asset is invisible to it and never starts its grace period on its own.
+`media:audit`'s "Active, but unreferenced (unexpected — investigate)" count
+is the detection mechanism for exactly this state. There is no dedicated
+recovery command for it today — the operational fix is soft-deleting the
+affected asset by hand (e.g. via `tinker`) once `media:audit` flags it,
+after which the normal grace-period/purge flow picks it up like any other
+release. This is judged an acceptable, rare residual risk (a release failing
+specifically in that narrow window) rather than a reason to build durable
+retry machinery for it, but it's a real gap, not a silent one.
+
 **Scheduling**: `routes/console.php` registers
 `Schedule::command('media:purge')->daily()->withoutOverlapping()` — the
 first Laravel-scheduler entry in this repo (previously all periodic tasks
 were external bash scripts under `infrastructure/`), made possible because
 the staging/production cron already runs `php artisan schedule:run` every
-minute, so no infra/deploy change was needed for it to take effect. Only the
-safe, non-destructive-by-construction default mode is scheduled — never
-`--orphans`, never `--force`. Physical-orphan deletion stays a deliberate,
-human-triggered `--orphans --force` operation, on purpose.
+minute, so no infra/deploy change was needed for it to take effect. The
+scheduled default mode performs *real, destructive* deletion — rows and
+files are actually removed — it is safe to run unattended because its own
+eligibility gates (grace-expired, re-verified reference check, all under a
+lock) are what make it safe, not any absence of destruction. Only that
+default mode is scheduled — never `--orphans`, never `--force`. Physical-
+orphan deletion stays a deliberate, human-triggered `--orphans --force`
+operation, on purpose.
 
 ## What this schema/storage work does not do
 

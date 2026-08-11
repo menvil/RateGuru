@@ -25,20 +25,38 @@ it('soft-deletes the image assets of every post the deleted user owned', functio
     expect(MediaAsset::withTrashed()->find($image->id)->trashed())->toBeTrue();
 });
 
-it('leaves a still-owned asset alone: an asset another user references is never soft-deleted', function () {
-    $sharedPathHolder = MediaAsset::factory()->avatar()->create();
-    $deletedUser = User::factory()->create(['avatar_asset_id' => $sharedPathHolder->id]);
+it('soft-deletes the image asset of a post the user had already soft-deleted themselves', function () {
+    // The post is soft-deleted (restorable) *before* the account deletion —
+    // users.posts()'s default query scope would silently exclude it, which
+    // would leave its image active-and-unreferenced forever, since it's
+    // about to be hard-cascade-deleted along with the account and never
+    // gets a chance to be captured any other way.
+    $user = User::factory()->create();
+    $image = MediaAsset::factory()->postImage()->create();
+    $post = Post::factory()->published()->create(['user_id' => $user->id, 'image_asset_id' => $image->id]);
+    $post->delete();
 
-    // A second, unrelated user's avatar points at a *different* asset — the
-    // real invariant under test is that deleting the first user never
-    // touches media it doesn't own, not this specific asset in particular.
-    $otherAsset = MediaAsset::factory()->avatar()->create();
-    $otherUser = User::factory()->create(['avatar_asset_id' => $otherAsset->id]);
+    expect($post->trashed())->toBeTrue();
+
+    app(DeleteUserAccountAction::class)->execute($user);
+
+    expect(MediaAsset::withTrashed()->find($image->id)->trashed())->toBeTrue();
+});
+
+it('leaves a still-owned asset alone: an asset another user references is never soft-deleted', function () {
+    $sharedAsset = MediaAsset::factory()->avatar()->create();
+    $deletedUser = User::factory()->create(['avatar_asset_id' => $sharedAsset->id]);
+
+    // A second, still-active user references the *same* asset — the real
+    // invariant under test is that a reference from someone other than the
+    // deleted user protects the asset, not merely that unrelated assets
+    // are left alone (which is trivially true either way).
+    $otherUser = User::factory()->create(['avatar_asset_id' => $sharedAsset->id]);
 
     app(DeleteUserAccountAction::class)->execute($deletedUser);
 
-    expect(MediaAsset::find($otherAsset->id))->not->toBeNull()
-        ->and(MediaAsset::find($otherAsset->id)->trashed())->toBeFalse()
+    expect(MediaAsset::find($sharedAsset->id))->not->toBeNull()
+        ->and(MediaAsset::find($sharedAsset->id)->trashed())->toBeFalse()
         ->and(User::find($otherUser->id))->not->toBeNull();
 });
 

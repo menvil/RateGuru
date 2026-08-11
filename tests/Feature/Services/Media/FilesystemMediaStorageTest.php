@@ -310,6 +310,60 @@ it('throws a narrow exception when asked for the last-modified time of a missing
         ->toThrow(MediaStorageException::class);
 });
 
+it('throws a clean notFound() when the file existed at the initial check but is confirmed gone by the time the metadata read fails', function () {
+    // Simulates a race: something else (e.g. a concurrent media:purge
+    // --orphans --force) deletes the file between the initial exists()
+    // check and the actual metadata read.
+    $diskAdapter = Mockery::mock(Filesystem::class);
+    $diskAdapter->shouldReceive('exists')->twice()->andReturn(true, false);
+    $diskAdapter->shouldReceive('lastModified')->once()->andThrow(new RuntimeException('Simulated race: file vanished mid-read.'));
+
+    $filesystem = Mockery::mock(FilesystemManager::class);
+    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
+
+    app()->instance(FilesystemManager::class, $filesystem);
+    $storage = app(MediaStorage::class);
+
+    $caught = null;
+
+    try {
+        $storage->lastModified(new MediaLocation('public', 'media/post-images/file.jpg'));
+    } catch (MediaStorageException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull()
+        ->and($caught->getPrevious())->toBeInstanceOf(RuntimeException::class)
+        ->and($caught->getPrevious()->getMessage())->toBe('Simulated race: file vanished mid-read.');
+});
+
+it('preserves and rethrows the original exception when the metadata read fails but the file still exists', function () {
+    // A real storage failure, not a "just got deleted" race — the file is
+    // still there on the second check, so this must not be mislabeled as
+    // notFound().
+    $diskAdapter = Mockery::mock(Filesystem::class);
+    $diskAdapter->shouldReceive('exists')->twice()->andReturn(true, true);
+    $diskAdapter->shouldReceive('lastModified')->once()->andThrow(new RuntimeException('Simulated transient storage failure.'));
+
+    $filesystem = Mockery::mock(FilesystemManager::class);
+    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
+
+    app()->instance(FilesystemManager::class, $filesystem);
+    $storage = app(MediaStorage::class);
+
+    $caught = null;
+
+    try {
+        $storage->lastModified(new MediaLocation('public', 'media/post-images/file.jpg'));
+    } catch (Throwable $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->toBeInstanceOf(RuntimeException::class)
+        ->and($caught)->not->toBeInstanceOf(MediaStorageException::class)
+        ->and($caught->getMessage())->toBe('Simulated transient storage failure.');
+});
+
 it('normalizes a filesystem exception thrown during putContents() into a narrow exception', function () {
     $diskAdapter = Mockery::mock(Filesystem::class);
     $diskAdapter->shouldReceive('put')->once()->andThrow(new RuntimeException('Simulated disk outage.'));

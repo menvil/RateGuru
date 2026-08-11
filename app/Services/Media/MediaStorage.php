@@ -24,6 +24,15 @@ interface MediaStorage
      */
     public function putContents(MediaLocation $location, string $contents, MediaVisibility $visibility): void;
 
+    /**
+     * Reads live filesystem state — two calls can legitimately return
+     * different results if something else changes the file in between
+     * (@phpstan-impure tells PHPStan not to assume a second call must
+     * repeat the first's result, which matters for deleteIfExists()'s and
+     * lastModified()'s own retry/race-recovery logic).
+     *
+     * @phpstan-impure
+     */
     public function exists(MediaLocation $location): bool;
 
     public function size(MediaLocation $location): int;

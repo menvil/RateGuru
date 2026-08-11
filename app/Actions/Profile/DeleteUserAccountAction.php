@@ -19,9 +19,15 @@ final class DeleteUserAccountAction
         // Captured before the delete: users.user_id and comments.user_id
         // both cascadeOnDelete() at the DB level, so every one of this
         // user's posts (and their images) is about to become truly
-        // unreferenced — not soft-deleted, gone outright.
+        // unreferenced — not soft-deleted, gone outright. withTrashed() is
+        // required here: a post the user themselves already soft-deleted
+        // (still restorable, still "owning" its image right up until this
+        // moment) is about to be hard-cascade-deleted along with everything
+        // else — without it, that post's image would never be captured and
+        // would end up an active-but-unreferenced asset with no cleanup
+        // hook, since it never gets soft-deleted at all.
         $assetIds = collect([$user->avatar_asset_id])
-            ->merge($user->posts()->whereNotNull('image_asset_id')->pluck('image_asset_id'))
+            ->merge($user->posts()->withTrashed()->whereNotNull('image_asset_id')->pluck('image_asset_id'))
             ->filter()
             ->unique()
             ->values();

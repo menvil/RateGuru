@@ -65,15 +65,22 @@ final class MediaOrphanScanner
     {
         $known = [];
 
-        MediaAsset::withTrashed()->select('disk', 'path')
-            ->chunk(500, function ($rows) use (&$known): void {
+        // chunkById(), not chunk(): chunk()'s LIMIT/OFFSET pagination can
+        // skip rows outright if the table is being inserted into
+        // concurrently while this scans (a real possibility — uploads keep
+        // happening while an orphan scan runs), which would misclassify a
+        // legitimately-owned, just-skipped file as an orphan. chunkById()'s
+        // cursor-based "WHERE id > lastId" pagination doesn't have that
+        // failure mode. Both queries need `id` selected for the cursor.
+        MediaAsset::withTrashed()->select('id', 'disk', 'path')->orderBy('id')
+            ->chunkById(500, function ($rows) use (&$known): void {
                 foreach ($rows as $row) {
                     $known["{$row->disk}\0{$row->path}"] = true;
                 }
             });
 
-        MediaVariant::query()->select('disk', 'path')
-            ->chunk(500, function ($rows) use (&$known): void {
+        MediaVariant::query()->select('id', 'disk', 'path')->orderBy('id')
+            ->chunkById(500, function ($rows) use (&$known): void {
                 foreach ($rows as $row) {
                     $known["{$row->disk}\0{$row->path}"] = true;
                 }
