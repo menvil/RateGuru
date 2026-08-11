@@ -4,6 +4,8 @@ use App\Actions\Profile\DeleteUserAccountAction;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\Media\MediaReferenceChecker;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 it('soft-deletes the account owner\'s avatar asset once the account is gone', function () {
@@ -51,7 +53,10 @@ it('leaves a still-owned asset alone: an asset another user references is never 
     // A second, still-active user references the *same* asset — the real
     // invariant under test is that a reference from someone other than the
     // deleted user protects the asset, not merely that unrelated assets
-    // are left alone (which is trivially true either way).
+    // are left alone (which is trivially true either way). Nothing in this
+    // schema stops two rows pointing avatar_asset_id/image_asset_id at the
+    // same media_assets row (no uniqueness constraint on either column), so
+    // this sharing scenario is a real, reachable state, not a fabricated one.
     $otherUser = User::factory()->create(['avatar_asset_id' => $sharedAsset->id]);
 
     app(DeleteUserAccountAction::class)->execute($deletedUser);
@@ -75,6 +80,27 @@ it('does not soft-delete a user\'s own former avatar asset if it somehow remains
         ->and(MediaAsset::find($asset->id)->trashed())->toBeFalse();
 });
 
+it('does not disturb an asset that was already soft-deleted before the account is deleted', function () {
+    // Simulates DB state that could legitimately exist independently of
+    // this account deletion (e.g. the asset was already released by an
+    // earlier, unrelated cleanup) — the bulk update must never reset an
+    // already-trashed asset's grace-period clock, and the transaction as a
+    // whole must complete normally rather than treating this as an error.
+    $asset = MediaAsset::factory()->avatar()->create();
+    $asset->delete();
+    $originalDeletedAt = $asset->fresh()->deleted_at;
+
+    $user = User::factory()->create(['avatar_asset_id' => $asset->id]);
+
+    app(DeleteUserAccountAction::class)->execute($user);
+
+    expect(User::find($user->id))->toBeNull();
+
+    $asset->refresh();
+    expect($asset->trashed())->toBeTrue()
+        ->and($asset->deleted_at->equalTo($originalDeletedAt))->toBeTrue();
+});
+
 it('releases media in a bounded number of queries, not one per asset, when the deleted user owns many', function () {
     $user = User::factory()->create();
     $avatar = MediaAsset::factory()->avatar()->create();
@@ -90,12 +116,13 @@ it('releases media in a bounded number of queries, not one per asset, when the d
         $queryCount++;
     });
 
-    app(DeleteUserAccountAction::class)->execute($user->fresh());
+    app(DeleteUserAccountAction::class)->execute($user);
 
-    // fresh() reload (1) + capture (1) + $user->delete() (1) +
+    // lockForUpdate() reload (1) + capture (1) + delete (1) +
     // referencedAssetIds()'s two whereIn() queries (2) + one bulk
-    // soft-delete update (1) = 6, a small, fixed number regardless of
-    // asset count. The old per-asset release loop would have scaled with
+    // soft-delete update (1) = 6 (BEGIN/COMMIT never reach DB::listen() for
+    // the outermost transaction). A small, fixed number regardless of
+    // asset count — the old per-asset release loop would have scaled with
     // all 16 assets involved (avatar + 15 post images) instead, well past
     // this threshold.
     expect($queryCount)->toBeLessThan(8);
@@ -106,6 +133,23 @@ it('releases media in a bounded number of queries, not one per asset, when the d
     expect(MediaAsset::withTrashed()->whereNotNull('deleted_at')->count())->toBe(16);
 });
 
+it('releases a single asset in the same bounded query budget as many, confirming the count does not grow linearly', function () {
+    $avatar = MediaAsset::factory()->avatar()->create();
+    $user = User::factory()->create(['avatar_asset_id' => $avatar->id]);
+
+    $queryCount = 0;
+    DB::listen(function () use (&$queryCount): void {
+        $queryCount++;
+    });
+
+    app(DeleteUserAccountAction::class)->execute($user);
+
+    // Same 6-query budget as the many-asset case above — the query count
+    // is driven by the number of *operations*, not the number of assets.
+    expect($queryCount)->toBeLessThan(8);
+    expect(MediaAsset::withTrashed()->find($avatar->id)->trashed())->toBeTrue();
+});
+
 it('completes account deletion even when there is no avatar or posts to release', function () {
     $user = User::factory()->create(['avatar_asset_id' => null]);
 
@@ -114,30 +158,42 @@ it('completes account deletion even when there is no avatar or posts to release'
     expect(User::find($user->id))->toBeNull();
 });
 
-it('never re-throws and still completes the account deletion if releasing an asset unexpectedly fails', function () {
+it('rolls back the entire account deletion, including the already-cascaded post, if the media release step fails', function () {
+    // Closes the crash gap: the account delete and the media release used
+    // to be two independent steps, so a failure between them (or during
+    // the release itself, which used to swallow its own exceptions) could
+    // leave the user deleted with its media stuck active-and-unreferenced
+    // forever — media:purge's sweep only ever considers already-trashed
+    // rows, so nothing would ever pick that state up. Injecting the
+    // failure via a bound MediaReferenceChecker double (real dependency
+    // injection, not reflection) proves the whole DB::transaction() around
+    // both steps genuinely rolls back end to end: the user row, the
+    // cascade-deleted post, and both media assets all land back exactly
+    // where they started.
     $avatar = MediaAsset::factory()->avatar()->create();
     $user = User::factory()->create(['avatar_asset_id' => $avatar->id]);
+    $image = MediaAsset::factory()->postImage()->create();
+    $post = Post::factory()->published()->create(['user_id' => $user->id, 'image_asset_id' => $image->id]);
 
-    // Simulates a cleanup-time failure (e.g. a transient DB hiccup while
-    // soft-deleting the now-unreferenced asset) — the account deletion
-    // itself must not fail because of it. SoftDeletes::delete() updates via
-    // the query builder directly (never fires saving/updating), so the
-    // 'deleting' event is the one that actually fires here.
-    // Restoring the original dispatcher afterward (rather than
-    // flushEventListeners()) undoes only what this test added — flushing
-    // wipes every listener registered on MediaAsset for the rest of the
-    // process, including ones other tests may depend on.
-    $originalDispatcher = MediaAsset::getEventDispatcher();
+    $originalChecker = app(MediaReferenceChecker::class);
 
-    MediaAsset::deleting(function (): void {
-        throw new RuntimeException('Simulated release failure.');
+    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
+    {
+        public function referencedAssetIds(Collection $assetIds): Collection
+        {
+            throw new RuntimeException('Simulated media release failure.');
+        }
     });
 
     try {
-        app(DeleteUserAccountAction::class)->execute($user);
+        expect(fn () => app(DeleteUserAccountAction::class)->execute($user))
+            ->toThrow(RuntimeException::class, 'Simulated media release failure.');
     } finally {
-        MediaAsset::setEventDispatcher($originalDispatcher);
+        app()->instance(MediaReferenceChecker::class, $originalChecker);
     }
 
-    expect(User::find($user->id))->toBeNull();
+    expect(User::find($user->id))->not->toBeNull();
+    expect(Post::find($post->id))->not->toBeNull();
+    expect(MediaAsset::find($avatar->id)->trashed())->toBeFalse();
+    expect(MediaAsset::find($image->id)->trashed())->toBeFalse();
 });

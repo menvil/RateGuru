@@ -593,9 +593,11 @@ things with two different triggers.
   (`MediaReferenceChecker::referencedAssetIds()`) plus a single bulk
   soft-delete for whichever ids are still unreferenced, rather than one
   release call per asset id. Soft-deletes only (starts the grace period;
-  physical purge still waits for `media:purge`). Best-effort and never
-  throws — a cleanup hiccup here must never turn an already-successful
-  account deletion into a reported failure.
+  physical purge still waits for `media:purge`). Deliberately *not*
+  best-effort: `DeleteUserAccountAction` runs this inside the same DB
+  transaction as the user delete itself, so a failure here propagates and
+  rolls the whole transaction back rather than being swallowed — see
+  "`DeleteUserAccountAction`" below for why.
 - `purgeOrphanFile(MediaLocation $location): void` — deletes a physical
   orphan found by `MediaOrphanScanner`. No DB row is involved by definition.
 
@@ -699,38 +701,49 @@ is the one existing deletion flow this PR changes. `User` has no
 bypassing `Post`'s own `SoftDeletes` entirely: every post a deleted user
 owned is hard-deleted outright, not soft-deleted, immediately making that
 post's image (and the user's own avatar) truly unreferenced with no prior
-cleanup hook anywhere. The action now captures the avatar/post-image asset
-ids *before* deleting the user (via `$user->posts()->withTrashed()`, since a
-post the user had already soft-deleted themselves is about to be
-hard-cascade-deleted too, and would never be captured otherwise), then calls
-`MediaLifecycleService::releaseUnreferenced()` once, with the whole batch,
-*after* the delete succeeds — soft-deleting each now-orphaned asset
-(starting its grace period), never throwing, never touching anything still
-referenced by something else. `DeletePostAction`/`DeletePostInAdminAction`
-are untouched: both are soft-delete-only (a post force-delete path doesn't
-exist anywhere
-in this app), and a restorable soft-deleted post correctly keeps "owning"
-its image per `MediaReferenceChecker`'s own `withTrashed()` check — there is
-nothing to hook there. Avatar replacement (`UpdateUserProfileAction`) is
-also untouched — its existing inline soft-delete-the-previous-asset
-behavior already does the right thing.
+cleanup hook anywhere.
 
-**Known gap**: `releaseUnreferenced()` is deliberately best-effort (it
-reports and swallows its own exceptions rather than ever failing the account
-deletion around it — see above). If it fails, or if the process crashes in
-the narrow window between `$user->delete()` succeeding and the release call
-running, the affected assets are left **active** (not soft-deleted) but
-genuinely unreferenced — and `media:purge`'s normal sweep only ever
-considers `MediaAsset::onlyTrashed()` rows, so a purely active-but-orphaned
-asset is invisible to it and never starts its grace period on its own.
-`media:audit`'s "Active, but unreferenced (unexpected — investigate)" count
-is the detection mechanism for exactly this state. There is no dedicated
-recovery command for it today — the operational fix is soft-deleting the
-affected asset by hand (e.g. via `tinker`) once `media:audit` flags it,
-after which the normal grace-period/purge flow picks it up like any other
-release. This is judged an acceptable, rare residual risk (a release failing
-specifically in that narrow window) rather than a reason to build durable
-retry machinery for it, but it's a real gap, not a silent one.
+The user delete and the media release both run inside one `DB::transaction()`:
+the user row is re-queried with `lockForUpdate()` (never trusting the
+caller's own possibly-stale `$user` instance), the avatar/post-image asset
+ids are captured *after* that lock is held (via `$locked->posts()->withTrashed()`,
+since a post the user had already soft-deleted themselves is about to be
+hard-cascade-deleted too, and would never be captured otherwise), then
+`$locked->delete()` runs, then `MediaLifecycleService::releaseUnreferenced()`
+soft-deletes whatever in that batch is now unreferenced — all inside the same
+transaction, with no filesystem/storage I/O anywhere in it. Either everything
+commits together, or a failure at any point (including a release failure,
+which no longer swallows its own exceptions the way it used to) rolls
+everything back: the user row, its cascade-deleted posts/comments, and the
+media soft-deletes all land back exactly where they started. Account deletion
+never touches physical files either way — it only ever moves a `MediaAsset`
+from active to soft-deleted; physical cleanup still waits for the normal
+grace period via `media:purge`.
+
+`lockForUpdate()` on the user row also closes a race the plain
+capture-then-delete sequence had: inserting a post requires the same
+`posts.user_id` foreign key to hold a reference lock on that exact user row
+(both PostgreSQL and MariaDB/InnoDB enforce this for any FK-constrained
+insert), so a concurrent "create post" transaction either completes and is
+captured before the lock is acquired, or blocks until the account-deletion
+transaction commits — at which point the user row it referenced no longer
+exists and its own insert fails its foreign key constraint, rather than
+silently creating a post whose image is never captured here.
+
+`DeletePostAction`/`DeletePostInAdminAction` are untouched: both are
+soft-delete-only (a post force-delete path doesn't exist anywhere in this
+app), and a restorable soft-deleted post correctly keeps "owning" its image
+per `MediaReferenceChecker`'s own `withTrashed()` check — there is nothing to
+hook there. Avatar replacement (`UpdateUserProfileAction`) is also
+untouched — its existing inline soft-delete-the-previous-asset behavior
+already does the right thing.
+
+There is deliberately no additional authorization check inside the action
+itself: its one call site, `ProfileController::destroy()`, sits behind the
+`auth` middleware and always passes `$request->user()` (re-confirmed via
+`current_password` in `DeleteUserRequest`) — there is no route parameter or
+other path by which a caller could target a different user's account, so
+there is nothing for an in-action guard to actually defend against today.
 
 **Scheduling**: `routes/console.php` registers
 `Schedule::command('media:purge')->daily()->withoutOverlapping()` — the

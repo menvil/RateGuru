@@ -25,7 +25,7 @@ use Throwable;
  * Soft-delete (an asset becoming a "release candidate") happens elsewhere —
  * avatar replacement already soft-deletes the previous asset inline
  * (UpdateUserProfileAction, unchanged by this class), and
- * releaseIfUnreferenced() is the hook DeleteUserAccountAction uses once a
+ * releaseUnreferenced() is the hook DeleteUserAccountAction uses once a
  * user's posts/avatar have just become unreferenced. This class only ever
  * decides/executes what happens *after* an asset is already soft-deleted:
  * whether it's purgeable yet, and performing the purge itself.
@@ -208,10 +208,14 @@ final class MediaLifecycleService
      * did for the single-asset version this replaces), so it can never
      * reset an already-soft-deleted asset's grace-period clock.
      *
-     * Best-effort and never throws: a cleanup hiccup here must never turn
-     * an already-successful account deletion into a reported failure.
-     * Soft-deletes only — physical purge still waits for the grace period
-     * via the normal media:purge sweep.
+     * Deliberately *not* best-effort: DeleteUserAccountAction runs this
+     * inside the same DB transaction as the user delete itself, so a
+     * failure here must propagate and roll the whole transaction back —
+     * swallowing it here would let the user delete commit while its media
+     * silently stayed active-and-unreferenced, with no further hook to
+     * ever soft-delete it (media:purge's sweep only considers already-
+     * trashed rows). Soft-deletes only — physical purge still waits for
+     * the grace period via the normal media:purge sweep.
      *
      * @param  Collection<int, int>  $assetIds
      */
@@ -231,18 +235,14 @@ final class MediaLifecycleService
             return;
         }
 
-        try {
-            $referencedIds = $this->referenceChecker->referencedAssetIds($assetIds);
-            $unreferencedIds = $assetIds->reject(fn (int $id): bool => $referencedIds->has($id))->values();
+        $referencedIds = $this->referenceChecker->referencedAssetIds($assetIds);
+        $unreferencedIds = $assetIds->reject(fn (int $id): bool => $referencedIds->has($id))->values();
 
-            if ($unreferencedIds->isNotEmpty()) {
-                MediaAsset::whereIn('id', $unreferencedIds)->update([
-                    'deleted_at' => now(),
-                    'updated_at' => now(),
-                ]);
-            }
-        } catch (Throwable $exception) {
-            report($exception);
+        if ($unreferencedIds->isNotEmpty()) {
+            MediaAsset::whereIn('id', $unreferencedIds)->update([
+                'deleted_at' => now(),
+                'updated_at' => now(),
+            ]);
         }
     }
 

@@ -13,8 +13,13 @@ use Illuminate\Support\Collection;
  * and users.avatar_asset_id. Deliberately not reflection/schema-driven: a
  * hardcoded, explicit check of the actual references that exist, not a
  * generic "scan every table for this column name" mechanism.
+ *
+ * Not final: DeleteUserAccountActionMediaLifecycleTest binds an anonymous
+ * subclass to simulate a mid-transaction release failure without
+ * reflection, matching how MediaStorage's test doubles work elsewhere in
+ * this codebase. There is still exactly one real implementation.
  */
-final class MediaReferenceChecker
+class MediaReferenceChecker
 {
     public function isReferenced(MediaAsset $asset): bool
     {
