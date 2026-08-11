@@ -22,6 +22,6 @@ final class PublishedPostDetailsQuery
     {
         return Post::query()
             ->published()
-            ->with(['user', 'tags', 'category']);
+            ->with(['user', 'tags', 'category', 'imageAsset.variants', 'user.avatarAsset.variants']);
     }
 }

@@ -258,6 +258,32 @@ function coverSquareCropMarkerBytes(int $width, int $height): string
     return solidCornerBlockJpeg($width, $height, $cropX, $cropY, $cropSize, $cropSize);
 }
 
+/**
+ * Generalizes coverSquareCropMarkerBytes() to an arbitrary (non-square)
+ * target aspect ratio — places the four marker color blocks at the region
+ * that will become a Cover crop's four corners for the given targetWidth /
+ * targetHeight ratio, mirroring GdImageVariantProcessor::planCover()'s own
+ * math so a test failure here means the two have diverged.
+ */
+function coverCropMarkerBytes(int $width, int $height, int $targetWidth, int $targetHeight): string
+{
+    $targetRatio = $targetWidth / $targetHeight;
+    $srcRatio = $width / $height;
+
+    if ($srcRatio > $targetRatio) {
+        $cropHeight = $height;
+        $cropWidth = (int) round($height * $targetRatio);
+    } else {
+        $cropWidth = $width;
+        $cropHeight = (int) round($width / $targetRatio);
+    }
+
+    $cropX = intdiv($width - $cropWidth, 2);
+    $cropY = intdiv($height - $cropHeight, 2);
+
+    return solidCornerBlockJpeg($width, $height, $cropX, $cropY, $cropWidth, $cropHeight);
+}
+
 function solidCornerBlockJpeg(int $width, int $height, int $regionX, int $regionY, int $regionW, int $regionH): string
 {
     $blockW = max(4, (int) round($regionW * 0.15));
@@ -288,8 +314,9 @@ function variantSpec(
     int $maxHeight = 1280,
     MediaResizeMode $mode = MediaResizeMode::Contain,
     int $quality = 82,
+    ?string $outputMimeType = null,
 ): MediaVariantSpecification {
-    return new MediaVariantSpecification($name, $maxWidth, $maxHeight, $mode, $quality);
+    return new MediaVariantSpecification($name, $maxWidth, $maxHeight, $mode, $quality, $outputMimeType);
 }
 
 /**

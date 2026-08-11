@@ -3,7 +3,10 @@
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
+use App\Services\Media\GeneratedMediaVariant;
+use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaVariantGenerator;
+use App\Services\Media\MediaVariantSpecification;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -37,7 +40,61 @@ it('delegates to the media variant generator for an existing ready asset', funct
 
     (new GenerateMediaVariantsJob($asset->id))->handle(app(MediaVariantGenerator::class));
 
-    expect($asset->variants()->count())->toBe(3);
+    expect($asset->variants()->count())->toBe(4);
+});
+
+it('logs a structured failure and rethrows when variant generation fails, without swallowing the exception', function () {
+    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+        'path' => 'posts/2026/08/master.jpg',
+    ]);
+    Storage::disk($asset->disk)->put($asset->path, jpegMarkerBytes(2400, 1600));
+
+    $failingProcessor = new class implements ImageVariantProcessor
+    {
+        public function generate(string $masterBytes, string $mimeType, MediaVariantSpecification $specification): GeneratedMediaVariant
+        {
+            throw new RuntimeException('Simulated processor failure.');
+        }
+    };
+    $this->app->instance(ImageVariantProcessor::class, $failingProcessor);
+
+    // Log::spy() (not a strict shouldReceive expectation) because the
+    // MediaVariantGenerator layer below also logs its own, differently
+    // shaped error for the same failure — both layers are expected to log,
+    // this assertion only cares about the job layer's own entry.
+    Log::spy();
+
+    $job = new GenerateMediaVariantsJob($asset->id);
+
+    expect(fn () => $job->handle(app()->make(MediaVariantGenerator::class)))
+        ->toThrow(RuntimeException::class, 'Simulated processor failure.');
+
+    Log::shouldHaveReceived('error')
+        ->withArgs(function (string $message, array $context) use ($asset): bool {
+            $json = json_encode($context);
+
+            return $message === 'GenerateMediaVariantsJob: variant generation failed.'
+                && $context['media_asset_id'] === $asset->id
+                && array_key_exists('job_uuid', $context)
+                && $context['attempt'] === 1
+                && $context['exception_class'] === RuntimeException::class
+                && ! str_contains($json, 'jpegMarkerBytes');
+        })
+        ->atLeast()->once();
+});
+
+it('does not log an error and generates every variant, including open graph, when nothing fails', function () {
+    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+        'path' => 'posts/2026/08/master.jpg',
+    ]);
+    Storage::disk($asset->disk)->put($asset->path, jpegMarkerBytes(2400, 1600));
+
+    Log::shouldReceive('error')->never();
+
+    (new GenerateMediaVariantsJob($asset->id))->handle(app(MediaVariantGenerator::class));
+
+    $names = $asset->variants()->get()->map(fn (MediaVariant $v) => $v->name->value)->sort()->values()->all();
+    expect($names)->toBe(['open_graph', 'post_detail_1920', 'post_feed_1280', 'post_feed_640']);
 });
 
 it('still finds a soft-deleted media asset instead of treating it as missing', function () {

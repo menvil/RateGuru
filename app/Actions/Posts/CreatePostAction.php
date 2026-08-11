@@ -140,7 +140,11 @@ final class CreatePostAction
             } catch (Throwable $exception) {
                 report($exception);
 
-                Log::error('Failed to dispatch media variant generation job.', [
+                // Under QUEUE_CONNECTION=sync (the only connection this app
+                // runs today), dispatch() executes the job inline — reaching
+                // this catch means the job ran and failed, not merely that
+                // dispatch itself failed to enqueue.
+                Log::error('Failed to dispatch or run media variant generation.', [
                     'post_id' => $post->id,
                     'media_asset_id' => $post->image_asset_id,
                     'exception' => $exception->getMessage(),

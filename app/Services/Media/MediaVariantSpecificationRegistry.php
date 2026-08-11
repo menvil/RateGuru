@@ -25,6 +25,7 @@ final class MediaVariantSpecificationRegistry
                 new MediaVariantSpecification(MediaVariantName::PostFeed640, 640, 1280, MediaResizeMode::Contain, self::QUALITY),
                 new MediaVariantSpecification(MediaVariantName::PostFeed1280, 1280, 1920, MediaResizeMode::Contain, self::QUALITY),
                 new MediaVariantSpecification(MediaVariantName::PostDetail1920, 1920, 2400, MediaResizeMode::Contain, self::QUALITY),
+                new MediaVariantSpecification(MediaVariantName::OpenGraph, 1200, 630, MediaResizeMode::Cover, self::QUALITY, outputMimeType: 'image/jpeg'),
             ],
             MediaKind::Avatar => [
                 new MediaVariantSpecification(MediaVariantName::Avatar128, 128, 128, MediaResizeMode::CoverSquare, self::QUALITY),

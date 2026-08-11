@@ -3,6 +3,7 @@
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Support\Settings\ProjectSettingsManager;
+use Illuminate\Support\Facades\Storage;
 
 it('renders complete opengraph and twitter metadata on post show', function () {
     config(['app.url' => 'https://rateguru.test']);
@@ -57,15 +58,20 @@ it('uses the large twitter card with the raster fallback when post has no image'
 
 it('uses summary_large_image twitter card when post has image', function () {
     // The asset's own disk can resolve to any absolute URL (e.g. a CDN) —
-    // exercised here via a disk whose url config points off-origin.
-    config(['filesystems.disks.cdn_test' => [
+    // exercised here via a disk whose url config points off-origin. fake()
+    // (not a real, unfaked disk) both isolates the write from the real
+    // filesystem and satisfies PostImagePresenter::openGraph()'s
+    // MediaStorage::exists() check — the url/visibility/driver config must
+    // be passed directly into fake() since it otherwise drops any config
+    // already set on the disk (it only ever carries over `throw`).
+    Storage::fake('cdn_test', [
         'driver' => 'local',
-        'root' => storage_path('app/cdn_test'),
         'url' => 'https://cdn.example.com',
         'visibility' => 'public',
-    ]]);
+    ]);
 
     $post = Post::factory()->published()->withImage(path: 'image.jpg', disk: 'cdn_test')->create();
+    Storage::disk('cdn_test')->put('image.jpg', 'test-bytes');
 
     $this->get(route('posts.show', $post))
         ->assertOk()
@@ -75,14 +81,14 @@ it('uses summary_large_image twitter card when post has image', function () {
 });
 
 it('does not emit og secure image url for an insecure external image', function () {
-    config(['filesystems.disks.cdn_test' => [
+    Storage::fake('cdn_test', [
         'driver' => 'local',
-        'root' => storage_path('app/cdn_test'),
         'url' => 'http://cdn.example.com',
         'visibility' => 'public',
-    ]]);
+    ]);
 
     $post = Post::factory()->published()->withImage(path: 'image.jpg', disk: 'cdn_test')->create();
+    Storage::disk('cdn_test')->put('image.jpg', 'test-bytes');
 
     $this->get(route('posts.show', $post))
         ->assertOk()

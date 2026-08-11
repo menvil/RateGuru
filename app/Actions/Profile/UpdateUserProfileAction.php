@@ -96,7 +96,11 @@ final class UpdateUserProfileAction
             } catch (Throwable $exception) {
                 report($exception);
 
-                Log::error('Failed to dispatch media variant generation job.', [
+                // Under QUEUE_CONNECTION=sync (the only connection this app
+                // runs today), dispatch() executes the job inline — reaching
+                // this catch means the job ran and failed, not merely that
+                // dispatch itself failed to enqueue.
+                Log::error('Failed to dispatch or run media variant generation.', [
                     'user_id' => $user->id,
                     'media_asset_id' => $newAvatarAssetId,
                     'exception' => $exception->getMessage(),

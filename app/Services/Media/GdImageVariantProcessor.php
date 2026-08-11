@@ -33,16 +33,19 @@ final class GdImageVariantProcessor implements ImageVariantProcessor
         $srcWidth = imagesx($source);
         $srcHeight = imagesy($source);
 
+        $outputMimeType = $specification->outputMimeType ?? $mimeType;
+
         [$targetWidth, $targetHeight, $srcX, $srcY, $copyWidth, $copyHeight] = match ($specification->mode) {
             MediaResizeMode::Contain => $this->planContain($srcWidth, $srcHeight, $specification->maxWidth, $specification->maxHeight),
             MediaResizeMode::CoverSquare => $this->planCoverSquare($srcWidth, $srcHeight, $specification->maxWidth),
+            MediaResizeMode::Cover => $this->planCover($srcWidth, $srcHeight, $specification->maxWidth, $specification->maxHeight),
         };
 
-        $destination = $this->resample($source, $mimeType, $targetWidth, $targetHeight, $srcX, $srcY, $copyWidth, $copyHeight);
+        $destination = $this->resample($source, $outputMimeType, $targetWidth, $targetHeight, $srcX, $srcY, $copyWidth, $copyHeight);
 
-        $encodedBytes = $this->encode($destination, $mimeType, $specification->quality);
+        $encodedBytes = $this->encode($destination, $outputMimeType, $specification->quality);
 
-        return $this->buildGeneratedVariant($encodedBytes, $mimeType, $targetWidth, $targetHeight);
+        return $this->buildGeneratedVariant($encodedBytes, $outputMimeType, $targetWidth, $targetHeight);
     }
 
     /**
@@ -71,11 +74,36 @@ final class GdImageVariantProcessor implements ImageVariantProcessor
      */
     private function planCoverSquare(int $srcWidth, int $srcHeight, int $targetSize): array
     {
-        $cropSize = min($srcWidth, $srcHeight);
-        $cropX = intdiv($srcWidth - $cropSize, 2);
-        $cropY = intdiv($srcHeight - $cropSize, 2);
+        return $this->planCover($srcWidth, $srcHeight, $targetSize, $targetSize);
+    }
 
-        return [$targetSize, $targetSize, $cropX, $cropY, $cropSize, $cropSize];
+    /**
+     * Crops the largest centered targetWidth:targetHeight-ratio rectangle out
+     * of the source, then resizes it to targetWidth x targetHeight — crop and
+     * resize happen in the same imagecopyresampled() call. Generalizes
+     * planCoverSquare() to an arbitrary (non-square) target aspect ratio;
+     * planCoverSquare(w, h, size) and planCover(w, h, size, size) are
+     * algebraically identical.
+     *
+     * @return array{0: int, 1: int, 2: int, 3: int, 4: int, 5: int}
+     */
+    private function planCover(int $srcWidth, int $srcHeight, int $targetWidth, int $targetHeight): array
+    {
+        $targetRatio = $targetWidth / $targetHeight;
+        $srcRatio = $srcWidth / $srcHeight;
+
+        if ($srcRatio > $targetRatio) {
+            $cropHeight = $srcHeight;
+            $cropWidth = (int) round($srcHeight * $targetRatio);
+        } else {
+            $cropWidth = $srcWidth;
+            $cropHeight = (int) round($srcWidth / $targetRatio);
+        }
+
+        $cropX = intdiv($srcWidth - $cropWidth, 2);
+        $cropY = intdiv($srcHeight - $cropHeight, 2);
+
+        return [$targetWidth, $targetHeight, $cropX, $cropY, $cropWidth, $cropHeight];
     }
 
     private function decode(string $bytes): GdImage
@@ -93,15 +121,23 @@ final class GdImageVariantProcessor implements ImageVariantProcessor
         return $image;
     }
 
-    private function resample(GdImage $source, string $mimeType, int $targetWidth, int $targetHeight, int $srcX, int $srcY, int $copyWidth, int $copyHeight): GdImage
+    private function resample(GdImage $source, string $outputMimeType, int $targetWidth, int $targetHeight, int $srcX, int $srcY, int $copyWidth, int $copyHeight): GdImage
     {
         $destination = $this->createCanvas($targetWidth, $targetHeight);
 
-        if ($mimeType === 'image/png' || $mimeType === 'image/webp') {
+        if ($outputMimeType === 'image/png' || $outputMimeType === 'image/webp') {
             imagealphablending($destination, false);
             imagesavealpha($destination, true);
             $transparent = imagecolorallocatealpha($destination, 0, 0, 0, 127);
             imagefill($destination, 0, 0, $transparent);
+        } elseif ($outputMimeType === 'image/jpeg') {
+            // JPEG has no alpha channel; GD's default canvas fill is black
+            // with alpha blending on, which would let a transparent PNG/WebP
+            // source bleed through to black. Flatten onto white first — a
+            // no-op for already-opaque JPEG sources, which fully overwrite
+            // every destination pixel regardless of fill color.
+            $white = imagecolorallocate($destination, 255, 255, 255);
+            imagefill($destination, 0, 0, $white);
         }
 
         try {

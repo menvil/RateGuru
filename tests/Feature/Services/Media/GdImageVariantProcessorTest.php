@@ -104,6 +104,92 @@ it('produces the mime type and extension matching the source format', function (
     'webp' => ['image/webp', 'webp', fn () => markerBytesWithAlpha('webp', 100, 100)],
 ]);
 
+it('crops the largest centered target-ratio rectangle before resizing for cover mode, at the exact open graph size', function (int $srcW, int $srcH) {
+    $bytes = coverCropMarkerBytes($srcW, $srcH, 1200, 630);
+    $spec = variantSpec(MediaVariantName::OpenGraph, maxWidth: 1200, maxHeight: 630, mode: MediaResizeMode::Cover, outputMimeType: 'image/jpeg');
+
+    $variant = (new GdImageVariantProcessor)->generate($bytes, 'image/jpeg', $spec);
+
+    expect($variant->width)->toBe(1200)
+        ->and($variant->height)->toBe(630);
+
+    $corners = markerCorners($variant->bytes);
+    expect($corners['tl'])->toBe('RED')
+        ->and($corners['tr'])->toBe('GREEN')
+        ->and($corners['bl'])->toBe('BLUE')
+        ->and($corners['br'])->toBe('WHITE');
+})->with([
+    'landscape source' => [2400, 1600],
+    'portrait source' => [900, 1600],
+    'square source' => [1500, 1500],
+    'panorama source' => [4000, 800],
+    'very tall portrait source' => [600, 3000],
+]);
+
+it('produces identical crop geometry for cover-square and an equal-dimension cover target', function (int $srcW, int $srcH) {
+    $squareBytes = coverSquareCropMarkerBytes($srcW, $srcH);
+    $coverBytes = coverCropMarkerBytes($srcW, $srcH, 300, 300);
+
+    $squareSpec = variantSpec(maxWidth: 300, maxHeight: 300, mode: MediaResizeMode::CoverSquare);
+    $coverSpec = variantSpec(maxWidth: 300, maxHeight: 300, mode: MediaResizeMode::Cover);
+
+    $squareVariant = (new GdImageVariantProcessor)->generate($squareBytes, 'image/jpeg', $squareSpec);
+    $coverVariant = (new GdImageVariantProcessor)->generate($coverBytes, 'image/jpeg', $coverSpec);
+
+    expect($squareVariant->width)->toBe($coverVariant->width)
+        ->and($squareVariant->height)->toBe($coverVariant->height)
+        ->and(markerCorners($squareVariant->bytes))->toBe(markerCorners($coverVariant->bytes));
+})->with([
+    'landscape source' => [200, 100],
+    'portrait source' => [100, 200],
+    'square source' => [150, 150],
+]);
+
+it('defaults output mime type to the source mime type when the spec does not declare one', function () {
+    $bytes = jpegMarkerBytes(100, 100);
+    $spec = variantSpec(maxWidth: 50, maxHeight: 50);
+
+    expect($spec->outputMimeType)->toBeNull();
+
+    $variant = (new GdImageVariantProcessor)->generate($bytes, 'image/jpeg', $spec);
+
+    expect($variant->mimeType)->toBe('image/jpeg');
+});
+
+it('normalizes a transparent png source to a white-flattened jpeg when the spec declares outputMimeType jpeg', function () {
+    $bytes = markerBytesWithAlpha('png', 200, 100);
+    $spec = variantSpec(maxWidth: 100, maxHeight: 100, mode: MediaResizeMode::Contain, outputMimeType: 'image/jpeg');
+
+    $variant = (new GdImageVariantProcessor)->generate($bytes, 'image/png', $spec);
+
+    expect($variant->mimeType)->toBe('image/jpeg')
+        ->and($variant->extension)->toBe('jpg');
+
+    $image = imagecreatefromstring($variant->bytes);
+    // The bottom-right pixel was never painted a marker color in
+    // markerBytesWithAlpha() — it's the fully transparent fill there, which
+    // must flatten onto white (not GD's default black canvas) once encoded
+    // as JPEG, which has no alpha channel at all.
+    $rgb = imagecolorsforindex($image, imagecolorat($image, imagesx($image) - 1, imagesy($image) - 1));
+
+    expect($rgb['red'])->toBeGreaterThan(200)
+        ->and($rgb['green'])->toBeGreaterThan(200)
+        ->and($rgb['blue'])->toBeGreaterThan(200);
+});
+
+it('does not alter an opaque jpeg source when outputMimeType is redundantly jpeg', function () {
+    $bytes = containResizeMarkerBytes(200, 100);
+    $spec = variantSpec(maxWidth: 100, maxHeight: 50, mode: MediaResizeMode::Contain, outputMimeType: 'image/jpeg');
+
+    $variant = (new GdImageVariantProcessor)->generate($bytes, 'image/jpeg', $spec);
+
+    $corners = markerCorners($variant->bytes);
+    expect($corners['tl'])->toBe('RED')
+        ->and($corners['tr'])->toBe('GREEN')
+        ->and($corners['bl'])->toBe('BLUE')
+        ->and($corners['br'])->toBe('WHITE');
+});
+
 it('throws a MediaVariantGenerationException for undecodable bytes', function () {
     $spec = variantSpec();
 
