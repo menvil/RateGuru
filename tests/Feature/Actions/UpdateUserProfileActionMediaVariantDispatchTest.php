@@ -3,7 +3,6 @@
 use App\Actions\Profile\UpdateUserProfileAction;
 use App\Enums\MediaVariantName;
 use App\Jobs\GenerateMediaVariantsJob;
-use App\Models\MediaAsset;
 use App\Models\User;
 use App\Services\Media\MediaVariantPathGenerator;
 use Illuminate\Http\UploadedFile;
@@ -50,21 +49,16 @@ it('does not dispatch variant generation when the profile update transaction fai
     $user = User::factory()->create();
     $avatar = UploadedFile::fake()->image('avatar.jpg', 400, 400);
 
-    $realDb = app('db');
-    $mock = DB::partialMock();
-    $mock->shouldReceive('transaction')->andThrow(new RuntimeException('Simulated profile update failure.'));
+    User::updating(function (): void {
+        throw new RuntimeException('Simulated profile update failure.');
+    });
 
-    $reflection = new ReflectionClass($realDb);
-    foreach ($reflection->getProperties() as $property) {
-        if ($property->isStatic()) {
-            continue;
-        }
-        $property->setAccessible(true);
-        $property->setValue($mock, $property->getValue($realDb));
+    try {
+        expect(fn () => app(UpdateUserProfileAction::class)->execute($user, [], $avatar))
+            ->toThrow(RuntimeException::class, 'Simulated profile update failure.');
+    } finally {
+        User::flushEventListeners();
     }
-
-    expect(fn () => app(UpdateUserProfileAction::class)->execute($user, [], $avatar))
-        ->toThrow(RuntimeException::class, 'Simulated profile update failure.');
 
     Queue::assertNotPushed(GenerateMediaVariantsJob::class);
 });
@@ -79,17 +73,21 @@ it('does not dispatch variant generation when an outer transaction wrapping the 
     $user = User::factory()->create();
     $avatar = UploadedFile::fake()->image('avatar.jpg', 400, 400);
 
-    $masterPath = null;
+    $masterAsset = null;
 
     try {
-        DB::transaction(function () use ($user, $avatar, &$masterPath): void {
+        DB::transaction(function () use ($user, $avatar, &$masterAsset): void {
             app(UpdateUserProfileAction::class)->execute(
                 $user,
                 ['rating_activity_visibility' => 'private'],
                 $avatar,
             );
 
-            $masterPath = $user->fresh()->avatarAsset->path;
+            // The full, persisted asset — not just its path — so the
+            // expected variant path below is derived from the exact same
+            // data MediaVariantPathGenerator would actually use, rather than
+            // a synthetic stand-in with a guessed extension.
+            $masterAsset = $user->fresh()->avatarAsset;
 
             throw new RuntimeException('Simulated outer rollback.');
         });
@@ -97,12 +95,12 @@ it('does not dispatch variant generation when an outer transaction wrapping the 
         expect($exception->getMessage())->toBe('Simulated outer rollback.');
     }
 
-    expect($masterPath)->not->toBeNull();
+    expect($masterAsset)->not->toBeNull();
 
     $expectedVariantPath = app(MediaVariantPathGenerator::class)->generate(
-        new MediaAsset(['path' => $masterPath]),
+        $masterAsset,
         MediaVariantName::Avatar128,
-        'jpg',
+        $masterAsset->extension,
     );
 
     Storage::disk('public')->assertMissing($expectedVariantPath);

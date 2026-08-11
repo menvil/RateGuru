@@ -7,8 +7,8 @@ use App\Services\Media\GdImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaVariantPathGenerator;
 use App\Services\Media\MediaVariantWriter;
-use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 
@@ -154,10 +154,11 @@ it('reports a cleanup failure but still propagates the original database excepti
  * RefreshDatabase's per-test transaction isn't visible to a genuinely
  * separate process anyway), so a real two-process race isn't exercised
  * here. Instead, this drives the actual synchronization primitive
- * write() uses (Cache::lock() under the same key) from the outside: hold
- * the lock externally, prove write() can't proceed past it — not even far
- * enough to touch disk — then release it and prove write() completes
- * normally. That's the concrete guarantee a concurrent writer relies on.
+ * write() uses (a `database`-store lock under the same key) from the
+ * outside: hold the lock externally, prove write() can't proceed past it —
+ * not even far enough to touch disk — then release it and prove write()
+ * completes normally. That's the concrete guarantee a concurrent writer
+ * relies on.
  */
 it('serializes the whole write lifecycle behind a lock keyed by asset and variant name', function () {
     config(['media.variant_lock.wait_seconds' => 1]);
@@ -169,12 +170,34 @@ it('serializes the whole write lifecycle behind a lock keyed by asset and varian
     $spec = variantSpec();
     $expectedPath = 'posts/2026/08/master/post_feed_640.jpg';
 
-    $externalLock = Cache::lock("media-variant-write:{$asset->id}:{$spec->name->value}", 10);
+    // Must be the same store write() itself locks against (Cache::lock(),
+    // the default store, is a different backend entirely in this app's
+    // config — acquiring a lock there wouldn't contend with write() at all).
+    $externalLock = Cache::store('database')->lock("media-variant-write:{$asset->id}:{$spec->name->value}", 10);
     expect($externalLock->get())->toBeTrue();
 
     try {
-        expect(fn () => app(MediaVariantWriter::class)->write($asset, $bytes, $spec))
-            ->toThrow(LockTimeoutException::class);
+        $exception = null;
+
+        // A failed lock-acquire attempt under the `database` store means a
+        // failed unique-key INSERT — under PostgreSQL specifically, that
+        // marks the *whole* current transaction as aborted, not just that
+        // one statement (a Postgres-only behavior; the same code is fine on
+        // MySQL/SQLite). Running the attempt inside its own nested
+        // DB::transaction() turns that into a savepoint: when the resulting
+        // exception unwinds out of the closure, Laravel issues ROLLBACK TO
+        // SAVEPOINT for us, which clears the aborted state so the rest of
+        // this test (still inside RefreshDatabase's own wrapping
+        // transaction) can keep issuing queries normally afterward.
+        try {
+            DB::transaction(function () use ($asset, $bytes, $spec): void {
+                app(MediaVariantWriter::class)->write($asset, $bytes, $spec);
+            });
+        } catch (Throwable $caught) {
+            $exception = $caught;
+        }
+
+        expect($exception)->not->toBeNull();
 
         // The lock covers the file write too, not just the DB upsert — a
         // writer that couldn't acquire it must not have touched disk at all.

@@ -4,7 +4,7 @@ use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaVariantName;
 use App\Jobs\GenerateMediaVariantsJob;
-use App\Models\MediaAsset;
+use App\Models\Post;
 use App\Models\User;
 use App\Services\Media\MediaVariantPathGenerator;
 use Illuminate\Http\UploadedFile;
@@ -54,23 +54,18 @@ it('does not dispatch variant generation when the post creation transaction fail
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg', 1600, 900);
 
-    $realDb = app('db');
-    $mock = DB::partialMock();
-    $mock->shouldReceive('transaction')->andThrow(new RuntimeException('Simulated post creation failure.'));
+    Post::saving(function (): void {
+        throw new RuntimeException('Simulated post creation failure.');
+    });
 
-    $reflection = new ReflectionClass($realDb);
-    foreach ($reflection->getProperties() as $property) {
-        if ($property->isStatic()) {
-            continue;
-        }
-        $property->setAccessible(true);
-        $property->setValue($mock, $property->getValue($realDb));
+    try {
+        expect(fn () => app(CreatePostAction::class)->handle($user, new CreatePostData(
+            title: 'Dish that fails to save',
+            image: $file,
+        )))->toThrow(RuntimeException::class, 'Simulated post creation failure.');
+    } finally {
+        Post::flushEventListeners();
     }
-
-    expect(fn () => app(CreatePostAction::class)->handle($user, new CreatePostData(
-        title: 'Dish that fails to save',
-        image: $file,
-    )))->toThrow(RuntimeException::class, 'Simulated post creation failure.');
 
     Queue::assertNotPushed(GenerateMediaVariantsJob::class);
 });
@@ -94,7 +89,7 @@ it('does not dispatch variant generation when an outer transaction wrapping the 
     $user = User::factory()->create();
     $file = UploadedFile::fake()->image('dish.jpg', 1600, 900);
 
-    $masterPath = null;
+    $masterAsset = null;
 
     // CreatePostAction's own DB::transaction() commits successfully at the
     // savepoint level here (the post row exists by the time handle()
@@ -102,13 +97,17 @@ it('does not dispatch variant generation when an outer transaction wrapping the 
     // whether that ever becomes durable — ->afterCommit() must wait for
     // this one, not fire the moment the inner savepoint releases.
     try {
-        DB::transaction(function () use ($user, $file, &$masterPath): void {
+        DB::transaction(function () use ($user, $file, &$masterAsset): void {
             $post = app(CreatePostAction::class)->handle($user, new CreatePostData(
                 title: 'Dish in an outer transaction',
                 image: $file,
             ));
 
-            $masterPath = $post->imageAsset->path;
+            // The full, persisted asset — not just its path — so the
+            // expected variant path below is derived from the exact same
+            // data MediaVariantPathGenerator would actually use, rather than
+            // a synthetic stand-in with a guessed extension.
+            $masterAsset = $post->imageAsset;
 
             throw new RuntimeException('Simulated outer rollback.');
         });
@@ -116,12 +115,12 @@ it('does not dispatch variant generation when an outer transaction wrapping the 
         expect($exception->getMessage())->toBe('Simulated outer rollback.');
     }
 
-    expect($masterPath)->not->toBeNull();
+    expect($masterAsset)->not->toBeNull();
 
     $expectedVariantPath = app(MediaVariantPathGenerator::class)->generate(
-        new MediaAsset(['path' => $masterPath]),
+        $masterAsset,
         MediaVariantName::PostFeed640,
-        'jpg',
+        $masterAsset->extension,
     );
 
     Storage::disk('public')->assertMissing($expectedVariantPath);
