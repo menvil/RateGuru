@@ -4,6 +4,7 @@ use App\Actions\Profile\DeleteUserAccountAction;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 it('soft-deletes the account owner\'s avatar asset once the account is gone', function () {
     $avatar = MediaAsset::factory()->avatar()->create();
@@ -74,6 +75,37 @@ it('does not soft-delete a user\'s own former avatar asset if it somehow remains
         ->and(MediaAsset::find($asset->id)->trashed())->toBeFalse();
 });
 
+it('releases media in a bounded number of queries, not one per asset, when the deleted user owns many', function () {
+    $user = User::factory()->create();
+    $avatar = MediaAsset::factory()->avatar()->create();
+    $user->update(['avatar_asset_id' => $avatar->id]);
+
+    foreach (range(1, 15) as $i) {
+        $image = MediaAsset::factory()->postImage()->create();
+        Post::factory()->published()->create(['user_id' => $user->id, 'image_asset_id' => $image->id]);
+    }
+
+    $queryCount = 0;
+    DB::listen(function () use (&$queryCount): void {
+        $queryCount++;
+    });
+
+    app(DeleteUserAccountAction::class)->execute($user->fresh());
+
+    // fresh() reload (1) + capture (1) + $user->delete() (1) +
+    // referencedAssetIds()'s two whereIn() queries (2) + one bulk
+    // soft-delete update (1) = 6, a small, fixed number regardless of
+    // asset count. The old per-asset release loop would have scaled with
+    // all 16 assets involved (avatar + 15 post images) instead, well past
+    // this threshold.
+    expect($queryCount)->toBeLessThan(8);
+
+    // The bulk update genuinely released everything, not just a subset —
+    // the query-count assertion alone wouldn't catch a "fast but wrong"
+    // regression (e.g. only releasing the first matched row).
+    expect(MediaAsset::withTrashed()->whereNotNull('deleted_at')->count())->toBe(16);
+});
+
 it('completes account deletion even when there is no avatar or posts to release', function () {
     $user = User::factory()->create(['avatar_asset_id' => null]);
 
@@ -91,6 +123,12 @@ it('never re-throws and still completes the account deletion if releasing an ass
     // itself must not fail because of it. SoftDeletes::delete() updates via
     // the query builder directly (never fires saving/updating), so the
     // 'deleting' event is the one that actually fires here.
+    // Restoring the original dispatcher afterward (rather than
+    // flushEventListeners()) undoes only what this test added — flushing
+    // wipes every listener registered on MediaAsset for the rest of the
+    // process, including ones other tests may depend on.
+    $originalDispatcher = MediaAsset::getEventDispatcher();
+
     MediaAsset::deleting(function (): void {
         throw new RuntimeException('Simulated release failure.');
     });
@@ -98,7 +136,7 @@ it('never re-throws and still completes the account deletion if releasing an ass
     try {
         app(DeleteUserAccountAction::class)->execute($user);
     } finally {
-        MediaAsset::flushEventListeners();
+        MediaAsset::setEventDispatcher($originalDispatcher);
     }
 
     expect(User::find($user->id))->toBeNull();

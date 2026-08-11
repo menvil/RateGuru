@@ -115,6 +115,26 @@ it('does not purge an active asset', function () {
     expect(MediaAsset::withTrashed()->find($asset->id))->not->toBeNull();
 });
 
+it('rejects a negative graceDays override on purge() for an active asset, without ever reaching NotEligible', function () {
+    // An invalid override must fail loudly regardless of the asset's own
+    // state — an active asset must not silently short-circuit past the
+    // validation into an ordinary-looking NotEligible result.
+    $asset = MediaAsset::factory()->postImage()->create();
+
+    expect(fn () => app(MediaLifecycleService::class)->purge($asset, graceDays: -1))
+        ->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects a negative graceDays override on purge() for a trashed, grace-expired asset too', function () {
+    $asset = createPurgeableAsset();
+
+    expect(fn () => app(MediaLifecycleService::class)->purge($asset, graceDays: -1))
+        ->toThrow(InvalidArgumentException::class);
+
+    // Never reached the point of doing anything destructive.
+    expect(MediaAsset::withTrashed()->find($asset->id)->trashed())->toBeTrue();
+});
+
 it('does not purge a soft-deleted asset still within its grace period', function () {
     Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
     $asset = MediaAsset::factory()->postImage()->create();

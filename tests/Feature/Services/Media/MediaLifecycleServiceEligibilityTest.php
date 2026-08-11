@@ -88,3 +88,15 @@ it('rejects a negative graceDays override instead of silently defeating the grac
     expect(fn () => app(MediaLifecycleService::class)->isPurgeable($asset->fresh(), graceDays: -1))
         ->toThrow(InvalidArgumentException::class);
 });
+
+it('rejects a negative graceDays override for an active asset too, not only a trashed one', function () {
+    // isGraceExpired() checks trashed() before validating graceDays would
+    // be an early return that lets a bad argument slip through silently
+    // whenever the asset happens to be active — the validation must not
+    // depend on incidental asset state.
+    $asset = MediaAsset::factory()->postImage()->create();
+
+    expect($asset->trashed())->toBeFalse()
+        ->and(fn () => app(MediaLifecycleService::class)->isGraceExpired($asset, graceDays: -1))
+        ->toThrow(InvalidArgumentException::class);
+});

@@ -587,12 +587,15 @@ things with two different triggers.
   (`media:audit`, `media:purge --dry-run`).
 - `purge(MediaAsset $asset, ?int $graceDays = null): MediaPurgeResult` — the
   real thing. See "Purge algorithm" below.
-- `releaseIfUnreferenced(int $assetId): void` — the hook
-  `DeleteUserAccountAction` calls once per asset id that may have just
-  become unreferenced by a hard user delete. Soft-deletes only (starts the
-  grace period; physical purge still waits for `media:purge`). Best-effort
-  and never throws — a cleanup hiccup here must never turn an
-  already-successful account deletion into a reported failure.
+- `releaseUnreferenced(Collection $assetIds): void` — the hook
+  `DeleteUserAccountAction` calls once, with every asset id that may have
+  just become unreferenced by a hard user delete. One reference-check pass
+  (`MediaReferenceChecker::referencedAssetIds()`) plus a single bulk
+  soft-delete for whichever ids are still unreferenced, rather than one
+  release call per asset id. Soft-deletes only (starts the grace period;
+  physical purge still waits for `media:purge`). Best-effort and never
+  throws — a cleanup hiccup here must never turn an already-successful
+  account deletion into a reported failure.
 - `purgeOrphanFile(MediaLocation $location): void` — deletes a physical
   orphan found by `MediaOrphanScanner`. No DB row is involved by definition.
 
@@ -616,8 +619,11 @@ the variant writer, purge takes a single **non-blocking** attempt
 (`Lock::get()`, not `Lock::block()`): purge runs as a chunked batch sweep
 over many assets, and blocking on one contended asset would stall the whole
 run. A failed attempt just skips that asset for this pass — purge reruns
-routinely (see "Scheduling" below), and eligibility, once earned, never
-expires. No additional coordination with `MediaVariantWriter`'s own
+routinely (see "Scheduling" below), and eligibility remains valid on the
+next attempt as long as the asset's trashed/grace-expired/unreferenced
+state hasn't changed in the meantime (e.g. it wasn't restored, or a new
+reference wasn't created since the last check). No additional coordination
+with `MediaVariantWriter`'s own
 per-variant lock is needed: `MediaVariantGenerator::generateAll()` already
 refuses to touch a trashed asset (a PR-05 guard), and purge eligibility
 requires several days soft-deleted by construction — no code path in this
@@ -628,13 +634,18 @@ through `MediaStorage::deleteIfExists()` (new in PR-07) — a missing file is
 a no-op success, never an exception, so re-running purge on a
 partially-completed asset only does the remaining work. A *real* storage
 failure (not just "already gone") still throws and aborts that asset's
-purge immediately: no DB row is force-deleted, the original exception is
-logged with `media_asset_id`/`media_variant_id`/`disk`/`path`/`operation`/
-`exception_class` (never bytes, never signed URLs), and the next
-`media:purge` run retries from scratch — already-deleted files simply
-no-op on the retry. The one state this can't fully protect against — files
-successfully deleted but the DB transaction itself then fails — is
-explicitly a recoverable, expected state: the row stays trashed, and the
+purge immediately: no DB row is force-deleted, and the exception class plus
+operation context (`media_asset_id`/`media_variant_id`/`disk`/`path`/
+`operation`/`exception_class`, never bytes, never signed URLs) is logged.
+The exception itself is not written to the log — it's returned to the
+caller via `MediaPurgeResult`, and its message reaches an operator only
+when `MediaPurgeCommand` prints it to the console for that failed asset.
+The next `media:purge` run retries from scratch — already-deleted files
+simply no-op on the retry.
+
+The one state this can't fully protect against — files successfully deleted
+but the DB transaction itself then fails — is explicitly a recoverable,
+expected state: the row stays trashed, and the
 next purge run finishes the DB step alone (every file delete it attempts is
 already a no-op by then). This is a deliberate choice, not an oversight:
 building an actual distributed transaction between Postgres and the
@@ -692,22 +703,23 @@ cleanup hook anywhere. The action now captures the avatar/post-image asset
 ids *before* deleting the user (via `$user->posts()->withTrashed()`, since a
 post the user had already soft-deleted themselves is about to be
 hard-cascade-deleted too, and would never be captured otherwise), then calls
-`MediaLifecycleService::releaseIfUnreferenced()` once per id *after* the
-delete succeeds — soft-deleting each now-orphaned asset (starting its grace
-period), never throwing, never touching anything still referenced by
-something else. `DeletePostAction`/`DeletePostInAdminAction` are untouched:
-both are soft-delete-only (a post force-delete path doesn't exist anywhere
+`MediaLifecycleService::releaseUnreferenced()` once, with the whole batch,
+*after* the delete succeeds — soft-deleting each now-orphaned asset
+(starting its grace period), never throwing, never touching anything still
+referenced by something else. `DeletePostAction`/`DeletePostInAdminAction`
+are untouched: both are soft-delete-only (a post force-delete path doesn't
+exist anywhere
 in this app), and a restorable soft-deleted post correctly keeps "owning"
 its image per `MediaReferenceChecker`'s own `withTrashed()` check — there is
 nothing to hook there. Avatar replacement (`UpdateUserProfileAction`) is
 also untouched — its existing inline soft-delete-the-previous-asset
 behavior already does the right thing.
 
-**Known gap**: `releaseIfUnreferenced()` is deliberately best-effort (it
+**Known gap**: `releaseUnreferenced()` is deliberately best-effort (it
 reports and swallows its own exceptions rather than ever failing the account
 deletion around it — see above). If it fails, or if the process crashes in
-the narrow window between `$user->delete()` succeeding and the release loop
-running, the affected asset is left **active** (not soft-deleted) but
+the narrow window between `$user->delete()` succeeding and the release call
+running, the affected assets are left **active** (not soft-deleted) but
 genuinely unreferenced — and `media:purge`'s normal sweep only ever
 considers `MediaAsset::onlyTrashed()` rows, so a purely active-but-orphaned
 asset is invisible to it and never starts its grace period on its own.

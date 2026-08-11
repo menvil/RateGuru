@@ -36,11 +36,10 @@ final class DeleteUserAccountAction
 
         // Release, don't purge: this only soft-deletes each now-unreferenced
         // asset (starting its grace period) — physical cleanup still waits
-        // for media:purge. Best-effort and never throws, so a cleanup
-        // hiccup can never turn an already-successful account deletion into
-        // a reported failure.
-        foreach ($assetIds as $assetId) {
-            $this->lifecycleService->releaseIfUnreferenced($assetId);
-        }
+        // for media:purge. Batched (one reference-check pass, one bulk
+        // update) rather than one release call per asset id. Best-effort
+        // and never throws, so a cleanup hiccup can never turn an
+        // already-successful account deletion into a reported failure.
+        $this->lifecycleService->releaseUnreferenced($assetIds);
     }
 }

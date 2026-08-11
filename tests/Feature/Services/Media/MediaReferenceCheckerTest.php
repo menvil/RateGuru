@@ -65,6 +65,8 @@ it('batches reference checks across posts and avatars in two queries, regardless
 
     $assetIds = collect([$referencedByPost->id, $referencedByTrashedPost->id, $referencedByAvatar->id, $unreferenced->id]);
 
+    $this->expectsDatabaseQueryCount(2);
+
     $referenced = app(MediaReferenceChecker::class)->referencedAssetIds($assetIds);
 
     expect($referenced->has($referencedByPost->id))->toBeTrue()

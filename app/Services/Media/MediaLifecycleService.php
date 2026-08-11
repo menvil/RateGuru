@@ -6,6 +6,7 @@ use App\Enums\MediaPurgeOutcome;
 use App\Models\MediaAsset;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -57,11 +58,19 @@ final class MediaLifecycleService
      */
     public function isGraceExpired(MediaAsset $asset, ?int $graceDays = null): bool
     {
+        // Resolved (and validated) unconditionally, before the trashed()
+        // check — an invalid graceDays argument is a programmer error that
+        // must surface the same way regardless of the asset's incidental
+        // state. Checking trashed() first would let a negative override
+        // silently slip through for an active asset (early return before
+        // resolveGraceDays() ever runs), while the exact same bad argument
+        // would throw for a trashed one — a caller-observable inconsistency
+        // that depends on nothing but which asset happened to be passed in.
+        $cutoff = now()->subDays($this->resolveGraceDays($graceDays));
+
         if (! $asset->trashed()) {
             return false;
         }
-
-        $cutoff = now()->subDays($this->resolveGraceDays($graceDays));
 
         return $asset->deleted_at !== null && $asset->deleted_at->lte($cutoff);
     }
@@ -107,6 +116,13 @@ final class MediaLifecycleService
      */
     public function purge(MediaAsset $asset, ?int $graceDays = null): MediaPurgeResult
     {
+        // Validated before any lock/DB work at all — the same "programmer
+        // error, not asset-state-dependent" reasoning as isGraceExpired()
+        // above: an invalid override should fail the same way whether the
+        // asset is active, trashed, or already gone, not only when it
+        // happens to still be around long enough to reach isPurgeable().
+        $this->resolveGraceDays($graceDays);
+
         $lock = $this->purgeLock($asset->id);
 
         if (! $lock->get()) {
@@ -178,21 +194,52 @@ final class MediaLifecycleService
     }
 
     /**
-     * The hook DeleteUserAccountAction calls, once, per asset id that may
-     * have just become unreferenced by a hard user delete (their avatar,
-     * their posts' images — the posts themselves are already gone by the
-     * time this runs). Best-effort and never throws: a cleanup hiccup here
-     * must never turn an already-successful account deletion into a
-     * reported failure. Soft-deletes only — physical purge still waits for
-     * the grace period via the normal media:purge sweep.
+     * The hook DeleteUserAccountAction calls once, with every asset id that
+     * may have just become unreferenced by a hard user delete (their
+     * avatar, their posts' images — the posts themselves are already gone
+     * by the time this runs). One reference-check pass, via
+     * MediaReferenceChecker::referencedAssetIds(), instead of one per
+     * asset id, then a single bulk soft-delete for whichever ids are still
+     * unreferenced — the same batching MediaAuditCommand already uses, and
+     * for the same reason: a user with many posts would otherwise cost up
+     * to 4 queries per asset here. The bulk update still only ever touches
+     * currently-active rows (Eloquent's own SoftDeletingScope excludes
+     * already-trashed ones automatically, exactly as MediaAsset::find()
+     * did for the single-asset version this replaces), so it can never
+     * reset an already-soft-deleted asset's grace-period clock.
+     *
+     * Best-effort and never throws: a cleanup hiccup here must never turn
+     * an already-successful account deletion into a reported failure.
+     * Soft-deletes only — physical purge still waits for the grace period
+     * via the normal media:purge sweep.
+     *
+     * @param  Collection<int, int>  $assetIds
      */
-    public function releaseIfUnreferenced(int $assetId): void
+    public function releaseUnreferenced(Collection $assetIds): void
     {
-        try {
-            $asset = MediaAsset::find($assetId);
+        // No filter() here: the parameter type already contracts a plain
+        // Collection<int, int> (no nulls), the one caller (DeleteUserAccountAction)
+        // already filters nulls out before this is reached, and an id of 0
+        // can't occur (MediaAsset ids auto-increment from 1). unique()/
+        // values() alone don't narrow PHPStan's inferred value type the way
+        // an exclusionary filter()/reject() predicate would — which matters
+        // here, since Collection's generics are invariant and
+        // referencedAssetIds() below declares a plain `int` value type.
+        $assetIds = $assetIds->unique()->values();
 
-            if ($asset !== null && ! $this->referenceChecker->isReferenced($asset)) {
-                $asset->delete();
+        if ($assetIds->isEmpty()) {
+            return;
+        }
+
+        try {
+            $referencedIds = $this->referenceChecker->referencedAssetIds($assetIds);
+            $unreferencedIds = $assetIds->reject(fn (int $id): bool => $referencedIds->has($id))->values();
+
+            if ($unreferencedIds->isNotEmpty()) {
+                MediaAsset::whereIn('id', $unreferencedIds)->update([
+                    'deleted_at' => now(),
+                    'updated_at' => now(),
+                ]);
             }
         } catch (Throwable $exception) {
             report($exception);
