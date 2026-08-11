@@ -1,7 +1,10 @@
 <?php
 
+use App\Enums\MediaResizeMode;
+use App\Enums\MediaVariantName;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -135,4 +138,234 @@ function seedFeedFilterGroups(): void
     RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_c', 'sort_order' => 30]);
     RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_d', 'sort_order' => 40]);
     RatingOption::factory()->create(['rating_group_id' => $attribute->id, 'key' => 'attribute_other', 'sort_order' => 50]);
+}
+
+/**
+ * The following image-marker helpers are shared across multiple Media test
+ * files (GdImageIngestorTest, GdImageVariantProcessorTest, and everything
+ * that generates fixture bytes for MediaVariantGenerator/Writer/Job/Command
+ * tests). They live here — not as bare functions inside any one of those
+ * files — because Pest's parallel runner (`--parallel`, used in CI) assigns
+ * whole test files to separate worker processes; a bare function declared in
+ * file A is not visible to file B when they land in different workers, which
+ * only surfaces as an "undefined function" failure under --parallel, not
+ * under a normal sequential run. Everything in this file, by contrast, is
+ * part of Pest's own bootstrap and is loaded by every worker.
+ */
+
+/**
+ * Distinct marker colors in each corner: TL=red, TR=green, BL=blue,
+ * BR=white — lets orientation tests assert on physical pixel positions, not
+ * just reported dimensions.
+ */
+function makeMarkerImage(int $width, int $height): GdImage
+{
+    $im = imagecreatetruecolor($width, $height);
+    imagefill($im, 0, 0, imagecolorallocate($im, 0, 0, 0));
+    imagesetpixel($im, 0, 0, imagecolorallocate($im, 255, 0, 0));
+    imagesetpixel($im, $width - 1, 0, imagecolorallocate($im, 0, 255, 0));
+    imagesetpixel($im, 0, $height - 1, imagecolorallocate($im, 0, 0, 255));
+    imagesetpixel($im, $width - 1, $height - 1, imagecolorallocate($im, 255, 255, 255));
+
+    return $im;
+}
+
+function markerCornerColor(GdImage $im, int $x, int $y): string
+{
+    $rgb = imagecolorsforindex($im, imagecolorat($im, $x, $y));
+
+    return match (true) {
+        $rgb['red'] > 200 && $rgb['green'] < 50 && $rgb['blue'] < 50 => 'RED',
+        $rgb['green'] > 200 && $rgb['red'] < 50 && $rgb['blue'] < 50 => 'GREEN',
+        $rgb['blue'] > 200 && $rgb['red'] < 50 && $rgb['green'] < 50 => 'BLUE',
+        $rgb['red'] > 200 && $rgb['green'] > 200 && $rgb['blue'] > 200 => 'WHITE',
+        default => 'OTHER',
+    };
+}
+
+/** @return array{tl: string, tr: string, bl: string, br: string, width: int, height: int} */
+function markerCorners(string $bytes): array
+{
+    $im = imagecreatefromstring($bytes);
+    $w = imagesx($im);
+    $h = imagesy($im);
+
+    return [
+        'tl' => markerCornerColor($im, 0, 0),
+        'tr' => markerCornerColor($im, $w - 1, 0),
+        'bl' => markerCornerColor($im, 0, $h - 1),
+        'br' => markerCornerColor($im, $w - 1, $h - 1),
+        'width' => $w,
+        'height' => $h,
+    ];
+}
+
+function jpegMarkerBytes(int $width = 20, int $height = 10, int $quality = 90): string
+{
+    $im = makeMarkerImage($width, $height);
+    ob_start();
+    imagejpeg($im, null, $quality);
+
+    return ob_get_clean();
+}
+
+/** @param 'png'|'webp' $format */
+function markerBytesWithAlpha(string $format, int $width = 20, int $height = 10): string
+{
+    $im = imagecreatetruecolor($width, $height);
+    imagealphablending($im, false);
+    imagesavealpha($im, true);
+    imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
+    imagesetpixel($im, 0, 0, imagecolorallocatealpha($im, 255, 0, 0, 0));
+    imagesetpixel($im, $width - 1, 0, imagecolorallocatealpha($im, 0, 255, 0, 0));
+    imagesetpixel($im, 0, $height - 1, imagecolorallocatealpha($im, 0, 0, 255, 0));
+    ob_start();
+
+    match ($format) {
+        'png' => imagepng($im),
+        'webp' => imagewebp($im),
+    };
+
+    return ob_get_clean();
+}
+
+/**
+ * Solid corner BLOCKS (not single pixels, unlike makeMarkerImage() above) —
+ * a single marker pixel gets diluted below markerCornerColor()'s detection
+ * threshold once imagecopyresampled()'s interpolation and JPEG's lossy
+ * compression both apply, which never happens to makeMarkerImage()'s own
+ * pixel-preserving flip/rotate use in GdImageIngestorTest. Block size scales
+ * with the image so it survives even an aggressive downscale (e.g.
+ * 4000x500 -> 640x80, ~0.16x, exercised in GdImageVariantProcessorTest).
+ */
+function containResizeMarkerBytes(int $width, int $height): string
+{
+    return solidCornerBlockJpeg($width, $height, 0, 0, $width, $height);
+}
+
+/**
+ * Places the four marker color blocks at the region that will become a
+ * CoverSquare crop's four corners, rather than the source image's own
+ * absolute corners — lets a crop+resize be verified with the same
+ * markerCorners() reader above.
+ */
+function coverSquareCropMarkerBytes(int $width, int $height): string
+{
+    $cropSize = min($width, $height);
+    $cropX = intdiv($width - $cropSize, 2);
+    $cropY = intdiv($height - $cropSize, 2);
+
+    return solidCornerBlockJpeg($width, $height, $cropX, $cropY, $cropSize, $cropSize);
+}
+
+function solidCornerBlockJpeg(int $width, int $height, int $regionX, int $regionY, int $regionW, int $regionH): string
+{
+    $blockW = max(4, (int) round($regionW * 0.15));
+    $blockH = max(4, (int) round($regionH * 0.15));
+
+    $im = imagecreatetruecolor($width, $height);
+    imagefill($im, 0, 0, imagecolorallocate($im, 0, 0, 0));
+
+    $red = imagecolorallocate($im, 255, 0, 0);
+    $green = imagecolorallocate($im, 0, 255, 0);
+    $blue = imagecolorallocate($im, 0, 0, 255);
+    $white = imagecolorallocate($im, 255, 255, 255);
+
+    imagefilledrectangle($im, $regionX, $regionY, $regionX + $blockW - 1, $regionY + $blockH - 1, $red);
+    imagefilledrectangle($im, $regionX + $regionW - $blockW, $regionY, $regionX + $regionW - 1, $regionY + $blockH - 1, $green);
+    imagefilledrectangle($im, $regionX, $regionY + $regionH - $blockH, $regionX + $blockW - 1, $regionY + $regionH - 1, $blue);
+    imagefilledrectangle($im, $regionX + $regionW - $blockW, $regionY + $regionH - $blockH, $regionX + $regionW - 1, $regionY + $regionH - 1, $white);
+
+    ob_start();
+    imagejpeg($im, null, 90);
+
+    return ob_get_clean();
+}
+
+function variantSpec(
+    MediaVariantName $name = MediaVariantName::PostFeed640,
+    int $maxWidth = 640,
+    int $maxHeight = 1280,
+    MediaResizeMode $mode = MediaResizeMode::Contain,
+    int $quality = 82,
+): MediaVariantSpecification {
+    return new MediaVariantSpecification($name, $maxWidth, $maxHeight, $mode, $quality);
+}
+
+/**
+ * Shared by MediaAspectRatioBrowserTest and ResponsiveMediaBrowserTest — see
+ * the block comment above for why cross-file browser-test helpers live here
+ * rather than as a bare function in either file.
+ *
+ * Several contexts (drawer, fullscreen, non-first feed cards) render
+ * loading="lazy". Reading naturalWidth/naturalHeight before the browser has
+ * actually decoded the image would yield 0/0 → a NaN ratio that fails the
+ * assertion regardless of fit, nondeterministically depending on load
+ * timing (worse under CI's --parallel, where workers compete for CPU).
+ * `complete` can turn true slightly before pixel decoding has actually
+ * finished, so each poll also awaits image.decode() itself (Pest's
+ * $page->script() awaits a returned Promise, same as Playwright's
+ * page.evaluate) rather than trusting the synchronous flags alone.
+ */
+function waitForImageLoaded(mixed $page, string $selector, float $timeoutSeconds = 5.0): void
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    while (microtime(true) < $deadline) {
+        $loaded = $page->script(<<<JS
+            (async () => {
+                const img = document.querySelector('{$selector}');
+                if (!img || !img.complete || img.naturalWidth === 0) {
+                    return false;
+                }
+                try {
+                    await img.decode();
+                } catch (e) {
+                    return false;
+                }
+                return true;
+            })()
+        JS);
+
+        if ($loaded) {
+            return;
+        }
+
+        usleep(100_000);
+    }
+
+    throw new RuntimeException("Image [{$selector}] did not finish loading within {$timeoutSeconds}s.");
+}
+
+/**
+ * Compares the rendered <img> box ratio against the image's own natural
+ * ratio. object-fit: cover would force the box toward the *container's*
+ * ratio instead, so a mismatch here is exactly what would catch a
+ * regression back to cropping.
+ *
+ * @return array{naturalWidth: int, naturalHeight: int, width: float, height: float, ratioDiff: float}
+ */
+function imageFitGeometry(mixed $page, string $selector): array
+{
+    waitForImageLoaded($page, $selector);
+
+    $geometry = $page->script(<<<JS
+        (() => {
+            const img = document.querySelector('{$selector}');
+            const rect = img.getBoundingClientRect();
+            return {
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight,
+                width: rect.width,
+                height: rect.height,
+            };
+        })()
+    JS);
+
+    $naturalRatio = $geometry['naturalWidth'] / $geometry['naturalHeight'];
+    $renderedRatio = $geometry['width'] / $geometry['height'];
+
+    $geometry['ratioDiff'] = abs($naturalRatio - $renderedRatio);
+
+    return $geometry;
 }

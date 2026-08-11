@@ -8,6 +8,7 @@ use App\Enums\MediaKind;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
+use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Models\Category;
 use App\Models\Post;
@@ -122,6 +123,26 @@ final class CreatePostAction
 
                 Log::error('Failed to dispatch follower notification job.', [
                     'post_id' => $post->id,
+                    'exception' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($post->image_asset_id !== null) {
+            try {
+                // ->afterCommit(): the structural "after DB::transaction()
+                // returns" placement above is enough given how this action
+                // is called today (no outer transaction wraps it), but
+                // afterCommit() also makes it correct if that ever changes —
+                // Laravel simply runs it immediately when there's no open
+                // transaction, so this isn't a behavior change today.
+                GenerateMediaVariantsJob::dispatch($post->image_asset_id)->afterCommit();
+            } catch (Throwable $exception) {
+                report($exception);
+
+                Log::error('Failed to dispatch media variant generation job.', [
+                    'post_id' => $post->id,
+                    'media_asset_id' => $post->image_asset_id,
                     'exception' => $exception->getMessage(),
                 ]);
             }

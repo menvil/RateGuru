@@ -10,7 +10,9 @@ use App\Policies\ProjectSettingsPolicy;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
 use App\Services\Media\GdImageIngestor;
+use App\Services\Media\GdImageVariantProcessor;
 use App\Services\Media\ImageIngestor;
+use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
 use App\Support\Settings\ProjectSettingsManager;
@@ -36,6 +38,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(MediaStorage::class, FilesystemMediaStorage::class);
         $this->app->singleton(MediaUrlResolver::class, FilesystemMediaUrlResolver::class);
         $this->app->singleton(ImageIngestor::class, GdImageIngestor::class);
+        $this->app->singleton(ImageVariantProcessor::class, GdImageVariantProcessor::class);
     }
 
     /**
@@ -60,6 +63,12 @@ class AppServiceProvider extends ServiceProvider
         });
 
         View::composer('layouts.app', function ($view): void {
+            // The header renders auth()->user()->resolved_avatar_srcset,
+            // which never lazy-loads variants (see AvatarUrlResolver) — load
+            // it once here so the header actually gets a real srcset instead
+            // of silently always falling back to the master image.
+            auth()->user()?->loadMissing('avatarAsset.variants');
+
             $settings = app(ProjectSettingsManager::class)->current();
             $view->with(array_merge(app(AppLayoutData::class)->toArray(), [
                 'projectSettings' => $settings,

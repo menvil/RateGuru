@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\MediaVariantName;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use Illuminate\Database\QueryException;
@@ -34,9 +35,9 @@ it('does not store a canonical url column', function () {
 
 it('enforces a unique name per media asset', function () {
     $asset = MediaAsset::factory()->create();
-    MediaVariant::factory()->named('feed_640')->create(['media_asset_id' => $asset->id]);
+    MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create(['media_asset_id' => $asset->id]);
 
-    expect(fn () => MediaVariant::factory()->named('feed_640')->create(['media_asset_id' => $asset->id]))
+    expect(fn () => MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create(['media_asset_id' => $asset->id]))
         ->toThrow(QueryException::class);
 });
 
@@ -44,10 +45,10 @@ it('allows the same variant name across different media assets', function () {
     $first = MediaAsset::factory()->create();
     $second = MediaAsset::factory()->create();
 
-    MediaVariant::factory()->named('feed_640')->create(['media_asset_id' => $first->id]);
-    MediaVariant::factory()->named('feed_640')->create(['media_asset_id' => $second->id]);
+    MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create(['media_asset_id' => $first->id]);
+    MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create(['media_asset_id' => $second->id]);
 
-    expect(MediaVariant::query()->where('name', 'feed_640')->count())->toBe(2);
+    expect(MediaVariant::query()->where('name', MediaVariantName::PostFeed640)->count())->toBe(2);
 });
 
 it('cascades deletes from media asset to its variants', function () {

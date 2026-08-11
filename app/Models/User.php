@@ -162,6 +162,17 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
         return app(AvatarUrlResolver::class)->url($this);
     }
 
+    /**
+     * Same compatibility-accessor shape as getResolvedAvatarUrlAttribute()
+     * above, for the srcset half of AvatarUrlResolver::responsive(). Reads
+     * the already-loaded avatarAsset.variants relation — no query here
+     * beyond what resolved_avatar_url already risks lazy-loading.
+     */
+    public function getResolvedAvatarSrcsetAttribute(): ?string
+    {
+        return app(AvatarUrlResolver::class)->responsive($this)?->srcset;
+    }
+
     public function canAccessPanel(Panel $panel): bool
     {
         if ($panel->getId() !== 'admin') {

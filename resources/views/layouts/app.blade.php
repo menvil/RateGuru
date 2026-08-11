@@ -109,6 +109,7 @@
                                 >
                                     <x-ui.avatar
                                         :src="auth()->user()->resolved_avatar_url"
+                                        :srcset="auth()->user()->resolved_avatar_srcset"
                                         :name="auth()->user()->name ?: auth()->user()->username"
                                         color="purple"
                                         size="lg"

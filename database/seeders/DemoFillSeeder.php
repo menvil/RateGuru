@@ -23,6 +23,7 @@ use App\Models\RatingVote;
 use App\Models\User;
 use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaStorage;
+use App\Services\Media\MediaVariantGenerator;
 use App\Support\Media\ImageOrientationClassifier;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
@@ -143,7 +144,7 @@ class DemoFillSeeder extends Seeder
         [0x3B82F6, 0xF97316],
     ];
 
-    public function run(MediaStorage $mediaStorage): void
+    public function run(MediaStorage $mediaStorage, MediaVariantGenerator $mediaVariantGenerator): void
     {
         if (! app()->environment(['local', 'testing'])) {
             $this->command->warn('DemoFillSeeder only runs in local/testing environment.');
@@ -158,7 +159,7 @@ class DemoFillSeeder extends Seeder
         $this->clearGeneratedMedia();
 
         $this->command->info('Creating '.count($this->postTitles()).' posts with images...');
-        $posts = $this->createPosts($users, $mediaStorage);
+        $posts = $this->createPosts($users, $mediaStorage, $mediaVariantGenerator);
 
         $this->command->info('Removing previously generated interactions...');
         $this->clearGeneratedInteractions($users, $posts);
@@ -217,7 +218,7 @@ class DemoFillSeeder extends Seeder
     // Posts
     // -------------------------------------------------------------------------
 
-    private function createPosts(Collection $users, MediaStorage $mediaStorage): Collection
+    private function createPosts(Collection $users, MediaStorage $mediaStorage, MediaVariantGenerator $mediaVariantGenerator): Collection
     {
         $titles = $this->postTitles();
         $categoryIds = Category::query()->active()->ordered()->pluck('id')->all();
@@ -253,8 +254,10 @@ class DemoFillSeeder extends Seeder
                 ? null
                 : $categoryIds[$index % count($categoryIds)];
 
+            $imageAssetId = null;
+
             try {
-                DB::transaction(function () use ($author, $title, $imagePath, $existingImageAssetId, $categoryId, $baseTime, $index, $now, $mediaStorage): void {
+                DB::transaction(function () use ($author, $title, $imagePath, $existingImageAssetId, $categoryId, $baseTime, $index, $now, $mediaStorage, &$imageAssetId): void {
                     $imageAssetId = $this->ensurePostImageMediaAsset($imagePath, $author->id, $existingImageAssetId, $mediaStorage);
 
                     // Raw query builder (not Eloquent) is intentional here:
@@ -296,6 +299,15 @@ class DemoFillSeeder extends Seeder
                 }
 
                 throw $exception;
+            }
+
+            // Synchronous, not queued: this seeder needs every post's
+            // variants to exist by the time it finishes, and QUEUE_CONNECTION
+            // is sync locally anyway — dispatching would just add indirection.
+            $imageAsset = MediaAsset::find($imageAssetId);
+
+            if ($imageAsset !== null) {
+                $mediaVariantGenerator->generateAll($imageAsset);
             }
 
             $this->command->getOutput()->write('.');

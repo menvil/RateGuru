@@ -32,81 +32,10 @@ function ingestInput(string $bytes, ?string $originalFilename = 'photo.jpg', Ima
     return new ImageInput($bytes, $originalFilename, $source);
 }
 
-/**
- * Distinct marker colors in each corner: TL=red, TR=green, BL=blue,
- * BR=white — lets orientation tests assert on physical pixel positions, not
- * just reported dimensions.
- */
-function makeMarkerImage(int $width, int $height): GdImage
-{
-    $im = imagecreatetruecolor($width, $height);
-    imagefill($im, 0, 0, imagecolorallocate($im, 0, 0, 0));
-    imagesetpixel($im, 0, 0, imagecolorallocate($im, 255, 0, 0));
-    imagesetpixel($im, $width - 1, 0, imagecolorallocate($im, 0, 255, 0));
-    imagesetpixel($im, 0, $height - 1, imagecolorallocate($im, 0, 0, 255));
-    imagesetpixel($im, $width - 1, $height - 1, imagecolorallocate($im, 255, 255, 255));
-
-    return $im;
-}
-
-function markerCornerColor(GdImage $im, int $x, int $y): string
-{
-    $rgb = imagecolorsforindex($im, imagecolorat($im, $x, $y));
-
-    return match (true) {
-        $rgb['red'] > 200 && $rgb['green'] < 50 && $rgb['blue'] < 50 => 'RED',
-        $rgb['green'] > 200 && $rgb['red'] < 50 && $rgb['blue'] < 50 => 'GREEN',
-        $rgb['blue'] > 200 && $rgb['red'] < 50 && $rgb['green'] < 50 => 'BLUE',
-        $rgb['red'] > 200 && $rgb['green'] > 200 && $rgb['blue'] > 200 => 'WHITE',
-        default => 'OTHER',
-    };
-}
-
-/** @return array{tl: string, tr: string, bl: string, br: string, width: int, height: int} */
-function markerCorners(string $bytes): array
-{
-    $im = imagecreatefromstring($bytes);
-    $w = imagesx($im);
-    $h = imagesy($im);
-
-    return [
-        'tl' => markerCornerColor($im, 0, 0),
-        'tr' => markerCornerColor($im, $w - 1, 0),
-        'bl' => markerCornerColor($im, 0, $h - 1),
-        'br' => markerCornerColor($im, $w - 1, $h - 1),
-        'width' => $w,
-        'height' => $h,
-    ];
-}
-
-function jpegMarkerBytes(int $width = 20, int $height = 10, int $quality = 90): string
-{
-    $im = makeMarkerImage($width, $height);
-    ob_start();
-    imagejpeg($im, null, $quality);
-
-    return ob_get_clean();
-}
-
-/** @param 'png'|'webp' $format */
-function markerBytesWithAlpha(string $format, int $width = 20, int $height = 10): string
-{
-    $im = imagecreatetruecolor($width, $height);
-    imagealphablending($im, false);
-    imagesavealpha($im, true);
-    imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
-    imagesetpixel($im, 0, 0, imagecolorallocatealpha($im, 255, 0, 0, 0));
-    imagesetpixel($im, $width - 1, 0, imagecolorallocatealpha($im, 0, 255, 0, 0));
-    imagesetpixel($im, 0, $height - 1, imagecolorallocatealpha($im, 0, 0, 255, 0));
-    ob_start();
-
-    match ($format) {
-        'png' => imagepng($im),
-        'webp' => imagewebp($im),
-    };
-
-    return ob_get_clean();
-}
+// makeMarkerImage()/markerCornerColor()/markerCorners()/jpegMarkerBytes()/
+// markerBytesWithAlpha() live in tests/Pest.php — shared across Media test
+// files, which requires them to be in Pest's always-loaded bootstrap rather
+// than a bare function in any one test file (see the comment there).
 
 function gifBytes(int $width = 20, int $height = 10): string
 {
