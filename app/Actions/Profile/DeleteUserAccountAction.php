@@ -15,8 +15,6 @@ final class DeleteUserAccountAction
 
     public function execute(User $user): void
     {
-        Auth::guard('web')->logout();
-
         // The account delete and the media release below run as one DB
         // transaction: either both commit — the user (and everything that
         // cascades from it) is gone *and* its now-unreferenced media is
@@ -71,5 +69,13 @@ final class DeleteUserAccountAction
             // orphaned-but-still-active media.
             $this->lifecycleService->releaseUnreferenced($assetIds);
         });
+
+        // Only reached once the transaction above has actually committed —
+        // if it throws (a media-release failure rolling everything back),
+        // this line never runs, so the caller stays authenticated against
+        // an account that, per the DB, was never deleted. Logging out
+        // first (the previous behavior) would have left the session logged
+        // out even though the account still fully existed.
+        Auth::guard('web')->logout();
     }
 }

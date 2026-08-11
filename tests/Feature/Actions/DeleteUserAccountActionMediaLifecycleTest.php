@@ -197,3 +197,33 @@ it('rolls back the entire account deletion, including the already-cascaded post,
     expect(MediaAsset::find($avatar->id)->trashed())->toBeFalse();
     expect(MediaAsset::find($image->id)->trashed())->toBeFalse();
 });
+
+it('leaves the session authenticated if the transaction rolls back before logout runs', function () {
+    // logout() only runs after DB::transaction() returns successfully — if
+    // it ran first (the previous behavior), a rolled-back release failure
+    // would still log the caller out of an account that, per the DB, was
+    // never actually deleted.
+    $avatar = MediaAsset::factory()->avatar()->create();
+    $user = User::factory()->create(['avatar_asset_id' => $avatar->id]);
+    $this->actingAs($user);
+
+    $originalChecker = app(MediaReferenceChecker::class);
+
+    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
+    {
+        public function referencedAssetIds(Collection $assetIds): Collection
+        {
+            throw new RuntimeException('Simulated media release failure.');
+        }
+    });
+
+    try {
+        expect(fn () => app(DeleteUserAccountAction::class)->execute($user))
+            ->toThrow(RuntimeException::class, 'Simulated media release failure.');
+    } finally {
+        app()->instance(MediaReferenceChecker::class, $originalChecker);
+    }
+
+    $this->assertAuthenticated();
+    expect(User::find($user->id))->not->toBeNull();
+});
