@@ -1,7 +1,12 @@
 <?php
 
+use App\Enums\MediaVariantName;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
+use App\Services\Media\GdImageVariantProcessor;
+use App\Services\Media\GeneratedMediaVariant;
+use App\Services\Media\ImageVariantProcessor;
+use App\Services\Media\MediaVariantSpecification;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
@@ -64,7 +69,7 @@ it('rejects an invalid --variant value', function () {
     $this->artisan('media:generate-variants --variant=bogus')->assertExitCode(1);
 });
 
-it('treats a variant as missing when its row exists but its physical file is gone, and --missing-only regenerates only that file', function () {
+it('treats a variant as missing when its row exists but its physical file is gone, and --missing-only regenerates only that variant', function () {
     $asset = createReadyPostAsset();
 
     $this->artisan('media:generate-variants')->assertExitCode(0);
@@ -76,11 +81,39 @@ it('treats a variant as missing when its row exists but its physical file is gon
 
     $otherIds = MediaVariant::query()->where('name', '!=', 'open_graph')->pluck('id')->sort()->values()->all();
 
+    // Spy on the processor itself: the previous version of this test only
+    // asserted the other three rows' ids were unchanged, which does NOT
+    // prove their files weren't needlessly re-encoded and rewritten to disk
+    // (MediaVariantWriter's updateOrCreate() leaves ids unchanged either
+    // way). Tracking exactly which specs the processor is asked to generate
+    // is the only way to prove recovery touches only the missing variant.
+    $trackingProcessor = new class implements ImageVariantProcessor
+    {
+        /** @var list<string> */
+        public array $invoked = [];
+
+        public function generate(string $masterBytes, string $mimeType, MediaVariantSpecification $specification): GeneratedMediaVariant
+        {
+            $this->invoked[] = $specification->name->value;
+
+            return app(GdImageVariantProcessor::class)->generate($masterBytes, $mimeType, $specification);
+        }
+    };
+    $this->app->instance(ImageVariantProcessor::class, $trackingProcessor);
+
     $this->artisan('media:generate-variants --missing-only')->assertExitCode(0);
+
+    expect($trackingProcessor->invoked)->toBe([MediaVariantName::OpenGraph->value]);
 
     Storage::disk($variant->disk)->assertExists($variant->path);
     expect(MediaVariant::query()->count())->toBe(4)
         ->and(MediaVariant::query()->where('name', '!=', 'open_graph')->pluck('id')->sort()->values()->all())->toBe($otherIds);
+});
+
+it('rejects passing --force and --missing-only together', function () {
+    $this->artisan('media:generate-variants --force --missing-only')->assertExitCode(1);
+
+    expect(MediaVariant::query()->count())->toBe(0);
 });
 
 it('rejects a non-numeric --asset value', function () {

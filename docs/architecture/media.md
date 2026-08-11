@@ -337,21 +337,36 @@ been replaced, so deleting would leave nothing, and the row's metadata may be
 transiently stale until a successful retry.
 
 **Dispatch** (`MediaVariantGenerator`, `GenerateMediaVariantsJob`): generation
-is a plain service (`MediaVariantGenerator::generateAll(MediaAsset $asset, ?MediaVariantName $only = null)`),
+is a plain service
+(`MediaVariantGenerator::generateAll(MediaAsset $asset, ?MediaVariantName $only = null, bool $force = false)`),
 not job logic itself, so both the queued job and `DemoFillSeeder` can call the
 identical code path — the seeder synchronously (this app's
 `QUEUE_CONNECTION=sync` locally makes a real dispatch pure indirection there),
 real uploads via `GenerateMediaVariantsJob::dispatch($mediaAssetId)->afterCommit()`
 from both `CreatePostAction` and `UpdateUserProfileAction`. The optional
 `$only` filter exists so the CLI's `--variant=` option and a future targeted
-retry can regenerate a single named variant without touching the others. A
-failure on any one spec inside `generateAll()` propagates immediately rather
-than being caught per-spec: `updateOrCreate()` makes redoing already-succeeded
-specs on a retry a safe, cheap no-op, so failing the whole call is a simple,
-deliberate tradeoff over partial-success bookkeeping. The registry lists
-`open_graph` last for `MediaKind::PostImage`, so the three feed/detail specs
-always generate (and their rows survive a retry untouched) even on a run
-where `open_graph` specifically fails.
+retry can regenerate a single named variant without touching the others.
+
+By default (`$force = false`), `generateAll()` skips a spec whose row *and*
+physical file both already exist (`MediaStorage::exists()`) — it never
+re-encodes or rewrites something that's already correct. For a brand-new
+asset (the job/seeder's own call sites) nothing exists yet, so "missing" is
+simply "everything", making this identical to full generation there, at the
+cost of one cheap extra query per call to check what (if anything) already
+exists. `$force = true` (the CLI's `--force`) bypasses that check entirely
+and rewrites every applicable spec regardless — used deliberately, not the
+default, since rewriting an already-correct variant is wasted work the vast
+majority of the time this command runs.
+
+A failure on any one spec inside `generateAll()` propagates immediately
+rather than being caught per-spec: `updateOrCreate()` makes redoing
+already-succeeded specs on a retry a safe, cheap no-op (and, since PR-06,
+the skip-if-already-generated check above means a clean retry doesn't even
+attempt to redo them) — failing the whole call is a simple, deliberate
+tradeoff over partial-success bookkeeping. The registry lists `open_graph`
+last for `MediaKind::PostImage`, so the three feed/detail specs always
+generate first (and are never touched again on a retry) even on a run where
+`open_graph` specifically fails.
 
 **Reliability** (PR-06): `GenerateMediaVariantsJob` declares `tries = 3`,
 `backoff = [10, 60, 300]`, `timeout = 120` — real retry semantics for a real
@@ -382,7 +397,12 @@ where two dispatches for the same asset genuinely overlap in time.
 
 **Presentation** (`PostImagePresenter::responsive()`, `AvatarUrlResolver::responsive()`,
 `ResponsiveImage`): each reads the already-loaded `variants` relation only
-(no query) and returns a `src`/`srcset`/`sizes`/`width`/`height` DTO. Post
+(no query, no storage I/O — a stale row whose file is gone still renders an
+`<img>` pointing at it) and returns a `src`/`srcset`/`sizes`/`width`/`height`
+DTO. `PostImagePresenter::openGraph()` (see "Open Graph media variant" below)
+is the one exception to "no storage I/O": every OG candidate is checked with
+`MediaStorage::exists()` before use, since a crawler that 404s on a stale
+`og:image` is a worse, longer-lived problem than the extra check costs. Post
 images pick a different variant set per context (feed/drawer prefer
 `post_feed_640`/`post_feed_1280`; standalone prefers `post_feed_1280`/
 `post_detail_1920`; fullscreen prefers `post_detail_1920`, adding the master
@@ -398,29 +418,32 @@ from the same `loading === null` (eager) signal the `:eager-image="$loop->first"
 mechanism already set, not a separate prop.
 
 **CLI**: `php artisan media:generate-variants {--asset=} {--kind=} {--variant=} {--missing-only} {--force} {--chunk=200}`
-backfills variants for existing assets — `--missing-only` (default) skips
-assets that already have every applicable variant, `--force` regenerates
-everything matching the filters, `--variant=` (PR-06) restricts processing to
-one named variant (e.g. `--variant=open_graph`, to backfill just the Open
-Graph crop for assets created before PR-06 without touching their already-
-generated feed/detail variants). There is deliberately no separate
-`media:generate-og` command — one command with a filter, not a second
-command, per the same reasoning that keeps generation itself as one shared
-service rather than a variant-specific job. Runs synchronously, chunked,
-logging and continuing past a single asset's failure rather than aborting the
-run.
+backfills variants for existing assets — `--missing-only` (default, and also
+accepted explicitly; passing both `--force` and `--missing-only` together is
+rejected as a contradiction) skips assets that already have every applicable
+variant and, per asset, skips only the specs that are already valid (see
+`generateAll()`'s `$force` parameter above); `--force` regenerates everything
+matching the filters regardless of what already exists; `--variant=` (PR-06)
+restricts processing to one named variant (e.g. `--variant=open_graph`, to
+backfill just the Open Graph crop for assets created before PR-06 without
+touching their already-generated feed/detail variants). There is deliberately
+no separate `media:generate-og` command — one command with a filter, not a
+second command, per the same reasoning that keeps generation itself as one
+shared service rather than a variant-specific job. Runs synchronously,
+chunked, logging and continuing past a single asset's failure rather than
+aborting the run.
 
-**Missing-file recovery** (PR-06): `--missing-only`'s "missing" check
-considers a variant missing when either its `media_variants` row doesn't
-exist *or* its row exists but the physical file at `(disk, path)` is gone
-(`MediaStorage::exists()`) — recovering from a variant whose row survived but
-whose file was lost (e.g. a wiped staging disk) as well as from one that was
-simply never generated. This existence check only ever runs inside the
-command's own chunked loop, off the request path — it is never added to
-`PostImagePresenter`/`AvatarUrlResolver` or any other render-path code, which
-continue to trust an already-loaded `variants` relation without touching
-storage. There is still no corruption/integrity scanner (a `media_variants`
-row whose file exists but is truncated or corrupted is not detected) — that
+**Missing-file recovery** (PR-06): "missing" (both the command's own
+per-asset skip check and `generateAll()`'s own per-spec skip check) means a
+variant whose `media_variants` row doesn't exist *or* whose row exists but
+the physical file at `(disk, path)` is gone (`MediaStorage::exists()`) —
+recovering from a variant whose row survived but whose file was lost (e.g. a
+wiped staging disk) as well as from one that was simply never generated.
+`PostImagePresenter::openGraph()` (see "Open Graph media variant" below) also
+checks existence, but only for its own three OG-image candidates — never
+`responsive()`, and never on every page render for anything but that specific
+DTO. There is still no corruption/integrity scanner (a `media_variants` row
+whose file exists but is truncated or corrupted is not detected) — that
 remains deferred, along with orphan detection, to PR-07.
 
 **Operational recovery step**: if variants for existing assets are ever found
@@ -487,18 +510,24 @@ private-safety shape exactly: `MediaUrlResolver::publicUrlOrNull()` is
 checked *before* any variant lookup, so a private post's image never leaks a
 URL as `og:image` regardless of whether `variants` happens to be
 eager-loaded, and `variants` is never lazy-loaded (an asset loaded without
-`imageAsset.variants` falls back to the master, not an N+1 query). All URLs
-still go through `MediaUrlResolver` exclusively — nothing manually builds a
-`/storage/...` path. `og:image:width`/`height`/`type` — already conditionally
-rendered in `post-show.blade.php` since PR-05 — now receive real values
-(`1200`/`630`/`image/jpeg` for the dedicated variant, the source's own
-dimensions/mime for a master/detail fallback) instead of always `null`;
-`twitter:image` reuses the exact same resolved image and `og:image:alt`/
-`twitter:image:alt`, since this app doesn't maintain a separately-cropped
-Twitter asset. A post with no image, or a private image, never reaches any
-of the above — `PostImagePresenter::openGraph()` returns `null` immediately,
-and `PostOpenGraph::image()`'s existing (unchanged) `null` branch supplies
-the static placeholder — the same one used before PR-06, not a new
+`imageAsset.variants` falls back to the master, not an N+1 query). Unlike
+`responsive()`, every candidate here — `open_graph`, `post_detail_1920`, and
+the master — is additionally checked with `MediaStorage::exists()` before
+being used, moving on to the next candidate (and ultimately to `null`, i.e.
+the static placeholder) when a row's file has been lost; a social crawler
+caching a 404'd preview is a worse, longer-lived outcome than the extra
+existence check costs on a post-show render. All URLs still go through
+`MediaUrlResolver` exclusively — nothing manually builds a `/storage/...`
+path. `og:image:width`/`height`/`type` — already conditionally rendered in
+`post-show.blade.php` since PR-05 — now receive real values (`1200`/`630`/
+`image/jpeg` for the dedicated variant, the source's own dimensions/mime for
+a master/detail fallback) instead of always `null`; `twitter:image` reuses
+the exact same resolved image and `og:image:alt`/`twitter:image:alt`, since
+this app doesn't maintain a separately-cropped Twitter asset. A post with no
+image, or a private image, never reaches any of the above —
+`PostImagePresenter::openGraph()` returns `null` immediately, and
+`PostOpenGraph::image()`'s existing (unchanged) `null` branch supplies the
+static placeholder — the same one used before PR-06, not a new
 auto-generated placeholder.
 
 **Regression fix bundled with this work**: `PublishedPostDetailsQuery` (backs

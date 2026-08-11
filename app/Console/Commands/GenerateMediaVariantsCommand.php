@@ -33,6 +33,13 @@ final class GenerateMediaVariantsCommand extends Command
     public function handle(MediaVariantGenerator $generator, MediaVariantSpecificationRegistry $registry, MediaStorage $storage): int
     {
         $force = (bool) $this->option('force');
+        $missingOnly = (bool) $this->option('missing-only');
+
+        if ($force && $missingOnly) {
+            $this->error('--force and --missing-only are mutually exclusive.');
+
+            return self::FAILURE;
+        }
 
         $variantFilter = $this->variantFilter();
 
@@ -69,7 +76,7 @@ final class GenerateMediaVariantsCommand extends Command
                 $processed++;
 
                 try {
-                    $generator->generateAll($asset, $variantFilter);
+                    $generator->generateAll($asset, $variantFilter, force: $force);
                     $generated++;
                 } catch (Throwable $exception) {
                     $failures++;

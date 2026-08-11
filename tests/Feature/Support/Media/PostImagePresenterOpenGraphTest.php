@@ -12,6 +12,19 @@ beforeEach(function () {
     Storage::fake('public');
 });
 
+/**
+ * openGraph() checks physical file existence for every candidate (unlike
+ * responsive()) — a stale DB row pointing at a deleted file must never leak
+ * as an og:image URL a crawler would 404 on. Tests that expect a candidate
+ * to actually be chosen must write real bytes at that candidate's own
+ * (disk, path); tests that don't call this leave the row deliberately
+ * stale, to exercise the fallback.
+ */
+function putMediaBytes(string $disk, string $path): void
+{
+    Storage::disk($disk)->put($path, 'test-bytes');
+}
+
 it('returns null when the post has no image asset', function () {
     $post = Post::factory()->published()->create(['image_asset_id' => null])->load('imageAsset.variants');
 
@@ -36,6 +49,7 @@ it('returns null for a private image asset even when its variants are already lo
 
 it('falls back to the master image and its own dimensions when no open graph or detail variant exists yet', function () {
     $asset = MediaAsset::factory()->postImage()->dimensions(1600, 900)->create();
+    putMediaBytes($asset->disk, $asset->path);
     $post = Post::factory()->published()->create(['image_asset_id' => $asset->id])
         ->load('imageAsset.variants');
 
@@ -49,6 +63,7 @@ it('falls back to the master image and its own dimensions when no open graph or 
 
 it('falls back to the master image when imageAsset.variants is not eager-loaded, never lazy-loading', function () {
     $asset = MediaAsset::factory()->postImage()->dimensions(1600, 900)->create();
+    putMediaBytes($asset->disk, $asset->path);
     MediaVariant::factory()->named(MediaVariantName::OpenGraph)->create([
         'media_asset_id' => $asset->id,
         'width' => 1200,
@@ -67,18 +82,20 @@ it('falls back to the master image when imageAsset.variants is not eager-loaded,
 
 it('prefers the dedicated open graph variant over post_detail_1920 and the master', function () {
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create();
-    MediaVariant::factory()->named(MediaVariantName::PostDetail1920)->create([
+    $detail = MediaVariant::factory()->named(MediaVariantName::PostDetail1920)->create([
         'media_asset_id' => $asset->id,
         'width' => 1920,
         'height' => 1280,
         'mime_type' => 'image/jpeg',
     ]);
-    MediaVariant::factory()->named(MediaVariantName::OpenGraph)->create([
+    $openGraph = MediaVariant::factory()->named(MediaVariantName::OpenGraph)->create([
         'media_asset_id' => $asset->id,
         'width' => 1200,
         'height' => 630,
         'mime_type' => 'image/jpeg',
     ]);
+    putMediaBytes($detail->disk, $detail->path);
+    putMediaBytes($openGraph->disk, $openGraph->path);
     $post = Post::factory()->published()->create(['image_asset_id' => $asset->id])
         ->load('imageAsset.variants');
 
@@ -91,11 +108,12 @@ it('prefers the dedicated open graph variant over post_detail_1920 and the maste
 
 it('falls back to post_detail_1920 when the open graph variant does not exist yet', function () {
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create();
-    MediaVariant::factory()->named(MediaVariantName::PostDetail1920)->create([
+    $detail = MediaVariant::factory()->named(MediaVariantName::PostDetail1920)->create([
         'media_asset_id' => $asset->id,
         'width' => 1920,
         'height' => 1280,
     ]);
+    putMediaBytes($detail->disk, $detail->path);
     $post = Post::factory()->published()->create(['image_asset_id' => $asset->id])
         ->load('imageAsset.variants');
 
@@ -107,6 +125,7 @@ it('falls back to post_detail_1920 when the open graph variant does not exist ye
 
 it('never falls back to a feed-sized variant, even when it is the only variant available', function () {
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create();
+    putMediaBytes($asset->disk, $asset->path);
     MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create([
         'media_asset_id' => $asset->id,
         'width' => 640,
@@ -121,4 +140,43 @@ it('never falls back to a feed-sized variant, even when it is the only variant a
     // to the master's own dimensions instead.
     expect($image->width)->toBe($asset->width)
         ->and($image->height)->toBe($asset->height);
+});
+
+it('skips an open graph variant whose row exists but whose physical file is gone, falling through to a still-existing post_detail_1920', function () {
+    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create();
+    // Open graph row exists, but no bytes are ever written for it —
+    // simulates a lost/wiped physical file with a still-present row.
+    MediaVariant::factory()->named(MediaVariantName::OpenGraph)->create([
+        'media_asset_id' => $asset->id,
+        'width' => 1200,
+        'height' => 630,
+    ]);
+    $detail = MediaVariant::factory()->named(MediaVariantName::PostDetail1920)->create([
+        'media_asset_id' => $asset->id,
+        'width' => 1920,
+        'height' => 1280,
+    ]);
+    putMediaBytes($detail->disk, $detail->path);
+    $post = Post::factory()->published()->create(['image_asset_id' => $asset->id])
+        ->load('imageAsset.variants');
+
+    $image = app(PostImagePresenter::class)->openGraph($post);
+
+    expect($image->width)->toBe(1920)
+        ->and($image->height)->toBe(1280);
+});
+
+it('returns null when every candidate record points at a physical file that no longer exists', function () {
+    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create();
+    // Neither the open graph variant nor the master itself has any bytes
+    // written — every candidate is a stale record.
+    MediaVariant::factory()->named(MediaVariantName::OpenGraph)->create([
+        'media_asset_id' => $asset->id,
+        'width' => 1200,
+        'height' => 630,
+    ]);
+    $post = Post::factory()->published()->create(['image_asset_id' => $asset->id])
+        ->load('imageAsset.variants');
+
+    expect(app(PostImagePresenter::class)->openGraph($post))->toBeNull();
 });

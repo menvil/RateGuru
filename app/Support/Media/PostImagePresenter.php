@@ -5,9 +5,11 @@ namespace App\Support\Media;
 use App\Enums\MediaVariantName;
 use App\Enums\MediaVisibility;
 use App\Enums\PostImageContext;
+use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Services\Media\MediaLocation;
+use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
 use Illuminate\Support\Collection;
 
@@ -51,6 +53,7 @@ final class PostImagePresenter
 
     public function __construct(
         private readonly MediaUrlResolver $resolver,
+        private readonly MediaStorage $storage,
     ) {}
 
     public function url(Post $post): ?string
@@ -130,6 +133,15 @@ final class PostImagePresenter
      * checked before any variant lookup, so a private post never exposes an
      * og:image regardless of whether `variants` happens to be eager-loaded,
      * and `variants` is never lazy-loaded.
+     *
+     * Unlike responsive(), every candidate here is also checked against
+     * physical storage (MediaStorage::exists()) before being used: a social
+     * crawler that fetches a stale URL and gets a 404 is a much worse,
+     * longer-lived outcome (crawlers cache OG previews) than the extra
+     * existence check costs on a post-show render. A row whose file is gone
+     * is treated exactly like a row that doesn't exist — the chain moves on
+     * to the next candidate, and returns null (→ the static placeholder)
+     * once every candidate, including the master, is exhausted.
      */
     public function openGraph(Post $post): ?OpenGraphImage
     {
@@ -146,23 +158,49 @@ final class PostImagePresenter
         }
 
         if (! $asset->relationLoaded('variants')) {
-            return new OpenGraphImage($masterUrl, $asset->mime_type, $asset->width, $asset->height);
+            return $this->openGraphFromMaster($asset, $masterUrl);
         }
 
         $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
 
-        $chosen = $this->firstExisting($variants, [
+        $chosen = $this->firstExistingOnDisk($variants, [
             MediaVariantName::OpenGraph,
             MediaVariantName::PostDetail1920,
         ]);
 
         if ($chosen === null) {
-            return new OpenGraphImage($masterUrl, $asset->mime_type, $asset->width, $asset->height);
+            return $this->openGraphFromMaster($asset, $masterUrl);
         }
 
         $url = $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility);
 
         return new OpenGraphImage($url, $chosen->mime_type, $chosen->width, $chosen->height);
+    }
+
+    private function openGraphFromMaster(MediaAsset $asset, string $masterUrl): ?OpenGraphImage
+    {
+        if (! $this->storage->exists(new MediaLocation($asset->disk, $asset->path))) {
+            return null;
+        }
+
+        return new OpenGraphImage($masterUrl, $asset->mime_type, $asset->width, $asset->height);
+    }
+
+    /**
+     * @param  Collection<string, MediaVariant>  $variants
+     * @param  list<MediaVariantName>  $names
+     */
+    private function firstExistingOnDisk(Collection $variants, array $names): ?MediaVariant
+    {
+        foreach ($names as $name) {
+            $variant = $variants->get($name->value);
+
+            if ($variant !== null && $this->storage->exists(new MediaLocation($variant->disk, $variant->path))) {
+                return $variant;
+            }
+        }
+
+        return null;
     }
 
     /**

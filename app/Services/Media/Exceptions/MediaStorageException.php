@@ -26,4 +26,9 @@ final class MediaStorageException extends RuntimeException
     {
         return new self("Media not found at [{$disk}:{$path}].", previous: $previous);
     }
+
+    public static function couldNotReadStream(string $disk, string $path): self
+    {
+        return new self("Could not read media stream at [{$disk}:{$path}].");
+    }
 }
