@@ -291,3 +291,81 @@ function variantSpec(
 ): MediaVariantSpecification {
     return new MediaVariantSpecification($name, $maxWidth, $maxHeight, $mode, $quality);
 }
+
+/**
+ * Shared by MediaAspectRatioBrowserTest and ResponsiveMediaBrowserTest — see
+ * the block comment above for why cross-file browser-test helpers live here
+ * rather than as a bare function in either file.
+ *
+ * Several contexts (drawer, fullscreen, non-first feed cards) render
+ * loading="lazy". Reading naturalWidth/naturalHeight before the browser has
+ * actually decoded the image would yield 0/0 → a NaN ratio that fails the
+ * assertion regardless of fit, nondeterministically depending on load
+ * timing (worse under CI's --parallel, where workers compete for CPU).
+ * `complete` can turn true slightly before pixel decoding has actually
+ * finished, so each poll also awaits image.decode() itself (Pest's
+ * $page->script() awaits a returned Promise, same as Playwright's
+ * page.evaluate) rather than trusting the synchronous flags alone.
+ */
+function waitForImageLoaded(mixed $page, string $selector, float $timeoutSeconds = 5.0): void
+{
+    $deadline = microtime(true) + $timeoutSeconds;
+
+    while (microtime(true) < $deadline) {
+        $loaded = $page->script(<<<JS
+            (async () => {
+                const img = document.querySelector('{$selector}');
+                if (!img || !img.complete || img.naturalWidth === 0) {
+                    return false;
+                }
+                try {
+                    await img.decode();
+                } catch (e) {
+                    return false;
+                }
+                return true;
+            })()
+        JS);
+
+        if ($loaded) {
+            return;
+        }
+
+        usleep(100_000);
+    }
+
+    throw new RuntimeException("Image [{$selector}] did not finish loading within {$timeoutSeconds}s.");
+}
+
+/**
+ * Compares the rendered <img> box ratio against the image's own natural
+ * ratio. object-fit: cover would force the box toward the *container's*
+ * ratio instead, so a mismatch here is exactly what would catch a
+ * regression back to cropping.
+ *
+ * @return array{naturalWidth: int, naturalHeight: int, width: float, height: float, ratioDiff: float}
+ */
+function imageFitGeometry(mixed $page, string $selector): array
+{
+    waitForImageLoaded($page, $selector);
+
+    $geometry = $page->script(<<<JS
+        (() => {
+            const img = document.querySelector('{$selector}');
+            const rect = img.getBoundingClientRect();
+            return {
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight,
+                width: rect.width,
+                height: rect.height,
+            };
+        })()
+    JS);
+
+    $naturalRatio = $geometry['naturalWidth'] / $geometry['naturalHeight'];
+    $renderedRatio = $geometry['width'] / $geometry['height'];
+
+    $geometry['ratioDiff'] = abs($naturalRatio - $renderedRatio);
+
+    return $geometry;
+}
