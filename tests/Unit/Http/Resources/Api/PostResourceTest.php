@@ -1,10 +1,14 @@
 <?php
 
+use App\Enums\MediaVariantName;
 use App\Http\Resources\Api\PostResource as ApiPostResource;
+use App\Models\MediaAsset;
+use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 uses(TestCase::class, RefreshDatabase::class);
@@ -111,4 +115,28 @@ it('does not force-load author and tags in post resource', function () {
     expect($post->relationLoaded('tags'))->toBeFalse();
     expect($data['author'])->toBeNull();
     expect($data['tags'])->toBe([]);
+});
+
+it('falls back to the master image and issues no query when imageAsset.variants is not eager-loaded', function () {
+    $asset = MediaAsset::factory()->postImage()->dimensions(1600, 900)->create();
+    MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create([
+        'media_asset_id' => $asset->id,
+        'width' => 640,
+        'height' => 360,
+    ]);
+    $post = Post::factory()->published()->create(['image_asset_id' => $asset->id])
+        ->load('imageAsset'); // imageAsset loaded, imageAsset.variants deliberately not
+
+    $queryCount = 0;
+    DB::listen(function () use (&$queryCount): void {
+        $queryCount++;
+    });
+
+    $data = (new ApiPostResource($post))->resolve();
+
+    expect($queryCount)->toBe(0)
+        ->and($data['image_srcset'])->toBeNull()
+        ->and($data['image_sizes'])->toBeNull()
+        ->and($data['image_width'])->toBe(1600)
+        ->and($data['image_height'])->toBe(900);
 });

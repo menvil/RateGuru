@@ -95,7 +95,7 @@ final class GdImageVariantProcessor implements ImageVariantProcessor
 
     private function resample(GdImage $source, string $mimeType, int $targetWidth, int $targetHeight, int $srcX, int $srcY, int $copyWidth, int $copyHeight): GdImage
     {
-        $destination = imagecreatetruecolor($targetWidth, $targetHeight);
+        $destination = $this->createCanvas($targetWidth, $targetHeight);
 
         if ($mimeType === 'image/png' || $mimeType === 'image/webp') {
             imagealphablending($destination, false);
@@ -117,6 +117,28 @@ final class GdImageVariantProcessor implements ImageVariantProcessor
         }
 
         return $destination;
+    }
+
+    /**
+     * imagecreatetruecolor() can return false (invalid dimensions, or
+     * allocation failure under memory pressure) rather than throwing — left
+     * unchecked, that false would reach imagealphablending() et al. as a
+     * GdImage-typed argument and surface as an uncaught TypeError instead of
+     * the exception contract generate() promises.
+     */
+    private function createCanvas(int $width, int $height): GdImage
+    {
+        try {
+            $canvas = $this->withNativeErrorsAsExceptions(static fn (): GdImage|false => imagecreatetruecolor($width, $height));
+        } catch (Throwable $exception) {
+            throw MediaVariantGenerationException::couldNotResample($exception);
+        }
+
+        if (! $canvas instanceof GdImage) {
+            throw MediaVariantGenerationException::couldNotResample();
+        }
+
+        return $canvas;
     }
 
     private function encode(GdImage $image, string $mimeType, int $quality): string

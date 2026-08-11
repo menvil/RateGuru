@@ -4,70 +4,12 @@ use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Services\Media\Exceptions\MediaVariantGenerationException;
 use App\Services\Media\GdImageVariantProcessor;
-use App\Services\Media\MediaVariantSpecification;
 
-/**
- * Solid corner BLOCKS (not single pixels, unlike GdImageIngestorTest's own
- * makeMarkerImage()) — a single marker pixel gets diluted below
- * markerCornerColor()'s detection threshold once imagecopyresampled()'s
- * interpolation and JPEG's lossy compression both apply, which never
- * happens to GdImageIngestorTest's own pixel-preserving flip/rotate. Block
- * size scales with the image so it survives even the most aggressive
- * downscale in this file's own dataset (4000x500 -> 640x80, ~0.16x).
- */
-function containResizeMarkerBytes(int $width, int $height): string
-{
-    return solidCornerBlockJpeg($width, $height, 0, 0, $width, $height);
-}
-
-/**
- * Places the four marker color blocks at the region that will become a
- * CoverSquare crop's four corners, rather than the source image's own
- * absolute corners — lets a crop+resize be verified with the same
- * markerCorners() reader GdImageIngestorTest already defines.
- */
-function coverSquareCropMarkerBytes(int $width, int $height): string
-{
-    $cropSize = min($width, $height);
-    $cropX = intdiv($width - $cropSize, 2);
-    $cropY = intdiv($height - $cropSize, 2);
-
-    return solidCornerBlockJpeg($width, $height, $cropX, $cropY, $cropSize, $cropSize);
-}
-
-function solidCornerBlockJpeg(int $width, int $height, int $regionX, int $regionY, int $regionW, int $regionH): string
-{
-    $blockW = max(4, (int) round($regionW * 0.15));
-    $blockH = max(4, (int) round($regionH * 0.15));
-
-    $im = imagecreatetruecolor($width, $height);
-    imagefill($im, 0, 0, imagecolorallocate($im, 0, 0, 0));
-
-    $red = imagecolorallocate($im, 255, 0, 0);
-    $green = imagecolorallocate($im, 0, 255, 0);
-    $blue = imagecolorallocate($im, 0, 0, 255);
-    $white = imagecolorallocate($im, 255, 255, 255);
-
-    imagefilledrectangle($im, $regionX, $regionY, $regionX + $blockW - 1, $regionY + $blockH - 1, $red);
-    imagefilledrectangle($im, $regionX + $regionW - $blockW, $regionY, $regionX + $regionW - 1, $regionY + $blockH - 1, $green);
-    imagefilledrectangle($im, $regionX, $regionY + $regionH - $blockH, $regionX + $blockW - 1, $regionY + $regionH - 1, $blue);
-    imagefilledrectangle($im, $regionX + $regionW - $blockW, $regionY + $regionH - $blockH, $regionX + $regionW - 1, $regionY + $regionH - 1, $white);
-
-    ob_start();
-    imagejpeg($im, null, 90);
-
-    return ob_get_clean();
-}
-
-function variantSpec(
-    MediaVariantName $name = MediaVariantName::PostFeed640,
-    int $maxWidth = 640,
-    int $maxHeight = 1280,
-    MediaResizeMode $mode = MediaResizeMode::Contain,
-    int $quality = 82,
-): MediaVariantSpecification {
-    return new MediaVariantSpecification($name, $maxWidth, $maxHeight, $mode, $quality);
-}
+// containResizeMarkerBytes()/coverSquareCropMarkerBytes()/
+// solidCornerBlockJpeg()/variantSpec() live in tests/Pest.php — shared with
+// MediaVariantWriterTest, which requires them to be in Pest's always-loaded
+// bootstrap rather than a bare function in this file (see the comment
+// there).
 
 it('contain-resizes without cropping, matching every hand-verified example', function (int $srcW, int $srcH, int $maxW, int $maxH, int $expectedW, int $expectedH) {
     $bytes = containResizeMarkerBytes($srcW, $srcH);

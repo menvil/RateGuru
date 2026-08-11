@@ -15,9 +15,9 @@ use Illuminate\Support\Collection;
  * The only thing that knows a post's image comes from imageAsset — callers
  * never touch disk/path/Storage themselves. Reads the asset's own
  * disk/path/visibility and hands the resolver plain data — the resolver
- * itself never touches the imageAsset relation. responsive() reads the
- * already-loaded `variants` relation only — no query is issued here, so
- * callers must eager-load `imageAsset.variants`.
+ * itself never touches the imageAsset relation. responsive() never lazy-loads
+ * `variants`: when a caller hasn't eager-loaded `imageAsset.variants`, it
+ * falls back to the master-image DTO instead of issuing a query.
  */
 final class PostImagePresenter
 {
@@ -72,10 +72,18 @@ final class PostImagePresenter
             return null;
         }
 
+        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+
+        // Never lazy-load: a caller that forgot to eager-load
+        // imageAsset.variants gets the master-fallback DTO instead of an
+        // N+1 query per post.
+        if (! $asset->relationLoaded('variants')) {
+            return $masterUrl === null ? null : new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
+        }
+
         $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
 
         $chosen = $this->firstExisting($variants, $this->fallbackChain($context));
-        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
 
         if ($chosen === null) {
             return $masterUrl === null ? null : new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);

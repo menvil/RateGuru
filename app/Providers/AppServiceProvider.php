@@ -63,6 +63,12 @@ class AppServiceProvider extends ServiceProvider
         });
 
         View::composer('layouts.app', function ($view): void {
+            // The header renders auth()->user()->resolved_avatar_srcset,
+            // which never lazy-loads variants (see AvatarUrlResolver) — load
+            // it once here so the header actually gets a real srcset instead
+            // of silently always falling back to the master image.
+            auth()->user()?->loadMissing('avatarAsset.variants');
+
             $settings = app(ProjectSettingsManager::class)->current();
             $view->with(array_merge(app(AppLayoutData::class)->toArray(), [
                 'projectSettings' => $settings,

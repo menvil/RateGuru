@@ -15,11 +15,11 @@ soft-deletable.
 ## MediaVariant is a derived file
 
 `media_variants` holds files produced *from* a master asset — a resized feed
-crop, a detail size, an avatar thumbnail, and (later, PR-06) an Open Graph
-crop. Each variant belongs to one `MediaAsset`, has a `name` unique per asset,
-and its own `disk`/`path`/dimensions/mime/byte size. As of PR-05, five variant
-names are actually generated for JPEG/PNG/WebP assets — see "Responsive media
-variants" below for what, how, and when.
+rendition, a resized detail size, a cropped avatar thumbnail, and (later,
+PR-06) a cropped Open Graph image. Each variant belongs to one `MediaAsset`,
+has a `name` unique per asset, and its own `disk`/`path`/dimensions/mime/byte
+size. As of PR-05, five variant names are actually generated for JPEG/PNG/WebP
+assets — see "Responsive media variants" below for what, how, and when.
 
 ## Canonical identity is disk + path, not a URL
 

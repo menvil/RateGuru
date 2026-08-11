@@ -64,9 +64,26 @@ final class MediaVariantWriter
         }
     }
 
+    /**
+     * Best-effort, same shape as StoredMediaCleaner::deleteIfUnclaimed():
+     * skips deletion when another MediaVariant row now claims this exact
+     * (disk, path) — a concurrent retry for the same asset+spec could have
+     * written and committed its own row in the window between this attempt's
+     * file write and its failing upsert, and deleting the file then would
+     * orphan that other, successful row instead of just this failed one.
+     */
     private function deleteQuietly(MediaLocation $location): void
     {
         try {
+            $claimed = MediaVariant::query()
+                ->where('disk', $location->disk)
+                ->where('path', $location->path)
+                ->exists();
+
+            if ($claimed) {
+                return;
+            }
+
             $this->storage->delete($location);
         } catch (Throwable $cleanupException) {
             report($cleanupException);

@@ -15,9 +15,10 @@ use App\Services\Media\MediaUrlResolver;
  * itself never touches the avatarAsset relation. Returns null when there is
  * no avatar; rendering a fallback (initials, generated avatar, etc.) is a
  * presentation-layer concern this class deliberately knows nothing about —
- * see resources/views/components/ui/avatar.blade.php. responsive() reads the
- * already-loaded `variants` relation only — no query is issued here, so
- * callers must eager-load `avatarAsset.variants`.
+ * see resources/views/components/ui/avatar.blade.php. responsive() never
+ * lazy-loads `variants`: when a caller hasn't eager-loaded
+ * `avatarAsset.variants`, it falls back to the master-image DTO instead of
+ * issuing a query.
  */
 final class AvatarUrlResolver
 {
@@ -51,6 +52,15 @@ final class AvatarUrlResolver
             return null;
         }
 
+        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+
+        // Never lazy-load: a caller that forgot to eager-load
+        // avatarAsset.variants gets the master-fallback DTO instead of an
+        // N+1 query per user.
+        if (! $asset->relationLoaded('variants')) {
+            return $masterUrl === null ? null : new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
+        }
+
         $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
 
         $small = $variants->get(MediaVariantName::Avatar128->value);
@@ -59,8 +69,6 @@ final class AvatarUrlResolver
         $chosen = $small ?? $large;
 
         if ($chosen === null) {
-            $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
-
             return $masterUrl === null ? null : new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
         }
 

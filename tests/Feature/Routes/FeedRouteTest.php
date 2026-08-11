@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 it('serves feed page on home route', function () {
@@ -92,6 +93,29 @@ it('resolves header user menu avatar via the resolved avatar accessor', function
     $html = $this->actingAs($user)->get('/')->getContent();
 
     expect($html)->toContain('avatars/header-user.jpg');
+});
+
+it('preloads the header avatar variants relation with exactly one query, not one per relation access', function () {
+    Storage::fake('public');
+
+    $user = User::factory()->withAvatar(path: 'avatars/header-user.jpg')->create();
+
+    $variantQueries = 0;
+    DB::listen(function ($query) use (&$variantQueries): void {
+        if (str_contains($query->sql, 'media_variants')) {
+            $variantQueries++;
+        }
+    });
+
+    $this->actingAs($user)->get('/')->assertOk();
+
+    // AvatarUrlResolver::responsive() never lazy-loads variants (it falls
+    // back to the master instead) — the only query against media_variants on
+    // this page comes from the layouts.app composer's single
+    // loadMissing('avatarAsset.variants') call, not one per accessor call
+    // (resolved_avatar_url / resolved_avatar_srcset are both read from the
+    // header markup).
+    expect($variantQueries)->toBe(1);
 });
 
 it('listens for post uploaded event to close upload modal', function () {
