@@ -18,5 +18,20 @@ final readonly class MediaVariantSpecification
         public int $maxHeight,
         public MediaResizeMode $mode,
         public int $quality,
+        public ?string $outputMimeType = null,
     ) {}
+
+    /**
+     * Whether generating this variant for a source image of the given
+     * dimensions would require upscaling (Contain never upscales; the two
+     * cover modes crop-to-fill and so upscale whenever either source
+     * dimension is smaller than the corresponding target).
+     */
+    public function wouldUpscale(int $sourceWidth, int $sourceHeight): bool
+    {
+        return match ($this->mode) {
+            MediaResizeMode::Contain => false,
+            MediaResizeMode::CoverSquare, MediaResizeMode::Cover => $sourceWidth < $this->maxWidth || $sourceHeight < $this->maxHeight,
+        };
+    }
 }

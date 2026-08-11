@@ -21,14 +21,14 @@ it('generates variants for every eligible asset by default', function () {
 
     $this->artisan('media:generate-variants')->assertExitCode(0);
 
-    expect($asset->variants()->count())->toBe(3);
+    expect($asset->variants()->count())->toBe(4);
 });
 
 it('skips assets that already have every applicable variant unless --force is given', function () {
     $asset = createReadyPostAsset();
 
     $this->artisan('media:generate-variants')->assertExitCode(0);
-    expect(MediaVariant::query()->count())->toBe(3);
+    expect(MediaVariant::query()->count())->toBe(4);
 
     $firstIds = MediaVariant::query()->pluck('id')->sort()->values()->all();
 
@@ -38,7 +38,7 @@ it('skips assets that already have every applicable variant unless --force is gi
 
     // --force reprocesses the same asset; still idempotent on the row count.
     $this->artisan('media:generate-variants --force')->assertExitCode(0);
-    expect(MediaVariant::query()->count())->toBe(3);
+    expect(MediaVariant::query()->count())->toBe(4);
 });
 
 it('filters by --asset', function () {
@@ -47,8 +47,40 @@ it('filters by --asset', function () {
 
     $this->artisan('media:generate-variants --asset='.$target->id)->assertExitCode(0);
 
-    expect($target->variants()->count())->toBe(3)
+    expect($target->variants()->count())->toBe(4)
         ->and($other->variants()->count())->toBe(0);
+});
+
+it('filters by --variant, generating only the requested variant', function () {
+    $asset = createReadyPostAsset();
+
+    $this->artisan('media:generate-variants --variant=open_graph')->assertExitCode(0);
+
+    $names = $asset->variants()->get()->map(fn (MediaVariant $v) => $v->name->value)->all();
+    expect($names)->toBe(['open_graph']);
+});
+
+it('rejects an invalid --variant value', function () {
+    $this->artisan('media:generate-variants --variant=bogus')->assertExitCode(1);
+});
+
+it('treats a variant as missing when its row exists but its physical file is gone, and --missing-only regenerates only that file', function () {
+    $asset = createReadyPostAsset();
+
+    $this->artisan('media:generate-variants')->assertExitCode(0);
+    expect(MediaVariant::query()->count())->toBe(4);
+
+    $variant = $asset->variants()->where('name', 'open_graph')->firstOrFail();
+    Storage::disk($variant->disk)->delete($variant->path);
+    Storage::disk($variant->disk)->assertMissing($variant->path);
+
+    $otherIds = MediaVariant::query()->where('name', '!=', 'open_graph')->pluck('id')->sort()->values()->all();
+
+    $this->artisan('media:generate-variants --missing-only')->assertExitCode(0);
+
+    Storage::disk($variant->disk)->assertExists($variant->path);
+    expect(MediaVariant::query()->count())->toBe(4)
+        ->and(MediaVariant::query()->where('name', '!=', 'open_graph')->pluck('id')->sort()->values()->all())->toBe($otherIds);
 });
 
 it('rejects a non-numeric --asset value', function () {
@@ -77,5 +109,5 @@ it('respects a small --chunk size while still processing every eligible asset', 
 
     $this->artisan('media:generate-variants --chunk=1')->assertExitCode(0);
 
-    expect(MediaVariant::query()->count())->toBe(9);
+    expect(MediaVariant::query()->count())->toBe(12);
 });

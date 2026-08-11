@@ -2,10 +2,11 @@
 
 namespace App\Services\Media;
 
-use App\Enums\MediaResizeMode;
 use App\Enums\MediaStatus;
+use App\Enums\MediaVariantName;
 use App\Models\MediaAsset;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Generates every applicable variant for one MediaAsset. Plain service (not
@@ -26,7 +27,7 @@ final class MediaVariantGenerator
         private readonly MediaStorage $storage,
     ) {}
 
-    public function generateAll(MediaAsset $asset): void
+    public function generateAll(MediaAsset $asset, ?MediaVariantName $only = null): void
     {
         if ($asset->trashed() || $asset->status !== MediaStatus::Ready) {
             return;
@@ -39,25 +40,44 @@ final class MediaVariantGenerator
         $masterBytes = $this->readMasterBytes($asset);
 
         foreach ($this->registry->for($asset->kind) as $specification) {
-            // Only CoverSquare specs are ever skipped for being too small —
-            // Contain specs always generate, capped at the source's own size
-            // when smaller than the bounds, never upscaled.
-            if ($specification->mode === MediaResizeMode::CoverSquare && min($asset->width, $asset->height) < $specification->maxWidth) {
+            if ($only !== null && $specification->name !== $only) {
                 continue;
             }
 
-            $this->writer->write($asset, $masterBytes, $specification);
+            // Cover/CoverSquare specs are skipped when the source is too
+            // small to crop-to-fill without upscaling — Contain specs always
+            // generate, capped at the source's own size when smaller than
+            // the bounds, never upscaled.
+            if ($specification->wouldUpscale($asset->width, $asset->height)) {
+                continue;
+            }
 
-            Log::info('Generated media variant.', [
-                'media_asset_id' => $asset->id,
-                'variant' => $specification->name->value,
-            ]);
+            try {
+                $this->writer->write($asset, $masterBytes, $specification);
+            } catch (Throwable $exception) {
+                Log::error('MediaVariantGenerator: variant generation failed.', [
+                    'media_asset_id' => $asset->id,
+                    'variant' => $specification->name->value,
+                    'exception_class' => $exception::class,
+                ]);
+
+                throw $exception;
+            }
         }
     }
 
     private function readMasterBytes(MediaAsset $asset): string
     {
-        $stream = $this->storage->readStream(new MediaLocation($asset->disk, $asset->path));
+        try {
+            $stream = $this->storage->readStream(new MediaLocation($asset->disk, $asset->path));
+        } catch (Throwable $exception) {
+            Log::error('MediaVariantGenerator: master image missing or unreadable.', [
+                'media_asset_id' => $asset->id,
+                'exception_class' => $exception::class,
+            ]);
+
+            throw $exception;
+        }
 
         try {
             return stream_get_contents($stream);

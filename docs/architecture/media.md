@@ -15,11 +15,12 @@ soft-deletable.
 ## MediaVariant is a derived file
 
 `media_variants` holds files produced *from* a master asset — a resized feed
-rendition, a resized detail size, a cropped avatar thumbnail, and (later,
+rendition, a resized detail size, a cropped avatar thumbnail, and (as of
 PR-06) a cropped Open Graph image. Each variant belongs to one `MediaAsset`,
 has a `name` unique per asset, and its own `disk`/`path`/dimensions/mime/byte
-size. As of PR-05, five variant names are actually generated for JPEG/PNG/WebP
-assets — see "Responsive media variants" below for what, how, and when.
+size. As of PR-06, six variant names are actually generated for JPEG/PNG/WebP
+post-image/avatar assets — see "Responsive media variants" and "Open Graph
+media variant" below for what, how, and when.
 
 ## Canonical identity is disk + path, not a URL
 
@@ -71,13 +72,8 @@ orphaned. This is still not full lifecycle management — see PR-07 below.
 
 The legacy `posts.og_image_path` column and the generator/job that populated
 it are gone. Architecturally, an Open Graph crop is a `MediaVariant` named
-`open_graph` on a post's image asset — but generating one is out of scope
-here. `PostOpenGraph::image()` now falls back straight to the post's master
-image (`public_image_url`), the same fallback used when there's no image at
-all, and from there to the static placeholder asset. There is no visible
-functional change for users; the only difference is that a post no longer
-carries a second, separately-generated crop. Building the actual `open_graph`
-variant pipeline (crop, size limits, queue reliability) is PR-06's job.
+`open_graph` on a post's image asset — see "Open Graph media variant" below
+for the actual pipeline (PR-06).
 
 ## MediaStorage and MediaUrlResolver
 
@@ -302,13 +298,17 @@ PR-05 generates five fixed variants from the master image, stores them as
 **Variants** (`MediaVariantSpecificationRegistry`): three post-image variants
 (`post_feed_640`, `post_feed_1280`, `post_detail_1920`, all `Contain` mode —
 scaled down to fit within bounds preserving aspect ratio, capped at the
-source's own size, never upscaled) and two avatar variants (`avatar_128`,
+source's own size, never upscaled), a fourth post-image-only variant
+(`open_graph`, see below), and two avatar variants (`avatar_128`,
 `avatar_256`, both `CoverSquare` mode — the largest centered square cropped
-out of the source, then resized to an exact size). A `CoverSquare` spec is
-skipped entirely when the source is smaller than the target size (never
+out of the source, then resized to an exact size). A `CoverSquare`/`Cover`
+spec is skipped entirely when the source is smaller than the target size in
+either dimension (`MediaVariantSpecification::wouldUpscale()` — never
 upscaled, never generated undersized-but-mislabeled); a `Contain` spec always
 generates, since capping at the source's own size *is* its no-upscale
-behavior.
+behavior. `MediaKind::Avatar` never gets an `open_graph` variant — the
+registry's `for(MediaKind::Avatar)` array simply doesn't declare one, so
+there is no runtime branch to get wrong.
 
 **Generation** (`GdImageVariantProcessor`, mirroring `GdImageIngestor`'s own
 scoped-error-handling and alpha-preservation idioms rather than sharing code
@@ -316,6 +316,11 @@ that was never exported): decode the master, resample per spec in a single
 `imagecopyresampled()` call, re-encode, then re-derive and cross-check
 mime/dimensions from the output bytes before returning — the same
 belt-and-suspenders validation `GdImageIngestor` applies to its own output.
+Every spec's crop/resize is one of two plans: `planContain()` (no crop, just
+scale-to-fit) or `planCover(srcW, srcH, targetW, targetH)` (scale-to-cover
+plus a centered crop to the target's own aspect ratio) — `CoverSquare`'s
+"largest centered square" is just `planCover()` called with an equal
+width/height target, not a separately-implemented case.
 
 **Storage and idempotency** (`MediaVariantPathGenerator`, `MediaVariantWriter`):
 a variant's path is derived deterministically from its master's own,
@@ -332,18 +337,48 @@ been replaced, so deleting would leave nothing, and the row's metadata may be
 transiently stale until a successful retry.
 
 **Dispatch** (`MediaVariantGenerator`, `GenerateMediaVariantsJob`): generation
-is a plain service (`MediaVariantGenerator::generateAll()`), not job logic
-itself, so both the queued job and `DemoFillSeeder` can call the identical
-code path — the seeder synchronously (this app's `QUEUE_CONNECTION=sync`
-locally makes a real dispatch pure indirection there), real uploads via
-`GenerateMediaVariantsJob::dispatch($mediaAssetId)`. As with
-`NotifyFollowersAboutNewPostJob`, "dispatch after commit" is achieved purely
-structurally — the dispatch call sits textually after `DB::transaction()`
-returns, not via `->afterCommit()`, which nothing in this codebase uses. A
+is a plain service (`MediaVariantGenerator::generateAll(MediaAsset $asset, ?MediaVariantName $only = null)`),
+not job logic itself, so both the queued job and `DemoFillSeeder` can call the
+identical code path — the seeder synchronously (this app's
+`QUEUE_CONNECTION=sync` locally makes a real dispatch pure indirection there),
+real uploads via `GenerateMediaVariantsJob::dispatch($mediaAssetId)->afterCommit()`
+from both `CreatePostAction` and `UpdateUserProfileAction`. The optional
+`$only` filter exists so the CLI's `--variant=` option and a future targeted
+retry can regenerate a single named variant without touching the others. A
 failure on any one spec inside `generateAll()` propagates immediately rather
 than being caught per-spec: `updateOrCreate()` makes redoing already-succeeded
 specs on a retry a safe, cheap no-op, so failing the whole call is a simple,
-deliberate tradeoff over partial-success bookkeeping.
+deliberate tradeoff over partial-success bookkeeping. The registry lists
+`open_graph` last for `MediaKind::PostImage`, so the three feed/detail specs
+always generate (and their rows survive a retry untouched) even on a run
+where `open_graph` specifically fails.
+
+**Reliability** (PR-06): `GenerateMediaVariantsJob` declares `tries = 3`,
+`backoff = [10, 60, 300]`, `timeout = 120` — real retry semantics for a real
+queue driver. Today's `QUEUE_CONNECTION=sync`, however, has no worker process
+and no retry loop at all: `Illuminate\Queue\SyncQueue` runs the job inline and
+rethrows synchronously on failure, so `$tries`/`$backoff` are currently
+inert, declared for whenever this app moves to a real queue connection. The
+`JobFailed` event that would normally populate `failed_jobs` is only ever
+recorded by `Illuminate\Queue\Console\WorkCommand`, which nothing in this
+app runs — so `failed_jobs` is schema/config-present (the standard
+mechanism is used, nothing custom replaces it) but not actually populated
+today. The real, present-day safety net is the dispatch call site's own
+`catch (Throwable)` in `CreatePostAction`/`UpdateUserProfileAction`
+(`report()` + `Log::error('Failed to dispatch or run media variant
+generation.', ...)`), plus two more logging layers added in PR-06:
+`GenerateMediaVariantsJob::handle()` logs `media_asset_id`, the job's own
+UUID (`$this->job?->uuid()` — reliable even under `sync`, unlike
+`getJobId()`, which `SyncJob` hardcodes to `''`), attempt number, and the
+exception class before rethrowing; `MediaVariantGenerator` logs
+`media_asset_id`/`variant`/exception class for a per-spec failure, and
+`media_asset_id`/exception class if the master file itself can't be read.
+None of these ever log image bytes, URLs, or EXIF data, and there is no log
+line on the success path (only the CLI's own end-of-run summary). No outbox,
+no custom failed-job table, no `ShouldBeUnique` — the existing
+`MediaVariantWriter` lock (see above) already fully serializes concurrent
+writers for the same asset+variant, and under `sync` there is no scenario
+where two dispatches for the same asset genuinely overlap in time.
 
 **Presentation** (`PostImagePresenter::responsive()`, `AvatarUrlResolver::responsive()`,
 `ResponsiveImage`): each reads the already-loaded `variants` relation only
@@ -362,20 +397,130 @@ The first image in a feed/list loop gets `fetchpriority="high"` — derived
 from the same `loading === null` (eager) signal the `:eager-image="$loop->first"`
 mechanism already set, not a separate prop.
 
-**CLI**: `php artisan media:generate-variants {--asset=} {--kind=} {--missing-only} {--force} {--chunk=200}`
+**CLI**: `php artisan media:generate-variants {--asset=} {--kind=} {--variant=} {--missing-only} {--force} {--chunk=200}`
 backfills variants for existing assets — `--missing-only` (default) skips
 assets that already have every applicable variant, `--force` regenerates
-everything matching the filters. Runs synchronously, chunked, logging and
-continuing past a single asset's failure rather than aborting the run.
+everything matching the filters, `--variant=` (PR-06) restricts processing to
+one named variant (e.g. `--variant=open_graph`, to backfill just the Open
+Graph crop for assets created before PR-06 without touching their already-
+generated feed/detail variants). There is deliberately no separate
+`media:generate-og` command — one command with a filter, not a second
+command, per the same reasoning that keeps generation itself as one shared
+service rather than a variant-specific job. Runs synchronously, chunked,
+logging and continuing past a single asset's failure rather than aborting the
+run.
+
+**Missing-file recovery** (PR-06): `--missing-only`'s "missing" check
+considers a variant missing when either its `media_variants` row doesn't
+exist *or* its row exists but the physical file at `(disk, path)` is gone
+(`MediaStorage::exists()`) — recovering from a variant whose row survived but
+whose file was lost (e.g. a wiped staging disk) as well as from one that was
+simply never generated. This existence check only ever runs inside the
+command's own chunked loop, off the request path — it is never added to
+`PostImagePresenter`/`AvatarUrlResolver` or any other render-path code, which
+continue to trust an already-loaded `variants` relation without touching
+storage. There is still no corruption/integrity scanner (a `media_variants`
+row whose file exists but is truncated or corrupted is not detected) — that
+remains deferred, along with orphan detection, to PR-07.
+
+**Operational recovery step**: if variants for existing assets are ever found
+missing or lost on staging/production, the fix is running
+`php artisan media:generate-variants --missing-only` (optionally scoped with
+`--asset=`/`--kind=`/`--variant=`) by hand. This is a manual, human-triggered
+operational step, documented here rather than wired into any deploy or
+release automation — there is no migration/backfill script that runs it
+automatically.
+
+## Open Graph media variant
+
+PR-06 adds a fourth post-image variant, `open_graph`, and wires it into the
+`og:image`/`twitter:image` meta tags rendered on the post-show page.
+
+**Specification** (`MediaVariantSpecificationRegistry`, last entry under
+`MediaKind::PostImage`): exact `1200x630`, `Cover` mode (crop-to-fill, not
+letterboxed), always encoded as `image/jpeg` regardless of the master's own
+format (`MediaVariantSpecification::$outputMimeType`, a spec-level override —
+every other variant leaves this `null`, meaning "same as source"). The
+1200x630/`image/jpeg` values match `config/share.php`'s pre-existing
+`open_graph.*` block (already read by the SEO placeholder fallback before
+PR-06); a registry test cross-checks the two so they can't silently drift
+apart. Quality reuses the same fixed quality constant every other post-image/
+avatar variant uses — there is no separate, more complex quality-negotiation
+engine.
+
+**Crop**: `GdImageVariantProcessor::planCover(srcW, srcH, targetW, targetH)`
+generalizes the existing avatar `CoverSquare` math to an arbitrary (non-
+square) target aspect ratio — scale so the source fully covers the target
+rectangle, then crop the centered excess on whichever axis overflows.
+`planCoverSquare()` (still used by avatars) is now a thin call into
+`planCover()` with an equal width/height target; the two are verified
+(by test) to produce identical output for the same source, so avatar
+behavior is unchanged.
+
+**Format normalization**: when a spec declares `outputMimeType`, encoding
+uses that instead of the source's own mime type. For a JPEG-source master
+this is a no-op (opaque source, no alpha to lose). For a PNG/WebP master with
+transparency, the canvas is explicitly filled white
+(`imagecolorallocate(255,255,255)` + `imagefill()`) before the resample —
+without this, GD's default canvas fill (black, with alpha blending on) would
+let a transparent region bleed through as black once flattened to JPEG
+(which has no alpha channel at all). This flatten-to-white behavior is
+covered by a dedicated test asserting the previously-transparent corner
+pixel is white, not black, in the encoded JPEG output.
+
+**Upscale guard**: like avatars, `open_graph` is skipped (not generated,
+never generated undersized) when the source is smaller than 1200x630 in
+either dimension (`MediaVariantSpecification::wouldUpscale()`) — e.g. the
+demo seeder's own 800x600 generated placeholder images never get an
+`open_graph` variant, only the three `Contain` feed/detail variants, exactly
+as expected.
+
+**Path**: deterministic, exactly like every other variant —
+`MediaVariantPathGenerator` derives `.../variants/open_graph.jpg` from the
+master's own path, nested under it.
+
+**SEO presentation** (`PostImagePresenter::openGraph()`, `PostOpenGraph::image()`):
+fallback chain is `open_graph -> post_detail_1920 -> master -> the static
+placeholder image` — `post_feed_640`/`post_feed_1280` are never considered
+(too small for a social-share preview). This mirrors `responsive()`'s own
+private-safety shape exactly: `MediaUrlResolver::publicUrlOrNull()` is
+checked *before* any variant lookup, so a private post's image never leaks a
+URL as `og:image` regardless of whether `variants` happens to be
+eager-loaded, and `variants` is never lazy-loaded (an asset loaded without
+`imageAsset.variants` falls back to the master, not an N+1 query). All URLs
+still go through `MediaUrlResolver` exclusively — nothing manually builds a
+`/storage/...` path. `og:image:width`/`height`/`type` — already conditionally
+rendered in `post-show.blade.php` since PR-05 — now receive real values
+(`1200`/`630`/`image/jpeg` for the dedicated variant, the source's own
+dimensions/mime for a master/detail fallback) instead of always `null`;
+`twitter:image` reuses the exact same resolved image and `og:image:alt`/
+`twitter:image:alt`, since this app doesn't maintain a separately-cropped
+Twitter asset. A post with no image, or a private image, never reaches any
+of the above — `PostImagePresenter::openGraph()` returns `null` immediately,
+and `PostOpenGraph::image()`'s existing (unchanged) `null` branch supplies
+the static placeholder — the same one used before PR-06, not a new
+auto-generated placeholder.
+
+**Regression fix bundled with this work**: `PublishedPostDetailsQuery` (backs
+both the standalone post page and the drawer) never eager-loaded
+`imageAsset.variants`/`user.avatarAsset.variants` at all — unlike every list
+query (`FeedQuery`, `SavedPostsQuery`, etc.), which already did this in
+PR-05. This meant the standalone/drawer pages' own `responsive()` srcset (and
+now `openGraph()`) silently fell back to the master image only, since PR-05
+shipped. Fixed by adding the same eager-load PR-05's list queries already
+use.
 
 ## What this schema/storage work does not do
 
-Open Graph variant generation (PR-06), focal points/AI cropping, a crop UI,
-AVIF or other format negotiation, `<picture>` markup, an actual S3/CDN
-deployment, imgproxy, temporary signed URLs, legacy data backfill beyond the
-CLI command above, an orphan/lifecycle scanner (PR-07), URL-import hardening
-(PR-08), video/GIF variants, or a general third-party media library/schema
-redesign. New `MediaAsset` rows are still created synchronously as `ready`
+Focal points/AI cropping, a crop UI, AVIF or other format negotiation,
+`<picture>` markup, an actual S3/CDN deployment, imgproxy, temporary signed
+URLs, legacy data backfill beyond the CLI command above, an orphan/lifecycle
+scanner (PR-07), URL-import hardening (PR-08), video/GIF variants, a general
+third-party media library/schema redesign, an outbox/durable event bus/
+workflow engine or any queue-infrastructure migration (Horizon, a custom
+failed-job UI, a corruption/integrity scanner), or observability/admin
+diagnostics for the media pipeline beyond structured failure logging
+(PR-09). New `MediaAsset` rows are still created synchronously as `ready`
 the moment a file is stored — there is no processing pipeline for anything to
 be `processing` or `failed` in normal operation (those statuses exist for
 later use); variant *generation* is what's now asynchronous (queued) or
@@ -398,8 +543,13 @@ PR landed.
   `MediaVariant` rows described above and switching post-image/avatar
   rendering to `srcset`/`sizes`/real `width`/`height`. No Open Graph, no
   format negotiation, no crop UI.
-- **PR-06** — Open Graph variant generation: build the `open_graph`
-  `MediaVariant` pipeline this schema already has a home for.
+- **PR-06** (done) — Open Graph variant: the `open_graph` `MediaVariant`
+  (exact `1200x630`, cover crop, JPEG-normalized), SEO fallback chain
+  (`open_graph -> post_detail_1920 -> master -> static placeholder`), and
+  background-generation reliability hardening (structured failure logging at
+  both the job and generator layers, `--variant=`/missing-file recovery on
+  the CLI). No outbox, no queue-infrastructure migration, no admin
+  diagnostics — see "Open Graph media variant" and "Reliability" above.
 - **PR-07** — Asset lifecycle: orphan detection/cleanup, and actually
   deleting a replaced avatar's physical file (today it's soft-deleted in the
   database but deliberately left on disk).
@@ -407,3 +557,8 @@ PR landed.
   protection, redirect-security redesign, streaming-downloader rewrite. Not
   started — PR-04 only changed what happens to bytes after they're
   downloaded, not the download/fetch layer itself.
+- **PR-09** — Media pipeline observability/admin diagnostics: surfacing
+  variant-generation failures (today only in application logs) somewhere an
+  operator can actually see them without grepping logs — e.g. an admin view
+  of assets missing an expected variant, or a corruption/integrity scanner.
+  Not started; explicitly out of scope for PR-06.

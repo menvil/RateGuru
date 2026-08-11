@@ -3,10 +3,12 @@
 namespace App\Console\Commands;
 
 use App\Enums\MediaKind;
-use App\Enums\MediaResizeMode;
 use App\Enums\MediaStatus;
+use App\Enums\MediaVariantName;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
+use App\Services\Media\MediaLocation;
+use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaVariantGenerator;
 use App\Services\Media\MediaVariantSpecificationRegistry;
 use Illuminate\Console\Command;
@@ -21,15 +23,22 @@ final class GenerateMediaVariantsCommand extends Command
     protected $signature = 'media:generate-variants
         {--asset= : Only process the MediaAsset with this id}
         {--kind= : Only process assets of this kind (post_image or avatar)}
+        {--variant= : Only process this specific variant name (e.g. open_graph)}
         {--missing-only : Only process assets missing at least one applicable variant (default)}
         {--force : Regenerate every matching asset\'s variants, even ones that already exist}
         {--chunk=200 : Number of assets to load per chunk}';
 
     protected $description = 'Generate responsive media variants for post image / avatar assets.';
 
-    public function handle(MediaVariantGenerator $generator, MediaVariantSpecificationRegistry $registry): int
+    public function handle(MediaVariantGenerator $generator, MediaVariantSpecificationRegistry $registry, MediaStorage $storage): int
     {
         $force = (bool) $this->option('force');
+
+        $variantFilter = $this->variantFilter();
+
+        if ($variantFilter === false) {
+            return self::FAILURE;
+        }
 
         $query = MediaAsset::query()
             ->with('variants')
@@ -49,18 +58,18 @@ final class GenerateMediaVariantsCommand extends Command
         $generated = 0;
         $failures = 0;
 
-        $query->orderBy('id')->chunkById($chunkSize, function ($assets) use (&$processed, &$generated, &$failures, $progress, $generator, $registry, $force): void {
+        $query->orderBy('id')->chunkById($chunkSize, function ($assets) use (&$processed, &$generated, &$failures, $progress, $generator, $registry, $storage, $force, $variantFilter): void {
             foreach ($assets as $asset) {
                 $progress?->advance();
 
-                if (! $force && ! $this->isMissingAnyVariant($asset, $registry)) {
+                if (! $force && ! $this->isMissingAnyVariant($asset, $registry, $storage, $variantFilter)) {
                     continue;
                 }
 
                 $processed++;
 
                 try {
-                    $generator->generateAll($asset);
+                    $generator->generateAll($asset, $variantFilter);
                     $generated++;
                 } catch (Throwable $exception) {
                     $failures++;
@@ -140,30 +149,60 @@ final class GenerateMediaVariantsCommand extends Command
     }
 
     /**
-     * A CoverSquare spec too small to ever generate (see
-     * MediaVariantGenerator) doesn't count as "missing" — it will never be
-     * generated regardless of how many times this command runs.
+     * A Cover/CoverSquare spec too small to ever generate (see
+     * MediaVariantGenerator::wouldUpscale()) doesn't count as "missing" — it
+     * will never be generated regardless of how many times this command
+     * runs. A spec whose row exists but whose physical file is gone also
+     * counts as missing, so --missing-only recovers from manual file loss
+     * (e.g. a wiped staging disk) as well as from a never-generated row.
      */
-    private function isMissingAnyVariant(MediaAsset $asset, MediaVariantSpecificationRegistry $registry): bool
+    private function isMissingAnyVariant(MediaAsset $asset, MediaVariantSpecificationRegistry $registry, MediaStorage $storage, ?MediaVariantName $only): bool
     {
-        $existingNames = $asset->variants
-            ->map(fn (MediaVariant $variant): string => $variant->name->value)
-            ->all();
+        $existingByName = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
 
         foreach ($registry->for($asset->kind) as $specification) {
-            if (in_array($specification->name->value, $existingNames, true)) {
+            if ($only !== null && $specification->name !== $only) {
                 continue;
             }
 
-            if ($specification->mode === MediaResizeMode::CoverSquare
-                && min($asset->width, $asset->height) < $specification->maxWidth) {
+            if ($specification->wouldUpscale($asset->width, $asset->height)) {
                 continue;
             }
 
-            return true;
+            $existing = $existingByName->get($specification->name->value);
+
+            if ($existing === null) {
+                return true;
+            }
+
+            if (! $storage->exists(new MediaLocation($existing->disk, $existing->path))) {
+                return true;
+            }
         }
 
         return false;
+    }
+
+    /**
+     * @return MediaVariantName|null|false false signals an invalid option value (already reported to the user)
+     */
+    private function variantFilter(): MediaVariantName|null|false
+    {
+        $rawVariant = $this->option('variant');
+
+        if ($rawVariant === null) {
+            return null;
+        }
+
+        $variant = MediaVariantName::tryFrom($rawVariant);
+
+        if ($variant === null) {
+            $this->error("Invalid --variant value: [{$rawVariant}].");
+
+            return false;
+        }
+
+        return $variant;
     }
 
     private function chunkSize(): int

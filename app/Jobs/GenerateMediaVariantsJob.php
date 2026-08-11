@@ -7,6 +7,7 @@ use App\Services\Media\MediaVariantGenerator;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 final class GenerateMediaVariantsJob implements ShouldQueue
 {
@@ -30,6 +31,19 @@ final class GenerateMediaVariantsJob implements ShouldQueue
             return;
         }
 
-        $generator->generateAll($asset);
+        try {
+            $generator->generateAll($asset);
+        } catch (Throwable $exception) {
+            Log::error('GenerateMediaVariantsJob: variant generation failed.', [
+                'media_asset_id' => $this->mediaAssetId,
+                // Real per-dispatch UUID even under the sync queue (unlike
+                // $this->job->getJobId(), which SyncJob hardcodes to '').
+                'job_uuid' => $this->job?->uuid(),
+                'attempt' => $this->attempts(),
+                'exception_class' => $exception::class,
+            ]);
+
+            throw $exception;
+        }
     }
 }

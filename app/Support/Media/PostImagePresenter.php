@@ -123,6 +123,49 @@ final class PostImagePresenter
     }
 
     /**
+     * The single, fixed image used for Open Graph / Twitter card meta tags.
+     * Fallback chain is open_graph -> post_detail_1920 -> master (never
+     * feed_640, which is far too small for a social-share preview). Mirrors
+     * responsive()'s private-safety shape exactly: publicUrlOrNull() is
+     * checked before any variant lookup, so a private post never exposes an
+     * og:image regardless of whether `variants` happens to be eager-loaded,
+     * and `variants` is never lazy-loaded.
+     */
+    public function openGraph(Post $post): ?OpenGraphImage
+    {
+        $asset = $post->imageAsset;
+
+        if ($asset === null) {
+            return null;
+        }
+
+        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+
+        if ($masterUrl === null) {
+            return null;
+        }
+
+        if (! $asset->relationLoaded('variants')) {
+            return new OpenGraphImage($masterUrl, $asset->mime_type, $asset->width, $asset->height);
+        }
+
+        $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
+
+        $chosen = $this->firstExisting($variants, [
+            MediaVariantName::OpenGraph,
+            MediaVariantName::PostDetail1920,
+        ]);
+
+        if ($chosen === null) {
+            return new OpenGraphImage($masterUrl, $asset->mime_type, $asset->width, $asset->height);
+        }
+
+        $url = $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility);
+
+        return new OpenGraphImage($url, $chosen->mime_type, $chosen->width, $chosen->height);
+    }
+
+    /**
      * @param  Collection<string, MediaVariant>  $variants
      * @param  list<MediaVariantName>  $names
      */

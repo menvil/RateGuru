@@ -9,4 +9,5 @@ enum MediaVariantName: string
     case PostDetail1920 = 'post_detail_1920';
     case Avatar128 = 'avatar_128';
     case Avatar256 = 'avatar_256';
+    case OpenGraph = 'open_graph';
 }
