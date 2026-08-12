@@ -142,7 +142,7 @@ action layer's own guard only rejects re-shadowbanning.
 ## Where lifecycle checks live
 
 - Enforcement call sites go through the capability API:
-  `PostPolicy::create/report/deleteFromFeed`, `AddCommentAction`,
+  `PostPolicy::create/report/vote/deleteFromFeed`, `AddCommentAction`,
   `VotePostAction`, `VoteCommentAction`, `VoteRatingOptionAction`,
   `ReportContentAction`, `FollowAuthorAction`, `CreatePostAction`
   (auto-publish trust gate), `User::canAccessPanel()`.

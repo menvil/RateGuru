@@ -55,6 +55,7 @@ final class NoDirectControllerPermissionCheckRule implements Rule
                 $node->name->toString(),
             ))
                 ->identifier('rateguru.presentation.directPermissionCheck')
+                ->nonIgnorable()
                 ->build(),
         ];
     }

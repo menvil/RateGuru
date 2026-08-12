@@ -102,7 +102,11 @@ class RatingVoting extends Component
         $selectedOptionId = $this->hasPreloadedState ? $this->preloadedSelectedOptionId : null;
         $user = auth()->user();
         $canVote = $this->post !== null && ($user === null || $user->can('vote', $this->post));
-        $isOwnPost = $this->post !== null && $user !== null && ! $canVote;
+        // Ownership must be derived from the post itself: since the vote
+        // policy also fails for restricted lifecycle states, "! $canVote"
+        // no longer implies "own post".
+        $isOwnPost = $this->post !== null && $user !== null
+            && (int) $this->post->user_id === (int) $user->id;
         $distribution = $this->hasPreloadedState
             ? $this->preloadedDistribution
             : ($group === null || $this->post === null

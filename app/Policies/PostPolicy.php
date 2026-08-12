@@ -61,7 +61,8 @@ class PostPolicy
 
     public function vote(User $user, Post $post): bool
     {
-        return (int) $post->user_id !== (int) $user->id;
+        return $user->canVote()
+            && (int) $post->user_id !== (int) $user->id;
     }
 
     private function canModerate(User $user): bool
