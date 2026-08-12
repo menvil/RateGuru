@@ -6,6 +6,7 @@ use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\PinnedImportHttpTransport;
 use App\Support\Import\ResolvedImportTarget;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 // ---------------------------------------------------------------------
 // Part 1: request construction, verified via Http::fake()'s option-
@@ -57,6 +58,34 @@ it('explicitly disables proxying, so an ambient http_proxy/https_proxy environme
     $transport->get($target, new ImportFetchPolicy(maxBytes: 1000, timeoutSeconds: 5, connectTimeoutSeconds: 2));
 
     expect($seenOptions['proxy'])->toBe('');
+});
+
+it('keeps proxying explicitly disabled and CURLOPT_RESOLVE intact even with HTTPS_PROXY/ALL_PROXY set in the environment', function () {
+    $originalHttpsProxy = getenv('HTTPS_PROXY');
+    $originalAllProxy = getenv('ALL_PROXY');
+
+    putenv('HTTPS_PROXY=http://127.0.0.1:9');
+    putenv('ALL_PROXY=http://127.0.0.1:9');
+
+    try {
+        $seenOptions = null;
+
+        Http::fake(function ($request, $options) use (&$seenOptions) {
+            $seenOptions = $options;
+
+            return Http::response('ok', 200);
+        });
+
+        $transport = new PinnedImportHttpTransport;
+        $target = new ResolvedImportTarget(url: 'https://example.com/page', scheme: 'https', host: 'example.com', port: 443, ip: '93.184.216.34');
+        $transport->get($target, new ImportFetchPolicy(maxBytes: 1000, timeoutSeconds: 5, connectTimeoutSeconds: 2));
+
+        expect($seenOptions['proxy'])->toBe('')
+            ->and($seenOptions['curl'][CURLOPT_RESOLVE])->toBe(['example.com:443:93.184.216.34']);
+    } finally {
+        $originalHttpsProxy === false ? putenv('HTTPS_PROXY') : putenv("HTTPS_PROXY={$originalHttpsProxy}");
+        $originalAllProxy === false ? putenv('ALL_PROXY') : putenv("ALL_PROXY={$originalAllProxy}");
+    }
 });
 
 it('fails closed instead of proceeding when the cURL extension is unavailable, without ever attempting the request', function () {
@@ -469,7 +498,9 @@ it('rejects an honestly oversized Content-Length before the body is read at all,
     }
 });
 
-it('maps a real connect/read timeout to ImportFetchException, preserving the original exception', function () {
+it('maps a real connect/read timeout to ImportFetchException without chaining the raw transport exception, logging safe structured context instead', function () {
+    Log::spy();
+
     $server = startLoopbackFixtureServer();
     [, $port] = $server;
 
@@ -486,7 +517,24 @@ it('maps a real connect/read timeout to ImportFetchException, preserving the ori
         }
 
         expect($caught)->not->toBeNull()
-            ->and($caught->getPrevious())->not->toBeNull();
+            // getPrevious() is always null now -- the raw ConnectionException
+            // (whose own message curl fills in with the full request URL) is
+            // never chained, since Laravel's default exception logging would
+            // walk the chain and print it, bypassing every bit of
+            // sanitization on this exception's own message.
+            ->and($caught->getPrevious())->toBeNull();
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(function (string $message, array $context) use ($port): bool {
+                return $message === 'url_import.connection_failed'
+                    && ($context['source_host'] ?? null) === '127.0.0.1'
+                    && ($context['operation'] ?? null) === 'fetch'
+                    && isset($context['exception_class'])
+                    // No full URL, no port, no query string, no raw
+                    // transport message anywhere in the logged context.
+                    && ! str_contains(json_encode($context), (string) $port);
+            })
+            ->atLeast()->once();
     } finally {
         stopLoopbackFixtureServer($server);
     }

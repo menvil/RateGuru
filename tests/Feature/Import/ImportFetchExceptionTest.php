@@ -3,45 +3,35 @@
 use App\Exceptions\Import\ImportFetchException;
 
 it('never leaks a credential-bearing url embedded in the reason text', function () {
-    $reason = 'cURL error 6: Could not resolve host: good.example for https://good.example/page?token=SECRET123';
+    $url = 'https://example.com/image.jpg?token=super-secret-value';
+    $reason = "cURL error 6: Could not resolve host: example.com for {$url}";
 
-    $exception = ImportFetchException::connectionError('https://good.example/page?token=SECRET123', $reason);
+    $exception = ImportFetchException::connectionError($url, $reason);
 
-    expect($exception->getMessage())->not->toContain('SECRET123');
+    expect($exception->getMessage())->not->toContain('super-secret-value');
 });
 
-it('never leaks a credential-bearing url through the chained previous exception either', function () {
-    // The previous exception's own message is entirely outside our
-    // control (it's whatever curl/Guzzle produced) — Laravel's default
-    // exception logging walks the full chain and prints every message in
-    // it, so this is a real, separate leak path from the outer message
-    // sanitized above.
-    $rawPrevious = new RuntimeException(
-        'cURL error 6: Could not resolve host: good.example for https://good.example/page?token=SECRET123'
-    );
+it('never chains the raw transport exception as previous, since its own message is outside our sanitization', function () {
+    // The raw exception's own message is entirely outside our control
+    // (it's whatever curl/Guzzle produced, commonly embedding the full
+    // request URL verbatim) — Laravel's default exception logging walks
+    // the full previous-exception chain and prints every message in it,
+    // so chaining it (even wrapped) would be a second leak path separate
+    // from the outer message sanitized above. connectionError() no
+    // longer accepts a $previous argument at all: getPrevious() must
+    // always be null for this exception.
+    $url = 'https://example.com/image.jpg?token=super-secret-value';
+    $rawPrevious = new RuntimeException("cURL error 6: Could not resolve host: example.com for {$url}");
 
-    $exception = ImportFetchException::connectionError(
-        'https://good.example/page?token=SECRET123',
-        $rawPrevious->getMessage(),
-        $rawPrevious,
-    );
+    $exception = ImportFetchException::connectionError($url, $rawPrevious->getMessage());
 
-    expect($exception->getMessage())->not->toContain('SECRET123')
-        ->and($exception->getPrevious())->not->toBeNull()
-        ->and($exception->getPrevious())->not->toBe($rawPrevious)
-        ->and($exception->getPrevious()->getMessage())->not->toContain('SECRET123');
+    expect($exception->getMessage())->not->toContain('super-secret-value')
+        ->and($exception->getPrevious())->toBeNull();
 });
 
-it('still preserves the original exception class name for diagnostics, even though the raw instance is not chained', function () {
-    $rawPrevious = new RuntimeException('cURL error 28: Operation timed out for https://good.example/page');
-
-    $exception = ImportFetchException::connectionError('https://good.example/page', $rawPrevious->getMessage(), $rawPrevious);
-
-    expect($exception->getPrevious()->getMessage())->toContain(RuntimeException::class);
-});
-
-it('leaves getPrevious() null when no previous exception was given', function () {
-    $exception = ImportFetchException::connectionError('https://good.example/page', 'simulated failure');
-
-    expect($exception->getPrevious())->toBeNull();
+it('leaves getPrevious() null for every factory, not just connectionError', function () {
+    expect(ImportFetchException::requestFailed('https://example.com/page', 500)->getPrevious())->toBeNull()
+        ->and(ImportFetchException::responseTooLarge('https://example.com/page', 1024)->getPrevious())->toBeNull()
+        ->and(ImportFetchException::tooManyRedirects('https://example.com/page')->getPrevious())->toBeNull()
+        ->and(ImportFetchException::missingRedirectLocation('https://example.com/page')->getPrevious())->toBeNull();
 });

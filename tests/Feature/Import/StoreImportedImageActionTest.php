@@ -141,6 +141,73 @@ it('writes the complete body to disk for a large multi-megabyte image, not a tru
         ->and($writtenBytes)->toBe($body);
 });
 
+// --- writeAll() partial-write loop, exercised directly via reflection ------
+//
+// fwrite() can't be made to return a genuine short write deterministically
+// against a real file (short writes are an OS/stream-level edge case, not
+// something a test can reliably trigger) or reliably simulated with
+// sys_get_temp_dir() overrides (PHP caches its resolved value after
+// Laravel's own bootstrap already calls it once). writeAll()'s injectable
+// $writer parameter exists specifically so this loop is testable without
+// either of those — production always uses the real fwrite() (the default
+// when no $writer is passed); only these tests ever override it.
+
+it('loops until the full body is written when the writer returns a short count first, then completes on retry', function () {
+    $action = app(StoreImportedImageAction::class);
+    $method = new ReflectionMethod($action, 'writeAll');
+
+    $handle = fopen('php://temp', 'w+');
+    $body = str_repeat('a', 100).str_repeat('b', 100); // 200 bytes total
+
+    $calls = [];
+    $writer = function ($h, string $chunk) use (&$calls): int {
+        $calls[] = strlen($chunk);
+
+        // First call: only accept the first 40 of what's offered (a
+        // genuine short write). Every subsequent call writes fully.
+        $accept = count($calls) === 1 ? min(40, strlen($chunk)) : strlen($chunk);
+
+        return fwrite($h, substr($chunk, 0, $accept));
+    };
+
+    $method->invoke($action, $handle, $body, Closure::fromCallable($writer));
+
+    rewind($handle);
+    $writtenBody = stream_get_contents($handle);
+    fclose($handle);
+
+    expect($writtenBody)->toBe($body)
+        ->and(count($calls))->toBeGreaterThan(1); // proves the loop actually retried, not one lucky full write
+});
+
+it('throws a typed failure when the writer returns false', function () {
+    $action = app(StoreImportedImageAction::class);
+    $method = new ReflectionMethod($action, 'writeAll');
+
+    $handle = fopen('php://temp', 'w+');
+
+    try {
+        expect(fn () => $method->invoke($action, $handle, 'body', Closure::fromCallable(fn ($h, $c) => false)))
+            ->toThrow(RuntimeException::class);
+    } finally {
+        fclose($handle);
+    }
+});
+
+it('throws a typed failure when the writer returns zero', function () {
+    $action = app(StoreImportedImageAction::class);
+    $method = new ReflectionMethod($action, 'writeAll');
+
+    $handle = fopen('php://temp', 'w+');
+
+    try {
+        expect(fn () => $method->invoke($action, $handle, 'body', Closure::fromCallable(fn ($h, $c) => 0)))
+            ->toThrow(RuntimeException::class);
+    } finally {
+        fclose($handle);
+    }
+});
+
 it('names the downloaded file using the canonical Content-Type extension, not whatever extension the url happened to claim', function () {
     Http::fake([
         'example.com/photo.png' => Http::response('bytes', 200, [

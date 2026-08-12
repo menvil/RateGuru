@@ -5,13 +5,21 @@ namespace App\Actions\Import;
 use App\Exceptions\Import\ImportFetchException;
 use App\Services\Media\ImageIngestPolicy;
 use App\Support\Import\SafeImportHttpClient;
+use Closure;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Throwable;
 
 class StoreImportedImageAction
 {
+    /**
+     * Bounded so a short write never has to re-copy a large remaining
+     * buffer via substr() just to retry — each attempt only ever slices
+     * off this much.
+     */
+    private const WRITE_CHUNK_BYTES = 65536;
+
     public function __construct(private readonly SafeImportHttpClient $client) {}
 
     public function download(string $imageUrl): UploadedFile
@@ -77,24 +85,13 @@ class StoreImportedImageAction
             throw new ImportFetchException('Failed to secure temporary file permissions for imported image.');
         }
 
-        // fwrite() is documented to not guarantee writing the whole string
-        // in one call — looping on the actually-written offset is the
-        // PHP-manual-recommended way to avoid silently truncating a large
-        // (up to several MB) downloaded body into an incomplete file.
-        $length = strlen($body);
-        $written = 0;
+        try {
+            $this->writeAll($handle, $body);
+        } catch (RuntimeException) {
+            fclose($handle);
+            $this->deleteQuietly($tmpPath);
 
-        while ($written < $length) {
-            $bytesWritten = fwrite($handle, substr($body, $written));
-
-            if ($bytesWritten === false || $bytesWritten === 0) {
-                fclose($handle);
-                $this->deleteQuietly($tmpPath);
-
-                throw new ImportFetchException('Failed to write temporary file for imported image.');
-            }
-
-            $written += $bytesWritten;
+            throw new ImportFetchException('Failed to write temporary file for imported image.');
         }
 
         fclose($handle);
@@ -112,6 +109,39 @@ class StoreImportedImageAction
             error: UPLOAD_ERR_OK,
             test: true,
         );
+    }
+
+    /**
+     * fwrite() is documented to not guarantee writing the whole string in
+     * one call — looping on the actually-written offset is the PHP-manual-
+     * recommended way to avoid silently truncating a large (up to several
+     * MB) downloaded body into an incomplete file. Bounded to
+     * WRITE_CHUNK_BYTES per attempt rather than re-slicing the entire
+     * remaining buffer on every retry.
+     *
+     * $writer is overridable only for tests, which can't otherwise force a
+     * real short write deterministically — production always uses the
+     * real fwrite().
+     *
+     * @param  resource  $handle
+     */
+    private function writeAll($handle, string $body, ?Closure $writer = null): void
+    {
+        $writer ??= fwrite(...);
+
+        $length = strlen($body);
+        $written = 0;
+
+        while ($written < $length) {
+            $chunk = substr($body, $written, self::WRITE_CHUNK_BYTES);
+            $bytesWritten = $writer($handle, $chunk);
+
+            if ($bytesWritten === false || $bytesWritten === 0) {
+                throw new RuntimeException('Failed writing to temporary file.');
+            }
+
+            $written += $bytesWritten;
+        }
     }
 
     private function originalNameHint(string $imageUrl, string $extension): string

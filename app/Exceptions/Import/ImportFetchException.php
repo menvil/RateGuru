@@ -3,7 +3,6 @@
 namespace App\Exceptions\Import;
 
 use RuntimeException;
-use Throwable;
 
 /**
  * Every internal reason a fetch failed once a connection was actually
@@ -27,41 +26,26 @@ class ImportFetchException extends RuntimeException
      * Illuminate\Http\Client\ConnectionException by the time it reaches
      * PinnedImportHttpTransport's catch block, so splitting them further
      * here would mean parsing exception message text, which is brittle.
+     *
+     * Deliberately never chains the raw transport exception as $previous:
+     * that exception's own message is entirely outside our control (it's
+     * whatever curl/Guzzle produced, which commonly embeds the full,
+     * unsanitized request URL verbatim — including any query-string
+     * tokens). Laravel's default exception logging walks the full
+     * previous-exception chain and prints every message in it, so
+     * chaining it here — even wrapped — would be a second leak path
+     * alongside this exception's own (sanitized) message. Callers that
+     * want to preserve "what kind of transport failure was this" for
+     * diagnostics do so via their own structured logging instead (see
+     * PinnedImportHttpTransport), which only ever carries the host and
+     * the failing exception's class name.
      */
-    public static function connectionError(string $url, string $reason, ?Throwable $previous = null): self
+    public static function connectionError(string $url, string $reason): self
     {
         $sanitizedUrl = self::sanitizeUrl($url);
         $safeReason = self::sanitizeReason($reason, $sanitizedUrl);
 
-        return new self(
-            "Could not connect to '{$sanitizedUrl}': {$safeReason}",
-            0,
-            self::sanitizedPrevious($previous, $sanitizedUrl),
-        );
-    }
-
-    /**
-     * $previous's own message can carry the exact same unsanitized,
-     * credential-bearing URL curl embeds in its error text — and unlike
-     * this exception's own message, that one is entirely outside our
-     * control. Laravel's default exception logging (report(), the
-     * storage/logs handler) walks the full previous-exception chain and
-     * prints every one of their messages, so chaining the raw $previous
-     * here would let it leak straight past every bit of sanitization
-     * above the moment anything downstream logs the chain. A lightweight
-     * proxy carrying only the original class name and a sanitized message
-     * preserves "what kind of failure was this" for diagnostics without
-     * the raw text ever being reachable through the chain.
-     */
-    private static function sanitizedPrevious(?Throwable $previous, string $sanitizedUrl): ?Throwable
-    {
-        if ($previous === null) {
-            return null;
-        }
-
-        $safeMessage = self::sanitizeReason($previous->getMessage(), $sanitizedUrl);
-
-        return new RuntimeException(sprintf('[%s] %s', $previous::class, $safeMessage));
+        return new self("Could not connect to '{$sanitizedUrl}': {$safeReason}");
     }
 
     /**

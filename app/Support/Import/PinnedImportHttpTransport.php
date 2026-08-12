@@ -3,6 +3,7 @@
 namespace App\Support\Import;
 
 use App\Exceptions\Import\ImportFetchException;
+use App\Support\Observability\DomainLogger;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -138,7 +139,19 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
                 throw ImportFetchException::responseTooLarge($target->url, $policy->maxBytes);
             }
 
-            throw ImportFetchException::connectionError($target->url, $e->getMessage(), $e);
+            // $e itself is never chained onward (see
+            // ImportFetchException::connectionError()'s own docblock for
+            // why) — whatever diagnostic value it has is captured here
+            // instead, through structured logging that only ever carries
+            // the host and the failing exception's class name, never the
+            // URL, query string, or $e's own message.
+            app(DomainLogger::class)->warning('url_import.connection_failed', [
+                'source_host' => $target->host,
+                'operation' => 'fetch',
+                'exception_class' => $e::class,
+            ]);
+
+            throw ImportFetchException::connectionError($target->url, $e->getMessage());
         }
 
         $body = $response->body();
