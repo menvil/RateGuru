@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\UserStatus;
 use App\Models\Post;
 use App\Models\User;
 use App\Policies\PostPolicy;
@@ -171,3 +172,46 @@ it('does not allow moderator to hide already hidden post', function () {
 
     expect($moderator->can('hide', $post))->toBeFalse();
 });
+
+/*
+ * Gate and action layers must agree on lifecycle semantics: whatever the
+ * participation actions reject via the capability contract, @can() must
+ * also deny, so presentation never renders controls the action would
+ * refuse (e.g. vote buttons for a banned user).
+ */
+
+dataset('lifecycle gate matrix', [
+    'active' => [UserStatus::Active, true],
+    'limited' => [UserStatus::Limited, false],
+    'banned' => [UserStatus::Banned, false],
+    'shadowbanned' => [UserStatus::Shadowbanned, false],
+]);
+
+it('applies the lifecycle capability matrix to the vote gate', function (
+    UserStatus $status,
+    bool $allowed,
+) {
+    $user = User::factory()->create(['status' => $status]);
+    $post = Post::factory()->published()->create();
+
+    expect($user->can('vote', $post))->toBe($allowed);
+})->with('lifecycle gate matrix');
+
+it('applies the lifecycle capability matrix to the report gate', function (
+    UserStatus $status,
+    bool $allowed,
+) {
+    $user = User::factory()->create(['status' => $status]);
+    $post = Post::factory()->published()->create();
+
+    expect($user->can('report', $post))->toBe($allowed);
+})->with('lifecycle gate matrix');
+
+it('applies the lifecycle capability matrix to the create gate', function (
+    UserStatus $status,
+    bool $allowed,
+) {
+    $user = User::factory()->create(['status' => $status]);
+
+    expect($user->can('create', Post::class))->toBe($allowed);
+})->with('lifecycle gate matrix');

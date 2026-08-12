@@ -20,9 +20,15 @@ final class NoDirectControllerPermissionCheckRule implements Rule
 {
     /** @var list<string> */
     private const PERMISSION_METHODS = [
+        'canAccessPrivilegedPanel',
+        'canAuthenticate',
+        'canBeFollowed',
         'canComment',
         'canCreateContent',
+        'canFollow',
+        'canManageContent',
         'canReport',
+        'canUpdateProfile',
         'canVote',
         'isAdmin',
         'isModerator',
@@ -49,6 +55,7 @@ final class NoDirectControllerPermissionCheckRule implements Rule
                 $node->name->toString(),
             ))
                 ->identifier('rateguru.presentation.directPermissionCheck')
+                ->nonIgnorable()
                 ->build(),
         ];
     }

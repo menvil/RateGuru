@@ -75,6 +75,20 @@ class UserFactory extends Factory
         ]);
     }
 
+    public function limited(): static
+    {
+        return $this->state(fn () => [
+            'status' => UserStatus::Limited,
+        ]);
+    }
+
+    public function shadowbanned(): static
+    {
+        return $this->state(fn () => [
+            'status' => UserStatus::Shadowbanned,
+        ]);
+    }
+
     public function trusted(): static
     {
         return $this->state(fn () => [
