@@ -84,4 +84,39 @@ return [
             'ttl_seconds' => max(1, (int) env('MEDIA_PURGE_LOCK_TTL_SECONDS', 60)),
         ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Media diagnostics
+    |--------------------------------------------------------------------------
+    |
+    | RunMediaAuditJob's own Cache::store('database') lock (same pattern as
+    | purge_lock above, keyed "media-audit:full"), a single non-blocking
+    | attempt: a second full audit dispatched while one is already running
+    | fails fast (MediaAuditAlreadyRunningException) rather than queueing up
+    | behind it. ttl_seconds is generous relative to purge_lock's because a
+    | full audit (a DB sweep plus a filesystem directory listing) can
+    | legitimately run much longer than a single purge attempt — it's a
+    | crash-safety net, not the expected run time. The default here
+    | (3660s) is deliberately longer than RunMediaAuditJob::$timeout
+    | (3600s) — a shorter TTL would let the lock expire mid-run and allow a
+    | second full audit to start concurrently, exactly what it exists to
+    | prevent. RunMediaAuditJob::lockTtlSeconds() additionally enforces this
+    | relationship at runtime (max(this value, $timeout + 60)) regardless of
+    | what this env var is actually set to, so a misconfigured value here
+    | can't reintroduce the race — it only ever raises the effective floor.
+    |
+    | audit_run_retention: how many MediaAuditRun snapshots (and their
+    | MediaAuditIssue rows, which cascade-delete with them) RunMediaAuditJob
+    | keeps after each successful completion — no separate scheduler prunes
+    | these.
+    |
+    */
+
+    'diagnostics' => [
+        'audit_lock' => [
+            'ttl_seconds' => max(1, (int) env('MEDIA_AUDIT_LOCK_TTL_SECONDS', 3660)),
+        ],
+        'audit_run_retention' => max(1, (int) env('MEDIA_AUDIT_RUN_RETENTION', 30)),
+    ],
 ];
