@@ -53,6 +53,22 @@ it('does not call the Storage facade (or an equivalent filesystem API) directly 
     assertLifecycleCodeDoesNotReferenceFilesystem('Console/Commands/MediaPurgeCommand.php');
 });
 
+it('does not call the Storage facade (or an equivalent filesystem API) directly from MediaAuditService', function () {
+    assertLifecycleCodeDoesNotReferenceFilesystem('Services/Media/MediaAuditService.php');
+});
+
+it('does not call the Storage facade (or an equivalent filesystem API) directly from MediaAssetInspector', function () {
+    assertLifecycleCodeDoesNotReferenceFilesystem('Services/Media/MediaAssetInspector.php');
+});
+
+it('does not call the Storage facade (or an equivalent filesystem API) directly from RunMediaAuditJob', function () {
+    assertLifecycleCodeDoesNotReferenceFilesystem('Jobs/RunMediaAuditJob.php');
+});
+
+it('does not call the Storage facade (or an equivalent filesystem API) directly from MediaDiagnosticsPage — every value it renders comes from aggregate SQL or a persisted MediaAuditRun/MediaAuditIssue snapshot, never a live filesystem scan', function () {
+    assertLifecycleCodeDoesNotReferenceFilesystem('Filament/Pages/MediaDiagnosticsPage.php');
+});
+
 it('does not add any new lifecycle model events to MediaAsset or MediaVariant', function () {
     // No remote I/O in model events, per the task's own hard rule — the
     // simplest way to guarantee that is to never introduce a booted()

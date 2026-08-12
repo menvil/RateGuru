@@ -759,6 +759,162 @@ default mode is scheduled — never `--orphans`, never `--force`. Physical-
 orphan deletion stays a deliberate, human-triggered `--orphans --force`
 operation, on purpose.
 
+## Media observability and admin diagnostics
+
+**One audit implementation, four callers.** `MediaAuditService::run()`
+(`app/Services/Media/MediaAuditService.php`) is the entire audit sweep —
+the same chunked DB scan (`MediaReferenceChecker`/`MediaLifecycleService`),
+physical-orphan scan (`MediaOrphanScanner`), and failed-job scan
+(`FailedMediaJobReader`) `media:audit` already did before this section
+existed. `media:audit`, `RunMediaAuditJob`, and every test that needs audit
+behavior call this one method; nothing duplicates its classification logic
+anywhere else. It takes an optional `$onIssue` callback (called once per
+issue found, in discovery order, never held in memory as one collection)
+and always returns a `MediaAuditSummary` DTO with the aggregate counts —
+`media:audit` uses the summary alone and discards issues via a no-op
+callback; `RunMediaAuditJob` uses the callback to persist rows.
+
+**Persisted snapshot, not a live view.** `media_audit_runs` and
+`media_audit_issues` (migrations `2026_08_12_100000`/`_100001`) hold the
+result of one `MediaAuditService::run()` call. Both tables use plain
+`string` columns for their enum-shaped fields (`status`, `issue_type`,
+`severity`) — never a native DB `ENUM` type, which isn't portable across
+PostgreSQL/MariaDB/SQLite without driver-specific DDL — cast to
+`MediaAuditRunStatus`/`MediaAuditIssueType`/`MediaAuditIssueSeverity` in
+the Eloquent models instead, the same convention `media_assets`/
+`media_variants` already use for `kind`/`status`/`visibility`/`name`.
+`media_audit_issues.media_asset_id`/`media_variant_id` are deliberately
+**unconstrained** (no foreign key): an issue row is a historical snapshot,
+and the asset/variant it names may legitimately be purged (or, for a
+variant, regenerated under a new row id) long after the issue was
+recorded — a `nullOnDelete()`/`cascadeOnDelete()` constraint would either
+silently rewrite or delete that history. `MediaAuditIssue::asset()`/
+`variant()` are ordinary `belongsTo()` relations built on those same
+unconstrained columns purely for convenience querying; they resolve to
+`null` for an old issue whose target is gone, which is expected, not an
+error.
+
+**Issue types and severity** (`App\Enums\MediaAuditIssueType::severity()`)
+is a fixed mapping, not a scoring engine:
+
+| Issue type | Severity |
+| --- | --- |
+| `missing_master_file` | critical |
+| `missing_variant_file` | warning |
+| `active_unreferenced_asset` | warning |
+| `physical_orphan_candidate` | warning |
+| `failed_generation_job` | warning |
+| `purgeable_asset` | info |
+
+A soft-deleted asset still within its grace period produces **no** issue
+row at all — it's a normal, expected lifecycle state (see "Media
+lifecycle" above), only ever reflected in `media_audit_runs.soft_deleted_within_grace`.
+
+**Health status** (`MediaHealthResolver::resolve(?MediaAuditRun $latestCompletedRun)`)
+is three rules, in order, not a weighted score: no completed run yet →
+`unknown`; `missing_masters > 0` → `critical`; any of
+`missing_variant_files`/`active_unreferenced_assets`/`physical_orphan_candidates`/`failed_media_jobs`
+nonzero → `warning`; otherwise `healthy` (a nonzero `purgeable_assets`
+alone never prevents `healthy` — it's info-severity, a normal state, not a
+problem). Pure function, takes the run rather than querying for it, so
+every caller (the widget, the diagnostics page) resolves health from the
+exact same rule set.
+
+**`RunMediaAuditJob`** (`app/Jobs/RunMediaAuditJob.php`) is the only place
+`MediaAuditService::run()`'s expensive sweep actually executes outside the
+CLI — never inline on a Filament page request. `ShouldQueue`, no
+constructor properties (every dispatch is identical — "audit everything,
+right now" — so there's no Eloquent model to serialize and nothing that
+can go stale between dispatch and execution). A single non-blocking
+`Cache::store('database')` lock keyed `media-audit:full`
+(`config('media.diagnostics.audit_lock.ttl_seconds')`, default 30
+minutes) — the same pattern `MediaLifecycleService::purgeLock()` already
+uses — means a second full audit dispatched while one is running fails
+fast (`MediaAuditAlreadyRunningException`) instead of queueing up behind
+it or running concurrently. Issues are buffered and flushed via raw
+`MediaAuditIssue::insert()` in batches of 500, not one `create()` call
+per row. A run that fails partway through is marked `status: failed` and
+left in place — visible, not deleted — and the exception always
+propagates (Laravel's own queue failure handling records it too); only a
+**successful** completion prunes `media_audit_runs` down to
+`config('media.diagnostics.audit_run_retention')` rows (default 30,
+`media_audit_issues` cascades with its parent run), with no separate
+scheduler for that pruning.
+
+**`Admin → Media Diagnostics`** (`app/Filament/Pages/MediaDiagnosticsPage.php`,
+gated by `Gate::allows('view-media-diagnostics')` →
+`MediaDiagnosticsPolicy::view()` → `$user->isAdmin()`, the same
+Gate/Policy pattern `ProjectSettingsPage`/`manage-project-settings`
+already uses — admin-only, not moderator, since this page's repair
+actions are real destructive-but-safe-by-construction operations) is
+**not** a filesystem scan on page load. Every card comes from aggregate
+SQL (`MediaAsset::withTrashed()->count()`/`sum('byte_size')`,
+`MediaVariant::count()`/`sum('byte_size')` — labeled "Tracked storage
+size," deliberately not "physical disk usage," since it's DB metadata,
+not a `du`) or the latest persisted `MediaAuditRun`; the issues table
+reads `media_audit_issues` scoped to the latest *completed* run, paginated
+and filterable (`severity`, `issue_type`) and searchable
+(`media_asset_id`, `path`) like any other Filament table. "Run full
+audit" only dispatches `RunMediaAuditJob` (disabled while a recent
+`Running` row exists — a UX hint, not the real safety net, which is the
+job's own lock); "Refresh" just re-renders. The **asset inspector**
+(`MediaAssetInspector::inspect()`, opened per-issue via a modal) is the
+one place this page does live I/O: targeted `MediaStorage::exists()`
+calls for the single asset being inspected — never a sweep — showing the
+master's full metadata, every variant's existence, the actual referencing
+`Post`/`User` rows, and lifecycle state (`purgeable_at`, computed as
+`deleted_at + purge_grace_days`).
+
+**Repair actions delegate, they don't reimplement**: "Regenerate missing
+variants" and "Force regenerate variants" both dispatch the existing
+`GenerateMediaVariantsJob` (extended with an optional `bool $force =
+false` constructor parameter, defaulting to `false` so every pre-existing
+`dispatch($id)` call site is unaffected) rather than calling
+`MediaVariantGenerator` directly; force mode requires confirmation with
+an explicit warning that the master is never touched, only generated
+variants are replaced. "Release" calls
+`MediaLifecycleService::releaseUnreferenced()` (re-checking the reference
+state at click time, never trusting the audit snapshot's possibly-stale
+"unreferenced" verdict). "Purge" calls `MediaLifecycleService::purge()`,
+which re-verifies grace/references/lock itself — a stale "purgeable" row
+in the table is not a bypass, `purge()` simply reports `NotEligible` and
+deletes nothing if the asset no longer qualifies. There is deliberately
+**no** one-click physical-orphan deletion anywhere in the admin UI —
+`media:purge --orphans --force` stays CLI-only, unchanged.
+
+**Failed media jobs** (`FailedMediaJobReader`) reads Laravel's own
+`failed_jobs` table (via a minimal `App\Models\FailedJob` Eloquent model,
+not a raw `DB::table()` call — this codebase's PHPStan rules restrict
+direct query-builder/DB-facade access to a short, reviewed allowlist of
+infrastructure classes), filtered in PHP to the two actual job classes
+this app dispatches (`GenerateMediaVariantsJob`, `RunMediaAuditJob`) —
+never a generic queue browser. It never calls `unserialize()` on
+`payload.data.command` (the job's literal serialized-object bytes):
+`GenerateMediaVariantsJob::$mediaAssetId` is a public readonly `int`, so
+PHP's `serialize()` format holds it as literal, regex-matchable text
+(`s:12:"mediaAssetId";i:42;`) that a bounded, safe regex extracts without
+ever reconstructing the object. Retrying a failed job dispatches a
+**fresh** `GenerateMediaVariantsJob` by asset id, rather than Laravel's
+generic `queue:retry` replaying the original (possibly stale) payload.
+
+**`MediaHealthWidget`** (`app/Filament/Widgets/MediaHealthWidget.php`,
+added to the main `Dashboard`'s existing header-widgets row alongside the
+moderation stats — the moderation dashboard itself gains exactly one
+small widget, not a media console) shows only status, last-audit time,
+missing masters/variants, purgeable count, and failed-job count, reading
+the same latest-completed `MediaAuditRun` the diagnostics page uses — no
+separate computation, no filesystem access. Its own stat card links to
+`Admin → Media Diagnostics` for everything else.
+
+**Explicitly out of scope for this section**: SSRF/DNS/redirect
+hardening (PR-08, unrelated layer), a rewritten URL downloader, Sentry/
+Datadog/Nightwatch, Horizon, Redis, S3/CDN migration, AVIF, smart crop,
+face detection, a generic Laravel queue dashboard, a generic server
+dashboard, backup/deploy monitoring, automatic missing-master recovery,
+automatic self-healing, and automatic orphan deletion — every repair
+action here is human-triggered, one asset (or one CLI invocation) at a
+time.
+
 ## What this schema/storage work does not do
 
 Focal points/AI cropping, a crop UI, AVIF or other format negotiation,
@@ -766,11 +922,9 @@ Focal points/AI cropping, a crop UI, AVIF or other format negotiation,
 URLs, legacy data backfill beyond the CLI command above, URL-import hardening
 (PR-08), video/GIF variants, a general third-party media library/schema
 redesign, an outbox/durable event bus/workflow engine or any queue-
-infrastructure migration (Horizon, a custom failed-job UI, automatic repair
-of a missing master, a corruption/integrity scanner, storage tiering,
+infrastructure migration (Horizon, storage tiering,
 backup integration, retention UI, polymorphic attachments), or
-observability/admin diagnostics for the media pipeline beyond structured
-failure logging (PR-09). New `MediaAsset` rows are still created synchronously
+a corruption/integrity scanner. New `MediaAsset` rows are still created synchronously
 as `ready` the moment a file is stored — there is no processing pipeline for anything to
 be `processing` or `failed` in normal operation (those statuses exist for
 later use); variant *generation* is what's now asynchronous (queued) or
@@ -813,8 +967,15 @@ PR landed.
   protection, redirect-security redesign, streaming-downloader rewrite. Not
   started — PR-04 only changed what happens to bytes after they're
   downloaded, not the download/fetch layer itself.
-- **PR-09** — Media pipeline observability/admin diagnostics: surfacing
-  variant-generation failures (today only in application logs) somewhere an
-  operator can actually see them without grepping logs — e.g. an admin view
-  of assets missing an expected variant, or a corruption/integrity scanner.
-  Not started; explicitly out of scope for PR-06.
+- **PR-09** (done) — Media pipeline observability/admin diagnostics:
+  `MediaAuditService` extracted as the single audit implementation shared by
+  `media:audit`, `RunMediaAuditJob`, and `Admin → Media Diagnostics`;
+  persisted `media_audit_runs`/`media_audit_issues` snapshots; a centralized
+  health status; a paginated/filterable issues table and asset inspector; a
+  small `MediaHealthWidget` on the main Dashboard; repair actions
+  (regenerate/force-regenerate/release/purge) that all delegate to the
+  existing lifecycle/variant-generation services; safe (never-unserialize)
+  failed-media-job surfacing. See "Media observability and admin
+  diagnostics" above. No integrity/checksum scanner, no automatic repair of
+  a missing master, no automatic orphan deletion, no generic queue
+  dashboard.
