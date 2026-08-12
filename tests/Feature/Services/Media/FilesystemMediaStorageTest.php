@@ -246,6 +246,124 @@ it('throws a narrow exception when the disk reports storeNormalized()\'s write f
         ->toThrow(MediaStorageException::class);
 });
 
+it('deleteIfExists deletes a present file just like delete()', function () {
+    Storage::fake('public');
+    Storage::disk('public')->put('media/post-images/file.jpg', 'bytes');
+
+    app(MediaStorage::class)->deleteIfExists(new MediaLocation('public', 'media/post-images/file.jpg'));
+
+    Storage::disk('public')->assertMissing('media/post-images/file.jpg');
+});
+
+it('deleteIfExists is a silent no-op for a file that was never there', function () {
+    Storage::fake('public');
+
+    // The interesting assertion is simply that this doesn't throw.
+    app(MediaStorage::class)->deleteIfExists(new MediaLocation('public', 'media/post-images/never-existed.jpg'));
+
+    expect(true)->toBeTrue();
+});
+
+it('deleteIfExists still throws for a real storage failure, not just a missing-file no-op', function () {
+    $diskAdapter = Mockery::mock(Filesystem::class);
+    $diskAdapter->shouldReceive('exists')->once()->andReturn(true);
+    $diskAdapter->shouldReceive('delete')->once()->andReturn(false);
+
+    $filesystem = Mockery::mock(FilesystemManager::class);
+    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
+
+    app()->instance(FilesystemManager::class, $filesystem);
+    $storage = app(MediaStorage::class);
+
+    expect(fn () => $storage->deleteIfExists(new MediaLocation('public', 'media/post-images/file.jpg')))
+        ->toThrow(MediaStorageException::class);
+});
+
+it('lists every file under a directory on a disk, recursively', function () {
+    Storage::fake('public');
+    Storage::disk('public')->put('media/post-images/a.jpg', 'a');
+    Storage::disk('public')->put('media/post-images/2026/08/b.jpg', 'b');
+    Storage::disk('public')->put('media/avatars/c.jpg', 'c'); // outside the scanned directory
+
+    $files = app(MediaStorage::class)->allFiles('public', 'media/post-images');
+
+    expect($files)->toContain('media/post-images/a.jpg')
+        ->and($files)->toContain('media/post-images/2026/08/b.jpg')
+        ->and($files)->not->toContain('media/avatars/c.jpg');
+});
+
+it('reads the last-modified time of a stored file', function () {
+    Storage::fake('public');
+    Storage::disk('public')->put('media/post-images/file.jpg', 'bytes');
+
+    $timestamp = app(MediaStorage::class)->lastModified(new MediaLocation('public', 'media/post-images/file.jpg'));
+
+    expect($timestamp)->toBeInt()->toBeGreaterThan(0)
+        ->and($timestamp)->toBeLessThanOrEqual(now()->getTimestamp())
+        ->and($timestamp)->toBeGreaterThan(now()->subMinute()->getTimestamp());
+});
+
+it('throws a narrow exception when asked for the last-modified time of a missing file', function () {
+    Storage::fake('public');
+
+    expect(fn () => app(MediaStorage::class)->lastModified(new MediaLocation('public', 'media/post-images/missing.jpg')))
+        ->toThrow(MediaStorageException::class);
+});
+
+it('throws a clean notFound() when the file existed at the initial check but is confirmed gone by the time the metadata read fails', function () {
+    // Simulates a race: something else (e.g. a concurrent media:purge
+    // --orphans --force) deletes the file between the initial exists()
+    // check and the actual metadata read.
+    $diskAdapter = Mockery::mock(Filesystem::class);
+    $diskAdapter->shouldReceive('exists')->twice()->andReturn(true, false);
+    $diskAdapter->shouldReceive('lastModified')->once()->andThrow(new RuntimeException('Simulated race: file vanished mid-read.'));
+
+    $filesystem = Mockery::mock(FilesystemManager::class);
+    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
+
+    app()->instance(FilesystemManager::class, $filesystem);
+    $storage = app(MediaStorage::class);
+
+    $caught = null;
+
+    try {
+        $storage->lastModified(new MediaLocation('public', 'media/post-images/file.jpg'));
+    } catch (MediaStorageException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull()
+        ->and($caught->getPrevious())->toBeInstanceOf(RuntimeException::class)
+        ->and($caught->getPrevious()->getMessage())->toBe('Simulated race: file vanished mid-read.');
+});
+
+it('preserves and rethrows the original exception when the metadata read fails but the file still exists', function () {
+    // A real storage failure, not a "just got deleted" race — the file is
+    // still there on the second check, so this must not be mislabeled as
+    // notFound().
+    $diskAdapter = Mockery::mock(Filesystem::class);
+    $diskAdapter->shouldReceive('exists')->twice()->andReturn(true, true);
+    $diskAdapter->shouldReceive('lastModified')->once()->andThrow(new RuntimeException('Simulated transient storage failure.'));
+
+    $filesystem = Mockery::mock(FilesystemManager::class);
+    $filesystem->shouldReceive('disk')->with('public')->andReturn($diskAdapter);
+
+    app()->instance(FilesystemManager::class, $filesystem);
+    $storage = app(MediaStorage::class);
+
+    $caught = null;
+
+    try {
+        $storage->lastModified(new MediaLocation('public', 'media/post-images/file.jpg'));
+    } catch (Throwable $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->toBeInstanceOf(RuntimeException::class)
+        ->and($caught)->not->toBeInstanceOf(MediaStorageException::class)
+        ->and($caught->getMessage())->toBe('Simulated transient storage failure.');
+});
+
 it('normalizes a filesystem exception thrown during putContents() into a narrow exception', function () {
     $diskAdapter = Mockery::mock(Filesystem::class);
     $diskAdapter->shouldReceive('put')->once()->andThrow(new RuntimeException('Simulated disk outage.'));

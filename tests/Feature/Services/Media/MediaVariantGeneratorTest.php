@@ -107,6 +107,21 @@ final class MasterStreamReadSpy implements MediaStorage
     {
         $this->real->delete($location);
     }
+
+    public function deleteIfExists(MediaLocation $location): void
+    {
+        $this->real->deleteIfExists($location);
+    }
+
+    public function allFiles(string $disk, string $directory): array
+    {
+        return $this->real->allFiles($disk, $directory);
+    }
+
+    public function lastModified(MediaLocation $location): int
+    {
+        return $this->real->lastModified($location);
+    }
 }
 
 it('generates every applicable variant, including open graph, for a post image asset', function () {

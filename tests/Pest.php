@@ -2,11 +2,15 @@
 
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
+use App\Models\MediaAsset;
+use App\Models\MediaVariant;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /*
@@ -317,6 +321,41 @@ function variantSpec(
     ?string $outputMimeType = null,
 ): MediaVariantSpecification {
     return new MediaVariantSpecification($name, $maxWidth, $maxHeight, $mode, $quality, $outputMimeType);
+}
+
+/**
+ * A soft-deleted MediaAsset, with a master file and two variant files all
+ * physically present, whose deleted_at is 19 days in the past — past the
+ * 7-day default purge grace period and safely purgeable. Shared by
+ * MediaLifecycleServicePurgeTest and MediaPurgeCommandTest (see the
+ * block comment above image-marker helpers for why a shared bare function
+ * used by more than one test file must live here, not in either file).
+ * Requires the caller to have already called Storage::fake('public').
+ *
+ * Leaves Carbon test time frozen at 2026-01-20 12:00:00 when it returns —
+ * callers must reset it themselves (e.g. `afterEach(fn () =>
+ * Carbon::setTestNow())`) rather than assuming "now" is real wall-clock
+ * time for the rest of the test.
+ */
+function createPurgeableAsset(): MediaAsset
+{
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
+    $asset = MediaAsset::factory()->postImage()->create(['path' => 'posts/master.jpg']);
+    Storage::disk('public')->put($asset->path, 'master-bytes');
+
+    foreach ([MediaVariantName::PostFeed640, MediaVariantName::PostDetail1920] as $name) {
+        $variant = MediaVariant::factory()->named($name)->create([
+            'media_asset_id' => $asset->id,
+            'disk' => 'public',
+            'path' => "posts/master/{$name->value}.jpg",
+        ]);
+        Storage::disk('public')->put($variant->path, "{$name->value}-bytes");
+    }
+
+    $asset->delete();
+    Carbon::setTestNow(Carbon::parse('2026-01-20 12:00:00')); // 19 days later, past the 7-day default grace
+
+    return $asset->fresh();
 }
 
 /**
