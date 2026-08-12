@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MediaAuditIssueType;
+use App\Enums\MediaAuditRunStatus;
 use App\Enums\MediaHealthStatus;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Jobs\GenerateMediaVariantsJob;
@@ -150,6 +151,34 @@ it('does not issue a filesystem existence check while rendering the page', funct
     // A handful of aggregate/count queries, not one-per-asset (20 assets
     // would blow well past this if the page scanned per row).
     expect($queryCountBefore)->toBeLessThan(20);
+});
+
+it('memoizes lastAuditRun() so it and lastAuditIssuesCount() only query once between them and always agree on which run is "last"', function () {
+    $run = MediaAuditRun::factory()->create([
+        'status' => MediaAuditRunStatus::Completed,
+        'completed_at' => now(),
+    ]);
+    MediaAuditIssue::factory()->count(3)->create(['media_audit_run_id' => $run->id]);
+
+    $page = app(MediaDiagnosticsPage::class);
+
+    $queryCount = 0;
+    DB::listen(function () use (&$queryCount): void {
+        $queryCount++;
+    });
+
+    $first = $page->lastAuditRun();
+    $second = $page->lastAuditRun();
+    $issuesCount = $page->lastAuditIssuesCount();
+
+    // Without memoization, a run completing between these calls could make
+    // the "Last audit" panel (lastAuditRun()) and the issue count
+    // (lastAuditIssuesCount(), which calls lastAuditRun() again internally)
+    // describe two different runs. One query total proves both read the
+    // same cached result instead.
+    expect($queryCount)->toBe(1)
+        ->and($first)->toBe($second)
+        ->and($issuesCount)->toBe(3);
 });
 
 // --- Run full audit / refresh -----------------------------------------------

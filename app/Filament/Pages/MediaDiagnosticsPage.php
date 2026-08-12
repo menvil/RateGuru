@@ -144,16 +144,37 @@ final class MediaDiagnosticsPage extends Page implements HasTable
         return $this->latestCompletedRun;
     }
 
+    private ?MediaAuditRun $lastAuditRun = null;
+
+    private bool $lastAuditRunResolved = false;
+
     /**
      * The "Last audit" panel shows whatever run happened most recently,
      * regardless of its own status (Running/Completed/Failed) — unlike
      * latestCompletedRun(), which the health cards and issues table use and
      * which deliberately only ever considers a run that actually finished
      * successfully.
+     *
+     * Memoized the same way latestCompletedRun() is: the Blade view and
+     * lastAuditIssuesCount() below both call this independently within the
+     * same render. Without caching, a run completing between those two
+     * calls could make them disagree about which run is "the last
+     * audit" — the panel's own fields (from the first call) and the issue
+     * count (from the second) would then describe two different runs.
+     * issues_count is eager-loaded here too, so the count below never
+     * needs its own extra query.
      */
     public function lastAuditRun(): ?MediaAuditRun
     {
-        return MediaAuditRun::query()->latest('started_at')->first();
+        if (! $this->lastAuditRunResolved) {
+            $this->lastAuditRun = MediaAuditRun::query()
+                ->withCount('issues')
+                ->latest('started_at')
+                ->first();
+            $this->lastAuditRunResolved = true;
+        }
+
+        return $this->lastAuditRun;
     }
 
     /**
@@ -161,10 +182,15 @@ final class MediaDiagnosticsPage extends Page implements HasTable
      * a page-class method rather than the view calling
      * $lastAudit->issues()->count() itself, matching every other data
      * access on this page (totals(), health(), etc.) staying out of Blade.
+     * Reads the eager-loaded issues_count from lastAuditRun() above instead
+     * of issuing its own count query.
      */
     public function lastAuditIssuesCount(): int
     {
-        return $this->lastAuditRun()?->issues()->count() ?? 0;
+        // Plain -> is correct (not a bug): PHP's ?? uses isset() semantics for
+        // property fetches, so a null lastAuditRun() falls through to 0 exactly
+        // like ?-> would, without a warning — PHPStan flags ?-> here as redundant.
+        return $this->lastAuditRun()->issues_count ?? 0;
     }
 
     /**

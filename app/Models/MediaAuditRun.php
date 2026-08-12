@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
  * @property MediaAuditRunStatus $status
  * @property Carbon $started_at
  * @property Carbon|null $completed_at
+ * @property-read int $issues_count only set when the query eager-loads it via withCount('issues')
  */
 class MediaAuditRun extends Model
 {
