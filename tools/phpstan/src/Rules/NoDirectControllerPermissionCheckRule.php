@@ -20,9 +20,15 @@ final class NoDirectControllerPermissionCheckRule implements Rule
 {
     /** @var list<string> */
     private const PERMISSION_METHODS = [
+        'canAccessPrivilegedPanel',
+        'canAuthenticate',
+        'canBeFollowed',
         'canComment',
         'canCreateContent',
+        'canFollow',
+        'canManageContent',
         'canReport',
+        'canUpdateProfile',
         'canVote',
         'isAdmin',
         'isModerator',

@@ -2,7 +2,6 @@
 
 namespace App\Actions\Follows;
 
-use App\Enums\UserStatus;
 use App\Exceptions\Follows\CannotFollowAuthorException;
 use App\Exceptions\Follows\CannotFollowSelfException;
 use App\Exceptions\Follows\FollowFeatureDisabledException;
@@ -33,7 +32,11 @@ final class FollowAuthorAction
             throw new CannotFollowSelfException;
         }
 
-        if ($author->status !== UserStatus::Active) {
+        if (! $follower->canFollow()) {
+            throw CannotFollowAuthorException::followerNotAllowed();
+        }
+
+        if (! $author->canBeFollowed()) {
             throw CannotFollowAuthorException::authorNotViewable();
         }
 

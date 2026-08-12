@@ -6,7 +6,6 @@ use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaKind;
 use App\Enums\PostStatus;
-use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
@@ -52,7 +51,7 @@ final class CreatePostAction
         );
 
         $isTrusted = $user->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL
-            && $user->status === UserStatus::Active;
+            && $user->canCreateContent();
 
         $status = $isTrusted ? PostStatus::Published : PostStatus::Pending;
         $publishedAt = $isTrusted ? now() : null;

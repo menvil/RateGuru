@@ -49,3 +49,20 @@ final class DirectPermissionCheckPolicy
         return $user->isAdmin();
     }
 }
+
+namespace App\Filament\Fixtures;
+
+use App\Models\User;
+
+final class DirectLifecycleCheckPage
+{
+    public function showFollowButton(User $viewer): bool
+    {
+        return $viewer->canFollow();
+    }
+
+    public function showDeleteButton(User $viewer): bool
+    {
+        return $viewer->canManageContent();
+    }
+}

@@ -60,6 +60,10 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
         ];
     }
 
+    // Lifecycle capability conveniences. Every method delegates to the
+    // central contract on UserStatus and fails closed when status is null —
+    // no lifecycle meaning may live here (docs/architecture/user-lifecycle.md).
+
     public function canCreateContent(): bool
     {
         return $this->status?->canCreateContent() ?? false;
@@ -67,17 +71,42 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 
     public function canVote(): bool
     {
-        return $this->status === UserStatus::Active;
+        return $this->status?->canVote() ?? false;
     }
 
     public function canComment(): bool
     {
-        return $this->status === UserStatus::Active;
+        return $this->status?->canComment() ?? false;
     }
 
     public function canReport(): bool
     {
-        return $this->status === UserStatus::Active;
+        return $this->status?->canReport() ?? false;
+    }
+
+    public function canFollow(): bool
+    {
+        return $this->status?->canFollow() ?? false;
+    }
+
+    public function canBeFollowed(): bool
+    {
+        return $this->status?->canBeFollowed() ?? false;
+    }
+
+    public function canManageContent(): bool
+    {
+        return $this->status?->canManageContent() ?? false;
+    }
+
+    public function canUpdateProfile(): bool
+    {
+        return $this->status?->canUpdateProfile() ?? false;
+    }
+
+    public function canAuthenticate(): bool
+    {
+        return $this->status?->canAuthenticate() ?? false;
     }
 
     public function isModerator(): bool
@@ -179,7 +208,10 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
             return false;
         }
 
-        return $this->status === UserStatus::Active
+        // Two independent dimensions: lifecycle eligibility (status) AND
+        // role. A banned/limited/shadowbanned admin fails closed; an active
+        // regular user is lifecycle-eligible but lacks the role.
+        return ($this->status?->canAccessPrivilegedPanel() ?? false)
             && ($this->isAdmin() || $this->isModerator());
     }
 }
