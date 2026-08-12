@@ -79,9 +79,16 @@ final class UploadPostForm extends Component
         $this->submitError = null;
         $imageSource = ImageInputSource::Upload;
 
+        // Captured separately from $this->image: a successful submission
+        // below resets $this->image to null, but this local reference must
+        // still point at the temp file so the finally block can clean it up
+        // either way.
+        $importedTempFile = null;
+
         if ($this->importedImageUrl !== null && $this->image === null) {
             try {
                 $this->image = app(StoreImportedImageAction::class)->download($this->importedImageUrl);
+                $importedTempFile = $this->image;
                 $imageSource = ImageInputSource::UrlImport;
             } catch (\Throwable $e) {
                 report($e);
@@ -91,35 +98,56 @@ final class UploadPostForm extends Component
             }
         }
 
-        $this->validate();
-
         try {
-            $post = $createPostAction->handle(auth()->user(), new CreatePostData(
-                title: $this->title,
-                description: $this->description,
-                sourceUrl: $this->sourceUrl,
-                tagIds: $this->tagIds,
-                image: $this->image,
-                imageSource: $imageSource,
-                categoryId: $this->categoryId !== '' ? (int) $this->categoryId : null,
-                authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
-            ));
+            $this->validate();
 
-            $this->dispatch('post-uploaded', postId: $post->id);
-            $this->dispatch('toast', message: __('ui.upload.success_pending'));
+            try {
+                $post = $createPostAction->handle(auth()->user(), new CreatePostData(
+                    title: $this->title,
+                    description: $this->description,
+                    sourceUrl: $this->sourceUrl,
+                    tagIds: $this->tagIds,
+                    image: $this->image,
+                    imageSource: $imageSource,
+                    categoryId: $this->categoryId !== '' ? (int) $this->categoryId : null,
+                    authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
+                ));
 
-            $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
-            $this->importedImageUrl = null;
-            $this->activeTab = 'upload';
-            $this->tagSearch = '';
-        } catch (RateLimitExceededException $e) {
-            $this->submitError = $e->getMessage();
-        } catch (ImageIngestException $e) {
-            report($e);
-            $this->submitError = __('ui.upload.error_invalid_image');
-        } catch (\Throwable $e) {
-            report($e);
-            $this->submitError = __('ui.upload.error_generic');
+                $this->dispatch('post-uploaded', postId: $post->id);
+                $this->dispatch('toast', message: __('ui.upload.success_pending'));
+
+                $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
+                $this->importedImageUrl = null;
+                $this->activeTab = 'upload';
+                $this->tagSearch = '';
+            } catch (RateLimitExceededException $e) {
+                $this->submitError = $e->getMessage();
+            } catch (ImageIngestException $e) {
+                report($e);
+                $this->submitError = __('ui.upload.error_invalid_image');
+            } catch (\Throwable $e) {
+                report($e);
+                $this->submitError = __('ui.upload.error_generic');
+            }
+        } finally {
+            // Runs whether validation itself failed (still propagating past
+            // this block for Livewire's normal field-error handling),
+            // createPostAction failed, or the submission succeeded — the
+            // one thing that's never appropriate is leaving this temp file
+            // behind.
+            if ($importedTempFile !== null) {
+                app(StoreImportedImageAction::class)->cleanup($importedTempFile);
+
+                // On a failure path the success branch's own reset() above
+                // never ran, so $this->image would otherwise keep pointing
+                // at the file cleanup() just deleted — a retry would try to
+                // reuse a now-missing file instead of re-downloading.
+                // importedImageUrl is deliberately left untouched so that
+                // retry has something to download from.
+                if ($this->image === $importedTempFile) {
+                    $this->image = null;
+                }
+            }
         }
     }
 

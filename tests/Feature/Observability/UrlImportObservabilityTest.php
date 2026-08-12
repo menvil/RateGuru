@@ -4,6 +4,7 @@ use App\Actions\Import\ImportFromUrlAction;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Models\ProjectSettings;
 use App\Support\Import\UrlImportValidator;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 it('logs unsafe url as security event', function () {
@@ -20,6 +21,8 @@ it('logs unsafe url as security event', function () {
 });
 
 it('logs url import preview started', function () {
+    bindFakeHostResolver();
+    Http::fake(['example.com/*' => Http::response('', 500)]);
     Log::spy();
 
     $settings = ProjectSettings::factory()->create([
@@ -29,7 +32,9 @@ it('logs url import preview started', function () {
     try {
         app(ImportFromUrlAction::class)->handle('https://example.com/page');
     } catch (Throwable) {
-        // network error expected in tests
+        // A downstream fetch failure is expected here — this test only
+        // cares that the "started" log line fires before that happens, not
+        // that the fetch itself succeeds.
     }
 
     Log::shouldHaveReceived('info')

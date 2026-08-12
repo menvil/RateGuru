@@ -280,17 +280,19 @@ grep-based way `tests/Unit/Models/MediaModelsDoNotUseFilesystemTest.php`
 already enforced for the model layer.
 
 **URL-imported images converge on the same pipeline for free.**
-`StoreImportedImageAction::download()` still fetches bytes via the
-SSRF-protected `SafeImportHttpClient`/`UrlImportValidator` exactly as before —
-none of that changed — and still wraps the result as a real `UploadedFile` so
-it can flow through `UploadPostForm`'s existing `WithFileUploads` validation.
-By the time that `UploadedFile` reaches `CreatePostAction`, it's
-indistinguishable from a directly-uploaded file, so the same
-`ImageInput::fromUploadedFile()` → `ImageIngestor::ingest()` call already
-covers it. **PR-08's URL-import hardening (DNS pinning/rebinding protection,
-redirect-security redesign, streaming-downloader rewrite) has not happened
-yet** — this PR only changed what happens to the bytes once they're already
-downloaded, not how they're fetched.
+`StoreImportedImageAction::download()` fetches bytes via
+`SafeImportHttpClient`/`UrlImportValidator`, then wraps the result as a real
+`UploadedFile` so it can flow through `UploadPostForm`'s existing
+`WithFileUploads` validation. By the time that `UploadedFile` reaches
+`CreatePostAction`, it's indistinguishable from a directly-uploaded file, so
+the same `ImageInput::fromUploadedFile()` → `ImageIngestor::ingest()` call
+already covers it — and, since PR-08, the remote download itself never
+fetches more bytes than `ImageIngestor` would accept anyway. See
+`docs/import/url-import.md`'s "Security Architecture" section for the full
+network-layer threat model (DNS rebinding/TOCTOU pinning, redirect
+hardening, streaming byte caps) — that document owns the import-security
+details; this one only covers what happens to the bytes once they're
+already safely in hand.
 
 ## Responsive media variants
 
@@ -763,9 +765,9 @@ operation, on purpose.
 
 Focal points/AI cropping, a crop UI, AVIF or other format negotiation,
 `<picture>` markup, an actual S3/CDN deployment, imgproxy, temporary signed
-URLs, legacy data backfill beyond the CLI command above, URL-import hardening
-(PR-08), video/GIF variants, a general third-party media library/schema
-redesign, an outbox/durable event bus/workflow engine or any queue-
+URLs, legacy data backfill beyond the CLI command above, video/GIF variants,
+a general third-party media library/schema redesign, an outbox/durable
+event bus/workflow engine or any queue-
 infrastructure migration (Horizon, a custom failed-job UI, automatic repair
 of a missing master, a corruption/integrity scanner, storage tiering,
 backup integration, retention UI, polymorphic attachments), or
@@ -809,10 +811,14 @@ PR landed.
   explicit `--orphans --force` for physical-orphan deletion). See "Media
   lifecycle" above. No integrity/checksum scanner, no automatic repair of a
   missing master, no admin dashboard — see PR-09.
-- **PR-08** — URL import security hardening: DNS pinning/rebinding
-  protection, redirect-security redesign, streaming-downloader rewrite. Not
-  started — PR-04 only changed what happens to bytes after they're
-  downloaded, not the download/fetch layer itself.
+- **PR-08** (done) — URL import security hardening: DNS pinning/rebinding
+  protection (connection pinned via `CURLOPT_RESOLVE` to the exact IP
+  `UrlImportValidator` resolved and validated for that hop), per-hop
+  redirect re-validation with RFC 3986 relative-URL resolution, a
+  centralized binary-CIDR `PublicIpClassifier`, scheme/userinfo/port/
+  ambiguous-numeric-host rejection, and a three-layer streaming byte cap.
+  See `docs/import/url-import.md`'s "Security Architecture" section for the
+  full design and threat model.
 - **PR-09** — Media pipeline observability/admin diagnostics: surfacing
   variant-generation failures (today only in application logs) somewhere an
   operator can actually see them without grepping logs — e.g. an admin view

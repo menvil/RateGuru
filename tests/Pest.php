@@ -8,6 +8,11 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
+use App\Support\Import\Dns\HostResolver;
+use App\Support\Import\ImportFetchPolicy;
+use App\Support\Import\ImportHttpTransport;
+use App\Support\Import\ImportTransportResponse;
+use App\Support\Import\ResolvedImportTarget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -57,6 +62,88 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * A HostResolver test double that never touches real DNS — shared by every
+ * Import test file that needs UrlImportValidator to resolve a hostname to a
+ * specific IP without depending on that hostname actually existing on the
+ * public internet. See the block comment above the image-marker helpers for
+ * why a bare function/class needed by more than one test file has to live
+ * here rather than in any single one of them (Pest's --parallel runner
+ * assigns whole files to separate workers).
+ */
+final class FakeHostResolver implements HostResolver
+{
+    /**
+     * @param  array<string, list<string>>  $hostToIps
+     */
+    public function __construct(private readonly array $hostToIps) {}
+
+    public function resolve(string $host): array
+    {
+        return $this->hostToIps[$host] ?? [];
+    }
+}
+
+/**
+ * Binds a FakeHostResolver so UrlImportValidator (and everything built on
+ * it — SafeImportHttpClient, the import adapters/actions/Livewire
+ * components) never performs a real DNS lookup in tests. Defaults cover the
+ * handful of hostnames the wider Import test suite fetches through
+ * Http::fake(); pass $extraHostToIps to add or override entries for a
+ * specific test.
+ *
+ * @param  array<string, list<string>>  $extraHostToIps
+ */
+function bindFakeHostResolver(array $extraHostToIps = []): void
+{
+    $defaults = [
+        'example.com' => ['93.184.216.34'],
+        'cdn.example.com' => ['93.184.216.35'],
+        'www.instagram.com' => ['157.240.2.174'],
+    ];
+
+    app()->instance(HostResolver::class, new FakeHostResolver($extraHostToIps + $defaults));
+}
+
+/**
+ * An ImportHttpTransport test double that returns a scripted sequence of
+ * responses (one per call to get()) and records every ResolvedImportTarget
+ * it was actually invoked with — shared by every SafeImportHttpClient-level
+ * test that needs precise, per-hop control over what the "network" returns
+ * without going through Http::fake() (which bypasses PinnedImportHttpTransport
+ * entirely and can't simulate hop-by-hop transport behavior). A scripted
+ * entry may be an ImportTransportResponse, or a Closure(ResolvedImportTarget,
+ * ImportFetchPolicy): ImportTransportResponse for a hop that needs to throw
+ * (e.g. simulating a connect timeout on one specific hop).
+ */
+final class ScriptedImportHttpTransport implements ImportHttpTransport
+{
+    /** @var list<ResolvedImportTarget> */
+    public array $calls = [];
+
+    /**
+     * @param  list<ImportTransportResponse|Closure>  $responses
+     */
+    public function __construct(private array $responses) {}
+
+    public function get(ResolvedImportTarget $target, ImportFetchPolicy $policy): ImportTransportResponse
+    {
+        $this->calls[] = $target;
+
+        $next = array_shift($this->responses);
+
+        if ($next === null) {
+            throw new RuntimeException('ScriptedImportHttpTransport: no more scripted responses.');
+        }
+
+        if ($next instanceof Closure) {
+            return $next($target, $policy);
+        }
+
+        return $next;
+    }
 }
 
 /**
