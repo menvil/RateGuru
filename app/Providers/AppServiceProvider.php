@@ -16,6 +16,10 @@ use App\Services\Media\ImageIngestor;
 use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
+use App\Support\Import\Dns\DnsHostResolver;
+use App\Support\Import\Dns\HostResolver;
+use App\Support\Import\ImportHttpTransport;
+use App\Support\Import\PinnedImportHttpTransport;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Theme\ThemeManager;
 use App\Support\Translations\TranslatableField;
@@ -40,6 +44,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(MediaUrlResolver::class, FilesystemMediaUrlResolver::class);
         $this->app->singleton(ImageIngestor::class, GdImageIngestor::class);
         $this->app->singleton(ImageVariantProcessor::class, GdImageVariantProcessor::class);
+
+        $this->app->singleton(HostResolver::class, DnsHostResolver::class);
+        $this->app->singleton(ImportHttpTransport::class, PinnedImportHttpTransport::class);
     }
 
     /**

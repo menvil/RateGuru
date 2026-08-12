@@ -5,6 +5,10 @@ use App\Exceptions\Import\ImportFetchException;
 use App\Support\Import\Adapters\DirectImageImportAdapter;
 use Illuminate\Support\Facades\Http;
 
+beforeEach(function () {
+    bindFakeHostResolver();
+});
+
 it('detects direct image urls from content type', function () {
     Http::fake([
         'example.com/image.jpg' => Http::response('fake-image-content', 200, [
@@ -60,6 +64,16 @@ it('rejects response with empty content-type header', function () {
         'example.com/image.jpg' => Http::response('fake-content', 200, [
             'Content-Type' => '',
         ]),
+    ]);
+
+    app(DirectImageImportAdapter::class)->preview('https://example.com/image.jpg');
+})->throws(ImportFetchException::class);
+
+it('rejects a response with no content-type header at all, without a null-coercion warning', function () {
+    Http::fake([
+        // No Content-Type key at all -- header('Content-Type') returns
+        // null here, distinct from the empty-string case above.
+        'example.com/image.jpg' => Http::response('fake-content', 200, []),
     ]);
 
     app(DirectImageImportAdapter::class)->preview('https://example.com/image.jpg');

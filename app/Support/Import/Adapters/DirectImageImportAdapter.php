@@ -18,7 +18,7 @@ class DirectImageImportAdapter
 
         $response = $this->client->get($url, $maxImageBytes);
 
-        $rawContentType = $response->header('Content-Type');
+        $rawContentType = $response->header('Content-Type') ?? '';
         $host = parse_url($url, PHP_URL_HOST) ?? 'unknown';
 
         if (empty(trim($rawContentType))) {
@@ -29,10 +29,6 @@ class DirectImageImportAdapter
 
         if (! in_array($contentType, $allowedMimes, true)) {
             throw new ImportFetchException("Unsupported image MIME type '{$contentType}' from {$host}");
-        }
-
-        if (strlen($response->body()) > $maxImageBytes) {
-            throw ImportFetchException::responseTooLarge($url, $maxImageBytes);
         }
 
         return new ImportPreview(
