@@ -23,7 +23,7 @@ final class MatchedUsersQuery implements RawSqlPersistenceBoundary
                     ->orWhereRaw("LOWER(name) LIKE LOWER(?) ESCAPE '!'", [$pattern])
                     ->orWhereRaw("LOWER(display_name) LIKE LOWER(?) ESCAPE '!'", [$pattern]);
             })
-            ->with('avatarAsset')
+            ->with('avatarAsset.variants')
             ->orderBy('username')
             ->limit(5)
             ->get();

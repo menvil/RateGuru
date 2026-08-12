@@ -4,6 +4,7 @@ use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Sharing\PostShareMetadata;
+use Illuminate\Support\Facades\Storage;
 
 it('builds post share metadata', function () {
     config(['app.url' => 'https://rateguru.test']);
@@ -38,14 +39,19 @@ it('uses the raster fallback image when post has no image', function () {
 it('returns an absolute image url resolved through the asset disk', function () {
     // The image's absolute URL comes from Storage::disk($asset->disk)->url(),
     // resolved against the disk's own url config, not config('app.url').
-    config(['filesystems.disks.cdn_test' => [
+    // fake() (not a real, unfaked disk) both isolates the write from the
+    // real filesystem and satisfies PostImagePresenter::openGraph()'s
+    // MediaStorage::exists() check — the url/visibility/driver config must
+    // be passed directly into fake() since it otherwise drops any config
+    // already set on the disk (it only ever carries over `throw`).
+    Storage::fake('cdn_test', [
         'driver' => 'local',
-        'root' => storage_path('app/cdn_test'),
         'url' => 'https://rateguru.test/storage',
         'visibility' => 'public',
-    ]]);
+    ]);
 
     $post = Post::factory()->published()->withImage(path: 'posts/test.jpg', disk: 'cdn_test')->create();
+    Storage::disk('cdn_test')->put('posts/test.jpg', 'test-bytes');
 
     $metadata = app(PostShareMetadata::class)->forPost($post);
 
@@ -54,14 +60,14 @@ it('returns an absolute image url resolved through the asset disk', function () 
 });
 
 it('returns the asset disk url as-is when it already points off-origin', function () {
-    config(['filesystems.disks.cdn_test' => [
+    Storage::fake('cdn_test', [
         'driver' => 'local',
-        'root' => storage_path('app/cdn_test'),
         'url' => 'https://cdn.example.com',
         'visibility' => 'public',
-    ]]);
+    ]);
 
     $post = Post::factory()->published()->withImage(path: 'image.jpg', disk: 'cdn_test')->create();
+    Storage::disk('cdn_test')->put('image.jpg', 'test-bytes');
 
     $metadata = app(PostShareMetadata::class)->forPost($post);
 

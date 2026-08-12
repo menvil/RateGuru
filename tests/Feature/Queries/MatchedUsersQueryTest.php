@@ -40,9 +40,10 @@ it('does not n+1 query matched users\' avatar assets', function () {
     foreach ($users as $user) {
         // Exactly what the feed-page search results render.
         $user->resolved_avatar_url;
+        $user->resolved_avatar_srcset;
     }
 
-    // One query for the users, one for the avatarAsset batch — not one per
-    // matched user.
-    expect($queryCount)->toBeLessThanOrEqual(2);
+    // One query for the users, one for the avatarAsset batch, one for its
+    // variants batch — not one per matched user.
+    expect($queryCount)->toBeLessThanOrEqual(3);
 });

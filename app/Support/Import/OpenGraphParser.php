@@ -5,6 +5,9 @@ namespace App\Support\Import;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
+use Throwable;
 
 class OpenGraphParser
 {
@@ -71,26 +74,22 @@ class OpenGraphParser
         return $text !== '' ? $text : null;
     }
 
+    /**
+     * RFC 3986 reference resolution (not a hand-rolled dirname()-based
+     * approximation) — correctly handles every relative form (../, ./,
+     * bare query strings, scheme-relative //, absolute paths) the same way
+     * a browser or SafeImportHttpClient's own redirect handling would.
+     * og:image is only ever a candidate string here; UrlImportValidator is
+     * what actually enforces safety on it, at the point it's fetched.
+     */
     private function resolveUrl(string $url, string $pageUrl): string
     {
-        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+        try {
+            $resolved = UriResolver::resolve(new Uri($pageUrl), new Uri($url));
+        } catch (Throwable) {
             return $url;
         }
 
-        $parsed = parse_url($pageUrl);
-        $port = isset($parsed['port']) ? ':'.$parsed['port'] : '';
-        $base = ($parsed['scheme'] ?? 'https').'://'.($parsed['host'] ?? '').$port;
-
-        if (str_starts_with($url, '//')) {
-            return ($parsed['scheme'] ?? 'https').':'.$url;
-        }
-
-        if (str_starts_with($url, '/')) {
-            return $base.$url;
-        }
-
-        $path = rtrim(dirname($parsed['path'] ?? ''), '/');
-
-        return $base.$path.'/'.$url;
+        return (string) $resolved->withFragment('');
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\MediaVariantName;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -17,7 +18,7 @@ class MediaVariantFactory extends Factory
     {
         return [
             'media_asset_id' => MediaAsset::factory(),
-            'name' => 'feed_640',
+            'name' => MediaVariantName::PostFeed640,
             'disk' => 'public',
             'path' => 'posts/variants/'.fake()->uuid().'.jpg',
             'mime_type' => 'image/jpeg',
@@ -30,7 +31,7 @@ class MediaVariantFactory extends Factory
         ];
     }
 
-    public function named(string $name): static
+    public function named(MediaVariantName $name): static
     {
         return $this->state(fn (): array => ['name' => $name]);
     }

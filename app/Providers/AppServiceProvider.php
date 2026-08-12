@@ -5,14 +5,21 @@ namespace App\Providers;
 use App\Enums\PostStatus;
 use App\Models\Category;
 use App\Models\Tag;
+use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
 use App\Policies\ProjectSettingsPolicy;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
 use App\Services\Media\GdImageIngestor;
+use App\Services\Media\GdImageVariantProcessor;
 use App\Services\Media\ImageIngestor;
+use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
+use App\Support\Import\Dns\DnsHostResolver;
+use App\Support\Import\Dns\HostResolver;
+use App\Support\Import\ImportHttpTransport;
+use App\Support\Import\PinnedImportHttpTransport;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Theme\ThemeManager;
 use App\Support\Translations\TranslatableField;
@@ -36,6 +43,10 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(MediaStorage::class, FilesystemMediaStorage::class);
         $this->app->singleton(MediaUrlResolver::class, FilesystemMediaUrlResolver::class);
         $this->app->singleton(ImageIngestor::class, GdImageIngestor::class);
+        $this->app->singleton(ImageVariantProcessor::class, GdImageVariantProcessor::class);
+
+        $this->app->singleton(HostResolver::class, DnsHostResolver::class);
+        $this->app->singleton(ImportHttpTransport::class, PinnedImportHttpTransport::class);
     }
 
     /**
@@ -46,6 +57,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
         Gate::define('manage-project-settings', [ProjectSettingsPolicy::class, 'manage']);
+        Gate::define('view-media-diagnostics', [MediaDiagnosticsPolicy::class, 'view']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);
@@ -60,6 +72,12 @@ class AppServiceProvider extends ServiceProvider
         });
 
         View::composer('layouts.app', function ($view): void {
+            // The header renders auth()->user()->resolved_avatar_srcset,
+            // which never lazy-loads variants (see AvatarUrlResolver) — load
+            // it once here so the header actually gets a real srcset instead
+            // of silently always falling back to the master image.
+            auth()->user()?->loadMissing('avatarAsset.variants');
+
             $settings = app(ProjectSettingsManager::class)->current();
             $view->with(array_merge(app(AppLayoutData::class)->toArray(), [
                 'projectSettings' => $settings,

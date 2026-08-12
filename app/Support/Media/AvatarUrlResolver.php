@@ -2,6 +2,8 @@
 
 namespace App\Support\Media;
 
+use App\Enums\MediaVariantName;
+use App\Models\MediaVariant;
 use App\Models\User;
 use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaUrlResolver;
@@ -13,7 +15,10 @@ use App\Services\Media\MediaUrlResolver;
  * itself never touches the avatarAsset relation. Returns null when there is
  * no avatar; rendering a fallback (initials, generated avatar, etc.) is a
  * presentation-layer concern this class deliberately knows nothing about —
- * see resources/views/components/ui/avatar.blade.php.
+ * see resources/views/components/ui/avatar.blade.php. responsive() never
+ * lazy-loads `variants`: when a caller hasn't eager-loaded
+ * `avatarAsset.variants`, it falls back to the master-image DTO instead of
+ * issuing a query.
  */
 final class AvatarUrlResolver
 {
@@ -30,5 +35,72 @@ final class AvatarUrlResolver
         }
 
         return $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+    }
+
+    /**
+     * Avatars aren't laid out responsively the way post images are — a
+     * single `sizes` string covering every call site would be a guess, and
+     * both candidate widths (128/256) are small enough that a default
+     * `100vw` selection picks at most the 256w candidate anyway. `sizes` is
+     * therefore always null here, unlike PostImagePresenter::responsive().
+     */
+    public function responsive(User $user): ?ResponsiveImage
+    {
+        $asset = $user->avatarAsset;
+
+        if ($asset === null) {
+            return null;
+        }
+
+        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+
+        // A non-public asset (e.g. MediaVisibility::Private) has no
+        // resolvable URL at all — bail out before any variant selection, so
+        // behavior doesn't depend on whether `variants` happens to be
+        // eager-loaded. Without this check, a private asset with variants
+        // loaded would fall through to publicUrl() below (the strict,
+        // throwing variant), while the exact same asset with variants NOT
+        // loaded would silently return null from the branch below instead —
+        // two different behaviors for the same underlying asset.
+        if ($masterUrl === null) {
+            return null;
+        }
+
+        // Never lazy-load: a caller that forgot to eager-load
+        // avatarAsset.variants gets the master-fallback DTO instead of an
+        // N+1 query per user.
+        if (! $asset->relationLoaded('variants')) {
+            return new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
+        }
+
+        $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
+
+        $small = $variants->get(MediaVariantName::Avatar128->value);
+        $large = $variants->get(MediaVariantName::Avatar256->value);
+
+        $chosen = $small ?? $large;
+
+        if ($chosen === null) {
+            return new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
+        }
+
+        $srcUrl = $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility);
+
+        $srcsetEntries = [];
+
+        foreach ([$small, $large] as $variant) {
+            if ($variant !== null) {
+                $url = $this->resolver->publicUrl(new MediaLocation($variant->disk, $variant->path), $asset->visibility);
+                $srcsetEntries[] = "{$url} {$variant->width}w";
+            }
+        }
+
+        return new ResponsiveImage(
+            src: $srcUrl,
+            srcset: $srcsetEntries === [] ? null : implode(', ', $srcsetEntries),
+            sizes: null,
+            width: $chosen->width,
+            height: $chosen->height,
+        );
     }
 }

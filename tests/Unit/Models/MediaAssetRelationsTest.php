@@ -3,6 +3,7 @@
 use App\Enums\ImageOrientation;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
+use App\Enums\MediaVariantName;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
@@ -28,8 +29,8 @@ it('has no owner by default', function () {
 
 it('has many variants', function () {
     $asset = MediaAsset::factory()->create();
-    MediaVariant::factory()->named('feed_640')->create(['media_asset_id' => $asset->id]);
-    MediaVariant::factory()->named('detail_1920')->create(['media_asset_id' => $asset->id]);
+    MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create(['media_asset_id' => $asset->id]);
+    MediaVariant::factory()->named(MediaVariantName::PostDetail1920)->create(['media_asset_id' => $asset->id]);
 
     expect($asset->variants)->toHaveCount(2);
 });

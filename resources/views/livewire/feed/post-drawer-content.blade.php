@@ -1,3 +1,4 @@
+@inject('postImagePresenter', \App\Support\Media\PostImagePresenter::class)
 <div data-testid="post-drawer">
     <div wire:loading data-testid="post-drawer-loading" class="space-y-4 transition-opacity duration-200">
         <x-ui.skeleton shape="block" height="16rem" />
@@ -30,10 +31,10 @@
             <section class="flex min-w-0 items-start gap-3 pr-10" data-testid="post-drawer-meta">
                 @if($post->user?->username)
                     <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                        <x-ui.avatar :src="$post->user?->resolved_avatar_url" :name="$post->user->name" size="lg" />
+                        <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="lg" />
                     </a>
                 @else
-                    <x-ui.avatar :src="$post->user?->resolved_avatar_url" :name="$post->user?->name ?? 'User'" size="lg" />
+                    <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->name ?? 'User'" size="lg" />
                 @endif
 
                 <div class="min-w-0">
@@ -74,8 +75,16 @@
 
             <div class="mt-4">
                 @if($post->public_image_url)
+                    @php
+                        $drawerImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Drawer);
+                    @endphp
                     <x-media.post-image
                         :post="$post"
+                        :src="$drawerImage?->src"
+                        :srcset="$drawerImage?->srcset"
+                        :sizes="$drawerImage?->sizes"
+                        :width="$drawerImage?->width"
+                        :height="$drawerImage?->height"
                         context="drawer"
                         open-fullscreen="imageOpen = true"
                         testid="post-drawer-image-open"
@@ -172,9 +181,17 @@
             @endif
 
             @if($post->public_image_url)
+                @php
+                    $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
+                @endphp
                 <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen">
                     <x-media.post-image
                         :post="$post"
+                        :src="$fullscreenImage?->src"
+                        :srcset="$fullscreenImage?->srcset"
+                        :sizes="$fullscreenImage?->sizes"
+                        :width="$fullscreenImage?->width"
+                        :height="$fullscreenImage?->height"
                         context="fullscreen"
                         image-testid="post-fullscreen-image"
                         loading="lazy"

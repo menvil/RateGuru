@@ -49,20 +49,23 @@ final class PostOpenGraph
     }
 
     /**
-     * No dedicated Open Graph variant is generated yet (PR-06): this falls
-     * straight back to the post's master image, architecturally the same
-     * fallback as when there's no image at all. See docs/architecture/media.md.
+     * Fallback chain (see PostImagePresenter::openGraph()): a dedicated
+     * open_graph variant (exact 1200x630, JPEG) -> post_detail_1920 ->
+     * master -> the static placeholder image. A private or missing post
+     * image never reaches even the master branch — openGraph() returns null
+     * before any variant lookup, so this falls straight to the placeholder,
+     * same as "no image at all". See docs/architecture/media.md.
      */
     public function image(Post $post): OpenGraphImageData
     {
-        $imageUrl = trim((string) $this->imagePresenter->url($post));
+        $resolved = $this->imagePresenter->openGraph($post);
 
-        if ($imageUrl !== '') {
+        if ($resolved !== null) {
             return new OpenGraphImageData(
-                url: $this->absoluteUrl($imageUrl),
-                mimeType: $this->mimeTypeForUrl($imageUrl),
-                width: null,
-                height: null,
+                url: $this->absoluteUrl($resolved->url),
+                mimeType: $resolved->mimeType,
+                width: $resolved->width,
+                height: $resolved->height,
                 alt: $this->title($post),
             );
         }
@@ -97,17 +100,5 @@ final class PostOpenGraph
     private function absoluteAsset(string $path): string
     {
         return rtrim((string) config('app.url'), '/').'/'.ltrim($path, '/');
-    }
-
-    private function mimeTypeForUrl(string $url): ?string
-    {
-        $extension = strtolower(pathinfo((string) parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
-
-        return match ($extension) {
-            'jpg', 'jpeg' => 'image/jpeg',
-            'png' => 'image/png',
-            'webp' => 'image/webp',
-            default => null,
-        };
     }
 }
