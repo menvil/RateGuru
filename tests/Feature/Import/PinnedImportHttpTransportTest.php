@@ -35,6 +35,36 @@ it('pins the connection via CURLOPT_RESOLVE to host:port:ip, never touches TLS v
         ->and(isset($seenOptions['progress']))->toBeTrue();
 });
 
+it('fails closed instead of proceeding when the cURL extension is unavailable, without ever attempting the request', function () {
+    // Without ext-curl, Guzzle's handler selection silently falls back to
+    // its pure-PHP StreamHandler, which has no concept of the "curl"
+    // request option at all -- CURLOPT_RESOLVE (the pin the whole DNS-
+    // rebinding fix relies on) would be silently ignored, and the stream
+    // context would perform its own, uncontrolled DNS lookup of the
+    // hostname instead. This must fail loudly and immediately rather than
+    // ever letting that substitution happen invisibly.
+    Http::fake(); // if the request layer is ever reached, assertNothingSent() below catches it
+
+    $transport = new PinnedImportHttpTransport(curlAvailabilityCheck: fn (): bool => false);
+    $target = new ResolvedImportTarget(url: 'https://example.com/page', scheme: 'https', host: 'example.com', port: 443, ip: '93.184.216.34');
+
+    expect(fn () => $transport->get($target, new ImportFetchPolicy(maxBytes: 1000, timeoutSeconds: 5, connectTimeoutSeconds: 2)))
+        ->toThrow(ImportFetchException::class);
+
+    Http::assertNothingSent();
+});
+
+it('proceeds normally when the cURL extension is available (the real, unmocked check)', function () {
+    Http::fake(['example.com/*' => Http::response('ok', 200)]);
+
+    $transport = new PinnedImportHttpTransport;
+    $target = new ResolvedImportTarget(url: 'https://example.com/page', scheme: 'https', host: 'example.com', port: 443, ip: '93.184.216.34');
+
+    $response = $transport->get($target, new ImportFetchPolicy(maxBytes: 1000, timeoutSeconds: 5, connectTimeoutSeconds: 2));
+
+    expect($response->status)->toBe(200);
+});
+
 it('never sets CURLOPT_SSL_VERIFYPEER or CURLOPT_SSL_VERIFYHOST', function () {
     $seenOptions = null;
 
@@ -198,11 +228,28 @@ switch ($mode) {
 }
 PHP);
 
-    $port = random_int(20000, 60000);
+    // Binding a probe socket to port 0 asks the OS to hand back a genuinely
+    // free ephemeral port, closed immediately after -- unlike random_int()
+    // over a fixed range, this can't collide with something else already
+    // listening on the machine (another test worker, a local dev service).
+    $probe = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
 
+    if ($probe === false) {
+        throw new RuntimeException("Failed to reserve a loopback port: {$errstr}");
+    }
+
+    $port = (int) explode(':', stream_socket_get_name($probe, false))[1];
+    fclose($probe);
+
+    // stdout/stderr redirected to /dev/null rather than pipes: nothing in
+    // this fixture ever reads from $pipes, and the built-in server writes
+    // an access-log line per request to stderr -- left as pipes, that
+    // output would sit in the OS pipe buffer until it fills and the child
+    // process blocks trying to write more, hanging the fixture instead of
+    // just discarding output nothing needs.
     $process = proc_open(
         [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', $docroot],
-        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
         $pipes,
     );
 

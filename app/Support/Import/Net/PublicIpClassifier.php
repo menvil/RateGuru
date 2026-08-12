@@ -58,7 +58,7 @@ final class PublicIpClassifier
             return false;
         }
 
-        $embeddedIpv4 = $this->extractIpv4Mapped($ipv6);
+        $embeddedIpv4 = $this->extractEmbeddedIpv4($ipv6);
 
         if ($embeddedIpv4 !== null) {
             return ! $this->matchesIpv4Cidrs($embeddedIpv4, self::IPV4_BLOCKED_CIDRS);
@@ -131,13 +131,23 @@ final class PublicIpClassifier
     }
 
     /**
-     * "::ffff:a.b.c.d" (RFC4291 IPv4-mapped): the first 80 bits are zero, the
-     * next 16 bits are all-ones, and the last 32 bits are the embedded IPv4
-     * address — which must be classified as if it were fetched directly, so
-     * e.g. "::ffff:169.254.169.254" is blocked exactly like the bare
-     * metadata-endpoint address is.
+     * Three RFC-defined forms that all embed a full IPv4 address in the low
+     * 32 bits, distinguished only by their 96-bit prefix — each must be
+     * classified via the *embedded* IPv4 address rather than blanket-blocked
+     * or blanket-allowed, exactly like "::ffff:a.b.c.d" already was, so e.g.
+     * "::ffff:169.254.169.254" and "64:ff9b::169.254.169.254" are both
+     * blocked like the bare metadata-endpoint address, while
+     * "::ffff:8.8.8.8" stays public like the bare address 8.8.8.8 is:
+     *
+     *  - "::ffff:a.b.c.d" (RFC4291 IPv4-mapped): 80 zero bits, then 16
+     *    one bits.
+     *  - "::a.b.c.d" (RFC4291 IPv4-compatible, deprecated but still
+     *    resolvable): 96 zero bits.
+     *  - "64:ff9b::a.b.c.d" (RFC6052 NAT64 well-known prefix): a fixed
+     *    12-byte prefix used by NAT64 gateways to represent an IPv4
+     *    destination as IPv6.
      */
-    private function extractIpv4Mapped(string $ipv6): ?string
+    private function extractEmbeddedIpv4(string $ipv6): ?string
     {
         $packed = inet_pton($ipv6);
 
@@ -145,7 +155,13 @@ final class PublicIpClassifier
             return null;
         }
 
-        if (substr($packed, 0, 10) !== str_repeat("\x00", 10) || substr($packed, 10, 2) !== "\xff\xff") {
+        $prefix = substr($packed, 0, 12);
+
+        $isMapped = substr($prefix, 0, 10) === str_repeat("\x00", 10) && substr($prefix, 10, 2) === "\xff\xff";
+        $isCompatible = $prefix === str_repeat("\x00", 12);
+        $isNat64 = $prefix === "\x00\x64\xff\x9b".str_repeat("\x00", 8);
+
+        if (! $isMapped && ! $isCompatible && ! $isNat64) {
             return null;
         }
 

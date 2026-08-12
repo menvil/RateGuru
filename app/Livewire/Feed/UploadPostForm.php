@@ -137,6 +137,16 @@ final class UploadPostForm extends Component
             // behind.
             if ($importedTempFile !== null) {
                 app(StoreImportedImageAction::class)->cleanup($importedTempFile);
+
+                // On a failure path the success branch's own reset() above
+                // never ran, so $this->image would otherwise keep pointing
+                // at the file cleanup() just deleted — a retry would try to
+                // reuse a now-missing file instead of re-downloading.
+                // importedImageUrl is deliberately left untouched so that
+                // retry has something to download from.
+                if ($this->image === $importedTempFile) {
+                    $this->image = null;
+                }
             }
         }
     }

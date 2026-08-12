@@ -68,3 +68,13 @@ it('rejects response with empty content-type header', function () {
 
     app(DirectImageImportAdapter::class)->preview('https://example.com/image.jpg');
 })->throws(ImportFetchException::class);
+
+it('rejects a response with no content-type header at all, without a null-coercion warning', function () {
+    Http::fake([
+        // No Content-Type key at all -- header('Content-Type') returns
+        // null here, distinct from the empty-string case above.
+        'example.com/image.jpg' => Http::response('fake-content', 200, []),
+    ]);
+
+    app(DirectImageImportAdapter::class)->preview('https://example.com/image.jpg');
+})->throws(ImportFetchException::class);

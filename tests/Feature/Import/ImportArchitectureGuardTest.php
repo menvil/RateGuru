@@ -73,3 +73,18 @@ it('confirms PinnedImportHttpTransport is the one file actually allowed to use t
 
     expect($source)->toContain('Http::');
 });
+
+it('proves the raw curl_ regex actually catches a real call and does not false-positive on a CURLOPT_ constant', function () {
+    // A negative control on the guard itself: if a future edit to the
+    // pattern above (escaping, character class, anchoring) ever made it
+    // stop matching real curl_*() calls, the main guard test would keep
+    // passing for the wrong reason -- silently ineffective rather than
+    // failing loudly. Same exact pattern, asserted against both cases
+    // directly.
+    $pattern = '/\bcurl_[a-z_]+\s*\(/i';
+
+    expect(preg_match($pattern, 'curl_init($url);'))->toBe(1)
+        ->and(preg_match($pattern, '$ch = curl_exec($handle);'))->toBe(1)
+        ->and(preg_match($pattern, 'CURLOPT_RESOLVE => [$entry],'))->toBe(0)
+        ->and(preg_match($pattern, 'CURLOPT_SSL_VERIFYPEER'))->toBe(0);
+});

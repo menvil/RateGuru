@@ -26,6 +26,30 @@ class UrlImportValidator
     {
         $this->assertNoControlCharacters($url, $redirectHop);
 
+        ['parsed' => $parsed, 'scheme' => $scheme, 'host' => $host, 'port' => $port]
+            = $this->assertSafeSyntax($url, $redirectHop);
+
+        $ip = $this->resolveAndValidate($host, $url, $scheme, $port, $redirectHop);
+
+        return new ResolvedImportTarget(
+            url: $this->canonicalUrl($scheme, $host, $port, $parsed),
+            scheme: $scheme,
+            host: $host,
+            port: $port,
+            ip: $ip,
+        );
+    }
+
+    /**
+     * Everything about the URL that can be rejected from its own syntax
+     * alone, before any DNS resolution or IP classification is even
+     * attempted: scheme, host presence, userinfo, the bracketed-IPv6/
+     * ambiguous-numeric-host forms, and the port allowlist.
+     *
+     * @return array{parsed: array<string, mixed>, scheme: string, host: string, port: int}
+     */
+    private function assertSafeSyntax(string $url, int $redirectHop): array
+    {
         $parsed = parse_url($url);
 
         if ($parsed === false) {
@@ -64,15 +88,7 @@ class UrlImportValidator
             throw UnsafeImportUrlException::ambiguousHost($url);
         }
 
-        $ip = $this->resolveAndValidate($host, $url, $scheme, $port, $redirectHop);
-
-        return new ResolvedImportTarget(
-            url: $this->canonicalUrl($scheme, $host, $port, $parsed),
-            scheme: $scheme,
-            host: $host,
-            port: $port,
-            ip: $ip,
-        );
+        return ['parsed' => $parsed, 'scheme' => $scheme, 'host' => $host, 'port' => $port];
     }
 
     private function assertNoControlCharacters(string $url, int $redirectHop): void
@@ -107,6 +123,19 @@ class UrlImportValidator
             }
 
             return $inner;
+        }
+
+        // A single trailing dot denotes an FQDN in DNS and is treated as
+        // equivalent to the same host without it by resolvers and HTTP
+        // clients alike. Stripped here, before any downstream check, so
+        // every one of them (ambiguous-numeric-host detection, the
+        // "localhost" special case, DNS resolution) sees the same
+        // canonical form — otherwise a trailing dot lets an ambiguous host
+        // slip past isAmbiguousNumericHost() entirely: "127.1." splits into
+        // ['127', '1', ''], and that trailing empty label makes the
+        // all-parts-numeric check bail out as "not a numeric host at all".
+        if (str_ends_with($host, '.') && $host !== '.') {
+            $host = substr($host, 0, -1);
         }
 
         return $host;

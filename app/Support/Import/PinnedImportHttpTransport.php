@@ -39,8 +39,35 @@ use RuntimeException;
  */
 final class PinnedImportHttpTransport implements ImportHttpTransport
 {
+    /** @var callable(): bool */
+    private $curlAvailabilityCheck;
+
+    /**
+     * @param  (callable(): bool)|null  $curlAvailabilityCheck  Overridable only for tests; production always uses the real function_exists() check.
+     */
+    public function __construct(?callable $curlAvailabilityCheck = null)
+    {
+        $this->curlAvailabilityCheck = $curlAvailabilityCheck ?? static fn (): bool => function_exists('curl_init');
+    }
+
     public function get(ResolvedImportTarget $target, ImportFetchPolicy $policy): ImportTransportResponse
     {
+        if (! ($this->curlAvailabilityCheck)()) {
+            // Without ext-curl, Guzzle's handler selection (Utils::
+            // chooseHandler()) falls back to its pure-PHP StreamHandler,
+            // which has no concept of the "curl" request option at all --
+            // CURLOPT_RESOLVE (the pin this whole class exists for) would
+            // be silently ignored and the stream context would perform its
+            // own, uncontrolled DNS lookup of $target->host, silently
+            // reopening the exact rebinding window this transport exists
+            // to close. Failing closed here is safer than ever letting
+            // that substitution happen invisibly.
+            throw ImportFetchException::connectionError(
+                $target->url,
+                'The cURL extension is required for a pinned import fetch and is not available.',
+            );
+        }
+
         $contentLengthExceeded = false;
 
         try {

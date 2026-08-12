@@ -32,7 +32,18 @@ class ImportFetchException extends RuntimeException
      */
     public static function connectionError(string $url, string $reason, ?Throwable $previous = null): self
     {
-        return new self("Could not connect to '".self::sanitizeUrl($url)."': {$reason}", 0, $previous);
+        $sanitizedUrl = self::sanitizeUrl($url);
+
+        // curl's own error messages commonly embed the raw request URL
+        // verbatim ("cURL error 6: Could not resolve host: x for
+        // https://x/page?token=..."), which would otherwise smuggle an
+        // unsanitized, credential-bearing URL past sanitizeUrl() above. Any
+        // embedded URL gets replaced with the already-sanitized one; the
+        // full original is still available via $previous for anyone who
+        // needs it.
+        $safeReason = preg_replace('/https?:\/\/\S+/i', $sanitizedUrl, $reason) ?? '(reason redacted)';
+
+        return new self("Could not connect to '{$sanitizedUrl}': {$safeReason}", 0, $previous);
     }
 
     public static function responseTooLarge(string $url, int $maxBytes): self

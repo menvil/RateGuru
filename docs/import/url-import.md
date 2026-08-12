@@ -90,7 +90,7 @@ whatever the validator saw a moment earlier (an attacker's nameserver can
 answer truthfully once and answer with a private/loopback address the next
 time). Every fetch in this pipeline instead flows through:
 
-```
+```text
 UrlImportValidator::validate($url)
     → parses/normalizes the URL, rejects unsafe schemes/userinfo/ports/
       ambiguous numeric hosts
@@ -157,9 +157,13 @@ metadata endpoint), `172.16.0.0/12`, `192.0.0.0/24`, `192.0.2.0/24`
 
 Blocked IPv6 ranges: `::/128`, `::1/128`, `fc00::/7` (unique-local),
 `fe80::/10` (link-local), `ff00::/8` (multicast), `2001:db8::/32`
-(documentation). IPv4-mapped IPv6 addresses (`::ffff:a.b.c.d`) are unwrapped
-and the embedded IPv4 address is classified through the same IPv4 table —
-`::ffff:169.254.169.254` is blocked exactly like the bare address is.
+(documentation). Three RFC-defined forms that embed a full IPv4 address in
+their low 32 bits — `::ffff:a.b.c.d` (RFC4291 IPv4-mapped), `::a.b.c.d`
+(RFC4291 IPv4-compatible, `::/96`), and `64:ff9b::a.b.c.d` (RFC6052 NAT64
+well-known prefix, `64:ff9b::/96`) — are all unwrapped and the embedded IPv4
+address is classified through the same IPv4 table, so
+`::ffff:169.254.169.254` and `64:ff9b::169.254.169.254` are both blocked
+exactly like the bare metadata-endpoint address is.
 
 ### DNS resolution
 

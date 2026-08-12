@@ -53,6 +53,24 @@ it('falls back to html title when og tags are absent', function () {
     expect($preview->title)->toBe('Plain Title');
 });
 
+it('resolves a relative og:image against the response finalUrl, not the originally requested url, after a redirect to a different directory', function () {
+    Http::fake([
+        'example.com/a/original' => Http::response('', 302, ['Location' => 'https://example.com/b/final']),
+        'example.com/b/final' => Http::response(
+            '<head><meta property="og:image" content="photo.jpg"></head>',
+            200,
+            ['Content-Type' => 'text/html']
+        ),
+    ]);
+
+    $preview = app(OpenGraphImportAdapter::class)->preview('https://example.com/a/original');
+
+    // Relative to /b/ (the final directory the redirect landed on), not
+    // /a/ (the originally requested directory) -- proves relative
+    // og:image resolution uses $response->finalUrl, not the input $url.
+    expect($preview->imageUrl)->toBe('https://example.com/b/photo.jpg');
+});
+
 it('rejects og image url that is unsafe', function () {
     Http::fake([
         'example.com/page' => Http::response(

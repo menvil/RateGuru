@@ -35,7 +35,9 @@ final class SequencedHostResolver implements HostResolver
 
     public function resolve(string $host): array
     {
-        $answer = $this->answers[$this->calls] ?? end($this->answers);
+        // end() would throw here: it needs a writable reference to move the
+        // array's internal pointer, and $this->answers is readonly.
+        $answer = $this->answers[$this->calls] ?? $this->answers[array_key_last($this->answers)];
         $this->calls++;
         $this->log[] = [$host, $answer];
 

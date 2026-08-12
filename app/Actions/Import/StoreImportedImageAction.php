@@ -29,7 +29,7 @@ class StoreImportedImageAction
 
         $response = $this->client->get($imageUrl, $maxBytes);
 
-        $rawContentType = $response->header('Content-Type');
+        $rawContentType = $response->header('Content-Type') ?? '';
         $host = parse_url($imageUrl, PHP_URL_HOST) ?? 'unknown';
 
         if (empty(trim($rawContentType))) {
@@ -58,16 +58,33 @@ class StoreImportedImageAction
         // tempnam()+rename() dance tempnam() alone would otherwise need.
         $tmpPath = sys_get_temp_dir().'/rg_import_'.Str::uuid()->toString().'.'.$extension;
 
-        if (File::put($tmpPath, $body) === false) {
-            // A failed write may still have left a partial file behind.
+        // Created empty and locked down to 0600 *before* any body byte is
+        // written — the previous order (write, then chmod) left the file
+        // briefly world-readable, with the downloaded content already in
+        // it, in the shared OS temp directory. 'x' mode both creates the
+        // file and fails atomically if something already exists at this
+        // (UUID-derived, so practically never colliding) path.
+        $handle = @fopen($tmpPath, 'x');
+
+        if ($handle === false) {
+            throw new ImportFetchException('Failed to create temporary file for imported image.');
+        }
+
+        if (! @chmod($tmpPath, 0600) || (@fileperms($tmpPath) & 0777) !== 0600) {
+            fclose($handle);
+            $this->deleteQuietly($tmpPath);
+
+            throw new ImportFetchException('Failed to secure temporary file permissions for imported image.');
+        }
+
+        if (fwrite($handle, $body) === false) {
+            fclose($handle);
             $this->deleteQuietly($tmpPath);
 
             throw new ImportFetchException('Failed to write temporary file for imported image.');
         }
 
-        // Not world-readable: the only process with any business reading
-        // this file back is this same request, moments from now.
-        @chmod($tmpPath, 0600);
+        fclose($handle);
 
         return new UploadedFile(
             path: $tmpPath,

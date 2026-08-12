@@ -77,7 +77,7 @@ it('submit downloads importedImageUrl before validation and creates post', funct
         ->assertHasNoErrors();
 });
 
-it('cleans up the imported temp file even when post creation fails validation', function () {
+it('cleans up the imported temp file even when post creation fails validation, clears the stale image, and re-downloads on a corrected retry', function () {
     // Called as a direct method on a resolved instance, not through
     // Livewire::test()->call(): the component's own validate() call, on a
     // raw UploadedFile assigned outside Livewire's normal ->set() upload
@@ -90,15 +90,16 @@ it('cleans up the imported temp file even when post creation fails validation', 
     $user = User::factory()->create();
     $this->actingAs($user);
 
-    $fakeImage = UploadedFile::fake()->image('imported.jpg', 100, 100);
+    $firstFakeImage = UploadedFile::fake()->image('imported.jpg', 100, 100);
+    $secondFakeImage = UploadedFile::fake()->image('imported-retry.jpg', 100, 100);
 
     $mock = $this->mock(StoreImportedImageAction::class);
     $mock->shouldReceive('download')
-        ->once()
-        ->andReturn($fakeImage);
+        ->twice()
+        ->andReturn($firstFakeImage, $secondFakeImage);
     $mock->shouldReceive('cleanup')
         ->once()
-        ->with($fakeImage);
+        ->with($firstFakeImage);
 
     $form = app(UploadPostForm::class);
     $form->mount();
@@ -111,4 +112,23 @@ it('cleans up the imported temp file even when post creation fails validation', 
         // Expected -- title is blank. The mock's ->once() expectation on
         // cleanup() is what this test is actually verifying.
     }
+
+    // The now-deleted file must not linger on the component -- a retry
+    // needs $this->image === null to trigger a fresh download instead of
+    // trying to reuse a path cleanup() already removed. The URL itself is
+    // preserved so that fresh download has something to fetch.
+    expect($form->image)->toBeNull()
+        ->and($form->importedImageUrl)->toBe('https://example.com/image.jpg');
+
+    // Correct the title and retry: this must re-download (proving the
+    // mock's ->twice() download() expectation) and clean up the *new*
+    // file this time (the ->once()->with($firstFakeImage) expectation on
+    // cleanup() above already fully accounts for the first file; asserting
+    // no exception here is enough to prove the second submission proceeds
+    // past image handling instead of erroring on a stale reference).
+    $form->title = 'Imported Dish';
+
+    expect(fn () => $form->submit())->not->toThrow(ValidationException::class);
+
+    $mock->shouldHaveReceived('cleanup')->with($secondFakeImage)->once();
 });

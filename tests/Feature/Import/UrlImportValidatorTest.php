@@ -167,11 +167,32 @@ foreach ($ambiguousHosts as $host) {
     });
 }
 
+it('rejects an ambiguous numeric host even with a trailing FQDN dot appended', function () {
+    // Without stripping the trailing dot first, "127.1." splits into
+    // ['127', '1', ''] -- the empty trailing label makes the ambiguous-host
+    // check bail out as "not numeric at all", letting it slip through.
+    expect(fn () => validate('https://127.1./'))->toThrow(UnsafeImportUrlException::class);
+});
+
+it('rejects localhost with a trailing FQDN dot the same as bare localhost', function () {
+    expect(fn () => validate('https://localhost./test'))->toThrow(UnsafeImportUrlException::class);
+});
+
+it('treats a trailing FQDN dot as equivalent to the same host without it', function () {
+    $withDot = validate('https://good.example./page');
+    $withoutDot = validate('https://good.example/page');
+
+    expect($withDot->host)->toBe($withoutDot->host)
+        ->and($withDot->ip)->toBe($withoutDot->ip);
+});
+
 // --- IPv6 address policy --------------------------------------------------
 
 $blockedIpv6 = [
     '::1', '::', 'fc00::1', 'fd12::1', 'fe80::1', 'ff02::1',
     '::ffff:127.0.0.1', '::ffff:10.0.0.1', '::ffff:169.254.169.254',
+    '::127.0.0.1', '::169.254.169.254',
+    '64:ff9b::127.0.0.1', '64:ff9b::169.254.169.254',
 ];
 
 foreach ($blockedIpv6 as $ip) {

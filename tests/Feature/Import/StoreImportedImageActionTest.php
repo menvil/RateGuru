@@ -4,7 +4,6 @@ use App\Actions\Import\StoreImportedImageAction;
 use App\Exceptions\Import\ImportFetchException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
@@ -60,17 +59,15 @@ it('rejects non-image content type', function () {
     app(StoreImportedImageAction::class)->download('https://example.com/file.html');
 })->throws(ImportFetchException::class);
 
-it('maps a temporary file write failure to a narrow exception', function () {
+it('rejects a response with no content-type header at all, without a null-coercion warning', function () {
     Http::fake([
-        'example.com/image.jpg' => Http::response('bytes', 200, [
-            'Content-Type' => 'image/jpeg',
-        ]),
+        // No Content-Type key at all -- header('Content-Type') returns
+        // null here, distinct from an empty-string header value.
+        'example.com/image.jpg' => Http::response('bytes', 200, []),
     ]);
 
-    File::shouldReceive('put')->once()->andReturn(false);
-
     app(StoreImportedImageAction::class)->download('https://example.com/image.jpg');
-})->throws(ImportFetchException::class, 'Failed to write temporary file for imported image.');
+})->throws(ImportFetchException::class);
 
 it('writes the temp file with private (non-world-readable) permissions', function () {
     Http::fake([

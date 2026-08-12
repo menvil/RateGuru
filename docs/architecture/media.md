@@ -765,9 +765,9 @@ operation, on purpose.
 
 Focal points/AI cropping, a crop UI, AVIF or other format negotiation,
 `<picture>` markup, an actual S3/CDN deployment, imgproxy, temporary signed
-URLs, legacy data backfill beyond the CLI command above, URL-import hardening
-(PR-08), video/GIF variants, a general third-party media library/schema
-redesign, an outbox/durable event bus/workflow engine or any queue-
+URLs, legacy data backfill beyond the CLI command above, video/GIF variants,
+a general third-party media library/schema redesign, an outbox/durable
+event bus/workflow engine or any queue-
 infrastructure migration (Horizon, a custom failed-job UI, automatic repair
 of a missing master, a corruption/integrity scanner, storage tiering,
 backup integration, retention UI, polymorphic attachments), or
