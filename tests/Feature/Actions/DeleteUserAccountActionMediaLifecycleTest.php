@@ -227,3 +227,37 @@ it('leaves the session authenticated if the transaction rolls back before logout
     $this->assertAuthenticated();
     expect(User::find($user->id))->not->toBeNull();
 });
+
+it('never logs out if an outer transaction wrapping execute() itself rolls back after it returns', function () {
+    // execute()'s own DB::transaction() only ever releases a savepoint when
+    // it's nested inside someone else's transaction — it isn't a real
+    // commit. Registering the logout via DB::afterCommit() (rather than
+    // calling it synchronously once DB::transaction() returns) is what
+    // makes this safe: Laravel defers the callback until the *outermost*
+    // transaction actually commits, and drops it entirely if that outer
+    // transaction rolls back instead, even though execute() itself already
+    // returned normally by that point.
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $outerFailure = new RuntimeException('Simulated outer transaction failure.');
+
+    try {
+        DB::transaction(function () use ($user, $outerFailure): void {
+            app(DeleteUserAccountAction::class)->execute($user);
+
+            // execute() has already returned normally here — its own
+            // transaction only released a savepoint, and the outer
+            // transaction below now fails for a reason entirely unrelated
+            // to account deletion.
+            throw $outerFailure;
+        });
+
+        $this->fail('Expected the outer transaction to throw.');
+    } catch (RuntimeException $exception) {
+        expect($exception)->toBe($outerFailure);
+    }
+
+    $this->assertAuthenticated();
+    expect(User::find($user->id))->not->toBeNull();
+});

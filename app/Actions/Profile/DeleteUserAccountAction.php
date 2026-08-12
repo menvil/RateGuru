@@ -68,14 +68,24 @@ final class DeleteUserAccountAction
             // delete too, rather than leaving a deleted account with
             // orphaned-but-still-active media.
             $this->lifecycleService->releaseUnreferenced($assetIds);
-        });
 
-        // Only reached once the transaction above has actually committed —
-        // if it throws (a media-release failure rolling everything back),
-        // this line never runs, so the caller stays authenticated against
-        // an account that, per the DB, was never deleted. Logging out
-        // first (the previous behavior) would have left the session logged
-        // out even though the account still fully existed.
-        Auth::guard('web')->logout();
+            // Registered via DB::afterCommit() rather than called
+            // synchronously after DB::transaction() returns: this method's
+            // own sole caller (ProfileController::destroy()) never wraps it
+            // in an outer transaction today, but afterCommit() is what
+            // makes that true by construction rather than by accident — if
+            // this action is ever invoked from inside someone else's
+            // transaction, DB::transaction() above only releases a
+            // savepoint, not a real commit, and a synchronous logout() call
+            // right after it returns would still fire even if that outer
+            // transaction goes on to roll back moments later. afterCommit()
+            // defers until the outermost transaction actually commits, and
+            // is simply discarded if it rolls back instead (Laravel's
+            // DatabaseTransactionsManager::rollback() clears any pending
+            // callbacks along with the transaction they were queued
+            // against) — so the caller never gets logged out of an account
+            // that, per the DB, still exists.
+            DB::afterCommit(fn () => Auth::guard('web')->logout());
+        });
     }
 }
