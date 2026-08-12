@@ -66,3 +66,17 @@ final class DirectLifecycleCheckPage
         return $viewer->canManageContent();
     }
 }
+
+namespace App\Actions\Fixtures;
+
+use App\Models\User;
+
+// Non-presentation layer: the same lifecycle capability calls must NOT be
+// flagged here — actions and domain code are exactly where they belong.
+final class DirectLifecycleCheckAction
+{
+    public function handle(User $actor): bool
+    {
+        return $actor->canFollow() && $actor->canManageContent();
+    }
+}

@@ -19,10 +19,13 @@ use App\Exceptions\Reports\CannotReportContentException;
 use App\Exceptions\Votes\CannotVoteCommentException;
 use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Follow;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\ProjectSettings;
 use App\Models\RatingOption;
+use App\Models\RatingVote;
 use App\Models\Report;
 use App\Models\User;
 
@@ -64,21 +67,36 @@ it('rejects commenting for restricted lifecycle states', function (User $user) {
 it('rejects post voting for restricted lifecycle states', function (User $user) {
     $post = Post::factory()->published()->create();
 
-    app(VotePostAction::class)->handle($user, $post, VoteType::Up);
-})->with('restricted users')->throws(CannotVoteException::class);
+    try {
+        app(VotePostAction::class)->handle($user, $post, VoteType::Up);
+        $this->fail('Expected CannotVoteException.');
+    } catch (CannotVoteException) {
+        expect(PostVote::query()->count())->toBe(0);
+    }
+})->with('restricted users');
 
 it('rejects comment voting for restricted lifecycle states', function (User $user) {
     $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
 
-    app(VoteCommentAction::class)->handle($user, $comment, VoteType::Up);
-})->with('restricted users')->throws(CannotVoteCommentException::class);
+    try {
+        app(VoteCommentAction::class)->handle($user, $comment, VoteType::Up);
+        $this->fail('Expected CannotVoteCommentException.');
+    } catch (CannotVoteCommentException) {
+        expect(CommentVote::query()->count())->toBe(0);
+    }
+})->with('restricted users');
 
 it('rejects rating votes for restricted lifecycle states', function (User $user) {
     $post = Post::factory()->published()->create();
     $option = RatingOption::factory()->create();
 
-    app(VoteRatingOptionAction::class)->handle($user, $post, $option);
-})->with('restricted users')->throws(CannotVoteForRatingOptionException::class);
+    try {
+        app(VoteRatingOptionAction::class)->handle($user, $post, $option);
+        $this->fail('Expected CannotVoteForRatingOptionException.');
+    } catch (CannotVoteForRatingOptionException) {
+        expect(RatingVote::query()->count())->toBe(0);
+    }
+})->with('restricted users');
 
 it('rejects reporting for restricted lifecycle states', function (User $user) {
     $post = Post::factory()->published()->create();
@@ -135,11 +153,13 @@ it('permits every participation action for an active user', function () {
         'post_id' => $post->id,
         'status' => CommentStatus::Visible,
     ]);
+    $option = RatingOption::factory()->create();
 
     $created = app(CreatePostAction::class)->handle($user, new CreatePostData(title: 'Allowed dish'));
     app(AddCommentAction::class)->handle($user, $post, 'Allowed comment');
     app(VotePostAction::class)->handle($user, $post, VoteType::Up);
     app(VoteCommentAction::class)->handle($user, $comment, VoteType::Up);
+    app(VoteRatingOptionAction::class)->handle($user, $post, $option);
     app(ReportContentAction::class)->handle($user, $post, ReportReason::Spam);
     app(FollowAuthorAction::class)->handle($user, $author);
 
@@ -147,6 +167,11 @@ it('permits every participation action for an active user', function () {
     $this->assertDatabaseHas('comments', ['user_id' => $user->id, 'post_id' => $post->id]);
     $this->assertDatabaseHas('post_votes', ['user_id' => $user->id, 'post_id' => $post->id]);
     $this->assertDatabaseHas('comment_votes', ['user_id' => $user->id, 'comment_id' => $comment->id]);
+    $this->assertDatabaseHas('rating_votes', [
+        'user_id' => $user->id,
+        'post_id' => $post->id,
+        'rating_option_id' => $option->id,
+    ]);
     $this->assertDatabaseHas('reports', ['reporter_id' => $user->id, 'target_id' => $post->id]);
     $this->assertDatabaseHas('follows', ['follower_id' => $user->id, 'author_id' => $author->id]);
 });
