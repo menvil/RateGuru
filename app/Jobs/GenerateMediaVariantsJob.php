@@ -19,7 +19,10 @@ final class GenerateMediaVariantsJob implements ShouldQueue
 
     public int $timeout = 120;
 
-    public function __construct(public readonly int $mediaAssetId) {}
+    public function __construct(
+        public readonly int $mediaAssetId,
+        public readonly bool $force = false,
+    ) {}
 
     public function handle(MediaVariantGenerator $generator): void
     {
@@ -32,7 +35,7 @@ final class GenerateMediaVariantsJob implements ShouldQueue
         }
 
         try {
-            $generator->generateAll($asset);
+            $generator->generateAll($asset, force: $this->force);
         } catch (Throwable $exception) {
             Log::error('GenerateMediaVariantsJob: variant generation failed.', [
                 'media_asset_id' => $this->mediaAssetId,

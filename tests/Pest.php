@@ -15,7 +15,9 @@ use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\ResolvedImportTarget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /*
@@ -443,6 +445,43 @@ function createPurgeableAsset(): MediaAsset
     Carbon::setTestNow(Carbon::parse('2026-01-20 12:00:00')); // 19 days later, past the 7-day default grace
 
     return $asset->fresh();
+}
+
+/**
+ * Builds a failed_jobs row in Laravel's real payload shape — the "command"
+ * field is genuine serialize() output (never unserialize()'d by anything
+ * under test), so these fixtures exercise FailedMediaJobReader's actual
+ * regex-based extraction the same way a real queue worker failure would
+ * populate the table. Shared by FailedMediaJobReaderTest and
+ * MediaAuditServiceTest (see the block comment above image-marker helpers
+ * for why a shared bare function used by more than one test file must live
+ * here, not in either file).
+ */
+function insertFailedJobRow(string $jobClass, ?string $command, string $exception = "RuntimeException: boom\n#0 somewhere", ?string $failedAt = null): string
+{
+    $uuid = (string) Str::uuid();
+
+    $payload = [
+        'uuid' => $uuid,
+        'displayName' => $jobClass,
+        'job' => 'Illuminate\\Queue\\CallQueuedHandler@call',
+        'maxTries' => 3,
+        'data' => [
+            'commandName' => $jobClass,
+            'command' => $command,
+        ],
+    ];
+
+    DB::table('failed_jobs')->insert([
+        'uuid' => $uuid,
+        'connection' => 'sync',
+        'queue' => 'default',
+        'payload' => json_encode($payload),
+        'exception' => $exception,
+        'failed_at' => $failedAt ?? now(),
+    ]);
+
+    return $uuid;
 }
 
 /**
