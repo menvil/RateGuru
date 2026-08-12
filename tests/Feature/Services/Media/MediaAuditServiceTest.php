@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MediaAuditIssueType;
+use App\Jobs\GenerateMediaVariantsJob;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
@@ -158,4 +159,21 @@ it('does not hold the full issue set in memory when no callback is passed', func
     $summary = app(MediaAuditService::class)->run();
 
     expect($summary->assetsChecked)->toBe(1);
+});
+
+it('reports a failed GenerateMediaVariantsJob as a failed_generation_job issue, preserving the asset id and job context', function () {
+    $asset = MediaAsset::factory()->postImage()->create();
+    insertFailedJobRow(GenerateMediaVariantsJob::class, serialize(new GenerateMediaVariantsJob($asset->id)));
+
+    $issues = [];
+    $summary = app(MediaAuditService::class)->run(onIssue: function (MediaAuditIssueData $issue) use (&$issues): void {
+        $issues[] = $issue;
+    });
+
+    expect($summary->failedMediaJobs)->toBe(1);
+    $matching = array_values(array_filter($issues, fn (MediaAuditIssueData $i) => $i->issueType === MediaAuditIssueType::FailedGenerationJob));
+    expect($matching)->toHaveCount(1);
+    expect($matching[0]->mediaAssetId)->toBe($asset->id);
+    expect($matching[0]->context)->not->toBeNull();
+    expect($matching[0]->context['job_class'])->toBe(GenerateMediaVariantsJob::class);
 });

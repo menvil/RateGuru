@@ -5,6 +5,7 @@ namespace App\Services\Media;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\RunMediaAuditJob;
 use App\Models\FailedJob;
+use App\Services\Media\Exceptions\MediaAuditAlreadyRunningException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -63,10 +64,27 @@ final class FailedMediaJobReader
         return $this->mediaJobFailures()->take(self::RECENT_LIMIT)->values()->all();
     }
 
-    /** @return int total count of failed jobs across the known media job classes, for MediaAuditSummary */
+    /**
+     * An exact count across *every* failed_jobs row, not just the ones
+     * within mediaJobFailures()'s SCAN_LIMIT window — the display list is
+     * deliberately capped (a diagnostics panel, not a queue browser), but
+     * MediaAuditSummary.failedMediaJobs and the health status it feeds both
+     * need a genuine total, since an older media failure hidden behind
+     * SCAN_LIMIT worth of newer, unrelated failures would otherwise vanish
+     * from the count entirely. cursor() streams rows one at a time rather
+     * than loading the whole table into memory.
+     */
     public function countMediaJobFailures(): int
     {
-        return $this->mediaJobFailures()->count();
+        $count = 0;
+
+        foreach (FailedJob::query()->cursor() as $row) {
+            if ($this->parseRow($row) !== null) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     /** @return Collection<int, FailedMediaJobRecord> newest failure first */
@@ -93,6 +111,19 @@ final class FailedMediaJobReader
         $displayName = $payload['displayName'] ?? null;
 
         if (! is_string($displayName) || ! in_array($displayName, self::KNOWN_MEDIA_JOB_CLASSES, true)) {
+            return null;
+        }
+
+        // A MediaAuditAlreadyRunningException failure means RunMediaAuditJob
+        // correctly declined to run concurrently with another audit — an
+        // expected, benign collision (e.g. a double-clicked "Run full
+        // audit"), not a real generation/audit problem. Counting it here
+        // would inflate failed_media_jobs (and the health status it feeds)
+        // over routine, harmless contention. PHP's (string) cast of an
+        // exception starts with "ClassName: message in file:line", so a
+        // simple prefix check identifies it without parsing the rest of the
+        // stack trace text.
+        if (str_starts_with((string) $row->exception, MediaAuditAlreadyRunningException::class.':')) {
             return null;
         }
 

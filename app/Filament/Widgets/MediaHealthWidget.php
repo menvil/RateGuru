@@ -3,12 +3,12 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\MediaAuditRunStatus;
-use App\Enums\MediaHealthStatus;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Models\MediaAuditRun;
 use App\Services\Media\MediaHealthResolver;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * The Dashboard's own small summary — reads the latest persisted
@@ -23,13 +23,26 @@ class MediaHealthWidget extends StatsOverviewWidget
     protected int|string|array $columnSpan = 'full';
 
     /**
+     * Same gate MediaDiagnosticsPage itself uses — a moderator can see the
+     * Dashboard (and its other widgets), but not this one, since it links to
+     * and summarizes an admin-only page's data.
+     */
+    public static function canView(): bool
+    {
+        return Gate::allows('view-media-diagnostics');
+    }
+
+    /**
      * @return array<Stat>
      */
     protected function getStats(): array
     {
         $latestCompleted = MediaAuditRun::query()
             ->where('status', MediaAuditRunStatus::Completed)
+            // id as a tiebreaker: completed_at has only second-level
+            // precision.
             ->latest('completed_at')
+            ->latest('id')
             ->first();
 
         $health = app(MediaHealthResolver::class)->resolve($latestCompleted);
@@ -42,12 +55,7 @@ class MediaHealthWidget extends StatsOverviewWidget
         return [
             Stat::make('Media health', ucfirst($health->value))
                 ->description($lastAuditDescription)
-                ->color(match ($health) {
-                    MediaHealthStatus::Healthy => 'success',
-                    MediaHealthStatus::Warning => 'warning',
-                    MediaHealthStatus::Critical => 'danger',
-                    MediaHealthStatus::Unknown => 'gray',
-                })
+                ->color($health->color())
                 ->url(MediaDiagnosticsPage::getUrl()),
             Stat::make('Missing masters', (string) ($latestCompleted->missing_masters ?? '—'))
                 ->color($latestCompleted !== null && $latestCompleted->missing_masters > 0 ? 'danger' : 'gray'),

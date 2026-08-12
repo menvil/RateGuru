@@ -1,12 +1,8 @@
-@php
-    $asset = \App\Models\MediaAsset::withTrashed()->find($assetId);
-@endphp
-
-@if ($asset === null)
+@if ($inspection === null)
     <p class="text-sm text-gray-500">Asset #{{ $assetId }} no longer exists.</p>
 @else
     @php
-        $inspection = app(\App\Services\Media\MediaAssetInspector::class)->inspect($asset);
+        $asset = $inspection->asset;
     @endphp
 
     <div class="space-y-6">

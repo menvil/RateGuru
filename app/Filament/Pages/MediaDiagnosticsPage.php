@@ -14,9 +14,10 @@ use App\Models\MediaAsset;
 use App\Models\MediaAuditIssue;
 use App\Models\MediaAuditRun;
 use App\Models\MediaVariant;
-use App\Services\Media\Exceptions\MediaAuditAlreadyRunningException;
 use App\Services\Media\FailedMediaJobReader;
 use App\Services\Media\FailedMediaJobRecord;
+use App\Services\Media\MediaAssetInspection;
+use App\Services\Media\MediaAssetInspector;
 use App\Services\Media\MediaHealthResolver;
 use App\Services\Media\MediaLifecycleService;
 use Filament\Actions\Action;
@@ -78,19 +79,32 @@ final class MediaDiagnosticsPage extends Page implements HasTable
                 ->modalDescription('Scans every media asset, variant, and the physical disk. This can take a while on a large library.')
                 ->disabled(fn (): bool => $this->auditCurrentlyRunning())
                 ->action(function (): void {
-                    try {
-                        RunMediaAuditJob::dispatch();
-
-                        Notification::make()
-                            ->title('Full audit completed')
-                            ->success()
-                            ->send();
-                    } catch (MediaAuditAlreadyRunningException) {
+                    // Checked before dispatch rather than relying on
+                    // catching MediaAuditAlreadyRunningException: dispatch()
+                    // only throws it synchronously under QUEUE_CONNECTION=sync
+                    // (the only connection this app runs today) — if that
+                    // ever changes, dispatch() just enqueues and returns
+                    // immediately, and a try/catch here would never see the
+                    // job's own lock-contention failure at all. The real
+                    // safety net stays the job's own lock, checked again the
+                    // moment it actually runs; this is only the UI-facing
+                    // "don't bother dispatching a second one" hint, same as
+                    // the disabled() check above.
+                    if ($this->auditCurrentlyRunning()) {
                         Notification::make()
                             ->title('A full audit is already running')
                             ->warning()
                             ->send();
+
+                        return;
                     }
+
+                    RunMediaAuditJob::dispatch();
+
+                    Notification::make()
+                        ->title('Full audit dispatched')
+                        ->success()
+                        ->send();
                 }),
             Action::make('refresh')
                 ->label('Refresh')
@@ -100,12 +114,34 @@ final class MediaDiagnosticsPage extends Page implements HasTable
         ];
     }
 
+    private ?MediaAuditRun $latestCompletedRun = null;
+
+    private bool $latestCompletedRunResolved = false;
+
+    /**
+     * Memoized: health() and table()'s own query closure both call this —
+     * Filament re-invokes a table's query closure more than once per
+     * request (count, records, per filter), so without caching this would
+     * mean more than one identical query per render. The resolved flag
+     * (rather than checking `$this->latestCompletedRun !== null`) is what
+     * lets a genuine "no completed run yet" result — legitimately null —
+     * be cached too, instead of re-querying every call.
+     */
     public function latestCompletedRun(): ?MediaAuditRun
     {
-        return MediaAuditRun::query()
-            ->where('status', MediaAuditRunStatus::Completed)
-            ->latest('completed_at')
-            ->first();
+        if (! $this->latestCompletedRunResolved) {
+            $this->latestCompletedRun = MediaAuditRun::query()
+                ->where('status', MediaAuditRunStatus::Completed)
+                // id as a tiebreaker: completed_at has only second-level
+                // precision, so two runs completing within the same second
+                // would otherwise sort arbitrarily.
+                ->latest('completed_at')
+                ->latest('id')
+                ->first();
+            $this->latestCompletedRunResolved = true;
+        }
+
+        return $this->latestCompletedRun;
     }
 
     /**
@@ -118,6 +154,17 @@ final class MediaDiagnosticsPage extends Page implements HasTable
     public function lastAuditRun(): ?MediaAuditRun
     {
         return MediaAuditRun::query()->latest('started_at')->first();
+    }
+
+    /**
+     * How many MediaAuditIssue rows the "Last audit" panel's run produced —
+     * a page-class method rather than the view calling
+     * $lastAudit->issues()->count() itself, matching every other data
+     * access on this page (totals(), health(), etc.) staying out of Blade.
+     */
+    public function lastAuditIssuesCount(): int
+    {
+        return $this->lastAuditRun()?->issues()->count() ?? 0;
     }
 
     /**
@@ -153,6 +200,23 @@ final class MediaDiagnosticsPage extends Page implements HasTable
         ];
     }
 
+    /**
+     * The asset-inspector modal's one piece of data assembly — kept here
+     * rather than in the Blade view, matching every other data access on
+     * this page. Null means the asset no longer exists (e.g. already
+     * purged); the view renders a "no longer exists" message for that case.
+     */
+    public function inspectAsset(int $assetId): ?MediaAssetInspection
+    {
+        $asset = MediaAsset::withTrashed()->find($assetId);
+
+        if ($asset === null) {
+            return null;
+        }
+
+        return app(MediaAssetInspector::class)->inspect($asset);
+    }
+
     /** @return EloquentCollection<int, MediaAuditRun> */
     public function recentRuns(): EloquentCollection
     {
@@ -164,10 +228,13 @@ final class MediaDiagnosticsPage extends Page implements HasTable
         return MediaAuditRun::query()->orderByDesc('started_at')->limit(10)->get();
     }
 
+    /** @var list<FailedMediaJobRecord>|null */
+    private ?array $failedMediaJobs = null;
+
     /** @return list<FailedMediaJobRecord> */
     public function failedMediaJobs(): array
     {
-        return app(FailedMediaJobReader::class)->recentMediaJobFailures();
+        return $this->failedMediaJobs ??= app(FailedMediaJobReader::class)->recentMediaJobFailures();
     }
 
     public function table(Table $table): Table
@@ -259,7 +326,12 @@ final class MediaDiagnosticsPage extends Page implements HasTable
                     ->modalHeading(fn (MediaAuditIssue $record): string => "Asset #{$record->media_asset_id}")
                     ->modalContent(fn (MediaAuditIssue $record): View => view(
                         'filament.pages.media-diagnostics.asset-inspector',
-                        ['assetId' => $record->media_asset_id],
+                        [
+                            'assetId' => $record->media_asset_id,
+                            'inspection' => $record->media_asset_id !== null
+                                ? $this->inspectAsset($record->media_asset_id)
+                                : null,
+                        ],
                     ))
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Close'),
@@ -335,6 +407,13 @@ final class MediaDiagnosticsPage extends Page implements HasTable
 
     public function regenerateVariants(int $assetId, bool $force = false): void
     {
+        // Both this and retryFailedMediaJob() below are public Livewire
+        // methods, callable independently of any table row action's own
+        // visible()/authorization wiring (the asset inspector modal calls
+        // this one directly). Gate::authorize() re-asserts the same check
+        // canAccess() already enforces for the page itself.
+        Gate::authorize('view-media-diagnostics');
+
         GenerateMediaVariantsJob::dispatch($assetId, force: $force);
 
         Notification::make()
@@ -347,6 +426,8 @@ final class MediaDiagnosticsPage extends Page implements HasTable
 
     public function retryFailedMediaJob(int $assetId): void
     {
+        Gate::authorize('view-media-diagnostics');
+
         GenerateMediaVariantsJob::dispatch($assetId);
 
         Notification::make()

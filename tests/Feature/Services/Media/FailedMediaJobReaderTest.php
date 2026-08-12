@@ -2,43 +2,10 @@
 
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\RunMediaAuditJob;
+use App\Services\Media\Exceptions\MediaAuditAlreadyRunningException;
 use App\Services\Media\FailedMediaJobReader;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-
-/**
- * Builds a failed_jobs row in Laravel's real payload shape — the
- * "command" field is genuine serialize() output (never unserialize()'d by
- * anything under test), so these fixtures exercise FailedMediaJobReader's
- * actual regex-based extraction the same way a real queue worker failure
- * would populate the table.
- */
-function insertFailedJobRow(string $jobClass, ?string $command, string $exception = "RuntimeException: boom\n#0 somewhere", ?string $failedAt = null): string
-{
-    $uuid = (string) Str::uuid();
-
-    $payload = [
-        'uuid' => $uuid,
-        'displayName' => $jobClass,
-        'job' => 'Illuminate\\Queue\\CallQueuedHandler@call',
-        'maxTries' => 3,
-        'data' => [
-            'commandName' => $jobClass,
-            'command' => $command,
-        ],
-    ];
-
-    DB::table('failed_jobs')->insert([
-        'uuid' => $uuid,
-        'connection' => 'sync',
-        'queue' => 'default',
-        'payload' => json_encode($payload),
-        'exception' => $exception,
-        'failed_at' => $failedAt ?? now(),
-    ]);
-
-    return $uuid;
-}
 
 it('surfaces a failed GenerateMediaVariantsJob with its asset id safely extracted', function () {
     $job = new GenerateMediaVariantsJob(42);
@@ -148,4 +115,19 @@ it('counts media job failures independently of the recent-listing cap', function
     insertFailedJobRow('App\\Jobs\\NotifyFollowersAboutNewPostJob', 'O:10:"SomeClass":0:{}');
 
     expect(app(FailedMediaJobReader::class)->countMediaJobFailures())->toBe(2);
+});
+
+it('excludes a MediaAuditAlreadyRunningException failure — an expected, benign lock collision, not a real problem', function () {
+    $exceptionText = MediaAuditAlreadyRunningException::make()->__toString();
+    insertFailedJobRow(RunMediaAuditJob::class, serialize(new RunMediaAuditJob), exception: $exceptionText);
+
+    expect(app(FailedMediaJobReader::class)->recentMediaJobFailures())->toBeEmpty();
+    expect(app(FailedMediaJobReader::class)->countMediaJobFailures())->toBe(0);
+});
+
+it('still surfaces a genuine RunMediaAuditJob failure that is not a lock collision', function () {
+    insertFailedJobRow(RunMediaAuditJob::class, serialize(new RunMediaAuditJob), exception: "RuntimeException: a real audit failure\n#0 somewhere");
+
+    expect(app(FailedMediaJobReader::class)->recentMediaJobFailures())->toHaveCount(1);
+    expect(app(FailedMediaJobReader::class)->countMediaJobFailures())->toBe(1);
 });

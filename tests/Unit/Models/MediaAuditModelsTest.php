@@ -79,16 +79,23 @@ it('resolves a null asset/variant relation when the referenced row no longer exi
 });
 
 it('every issue type maps to exactly one severity', function () {
-    expect(MediaAuditIssueType::MissingMasterFile->severity())->toBe(MediaAuditIssueSeverity::Critical);
+    // Keyed by every case's own value, not just a subset — a newly added
+    // enum case has no entry here and fails toHaveKey() below until this
+    // map is explicitly updated to cover it, rather than silently passing
+    // because the loop just never visited it.
+    $expectedSeverityByType = [
+        MediaAuditIssueType::MissingMasterFile->value => MediaAuditIssueSeverity::Critical,
+        MediaAuditIssueType::MissingVariantFile->value => MediaAuditIssueSeverity::Warning,
+        MediaAuditIssueType::ActiveUnreferencedAsset->value => MediaAuditIssueSeverity::Warning,
+        MediaAuditIssueType::PhysicalOrphanCandidate->value => MediaAuditIssueSeverity::Warning,
+        MediaAuditIssueType::FailedGenerationJob->value => MediaAuditIssueSeverity::Warning,
+        MediaAuditIssueType::PurgeableAsset->value => MediaAuditIssueSeverity::Info,
+    ];
 
-    foreach ([
-        MediaAuditIssueType::MissingVariantFile,
-        MediaAuditIssueType::ActiveUnreferencedAsset,
-        MediaAuditIssueType::PhysicalOrphanCandidate,
-        MediaAuditIssueType::FailedGenerationJob,
-    ] as $type) {
-        expect($type->severity())->toBe(MediaAuditIssueSeverity::Warning);
+    foreach (MediaAuditIssueType::cases() as $case) {
+        expect($expectedSeverityByType)->toHaveKey($case->value);
+        expect($case->severity())->toBe($expectedSeverityByType[$case->value]);
     }
 
-    expect(MediaAuditIssueType::PurgeableAsset->severity())->toBe(MediaAuditIssueSeverity::Info);
+    expect(MediaAuditIssueType::cases())->toHaveCount(count($expectedSeverityByType));
 });

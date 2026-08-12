@@ -60,3 +60,23 @@ it('links to the media diagnostics page', function () {
         ->test(MediaHealthWidget::class)
         ->assertSee(MediaDiagnosticsPage::getUrl(), false);
 });
+
+it('is visible on the dashboard for an admin', function () {
+    $admin = User::factory()->admin()->create();
+
+    $response = $this->actingAs($admin)->get('/admin');
+
+    $response->assertOk();
+    $response->assertSee('Media health');
+});
+
+it('is hidden from the dashboard for a moderator, since MediaDiagnosticsPage itself is admin-only', function () {
+    $moderator = User::factory()->moderator()->create();
+
+    $response = $this->actingAs($moderator)->get('/admin');
+
+    // The Dashboard itself is still reachable (moderators moderate content
+    // there) — only this one widget's content must be absent.
+    $response->assertOk();
+    $response->assertDontSee('Media health');
+});

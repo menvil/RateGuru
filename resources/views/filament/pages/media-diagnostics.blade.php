@@ -2,13 +2,12 @@
     @php
         $totals = $this->totals();
         $health = $this->health();
+        // The health badge and the six counters beside it must describe the
+        // same run — latestCompletedRun() (via health()'s own data source),
+        // not lastAuditRun() below, which can be a still-Running or Failed
+        // row with none of these counters populated yet.
+        $completedRun = $this->latestCompletedRun();
         $lastAudit = $this->lastAuditRun();
-        $healthColor = match ($health) {
-            \App\Enums\MediaHealthStatus::Healthy => 'success',
-            \App\Enums\MediaHealthStatus::Warning => 'warning',
-            \App\Enums\MediaHealthStatus::Critical => 'danger',
-            \App\Enums\MediaHealthStatus::Unknown => 'gray',
-        };
     @endphp
 
     <div class="space-y-6">
@@ -16,7 +15,7 @@
             <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
                 <div>
                     <p class="text-sm text-gray-500">Status</p>
-                    <x-filament::badge :color="$healthColor">{{ ucfirst($health->value) }}</x-filament::badge>
+                    <x-filament::badge :color="$health->color()">{{ ucfirst($health->value) }}</x-filament::badge>
                 </div>
                 <div>
                     <p class="text-sm text-gray-500">Total assets</p>
@@ -32,27 +31,27 @@
                 </div>
                 <div>
                     <p class="text-sm text-gray-500">Missing masters</p>
-                    <p class="text-lg font-semibold">{{ number_format($lastAudit?->missing_masters ?? 0) }}</p>
+                    <p class="text-lg font-semibold">{{ number_format($completedRun?->missing_masters ?? 0) }}</p>
                 </div>
                 <div>
                     <p class="text-sm text-gray-500">Missing variants</p>
-                    <p class="text-lg font-semibold">{{ number_format($lastAudit?->missing_variant_files ?? 0) }}</p>
+                    <p class="text-lg font-semibold">{{ number_format($completedRun?->missing_variant_files ?? 0) }}</p>
                 </div>
                 <div>
                     <p class="text-sm text-gray-500">Active unreferenced</p>
-                    <p class="text-lg font-semibold">{{ number_format($lastAudit?->active_unreferenced_assets ?? 0) }}</p>
+                    <p class="text-lg font-semibold">{{ number_format($completedRun?->active_unreferenced_assets ?? 0) }}</p>
                 </div>
                 <div>
                     <p class="text-sm text-gray-500">Purgeable</p>
-                    <p class="text-lg font-semibold">{{ number_format($lastAudit?->purgeable_assets ?? 0) }}</p>
+                    <p class="text-lg font-semibold">{{ number_format($completedRun?->purgeable_assets ?? 0) }}</p>
                 </div>
                 <div>
                     <p class="text-sm text-gray-500">Physical orphan candidates</p>
-                    <p class="text-lg font-semibold">{{ number_format($lastAudit?->physical_orphan_candidates ?? 0) }}</p>
+                    <p class="text-lg font-semibold">{{ number_format($completedRun?->physical_orphan_candidates ?? 0) }}</p>
                 </div>
                 <div>
                     <p class="text-sm text-gray-500">Failed media jobs</p>
-                    <p class="text-lg font-semibold">{{ number_format($lastAudit?->failed_media_jobs ?? 0) }}</p>
+                    <p class="text-lg font-semibold">{{ number_format($completedRun?->failed_media_jobs ?? 0) }}</p>
                 </div>
             </div>
         </x-filament::section>
@@ -100,7 +99,7 @@
                     </div>
                     <div>
                         <p class="text-sm text-gray-500">Issues</p>
-                        <p>{{ number_format($lastAudit->issues()->count()) }}</p>
+                        <p>{{ number_format($this->lastAuditIssuesCount()) }}</p>
                     </div>
                 </div>
             @endif

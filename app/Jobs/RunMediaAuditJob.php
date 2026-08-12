@@ -120,7 +120,14 @@ final class RunMediaAuditJob implements ShouldQueue
             'media_variant_id' => $issue->mediaVariantId,
             'disk' => $issue->disk,
             'path' => $issue->path,
-            'context' => $issue->context !== null ? json_encode($issue->context) : null,
+            // JSON_INVALID_UTF8_SUBSTITUTE: an exception summary in here
+            // (FailedMediaJobReader's context) could contain bytes that
+            // aren't valid UTF-8 — without this flag, json_encode() returns
+            // false for those instead of throwing, and `false` would get
+            // inserted into this json column as literal boolean false, not
+            // valid JSON. This guarantees a valid JSON string every time,
+            // substituting U+FFFD for whatever couldn't be encoded.
+            'context' => $issue->context !== null ? json_encode($issue->context, JSON_INVALID_UTF8_SUBSTITUTE) : null,
             'created_at' => now(),
             'updated_at' => now(),
         ];
@@ -158,6 +165,10 @@ final class RunMediaAuditJob implements ShouldQueue
 
         $idsToKeep = MediaAuditRun::query()
             ->orderByDesc('started_at')
+            // id as a tiebreaker: started_at has only second-level
+            // precision, so two runs started within the same second would
+            // otherwise make "the oldest of the retained set" arbitrary.
+            ->orderByDesc('id')
             ->limit($retain)
             ->pluck('id');
 
@@ -179,6 +190,23 @@ final class RunMediaAuditJob implements ShouldQueue
             throw new RuntimeException('The "database" cache store does not support locks.');
         }
 
-        return $store->lock('media-audit:full', (int) config('media.diagnostics.audit_lock.ttl_seconds'));
+        return $store->lock('media-audit:full', $this->lockTtlSeconds());
+    }
+
+    /**
+     * Always at least $timeout plus a safety margin: if the configured
+     * audit_lock.ttl_seconds were ever shorter than how long a run can
+     * actually take, the lock would auto-expire mid-run and let a second
+     * full audit start concurrently — exactly what this lock exists to
+     * prevent. The configured value still wins whenever it's already long
+     * enough; this only raises the floor, it never lowers a deliberately
+     * longer configured TTL.
+     */
+    private function lockTtlSeconds(): int
+    {
+        return max(
+            (int) config('media.diagnostics.audit_lock.ttl_seconds'),
+            $this->timeout + 60,
+        );
     }
 }

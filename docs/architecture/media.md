@@ -761,18 +761,22 @@ operation, on purpose.
 
 ## Media observability and admin diagnostics
 
-**One audit implementation, four callers.** `MediaAuditService::run()`
+**One audit implementation, reached three ways.** `MediaAuditService::run()`
 (`app/Services/Media/MediaAuditService.php`) is the entire audit sweep —
 the same chunked DB scan (`MediaReferenceChecker`/`MediaLifecycleService`),
 physical-orphan scan (`MediaOrphanScanner`), and failed-job scan
 (`FailedMediaJobReader`) `media:audit` already did before this section
-existed. `media:audit`, `RunMediaAuditJob`, and every test that needs audit
-behavior call this one method; nothing duplicates its classification logic
-anywhere else. It takes an optional `$onIssue` callback (called once per
-issue found, in discovery order, never held in memory as one collection)
-and always returns a `MediaAuditSummary` DTO with the aggregate counts —
-`media:audit` uses the summary alone and discards issues via a no-op
-callback; `RunMediaAuditJob` uses the callback to persist rows.
+existed. `media:audit` and `RunMediaAuditJob` call this method directly,
+and every test that needs audit behavior calls it the same way; nothing
+duplicates its classification logic anywhere else. The Filament diagnostics
+page never calls it directly at all — it only ever dispatches
+`RunMediaAuditJob` and reads the `MediaAuditRun`/`MediaAuditIssue` snapshot
+that run persists, which is what keeps a page request cheap (see below). It
+takes an optional `$onIssue` callback (called once per issue found, in
+discovery order, never held in memory as one collection) and always returns
+a `MediaAuditSummary` DTO with the aggregate counts — `media:audit` uses the
+summary alone and discards issues via a no-op callback; `RunMediaAuditJob`
+uses the callback to persist rows.
 
 **Persisted snapshot, not a live view.** `media_audit_runs` and
 `media_audit_issues` (migrations `2026_08_12_100000`/`_100001`) hold the

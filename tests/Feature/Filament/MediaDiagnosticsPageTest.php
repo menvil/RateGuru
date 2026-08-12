@@ -9,6 +9,7 @@ use App\Models\MediaAuditIssue;
 use App\Models\MediaAuditRun;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -41,6 +42,75 @@ it('denies a moderator access to the media diagnostics page', function () {
 
 it('redirects a guest to the login page', function () {
     $this->get('/admin/media-diagnostics')->assertRedirect(route('filament.admin.auth.login'));
+});
+
+// regenerateVariants()/retryFailedMediaJob() are public Livewire methods,
+// reachable independently of the page's own row-action wiring. Filament's
+// own mount/hydrate lifecycle already re-checks canAccess() on every
+// request to this component (confirmed separately: a moderator can't even
+// obtain a working mounted instance via Livewire::test() to begin with —
+// mounting itself aborts for them), which is why these are tested as
+// direct method calls against a resolved page instance rather than through
+// Livewire::test()->call(): that's what actually isolates and proves the
+// Gate::authorize() guard inside each method, independent of whatever
+// Filament's own mount-time protection does or doesn't do for a given
+// testing pathway.
+it('forbids a moderator from calling regenerateVariants directly, and dispatches no job', function () {
+    Queue::fake();
+    $moderator = User::factory()->moderator()->create();
+    $this->actingAs($moderator);
+    $asset = MediaAsset::factory()->postImage()->create();
+
+    expect(fn () => app(MediaDiagnosticsPage::class)->regenerateVariants($asset->id, false))
+        ->toThrow(AuthorizationException::class);
+
+    Queue::assertNotPushed(GenerateMediaVariantsJob::class);
+});
+
+it('forbids a regular user from calling regenerateVariants directly, and dispatches no job', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+    $this->actingAs($user);
+    $asset = MediaAsset::factory()->postImage()->create();
+
+    expect(fn () => app(MediaDiagnosticsPage::class)->regenerateVariants($asset->id, false))
+        ->toThrow(AuthorizationException::class);
+
+    Queue::assertNotPushed(GenerateMediaVariantsJob::class);
+});
+
+it('forbids a moderator from calling retryFailedMediaJob directly, and dispatches no job', function () {
+    Queue::fake();
+    $moderator = User::factory()->moderator()->create();
+    $this->actingAs($moderator);
+
+    expect(fn () => app(MediaDiagnosticsPage::class)->retryFailedMediaJob(999))
+        ->toThrow(AuthorizationException::class);
+
+    Queue::assertNotPushed(GenerateMediaVariantsJob::class);
+});
+
+it('forbids a regular user from calling retryFailedMediaJob directly, and dispatches no job', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    expect(fn () => app(MediaDiagnosticsPage::class)->retryFailedMediaJob(999))
+        ->toThrow(AuthorizationException::class);
+
+    Queue::assertNotPushed(GenerateMediaVariantsJob::class);
+});
+
+it('allows an admin to call regenerateVariants and retryFailedMediaJob directly', function () {
+    Queue::fake();
+    $admin = User::factory()->admin()->create();
+    $this->actingAs($admin);
+    $asset = MediaAsset::factory()->postImage()->create();
+
+    app(MediaDiagnosticsPage::class)->regenerateVariants($asset->id, false);
+    app(MediaDiagnosticsPage::class)->retryFailedMediaJob($asset->id);
+
+    Queue::assertPushed(GenerateMediaVariantsJob::class, 2);
 });
 
 // --- Health overview / no-filesystem-scan-on-load ---------------------------

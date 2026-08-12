@@ -18,6 +18,31 @@ beforeEach(function () {
     Storage::fake('public');
 });
 
+/**
+ * Binds a MediaReferenceChecker double that throws for the duration of
+ * $callback, then restores the original binding — shared by every test in
+ * this file that simulates a mid-audit failure, rather than repeating the
+ * bind/restore boilerplate three times.
+ */
+function withFailingMediaReferenceChecker(callable $callback): void
+{
+    $originalChecker = app(MediaReferenceChecker::class);
+
+    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
+    {
+        public function referencedAssetIds(Collection $assetIds): Collection
+        {
+            throw new RuntimeException('Simulated audit failure.');
+        }
+    });
+
+    try {
+        $callback();
+    } finally {
+        app()->instance(MediaReferenceChecker::class, $originalChecker);
+    }
+}
+
 it('persists a completed run with accurate counts', function () {
     $asset = MediaAsset::factory()->postImage()->create(['disk' => 'public', 'path' => 'media/post-images/a.jpg']);
     Storage::disk('public')->put($asset->path, 'bytes');
@@ -49,10 +74,12 @@ it('persists one MediaAuditIssue row per issue found, linked to the run', functi
     expect($issues->first()->media_asset_id)->toBe($asset->id);
 });
 
-it('flushes issues in more than one insert batch for a large number of issues', function () {
-    // ISSUE_INSERT_CHUNK is 500 — a handful of assets each producing one
-    // issue is enough to prove the buffering path runs without asserting on
-    // the private chunk size directly.
+it('persists every buffered issue for a run producing more than a handful', function () {
+    // ISSUE_INSERT_CHUNK is 500 — this only proves the buffer-then-flush
+    // path persists everything correctly for a small run; it does not
+    // exercise the interim flush at the 500-issue mark (that would need
+    // 500+ issues, impractical here), so it isn't named as if it proves
+    // multiple insert batches specifically.
     foreach (range(1, 5) as $i) {
         $asset = MediaAsset::factory()->postImage()->create(['disk' => 'public', 'path' => "media/post-images/missing-{$i}.jpg"]);
         Post::factory()->published()->create(['image_asset_id' => $asset->id]);
@@ -68,22 +95,10 @@ it('flushes issues in more than one insert batch for a large number of issues', 
 it('marks the run failed and re-throws, without swallowing the exception, when the audit itself fails partway through', function () {
     $asset = MediaAsset::factory()->postImage()->create();
 
-    $originalChecker = app(MediaReferenceChecker::class);
-
-    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
-    {
-        public function referencedAssetIds(Collection $assetIds): Collection
-        {
-            throw new RuntimeException('Simulated audit failure.');
-        }
-    });
-
-    try {
+    withFailingMediaReferenceChecker(function (): void {
         expect(fn () => dispatch_sync(new RunMediaAuditJob))
             ->toThrow(RuntimeException::class, 'Simulated audit failure.');
-    } finally {
-        app()->instance(MediaReferenceChecker::class, $originalChecker);
-    }
+    });
 
     $run = MediaAuditRun::sole();
     expect($run->status)->toBe(MediaAuditRunStatus::Failed)
@@ -91,29 +106,37 @@ it('marks the run failed and re-throws, without swallowing the exception, when t
 });
 
 it('leaves a failed run visible rather than deleting it', function () {
-    $originalChecker = app(MediaReferenceChecker::class);
-
-    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
-    {
-        public function referencedAssetIds(Collection $assetIds): Collection
-        {
-            throw new RuntimeException('Simulated audit failure.');
-        }
-    });
-
     MediaAsset::factory()->postImage()->create();
 
-    try {
+    withFailingMediaReferenceChecker(function (): void {
         try {
             dispatch_sync(new RunMediaAuditJob);
         } catch (RuntimeException) {
             // expected — asserted in the previous test
         }
-    } finally {
-        app()->instance(MediaReferenceChecker::class, $originalChecker);
-    }
+    });
 
     expect(MediaAuditRun::count())->toBe(1);
+});
+
+it('never lets the lock TTL fall below timeout + 60 seconds, even when config is set lower', function () {
+    config(['media.diagnostics.audit_lock.ttl_seconds' => 60]);
+
+    $job = new RunMediaAuditJob;
+    $method = new ReflectionMethod($job, 'lockTtlSeconds');
+    $method->setAccessible(true);
+
+    expect($method->invoke($job))->toBe($job->timeout + 60);
+});
+
+it('uses the configured lock TTL as-is once it already exceeds timeout + 60 seconds', function () {
+    config(['media.diagnostics.audit_lock.ttl_seconds' => 999_999]);
+
+    $job = new RunMediaAuditJob;
+    $method = new ReflectionMethod($job, 'lockTtlSeconds');
+    $method->setAccessible(true);
+
+    expect($method->invoke($job))->toBe(999_999);
 });
 
 it('prevents a second full audit from running while one already holds the lock, and creates no run row for the blocked attempt', function () {
@@ -174,27 +197,41 @@ it('does not prune anything after a failed run', function () {
 
     $old = MediaAuditRun::factory()->create(['started_at' => now()->subDays(3)]);
 
-    $originalChecker = app(MediaReferenceChecker::class);
-    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
-    {
-        public function referencedAssetIds(Collection $assetIds): Collection
-        {
-            throw new RuntimeException('Simulated audit failure.');
-        }
-    });
-
     MediaAsset::factory()->postImage()->create();
 
-    try {
+    withFailingMediaReferenceChecker(function (): void {
         try {
             dispatch_sync(new RunMediaAuditJob);
         } catch (RuntimeException) {
         }
-    } finally {
-        app()->instance(MediaReferenceChecker::class, $originalChecker);
-    }
+    });
 
     // The pre-existing old run is still there — pruning only ever runs
     // after a *successful* completion.
     expect(MediaAuditRun::find($old->id))->not->toBeNull();
+});
+
+it('releases the lock in the finally path after a failure, letting a subsequent audit proceed rather than staying blocked', function () {
+    MediaAsset::factory()->postImage()->create();
+
+    withFailingMediaReferenceChecker(function (): void {
+        try {
+            dispatch_sync(new RunMediaAuditJob);
+        } catch (RuntimeException) {
+            // expected — the first attempt fails partway through.
+        }
+    });
+
+    expect(MediaAuditRun::count())->toBe(1)
+        ->and(MediaAuditRun::sole()->status)->toBe(MediaAuditRunStatus::Failed);
+
+    // The lock must have been released in the finally block despite the
+    // failure — a second audit, run with the checker restored, should
+    // proceed rather than being blocked by a lock the first attempt never
+    // let go of.
+    dispatch_sync(new RunMediaAuditJob);
+
+    expect(MediaAuditRun::count())->toBe(2);
+    $second = MediaAuditRun::orderByDesc('id')->first();
+    expect($second->status)->toBe(MediaAuditRunStatus::Completed);
 });
