@@ -77,11 +77,24 @@ class StoreImportedImageAction
             throw new ImportFetchException('Failed to secure temporary file permissions for imported image.');
         }
 
-        if (fwrite($handle, $body) === false) {
-            fclose($handle);
-            $this->deleteQuietly($tmpPath);
+        // fwrite() is documented to not guarantee writing the whole string
+        // in one call — looping on the actually-written offset is the
+        // PHP-manual-recommended way to avoid silently truncating a large
+        // (up to several MB) downloaded body into an incomplete file.
+        $length = strlen($body);
+        $written = 0;
 
-            throw new ImportFetchException('Failed to write temporary file for imported image.');
+        while ($written < $length) {
+            $bytesWritten = fwrite($handle, substr($body, $written));
+
+            if ($bytesWritten === false || $bytesWritten === 0) {
+                fclose($handle);
+                $this->deleteQuietly($tmpPath);
+
+                throw new ImportFetchException('Failed to write temporary file for imported image.');
+            }
+
+            $written += $bytesWritten;
         }
 
         fclose($handle);

@@ -111,6 +111,14 @@ PinnedImportHttpTransport::get($target, $policy)
 
 The transport never performs its own DNS lookup of the hostname — it only
 ever connects to the IP the validator already vetted for that specific URL.
+Proxying is explicitly disabled per request (`'proxy' => ''`), regardless of
+any `http_proxy`/`https_proxy`/`all_proxy` environment variable an ambient
+deployment might have set: per curl's own documentation, once a proxy is in
+play *the proxy* performs the destination's DNS resolution, not this
+machine, which would make the CURLOPT_RESOLVE pin silently ineffective —
+verified empirically (a request through an env-configured proxy connects to
+the proxy's own port; with proxying disabled, it connects directly to the
+pinned target instead).
 
 ### Redirects
 
@@ -231,6 +239,8 @@ reaches `ImageIngestor`.
 | SSRF to an internal service | `PublicIpClassifier` + per-hop pinning |
 | Cloud metadata SSRF (`169.254.169.254`) | Explicit block, incl. IPv4-mapped IPv6 form |
 | DNS rebinding / TOCTOU | Connection pinned to the IP resolved *for that hop*, never re-resolved by the transport |
+| Ambient proxy silently defeating the pin | `'proxy' => ''` disables `http_proxy`/`https_proxy`/`all_proxy` environment fallback per request |
+| cURL extension unavailable at runtime | Fails closed instead of silently falling back to Guzzle's StreamHandler (which ignores the pin entirely) |
 | Redirect-based SSRF | Every hop independently resolved, validated, and pinned |
 | Scheme abuse (`file://`, `gopher://`, `data:`, ...) | `allowed_schemes` allowlist |
 | Port scanning internal services | `allowed_ports` allowlist |

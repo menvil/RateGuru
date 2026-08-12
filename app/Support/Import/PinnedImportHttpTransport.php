@@ -77,6 +77,23 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
                 // small compressed payload can't expand past the cap during
                 // a decode step the app never performs.
                 'decode_content' => false,
+                // Without this, Guzzle's own proxy resolution
+                // (CurlFactory::resolveProxy()) falls back to reading
+                // http_proxy/https_proxy/ALL_PROXY environment variables
+                // the moment no "proxy" request option is set at all. Per
+                // curl's own documentation, once a proxy is in play *the
+                // proxy performs the destination's DNS resolution*, not
+                // this machine — meaning CURLOPT_RESOLVE below would be
+                // silently ineffective and every request would go through
+                // an ambient, environment-configured proxy the pin can't
+                // see or control, reopening the exact rebinding window
+                // this whole class exists to close. An empty string is
+                // Guzzle's own documented way to explicitly disable
+                // proxying (including the environment-variable fallback)
+                // for this request — CURLOPT_PROXY itself is a
+                // Guzzle-reserved/deprecated raw option, not the right
+                // tool here.
+                'proxy' => '',
                 'on_headers' => function ($guzzleResponse) use ($policy, &$contentLengthExceeded): void {
                     $contentLength = (int) $guzzleResponse->getHeaderLine('Content-Length');
 

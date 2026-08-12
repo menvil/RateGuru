@@ -117,6 +117,30 @@ it('does not throw when cleanup() is called on a file that no longer exists', fu
     expect(true)->toBeTrue();
 });
 
+it('writes the complete body to disk for a large multi-megabyte image, not a truncated prefix', function () {
+    // Exercises the fwrite() write-loop across a payload large enough that
+    // a single fwrite() call could, per the PHP manual's own documented
+    // caveat, return fewer bytes than requested -- a distinct marker at the
+    // very end proves the file was never silently truncated partway
+    // through.
+    $marker = 'END-OF-BODY-MARKER';
+    $size = 2 * 1024 * 1024; // 2 MB, comfortably under the default cap
+    $body = str_repeat('a', $size - strlen($marker)).$marker;
+
+    Http::fake([
+        'example.com/large.jpg' => Http::response($body, 200, [
+            'Content-Type' => 'image/jpeg',
+        ]),
+    ]);
+
+    $file = app(StoreImportedImageAction::class)->download('https://example.com/large.jpg');
+
+    $writtenBytes = file_get_contents($file->getRealPath());
+
+    expect(strlen($writtenBytes))->toBe(strlen($body))
+        ->and($writtenBytes)->toBe($body);
+});
+
 it('names the downloaded file using the canonical Content-Type extension, not whatever extension the url happened to claim', function () {
     Http::fake([
         'example.com/photo.png' => Http::response('bytes', 200, [

@@ -35,6 +35,30 @@ it('pins the connection via CURLOPT_RESOLVE to host:port:ip, never touches TLS v
         ->and(isset($seenOptions['progress']))->toBeTrue();
 });
 
+it('explicitly disables proxying, so an ambient http_proxy/https_proxy environment variable can never route the request through a proxy', function () {
+    // Without this, Guzzle's own proxy resolution (CurlFactory::
+    // resolveProxy()) falls back to reading environment variables the
+    // moment no "proxy" request option is set at all — and per curl's own
+    // documentation, once a proxy is in play *the proxy* performs the
+    // destination's DNS resolution, not this machine, making
+    // CURLOPT_RESOLVE below silently ineffective. Verified for real
+    // end-to-end in Part 3 ("bypasses an ambient http_proxy environment
+    // variable").
+    $seenOptions = null;
+
+    Http::fake(function ($request, $options) use (&$seenOptions) {
+        $seenOptions = $options;
+
+        return Http::response('ok', 200);
+    });
+
+    $transport = new PinnedImportHttpTransport;
+    $target = new ResolvedImportTarget(url: 'https://example.com/page', scheme: 'https', host: 'example.com', port: 443, ip: '93.184.216.34');
+    $transport->get($target, new ImportFetchPolicy(maxBytes: 1000, timeoutSeconds: 5, connectTimeoutSeconds: 2));
+
+    expect($seenOptions['proxy'])->toBe('');
+});
+
 it('fails closed instead of proceeding when the cURL extension is unavailable, without ever attempting the request', function () {
     // Without ext-curl, Guzzle's handler selection silently falls back to
     // its pure-PHP StreamHandler, which has no concept of the "curl"
@@ -287,6 +311,61 @@ function stopLoopbackFixtureServer(array $server): void
     @rmdir($docroot);
 }
 
+/**
+ * A second, independent loopback server standing in for an
+ * environment-configured egress proxy — deliberately serving content
+ * unmistakably different from startLoopbackFixtureServer()'s own router.php,
+ * so a response body match/mismatch definitively proves whether the request
+ * actually reached this "proxy" or went straight to the real target.
+ *
+ * @return array{0: resource, 1: int, 2: string} process handle, port, docroot
+ */
+function startTrapProxyServer(): array
+{
+    $docroot = sys_get_temp_dir().'/import-transport-proxy-trap-'.uniqid('', true);
+    mkdir($docroot, 0o755, true);
+
+    file_put_contents($docroot.'/router.php', <<<'PHP'
+<?php
+echo 'PROXY-TRAP-WAS-HIT-MARKER';
+PHP);
+
+    $probe = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+
+    if ($probe === false) {
+        throw new RuntimeException("Failed to reserve a loopback port: {$errstr}");
+    }
+
+    $port = (int) explode(':', stream_socket_get_name($probe, false))[1];
+    fclose($probe);
+
+    $process = proc_open(
+        [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', $docroot],
+        [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+        $pipes,
+    );
+
+    if ($process === false) {
+        throw new RuntimeException('Failed to start the trap proxy server.');
+    }
+
+    $deadline = microtime(true) + 3.0;
+
+    while (microtime(true) < $deadline) {
+        $conn = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
+
+        if ($conn !== false) {
+            fclose($conn);
+
+            return [$process, $port, $docroot];
+        }
+
+        usleep(50_000);
+    }
+
+    throw new RuntimeException('Trap proxy server never started listening.');
+}
+
 it('pins a genuinely unresolvable hostname to the loopback server and still sends the original Host header, real curl end to end', function () {
     $server = startLoopbackFixtureServer();
     [, $port] = $server;
@@ -307,6 +386,40 @@ it('pins a genuinely unresolvable hostname to the loopback server and still send
             ->and($response->body)->toContain("Host header seen: definitely-nonexistent-hostname.invalid:{$port}");
     } finally {
         stopLoopbackFixtureServer($server);
+    }
+});
+
+it('bypasses an ambient http_proxy environment variable and connects directly to the pinned target, real curl end to end', function () {
+    $target = startLoopbackFixtureServer();
+    $trap = startTrapProxyServer();
+    [, $targetPort] = $target;
+    [, $trapPort] = $trap;
+
+    $originalProxy = getenv('http_proxy');
+    // Simulates an operationally-configured egress proxy -- exactly the
+    // ambient condition that would otherwise route this request through a
+    // proxy performing its own, uncontrolled DNS resolution instead of
+    // honoring CURLOPT_RESOLVE.
+    putenv("http_proxy=http://127.0.0.1:{$trapPort}");
+
+    try {
+        $transport = new PinnedImportHttpTransport;
+        $importTarget = new ResolvedImportTarget(
+            url: "http://127.0.0.1:{$targetPort}/router.php?mode=echo",
+            scheme: 'http',
+            host: '127.0.0.1',
+            port: $targetPort,
+            ip: '127.0.0.1',
+        );
+
+        $response = $transport->get($importTarget, new ImportFetchPolicy(maxBytes: 10_000, timeoutSeconds: 5, connectTimeoutSeconds: 3));
+
+        expect($response->body)->toContain('Host header seen:')
+            ->and($response->body)->not->toContain('PROXY-TRAP-WAS-HIT-MARKER');
+    } finally {
+        $originalProxy === false ? putenv('http_proxy') : putenv("http_proxy={$originalProxy}");
+        stopLoopbackFixtureServer($target);
+        stopLoopbackFixtureServer($trap);
     }
 });
 
