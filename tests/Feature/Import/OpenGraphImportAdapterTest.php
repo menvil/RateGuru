@@ -4,6 +4,10 @@ use App\Enums\ImportProvider;
 use App\Support\Import\Adapters\OpenGraphImportAdapter;
 use Illuminate\Support\Facades\Http;
 
+beforeEach(function () {
+    bindFakeHostResolver();
+});
+
 it('creates import preview from open graph page', function () {
     Http::fake([
         'example.com/page' => Http::response(

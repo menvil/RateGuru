@@ -3,10 +3,12 @@
 namespace App\Actions\Import;
 
 use App\Exceptions\Import\ImportFetchException;
+use App\Services\Media\ImageIngestPolicy;
 use App\Support\Import\SafeImportHttpClient;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Throwable;
 
 class StoreImportedImageAction
 {
@@ -15,7 +17,15 @@ class StoreImportedImageAction
     public function download(string $imageUrl): UploadedFile
     {
         $allowedMimes = (array) config('import.allowed_image_mimes', ['image/jpeg', 'image/png', 'image/webp']);
-        $maxBytes = (int) config('import.max_image_bytes', 8 * 1024 * 1024);
+
+        // Never fetch more than ImageIngestor would accept anyway — a
+        // separate, larger import-layer limit would let this download a
+        // payload ImageIngestor immediately rejects, wasting the bandwidth
+        // and time the cap exists to save in the first place.
+        $maxBytes = min(
+            (int) config('import.max_image_bytes', 8 * 1024 * 1024),
+            ImageIngestPolicy::fromConfig()->maxBytes,
+        );
 
         $response = $this->client->get($imageUrl, $maxBytes);
 
@@ -32,11 +42,7 @@ class StoreImportedImageAction
             throw new ImportFetchException("Unsupported MIME type '{$contentType}' for imported image.");
         }
 
-        $body = $response->body();
-
-        if (strlen($body) > $maxBytes) {
-            throw ImportFetchException::responseTooLarge($imageUrl, $maxBytes);
-        }
+        $body = $response->body;
 
         $extension = match ($contentType) {
             'image/png' => 'png',
@@ -53,15 +59,65 @@ class StoreImportedImageAction
         $tmpPath = sys_get_temp_dir().'/rg_import_'.Str::uuid()->toString().'.'.$extension;
 
         if (File::put($tmpPath, $body) === false) {
+            // A failed write may still have left a partial file behind.
+            $this->deleteQuietly($tmpPath);
+
             throw new ImportFetchException('Failed to write temporary file for imported image.');
         }
 
+        // Not world-readable: the only process with any business reading
+        // this file back is this same request, moments from now.
+        @chmod($tmpPath, 0600);
+
         return new UploadedFile(
             path: $tmpPath,
-            originalName: basename(parse_url($imageUrl, PHP_URL_PATH) ?? 'imported.'.$extension),
+            // A sanitized display hint only, never trusted for anything
+            // else — the URL's own path basename with its extension
+            // stripped and replaced by the canonical one from the
+            // validated Content-Type above (the URL's claimed extension,
+            // if any, could easily disagree with what the bytes actually
+            // are).
+            originalName: $this->originalNameHint($imageUrl, $extension),
             mimeType: $contentType,
             error: UPLOAD_ERR_OK,
             test: true,
         );
+    }
+
+    private function originalNameHint(string $imageUrl, string $extension): string
+    {
+        $baseName = basename(parse_url($imageUrl, PHP_URL_PATH) ?? '');
+        $nameWithoutExtension = $baseName !== '' ? pathinfo($baseName, PATHINFO_FILENAME) : '';
+
+        return ($nameWithoutExtension !== '' ? $nameWithoutExtension : 'imported').'.'.$extension;
+    }
+
+    /**
+     * Removes the temp file this action created for a UrlImport-sourced
+     * image. The caller (UploadPostForm) owns calling this from a finally
+     * block once it's done with the UploadedFile — download() itself can't
+     * clean up on success, since the file must still exist for whatever
+     * reads it afterward (ImageUploadStorer, by way of ImageIngestor).
+     * Best-effort and silent: a cleanup failure must never turn a
+     * successful (or already-failed) post submission into an error.
+     */
+    public function cleanup(UploadedFile $file): void
+    {
+        $path = $file->getRealPath();
+
+        if ($path !== false) {
+            $this->deleteQuietly($path);
+        }
+    }
+
+    private function deleteQuietly(string $path): void
+    {
+        try {
+            if (is_file($path)) {
+                @unlink($path);
+            }
+        } catch (Throwable) {
+            // Best-effort — the OS temp directory is self-cleaning anyway.
+        }
     }
 }

@@ -5,6 +5,10 @@ use App\Exceptions\Import\ImportFetchException;
 use App\Support\Import\Adapters\DirectImageImportAdapter;
 use Illuminate\Support\Facades\Http;
 
+beforeEach(function () {
+    bindFakeHostResolver();
+});
+
 it('detects direct image urls from content type', function () {
     Http::fake([
         'example.com/image.jpg' => Http::response('fake-image-content', 200, [

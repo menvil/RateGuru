@@ -31,10 +31,6 @@ class DirectImageImportAdapter
             throw new ImportFetchException("Unsupported image MIME type '{$contentType}' from {$host}");
         }
 
-        if (strlen($response->body()) > $maxImageBytes) {
-            throw ImportFetchException::responseTooLarge($url, $maxImageBytes);
-        }
-
         return new ImportPreview(
             provider: ImportProvider::DirectImage,
             sourceUrl: $url,

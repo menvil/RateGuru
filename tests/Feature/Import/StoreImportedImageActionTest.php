@@ -8,6 +8,10 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
+beforeEach(function () {
+    bindFakeHostResolver();
+});
+
 it('downloads and stores imported image as uploaded file', function () {
     Storage::fake('public');
 
@@ -67,3 +71,67 @@ it('maps a temporary file write failure to a narrow exception', function () {
 
     app(StoreImportedImageAction::class)->download('https://example.com/image.jpg');
 })->throws(ImportFetchException::class, 'Failed to write temporary file for imported image.');
+
+it('writes the temp file with private (non-world-readable) permissions', function () {
+    Http::fake([
+        'example.com/image.jpg' => Http::response('bytes', 200, [
+            'Content-Type' => 'image/jpeg',
+        ]),
+    ]);
+
+    $file = app(StoreImportedImageAction::class)->download('https://example.com/image.jpg');
+
+    $permissions = fileperms($file->getRealPath()) & 0777;
+
+    expect($permissions)->toBe(0600);
+});
+
+it('deletes the temp file when cleanup() is called', function () {
+    Http::fake([
+        'example.com/image.jpg' => Http::response('bytes', 200, [
+            'Content-Type' => 'image/jpeg',
+        ]),
+    ]);
+
+    $file = app(StoreImportedImageAction::class)->download('https://example.com/image.jpg');
+    $path = $file->getRealPath();
+
+    expect($path)->not->toBeFalse();
+    expect(file_exists($path))->toBeTrue();
+
+    app(StoreImportedImageAction::class)->cleanup($file);
+
+    expect(file_exists($path))->toBeFalse();
+});
+
+it('does not throw when cleanup() is called on a file that no longer exists', function () {
+    Http::fake([
+        'example.com/image.jpg' => Http::response('bytes', 200, [
+            'Content-Type' => 'image/jpeg',
+        ]),
+    ]);
+
+    $file = app(StoreImportedImageAction::class)->download('https://example.com/image.jpg');
+    app(StoreImportedImageAction::class)->cleanup($file);
+
+    // Second call: the file is already gone -- must stay a silent no-op.
+    app(StoreImportedImageAction::class)->cleanup($file);
+
+    expect(true)->toBeTrue();
+});
+
+it('names the downloaded file using the canonical Content-Type extension, not whatever extension the url happened to claim', function () {
+    Http::fake([
+        'example.com/photo.png' => Http::response('bytes', 200, [
+            // Server sends actual JPEG bytes at a .png url -- Content-Type
+            // is what StoreImportedImageAction trusts for the extension
+            // (still only a hint; ImageIngestor is what verifies WHAT the
+            // bytes really are).
+            'Content-Type' => 'image/jpeg',
+        ]),
+    ]);
+
+    $file = app(StoreImportedImageAction::class)->download('https://example.com/photo.png');
+
+    expect($file->getClientOriginalName())->toBe('photo.jpg');
+});

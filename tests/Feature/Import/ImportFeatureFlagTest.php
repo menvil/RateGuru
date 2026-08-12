@@ -6,6 +6,10 @@ use App\Models\ProjectSettings;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Http;
 
+beforeEach(function () {
+    bindFakeHostResolver();
+});
+
 it('blocks url import when feature flag is disabled', function () {
     ProjectSettings::factory()->create([
         'feature_flags' => [
