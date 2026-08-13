@@ -51,9 +51,17 @@ final class VoteCommentAction
 
         DB::transaction(function () use ($user, $comment, $type): void {
             $lockedComment = Comment::query()
+                ->withTrashed()
                 ->whereKey($comment->id)
                 ->lockForUpdate()
-                ->firstOrFail();
+                ->first();
+
+            // The pre-transaction check ran on the caller's instance, which
+            // may be stale: a hide or author delete can land in between.
+            // Only the row re-read under lock is authoritative.
+            if ($lockedComment === null || ! $lockedComment->canReceiveVotes()) {
+                throw CannotVoteCommentException::becauseCommentIsNotVisible();
+            }
 
             $existingVote = CommentVote::query()
                 ->where('comment_id', $lockedComment->id)

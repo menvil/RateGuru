@@ -91,6 +91,13 @@ class Comment extends Model
         return ! $this->trashed() && $this->status === CommentStatus::Visible;
     }
 
+    public function canReceiveReports(): bool
+    {
+        // Same rule as votes: a tombstoned comment is no longer an
+        // interactive object and must not accumulate new reports.
+        return ! $this->trashed() && $this->status === CommentStatus::Visible;
+    }
+
     protected function score(): Attribute
     {
         return Attribute::make(

@@ -106,6 +106,63 @@ it('does not allow banned user to report content', function () {
     expect(Report::query()->count())->toBe(0);
 });
 
+it('does not allow reporting a hidden comment', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->create(['status' => CommentStatus::Hidden]);
+
+    expect(fn () => app(ReportContentAction::class)->handle($user, $comment, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class);
+
+    expect(Report::query()->count())->toBe(0);
+});
+
+it('does not allow reporting an author-deleted comment', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+    $comment->delete();
+
+    expect(fn () => app(ReportContentAction::class)->handle($user, $comment, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class);
+
+    expect(Report::query()->count())->toBe(0);
+});
+
+it('rejects a report made with a stale instance after the comment was hidden', function () {
+    $user = User::factory()->create();
+    $staleComment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+        'reports_count' => 0,
+    ]);
+
+    // Hide the row behind the instance's back: the in-memory model still
+    // says Visible, so only an in-transaction re-read can catch this.
+    Comment::query()->whereKey($staleComment->id)->update(['status' => CommentStatus::Hidden]);
+
+    expect($staleComment->status)->toBe(CommentStatus::Visible);
+
+    expect(fn () => app(ReportContentAction::class)->handle($user, $staleComment, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class);
+
+    expect(Report::query()->count())->toBe(0);
+    expect($staleComment->fresh()->reports_count)->toBe(0);
+});
+
+it('rejects a report made with a stale instance after the author deleted the comment', function () {
+    $user = User::factory()->create();
+    $staleComment = Comment::factory()->create([
+        'status' => CommentStatus::Visible,
+        'reports_count' => 0,
+    ]);
+
+    Comment::query()->whereKey($staleComment->id)->update(['deleted_at' => now()]);
+
+    expect(fn () => app(ReportContentAction::class)->handle($user, $staleComment, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class);
+
+    expect(Report::query()->count())->toBe(0);
+    expect(Comment::withTrashed()->findOrFail($staleComment->id)->reports_count)->toBe(0);
+});
+
 it('blocks duplicate report from same user for same post', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

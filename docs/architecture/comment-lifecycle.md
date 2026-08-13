@@ -30,8 +30,9 @@ tombstone** that preserves the thread:
 A tombstone exposes nothing: no body, author identity, avatar, profile
 link, votes, and no report/reply/delete/hide/vote actions — enforced both
 in `CommentItem` (flags forced off) and in the backend (`canReceiveVotes()`
-is trashed-aware; `AddCommentAction` revalidates the parent under lock;
-`ReportModal` resolves only Visible comments; `CommentPolicy` refuses
+/ `canReceiveReports()` are trashed-aware; `AddCommentAction`,
+`VoteCommentAction` and `ReportContentAction` revalidate the comment under
+lock; `ReportModal` resolves only Visible comments; `CommentPolicy` refuses
 hide/restore on trashed rows).
 
 Replies are one level deep (unchanged product rule), so replies never need
@@ -65,6 +66,12 @@ still order by the root's own vote counters — no reply-aggregate ranking).
   under `lockForUpdate()` and revalidates same-post/top-level/Visible/not
   deleted immediately before insert; the losing side gets the existing
   reply-target-unavailable error.
+- **Hide/delete racing a vote or report** — `VoteCommentAction` and
+  `ReportContentAction` re-read the comment under `lockForUpdate()` and
+  revalidate `canReceiveVotes()` / `canReceiveReports()` immediately before
+  the write, so a stale Visible instance cannot land a vote or report on a
+  freshly tombstoned row. Posts are deliberately not report-gated:
+  soft-deleted posts stay reportable.
 - **Double delete** — idempotent: no error, no double counter decrement.
 - **Double hide** — pre-existing idempotency retained: single log.
 

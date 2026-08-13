@@ -81,3 +81,37 @@ it('does not let users vote on hidden comments', function () {
     expect(fn () => app(VoteCommentAction::class)->handle($user, $comment, VoteType::Up))
         ->toThrow(CannotVoteCommentException::class, 'Comment cannot be voted on.');
 });
+
+it('rejects a vote made with a stale instance after the comment was hidden', function () {
+    $user = User::factory()->create();
+    $staleComment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+
+    // Hide the row behind the instance's back: the in-memory model still
+    // says Visible, so the pre-transaction check alone would let it through.
+    Comment::query()->whereKey($staleComment->id)->update(['status' => CommentStatus::Hidden]);
+
+    expect($staleComment->status)->toBe(CommentStatus::Visible);
+
+    expect(fn () => app(VoteCommentAction::class)->handle($user, $staleComment, VoteType::Up))
+        ->toThrow(CannotVoteCommentException::class, 'Comment cannot be voted on.');
+
+    $this->assertDatabaseMissing('comment_votes', [
+        'user_id' => $user->id,
+        'comment_id' => $staleComment->id,
+    ]);
+});
+
+it('rejects a vote made with a stale instance after the author deleted the comment', function () {
+    $user = User::factory()->create();
+    $staleComment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+
+    Comment::query()->whereKey($staleComment->id)->update(['deleted_at' => now()]);
+
+    expect(fn () => app(VoteCommentAction::class)->handle($user, $staleComment, VoteType::Up))
+        ->toThrow(CannotVoteCommentException::class, 'Comment cannot be voted on.');
+
+    $this->assertDatabaseMissing('comment_votes', [
+        'user_id' => $user->id,
+        'comment_id' => $staleComment->id,
+    ]);
+});
