@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Posts\DeletePostAction;
+use App\Enums\ModerationActionType;
 use App\Enums\PostPurgeOutcome;
 use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
@@ -18,8 +19,10 @@ use App\Models\Report;
 use App\Models\Tag;
 use App\Models\User;
 use App\Services\Media\MediaLifecycleService;
+use App\Services\Media\MediaReferenceChecker;
 use App\Services\Posts\PostRetentionPurgeService;
-use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
     config(['posts.author_delete_retention_days' => 30]);
@@ -82,7 +85,7 @@ it('purges an expired author-deleted post with its entire graph, keeping unrelat
         ->and(PostSave::query()->where('post_id', $post->id)->count())->toBe(0)
         ->and(PostAuthorAnswer::query()->where('post_id', $post->id)->count())->toBe(0)
         ->and(Report::query()->count())->toBe(0)
-        ->and(\Illuminate\Support\Facades\DB::table('post_tag')->where('post_id', $post->id)->count())->toBe(0);
+        ->and(DB::table('post_tag')->where('post_id', $post->id)->count())->toBe(0);
 
     // Unrelated records and the actors themselves survive.
     expect(Tag::query()->find($tag->id))->not->toBeNull()
@@ -215,8 +218,8 @@ it('keeps a shared media asset active when one referencing post is purged', func
 });
 
 it('soft-deletes the final-reference asset without touching the physical file', function () {
-    Illuminate\Support\Facades\Storage::fake('public');
-    Illuminate\Support\Facades\Storage::disk('public')->put('posts/final.jpg', 'bytes');
+    Storage::fake('public');
+    Storage::disk('public')->put('posts/final.jpg', 'bytes');
 
     $asset = MediaAsset::factory()->postImage()->create(['disk' => 'public', 'path' => 'posts/final.jpg']);
 
@@ -229,7 +232,7 @@ it('soft-deletes the final-reference asset without touching the physical file', 
     expect(app(PostRetentionPurgeService::class)->purge($post->id))->toBe(PostPurgeOutcome::Purged);
 
     expect(MediaAsset::withTrashed()->findOrFail($asset->id)->trashed())->toBeTrue()
-        ->and(Illuminate\Support\Facades\Storage::disk('public')->exists('posts/final.jpg'))->toBeTrue();
+        ->and(Storage::disk('public')->exists('posts/final.jpg'))->toBeTrue();
 });
 
 it('keeps moderation logs after the purge', function () {
@@ -237,7 +240,7 @@ it('keeps moderation logs after the purge', function () {
 
     $log = ModerationLog::create([
         'moderator_id' => User::factory()->moderator()->create()->id,
-        'action' => \App\Enums\ModerationActionType::HidePost,
+        'action' => ModerationActionType::HidePost,
         'target_type' => Post::class,
         'target_id' => $post->id,
         'reason' => 'audit trail',
@@ -258,7 +261,7 @@ it('rolls back the whole graph when any cleanup step fails', function () {
 
     // Fail the very last in-transaction step: the media release's
     // reference check (MediaLifecycleService itself is final).
-    $this->mock(\App\Services\Media\MediaReferenceChecker::class)
+    $this->mock(MediaReferenceChecker::class)
         ->shouldReceive('referencedAssetIds')
         ->once()
         ->andThrow(new RuntimeException('boom'));

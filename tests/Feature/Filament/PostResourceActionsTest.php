@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Posts\DeletePostAction;
 use App\Enums\PostStatus;
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Models\Post;
@@ -154,7 +155,7 @@ it('shows author-deleted posts labeled and with no moderation actions', function
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
-    app(\App\Actions\Posts\DeletePostAction::class)->handle($owner, $post);
+    app(DeletePostAction::class)->handle($owner, $post);
 
     $this->actingAs($admin);
 
@@ -174,7 +175,7 @@ it('never offers moderation restore as author restore on deleted rows', function
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
 
-    app(\App\Actions\Posts\DeletePostAction::class)->handle($owner, $post);
+    app(DeletePostAction::class)->handle($owner, $post);
 
     $this->actingAs($admin);
 

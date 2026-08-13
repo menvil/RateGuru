@@ -3,9 +3,9 @@
 namespace App\Livewire\Posts;
 
 use App\Actions\Posts\RestoreDeletedPostAction;
-use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotRestoreDeletedPostException;
 use App\Models\Post;
+use App\Queries\Posts\RecentlyDeletedPostsQuery;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
@@ -44,13 +44,9 @@ final class RecentlyDeletedPostsPage extends Component
         }
     }
 
-    public function render(): View
+    public function render(RecentlyDeletedPostsQuery $query): View
     {
-        $posts = Post::onlyTrashed()
-            ->where('user_id', auth()->id())
-            ->where('status', PostStatus::Deleted)
-            ->orderByDesc('deleted_at')
-            ->paginate(20);
+        $posts = $query->forOwner(auth()->user());
 
         return view('livewire.posts.recently-deleted-posts-page', [
             'posts' => $posts,

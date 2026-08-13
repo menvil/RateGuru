@@ -15,6 +15,7 @@ use App\Models\RatingVote;
 use App\Models\Report;
 use App\Services\Media\MediaLifecycleService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -171,7 +172,7 @@ final class PostRetentionPurgeService
             ->where('target_id', $post->id)
             ->delete();
 
-        $imageAssetId = $post->image_asset_id;
+        $imageAssetId = $post->imageAsset?->id;
 
         $post->forceDelete();
 
@@ -180,11 +181,11 @@ final class PostRetentionPurgeService
         // active. Physical deletion waits for media:purge after the grace
         // period — never here.
         if ($imageAssetId !== null) {
-            $this->mediaLifecycle->releaseUnreferenced(collect([(int) $imageAssetId]));
+            $this->mediaLifecycle->releaseUnreferenced(collect([$imageAssetId]));
         }
     }
 
-    private function cutoff(?int $olderThanDays): \Illuminate\Support\Carbon
+    private function cutoff(?int $olderThanDays): Carbon
     {
         $days = $olderThanDays ?? (int) config('posts.author_delete_retention_days');
 

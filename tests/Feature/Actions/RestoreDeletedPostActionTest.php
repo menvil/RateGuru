@@ -2,6 +2,7 @@
 
 use App\Actions\Posts\DeletePostAction;
 use App\Actions\Posts\RestoreDeletedPostAction;
+use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotRestoreDeletedPostException;
@@ -10,7 +11,6 @@ use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\PostVote;
 use App\Models\User;
-use App\Notifications\PostApprovedNotification;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 
@@ -169,7 +169,7 @@ it('does not let a tombstoned owner restore content', function () {
     $post = Post::factory()->published()->for($owner)->create();
     app(DeletePostAction::class)->handle($owner, $post);
 
-    app(\App\Actions\Profile\AnonymizeUserAccountAction::class)->execute($owner);
+    app(AnonymizeUserAccountAction::class)->execute($owner);
 
     expect(fn () => app(RestoreDeletedPostAction::class)->handle($owner->fresh(), Post::withTrashed()->findOrFail($post->id)))
         ->toThrow(CannotRestoreDeletedPostException::class);

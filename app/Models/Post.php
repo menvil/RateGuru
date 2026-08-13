@@ -17,10 +17,12 @@ use Illuminate\Support\Str;
 
 /**
  * @property PostStatus $status
+ * @property PostStatus|null $deleted_from_status
  * @property-read int $score
  * @property-read string|null $public_image_url
  * @property Carbon|null $created_at
  * @property Carbon|null $published_at
+ * @property Carbon|null $deleted_at
  */
 class Post extends Model
 {

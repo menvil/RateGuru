@@ -19,7 +19,9 @@ use App\Models\Comment;
 use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\PostVote;
+use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\RatingVote;
 use App\Models\Report;
 use App\Models\User;
@@ -87,7 +89,7 @@ it('rejects a rating vote through a stale instance after author deletion', funct
     $voter = User::factory()->create();
     $group = RatingGroup::factory()->create(['is_active' => true]);
     $option = $group->options()->first()
-        ?? \App\Models\RatingOption::factory()->create(['rating_group_id' => $group->id, 'is_active' => true]);
+        ?? RatingOption::factory()->create(['rating_group_id' => $group->id, 'is_active' => true]);
 
     authorDeleteFresh($owner, $stale);
 
@@ -102,7 +104,7 @@ it('rejects a rating vote through a stale instance after moderation hide', funct
     $voter = User::factory()->create();
     $group = RatingGroup::factory()->create(['is_active' => true]);
     $option = $group->options()->first()
-        ?? \App\Models\RatingOption::factory()->create(['rating_group_id' => $group->id, 'is_active' => true]);
+        ?? RatingOption::factory()->create(['rating_group_id' => $group->id, 'is_active' => true]);
 
     moderatorHideFresh($stale);
 
@@ -216,7 +218,7 @@ it('rejects a save through a stale instance after moderation hide', function () 
 });
 
 it('rejects an unsave mutation against a deleted post, keeping the row for purge', function () {
-    \App\Models\ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
 
     [$owner, $stale] = stalePublishedPost();
     $saver = User::factory()->create();

@@ -78,7 +78,7 @@ final class PostsPurgeCommand extends Command
                 ->orderBy('id')
                 ->chunkById($chunkSize, function ($posts) use ($process): void {
                     foreach ($posts as $post) {
-                        $process((int) $post->id);
+                        $process((int) $post->getKey());
                     }
                 });
         }

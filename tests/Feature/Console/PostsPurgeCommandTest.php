@@ -2,8 +2,10 @@
 
 use App\Actions\Posts\DeletePostAction;
 use App\Models\Comment;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\Media\MediaReferenceChecker;
 
 beforeEach(function () {
     config(['posts.author_delete_retention_days' => 30]);
@@ -116,13 +118,13 @@ it('reports no candidates when there is nothing to do', function () {
 it('counts a failing post as failed and exits with failure', function () {
     $expired = authorDeletedPost(ageDays: 31);
 
-    $this->mock(\App\Services\Media\MediaReferenceChecker::class)
+    $this->mock(MediaReferenceChecker::class)
         ->shouldReceive('referencedAssetIds')
         ->andThrow(new RuntimeException('boom'));
 
     // A plain factory post has no asset; attach one so the purge routes
     // through the failing media release step.
-    $asset = \App\Models\MediaAsset::factory()->postImage()->create();
+    $asset = MediaAsset::factory()->postImage()->create();
     Post::withTrashed()->whereKey($expired->id)->update(['image_asset_id' => $asset->id]);
 
     $this->artisan('posts:purge')
