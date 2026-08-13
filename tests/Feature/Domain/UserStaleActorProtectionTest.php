@@ -3,6 +3,7 @@
 use App\Actions\Comments\AddCommentAction;
 use App\Actions\Comments\DeleteCommentAction;
 use App\Actions\Follows\FollowAuthorAction;
+use App\Actions\Follows\UnfollowAuthorAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Actions\Posts\DeletePostAction;
 use App\Actions\Posts\RestoreDeletedPostAction;
@@ -24,7 +25,6 @@ use App\Exceptions\Posts\CannotRestoreDeletedPostException;
 use App\Exceptions\Profile\CannotUpdateProfileException;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
 use App\Exceptions\Reports\CannotReportContentException;
-use App\Exceptions\SavedPosts\SavedPostsDisabledException;
 use App\Exceptions\Votes\CannotVoteCommentException;
 use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Comment;
@@ -32,6 +32,7 @@ use App\Models\CommentVote;
 use App\Models\Follow;
 use App\Models\Post;
 use App\Models\PostVote;
+use App\Models\ProjectSettings;
 use App\Models\RatingOption;
 use App\Models\RatingVote;
 use App\Models\Report;
@@ -127,7 +128,7 @@ it('rejects a report by a stale sanctioned reporter', function () {
 });
 
 it('rejects a follow when the stale follower was sanctioned', function () {
-    App\Models\ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
 
     $stale = staleActiveUser();
     $author = User::factory()->create();
@@ -139,7 +140,7 @@ it('rejects a follow when the stale follower was sanctioned', function () {
 });
 
 it('rejects a follow when the stale target was sanctioned', function () {
-    App\Models\ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
 
     $follower = User::factory()->create();
     $staleTarget = staleActiveUser();
@@ -196,7 +197,7 @@ it('rejects a profile identity mutation by a stale sanctioned owner', function (
 });
 
 it('still allows a sanctioned user to unfollow', function () {
-    App\Models\ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
 
     $follower = User::factory()->create();
     $author = User::factory()->create();
@@ -204,7 +205,7 @@ it('still allows a sanctioned user to unfollow', function () {
 
     User::query()->whereKey($follower->id)->update(['status' => UserStatus::Banned]);
 
-    app(App\Actions\Follows\UnfollowAuthorAction::class)->handle($follower->fresh(), $author);
+    app(UnfollowAuthorAction::class)->handle($follower->fresh(), $author);
 
     expect(Follow::query()->count())->toBe(0);
 });

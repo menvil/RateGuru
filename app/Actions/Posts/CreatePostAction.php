@@ -53,7 +53,6 @@ final class CreatePostAction
             message: 'You are uploading too quickly. Please try again later.',
         );
 
-
         $ratingGroups = $this->ratingConfiguration->activeGroups();
         $categoryId = $this->validatedCategoryId($data->categoryId);
         $authorAnswers = $this->validatedAuthorAnswers($data->authorAnswerOptionIds, $ratingGroups);

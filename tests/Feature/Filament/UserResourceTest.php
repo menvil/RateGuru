@@ -4,6 +4,7 @@ use App\Enums\UserStatus;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
+use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
@@ -55,7 +56,7 @@ it('allows admin to edit user identity and password', function () {
         ->and($fresh->email)->toBe('new-user@example.com')
         ->and($fresh->status)->toBe(UserStatus::Active)
         ->and(Hash::check('new-password', $fresh->password))->toBeTrue()
-        ->and(App\Models\ModerationLog::query()->count())->toBe(0);
+        ->and(ModerationLog::query()->count())->toBe(0);
 });
 
 it('cannot mutate lifecycle status through the generic edit form even with injected state', function () {
@@ -78,7 +79,7 @@ it('cannot mutate lifecycle status through the generic edit form even with injec
         ->assertHasNoFormErrors();
 
     expect($user->fresh()->status)->toBe(UserStatus::Active)
-        ->and(App\Models\ModerationLog::query()->count())->toBe(0);
+        ->and(ModerationLog::query()->count())->toBe(0);
 });
 
 it('validates username uniqueness when editing a user', function () {

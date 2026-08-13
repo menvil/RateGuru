@@ -3,8 +3,8 @@
 namespace App\Filament\Resources\Users\Tables;
 
 use App\Actions\Moderation\BanUserAction;
-use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Moderation\LimitUserAction;
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Moderation\RestoreUserAccessAction;
 use App\Actions\Moderation\ShadowbanUserAction;
 use App\Enums\UserRole;

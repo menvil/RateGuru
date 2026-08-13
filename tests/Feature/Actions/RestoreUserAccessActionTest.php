@@ -4,6 +4,7 @@ use App\Actions\Moderation\RestoreUserAccessAction;
 use App\Enums\ModerationActionType;
 use App\Enums\UserStatus;
 use App\Exceptions\Moderation\CannotModerateUserException;
+use App\Models\ModerationLog;
 use App\Models\User;
 
 it('restores access for every living sanction', function (string $state) {
@@ -74,7 +75,7 @@ it('is invalid for an already Active target and writes no log', function () {
     expect(fn () => app(RestoreUserAccessAction::class)->handle($admin, $target))
         ->toThrow(CannotModerateUserException::class);
 
-    expect(App\Models\ModerationLog::query()->count())->toBe(0);
+    expect(ModerationLog::query()->count())->toBe(0);
 });
 
 it('never restores a Deleted tombstone', function () {

@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\Users;
 
 use App\Enums\UserRole;
-use App\Enums\UserStatus;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\Tables\UsersTable;

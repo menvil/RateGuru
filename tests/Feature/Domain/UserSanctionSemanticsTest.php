@@ -3,6 +3,8 @@
 use App\Actions\Moderation\BanUserAction;
 use App\Actions\Moderation\LimitUserAction;
 use App\Actions\Moderation\RestoreUserAccessAction;
+use App\Actions\Moderation\ShadowbanUserAction;
+use App\Actions\Posts\DeletePostAction;
 use App\Actions\Posts\SavePostAction;
 use App\Actions\Posts\UnsavePostAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
@@ -18,9 +20,11 @@ use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\PostVote;
+use App\Models\ProjectSettings;
 use App\Models\Report;
 use App\Models\User;
 use Filament\Panel;
+use Illuminate\Support\Str;
 
 /*
  * PR-F semantics: MODERATE USER != DELETE ACCOUNT != MODERATE CONTENT.
@@ -37,7 +41,7 @@ it('changes only status and one moderation log on sanction, preserving the entir
     PostSave::create(['user_id' => $user->id, 'post_id' => $post->id]);
     Report::factory()->create(['reporter_id' => $user->id]);
     $user->notifications()->create([
-        'id' => (string) Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'type' => 'App\\Notifications\\PostCommentedNotification',
         'data' => ['message' => 'private state'],
         'read_at' => null,
@@ -67,7 +71,7 @@ it('changes only status and one moderation log on sanction, preserving the entir
 })->with([
     'limit' => [LimitUserAction::class, UserStatus::Limited],
     'ban' => [BanUserAction::class, UserStatus::Banned],
-    'shadowban' => [App\Actions\Moderation\ShadowbanUserAction::class, UserStatus::Shadowbanned],
+    'shadowban' => [ShadowbanUserAction::class, UserStatus::Shadowbanned],
 ]);
 
 it('keeps sanctioned authors content publicly visible with no lifecycle change', function () {
@@ -80,7 +84,7 @@ it('keeps sanctioned authors content publicly visible with no lifecycle change',
     // PR-E state that must not move: an author-deleted post keeps its
     // retention clock exactly as it was.
     $deletedPost = Post::factory()->published()->for($author)->create();
-    app(App\Actions\Posts\DeletePostAction::class)->handle($author, $deletedPost);
+    app(DeletePostAction::class)->handle($author, $deletedPost);
     $deletedAt = Post::withTrashed()->findOrFail($deletedPost->id)->deleted_at;
 
     app(BanUserAction::class)->handle($admin, $author->fresh());
@@ -99,7 +103,7 @@ it('keeps sanctioned authors content publicly visible with no lifecycle change',
 });
 
 it('lets a sanctioned user keep private save/unsave, subject to post lifecycle', function (string $state) {
-    App\Models\ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
 
     $user = User::factory()->{$state}()->create();
     $post = Post::factory()->published()->create();

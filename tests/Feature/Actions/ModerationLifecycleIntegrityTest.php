@@ -1,8 +1,8 @@
 <?php
 
 use App\Actions\Moderation\BanUserAction;
-use App\Actions\Moderation\ShadowbanUserAction;
 use App\Actions\Moderation\RestoreUserAccessAction;
+use App\Actions\Moderation\ShadowbanUserAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Enums\ModerationActionType;
 use App\Enums\UserStatus;

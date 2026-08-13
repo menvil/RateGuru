@@ -2,8 +2,8 @@
 
 use App\Actions\Moderation\BanUserAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
-use App\Actions\Moderation\ShadowbanUserAction;
 use App\Actions\Moderation\RestoreUserAccessAction;
+use App\Actions\Moderation\ShadowbanUserAction;
 use App\Enums\UserStatus;
 use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Filament\Resources\Users\Pages\EditUser;

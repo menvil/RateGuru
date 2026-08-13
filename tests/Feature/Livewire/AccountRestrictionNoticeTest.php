@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Moderation\LimitUserAction;
+use App\Enums\UserStatus;
 use App\Models\User;
 
 it('shows the private restriction notice to each sanctioned living state', function (string $state, string $key) {
@@ -39,7 +41,7 @@ it('keeps an existing session working after a ban and surfaces the notice', func
     // authenticated — living sanctions never force logout — and sees the
     // restriction notice. forgetGuards() models the fresh request: the
     // test app instance otherwise caches the resolved user object.
-    User::query()->whereKey($user->id)->update(['status' => App\Enums\UserStatus::Banned]);
+    User::query()->whereKey($user->id)->update(['status' => UserStatus::Banned]);
     $this->app['auth']->forgetGuards();
 
     $this->get('/')
@@ -53,7 +55,7 @@ it('never renders the internal moderation reason', function () {
     $admin = User::factory()->admin()->create();
     $user = User::factory()->create();
 
-    app(App\Actions\Moderation\LimitUserAction::class)->handle($admin, $user, 'internal secret reason');
+    app(LimitUserAction::class)->handle($admin, $user, 'internal secret reason');
 
     $this->actingAs($user->fresh())
         ->get('/')

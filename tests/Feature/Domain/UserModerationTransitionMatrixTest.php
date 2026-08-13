@@ -4,6 +4,7 @@ use App\Actions\Moderation\BanUserAction;
 use App\Actions\Moderation\LimitUserAction;
 use App\Actions\Moderation\RestoreUserAccessAction;
 use App\Actions\Moderation\ShadowbanUserAction;
+use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Models\ModerationLog;
@@ -133,14 +134,14 @@ it('keeps role and trust untouched through sanction and restore', function () {
     app(BanUserAction::class)->handle($admin, $moderator);
 
     $fresh = $moderator->fresh();
-    expect($fresh->role)->toBe(App\Enums\UserRole::Moderator)
+    expect($fresh->role)->toBe(UserRole::Moderator)
         ->and((int) $fresh->trust_level)->toBe(7)
         ->and($fresh->status)->toBe(UserStatus::Banned);
 
     app(RestoreUserAccessAction::class)->handle($admin, $fresh);
 
     $restored = $moderator->fresh();
-    expect($restored->role)->toBe(App\Enums\UserRole::Moderator)
+    expect($restored->role)->toBe(UserRole::Moderator)
         ->and((int) $restored->trust_level)->toBe(7)
         ->and($restored->status)->toBe(UserStatus::Active);
 });

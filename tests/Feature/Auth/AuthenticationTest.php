@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\UserStatus;
 use App\Models\User;
 
 test('login screen can be rendered', function () {
@@ -49,7 +50,7 @@ test('a deleted tombstone cannot authenticate even with valid credentials', func
     // Anonymization normally scrambles credentials; craft a tombstone with
     // a known password to prove the explicit auth boundary fails closed —
     // with the generic failure message, revealing nothing.
-    $user = User::factory()->create(['status' => App\Enums\UserStatus::Deleted]);
+    $user = User::factory()->create(['status' => UserStatus::Deleted]);
 
     $response = $this->post('/login', [
         'email' => $user->email,
