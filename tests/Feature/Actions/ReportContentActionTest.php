@@ -109,6 +109,17 @@ it('does not allow banned user to report content', function () {
     expect(Report::query()->count())->toBe(0);
 });
 
+it('does not let the owner report their own post', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    expect(fn () => app(ReportContentAction::class)->handle($owner, $post, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class, 'User is not allowed to report content.');
+
+    expect(Report::query()->count())->toBe(0)
+        ->and($post->fresh()->reports_count)->toBe(0);
+});
+
 it('does not allow reporting a hidden comment', function () {
     $user = User::factory()->create();
     $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden]);

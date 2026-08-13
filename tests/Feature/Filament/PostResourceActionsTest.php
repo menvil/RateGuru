@@ -180,9 +180,16 @@ it('excludes malformed legacy soft-deleted rows from the audit listing', functio
 
     $this->actingAs($admin);
 
+    $trashedLegacy = Post::withTrashed()->findOrFail($legacy->id);
+
     Livewire::test(ListPosts::class)
         ->assertCanSeeTableRecords([$live])
-        ->assertCanNotSeeTableRecords([Post::withTrashed()->findOrFail($legacy->id)]);
+        ->assertCanNotSeeTableRecords([$trashedLegacy]);
+
+    // The malformed row stays out of the filtered audit view as well.
+    Livewire::test(ListPosts::class)
+        ->filterTable('author_deleted')
+        ->assertCanNotSeeTableRecords([$trashedLegacy]);
 });
 
 it('never offers moderation restore as author restore on deleted rows', function () {

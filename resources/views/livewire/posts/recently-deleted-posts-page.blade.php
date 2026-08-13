@@ -35,7 +35,9 @@
                         </p>
                         <p class="text-xs {{ $restorable ? 'text-rg-muted' : 'text-rg-danger' }}">
                             @if($restorable)
-                                {{ trans_choice('ui.recently_deleted.days_left', $daysLeft, ['count' => $daysLeft, 'date' => $deadline?->translatedFormat('j M Y')]) }}
+                                {{ $daysLeft === 0
+                                    ? __('ui.recently_deleted.less_than_day', ['date' => $deadline?->translatedFormat('j M Y')])
+                                    : trans_choice('ui.recently_deleted.days_left', $daysLeft, ['count' => $daysLeft, 'date' => $deadline?->translatedFormat('j M Y')]) }}
                             @else
                                 {{ __('ui.recently_deleted.expired') }}
                             @endif

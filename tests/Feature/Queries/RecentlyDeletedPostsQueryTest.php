@@ -65,8 +65,15 @@ it('keeps equally-timed deletions stable across pages', function () {
     $query = app(RecentlyDeletedPostsQuery::class);
     $pageOne = $query->forOwner($owner, perPage: 2);
 
+    // The resolver is process-global state; restore it even on failure so
+    // later tests start from the default page.
     Paginator::currentPageResolver(fn (): int => 2);
-    $pageTwo = $query->forOwner($owner, perPage: 2);
+
+    try {
+        $pageTwo = $query->forOwner($owner, perPage: 2);
+    } finally {
+        Paginator::currentPageResolver(fn (): int => 1);
+    }
 
     expect($pageOne->pluck('id')->all())->toBe($expected->slice(0, 2)->values()->all())
         ->and($pageTwo->pluck('id')->all())->toBe($expected->slice(2, 2)->values()->all());

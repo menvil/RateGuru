@@ -67,7 +67,12 @@ return [
         'empty_title' => 'Нет недавно удалённых постов',
         'empty_description' => 'Удалённые посты появятся здесь, пока их ещё можно восстановить.',
         'deleted_on' => 'Удалён :date',
-        'days_left' => '{0}Осталось меньше суток (до :date)|{1}Остался :count день (до :date)|[2,4]Осталось :count дня (до :date)|[5,*]Осталось :count дней (до :date)',
+        // Positional one|few|many forms so the Russian locale rule picks
+        // the right case for 21/22/25 etc. The zero/"less than a day"
+        // state is a separate key: an explicit {0} segment would shift
+        // the positional indexes.
+        'less_than_day' => 'Осталось меньше суток (до :date)',
+        'days_left' => 'Остался :count день (до :date)|Осталось :count дня (до :date)|Осталось :count дней (до :date)',
         'expired' => 'Срок восстановления истёк',
         'restore' => 'Восстановить',
         'restored' => '«:title» восстановлен.',

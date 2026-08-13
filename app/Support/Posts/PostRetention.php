@@ -25,9 +25,19 @@ final class PostRetention
         }
 
         // env() always yields strings from a real environment; accept only
-        // unsigned integer strings ("0", "30"), nothing else.
+        // unsigned integer strings ("0", "30") that fit in an int —
+        // an over-PHP_INT_MAX string would silently saturate on cast.
         if (is_string($raw) && ctype_digit($raw)) {
-            return (int) $raw;
+            $normalized = ltrim($raw, '0');
+            $normalized = $normalized === '' ? '0' : $normalized;
+            $max = (string) PHP_INT_MAX;
+
+            $fitsInt = strlen($normalized) < strlen($max)
+                || (strlen($normalized) === strlen($max) && strcmp($normalized, $max) <= 0);
+
+            if ($fitsInt) {
+                return (int) $normalized;
+            }
         }
 
         throw new InvalidArgumentException(sprintf(

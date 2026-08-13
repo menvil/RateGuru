@@ -22,6 +22,7 @@ it('accepts valid retention values', function (mixed $configured, int $expected)
     'integer thirty' => [30, 30],
     'env-style string' => ['30', 30],
     'env-style zero string' => ['0', 0],
+    'leading zeroes' => ['030', 30],
 ]);
 
 it('fails closed on invalid retention values', function (mixed $configured) {
@@ -34,6 +35,8 @@ it('fails closed on invalid retention values', function (mixed $configured) {
     'non-numeric env string' => ['foo'],
     'float-like string' => ['1.5'],
     'null' => [null],
+    'beyond PHP_INT_MAX' => ['9223372036854775808'],
+    'far beyond PHP_INT_MAX' => ['99999999999999999999999'],
 ]);
 
 it('stops the purge service instead of purging immediately on bad config', function (mixed $configured) {
