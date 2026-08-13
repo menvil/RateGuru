@@ -6,7 +6,6 @@ use App\Actions\Moderation\ApprovePostAction;
 use App\Actions\Moderation\HidePostAction;
 use App\Actions\Moderation\RejectPostAction;
 use App\Actions\Moderation\RestorePostAction;
-use App\Actions\Posts\DeletePostInAdminAction;
 use App\Enums\PostStatus;
 use App\Models\Post;
 use Filament\Actions\Action;
@@ -150,20 +149,6 @@ class PostsTable
                             auth()->user(),
                             $record,
                             $data['reason'] ?? null,
-                        );
-                    }),
-                Action::make('delete')
-                    ->label('Delete')
-                    ->icon('heroicon-o-trash')
-                    ->color('danger')
-                    ->visible(fn (Post $record): bool => auth()->user()?->can('delete', $record) ?? false)
-                    ->requiresConfirmation()
-                    ->modalHeading('Delete post')
-                    ->modalDescription('Soft-deletes the post. It can be restored from the database if needed.')
-                    ->action(function (Post $record): void {
-                        app(DeletePostInAdminAction::class)->handle(
-                            auth()->user(),
-                            $record,
                         );
                     }),
             ])
