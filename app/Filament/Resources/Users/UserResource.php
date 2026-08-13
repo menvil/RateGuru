@@ -68,7 +68,7 @@ class UserResource extends Resource
             // ModerationLog. A raw select would bypass all of that.
             Placeholder::make('status')
                 ->label('Status')
-                ->content(fn (?User $record): string => ucfirst($record?->status?->value ?? '—'))
+                ->content(fn (?User $record): string => $record === null ? '—' : ucfirst($record->status->value))
                 ->helperText('Changed only via the moderation actions on the users list.'),
             TextInput::make('trust_level')
                 ->label('Trust level')

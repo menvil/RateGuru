@@ -42,8 +42,11 @@ feed, edit profile, and — role permitting — access the admin panel.
 A restricted / suspension-like state. Limited users cannot create posts,
 comment, vote, report, follow, or be followed, are excluded from the
 matched-users search, and are ineligible for the admin panel. They can still
-log in, browse, edit their profile and save posts. Their existing content
-stays visible. Admin UI renders the state as a warning badge.
+log in, browse, manage account security, self-delete their account,
+unfollow, and save/unsave posts (private state). Public profile/identity/
+avatar mutation is frozen (PR-F). Their existing content stays visible.
+Admin UI renders the state as a warning badge. First-class moderation
+action: `LimitUserAction` (Active only). No timed expiry.
 
 ### Banned
 
@@ -154,17 +157,25 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
 | canFollow (as follower) | yes | no | no | no | no | no |
 | canBeFollowed (as author) | yes | no | no | no | no | no |
 | canManageContent (feed delete) | yes | no | no | no | no | no |
-| canUpdateProfile | yes | yes | yes | yes | no | no |
+| canUpdateProfile | yes | no | no | no | no | no |
 | canAuthenticate | yes | yes | yes | yes | no | no |
 | canAccessPrivilegedPanel | yes | no | no | no | no | no |
 
 Notes:
 
-- **canUpdateProfile / canAuthenticate** are *declared but not enforced*:
-  the audit found no lifecycle gating on profile mutation or login anywhere,
-  so these methods pin today's behavior (allowed for every defined status)
-  and give a future PR (PR-F) a single flip point. Do not add enforcement
-  call sites without a product decision.
+- **canUpdateProfile** is Active-only since PR-F, enforced by the locked
+  actor re-reads inside `UpdateUserIdentityAction`/`UpdateUserProfileAction`.
+  The password-security flow and account self-deletion are deliberately NOT
+  gated by it: a sanctioned living user can always secure or delete their
+  account.
+- **canAuthenticate** is enforced at the auth boundary
+  (`AuthenticateUserAction`): living sanctions log in normally and never
+  force logout or session revocation; a Deleted tombstone is refused with
+  the generic failure message. The stale-session terminal-account
+  middleware (`EnsureAccountIsNotTombstoned`) is unchanged. The sanctioned
+  authenticated user sees a private, translated restriction notice on
+  normal pages — neutral for Shadowbanned, never exposing the internal
+  moderation reason.
 - **canFollow** enforcement is the one deliberate behavior change of PR-A:
   previously only the *author's* status was validated, so a banned/limited/
   shadowbanned user could still start following people. "New participation
@@ -174,32 +185,67 @@ Notes:
 
 ## Moderation transitions
 
-Implemented by `BanUserAction`, `UnbanUserAction`, `ShadowbanUserAction`
-(admin-only via `UserPolicy`, self/admin-target protected, wrapped in
-`DB::transaction` with `lockForUpdate()` re-reads, moderation-logged with
-accurate `from_status`/`to_status`):
+Implemented by `LimitUserAction`, `BanUserAction`, `ShadowbanUserAction`
+and `RestoreUserAccessAction` — all through one shared executor
+(`ExecutesUserStatusTransition`) that locks BOTH the acting admin and the
+target in ascending primary-key order, re-authorizes on the fresh locked
+rows (`Gate::forUser`), validates the transition matrix against the locked
+target status, and writes exactly one ModerationLog with the authoritative
+`from_status`/`to_status`. Only an **Active Admin** may sanction: a stale
+request from a just-sanctioned admin fails even though its caller object
+still says Active. Invalid or same-state transitions throw and log nothing.
 
 ```
-Active | Limited | Shadowbanned  --ban-->      Banned
-Active | Limited                 --shadowban-> Shadowbanned
-Banned | Shadowbanned            --unban-->    Active
-any non-deleted state            --self-delete-> Deleted   (terminal)
+Active                           --limit-->        Limited
+Active | Limited | Shadowbanned  --ban-->          Banned
+Active | Limited                 --shadowban-->    Shadowbanned
+Limited | Banned | Shadowbanned  --restore access--> Active
+any living state                 --self-delete-->  Deleted   (terminal)
 ```
 
-Deleted is terminal in both directions: no moderation action may target a
-tombstone (unban accepts **only** Banned or Shadowbanned targets, so a
-tombstone can never be "unbanned" back to Active; ban/shadowban explicitly
-reject Deleted under lock; `UserPolicy` refuses tombstone targets), and
-nothing transitions out of it.
+Banned deliberately cannot move sideways to Limited/Shadowbanned: to
+downgrade a ban, restore to Active first, then apply the new state
+explicitly. Deleted is terminal in both directions — no sanction may
+target a tombstone and nothing transitions out of it.
 
-State guards in these actions intentionally use direct enum comparisons
-("is the target already banned?") — they reason about the state itself, not
-about what the state may do, so the capability API does not apply. The
-Filament UI additionally hides the shadowban action for banned users; the
-action layer's own guard only rejects re-shadowbanning.
+`UnbanUserAction` is gone; `ModerationActionType::UnbanUser` remains only
+so historical log rows keep hydrating — new restores log
+`RestoreUserAccess`. `MarkUserTrustedAction` is not a lifecycle transition
+(it mutates `trust_level`, requiring an Active regular-user target) but
+uses the same actor+target pair locking. Sanctions never change role or
+trust_level: a sanctioned Moderator keeps role=Moderator, merely losing
+panel access until restored; only account anonymization demotes role.
 
-`MarkUserTrustedAction` is not a lifecycle transition (it mutates
-`trust_level`, requiring Active status as a precondition).
+Lifecycle mutation happens **only** through these boundaries: the generic
+Filament user edit form shows status read-only (a raw select would bypass
+locking, the matrix, reason capture and the log), and an architecture
+guard (`UserLifecycleWriteBoundaryTest`) keeps `'status' => UserStatus::…`
+writes inside anonymization, the shared executor and admin bootstrap.
+
+## Lock ordering and stale actors
+
+The uniform deterministic order for every lifecycle-dependent write:
+
+```
+Actor User -> other User rows (ascending id) -> Post -> Comment /
+RatingGroup / child rows -> edges (votes, saves, follows, reports)
+```
+
+Every participation action re-reads and locks the actor User inside its
+transaction and re-checks the current capability before mutating
+(`LocksActorForWrite`): post/comment/rating votes, comment creation
+(Actor -> Post -> parent Comment), post creation (trust-level publishing
+is decided on the fresh row), reports, author post delete/restore and
+author comment delete (authorized via `Gate::forUser` on the locked
+actor). Two-user operations (follows, sanctions) lock both rows in
+ascending primary-key order and only then identify follower/target —
+never "follower first", which would deadlock against the opposite pair.
+Cheap pre-checks on the caller's instance remain but are never
+authoritative.
+
+Shadowbanned is **not** viewer-dependent shadow visibility: it is a
+moderation-facing label with the same capability restrictions as
+Limited/Banned, and existing content remains publicly visible.
 
 ## Where lifecycle checks live
 
@@ -229,9 +275,22 @@ action layer's own guard only rejects re-shadowbanning.
 - `tests/Feature/Actions/ModerationLifecycleIntegrityTest.php` — transition
   audit logging (including the stale-instance concurrency regression) and
   the non-destructive content-preservation invariant.
-- `tests/Feature/Actions/{Ban,Unban,Shadowban}UserActionTest.php`,
-  `tests/Feature/Admin/FilamentAdminAccessTest.php` — pre-existing
-  moderation and panel coverage.
+- `tests/Feature/Actions/{Ban,RestoreUserAccess,Shadowban}UserActionTest.php`,
+  `tests/Feature/Admin/FilamentAdminAccessTest.php` — moderation and panel
+  coverage.
+- `tests/Feature/Domain/UserModerationTransitionMatrixTest.php` — the full
+  allowed/forbidden transition matrix, stale-admin race, authoritative
+  from_status logging, role/trust preservation.
+- `tests/Feature/Domain/UserStaleActorProtectionTest.php` — deterministic
+  stale-actor regressions for every participation write.
+- `tests/Feature/Domain/UserSanctionSemanticsTest.php` — non-destructive
+  sanction invariant, public content untouched, private save/unsave,
+  sanctioned-moderator panel round trip, sanctioned self-delete,
+  tombstone user-report refusal.
+- `tests/Feature/Livewire/AccountRestrictionNoticeTest.php` — private
+  restriction notice, session survival mid-ban, reason privacy.
+- `tests/Feature/Architecture/UserLifecycleWriteBoundaryTest.php` —
+  sanctioned lifecycle write boundaries.
 - `tests/Feature/Actions/AnonymizeUserAccountActionTest.php` — tombstone
   happy path (rich graph), rollback, idempotency, uniqueness at scale,
   Banned-vs-Deleted distinction, media retention/release.
