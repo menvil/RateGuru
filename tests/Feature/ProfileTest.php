@@ -108,5 +108,10 @@ test('correct password must be provided to delete account', function () {
         ->assertSessionHasErrorsIn('userDeletion', 'password')
         ->assertRedirect('/profile');
 
-    $this->assertNotNull($user->fresh());
+    // The rejected attempt leaves the account fully alive — not merely
+    // present, but in its original lifecycle state with no tombstone marks.
+    $fresh = $user->fresh();
+    expect($fresh)->not->toBeNull();
+    expect($fresh->status)->toBe(UserStatus::Active);
+    expect($fresh->anonymized_at)->toBeNull();
 });

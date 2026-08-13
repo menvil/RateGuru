@@ -3,6 +3,7 @@
 namespace App\Actions\Profile;
 
 use App\Enums\MediaKind;
+use App\Exceptions\Profile\CannotUpdateProfileException;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Models\User;
 use App\Services\Media\MediaStoreRequest;
@@ -48,11 +49,19 @@ final class UpdateUserProfileAction
                 // request to commit would soft-delete the original asset again
                 // and leave the first request's new asset orphaned (referenced
                 // by nobody, never cleaned up).
-                $previousAvatarAsset = User::query()
+                $lockedUser = User::query()
                     ->whereKey($user->id)
                     ->lockForUpdate()
-                    ->firstOrFail()
-                    ->avatarAsset;
+                    ->firstOrFail();
+
+                // Checked on the locked, current row — a stale session's
+                // in-flight edit racing account anonymization must never
+                // write profile data back into a committed tombstone.
+                if (! $lockedUser->canUpdateProfile()) {
+                    throw CannotUpdateProfileException::becauseAccountIsNotEditable();
+                }
+
+                $previousAvatarAsset = $lockedUser->avatarAsset;
 
                 if ($storedAvatar !== null) {
                     $asset = $this->mediaAssetCreator->create($storedAvatar, MediaKind::Avatar, $user);
@@ -60,7 +69,8 @@ final class UpdateUserProfileAction
                     $newAvatarAssetId = $asset->id;
                 }
 
-                $user->update($update);
+                $lockedUser->update($update);
+                $user->setRawAttributes($lockedUser->getAttributes(), true);
 
                 if ($storedAvatar !== null) {
                     // The previous avatar asset is soft-deleted, but its

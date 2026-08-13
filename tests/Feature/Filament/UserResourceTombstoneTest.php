@@ -1,5 +1,11 @@
 <?php
 
+use App\Actions\Moderation\BanUserAction;
+use App\Actions\Moderation\MarkUserTrustedAction;
+use App\Actions\Moderation\ShadowbanUserAction;
+use App\Actions\Moderation\UnbanUserAction;
+use App\Enums\UserStatus;
+use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Models\User;
@@ -33,6 +39,24 @@ it('hides every moderation and edit action for a tombstone row', function () {
         ->assertTableActionHidden('unban', $tombstone)
         ->assertTableActionHidden('shadowban', $tombstone)
         ->assertTableActionHidden('markTrusted', $tombstone);
+});
+
+it('rejects every moderation action invoked directly against a tombstone', function () {
+    // Visibility hiding alone is cosmetic — the actions themselves must
+    // deny a tombstone target even when invoked directly.
+    $admin = User::factory()->admin()->create();
+    $tombstone = User::factory()->tombstoned()->create();
+
+    expect(fn () => app(BanUserAction::class)->handle($admin, $tombstone))
+        ->toThrow(CannotModerateUserException::class);
+    expect(fn () => app(UnbanUserAction::class)->handle($admin, $tombstone))
+        ->toThrow(CannotModerateUserException::class);
+    expect(fn () => app(ShadowbanUserAction::class)->handle($admin, $tombstone))
+        ->toThrow(CannotModerateUserException::class);
+    expect(fn () => app(MarkUserTrustedAction::class)->handle($admin, $tombstone))
+        ->toThrow(CannotModerateUserException::class);
+
+    expect($tombstone->fresh()->status)->toBe(UserStatus::Deleted);
 });
 
 it('forbids opening the edit page for a tombstone', function () {

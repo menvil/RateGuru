@@ -11,6 +11,7 @@ use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Contracts\Notifications\Dispatcher as NotificationDispatcher;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
@@ -35,6 +36,13 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+
+    /**
+     * The only author label public UI may show for a tombstoned account —
+     * also stored into `name` by AnonymizeUserAccountAction so raw
+     * `$user->name` render sites stay safe.
+     */
+    public const TOMBSTONE_DISPLAY_NAME = 'Deleted user';
 
     protected static function booted(): void
     {
@@ -128,9 +136,24 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
      * @param  Builder<User>  $query
      * @return Builder<User>
      */
-    public function scopeWithoutTombstoned($query)
+    public function scopeWithoutTombstoned(Builder $query): Builder
     {
         return $query->where('status', '!=', UserStatus::Deleted);
+    }
+
+    /**
+     * A tombstone never receives notifications again: its inbox was purged
+     * at anonymization and every channel address is scrambled/invalid.
+     * Overriding the Notifiable entry point keeps this rule in one place
+     * instead of at every ->notify() call site.
+     */
+    public function notify($instance): void
+    {
+        if ($this->isTombstoned()) {
+            return;
+        }
+
+        app(NotificationDispatcher::class)->send($this, $instance);
     }
 
     public function isModerator(): bool
@@ -200,7 +223,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
     public function getResolvedDisplayNameAttribute(): string
     {
         if ($this->isTombstoned()) {
-            return 'Deleted user';
+            return self::TOMBSTONE_DISPLAY_NAME;
         }
 
         return $this->display_name ?: ($this->name ?: $this->username);

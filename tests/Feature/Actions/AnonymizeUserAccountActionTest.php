@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Comments\AddCommentAction;
 use App\Actions\Moderation\BanUserAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Enums\CommentStatus;
@@ -341,6 +342,54 @@ it('keeps identity, avatar and follows intact for banned users, unlike deleted o
     // Contribution survives in both states.
     expect(Post::query()->where('user_id', $banned->id)->count())->toBe(1)
         ->and(Post::query()->where('user_id', $deleted->id)->count())->toBe(1);
+});
+
+it('deletes other users\' notifications that snapshot the deleted identity', function () {
+    $author = User::factory()->create();
+    $recipient = User::factory()->create();
+
+    $recipient->notifications()->create([
+        'id' => (string) Str::uuid(),
+        'type' => 'App\\Notifications\\FollowedAuthorPostedNotification',
+        'data' => [
+            'author_id' => $author->id,
+            'author_name' => $author->name,
+            'author_username' => $author->username,
+            'message' => '@'.$author->username.' posted something',
+        ],
+    ]);
+    $recipient->notifications()->create([
+        'id' => (string) Str::uuid(),
+        'type' => 'App\\Notifications\\PostCommentedNotification',
+        'data' => [
+            'actor_id' => $author->id,
+            'actor_username' => $author->username,
+            'message' => '@'.$author->username.' commented on your post',
+        ],
+    ]);
+    $recipient->notifications()->create([
+        'id' => (string) Str::uuid(),
+        'type' => 'App\\Notifications\\PostCommentedNotification',
+        'data' => ['actor_id' => 999999, 'message' => 'unrelated'],
+    ]);
+
+    app(AnonymizeUserAccountAction::class)->execute($author);
+
+    $remaining = $recipient->fresh()->notifications;
+    expect($remaining)->toHaveCount(1)
+        ->and($remaining->first()->data['message'])->toBe('unrelated');
+});
+
+it('never delivers new notifications to a tombstone', function () {
+    $tombstone = User::factory()->tombstoned()->create();
+    $activeCommenter = User::factory()->create();
+    $post = Post::factory()->published()->for($tombstone)->create();
+
+    // Integration path: a new comment on a surviving post would normally
+    // notify the post author — for a tombstone it must be a silent no-op.
+    app(AddCommentAction::class)->handle($activeCommenter, $post, 'Nice post');
+
+    expect($tombstone->notifications()->count())->toBe(0);
 });
 
 it('refuses to ban, shadowban or mark trusted a deleted tombstone', function () {

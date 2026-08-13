@@ -12,6 +12,7 @@ use App\Models\Session;
 use App\Models\User;
 use App\Services\Media\MediaLifecycleService;
 use App\Support\Observability\DomainLogger;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -59,7 +60,7 @@ final class AnonymizeUserAccountAction
             $avatarAssetId = $locked->avatarAsset?->id;
 
             $locked->forceFill([
-                'name' => 'Deleted user',
+                'name' => User::TOMBSTONE_DISPLAY_NAME,
                 'display_name' => null,
                 'username' => $this->tombstoneUsername($locked->id),
                 'email' => $this->tombstoneEmail($locked->id),
@@ -89,13 +90,36 @@ final class AnonymizeUserAccountAction
             // comments, votes, reports and their media) is intentionally
             // never touched here.
             Follow::query()
-                ->where('follower_id', $locked->id)
-                ->orWhere('author_id', $locked->id)
+                ->where(function ($query) use ($locked): void {
+                    $query->where('follower_id', $locked->id)
+                        ->orWhere('author_id', $locked->id);
+                })
                 ->delete();
 
             PostSave::query()->where('user_id', $locked->id)->delete();
 
             $locked->notifications()->delete();
+
+            // Other users' notification payloads snapshot the pre-deletion
+            // name/username ("@ivan commented on your post") — a real
+            // identity leak once the account is anonymized. Notifications
+            // are private inbox state, not community contribution or
+            // moderation evidence, so the ones referencing this user are
+            // simply deleted. Filtered in PHP chunk-by-chunk instead of a
+            // JSON-path WHERE so the same code runs identically on
+            // PostgreSQL, MariaDB and SQLite.
+            DatabaseNotification::query()->chunkById(200, function ($notifications) use ($locked): void {
+                $leaking = $notifications->filter(function (DatabaseNotification $notification) use ($locked): bool {
+                    $data = (array) $notification->data;
+
+                    return ($data['author_id'] ?? null) === $locked->id
+                        || ($data['actor_id'] ?? null) === $locked->id;
+                });
+
+                if ($leaking->isNotEmpty()) {
+                    DatabaseNotification::query()->whereKey($leaking->modelKeys())->delete();
+                }
+            });
 
             // The sessions table exists in the base schema for every DB
             // engine regardless of the configured session driver; with the

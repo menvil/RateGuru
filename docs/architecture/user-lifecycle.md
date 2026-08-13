@@ -17,11 +17,14 @@ Privileged-panel access requires **both**: a lifecycle-eligible status
 (`UserStatus::canAccessPrivilegedPanel()`, Active only) **and** an allowed
 role (Admin or Moderator) — see `User::canAccessPanel()`.
 
-| role \ status | Active | Limited | Banned | Shadowbanned |
-| ------------- | ------ | ------- | ------ | ------------ |
-| Admin         | panel allowed | denied | denied | denied |
-| Moderator     | panel allowed | denied | denied | denied |
-| User          | denied | denied | denied | denied |
+| role \ status | Active | Limited | Banned | Shadowbanned | Deleted |
+| ------------- | ------ | ------- | ------ | ------------ | ------- |
+| Admin         | panel allowed | denied | denied | denied | denied |
+| Moderator     | panel allowed | denied | denied | denied | denied |
+| User          | denied | denied | denied | denied | denied |
+
+(A Deleted admin/moderator cannot exist in practice — anonymization demotes
+the role to User — but the panel gate fails closed regardless.)
 
 Lifecycle status is **not** RBAC: no status ever grants a permission a role
 withholds, and no role rescues a non-active status (fail closed).
@@ -111,6 +114,17 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
   tombstone back into the moderation lifecycle.
 - The `NoPhysicalUserDeletionRule` PHPStan rule (non-ignorable) bans
   `$user->delete()` / `forceDelete()` / `User::destroy()` in all app code.
+- The `EnsureAccountIsNotTombstoned` middleware (web group) force-terminates
+  any surviving session of a tombstoned account on its next request —
+  effective for file/redis session backends the DB cleanup cannot reach.
+- Profile mutations (`UpdateUserIdentityAction`, `UpdateUserProfileAction`)
+  re-read the user under `lockForUpdate()` and check `canUpdateProfile()` on
+  the current row, so an in-flight stale edit racing anonymization can never
+  write PII or an avatar back into a committed tombstone.
+- A tombstone neither receives new notifications (`User::notify()` is a
+  centralized no-op for tombstones) nor stays referenced in other users'
+  inboxes: notifications whose payload snapshots the pre-deletion
+  name/username (`author_id`/`actor_id`) are deleted during anonymization.
 
 #### Data policy on account deletion
 
@@ -127,10 +141,7 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
 | Post media | retain |
 | Post saves | delete |
 | Received notifications | delete |
-
-Note: notifications *received by other users* may still embed the deleted
-user's pre-deletion display name inside their JSON payloads; rewriting other
-users' inboxes is deliberately out of scope here.
+| Other users' notifications referencing this identity | delete |
 
 ## Capability matrix
 
@@ -176,7 +187,8 @@ any non-deleted state            --self-delete-> Deleted   (terminal)
 ```
 
 Deleted is terminal in both directions: no moderation action may target a
-tombstone (unban requires Banned/Shadowbanned; ban/shadowban explicitly
+tombstone (unban accepts **only** Banned or Shadowbanned targets, so a
+tombstone can never be "unbanned" back to Active; ban/shadowban explicitly
 reject Deleted under lock; `UserPolicy` refuses tombstone targets), and
 nothing transitions out of it.
 

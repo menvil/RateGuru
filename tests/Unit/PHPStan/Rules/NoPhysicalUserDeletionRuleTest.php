@@ -33,6 +33,10 @@ final class NoPhysicalUserDeletionRuleTest extends RuleTestCase
                 'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call destroy().',
                 25,
             ],
+            [
+                'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call forceDestroy().',
+                30,
+            ],
         ]);
     }
 }

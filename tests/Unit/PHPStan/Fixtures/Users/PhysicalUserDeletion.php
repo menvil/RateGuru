@@ -25,6 +25,11 @@ final class PhysicalUserDeletionAction
         User::destroy($id);
     }
 
+    public function forbiddenStaticForceDestroy(int $id): void
+    {
+        User::forceDestroy($id);
+    }
+
     // Deleting other models stays perfectly legal — the ban is specific to
     // the users table, whose rows must survive as tombstones.
     public function allowedPostDelete(Post $post): void
