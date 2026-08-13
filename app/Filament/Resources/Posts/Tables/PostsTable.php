@@ -16,6 +16,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Collection;
 
 class PostsTable
@@ -23,7 +24,13 @@ class PostsTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['user', 'imageAsset']))
+            // withTrashed: author-deleted posts stay reviewable as audit
+            // history during retention. They are labeled below, expose only
+            // the derived state, and no moderation action matches their
+            // status — author restore is never available in admin.
+            ->modifyQueryUsing(fn (Builder $query) => $query
+                ->withoutGlobalScope(SoftDeletingScope::class)
+                ->with(['user', 'imageAsset']))
             ->columns([
                 ImageColumn::make('public_image_url')
                     ->label('Image')
@@ -50,13 +57,18 @@ class PostsTable
                     ->label('Status')
                     ->badge()
                     ->sortable()
+                    // Author deletion reads as its own derived label, not
+                    // as the raw Deleted enum value.
+                    ->formatStateUsing(fn (PostStatus $state, Post $record): string => $record->isAuthorDeleted()
+                        ? 'Deleted by author'
+                        : ucfirst($state->value))
                     ->color(fn (PostStatus $state): string => match ($state) {
                         PostStatus::Pending => 'warning',
                         PostStatus::Published => 'success',
                         PostStatus::Hidden => 'gray',
                         PostStatus::Rejected => 'danger',
                         PostStatus::Draft => 'gray',
-                        PostStatus::Deleted => 'danger',
+                        PostStatus::Deleted => 'gray',
                     }),
                 TextColumn::make('reports_count')
                     ->label('Reports')
@@ -83,6 +95,11 @@ class PostsTable
                 Filter::make('reported')
                     ->label('Reported')
                     ->query(fn (Builder $query) => $query->where('reports_count', '>', 0)),
+                Filter::make('author_deleted')
+                    ->label('Deleted by author')
+                    ->query(fn (Builder $query) => $query
+                        ->whereNotNull('deleted_at')
+                        ->where('status', PostStatus::Deleted)),
             ])
             ->recordActions([
                 Action::make('approve')

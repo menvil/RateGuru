@@ -7,6 +7,7 @@ use App\Http\Controllers\SubmitContactMessageController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use App\Livewire\Feed\FeedPage;
 use App\Livewire\Posts\PostShow;
+use App\Livewire\Posts\RecentlyDeletedPostsPage;
 use App\Livewire\Profile\ProfilePage;
 use App\Livewire\SavedPosts\SavedPostsPage;
 use App\Models\Post;
@@ -67,6 +68,8 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     Route::get('/saved', SavedPostsPage::class)->name('saved-posts.index');
+
+    Route::get('/account/posts/deleted', RecentlyDeletedPostsPage::class)->name('posts.recently-deleted');
 });
 
 require __DIR__.'/auth.php';
