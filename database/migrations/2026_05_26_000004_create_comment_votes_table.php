@@ -10,8 +10,8 @@ return new class extends Migration
     {
         Schema::create('comment_votes', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('comment_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('comment_id')->constrained()->restrictOnDelete();
+            $table->foreignId('user_id')->constrained()->restrictOnDelete();
             $table->enum('type', ['up', 'down']);
             $table->timestamps();
 

@@ -10,8 +10,10 @@ return new class extends Migration
     {
         Schema::create('post_author_answers', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('post_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('rating_group_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('post_id')->constrained()->restrictOnDelete();
+            // Author answers are part of the post's authored content:
+            // deleting rating configuration must not silently destroy them.
+            $table->foreignId('rating_group_id')->constrained()->restrictOnDelete();
             $table->unsignedBigInteger('rating_option_id');
             $table->timestamps();
 
@@ -20,7 +22,7 @@ return new class extends Migration
             $table->foreign(['rating_option_id', 'rating_group_id'])
                 ->references(['id', 'rating_group_id'])
                 ->on('rating_options')
-                ->cascadeOnDelete();
+                ->restrictOnDelete();
             $table->unique(['post_id', 'rating_group_id']);
             $table->index('rating_option_id');
             $table->index(

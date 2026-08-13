@@ -9,11 +9,14 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('comments', function (Blueprint $table) {
+            // Restrict, not cascade: hard-deleting a parent comment must
+            // never silently destroy its reply subtree. Explicit comment
+            // lifecycle (tombstones/purge) arrives in PR-D.
             $table->foreignId('parent_id')
                 ->nullable()
                 ->after('user_id')
                 ->constrained('comments')
-                ->cascadeOnDelete();
+                ->restrictOnDelete();
         });
     }
 

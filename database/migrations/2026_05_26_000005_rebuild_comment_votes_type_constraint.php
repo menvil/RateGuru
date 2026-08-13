@@ -21,8 +21,8 @@ return new class extends Migration
                 type VARCHAR NOT NULL CHECK (type IN ('up', 'down')),
                 created_at DATETIME,
                 updated_at DATETIME,
-                FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE CASCADE,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE RESTRICT,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE RESTRICT
             )
         SQL);
 
@@ -54,8 +54,8 @@ return new class extends Migration
             $table->string('type');
             $table->timestamps();
 
-            $table->foreign('comment_id')->references('id')->on('comments')->cascadeOnDelete();
-            $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+            $table->foreign('comment_id')->references('id')->on('comments')->restrictOnDelete();
+            $table->foreign('user_id')->references('id')->on('users')->restrictOnDelete();
         });
 
         DB::table('comment_votes_unconstrained')->insertUsing(
