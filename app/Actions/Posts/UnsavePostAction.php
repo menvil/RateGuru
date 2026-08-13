@@ -2,12 +2,14 @@
 
 namespace App\Actions\Posts;
 
+use App\Exceptions\SavedPosts\CannotSavePostException;
 use App\Exceptions\SavedPosts\SavedPostsDisabledException;
 use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\User;
 use App\Support\Observability\DomainLogger;
 use App\Support\Settings\ProjectSettingsManager;
+use Illuminate\Support\Facades\DB;
 
 final class UnsavePostAction
 {
@@ -22,10 +24,24 @@ final class UnsavePostAction
             throw new SavedPostsDisabledException;
         }
 
-        PostSave::query()
-            ->where('user_id', $user->id)
-            ->where('post_id', $post->id)
-            ->delete();
+        DB::transaction(function () use ($user, $post): void {
+            // Save rows on an author-deleted post are retained state until
+            // the final purge — no save/unsave mutation may touch them
+            // during retention, even through a stale instance.
+            $lockedPost = Post::withTrashed()
+                ->whereKey($post->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || $lockedPost->trashed()) {
+                throw CannotSavePostException::postNotViewable();
+            }
+
+            PostSave::query()
+                ->where('user_id', $user->id)
+                ->where('post_id', $post->id)
+                ->delete();
+        });
 
         $this->logger->info('saved_posts.unsaved', ['user_id' => $user->id, 'post_id' => $post->id]);
     }

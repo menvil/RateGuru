@@ -54,6 +54,20 @@ final class VotePostAction
         }
 
         DB::transaction(function () use ($user, $post, $type) {
+            // Lock order: Post row first, then child rows
+            // (docs/architecture/post-lifecycle.md). The pre-check above ran
+            // on the caller's instance, which may be stale — an author
+            // delete or moderation hide can land in between. Only the row
+            // re-read under lock is authoritative.
+            $lockedPost = Post::withTrashed()
+                ->whereKey($post->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || ! $lockedPost->canReceiveVotes()) {
+                throw CannotVoteException::becausePostIsNotPublic();
+            }
+
             $existingVote = PostVote::query()
                 ->where('post_id', $post->id)
                 ->where('user_id', $user->id)

@@ -247,7 +247,9 @@ it('updates post reports count after report', function () {
     expect($post->fresh()->reports_count)->toBe(1);
 });
 
-it('updates reports count when the reported post is soft deleted', function () {
+it('rejects reporting a soft-deleted post and leaves its counters untouched', function () {
+    // PR-E flipped the old contract: a deleted post is no longer publicly
+    // reportable — existing reports remain, new ones are refused.
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'reports_count' => 99,
@@ -255,13 +257,14 @@ it('updates reports count when the reported post is soft deleted', function () {
 
     $post->delete();
 
-    app(ReportContentAction::class)->handle(
+    expect(fn () => app(ReportContentAction::class)->handle(
         user: $user,
         content: $post,
         reason: ReportReason::Spam,
-    );
+    ))->toThrow(CannotReportContentException::class);
 
-    expect(Post::withTrashed()->findOrFail($post->id)->reports_count)->toBe(1);
+    expect(Post::withTrashed()->findOrFail($post->id)->reports_count)->toBe(99)
+        ->and(Report::query()->count())->toBe(0);
 });
 
 it('updates comment reports count after report', function () {

@@ -46,6 +46,10 @@ final class ReportContentAction
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
 
+        if ($content instanceof Post && ! $content->canReceiveReports()) {
+            throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('report', $user),
@@ -77,6 +81,10 @@ final class ReportContentAction
             return DB::transaction(function () use ($user, $content, $reason, $message) {
                 if ($content instanceof Comment) {
                     $this->assertCommentIsReportableUnderLock($content);
+                }
+
+                if ($content instanceof Post) {
+                    $this->assertPostIsReportableUnderLock($content);
                 }
 
                 $report = Report::create([
@@ -118,9 +126,8 @@ final class ReportContentAction
      * The caller's Comment instance may be stale: a moderation hide or an
      * author delete can land between the public pre-check and this
      * transaction, and a tombstoned comment must not accumulate reports.
-     * Only the row re-read under lock is authoritative. Posts and users are
-     * deliberately not lifecycle-gated: soft-deleted posts stay reportable
-     * (pinned by tests).
+     * Only the row re-read under lock is authoritative. Users are the only
+     * remaining ungated target: account tombstoning is not content removal.
      */
     private function assertCommentIsReportableUnderLock(Comment $comment): void
     {
@@ -131,6 +138,23 @@ final class ReportContentAction
             ->first();
 
         if ($lockedComment === null || ! $lockedComment->canReceiveReports()) {
+            throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+    }
+
+    /**
+     * Same stale-instance rule for posts (PR-E): an author-deleted or
+     * moderation-hidden post is no longer publicly reportable — existing
+     * reports remain, new ones are refused.
+     */
+    private function assertPostIsReportableUnderLock(Post $post): void
+    {
+        $lockedPost = Post::withTrashed()
+            ->whereKey($post->id)
+            ->lockForUpdate()
+            ->first();
+
+        if ($lockedPost === null || ! $lockedPost->canReceiveReports()) {
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
     }

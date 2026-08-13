@@ -31,7 +31,7 @@ final class VoteRatingOptionAction
             throw CannotVoteForRatingOptionException::becauseUserIsNotAllowed();
         }
 
-        if (! $post->canReceiveVotes()) {
+        if (! $post->canReceiveRatingVotes()) {
             throw CannotVoteForRatingOptionException::becausePostIsNotPublic();
         }
 
@@ -51,6 +51,18 @@ final class VoteRatingOptionAction
         }
 
         $changed = DB::transaction(function () use ($user, $post, $option): bool {
+            // Lock order: Post row first, then rating group, then option
+            // (docs/architecture/post-lifecycle.md). The pre-check ran on a
+            // possibly stale instance; the locked row decides.
+            $lockedPost = Post::withTrashed()
+                ->whereKey($post->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || ! $lockedPost->canReceiveRatingVotes()) {
+                throw CannotVoteForRatingOptionException::becausePostIsNotPublic();
+            }
+
             $group = RatingGroup::query()
                 ->lockForUpdate()
                 ->findOrFail($option->rating_group_id);

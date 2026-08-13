@@ -74,6 +74,20 @@ final class AddCommentAction
         }
 
         $comment = DB::transaction(function () use ($user, $post, $body, $parent) {
+            // Lock order: Post row first, then the parent Comment, then the
+            // insert (docs/architecture/post-lifecycle.md) — every writer
+            // against a post takes locks in this order to avoid deadlocks.
+            // The post pre-check above ran on a possibly stale instance; an
+            // author delete or moderation hide may have landed since.
+            $lockedPost = Post::withTrashed()
+                ->whereKey($post->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || ! $lockedPost->canReceiveComments()) {
+                throw CannotCommentException::becausePostIsNotPublic();
+            }
+
             // The pre-transaction parent checks above are only a fast path:
             // the parent may be deleted or hidden between validation and
             // insert. Re-read it under lock and revalidate every reply-target
