@@ -6,6 +6,7 @@ use App\Actions\Posts\RestoreDeletedPostAction;
 use App\Exceptions\Posts\CannotRestoreDeletedPostException;
 use App\Models\Post;
 use App\Queries\Posts\RecentlyDeletedPostsQuery;
+use App\Support\Posts\PostRetention;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
@@ -53,7 +54,7 @@ final class RecentlyDeletedPostsPage extends Component
 
         return view('livewire.posts.recently-deleted-posts-page', [
             'posts' => $posts,
-            'retentionDays' => (int) config('posts.author_delete_retention_days'),
+            'retentionDays' => PostRetention::days(),
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

@@ -14,6 +14,7 @@ use App\Models\PostVote;
 use App\Models\RatingVote;
 use App\Models\Report;
 use App\Services\Media\MediaLifecycleService;
+use App\Support\Posts\PostRetention;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -190,14 +191,15 @@ final class PostRetentionPurgeService
     }
 
     /**
-     * The config value is already clamped non-negative at the config layer
-     * and posts:purge validates --older-than, so only an explicit argument
-     * from another caller can trigger this — same boundary contract as
-     * MediaLifecycleService::resolveGraceDays().
+     * Fail closed on any invalid retention: PostRetention::days() rejects
+     * misconfigured config values (negative, non-numeric), and an explicit
+     * negative argument from a caller is rejected here — same boundary
+     * contract as MediaLifecycleService::resolveGraceDays(). A destructive
+     * scheduled purge must stop on bad configuration, never run early.
      */
     private function cutoff(?int $olderThanDays): Carbon
     {
-        $days = $olderThanDays ?? (int) config('posts.author_delete_retention_days');
+        $days = $olderThanDays ?? PostRetention::days();
 
         if ($days < 0) {
             throw new InvalidArgumentException("olderThanDays must not be negative, got [{$days}].");

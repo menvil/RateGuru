@@ -53,9 +53,14 @@ comment individually deleted before the post deletion stays deleted after
 the post restore.
 
 **Retention boundary**: `POST_AUTHOR_DELETE_RETENTION_DAYS` (config
-`posts.author_delete_retention_days`, default 30, `>= 0`). Restore is
-allowed strictly while `now() < deleted_at + retention`; at the exact
-cutoff it is expired — even if no purge ran yet. Retention 0 still
+`posts.author_delete_retention_days`, default 30, `>= 0`). The value is
+resolved exclusively through the strict `PostRetention::days()` resolver,
+which **fails closed**: a negative or non-numeric value throws instead of
+collapsing to 0 — a misconfiguration must stop the purge and every
+retention computation, never turn into an immediately-expired window
+feeding the daily purge. Restore is allowed strictly while
+`now() < deleted_at + retention`; at the exact cutoff it is expired —
+even if no purge ran yet. Retention 0 still
 soft-deletes first (never a synchronous hard delete); the window is just
 immediately expired. The UI surface is `/account/posts/deleted`
 (Recently Deleted): owner-only, deadline shown, no public links, no
@@ -83,7 +88,11 @@ the trashed-aware helper before writing:
 - `AddCommentAction` — `canReceiveComments()` (plus the PR-D parent
   revalidation)
 - `ReportContentAction` — `canReceiveReports()`; deleted **and hidden**
-  posts refuse new reports (existing reports remain)
+  posts refuse new reports (existing reports remain). Comment reports
+  lock the **parent post row first**, then the comment: this serializes
+  them against the retention purge (an open report either lands before
+  the purge's hold check or finds the graph gone) and also refuses
+  reports on still-Visible comments of a deleted/hidden post
 - save/unsave/toggle — `canBeSaved()`; unsave is also refused on deleted
   posts so save rows stay intact for the final purge
 

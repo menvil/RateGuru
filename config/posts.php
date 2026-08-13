@@ -16,8 +16,13 @@ return [
     | 0 is supported: deletion still soft-deletes first, but the restore
     | window is immediately expired and the next purge run may hard-purge.
     |
+    | The raw value is deliberately NOT coerced here. Validation lives in
+    | App\Support\Posts\PostRetention::days(), which fails closed on
+    | anything that is not an integer >= 0 — a misconfigured value must
+    | stop the purge, not silently become an immediate one.
+    |
     */
 
-    'author_delete_retention_days' => max(0, (int) env('POST_AUTHOR_DELETE_RETENTION_DAYS', 30)),
+    'author_delete_retention_days' => env('POST_AUTHOR_DELETE_RETENTION_DAYS', 30),
 
 ];

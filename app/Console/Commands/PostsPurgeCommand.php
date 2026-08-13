@@ -4,8 +4,10 @@ namespace App\Console\Commands;
 
 use App\Enums\PostPurgeOutcome;
 use App\Services\Posts\PostRetentionPurgeService;
+use App\Support\Posts\PostRetention;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Throwable;
 
 /**
@@ -36,6 +38,20 @@ final class PostsPurgeCommand extends Command
 
         if ($olderThanDays === false) {
             return self::FAILURE;
+        }
+
+        if ($olderThanDays === null) {
+            // Resolve the configured retention up front, before any
+            // candidate query or purge attempt: a misconfigured value must
+            // stop the whole run (fail closed), not fall back to 0 and
+            // purge everything immediately.
+            try {
+                $olderThanDays = PostRetention::days();
+            } catch (InvalidArgumentException $exception) {
+                $this->error($exception->getMessage());
+
+                return self::FAILURE;
+            }
         }
 
         $chunkSize = $this->chunkSize();

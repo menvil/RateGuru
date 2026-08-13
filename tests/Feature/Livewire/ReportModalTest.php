@@ -110,7 +110,7 @@ it('renders report success state after submit', function () {
 
 it('submits comment report from report modal', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create([
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create([
         'status' => CommentStatus::Visible,
     ]);
 

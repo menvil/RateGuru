@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\PostStatus;
 use App\Support\Media\PostImagePresenter;
+use App\Support\Posts\PostRetention;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -132,7 +133,7 @@ class Post extends Model
         }
 
         return $this->deleted_at->copy()->addDays(
-            (int) config('posts.author_delete_retention_days'),
+            PostRetention::days(),
         );
     }
 
