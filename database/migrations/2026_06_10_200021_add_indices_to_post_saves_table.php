@@ -34,8 +34,8 @@ return new class extends Migration
 
         if (in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
             Schema::table('post_saves', function (Blueprint $table) {
-                $table->foreign('post_id')->references('id')->on('posts')->cascadeOnDelete();
-                $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+                $table->foreign('post_id')->references('id')->on('posts')->restrictOnDelete();
+                $table->foreign('user_id')->references('id')->on('users')->restrictOnDelete();
             });
         }
     }

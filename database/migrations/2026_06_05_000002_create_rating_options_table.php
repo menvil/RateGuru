@@ -10,6 +10,11 @@ return new class extends Migration
     {
         Schema::create('rating_options', function (Blueprint $table) {
             $table->id();
+            // Deliberate cascade: options are configuration owned by their
+            // group, not user content. History is protected one level down —
+            // rating_votes/post_author_answers restrict on both the group
+            // and the option, so a group with any recorded votes/answers
+            // cannot be deleted at all (archive it instead).
             $table->foreignId('rating_group_id')->constrained()->cascadeOnDelete();
             $table->string('key');
             $table->string('label');

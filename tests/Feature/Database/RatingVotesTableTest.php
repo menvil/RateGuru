@@ -63,15 +63,22 @@ it('creates rating vote lookup indexes', function () {
         ->toContain('rating_votes_rating_option_id_index');
 });
 
-it('deletes rating votes when their post is deleted', function () {
+it('restricts hard-deleting a post while rating votes reference it', function () {
+    // PR-C: rating votes are user contribution/history — the DB refuses to
+    // let a post hard-delete silently destroy them. A future sanctioned
+    // purge service (PR-E) will remove the child graph explicitly first.
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
     [$groupId, $optionId] = createRatingGroupAndOptionForVotes('type', 'type_a');
 
     insertRatingVote($user->id, $post->id, $groupId, $optionId);
-    $post->forceDelete();
 
-    expect(DB::table('rating_votes')->count())->toBe(0);
+    // Savepoint so the rejected statement doesn't abort the test's outer
+    // PostgreSQL transaction.
+    expect(fn () => DB::transaction(fn () => $post->forceDelete()))
+        ->toThrow(QueryException::class);
+
+    expect(DB::table('rating_votes')->count())->toBe(1);
 });
 
 /**

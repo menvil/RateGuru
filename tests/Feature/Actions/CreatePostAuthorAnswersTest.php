@@ -4,10 +4,13 @@ use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\Category;
+use App\Models\Post;
 use App\Models\PostAuthorAnswer;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\User;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     seedFeedFilterGroups();
@@ -95,7 +98,10 @@ it('rejects an author answer from an inactive rating group', function () {
     ));
 })->throws(CannotCreatePostException::class);
 
-it('deletes author answers together with the post', function () {
+it('restricts hard-deleting a post while its author answers exist', function () {
+    // PR-C: author answers are authored content — the DB refuses to let a
+    // post hard-delete silently destroy them. A future sanctioned purge
+    // service (PR-E) will remove the child graph explicitly first.
     $user = User::factory()->create();
     $typeOption = $this->typeGroup->options()->where('key', 'type_a')->firstOrFail();
 
@@ -104,7 +110,11 @@ it('deletes author answers together with the post', function () {
         authorAnswerOptionIds: [$typeOption->id],
     ));
 
-    $post->forceDelete();
+    // Savepoint so the rejected statement doesn't abort the test's outer
+    // PostgreSQL transaction.
+    expect(fn () => DB::transaction(fn () => $post->forceDelete()))
+        ->toThrow(QueryException::class);
 
-    expect(PostAuthorAnswer::query()->where('post_id', $post->id)->count())->toBe(0);
+    expect(PostAuthorAnswer::query()->where('post_id', $post->id)->count())->toBe(1);
+    expect(Post::withTrashed()->find($post->id))->not->toBeNull();
 });

@@ -13,8 +13,11 @@ return new class extends Migration
     {
         Schema::create('follows', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('follower_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignId('author_id')->constrained('users')->cascadeOnDelete();
+            // Follows are cleaned up explicitly by account anonymization
+            // (PR-B), never via FK cascade: users must not be hard-deletable
+            // at the DB level at all.
+            $table->foreignId('follower_id')->constrained('users')->restrictOnDelete();
+            $table->foreignId('author_id')->constrained('users')->restrictOnDelete();
             $table->timestamps();
 
             $table->unique(['follower_id', 'author_id']);

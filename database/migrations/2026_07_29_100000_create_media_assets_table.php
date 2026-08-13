@@ -11,7 +11,10 @@ return new class extends Migration
         Schema::create('media_assets', function (Blueprint $table) {
             $table->id();
 
-            $table->foreignId('owner_user_id')->nullable()->constrained('users')->nullOnDelete();
+            // Ownership attribution follows the same rule as every other
+            // user reference: the owner becomes a tombstone, never a
+            // deleted row, so nothing may silently drop the reference.
+            $table->foreignId('owner_user_id')->nullable()->constrained('users')->restrictOnDelete();
 
             $table->string('kind');
             $table->string('disk');

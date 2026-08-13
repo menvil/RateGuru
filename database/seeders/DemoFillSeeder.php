@@ -15,6 +15,7 @@ use App\Enums\UserStatus;
 use App\Enums\VoteType;
 use App\Models\Category;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\PostVote;
@@ -826,10 +827,42 @@ class DemoFillSeeder extends Seeder
         $userIds = $users->modelKeys();
         $postIds = $posts->modelKeys();
 
-        Comment::withTrashed()
+        // Community FKs restrict instead of cascading (PR-C), so this
+        // dev-only reseed cleanup must delete the child graph explicitly
+        // and in dependency order: votes on the generated comments first,
+        // then the comments themselves leaves-first — reply chains can be
+        // arbitrarily deep here, and MariaDB/SQLite enforce the
+        // self-referencing parent_id RESTRICT row by row, so a parent must
+        // only be deleted once none of its children remain.
+        $remainingIds = Comment::withTrashed()
             ->whereIn('post_id', $postIds)
             ->whereIn('user_id', $userIds)
-            ->forceDelete();
+            ->pluck('id')
+            ->all();
+
+        CommentVote::query()
+            ->whereIn('comment_id', $remainingIds)
+            ->delete();
+
+        while ($remainingIds !== []) {
+            $idsWithChildren = Comment::withTrashed()
+                ->whereIn('parent_id', $remainingIds)
+                ->pluck('parent_id')
+                ->unique()
+                ->all();
+
+            $leafIds = array_values(array_diff($remainingIds, $idsWithChildren));
+
+            if ($leafIds === []) {
+                // Remaining comments have replies outside the generated
+                // set; deleting them would (correctly) hit the FK anyway.
+                break;
+            }
+
+            Comment::withTrashed()->whereIn('id', $leafIds)->forceDelete();
+
+            $remainingIds = array_values(array_intersect($remainingIds, $idsWithChildren));
+        }
 
         PostVote::query()
             ->whereIn('post_id', $postIds)
