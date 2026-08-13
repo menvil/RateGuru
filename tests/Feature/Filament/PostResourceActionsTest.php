@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Posts\DeletePostAction;
 use App\Enums\PostStatus;
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Models\Post;
@@ -137,24 +138,73 @@ it('hides the restore action for non-hidden posts', function () {
         ->assertTableActionHidden('restore', $published);
 });
 
-it('allows admin to soft-delete a post via the delete table action', function () {
+it('exposes no generic admin delete table action at all', function () {
     $admin = User::factory()->admin()->create();
     $post = Post::factory()->published()->create();
 
     $this->actingAs($admin);
 
     Livewire::test(ListPosts::class)
-        ->callTableAction('delete', $post);
+        ->assertTableActionDoesNotExist('delete');
 
-    $this->assertSoftDeleted('posts', ['id' => $post->id]);
+    $this->assertNotSoftDeleted('posts', ['id' => $post->id]);
 });
 
-it('hides the delete action from moderators', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->published()->create();
+it('shows author-deleted posts labeled and with no moderation actions', function () {
+    $admin = User::factory()->admin()->create();
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
 
-    $this->actingAs($moderator);
+    app(DeletePostAction::class)->handle($owner, $post);
+
+    $this->actingAs($admin);
 
     Livewire::test(ListPosts::class)
-        ->assertTableActionHidden('delete', $post);
+        ->filterTable('author_deleted')
+        ->assertCanSeeTableRecords([$post])
+        ->assertSee('Deleted by author')
+        ->assertTableActionHidden('approve', $post)
+        ->assertTableActionHidden('reject', $post)
+        ->assertTableActionHidden('hide', $post)
+        ->assertTableActionHidden('restore', $post);
+});
+
+it('excludes malformed legacy soft-deleted rows from the audit listing', function () {
+    $admin = User::factory()->admin()->create();
+
+    $live = Post::factory()->pending()->create();
+
+    // Legacy shape: soft-deleted without the Deleted status transition.
+    $legacy = Post::factory()->pending()->create();
+    Post::query()->whereKey($legacy->id)->update(['deleted_at' => now()]);
+
+    $this->actingAs($admin);
+
+    $trashedLegacy = Post::withTrashed()->findOrFail($legacy->id);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$live])
+        ->assertCanNotSeeTableRecords([$trashedLegacy]);
+
+    // The malformed row stays out of the filtered audit view as well.
+    Livewire::test(ListPosts::class)
+        ->filterTable('author_deleted')
+        ->assertCanNotSeeTableRecords([$trashedLegacy]);
+});
+
+it('never offers moderation restore as author restore on deleted rows', function () {
+    // The moderation restore action targets Hidden posts only; an
+    // author-deleted row must not resurrect through the admin table.
+    $admin = User::factory()->admin()->create();
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    app(DeletePostAction::class)->handle($owner, $post);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertTableActionHidden('restore', $post);
+
+    expect(Post::withTrashed()->findOrFail($post->id)->trashed())->toBeTrue();
 });

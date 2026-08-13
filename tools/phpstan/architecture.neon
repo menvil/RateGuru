@@ -59,6 +59,12 @@ parameters:
                 uniqueOrder: [id]
                 behaviorTests: [tests/Feature/Domain/UserPublicPostsQueryTest.php]
                 status: approved
+            -
+                class: App\Queries\Posts\RecentlyDeletedPostsQuery
+                method: forOwner
+                uniqueOrder: [id]
+                behaviorTests: [tests/Feature/Queries/RecentlyDeletedPostsQueryTest.php]
+                status: approved
 
 services:
     -

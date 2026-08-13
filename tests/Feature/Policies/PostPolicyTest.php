@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Enums\UserStatus;
 use App\Models\Post;
 use App\Models\User;
@@ -16,7 +17,6 @@ it('has expected post policy methods', function () {
     expect(method_exists($policy, 'create'))->toBeTrue();
     expect(method_exists($policy, 'update'))->toBeTrue();
     expect(method_exists($policy, 'hide'))->toBeTrue();
-    expect(method_exists($policy, 'delete'))->toBeTrue();
     expect(method_exists($policy, 'deleteFromFeed'))->toBeTrue();
     expect(method_exists($policy, 'report'))->toBeTrue();
     expect(method_exists($policy, 'vote'))->toBeTrue();
@@ -91,30 +91,46 @@ it('does not allow normal user to perform moderation ability', function (string 
     expect($user->can($ability, $post))->toBeFalse();
 })->with('moderation abilities');
 
-it('allows only admin to delete a post through the admin policy ability', function () {
-    $admin = User::factory()->admin()->create();
-    $moderator = User::factory()->moderator()->create();
-    $owner = User::factory()->create();
-    $other = User::factory()->create();
-    $post = Post::factory()->for($owner)->create();
-
-    expect($admin->can('delete', $post))->toBeTrue();
-    expect($moderator->can('delete', $post))->toBeFalse();
-    expect($owner->can('delete', $post))->toBeFalse();
-    expect($other->can('delete', $post))->toBeFalse();
+it('exposes no generic admin delete ability anymore', function () {
+    // Moderation acts through hide/restore; author deletion is owner-only.
+    // The old admin `delete` ability entered author retention ambiguously
+    // and was removed together with DeletePostInAdminAction.
+    expect(method_exists(new PostPolicy, 'delete'))->toBeFalse();
 });
 
-it('allows owners and moderators to delete from the public feed consistently with the delete action', function () {
+it('restricts author deletion to the post owner', function () {
     $admin = User::factory()->admin()->create();
     $moderator = User::factory()->moderator()->create();
     $owner = User::factory()->create();
     $other = User::factory()->create();
     $post = Post::factory()->for($owner)->create();
 
-    expect($admin->can('deleteFromFeed', $post))->toBeTrue();
-    expect($moderator->can('deleteFromFeed', $post))->toBeTrue();
+    expect($admin->can('deleteFromFeed', $post))->toBeFalse();
+    expect($moderator->can('deleteFromFeed', $post))->toBeFalse();
     expect($owner->can('deleteFromFeed', $post))->toBeTrue();
     expect($other->can('deleteFromFeed', $post))->toBeFalse();
+});
+
+it('restricts author restore to the post owner', function () {
+    $admin = User::factory()->admin()->create();
+    $moderator = User::factory()->moderator()->create();
+    $owner = User::factory()->create();
+    $other = User::factory()->create();
+    $post = Post::factory()->authorDeleted()->for($owner)->create();
+
+    expect($owner->can('restoreDeleted', $post))->toBeTrue();
+    expect($admin->can('restoreDeleted', $post))->toBeFalse();
+    expect($moderator->can('restoreDeleted', $post))->toBeFalse();
+    expect($other->can('restoreDeleted', $post))->toBeFalse();
+});
+
+it('does not let a tombstoned owner author-delete content', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->for($owner)->published()->create();
+
+    app(AnonymizeUserAccountAction::class)->execute($owner);
+
+    expect($owner->fresh()->can('deleteFromFeed', $post))->toBeFalse();
 });
 
 it('allows users to report another users post', function () {

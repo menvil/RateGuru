@@ -40,17 +40,25 @@ class PostPolicy
         return $this->canModerate($user);
     }
 
-    public function delete(User $user, Post $post): bool
-    {
-        return $user->isAdmin();
-    }
-
+    /**
+     * Author deletion is owner-only: admin/moderator roles act through
+     * Hide/Restore moderation, never through the author-retention path.
+     */
     public function deleteFromFeed(User $user, Post $post): bool
     {
         return $user->canManageContent()
-            && ((int) $post->user_id === (int) $user->id
-                || $user->isAdmin()
-                || $user->isModerator());
+            && (int) $post->user_id === (int) $user->id;
+    }
+
+    /**
+     * Author self-service restore of an author-deleted post. Owner-only,
+     * mirroring deleteFromFeed; distinct from the moderation `restore`
+     * ability above, which targets Hidden posts.
+     */
+    public function restoreDeleted(User $user, Post $post): bool
+    {
+        return $user->canManageContent()
+            && (int) $post->user_id === (int) $user->id;
     }
 
     public function report(User $user, Post $post): bool

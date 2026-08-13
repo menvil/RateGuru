@@ -57,9 +57,26 @@ return [
         'save' => 'Сохранить',
         'delete' => 'Удалить пост',
         'delete_confirm_title' => 'Удалить пост?',
-        'delete_confirm_description' => 'Пост будет удалён из публичных лент.',
+        'delete_confirm_description' => 'Пост сразу исчезнет. В течение :days дней его можно восстановить в разделе «Недавно удалённые», после чего он может быть удалён навсегда вместе с обсуждением.',
         'share_title' => 'Поделиться постом',
         'image_alt_fallback' => 'Изображение поста',
+    ],
+    'recently_deleted' => [
+        'title' => 'Недавно удалённые',
+        'description' => 'Удалённые посты можно восстановить в течение :days дней. После этого они могут быть удалены навсегда вместе с обсуждением.',
+        'empty_title' => 'Нет недавно удалённых постов',
+        'empty_description' => 'Удалённые посты появятся здесь, пока их ещё можно восстановить.',
+        'deleted_on' => 'Удалён :date',
+        // Positional one|few|many forms so the Russian locale rule picks
+        // the right case for 21/22/25 etc. The zero/"less than a day"
+        // state is a separate key: an explicit {0} segment would shift
+        // the positional indexes.
+        'less_than_day' => 'Осталось меньше суток (до :date)',
+        'days_left' => 'Остался :count день (до :date)|Осталось :count дня (до :date)|Осталось :count дней (до :date)',
+        'expired' => 'Срок восстановления истёк',
+        'restore' => 'Восстановить',
+        'restored' => '«:title» восстановлен.',
+        'unavailable' => 'Этот пост больше нельзя восстановить.',
     ],
     'comments' => [
         'title' => 'Комментарии',

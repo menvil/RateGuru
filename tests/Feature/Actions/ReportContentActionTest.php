@@ -1,7 +1,9 @@
 <?php
 
+use App\Actions\Posts\DeletePostAction;
 use App\Actions\Reports\ReportContentAction;
 use App\Enums\CommentStatus;
+use App\Enums\PostPurgeOutcome;
 use App\Enums\PostStatus;
 use App\Enums\ReportReason;
 use App\Exceptions\Reports\CannotReportContentException;
@@ -9,6 +11,7 @@ use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
+use App\Services\Posts\PostRetentionPurgeService;
 
 it('allows user to report post', function () {
     $user = User::factory()->create();
@@ -33,7 +36,7 @@ it('allows user to report post', function () {
 it('allows user to report comment', function () {
     $user = User::factory()->create();
 
-    $comment = Comment::factory()->create([
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create([
         'status' => CommentStatus::Visible,
     ]);
 
@@ -106,9 +109,20 @@ it('does not allow banned user to report content', function () {
     expect(Report::query()->count())->toBe(0);
 });
 
+it('does not let the owner report their own post', function () {
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+
+    expect(fn () => app(ReportContentAction::class)->handle($owner, $post, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class, 'User is not allowed to report content.');
+
+    expect(Report::query()->count())->toBe(0)
+        ->and($post->fresh()->reports_count)->toBe(0);
+});
+
 it('does not allow reporting a hidden comment', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['status' => CommentStatus::Hidden]);
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden]);
 
     expect(fn () => app(ReportContentAction::class)->handle($user, $comment, ReportReason::Spam))
         ->toThrow(CannotReportContentException::class);
@@ -118,7 +132,7 @@ it('does not allow reporting a hidden comment', function () {
 
 it('does not allow reporting an author-deleted comment', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
     $comment->delete();
 
     expect(fn () => app(ReportContentAction::class)->handle($user, $comment, ReportReason::Spam))
@@ -129,7 +143,7 @@ it('does not allow reporting an author-deleted comment', function () {
 
 it('rejects a report made with a stale instance after the comment was hidden', function () {
     $user = User::factory()->create();
-    $staleComment = Comment::factory()->create([
+    $staleComment = Comment::factory()->for(Post::factory()->published(), 'post')->create([
         'status' => CommentStatus::Visible,
         'reports_count' => 0,
     ]);
@@ -149,7 +163,7 @@ it('rejects a report made with a stale instance after the comment was hidden', f
 
 it('rejects a report made with a stale instance after the author deleted the comment', function () {
     $user = User::factory()->create();
-    $staleComment = Comment::factory()->create([
+    $staleComment = Comment::factory()->for(Post::factory()->published(), 'post')->create([
         'status' => CommentStatus::Visible,
         'reports_count' => 0,
     ]);
@@ -161,6 +175,60 @@ it('rejects a report made with a stale instance after the author deleted the com
 
     expect(Report::query()->count())->toBe(0);
     expect(Comment::withTrashed()->findOrFail($staleComment->id)->reports_count)->toBe(0);
+});
+
+it('rejects reporting a still-Visible comment whose post was author-deleted', function () {
+    // The comment row keeps its own Visible status in storage during post
+    // retention, but the post is publicly gone — the comment must not
+    // accept new reports.
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+    $comment = Comment::factory()->create(['post_id' => $post->id, 'status' => CommentStatus::Visible]);
+
+    app(DeletePostAction::class)->handle($owner, $post);
+
+    $reporter = User::factory()->create();
+
+    expect(fn () => app(ReportContentAction::class)->handle($reporter, $comment, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class);
+
+    expect(Report::query()->count())->toBe(0);
+});
+
+it('rejects reporting a Visible comment whose post is moderation-hidden', function () {
+    $post = Post::factory()->hidden()->create();
+    $comment = Comment::factory()->create(['post_id' => $post->id, 'status' => CommentStatus::Visible]);
+
+    $reporter = User::factory()->create();
+
+    expect(fn () => app(ReportContentAction::class)->handle($reporter, $comment, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class);
+
+    expect(Report::query()->count())->toBe(0);
+});
+
+it('rejects a comment report through a stale instance after the post graph was purged', function () {
+    // Purge-vs-report ordering: the report path locks the parent post row
+    // first, so it can never slip an open report in between the purge's
+    // moderation-hold check and its comment sweep. If the purge wins, the
+    // locked re-read finds the graph gone and the report is refused.
+    config(['posts.author_delete_retention_days' => 0]);
+
+    $owner = User::factory()->create();
+    $post = Post::factory()->published()->for($owner)->create();
+    $staleComment = Comment::factory()->create(['post_id' => $post->id, 'status' => CommentStatus::Visible]);
+
+    app(DeletePostAction::class)->handle($owner, $post);
+
+    expect(app(PostRetentionPurgeService::class)->purge($post->id))
+        ->toBe(PostPurgeOutcome::Purged);
+
+    $reporter = User::factory()->create();
+
+    expect(fn () => app(ReportContentAction::class)->handle($reporter, $staleComment, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class);
+
+    expect(Report::query()->count())->toBe(0);
 });
 
 it('blocks duplicate report from same user for same post', function () {
@@ -186,7 +254,7 @@ it('blocks duplicate report from same user for same post', function () {
 
 it('blocks duplicate report from same user for same comment', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
 
     app(ReportContentAction::class)->handle($user, $comment, ReportReason::Offensive);
 
@@ -247,7 +315,9 @@ it('updates post reports count after report', function () {
     expect($post->fresh()->reports_count)->toBe(1);
 });
 
-it('updates reports count when the reported post is soft deleted', function () {
+it('rejects reporting a soft-deleted post and leaves its counters untouched', function () {
+    // PR-E flipped the old contract: a deleted post is no longer publicly
+    // reportable — existing reports remain, new ones are refused.
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'reports_count' => 99,
@@ -255,19 +325,20 @@ it('updates reports count when the reported post is soft deleted', function () {
 
     $post->delete();
 
-    app(ReportContentAction::class)->handle(
+    expect(fn () => app(ReportContentAction::class)->handle(
         user: $user,
         content: $post,
         reason: ReportReason::Spam,
-    );
+    ))->toThrow(CannotReportContentException::class);
 
-    expect(Post::withTrashed()->findOrFail($post->id)->reports_count)->toBe(1);
+    expect(Post::withTrashed()->findOrFail($post->id)->reports_count)->toBe(99)
+        ->and(Report::query()->count())->toBe(0);
 });
 
 it('updates comment reports count after report', function () {
     $user = User::factory()->create();
 
-    $comment = Comment::factory()->create([
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create([
         'reports_count' => 99,
         'status' => CommentStatus::Visible,
     ]);

@@ -46,6 +46,16 @@ final class ReportContentAction
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
 
+        if ($content instanceof Post && ! $content->canReceiveReports()) {
+            throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+
+        // Ownership is immutable on posts, so the policy check (which
+        // denies reporting your own post) needs no locked re-read.
+        if ($content instanceof Post && ! $user->can('report', $content)) {
+            throw CannotReportContentException::becauseUserIsNotAllowed();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('report', $user),
@@ -77,6 +87,10 @@ final class ReportContentAction
             return DB::transaction(function () use ($user, $content, $reason, $message) {
                 if ($content instanceof Comment) {
                     $this->assertCommentIsReportableUnderLock($content);
+                }
+
+                if ($content instanceof Post) {
+                    $this->assertPostIsReportableUnderLock($content);
                 }
 
                 $report = Report::create([
@@ -118,12 +132,32 @@ final class ReportContentAction
      * The caller's Comment instance may be stale: a moderation hide or an
      * author delete can land between the public pre-check and this
      * transaction, and a tombstoned comment must not accumulate reports.
-     * Only the row re-read under lock is authoritative. Posts and users are
-     * deliberately not lifecycle-gated: soft-deleted posts stay reportable
-     * (pinned by tests).
+     * Only the rows re-read under lock are authoritative. Users are the
+     * only remaining ungated target: account tombstoning is not content
+     * removal.
+     *
+     * Lock order: parent Post row first, then the Comment
+     * (docs/architecture/post-lifecycle.md). Locking the post serializes
+     * comment reports against the retention purge: either this report
+     * commits first and the purge's hold check sees the open report, or
+     * the purge holds the post lock and this re-read finds the graph gone
+     * — an open report can never be created between the purge's hold check
+     * and its comment sweep. The post gate also closes the plain lifecycle
+     * gap: comments of a deleted or hidden post keep their own Visible
+     * status in storage but are publicly unreachable, so they must not
+     * accept new reports.
      */
     private function assertCommentIsReportableUnderLock(Comment $comment): void
     {
+        $lockedPost = Post::withTrashed()
+            ->whereKey($comment->post_id)
+            ->lockForUpdate()
+            ->first();
+
+        if ($lockedPost === null || ! $lockedPost->canReceiveReports()) {
+            throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+
         $lockedComment = Comment::query()
             ->withTrashed()
             ->whereKey($comment->id)
@@ -131,6 +165,23 @@ final class ReportContentAction
             ->first();
 
         if ($lockedComment === null || ! $lockedComment->canReceiveReports()) {
+            throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+    }
+
+    /**
+     * Same stale-instance rule for posts (PR-E): an author-deleted or
+     * moderation-hidden post is no longer publicly reportable — existing
+     * reports remain, new ones are refused.
+     */
+    private function assertPostIsReportableUnderLock(Post $post): void
+    {
+        $lockedPost = Post::withTrashed()
+            ->whereKey($post->id)
+            ->lockForUpdate()
+            ->first();
+
+        if ($lockedPost === null || ! $lockedPost->canReceiveReports()) {
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
     }

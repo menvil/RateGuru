@@ -25,8 +25,10 @@ use Throwable;
  * Soft-delete (an asset becoming a "release candidate") happens elsewhere —
  * avatar replacement already soft-deletes the previous asset inline
  * (UpdateUserProfileAction, unchanged by this class), and
- * releaseUnreferenced() is the hook DeleteUserAccountAction uses once a
- * user's posts/avatar have just become unreferenced. This class only ever
+ * releaseUnreferenced() is the hook lifecycle boundaries call once a
+ * reference just disappeared: DeleteUserAccountAction after a user's
+ * posts/avatar become unreferenced, and PostRetentionPurgeService after a
+ * post is hard-purged. This class only ever
  * decides/executes what happens *after* an asset is already soft-deleted:
  * whether it's purgeable yet, and performing the purge itself.
  */
@@ -222,8 +224,8 @@ final class MediaLifecycleService
     public function releaseUnreferenced(Collection $assetIds): void
     {
         // No filter() here: the parameter type already contracts a plain
-        // Collection<int, int> (no nulls), the one caller (DeleteUserAccountAction)
-        // already filters nulls out before this is reached, and an id of 0
+        // Collection<int, int> (no nulls), the callers (DeleteUserAccountAction,
+        // PostRetentionPurgeService) filter nulls out before this is reached, and an id of 0
         // can't occur (MediaAsset ids auto-increment from 1). unique()/
         // values() alone don't narrow PHPStan's inferred value type the way
         // an exclusionary filter()/reject() predicate would — which matters

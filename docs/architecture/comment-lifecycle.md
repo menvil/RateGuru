@@ -90,5 +90,7 @@ author) with an "Author deleted" filter — and expose no actions at all.
 
 ## Deferred
 
-Comment hard-purge/retention (with explicit child cleanup ordered before
-any physical delete), post retention → PR-E; moderation retention → PR-G.
+Moderation retention → PR-G. Post retention landed in PR-E
+([post-lifecycle.md](post-lifecycle.md)): comments are preserved exactly
+while their post sits in retention and are physically removed, bottom-up,
+only by the final post purge (`PostRetentionPurgeService`).

@@ -74,6 +74,16 @@ class PostFactory extends Factory
         ]);
     }
 
+    public function authorDeleted(PostStatus $from = PostStatus::Published): static
+    {
+        return $this->state(fn () => [
+            'status' => PostStatus::Deleted,
+            'deleted_from_status' => $from,
+            'published_at' => $from === PostStatus::Published ? now() : null,
+            'deleted_at' => now(),
+        ]);
+    }
+
     /**
      * Attaches a real MediaAsset (kind: post_image) as this post's image.
      * Pass path/disk to control the exact identity assertions in a test rely

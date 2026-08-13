@@ -201,7 +201,7 @@
 
             <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
                 <div class="space-y-4">
-                    <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description') }}</p>
+                    <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description', ['days' => \App\Support\Posts\PostRetention::days()]) }}</p>
 
                     @if($deleteError)
                         <p class="text-sm text-rg-dangerText">{{ $deleteError }}</p>

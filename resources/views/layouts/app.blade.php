@@ -154,6 +154,14 @@
                                     </a>
                                     @endif
 
+                                    <a
+                                        href="{{ route('posts.recently-deleted') }}"
+                                        data-testid="nav-recently-deleted"
+                                        class="flex items-center gap-2 rounded-rgSm px-3 py-2 text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                    >
+                                        {{ __('ui.recently_deleted.title') }}
+                                    </a>
+
                                     <div class="my-1 border-t border-rg-border"></div>
 
                                     <form method="POST" action="{{ route('logout') }}">

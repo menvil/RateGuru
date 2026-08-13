@@ -14,3 +14,8 @@ Artisan::command('inspire', function () {
 // Physical-orphan deletion stays a manual, explicit `--orphans --force`
 // operation and is never scheduled.
 Schedule::command('media:purge')->daily()->withoutOverlapping();
+
+// Retention purge for author-deleted posts (docs/architecture/
+// post-lifecycle.md): eligibility is re-verified per post under lock by
+// PostRetentionPurgeService, so the schedule itself carries no policy.
+Schedule::command('posts:purge')->daily()->withoutOverlapping();

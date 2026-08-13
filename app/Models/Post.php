@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\PostStatus;
 use App\Support\Media\PostImagePresenter;
+use App\Support\Posts\PostRetention;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,10 +18,12 @@ use Illuminate\Support\Str;
 
 /**
  * @property PostStatus $status
+ * @property PostStatus|null $deleted_from_status
  * @property-read int $score
  * @property-read string|null $public_image_url
  * @property Carbon|null $created_at
  * @property Carbon|null $published_at
+ * @property Carbon|null $deleted_at
  */
 class Post extends Model
 {
@@ -32,6 +35,7 @@ class Post extends Model
     {
         return [
             'status' => PostStatus::class,
+            'deleted_from_status' => PostStatus::class,
             'published_at' => 'datetime',
             'hot_score' => 'float',
             'needs_review' => 'boolean',
@@ -69,14 +73,77 @@ class Post extends Model
         return $query->where('status', PostStatus::Published);
     }
 
+    /**
+     * Statuses an author may delete their own post from. Hidden is a
+     * moderation state and deliberately absent: the author must not be able
+     * to start the retention purge clock for moderation-hidden evidence.
+     * Deleted is never a source state (docs/architecture/post-lifecycle.md).
+     */
+    public const AUTHOR_DELETABLE_STATUSES = [
+        PostStatus::Draft,
+        PostStatus::Pending,
+        PostStatus::Published,
+        PostStatus::Rejected,
+    ];
+
+    // Lifecycle helpers. Author deletion = SoftDeletes + status Deleted +
+    // deleted_from_status capture; moderation hide = status Hidden with
+    // deleted_at null. Public-interaction helpers are trashed-aware so a
+    // stale withTrashed() instance can never claim interactivity.
+
+    public function isAuthorDeleted(): bool
+    {
+        return $this->trashed() && $this->status === PostStatus::Deleted;
+    }
+
     public function canReceiveVotes(): bool
     {
-        return $this->status === PostStatus::Published;
+        return ! $this->trashed() && $this->status === PostStatus::Published;
     }
 
     public function canReceiveComments(): bool
     {
-        return $this->status === PostStatus::Published;
+        return ! $this->trashed() && $this->status === PostStatus::Published;
+    }
+
+    public function canReceiveReports(): bool
+    {
+        return ! $this->trashed() && $this->status === PostStatus::Published;
+    }
+
+    public function canBeSaved(): bool
+    {
+        return ! $this->trashed() && $this->status === PostStatus::Published;
+    }
+
+    public function canReceiveRatingVotes(): bool
+    {
+        return ! $this->trashed() && $this->status === PostStatus::Published;
+    }
+
+    /**
+     * When the author-restore window closes. Null unless author-deleted.
+     * Restore is allowed strictly before this instant: at the exact cutoff
+     * the window is already expired (retention 0 expires immediately).
+     */
+    public function authorRestoreDeadline(): ?Carbon
+    {
+        if (! $this->isAuthorDeleted() || $this->deleted_at === null) {
+            return null;
+        }
+
+        return $this->deleted_at->copy()->addDays(
+            PostRetention::days(),
+        );
+    }
+
+    public function isAuthorRestorable(): bool
+    {
+        $deadline = $this->authorRestoreDeadline();
+
+        return $deadline !== null
+            && in_array($this->deleted_from_status, self::AUTHOR_DELETABLE_STATUSES, true)
+            && now()->lt($deadline);
     }
 
     /** @return BelongsTo<User, $this> */
