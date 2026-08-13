@@ -89,6 +89,20 @@ class UserFactory extends Factory
         ]);
     }
 
+    /**
+     * A minimal already-tombstoned account for capability/guard tests.
+     * Production tombstones are only ever produced by
+     * AnonymizeUserAccountAction — use that in tests asserting the full
+     * anonymized field set.
+     */
+    public function tombstoned(): static
+    {
+        return $this->state(fn () => [
+            'status' => UserStatus::Deleted,
+            'anonymized_at' => now(),
+        ]);
+    }
+
     public function trusted(): static
     {
         return $this->state(fn () => [

@@ -34,7 +34,11 @@ final class ProfilePage extends Component
 
     public function mount(string $username): void
     {
+        // Tombstoned accounts have no public profile: the route 404s both
+        // for the (non-identifying) tombstone username and, naturally, for
+        // the pre-deletion username, which no longer exists on any row.
         $this->profileUser = User::query()
+            ->withoutTombstoned()
             ->where('username', $username)
             ->withCount(['followerRelations', 'followingRelations'])
             ->firstOrFail();

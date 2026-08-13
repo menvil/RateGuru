@@ -6,8 +6,8 @@
     x-on:keydown.escape.window="actionsOpen = false"
     x-on:dropdown-opened.window="if ($event.detail !== menuId) actionsOpen = false"
 >
-    @if($comment->user?->username)
-        <a href="{{ route('profile.show', $comment->user->username) }}" wire:navigate class="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+    @if($comment->user?->public_username)
+        <a href="{{ route('profile.show', $comment->user->public_username) }}" wire:navigate class="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
             <x-ui.avatar :src="$comment->user?->resolved_avatar_url" :srcset="$comment->user?->resolved_avatar_srcset" :name="$comment->user->name" size="md" />
         </a>
     @else
@@ -17,9 +17,9 @@
     <div class="min-w-0">
         <div class="flex min-w-0 items-start justify-between gap-2">
             <p class="min-w-0">
-                @if($comment->user?->username)
-                    <a href="{{ route('profile.show', $comment->user->username) }}" wire:navigate class="font-semibold text-rg-text hover:underline focus-visible:outline-none">
-                        {{ '@'.$comment->user->username }}
+                @if($comment->user?->public_username)
+                    <a href="{{ route('profile.show', $comment->user->public_username) }}" wire:navigate class="font-semibold text-rg-text hover:underline focus-visible:outline-none">
+                        {{ '@'.$comment->user->public_username }}
                     </a>
                 @else
                     <span class="font-semibold text-rg-text">{{ $comment->user?->name ?? __('ui.user.unknown') }}</span>

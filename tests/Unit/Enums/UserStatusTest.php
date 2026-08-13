@@ -7,6 +7,7 @@ it('contains expected user statuses', function () {
     expect(UserStatus::Limited->value)->toBe('limited');
     expect(UserStatus::Banned->value)->toBe('banned');
     expect(UserStatus::Shadowbanned->value)->toBe('shadowbanned');
+    expect(UserStatus::Deleted->value)->toBe('deleted');
 });
 
 it('knows whether a status can create content', function () {
@@ -53,10 +54,11 @@ it('enforces the lifecycle capability matrix', function (
     'limited' => [UserStatus::Limited, false, false, false, false, false, false, false, true, true, false],
     'banned' => [UserStatus::Banned, false, false, false, false, false, false, false, true, true, false],
     'shadowbanned' => [UserStatus::Shadowbanned, false, false, false, false, false, false, false, true, true, false],
+    'deleted' => [UserStatus::Deleted, false, false, false, false, false, false, false, false, false, false],
 ]);
 
 it('covers every enum case in the capability matrix', function () {
-    // Guard for the matrix test above: adding a UserStatus case (e.g. a
-    // future Deleted tombstone) must force an explicit matrix row for it.
-    expect(UserStatus::cases())->toHaveCount(4);
+    // Guard for the matrix test above: adding a UserStatus case must force
+    // an explicit matrix row for it.
+    expect(UserStatus::cases())->toHaveCount(5);
 });

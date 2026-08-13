@@ -29,8 +29,8 @@
             </button>
 
             <section class="flex min-w-0 items-start gap-3 pr-10" data-testid="post-drawer-meta">
-                @if($post->user?->username)
-                    <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+                @if($post->user?->public_username)
+                    <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
                         <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="lg" />
                     </a>
                 @else
@@ -38,18 +38,18 @@
                 @endif
 
                 <div class="min-w-0">
-                    @if($post->user?->username)
-                        <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate class="block truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
+                    @if($post->user?->public_username)
+                        <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="block truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
                     @else
                         <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</div>
                     @endif
 
                     <div class="truncate text-xs text-rg-muted">
-                        @if($post->user?->username)
-                            {{ '@' . $post->user->username }}
+                        @if($post->user?->public_username)
+                            {{ '@' . $post->user->public_username }}
                         @endif
                         @if($post->published_at)
-                            {{ $post->user?->username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
+                            {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
                         @endif
                     </div>
                 </div>

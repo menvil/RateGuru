@@ -29,25 +29,25 @@
 
     <div class="min-w-0">
         <div class="flex min-w-0 items-start gap-2">
-            @if($post->user?->username)
-                <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate x-on:click.stop class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+            @if($post->user?->public_username)
+                <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
                     <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="md" />
                 </a>
             @else
                 <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->name ?? 'User'" size="md" />
             @endif
             <div class="min-w-0 flex-1">
-                @if($post->user?->username)
-                    <a href="{{ route('profile.show', $post->user->username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
+                @if($post->user?->public_username)
+                    <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
                 @else
                     <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->name ?? 'Unknown user' }}</span>
                 @endif
                 <span class="block truncate text-xs text-rg-muted">
-                    @if($post->user?->username)
-                        {{ '@' . $post->user->username }}
+                    @if($post->user?->public_username)
+                        {{ '@' . $post->user->public_username }}
                     @endif
                     @if($post->published_at)
-                        {{ $post->user?->username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
+                        {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
                     @endif
                 </span>
             </div>

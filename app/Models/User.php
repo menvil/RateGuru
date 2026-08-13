@@ -11,20 +11,24 @@ use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Contracts\Notifications\Dispatcher as NotificationDispatcher;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
 
 /**
  * @property UserRole|null $role
  * @property UserStatus|null $status
  * @property int|null $trust_level
  * @property ProfileActivityVisibility|null $rating_activity_visibility
+ * @property Carbon|null $anonymized_at
  */
 #[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_asset_id', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
 #[Hidden(['password', 'remember_token'])]
@@ -32,6 +36,13 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+
+    /**
+     * The only author label public UI may show for a tombstoned account —
+     * also stored into `name` by AnonymizeUserAccountAction so raw
+     * `$user->name` render sites stay safe.
+     */
+    public const TOMBSTONE_DISPLAY_NAME = 'Deleted user';
 
     protected static function booted(): void
     {
@@ -51,6 +62,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
     {
         return [
             'email_verified_at' => 'datetime',
+            'anonymized_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
             'status' => UserStatus::class,
@@ -107,6 +119,41 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
     public function canAuthenticate(): bool
     {
         return $this->status?->canAuthenticate() ?? false;
+    }
+
+    /**
+     * Irreversible deleted-account tombstone (see
+     * docs/architecture/user-lifecycle.md). Not a capability — a state
+     * check used by the presentation boundary (accessors below), query
+     * scopes and moderation guards.
+     */
+    public function isTombstoned(): bool
+    {
+        return $this->status === UserStatus::Deleted;
+    }
+
+    /**
+     * @param  Builder<User>  $query
+     * @return Builder<User>
+     */
+    public function scopeWithoutTombstoned(Builder $query): Builder
+    {
+        return $query->where('status', '!=', UserStatus::Deleted);
+    }
+
+    /**
+     * A tombstone never receives notifications again: its inbox was purged
+     * at anonymization and every channel address is scrambled/invalid.
+     * Overriding the Notifiable entry point keeps this rule in one place
+     * instead of at every ->notify() call site.
+     */
+    public function notify($instance): void
+    {
+        if ($this->isTombstoned()) {
+            return;
+        }
+
+        app(NotificationDispatcher::class)->send($this, $instance);
     }
 
     public function isModerator(): bool
@@ -175,7 +222,22 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 
     public function getResolvedDisplayNameAttribute(): string
     {
+        if ($this->isTombstoned()) {
+            return self::TOMBSTONE_DISPLAY_NAME;
+        }
+
         return $this->display_name ?: ($this->name ?: $this->username);
+    }
+
+    /**
+     * The username as it may be shown/linked in public UI. Tombstoned
+     * accounts have no public handle: views that guard on this accessor
+     * render plain "Deleted user" text with no @handle and no profile
+     * link, exactly like a user without a username.
+     */
+    public function getPublicUsernameAttribute(): ?string
+    {
+        return $this->isTombstoned() ? null : $this->username;
     }
 
     /**

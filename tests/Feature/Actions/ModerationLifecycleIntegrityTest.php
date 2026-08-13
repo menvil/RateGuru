@@ -3,8 +3,10 @@
 use App\Actions\Moderation\BanUserAction;
 use App\Actions\Moderation\ShadowbanUserAction;
 use App\Actions\Moderation\UnbanUserAction;
+use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Enums\ModerationActionType;
 use App\Enums\UserStatus;
+use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Models\Comment;
 use App\Models\Follow;
 use App\Models\ModerationLog;
@@ -163,6 +165,37 @@ it('preserves all content and identity across a ban and unban cycle', function (
 
     expect($target->fresh()->status)->toBe(UserStatus::Active);
     expectLifecycleContentPreserved($target, $avatarAssetId);
+});
+
+it('rejects banning a tombstone even via a stale instance that predates deletion', function () {
+    // The authorization gate sees the stale Active instance and passes;
+    // the in-transaction lockForUpdate() re-read is what must catch the
+    // concurrent deletion. Deleted is terminal for moderation.
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create();
+    $stale = User::query()->findOrFail($target->id);
+
+    app(AnonymizeUserAccountAction::class)->execute($target);
+
+    expect(fn () => app(BanUserAction::class)->handle($admin, $stale))
+        ->toThrow(CannotModerateUserException::class);
+
+    expect($target->fresh()->status)->toBe(UserStatus::Deleted);
+    expect(ModerationLog::query()->count())->toBe(0);
+});
+
+it('rejects shadowbanning a tombstone even via a stale instance that predates deletion', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create();
+    $stale = User::query()->findOrFail($target->id);
+
+    app(AnonymizeUserAccountAction::class)->execute($target);
+
+    expect(fn () => app(ShadowbanUserAction::class)->handle($admin, $stale))
+        ->toThrow(CannotModerateUserException::class);
+
+    expect($target->fresh()->status)->toBe(UserStatus::Deleted);
+    expect(ModerationLog::query()->count())->toBe(0);
 });
 
 it('records ban and unban as distinct moderation log entries', function () {

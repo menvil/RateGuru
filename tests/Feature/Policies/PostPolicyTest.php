@@ -185,6 +185,7 @@ dataset('lifecycle gate matrix', [
     'limited' => [UserStatus::Limited, false],
     'banned' => [UserStatus::Banned, false],
     'shadowbanned' => [UserStatus::Shadowbanned, false],
+    'deleted' => [UserStatus::Deleted, false],
 ]);
 
 it('applies the lifecycle capability matrix to the vote gate', function (

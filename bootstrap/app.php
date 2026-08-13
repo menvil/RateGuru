@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\AttachRequestId;
 use App\Http\Middleware\AttachStructuredLogContext;
+use App\Http\Middleware\EnsureAccountIsNotTombstoned;
 use App\Http\Middleware\SetLocale;
 use App\Support\Observability\ExceptionContextBuilder;
 use Illuminate\Foundation\Application;
@@ -21,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
             AttachStructuredLogContext::class,
         ]);
         $middleware->web(append: [
+            EnsureAccountIsNotTombstoned::class,
             SetLocale::class,
         ]);
     })

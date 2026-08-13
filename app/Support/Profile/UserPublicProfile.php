@@ -8,7 +8,7 @@ final readonly class UserPublicProfile
 {
     public function __construct(
         public int $id,
-        public string $username,
+        public ?string $username,
         public string $displayName,
         public ?string $avatarUrl,
         public ?string $bio,

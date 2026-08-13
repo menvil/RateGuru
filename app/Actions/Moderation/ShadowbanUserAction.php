@@ -33,7 +33,9 @@ final class ShadowbanUserAction
                 throw CannotModerateUserException::becauseTargetIsProtected();
             }
 
-            if ($locked->status === UserStatus::Shadowbanned) {
+            // Deleted is terminal: a tombstone can never re-enter the
+            // moderation lifecycle in either direction.
+            if (in_array($locked->status, [UserStatus::Shadowbanned, UserStatus::Deleted], true)) {
                 throw CannotModerateUserException::becauseTargetStatusIsInvalid();
             }
 
