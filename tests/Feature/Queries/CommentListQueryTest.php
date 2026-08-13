@@ -67,5 +67,5 @@ it('counts visible comments without loading hidden rows', function () {
     $query = app(CommentListQuery::class);
 
     expect($query->countVisible($post->id))->toBe(2)
-        ->and($query->countVisibleTopLevel($post->id))->toBe(1);
+        ->and($query->countRenderableTopLevel($post->id))->toBe(1);
 });

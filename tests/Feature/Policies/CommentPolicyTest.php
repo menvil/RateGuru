@@ -34,12 +34,14 @@ it('does not allow user to delete another users comment', function () {
     expect($other->can('delete', $comment))->toBeFalse();
 });
 
-it('allows admin to delete any comment', function () {
+it('does not allow admin to use author deletion on another users comment', function () {
+    // PR-D: comment deletion is an authored-content decision, owner-only.
+    // Admins/moderators act through hide/restore instead.
     $admin = User::factory()->admin()->create();
     $owner = User::factory()->create();
     $comment = Comment::factory()->for($owner)->create();
 
-    expect($admin->can('delete', $comment))->toBeTrue();
+    expect($admin->can('delete', $comment))->toBeFalse();
 });
 
 it('does not allow moderator to delete comment by default', function () {
@@ -52,19 +54,40 @@ it('does not allow moderator to delete comment by default', function () {
 
 dataset('comment moderation abilities', ['hide', 'restore']);
 
-it('allows moderator to moderate a comment', function (string $ability) {
+it('allows moderator to moderate a comment in the matching state', function (string $ability) {
     $moderator = User::factory()->moderator()->create();
-    $comment = Comment::factory()->for(User::factory())->create();
+    $comment = Comment::factory()->for(User::factory())->create([
+        'status' => $ability === 'restore' ? CommentStatus::Hidden : CommentStatus::Visible,
+    ]);
 
     expect($moderator->can($ability, $comment))->toBeTrue();
 })->with('comment moderation abilities');
 
-it('allows admin to moderate a comment', function (string $ability) {
+it('allows admin to moderate a comment in the matching state', function (string $ability) {
     $admin = User::factory()->admin()->create();
-    $comment = Comment::factory()->for(User::factory())->create();
+    $comment = Comment::factory()->for(User::factory())->create([
+        'status' => $ability === 'restore' ? CommentStatus::Hidden : CommentStatus::Visible,
+    ]);
 
     expect($admin->can($ability, $comment))->toBeTrue();
 })->with('comment moderation abilities');
+
+it('refuses hide and restore on an author-deleted comment', function (string $ability) {
+    $admin = User::factory()->admin()->create();
+    $comment = Comment::factory()->for(User::factory())->create([
+        'status' => $ability === 'restore' ? CommentStatus::Hidden : CommentStatus::Visible,
+    ]);
+    $comment->delete();
+
+    expect($admin->can($ability, $comment->fresh()))->toBeFalse();
+})->with('comment moderation abilities');
+
+it('refuses restore on a visible comment', function () {
+    $admin = User::factory()->admin()->create();
+    $comment = Comment::factory()->for(User::factory())->create();
+
+    expect($admin->can('restore', $comment))->toBeFalse();
+});
 
 it('does not allow comment owner without role to moderate their comment', function (string $ability) {
     $owner = User::factory()->create();

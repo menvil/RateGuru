@@ -26,6 +26,11 @@ final class CannotReportContentException extends DomainException
         return new self('You have already reported this content.');
     }
 
+    public static function becauseContentIsNotReportable(): self
+    {
+        return new self('This content can no longer be reported.');
+    }
+
     public static function becauseRateLimited(string $message): self
     {
         return new self($message);

@@ -42,6 +42,10 @@ final class ReportContentAction
             throw CannotReportContentException::becauseUnsupportedContent();
         }
 
+        if ($content instanceof Comment && ! $content->canReceiveReports()) {
+            throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('report', $user),
@@ -71,6 +75,10 @@ final class ReportContentAction
             // never be committed without its reports_count / review flag
             // being recomputed in the same unit of work.
             return DB::transaction(function () use ($user, $content, $reason, $message) {
+                if ($content instanceof Comment) {
+                    $this->assertCommentIsReportableUnderLock($content);
+                }
+
                 $report = Report::create([
                     'reporter_id' => $user->id,
                     'target_type' => $content::class,
@@ -103,6 +111,27 @@ final class ReportContentAction
             // passed for both requests but the unique index rejected this one.
             // The transaction has already rolled back.
             throw CannotReportContentException::becauseDuplicateReport();
+        }
+    }
+
+    /**
+     * The caller's Comment instance may be stale: a moderation hide or an
+     * author delete can land between the public pre-check and this
+     * transaction, and a tombstoned comment must not accumulate reports.
+     * Only the row re-read under lock is authoritative. Posts and users are
+     * deliberately not lifecycle-gated: soft-deleted posts stay reportable
+     * (pinned by tests).
+     */
+    private function assertCommentIsReportableUnderLock(Comment $comment): void
+    {
+        $lockedComment = Comment::query()
+            ->withTrashed()
+            ->whereKey($comment->id)
+            ->lockForUpdate()
+            ->first();
+
+        if ($lockedComment === null || ! $lockedComment->canReceiveReports()) {
+            throw CannotReportContentException::becauseContentIsNotReportable();
         }
     }
 

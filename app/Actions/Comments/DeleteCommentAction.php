@@ -14,16 +14,40 @@ final class DeleteCommentAction
 
     public function handle(User $user, Comment $comment): void
     {
-        if (! $user->can('delete', $comment)) {
-            throw CannotDeleteCommentException::becauseUserIsNotAllowed();
-        }
+        // Everything — including authorization — runs against a fresh row
+        // locked inside the transaction: the caller's instance may be stale
+        // by the time this executes, and a delete racing another delete or
+        // a moderation action must behave deterministically.
+        DB::transaction(function () use ($user, $comment): void {
+            $locked = Comment::withTrashed()
+                ->whereKey($comment->getKey())
+                ->lockForUpdate()
+                ->first();
 
-        DB::transaction(function () use ($comment) {
-            $post = $comment->post;
+            if ($locked === null) {
+                return;
+            }
 
-            $comment->delete();
+            if (! $user->can('delete', $locked)) {
+                throw CannotDeleteCommentException::becauseUserIsNotAllowed();
+            }
+
+            // Retry-safe: a second delete of an already author-deleted
+            // comment is a no-op — no second soft-delete, no double
+            // counter refresh.
+            if ($locked->trashed()) {
+                $comment->setRawAttributes($locked->getAttributes(), true);
+
+                return;
+            }
+
+            $post = $locked->post;
+
+            $locked->delete();
 
             $this->refreshCommentsCount($post);
+
+            $comment->setRawAttributes($locked->getAttributes(), true);
         });
     }
 }

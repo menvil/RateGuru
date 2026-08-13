@@ -142,7 +142,7 @@
             @endforeach
         </div>
 
-        @if($this->comments->count() < $this->totalTopLevelComments)
+        @if($this->comments->count() < $this->totalRenderableTopLevel)
             <button
                 type="button"
                 wire:click="loadMore"
