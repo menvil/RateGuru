@@ -80,28 +80,72 @@ Fails closed. The DB column defaults to `'active'` and is non-nullable, so
 `null` only occurs on unhydrated/legacy instances — every `User::can*()`
 convenience method returns `false` for it.
 
-### Future: Deleted / tombstone
+### Deleted (irreversible tombstone)
 
-A physical deleted/anonymized state is **deferred to PR-C**. No
-`UserStatus::Deleted` case exists yet; adding one will force explicit
-decisions everywhere by construction: the capability matrix test guards the
-case count, and all call sites go through the capability API, so PR-C can
-add tombstone behavior without rewriting call sites.
+**Account deletion invariant: delete identity, preserve community
+contribution.** Normal account deletion never physically deletes the users
+row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
+
+- `status = Deleted`, `anonymized_at = now()` — set exactly once, never
+  reversible; this is deliberately **not** a Laravel SoftDelete.
+- PII is replaced: `name = "Deleted user"`, unique non-identifying
+  `username` (`deleted_{id}_{random}`) and non-routable `email`
+  (`deleted-{id}-{uuid}@deleted.invalid`), everything else personal is
+  nulled; credentials are scrambled (random password, cleared
+  remember token / verification / reset tokens / sessions).
+- A deleted former admin/moderator is demoted to an ordinary `User` role —
+  no privileged tombstones.
+- Every capability fails closed, including `canUpdateProfile` and
+  `canAuthenticate`.
+- Public UI renders the author of surviving posts/comments as
+  **Deleted user** — no @handle, no profile link, no avatar, and the
+  internal tombstone username/email never appear anywhere public. The
+  presentation boundary is centralized in `resolved_display_name` and
+  `public_username` on `User`; views never test the status directly.
+- The profile route 404s (`ProfilePage` uses the `withoutTombstoned`
+  scope); the pre-deletion username 404s naturally because no row carries
+  it anymore.
+- Admin UI shows tombstones read-only: `UserPolicy` refuses
+  manage/ban/unban/shadowban/markTrusted for tombstone targets, and the
+  moderation actions re-check under lock so a stale instance cannot slip a
+  tombstone back into the moderation lifecycle.
+- The `NoPhysicalUserDeletionRule` PHPStan rule (non-ignorable) bans
+  `$user->delete()` / `forceDelete()` / `User::destroy()` in all app code.
+
+#### Data policy on account deletion
+
+| Data | On account delete |
+| --- | --- |
+| User PII (name, email, username, bio, website, display name) | anonymize |
+| Credentials, sessions, reset tokens, remember token | delete / revoke |
+| Followers / following (both directions) | delete |
+| Avatar | detach + release via media lifecycle (grace-period purge) |
+| Posts | retain |
+| Comments / replies | retain (author label becomes "Deleted user") |
+| Votes (post / comment / rating) | retain |
+| Reports | retain (moderation evidence) |
+| Post media | retain |
+| Post saves | delete |
+| Received notifications | delete |
+
+Note: notifications *received by other users* may still embed the deleted
+user's pre-deletion display name inside their JSON payloads; rewriting other
+users' inboxes is deliberately out of scope here.
 
 ## Capability matrix
 
-| capability | Active | Limited | Banned | Shadowbanned | `null` |
-| --- | --- | --- | --- | --- | --- |
-| canCreateContent | yes | no | no | no | no |
-| canComment (incl. replies) | yes | no | no | no | no |
-| canVote (post/comment/rating) | yes | no | no | no | no |
-| canReport | yes | no | no | no | no |
-| canFollow (as follower) | yes | no | no | no | no |
-| canBeFollowed (as author) | yes | no | no | no | no |
-| canManageContent (feed delete) | yes | no | no | no | no |
-| canUpdateProfile | yes | yes | yes | yes | no |
-| canAuthenticate | yes | yes | yes | yes | no |
-| canAccessPrivilegedPanel | yes | no | no | no | no |
+| capability | Active | Limited | Banned | Shadowbanned | Deleted | `null` |
+| --- | --- | --- | --- | --- | --- | --- |
+| canCreateContent | yes | no | no | no | no | no |
+| canComment (incl. replies) | yes | no | no | no | no | no |
+| canVote (post/comment/rating) | yes | no | no | no | no | no |
+| canReport | yes | no | no | no | no | no |
+| canFollow (as follower) | yes | no | no | no | no | no |
+| canBeFollowed (as author) | yes | no | no | no | no | no |
+| canManageContent (feed delete) | yes | no | no | no | no | no |
+| canUpdateProfile | yes | yes | yes | yes | no | no |
+| canAuthenticate | yes | yes | yes | yes | no | no |
+| canAccessPrivilegedPanel | yes | no | no | no | no | no |
 
 Notes:
 
@@ -128,7 +172,13 @@ accurate `from_status`/`to_status`):
 Active | Limited | Shadowbanned  --ban-->      Banned
 Active | Limited                 --shadowban-> Shadowbanned
 Banned | Shadowbanned            --unban-->    Active
+any non-deleted state            --self-delete-> Deleted   (terminal)
 ```
+
+Deleted is terminal in both directions: no moderation action may target a
+tombstone (unban requires Banned/Shadowbanned; ban/shadowban explicitly
+reject Deleted under lock; `UserPolicy` refuses tombstone targets), and
+nothing transitions out of it.
 
 State guards in these actions intentionally use direct enum comparisons
 ("is the target already banned?") — they reason about the state itself, not
@@ -170,3 +220,18 @@ action layer's own guard only rejects re-shadowbanning.
 - `tests/Feature/Actions/{Ban,Unban,Shadowban}UserActionTest.php`,
   `tests/Feature/Admin/FilamentAdminAccessTest.php` — pre-existing
   moderation and panel coverage.
+- `tests/Feature/Actions/AnonymizeUserAccountActionTest.php` — tombstone
+  happy path (rich graph), rollback, idempotency, uniqueness at scale,
+  Banned-vs-Deleted distinction, media retention/release.
+- `tests/Feature/Livewire/DeletedUserPresentationTest.php` — public
+  "Deleted user" rendering, profile-route 404, API resource redaction.
+- `tests/Feature/Filament/UserResourceTombstoneTest.php` — read-only
+  tombstones in the admin panel.
+
+## Deferred to later PRs
+
+- FK cascade hardening → PR-C
+- comment tombstones (`[comment deleted]`) → PR-D
+- post retention / hard purge → PR-E
+- moderation lifecycle (auth enforcement, suspension UI) → PR-F
+- moderation retention → PR-G

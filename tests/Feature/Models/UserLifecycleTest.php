@@ -17,6 +17,7 @@ dataset('lifecycle statuses', [
     'limited' => [UserStatus::Limited],
     'banned' => [UserStatus::Banned],
     'shadowbanned' => [UserStatus::Shadowbanned],
+    'deleted' => [UserStatus::Deleted],
     'null status' => [null],
 ]);
 
@@ -72,5 +73,7 @@ it('grants panel access only to active admins and moderators', function (
     'banned moderator' => [UserRole::Moderator, UserStatus::Banned, false],
     'shadowbanned admin' => [UserRole::Admin, UserStatus::Shadowbanned, false],
     'shadowbanned moderator' => [UserRole::Moderator, UserStatus::Shadowbanned, false],
+    'deleted admin' => [UserRole::Admin, UserStatus::Deleted, false],
+    'deleted moderator' => [UserRole::Moderator, UserStatus::Deleted, false],
     'null-status admin' => [UserRole::Admin, null, false],
 ]);

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\UserStatus;
 use App\Models\User;
 
 test('profile page is displayed', function () {
@@ -84,7 +85,13 @@ test('user can delete their account', function () {
         ->assertRedirect('/');
 
     $this->assertGuest();
-    $this->assertNull($user->fresh());
+
+    // Account deletion tombstones the row instead of deleting it: the user
+    // is anonymized and permanently disabled, never physically removed.
+    $fresh = $user->fresh();
+    expect($fresh)->not->toBeNull();
+    expect($fresh->status)->toBe(UserStatus::Deleted);
+    expect($fresh->anonymized_at)->not->toBeNull();
 });
 
 test('correct password must be provided to delete account', function () {

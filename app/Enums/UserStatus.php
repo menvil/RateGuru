@@ -23,6 +23,14 @@ enum UserStatus: string
     case Banned = 'banned';
     case Shadowbanned = 'shadowbanned';
 
+    /**
+     * Irreversible tombstone: the account was deleted and anonymized, the
+     * row remains only so community contribution (posts, comments, votes,
+     * reports) keeps a valid author reference. Every capability fails
+     * closed and no moderation transition may ever leave this state.
+     */
+    case Deleted = 'deleted';
+
     public function canCreateContent(): bool
     {
         return $this === self::Active;
@@ -73,25 +81,29 @@ enum UserStatus: string
     }
 
     /**
-     * Profile mutation is currently not lifecycle-restricted anywhere in the
-     * product: banned, limited and shadowbanned users may still edit their
+     * Profile mutation is currently not lifecycle-restricted for living
+     * accounts: banned, limited and shadowbanned users may still edit their
      * profile. This method pins that audited behavior in one place so a
-     * future PR can tighten it deliberately rather than accidentally.
+     * future PR can tighten it deliberately rather than accidentally. A
+     * Deleted tombstone has no profile left to mutate — fail closed.
      */
     public function canUpdateProfile(): bool
     {
-        return true;
+        return $this !== self::Deleted;
     }
 
     /**
-     * Login is currently not lifecycle-restricted: no auth code path inspects
-     * status, so banned/limited/shadowbanned users can authenticate and
-     * browse (participation is blocked by the capabilities above). Declared
-     * here unenforced so a future auth-enforcement PR has a single flip point.
+     * Login is currently not lifecycle-restricted for living accounts: no
+     * auth code path inspects status, so banned/limited/shadowbanned users
+     * can authenticate and browse (participation is blocked by the
+     * capabilities above). Declared here unenforced so a future
+     * auth-enforcement PR has a single flip point. A Deleted tombstone can
+     * never authenticate again — in practice this is already guaranteed by
+     * anonymization (scrambled email, random password, cleared tokens).
      */
     public function canAuthenticate(): bool
     {
-        return true;
+        return $this !== self::Deleted;
     }
 
     /**

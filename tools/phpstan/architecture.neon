@@ -82,6 +82,10 @@ services:
         tags: [phpstan.rules.rule]
 
     -
+        class: RateGuru\PHPStan\Rules\NoPhysicalUserDeletionRule
+        tags: [phpstan.rules.rule]
+
+    -
         class: RateGuru\PHPStan\Rules\NoPresentationModelMutationRule
         tags: [phpstan.rules.rule]
 

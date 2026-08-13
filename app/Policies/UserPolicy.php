@@ -36,7 +36,8 @@ class UserPolicy
     {
         return $actor->role === UserRole::Admin
             && $actor->id !== $target->id
-            && $target->role === UserRole::User;
+            && $target->role === UserRole::User
+            && ! $target->isTombstoned();
     }
 
     public function viewAdmin(User $actor): bool
@@ -47,12 +48,15 @@ class UserPolicy
     /**
      * Admins may sanction (ban/unban/shadowban) any non-admin user other
      * than themselves. Mirrors the authorization guards previously inlined
-     * in the moderation actions.
+     * in the moderation actions. Deleted tombstones are out of reach for
+     * every ordinary admin operation (manage/edit included): an
+     * anonymized account must never be re-identified or reactivated.
      */
     private function canSanction(User $actor, User $target): bool
     {
         return $actor->role === UserRole::Admin
             && $actor->id !== $target->id
-            && $target->role !== UserRole::Admin;
+            && $target->role !== UserRole::Admin
+            && ! $target->isTombstoned();
     }
 }

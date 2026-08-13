@@ -33,7 +33,9 @@ final class BanUserAction
                 throw CannotModerateUserException::becauseTargetIsProtected();
             }
 
-            if ($locked->status === UserStatus::Banned) {
+            // Deleted is terminal: a tombstone can never re-enter the
+            // moderation lifecycle in either direction.
+            if (in_array($locked->status, [UserStatus::Banned, UserStatus::Deleted], true)) {
                 throw CannotModerateUserException::becauseTargetStatusIsInvalid();
             }
 

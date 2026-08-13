@@ -42,6 +42,7 @@ dataset('restricted users', [
     'limited' => [fn (): User => User::factory()->limited()->create()],
     'banned' => [fn (): User => User::factory()->banned()->create()],
     'shadowbanned' => [fn (): User => User::factory()->shadowbanned()->create()],
+    'deleted tombstone' => [fn (): User => User::factory()->tombstoned()->create()],
 ]);
 
 it('rejects post creation for restricted lifecycle states', function (User $user) {

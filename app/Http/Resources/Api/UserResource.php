@@ -17,8 +17,8 @@ final class UserResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'username' => $this->username,
-            'display_name' => $this->name,
+            'username' => $this->public_username,
+            'display_name' => $this->resolved_display_name,
             'avatar_url' => $this->resolved_avatar_url,
             'avatar_srcset' => $this->resolved_avatar_srcset,
             'profile_url' => $this->profileUrl(),
@@ -27,10 +27,10 @@ final class UserResource extends JsonResource
 
     private function profileUrl(): ?string
     {
-        if (! $this->username || ! Route::has('profile.show')) {
+        if (! $this->public_username || ! Route::has('profile.show')) {
             return null;
         }
 
-        return rtrim((string) config('app.url'), '/').route('profile.show', ['username' => $this->username], absolute: false);
+        return rtrim((string) config('app.url'), '/').route('profile.show', ['username' => $this->public_username], absolute: false);
     }
 }

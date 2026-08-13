@@ -52,6 +52,7 @@ class UsersTable
                         UserStatus::Limited => 'warning',
                         UserStatus::Banned => 'danger',
                         UserStatus::Shadowbanned => 'gray',
+                        UserStatus::Deleted => 'info',
                     }),
                 TextColumn::make('trust_level')
                     ->label('Trust')
