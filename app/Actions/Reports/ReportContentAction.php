@@ -7,6 +7,7 @@ use App\Enums\ReportStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Reports\CannotReportContentException;
 use App\Models\Comment;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\DB;
 
 final class ReportContentAction
 {
+    use LocksActorForWrite;
+
     private const POST_REVIEW_REPORT_THRESHOLD = 3;
 
     public function __construct(
@@ -85,6 +88,15 @@ final class ReportContentAction
             // never be committed without its reports_count / review flag
             // being recomputed in the same unit of work.
             return DB::transaction(function () use ($user, $content, $reason, $message) {
+                // Lock order: Actor User -> Post -> Comment
+                // (docs/architecture/user-lifecycle.md). The canReport
+                // pre-check ran on a possibly stale reporter instance.
+                $lockedReporter = $this->lockActor($user);
+
+                if ($lockedReporter === null || ! $lockedReporter->canReport()) {
+                    throw CannotReportContentException::becauseUserIsNotAllowed();
+                }
+
                 if ($content instanceof Comment) {
                     $this->assertCommentIsReportableUnderLock($content);
                 }

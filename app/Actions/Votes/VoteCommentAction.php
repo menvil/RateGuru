@@ -8,6 +8,7 @@ use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Votes\CannotVoteCommentException;
 use App\Models\Comment;
 use App\Models\CommentVote;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 
 final class VoteCommentAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly RecalculateCommentCountersAction $recalculateCommentCounters,
         private readonly ActionRateLimiter $rateLimiter,
@@ -50,6 +53,15 @@ final class VoteCommentAction
         }
 
         DB::transaction(function () use ($user, $comment, $type): void {
+            // Lock order: Actor User -> Comment -> vote rows
+            // (docs/architecture/user-lifecycle.md); the pre-checks ran on
+            // possibly stale instances.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canVote()) {
+                throw CannotVoteCommentException::becauseUserIsNotAllowed();
+            }
+
             $lockedComment = Comment::query()
                 ->withTrashed()
                 ->whereKey($comment->id)

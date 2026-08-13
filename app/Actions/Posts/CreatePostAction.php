@@ -10,6 +10,7 @@ use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Models\Category;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
@@ -28,6 +29,8 @@ use Throwable;
 
 final class CreatePostAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly ImageUploadStorer $imageUploadStorer,
         private readonly ActionRateLimiter $rateLimiter,
@@ -50,11 +53,6 @@ final class CreatePostAction
             message: 'You are uploading too quickly. Please try again later.',
         );
 
-        $isTrusted = $user->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL
-            && $user->canCreateContent();
-
-        $status = $isTrusted ? PostStatus::Published : PostStatus::Pending;
-        $publishedAt = $isTrusted ? now() : null;
 
         $ratingGroups = $this->ratingConfiguration->activeGroups();
         $categoryId = $this->validatedCategoryId($data->categoryId);
@@ -70,7 +68,22 @@ final class CreatePostAction
             : null;
 
         try {
-            $post = DB::transaction(function () use ($user, $data, $status, $publishedAt, $categoryId, $authorAnswers, $storedImage) {
+            $post = DB::transaction(function () use ($user, $data, $categoryId, $authorAnswers, $storedImage) {
+                // Lock order: Actor User first (docs/architecture/
+                // user-lifecycle.md). The policy pre-check above ran on a
+                // possibly stale instance — a sanction may have committed
+                // since. Trust-level publishing is also decided on the
+                // fresh row so it stays consistent with the gate.
+                $lockedActor = $this->lockActor($user);
+
+                if ($lockedActor === null || ! $lockedActor->canCreateContent()) {
+                    throw CannotCreatePostException::becauseUserIsNotAllowed();
+                }
+
+                $isTrusted = $lockedActor->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL;
+                $status = $isTrusted ? PostStatus::Published : PostStatus::Pending;
+                $publishedAt = $isTrusted ? now() : null;
+
                 $imageAsset = $storedImage !== null
                     ? $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)
                     : null;

@@ -5,11 +5,14 @@ namespace App\Actions\Comments;
 use App\Actions\Comments\Concerns\RefreshesPostCommentsCount;
 use App\Exceptions\Comments\CannotDeleteCommentException;
 use App\Models\Comment;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 final class DeleteCommentAction
 {
+    use LocksActorForWrite;
     use RefreshesPostCommentsCount;
 
     public function handle(User $user, Comment $comment): void
@@ -19,6 +22,11 @@ final class DeleteCommentAction
         // by the time this executes, and a delete racing another delete or
         // a moderation action must behave deterministically.
         DB::transaction(function () use ($user, $comment): void {
+            // Lock order: Actor User -> Comment; authorization runs against
+            // the locked actor so a just-sanctioned author cannot finish
+            // the deletion.
+            $lockedActor = $this->lockActor($user);
+
             $locked = Comment::withTrashed()
                 ->whereKey($comment->getKey())
                 ->lockForUpdate()
@@ -28,7 +36,7 @@ final class DeleteCommentAction
                 return;
             }
 
-            if (! $user->can('delete', $locked)) {
+            if ($lockedActor === null || ! Gate::forUser($lockedActor)->allows('delete', $locked)) {
                 throw CannotDeleteCommentException::becauseUserIsNotAllowed();
             }
 

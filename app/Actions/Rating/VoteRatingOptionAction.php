@@ -4,6 +4,7 @@ namespace App\Actions\Rating;
 
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\DB;
 
 final class VoteRatingOptionAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly ActionRateLimiter $rateLimiter,
         private readonly PostListCacheManager $postListCache,
@@ -51,9 +54,15 @@ final class VoteRatingOptionAction
         }
 
         $changed = DB::transaction(function () use ($user, $post, $option): bool {
-            // Lock order: Post row first, then rating group, then option
-            // (docs/architecture/post-lifecycle.md). The pre-check ran on a
-            // possibly stale instance; the locked row decides.
+            // Lock order: Actor User -> Post -> rating group -> option
+            // (docs/architecture/user-lifecycle.md). Pre-checks ran on
+            // possibly stale instances; the locked rows decide.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canVote()) {
+                throw CannotVoteForRatingOptionException::becauseUserIsNotAllowed();
+            }
+
             $lockedPost = Post::withTrashed()
                 ->whereKey($post->id)
                 ->lockForUpdate()

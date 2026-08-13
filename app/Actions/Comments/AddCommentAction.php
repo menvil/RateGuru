@@ -8,6 +8,7 @@ use App\Enums\CommentStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostCommentedNotification;
@@ -19,6 +20,7 @@ use Throwable;
 
 final class AddCommentAction
 {
+    use LocksActorForWrite;
     use RefreshesPostCommentsCount;
 
     private const MAX_BODY_LENGTH = 1000;
@@ -74,11 +76,16 @@ final class AddCommentAction
         }
 
         $comment = DB::transaction(function () use ($user, $post, $body, $parent) {
-            // Lock order: Post row first, then the parent Comment, then the
-            // insert (docs/architecture/post-lifecycle.md) — every writer
-            // against a post takes locks in this order to avoid deadlocks.
-            // The post pre-check above ran on a possibly stale instance; an
-            // author delete or moderation hide may have landed since.
+            // Lock order: Actor User -> Post -> parent Comment -> insert
+            // (docs/architecture/user-lifecycle.md). Every pre-check above
+            // ran on possibly stale instances: an admin sanction, an author
+            // delete or a moderation hide may have landed since.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canComment()) {
+                throw CannotCommentException::becauseUserIsNotAllowed();
+            }
+
             $lockedPost = Post::withTrashed()
                 ->whereKey($post->id)
                 ->lockForUpdate()

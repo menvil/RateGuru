@@ -15,7 +15,10 @@ class PostPolicy
 
     public function update(User $user, Post $post): bool
     {
-        return $post->user_id === $user->id
+        // Editing a draft is authoring: a sanctioned owner may not touch
+        // it even though the post never went public (PR-F).
+        return $user->canCreateContent()
+            && $post->user_id === $user->id
             && $post->status === PostStatus::Draft;
     }
 
