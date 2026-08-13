@@ -180,7 +180,7 @@ it('refuses to delete a rating group once votes reference it', function () {
     expect(RatingVote::find($vote->id))->not->toBeNull();
 });
 
-it('refuses to delete a rating group once author answers reference it', function () {
+it('refuses to delete a rating group or its option once author answers reference them', function () {
     $post = Post::factory()->published()->create();
     $option = RatingOption::factory()->create();
     $answer = $post->authorAnswers()->create([
@@ -190,7 +190,12 @@ it('refuses to delete a rating group once author answers reference it', function
 
     expect(fn () => rawDelete('rating_groups', $option->rating_group_id))->toThrow(QueryException::class);
 
-    expect($answer->fresh())->not->toBeNull();
+    // The composite (option_id, group_id) FK equally protects the option
+    // itself: a used option cannot be deleted out from under the answer.
+    expect(fn () => rawDelete('rating_options', $option->id))->toThrow(QueryException::class);
+
+    expect($answer->fresh())->not->toBeNull()
+        ->and(RatingOption::find($option->id))->not->toBeNull();
 });
 
 /*

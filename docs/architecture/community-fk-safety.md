@@ -80,6 +80,11 @@ recreate staging:
 php artisan migrate:fresh --seed --force
 ```
 
+**The automatic deploy will not do this for you.** The deploy pipeline runs
+a plain `php artisan migrate --force` (infrastructure/scripts/deploy),
+which re-runs nothing that already executed — until the manual reset above
+is performed, an existing staging database keeps the old cascading FKs.
+
 Verified clean on PostgreSQL, MariaDB and SQLite.
 
 ## Tests
