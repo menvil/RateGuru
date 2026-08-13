@@ -388,6 +388,29 @@
                         </section>
                     @endisset
 
+                    @auth
+                        @php
+                            $restrictionNoticeKey = match (auth()->user()->status) {
+                                \App\Enums\UserStatus::Limited => 'ui.account_restriction.limited',
+                                \App\Enums\UserStatus::Banned => 'ui.account_restriction.banned',
+                                \App\Enums\UserStatus::Shadowbanned => 'ui.account_restriction.shadowbanned',
+                                default => null,
+                            };
+                        @endphp
+                        @if($restrictionNoticeKey !== null)
+                            {{-- Private notice: visible only to the sanctioned account itself,
+                                 never rendered next to their public content, and it never
+                                 exposes the internal moderation reason. --}}
+                            <div
+                                data-testid="account-restriction-notice"
+                                role="status"
+                                class="mx-4 mt-4 rounded-lg border border-rg-border bg-rg-surface px-4 py-3 text-sm text-rg-text sm:mx-6 lg:mx-8"
+                            >
+                                {{ __($restrictionNoticeKey) }}
+                            </div>
+                        @endif
+                    @endauth
+
                     <main
                         class="{{ $isFeedRoute ? 'px-2 py-4 sm:px-6 sm:py-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8' }}"
                         data-testid="app-main"

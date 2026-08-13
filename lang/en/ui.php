@@ -61,6 +61,11 @@ return [
         'share_title' => 'Share this post',
         'image_alt_fallback' => 'Post image',
     ],
+    'account_restriction' => [
+        'limited' => 'Your account has limited participation. You can browse, but publishing, commenting, voting, reporting, following and profile changes are disabled.',
+        'banned' => 'Your account is banned from participating. You can still sign in, browse and manage account security.',
+        'shadowbanned' => 'Your account has restricted participation.',
+    ],
     'recently_deleted' => [
         'title' => 'Recently Deleted',
         'description' => 'Deleted posts stay restorable for :days days. After that they may be permanently removed together with their discussion.',

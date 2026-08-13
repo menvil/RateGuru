@@ -59,6 +59,12 @@ final class ReportContentAction
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 
+        // A Deleted tombstone is not a reportable public target; living
+        // users stay reportable through the existing product flow.
+        if ($content instanceof User && $content->isTombstoned()) {
+            throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('report', $user),
