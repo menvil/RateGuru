@@ -61,11 +61,12 @@ instead of deleting them once votes exist.
 
 ## Why the SQLite/MariaDB branches changed too
 
-Three older migrations drop and re-create FKs inside driver-specific
-branches (`add_indexes_to_posts_table`, `add_unique_index_to_post_votes_table`,
-`add_indices_to_post_saves_table` down-paths, and the SQLite
-`rebuild_comment_votes_type_constraint` raw SQL). Those re-creations now
-use the same RESTRICT policy so a rollback/re-run can never silently
+Several older migrations drop and re-create FKs inside driver-specific
+branches: the MariaDB down-paths of `add_indexes_to_posts_table`,
+`add_unique_index_to_post_votes_table`, `add_indices_to_post_saves_table`
+and `add_unique_user_reportable_index_to_reports_table`, plus the raw-SQL
+SQLite `rebuild_comment_votes_type_constraint`. Those re-creations now use
+the same RESTRICT policy so a rollback/re-run can never silently
 reintroduce a cascade.
 
 ## STAGING RESET REQUIRED
@@ -75,7 +76,7 @@ project is staging-only, no production data): editing an already-executed
 migration does not alter an existing staging database. After merging,
 recreate staging:
 
-```
+```shell
 php artisan migrate:fresh --seed --force
 ```
 

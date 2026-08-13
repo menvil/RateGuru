@@ -172,12 +172,25 @@ it('refuses to hard-delete a comment with votes, keeping the vote', function () 
     expect(CommentVote::query()->count())->toBe(1);
 });
 
-it('refuses to delete a rating group once votes or author answers reference it', function () {
+it('refuses to delete a rating group once votes reference it', function () {
     $vote = RatingVote::factory()->create();
 
     expect(fn () => rawDelete('rating_groups', $vote->rating_group_id))->toThrow(QueryException::class);
 
     expect(RatingVote::find($vote->id))->not->toBeNull();
+});
+
+it('refuses to delete a rating group once author answers reference it', function () {
+    $post = Post::factory()->published()->create();
+    $option = RatingOption::factory()->create();
+    $answer = $post->authorAnswers()->create([
+        'rating_group_id' => $option->rating_group_id,
+        'rating_option_id' => $option->id,
+    ]);
+
+    expect(fn () => rawDelete('rating_groups', $option->rating_group_id))->toThrow(QueryException::class);
+
+    expect($answer->fresh())->not->toBeNull();
 });
 
 /*
