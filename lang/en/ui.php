@@ -81,6 +81,8 @@ return [
         'hide' => 'Hide',
         'delete' => 'Delete',
         'view_more' => 'View more comments',
+        'tombstone_deleted' => '[comment deleted]',
+        'tombstone_hidden' => '[comment removed by moderator]',
     ],
     'share' => [
         'title' => 'Share',

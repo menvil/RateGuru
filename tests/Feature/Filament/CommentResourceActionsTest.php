@@ -85,28 +85,17 @@ it('shows the restore action only for hidden comments', function () {
         ->assertTableActionHidden('restore', $visible);
 });
 
-it('allows admin to delete a comment via the delete table action', function () {
+it('exposes no delete action in the moderation table, not even to admins', function () {
+    // PR-D: comment deletion is owner-only authored-content lifecycle;
+    // moderation acts through hide/restore. The generic destructive-looking
+    // Delete action was removed from the table entirely.
     $admin = User::factory()->admin()->create();
-    $post = Post::factory()->published()->create(['comments_count' => 1]);
-    $comment = Comment::factory()->for($post)->create([
-        'status' => CommentStatus::Visible,
-    ]);
+    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
 
     $this->actingAs($admin);
 
     Livewire::test(ListComments::class)
-        ->callTableAction('delete', $comment);
+        ->assertTableActionDoesNotExist('delete');
 
-    $this->assertSoftDeleted('comments', ['id' => $comment->id]);
-    expect($post->fresh()->comments_count)->toBe(0);
-});
-
-it('hides the delete action from moderators', function () {
-    $moderator = User::factory()->moderator()->create();
-    $comment = Comment::factory()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListComments::class)
-        ->assertTableActionHidden('delete', $comment);
+    expect($comment->fresh()->trashed())->toBeFalse();
 });

@@ -1,3 +1,18 @@
+@if($isTombstone)
+    {{-- Structural tombstone: a removed parent that still anchors surviving
+         replies. Renders only a neutral placeholder — no body, identity,
+         avatar, votes or actions may reach the HTML in any form. --}}
+    <article
+        id="comment-{{ $comment->id }}"
+        data-testid="comment-tombstone"
+        class="grid grid-cols-[32px_minmax(0,1fr)] gap-2.5 text-[13px]"
+    >
+        <div aria-hidden="true"></div>
+        <p class="italic leading-5 text-rg-muted">
+            {{ $comment->isAuthorDeleted() ? __('ui.comments.tombstone_deleted') : __('ui.comments.tombstone_hidden') }}
+        </p>
+    </article>
+@else
 <article
     id="comment-{{ $comment->id }}"
     data-testid="comment-item"
@@ -135,3 +150,4 @@
         </div>
     </div>
 </article>
+@endif

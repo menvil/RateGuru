@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Comments\Tables;
 
-use App\Actions\Comments\DeleteCommentAction;
 use App\Actions\Comments\HideCommentAction;
 use App\Actions\Comments\RestoreCommentAction;
 use App\Enums\CommentStatus;
@@ -14,13 +13,19 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class CommentsTable
 {
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('post'))
+            // withTrashed: author-deleted comments stay reviewable as
+            // moderation/audit history (body visible to authorized staff);
+            // they are labeled below and expose no actions at all.
+            ->modifyQueryUsing(fn (Builder $query) => $query
+                ->withoutGlobalScope(SoftDeletingScope::class)
+                ->with('post'))
             ->columns([
                 TextColumn::make('body')
                     ->label('Comment')
@@ -51,20 +56,32 @@ class CommentsTable
                     ->sortable()
                     ->badge()
                     ->color(fn (int $state): string => $state > 0 ? 'danger' : 'gray'),
-                TextColumn::make('status')
-                    ->label('Status')
+                // Derived lifecycle state, not the raw enum: author deletion
+                // (deleted_at) and moderation hide (status) are orthogonal,
+                // and an author-deleted row must read as exactly that even
+                // if it was hidden first.
+                TextColumn::make('lifecycle_state')
+                    ->label('State')
                     ->badge()
-                    ->sortable()
-                    ->color(fn (CommentStatus $state): string => match ($state) {
-                        CommentStatus::Visible => 'success',
-                        CommentStatus::Hidden => 'danger',
+                    ->state(fn (Comment $record): string => match (true) {
+                        $record->isAuthorDeleted() => 'Deleted by author',
+                        $record->isModeratorHidden() => 'Hidden by moderation',
+                        default => 'Visible',
+                    })
+                    ->color(fn (string $state): string => match ($state) {
+                        'Hidden by moderation' => 'danger',
+                        'Deleted by author' => 'gray',
+                        default => 'success',
                     }),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
                 Filter::make('hidden')
                     ->label('Hidden')
-                    ->query(fn (Builder $query) => $query->where('status', CommentStatus::Hidden)),
+                    ->query(fn (Builder $query) => $query->whereNull('deleted_at')->where('status', CommentStatus::Hidden)),
+                Filter::make('author_deleted')
+                    ->label('Author deleted')
+                    ->query(fn (Builder $query) => $query->whereNotNull('deleted_at')),
                 Filter::make('reported')
                     ->label('Reported')
                     ->query(fn (Builder $query) => $query->where('reports_count', '>', 0)),
@@ -110,22 +127,11 @@ class CommentsTable
                             $data['reason'] ?? null,
                         );
                     }),
-                Action::make('delete')
-                    ->label('Delete')
-                    ->icon('heroicon-o-trash')
-                    ->color('danger')
-                    // Deliberate UI scoping: in the moderation table only
-                    // admins delete; moderators use hide/restore. Encoded as
-                    // CommentPolicy::deleteInModeration so visibility follows
-                    // the same can() source of truth as the other actions.
-                    ->visible(fn (Comment $record): bool => auth()->user()?->can('deleteInModeration', $record) ?? false)
-                    ->requiresConfirmation()
-                    ->action(function (Comment $record): void {
-                        app(DeleteCommentAction::class)->handle(
-                            auth()->user(),
-                            $record,
-                        );
-                    }),
+                // No delete action here on purpose: comment deletion is an
+                // authored-content decision that belongs to the author alone
+                // (CommentPolicy::delete is owner-only). Moderation acts
+                // through hide/restore; permanent moderation purge belongs
+                // to a later retention policy.
             ]);
     }
 }

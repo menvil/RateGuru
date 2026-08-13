@@ -74,6 +74,27 @@ final class AddCommentAction
         }
 
         $comment = DB::transaction(function () use ($user, $post, $body, $parent) {
+            // The pre-transaction parent checks above are only a fast path:
+            // the parent may be deleted or hidden between validation and
+            // insert. Re-read it under lock and revalidate every reply-target
+            // condition (same post, top-level, not author-deleted, Visible)
+            // so a reply can never be created beneath a parent that became a
+            // tombstone during this request — the losing side of that race
+            // must fail, not silently attach to removed content.
+            if ($parent !== null) {
+                $lockedParent = Comment::query()
+                    ->whereKey($parent->id)
+                    ->where('post_id', $post->id)
+                    ->whereNull('parent_id')
+                    ->where('status', CommentStatus::Visible)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($lockedParent === null) {
+                    throw CannotCommentException::becauseBodyIsInvalid('Reply target is unavailable.');
+                }
+            }
+
             $comment = Comment::create([
                 'user_id' => $user->id,
                 'post_id' => $post->id,
