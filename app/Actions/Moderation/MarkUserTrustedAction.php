@@ -8,6 +8,7 @@ use App\Enums\UserStatus;
 use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 final class MarkUserTrustedAction
 {
@@ -32,9 +33,28 @@ final class MarkUserTrustedAction
         }
 
         DB::transaction(function () use ($admin, $target, $reason) {
-            $locked = $target->newQuery()->lockForUpdate()->find($target->getKey());
+            // Same deterministic ascending-id pair lock as the lifecycle
+            // sanctions: the actor is re-authorized on its fresh row so a
+            // just-sanctioned admin cannot finish a stale trust promotion.
+            $lockedPair = User::query()
+                ->whereIn('id', [$admin->getKey(), $target->getKey()])
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
 
-            if ($locked === null || $locked->role !== UserRole::User) {
+            $lockedActor = $lockedPair->get($admin->getKey());
+            $locked = $lockedPair->get($target->getKey());
+
+            if ($lockedActor === null || $locked === null) {
+                throw CannotModerateUserException::becauseUserIsNotAllowed();
+            }
+
+            if (! Gate::forUser($lockedActor)->allows('markTrusted', $locked)) {
+                throw CannotModerateUserException::becauseUserIsNotAllowed();
+            }
+
+            if ($locked->role !== UserRole::User) {
                 throw CannotModerateUserException::becauseTargetIsProtected();
             }
 
@@ -57,7 +77,7 @@ final class MarkUserTrustedAction
             }
 
             $this->createModerationLog->handle(
-                moderator: $admin,
+                moderator: $lockedActor,
                 action: ModerationActionType::MarkUserTrusted,
                 target: $locked,
                 reason: $reason,

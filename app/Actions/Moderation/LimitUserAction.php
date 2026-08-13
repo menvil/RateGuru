@@ -8,12 +8,12 @@ use App\Enums\UserStatus;
 use App\Models\User;
 
 /**
- * Indefinite, manually reversible participation ban. Non-destructive: only
- * users.status changes and one ModerationLog is written — identity,
- * content, votes, follows, saves and notifications all remain
+ * Manually reversible participation restriction — the mildest living
+ * sanction. Only an Active account can be limited; escalation from
+ * Limited goes to Ban/Shadowban, never the other way around
  * (docs/architecture/user-lifecycle.md).
  */
-final class BanUserAction
+final class LimitUserAction
 {
     use ExecutesUserStatusTransition;
 
@@ -27,10 +27,10 @@ final class BanUserAction
             admin: $admin,
             target: $target,
             reason: $reason,
-            ability: 'ban',
-            validSourceStatuses: [UserStatus::Active, UserStatus::Limited, UserStatus::Shadowbanned],
-            toStatus: UserStatus::Banned,
-            logAction: ModerationActionType::BanUser,
+            ability: 'limit',
+            validSourceStatuses: [UserStatus::Active],
+            toStatus: UserStatus::Limited,
+            logAction: ModerationActionType::LimitUser,
         );
     }
 }
