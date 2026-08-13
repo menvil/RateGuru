@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Moderation\BanUserAction;
+use App\Actions\Moderation\LimitUserAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Moderation\RestoreUserAccessAction;
 use App\Actions\Moderation\ShadowbanUserAction;
@@ -49,6 +50,8 @@ it('rejects every moderation action invoked directly against a tombstone', funct
     $tombstone = User::factory()->tombstoned()->create();
 
     expect(fn () => app(BanUserAction::class)->handle($admin, $tombstone))
+        ->toThrow(CannotModerateUserException::class);
+    expect(fn () => app(LimitUserAction::class)->handle($admin, $tombstone))
         ->toThrow(CannotModerateUserException::class);
     expect(fn () => app(RestoreUserAccessAction::class)->handle($admin, $tombstone))
         ->toThrow(CannotModerateUserException::class);

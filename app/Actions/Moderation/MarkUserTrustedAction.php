@@ -2,16 +2,18 @@
 
 namespace App\Actions\Moderation;
 
+use App\Actions\Moderation\Concerns\LocksAndAuthorizesModerationPair;
 use App\Enums\ModerationActionType;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Gate;
 
 final class MarkUserTrustedAction
 {
+    use LocksAndAuthorizesModerationPair;
+
     /**
      * Trust level at which a user is treated as "trusted" by the rest of
      * the system (see CreatePostAction). Marking promotes the user to
@@ -33,26 +35,10 @@ final class MarkUserTrustedAction
         }
 
         DB::transaction(function () use ($admin, $target, $reason) {
-            // Same deterministic ascending-id pair lock as the lifecycle
-            // sanctions: the actor is re-authorized on its fresh row so a
-            // just-sanctioned admin cannot finish a stale trust promotion.
-            $lockedPair = User::query()
-                ->whereIn('id', [$admin->getKey(), $target->getKey()])
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
-
-            $lockedActor = $lockedPair->get($admin->getKey());
-            $locked = $lockedPair->get($target->getKey());
-
-            if ($lockedActor === null || $locked === null) {
-                throw CannotModerateUserException::becauseUserIsNotAllowed();
-            }
-
-            if (! Gate::forUser($lockedActor)->allows('markTrusted', $locked)) {
-                throw CannotModerateUserException::becauseUserIsNotAllowed();
-            }
+            // Same deterministic pair lock as the lifecycle sanctions: the
+            // actor is re-authorized on its fresh row so a just-sanctioned
+            // admin cannot finish a stale trust promotion.
+            [$lockedActor, $locked] = $this->lockAndAuthorizePair($admin, $target, 'markTrusted');
 
             if ($locked->role !== UserRole::User) {
                 throw CannotModerateUserException::becauseTargetIsProtected();

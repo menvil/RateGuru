@@ -195,7 +195,7 @@ target status, and writes exactly one ModerationLog with the authoritative
 request from a just-sanctioned admin fails even though its caller object
 still says Active. Invalid or same-state transitions throw and log nothing.
 
-```
+```text
 Active                           --limit-->        Limited
 Active | Limited | Shadowbanned  --ban-->          Banned
 Active | Limited                 --shadowban-->    Shadowbanned
@@ -226,7 +226,7 @@ writes inside anonymization, the shared executor and admin bootstrap.
 
 The uniform deterministic order for every lifecycle-dependent write:
 
-```
+```text
 Actor User -> other User rows (ascending id) -> Post -> Comment /
 RatingGroup / child rows -> edges (votes, saves, follows, reports)
 ```

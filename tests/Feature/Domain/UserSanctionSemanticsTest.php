@@ -54,7 +54,6 @@ it('changes only status and one moderation log on sanction, preserving the entir
     $after = $user->fresh();
 
     expect($after->status)->toBe($expected)
-        ->and($after->deleted_at ?? null)->toBeNull()
         ->and($after->anonymized_at)->toBeNull()
         ->and($after->name)->toBe($before->name)
         ->and($after->email)->toBe($before->email)

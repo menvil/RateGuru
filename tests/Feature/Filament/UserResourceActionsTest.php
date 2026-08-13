@@ -94,6 +94,25 @@ it('allows admin to restore access via the restore table action', function () {
     ]);
 });
 
+it('allows admin to restore a limited user via the restore table action', function () {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->limited()->create();
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListUsers::class)
+        ->callTableAction('restoreAccess', $target, data: ['reason' => 'Limit lifted.']);
+
+    expect($target->fresh()->status)->toBe(UserStatus::Active);
+
+    $this->assertDatabaseHas('moderation_logs', [
+        'moderator_id' => $admin->id,
+        'action' => ModerationActionType::RestoreUserAccess->value,
+        'target_type' => User::class,
+        'target_id' => $target->id,
+    ]);
+});
+
 it('allows admin to restore a shadowbanned user via the restore table action', function () {
     $admin = User::factory()->admin()->create();
     $target = User::factory()->create(['status' => UserStatus::Shadowbanned]);

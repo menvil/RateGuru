@@ -17,21 +17,18 @@ use App\Models\User;
  * the authoritative fresh from_status.
  */
 
-function sanctionAction(UserStatus $to): string
-{
-    return match ($to) {
-        UserStatus::Limited => LimitUserAction::class,
-        UserStatus::Banned => BanUserAction::class,
-        UserStatus::Shadowbanned => ShadowbanUserAction::class,
-        UserStatus::Active => RestoreUserAccessAction::class,
-    };
-}
+$sanctionAction = fn (UserStatus $to): string => match ($to) {
+    UserStatus::Limited => LimitUserAction::class,
+    UserStatus::Banned => BanUserAction::class,
+    UserStatus::Shadowbanned => ShadowbanUserAction::class,
+    UserStatus::Active => RestoreUserAccessAction::class,
+};
 
-it('permits every allowed transition and logs exactly once with the fresh from_status', function (UserStatus $from, UserStatus $to) {
+it('permits every allowed transition and logs exactly once with the fresh from_status', function (UserStatus $from, UserStatus $to) use ($sanctionAction) {
     $admin = User::factory()->admin()->create();
     $target = User::factory()->create(['status' => $from]);
 
-    app(sanctionAction($to))->handle($admin, $target);
+    app($sanctionAction($to))->handle($admin, $target);
 
     expect($target->fresh()->status)->toBe($to)
         ->and(ModerationLog::query()->count())->toBe(1);
@@ -52,11 +49,11 @@ it('permits every allowed transition and logs exactly once with the fresh from_s
     'banned -> active' => [UserStatus::Banned, UserStatus::Active],
 ]);
 
-it('rejects every forbidden transition and writes no log', function (UserStatus $from, UserStatus $to) {
+it('rejects every forbidden transition and writes no log', function (UserStatus $from, UserStatus $to) use ($sanctionAction) {
     $admin = User::factory()->admin()->create();
     $target = User::factory()->create(['status' => $from]);
 
-    expect(fn () => app(sanctionAction($to))->handle($admin, $target))
+    expect(fn () => app($sanctionAction($to))->handle($admin, $target))
         ->toThrow(CannotModerateUserException::class);
 
     expect($target->fresh()->status)->toBe($from)
@@ -86,9 +83,10 @@ it('rejects a stale-admin sanction after the admin was sanctioned', function () 
     $staleAdmin = User::factory()->admin()->create();
     $target = User::factory()->create();
 
-    // Sanction the admin behind the stale instance's back. Admins cannot
-    // sanction admins, so demote first through the DB (schema-drift shape)
-    // to keep the scenario reachable.
+    // Sanction the admin behind the stale instance's back via a direct DB
+    // status write: admins cannot sanction admins through the actions, but
+    // the guard must hold regardless of how the actor row lost Active. The
+    // target is a regular user, so the scenario stays reachable.
     User::query()->whereKey($staleAdmin->id)->update(['status' => UserStatus::Banned]);
 
     expect($staleAdmin->status)->toBe(UserStatus::Active);

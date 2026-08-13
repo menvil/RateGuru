@@ -7,15 +7,15 @@ use App\Enums\UserStatus;
 use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Gate;
 
 /**
  * Shared executor for every user lifecycle sanction/restore
  * (docs/architecture/user-lifecycle.md). One transaction:
  *
- * 1. Lock BOTH the acting admin and the target, acquired in ascending
- *    primary-key order — the deterministic order every code path locking
- *    two user rows uses, so opposite-order deadlocks cannot occur.
+ * 1. Lock BOTH the acting admin and the target, one row at a time in
+ *    ascending primary-key order (LocksUsersInOrder) — formally the same
+ *    global acquisition order for every code path locking user rows, so
+ *    opposite-order deadlocks cannot occur.
  * 2. Re-authorize on the fresh locked rows (Gate::forUser): a stale
  *    request from an admin who was just sanctioned or demoted must fail
  *    even though its caller object still says Active Admin.
@@ -26,6 +26,8 @@ use Illuminate\Support\Facades\Gate;
  */
 trait ExecutesUserStatusTransition
 {
+    use LocksAndAuthorizesModerationPair;
+
     /** @param list<UserStatus> $validSourceStatuses */
     private function executeTransition(
         User $admin,
@@ -42,23 +44,7 @@ trait ExecutesUserStatusTransition
         }
 
         DB::transaction(function () use ($admin, $target, $reason, $ability, $validSourceStatuses, $toStatus, $logAction): void {
-            $locked = User::query()
-                ->whereIn('id', [$admin->getKey(), $target->getKey()])
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
-
-            $lockedActor = $locked->get($admin->getKey());
-            $lockedTarget = $locked->get($target->getKey());
-
-            if ($lockedActor === null || $lockedTarget === null) {
-                throw CannotModerateUserException::becauseUserIsNotAllowed();
-            }
-
-            if (! Gate::forUser($lockedActor)->allows($ability, $lockedTarget)) {
-                throw CannotModerateUserException::becauseUserIsNotAllowed();
-            }
+            [$lockedActor, $lockedTarget] = $this->lockAndAuthorizePair($admin, $target, $ability);
 
             if (! in_array($lockedTarget->status, $validSourceStatuses, true)) {
                 throw CannotModerateUserException::becauseTargetStatusIsInvalid();

@@ -5,6 +5,7 @@ namespace App\Actions\Follows;
 use App\Exceptions\Follows\CannotFollowAuthorException;
 use App\Exceptions\Follows\CannotFollowSelfException;
 use App\Exceptions\Follows\FollowFeatureDisabledException;
+use App\Models\Concerns\LocksUsersInOrder;
 use App\Models\Follow;
 use App\Models\User;
 use App\Support\Observability\DomainLogger;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 final class FollowAuthorAction
 {
+    use LocksUsersInOrder;
+
     public function __construct(
         private readonly ProjectSettingsManager $settings,
         private readonly DomainLogger $logger,
@@ -43,17 +46,13 @@ final class FollowAuthorAction
         }
 
         DB::transaction(function () use ($follower, $author): void {
-            // Two-user operation: lock both rows in ascending primary-key
-            // order (the uniform deterministic order for user pairs, see
-            // docs/architecture/user-lifecycle.md), then identify
-            // follower/target — never lock "follower first" or "author
-            // first", which would deadlock against the opposite pairing.
-            $locked = User::query()
-                ->whereIn('id', [$follower->id, $author->id])
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
+            // Two-user operation: lock both rows one at a time in
+            // ascending primary-key order (the uniform deterministic order
+            // for user pairs, see docs/architecture/user-lifecycle.md),
+            // then identify follower/target — never lock "follower first"
+            // or "author first", which would deadlock against the
+            // opposite pairing.
+            $locked = $this->lockUsersInOrder((int) $follower->id, (int) $author->id);
 
             $lockedFollower = $locked->get($follower->id);
             $lockedAuthor = $locked->get($author->id);
