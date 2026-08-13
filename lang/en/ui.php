@@ -67,7 +67,7 @@ return [
         'empty_title' => 'No recently deleted posts',
         'empty_description' => 'Posts you delete will appear here while they can still be restored.',
         'deleted_on' => 'Deleted on :date',
-        'days_left' => '{0}Restore window closes today|{1}:count day left (until :date)|[2,*]:count days left (until :date)',
+        'days_left' => '{0}Less than a day left (until :date)|{1}:count day left (until :date)|[2,*]:count days left (until :date)',
         'expired' => 'Restore window expired',
         'restore' => 'Restore',
         'restored' => '":title" has been restored.',

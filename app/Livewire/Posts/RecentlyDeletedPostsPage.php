@@ -38,6 +38,9 @@ final class RecentlyDeletedPostsPage extends Component
 
         try {
             $restoreAction->handle(auth()->user(), $post);
+            // Restoring may empty the current page; land back on a page
+            // that still exists.
+            $this->resetPage();
             $this->statusMessage = __('ui.recently_deleted.restored', ['title' => $post->title]);
         } catch (CannotRestoreDeletedPostException $e) {
             $this->statusMessage = $e->getMessage();

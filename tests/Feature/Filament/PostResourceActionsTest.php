@@ -162,10 +162,27 @@ it('shows author-deleted posts labeled and with no moderation actions', function
     Livewire::test(ListPosts::class)
         ->filterTable('author_deleted')
         ->assertCanSeeTableRecords([$post])
+        ->assertSee('Deleted by author')
         ->assertTableActionHidden('approve', $post)
         ->assertTableActionHidden('reject', $post)
         ->assertTableActionHidden('hide', $post)
         ->assertTableActionHidden('restore', $post);
+});
+
+it('excludes malformed legacy soft-deleted rows from the audit listing', function () {
+    $admin = User::factory()->admin()->create();
+
+    $live = Post::factory()->pending()->create();
+
+    // Legacy shape: soft-deleted without the Deleted status transition.
+    $legacy = Post::factory()->pending()->create();
+    Post::query()->whereKey($legacy->id)->update(['deleted_at' => now()]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->assertCanSeeTableRecords([$live])
+        ->assertCanNotSeeTableRecords([Post::withTrashed()->findOrFail($legacy->id)]);
 });
 
 it('never offers moderation restore as author restore on deleted rows', function () {

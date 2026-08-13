@@ -36,7 +36,7 @@ final class RestoreDeletedPostAction
                 throw CannotRestoreDeletedPostException::becausePostIsNotAuthorDeleted();
             }
 
-            if (! $user->canManageContent() || (int) $locked->user_id !== (int) $user->id) {
+            if (! $user->can('restoreDeleted', $locked)) {
                 throw CannotRestoreDeletedPostException::becauseUserIsNotAllowed();
             }
 

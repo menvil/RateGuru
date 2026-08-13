@@ -25,11 +25,16 @@ class PostsTable
     {
         return $table
             // withTrashed: author-deleted posts stay reviewable as audit
-            // history during retention. They are labeled below, expose only
-            // the derived state, and no moderation action matches their
-            // status — author restore is never available in admin.
+            // history during retention. Only the well-formed author-deleted
+            // shape (trashed + status Deleted) is listed among trashed rows
+            // — a malformed legacy soft-deleted row would otherwise render
+            // with status-matched moderation actions. Author restore is
+            // never available in admin.
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->withoutGlobalScope(SoftDeletingScope::class)
+                ->where(fn (Builder $q) => $q
+                    ->whereNull('deleted_at')
+                    ->orWhere('status', PostStatus::Deleted))
                 ->with(['user', 'imageAsset']))
             ->columns([
                 ImageColumn::make('public_image_url')

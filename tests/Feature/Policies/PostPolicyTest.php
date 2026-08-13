@@ -111,6 +111,19 @@ it('restricts author deletion to the post owner', function () {
     expect($other->can('deleteFromFeed', $post))->toBeFalse();
 });
 
+it('restricts author restore to the post owner', function () {
+    $admin = User::factory()->admin()->create();
+    $moderator = User::factory()->moderator()->create();
+    $owner = User::factory()->create();
+    $other = User::factory()->create();
+    $post = Post::factory()->authorDeleted()->for($owner)->create();
+
+    expect($owner->can('restoreDeleted', $post))->toBeTrue();
+    expect($admin->can('restoreDeleted', $post))->toBeFalse();
+    expect($moderator->can('restoreDeleted', $post))->toBeFalse();
+    expect($other->can('restoreDeleted', $post))->toBeFalse();
+});
+
 it('does not let a tombstoned owner author-delete content', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->for($owner)->published()->create();

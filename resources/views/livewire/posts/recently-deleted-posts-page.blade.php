@@ -3,7 +3,7 @@
     <p class="mb-6 text-sm text-rg-muted">{{ __('ui.recently_deleted.description', ['days' => $retentionDays]) }}</p>
 
     @if($statusMessage)
-        <div data-testid="recently-deleted-status" class="mb-4 rounded-lg border border-rg-border bg-rg-surface px-4 py-3 text-sm text-rg-text">
+        <div data-testid="recently-deleted-status" role="status" aria-live="polite" class="mb-4 rounded-lg border border-rg-border bg-rg-surface px-4 py-3 text-sm text-rg-text">
             {{ $statusMessage }}
         </div>
     @endif

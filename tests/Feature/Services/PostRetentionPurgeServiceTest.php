@@ -202,6 +202,15 @@ it('reports already_gone for a missing post id', function () {
     expect(app(PostRetentionPurgeService::class)->purge(999999))->toBe(PostPurgeOutcome::AlreadyGone);
 });
 
+it('rejects an explicit negative retention override', function () {
+    [$post] = purgeableGraph();
+
+    expect(fn () => app(PostRetentionPurgeService::class)->purge($post->id, olderThanDays: -1))
+        ->toThrow(InvalidArgumentException::class);
+
+    expect(Post::withTrashed()->find($post->id))->not->toBeNull();
+});
+
 it('keeps a shared media asset active when one referencing post is purged', function () {
     $asset = MediaAsset::factory()->postImage()->create();
 

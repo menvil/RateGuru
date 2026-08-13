@@ -89,6 +89,33 @@ it('cannot restore a foreign post even by id', function () {
     expect(Post::withTrashed()->findOrFail($post->id)->trashed())->toBeTrue();
 });
 
+it('resets pagination after restoring the sole post on a later page', function () {
+    $owner = User::factory()->create();
+
+    $posts = Post::factory()->published()->for($owner)->count(21)->create();
+    foreach ($posts as $post) {
+        app(DeletePostAction::class)->handle($owner, $post);
+    }
+
+    // Oldest deletion sorts last: the sole occupant of page 2.
+    $lastPagePost = Post::onlyTrashed()
+        ->where('user_id', $owner->id)
+        ->orderByDesc('deleted_at')
+        ->orderByDesc('id')
+        ->get()
+        ->last();
+
+    $this->actingAs($owner);
+
+    Livewire::test(RecentlyDeletedPostsPage::class)
+        ->call('gotoPage', 2)
+        ->call('restore', $lastPagePost->id)
+        ->assertSet('paginators.page', 1)
+        ->assertSet('statusMessage', __('ui.recently_deleted.restored', ['title' => $lastPagePost->title]));
+
+    expect(Post::findOrFail($lastPagePost->id)->trashed())->toBeFalse();
+});
+
 it('renders no public link to the deleted post', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();

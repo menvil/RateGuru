@@ -17,6 +17,7 @@ use App\Services\Media\MediaLifecycleService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 /**
  * The single sanctioned boundary allowed to permanently remove an
@@ -172,7 +173,10 @@ final class PostRetentionPurgeService
             ->where('target_id', $post->id)
             ->delete();
 
-        $imageAssetId = $post->imageAsset?->id;
+        // Read the FK attribute directly: no lazy relation load, and no
+        // soft-delete scope on the asset deciding whether we see the id.
+        $rawAssetId = $post->getAttribute('image_asset_id');
+        $imageAssetId = $rawAssetId === null ? null : (int) $rawAssetId;
 
         $post->forceDelete();
 
@@ -185,10 +189,20 @@ final class PostRetentionPurgeService
         }
     }
 
+    /**
+     * The config value is already clamped non-negative at the config layer
+     * and posts:purge validates --older-than, so only an explicit argument
+     * from another caller can trigger this — same boundary contract as
+     * MediaLifecycleService::resolveGraceDays().
+     */
     private function cutoff(?int $olderThanDays): Carbon
     {
         $days = $olderThanDays ?? (int) config('posts.author_delete_retention_days');
 
-        return now()->subDays(max(0, $days));
+        if ($days < 0) {
+            throw new InvalidArgumentException("olderThanDays must not be negative, got [{$days}].");
+        }
+
+        return now()->subDays($days);
     }
 }

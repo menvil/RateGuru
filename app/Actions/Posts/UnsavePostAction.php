@@ -25,15 +25,15 @@ final class UnsavePostAction
         }
 
         DB::transaction(function () use ($user, $post): void {
-            // Save rows on an author-deleted post are retained state until
-            // the final purge — no save/unsave mutation may touch them
-            // during retention, even through a stale instance.
+            // Save rows on a post that is no longer live (author-deleted or
+            // moderation-hidden) are retained state — no save/unsave
+            // mutation may touch them, even through a stale instance.
             $lockedPost = Post::withTrashed()
                 ->whereKey($post->id)
                 ->lockForUpdate()
                 ->first();
 
-            if ($lockedPost === null || $lockedPost->trashed()) {
+            if ($lockedPost === null || ! $lockedPost->canBeSaved()) {
                 throw CannotSavePostException::postNotViewable();
             }
 

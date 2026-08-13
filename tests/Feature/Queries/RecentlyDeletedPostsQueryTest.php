@@ -1,10 +1,10 @@
 <?php
 
 use App\Actions\Posts\DeletePostAction;
-use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\User;
 use App\Queries\Posts\RecentlyDeletedPostsQuery;
+use Illuminate\Pagination\Paginator;
 
 it('returns only the owners well-formed author-deleted posts, newest deletion first', function () {
     $owner = User::factory()->create();
@@ -64,14 +64,10 @@ it('keeps equally-timed deletions stable across pages', function () {
 
     $query = app(RecentlyDeletedPostsQuery::class);
     $pageOne = $query->forOwner($owner, perPage: 2);
-    $pageTwo = Post::onlyTrashed()
-        ->where('user_id', $owner->id)
-        ->where('status', PostStatus::Deleted)
-        ->orderByDesc('deleted_at')
-        ->orderByDesc('id')
-        ->forPage(2, 2)
-        ->pluck('id');
+
+    Paginator::currentPageResolver(fn (): int => 2);
+    $pageTwo = $query->forOwner($owner, perPage: 2);
 
     expect($pageOne->pluck('id')->all())->toBe($expected->slice(0, 2)->values()->all())
-        ->and($pageTwo->all())->toBe($expected->slice(2, 2)->values()->all());
+        ->and($pageTwo->pluck('id')->all())->toBe($expected->slice(2, 2)->values()->all());
 });

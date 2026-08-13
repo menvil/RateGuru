@@ -217,6 +217,21 @@ it('rejects a save through a stale instance after moderation hide', function () 
     expect(PostSave::query()->where('post_id', $stale->id)->count())->toBe(0);
 });
 
+it('rejects an unsave mutation through a stale instance after moderation hide', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+
+    [, $stale] = stalePublishedPost();
+    $saver = User::factory()->create();
+    PostSave::create(['user_id' => $saver->id, 'post_id' => $stale->id]);
+
+    moderatorHideFresh($stale);
+
+    expect(fn () => app(UnsavePostAction::class)->handle($saver, $stale))
+        ->toThrow(CannotSavePostException::class);
+
+    expect(PostSave::query()->where('post_id', $stale->id)->count())->toBe(1);
+});
+
 it('rejects an unsave mutation against a deleted post, keeping the row for purge', function () {
     ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
 
