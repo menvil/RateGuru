@@ -11,6 +11,7 @@ use App\Models\PostVote;
 use App\Models\RatingVote;
 use App\Models\Report;
 use App\Services\Media\MediaLifecycleService;
+use RuntimeException;
 
 /**
  * The single physical deletion boundary for a post and its graph
@@ -22,7 +23,8 @@ use App\Services\Media\MediaLifecycleService;
  *
  * Must run inside the caller's transaction with the post row already
  * locked. Explicit FK-safe order (PR-C RESTRICT graph, leaves first):
- * comment votes → comment-targeted reports → replies → root comments →
+ * comment votes → comment-targeted reports → comments strictly
+ * leaves-first (depth-agnostic) →
  * post votes / rating votes / saves / author answers / tag pivot →
  * post-targeted reports → the post row → DB-only media release (shared
  * assets stay active, final references soft-delete; physical files always
@@ -53,16 +55,7 @@ final class PostGraphDeletionService
                 ->whereIn('target_id', $commentIds)
                 ->delete();
 
-            // Replies before roots: the self-referencing comments FK
-            // restricts deleting a parent that still has children.
-            Comment::withTrashed()
-                ->where('post_id', $post->id)
-                ->whereNotNull('parent_id')
-                ->forceDelete();
-
-            Comment::withTrashed()
-                ->where('post_id', $post->id)
-                ->forceDelete();
+            $this->deleteCommentsLeavesFirst($post);
         }
 
         PostVote::query()->where('post_id', $post->id)->delete();
@@ -92,6 +85,58 @@ final class PostGraphDeletionService
         // period — never here.
         if ($imageAssetId !== null) {
             $this->mediaLifecycle->releaseUnreferenced(collect([$imageAssetId]));
+        }
+    }
+
+    /**
+     * Strictly leaves-first comment deletion, agnostic of actual tree
+     * depth. The public product supports exactly one reply level, but this
+     * is the final physical deletion boundary and the self-referencing
+     * RESTRICT FK only guarantees referential integrity — not depth:
+     * malformed/legacy rows (old code, direct SQL, imports, maintenance)
+     * could nest arbitrarily, and they must never make a post permanently
+     * unpurgeable. Each pass bulk-deletes every current leaf (a comment of
+     * this post with no child row anywhere, trashed included), so the
+     * number of iterations equals the tree depth — one pass for the
+     * supported shape, never per-row queries.
+     *
+     * Fail-safe: rows remaining with no deletable leaf means a corrupted
+     * parent cycle. That is not repairable data — fail closed with an
+     * exception so the surrounding transaction rolls back the whole purge.
+     */
+    private function deleteCommentsLeavesFirst(Post $post): void
+    {
+        while (true) {
+            $remaining = Comment::withTrashed()
+                ->where('post_id', $post->id)
+                ->count();
+
+            if ($remaining === 0) {
+                return;
+            }
+
+            // A leaf is a comment no other row (trashed included, any post)
+            // references as parent. The subquery filters out NULLs, so
+            // NOT IN stays NULL-safe on every supported engine.
+            $leafIds = Comment::withTrashed()
+                ->where('post_id', $post->id)
+                ->whereNotIn('id', Comment::withTrashed()
+                    ->whereNotNull('parent_id')
+                    ->select('parent_id'))
+                ->pluck('id');
+
+            if ($leafIds->isEmpty()) {
+                // No content/PII in the message: ids only.
+                throw new RuntimeException(sprintf(
+                    'Cannot purge comment graph of post [%d]: %d rows remain but none is a leaf (corrupted parent cycle?). Rolling back.',
+                    $post->id,
+                    $remaining,
+                ));
+            }
+
+            foreach ($leafIds->chunk(500) as $chunk) {
+                Comment::withTrashed()->whereIn('id', $chunk)->forceDelete();
+            }
         }
     }
 }
