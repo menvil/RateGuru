@@ -7,6 +7,7 @@ use App\Actions\Follows\UnfollowAuthorAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Actions\Posts\DeletePostAction;
 use App\Actions\Posts\RestoreDeletedPostAction;
+use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Actions\Profile\UpdateUserIdentityAction;
 use App\Actions\Rating\VoteRatingOptionAction;
 use App\Actions\Reports\ReportContentAction;
@@ -194,6 +195,23 @@ it('rejects a profile identity mutation by a stale sanctioned owner', function (
         ->toThrow(CannotUpdateProfileException::class);
 
     expect($stale->fresh()->name)->toBe($originalName);
+});
+
+it('rejects a user-target report through a stale instance after the target self-deleted', function () {
+    $reporter = User::factory()->create();
+    $staleTarget = User::factory()->create();
+
+    // The tombstone commits behind the stale instance's back: the
+    // pre-check still sees a living target, only the locked pair re-read
+    // inside the transaction can catch it.
+    app(AnonymizeUserAccountAction::class)->execute(User::findOrFail($staleTarget->id));
+
+    expect($staleTarget->isTombstoned())->toBeFalse();
+
+    expect(fn () => app(ReportContentAction::class)->handle($reporter, $staleTarget, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class);
+
+    expect(Report::query()->count())->toBe(0);
 });
 
 it('still allows a sanctioned user to unfollow', function () {

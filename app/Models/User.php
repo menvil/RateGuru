@@ -121,6 +121,11 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
         return $this->status?->canAuthenticate() ?? false;
     }
 
+    public function canAccessPrivilegedPanel(): bool
+    {
+        return $this->status?->canAccessPrivilegedPanel() ?? false;
+    }
+
     /**
      * Irreversible deleted-account tombstone (see
      * docs/architecture/user-lifecycle.md). Not a capability — a state

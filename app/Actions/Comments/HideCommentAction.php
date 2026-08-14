@@ -8,12 +8,14 @@ use App\Enums\CommentStatus;
 use App\Enums\ModerationActionType;
 use App\Exceptions\Comments\CannotHideCommentException;
 use App\Models\Comment;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 final class HideCommentAction
 {
+    use LocksActorForWrite;
     use RefreshesPostCommentsCount;
 
     public function __construct(
@@ -31,6 +33,14 @@ final class HideCommentAction
         // concurrent hides cannot both pass an idempotency check and emit
         // duplicate moderation logs. Mirrors HidePostAction.
         DB::transaction(function () use ($user, $comment, $reason) {
+            // Lock order: Actor User -> Comment; the moderator instance may
+            // be stale, only the locked rows are authoritative.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! Gate::forUser($lockedActor)->allows('moderate-content')) {
+                throw CannotHideCommentException::becauseUserIsNotAllowed();
+            }
+
             $locked = $comment->newQuery()->lockForUpdate()->find($comment->getKey());
 
             if ($locked === null || $locked->status === CommentStatus::Hidden) {
@@ -45,7 +55,7 @@ final class HideCommentAction
             $this->refreshCommentsCount($post);
 
             $this->createModerationLog->handle(
-                moderator: $user,
+                moderator: $lockedActor,
                 action: ModerationActionType::HideComment,
                 target: $locked,
                 reason: $reason,

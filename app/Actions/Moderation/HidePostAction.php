@@ -5,6 +5,7 @@ namespace App\Actions\Moderation;
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Gate;
 
 final class HidePostAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly CreateModerationLogAction $createModerationLog,
     ) {}
@@ -26,10 +29,19 @@ final class HidePostAction
         // transaction with a row lock on the post so a concurrent moderation
         // cannot bypass the state guard between the check and the write.
         DB::transaction(function () use ($moderator, $post, $reason) {
+            // Lock order: Actor User -> Post. The moderator instance may be
+            // stale — a sanction can commit between the pre-check and this
+            // write; only the locked rows are authoritative.
+            $lockedActor = $this->lockActor($moderator);
+
             $locked = $post->newQuery()->lockForUpdate()->find($post->getKey());
 
             if ($locked === null || $locked->status !== PostStatus::Published) {
                 throw CannotModeratePostException::becausePostStatusIsInvalid();
+            }
+
+            if ($lockedActor === null || ! Gate::forUser($lockedActor)->allows('moderate-content')) {
+                throw CannotModeratePostException::becauseUserIsNotAllowed();
             }
 
             $fromStatus = $locked->status;
@@ -43,7 +55,7 @@ final class HidePostAction
             }
 
             $this->createModerationLog->handle(
-                moderator: $moderator,
+                moderator: $lockedActor,
                 action: ModerationActionType::HidePost,
                 target: $locked,
                 reason: $reason,

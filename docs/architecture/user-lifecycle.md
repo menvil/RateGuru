@@ -243,6 +243,18 @@ never "follower first", which would deadlock against the opposite pair.
 Cheap pre-checks on the caller's instance remain but are never
 authoritative.
 
+The same rule covers **content moderation as privileged participation**:
+`ModerationPolicy::moderateContent`, `PostPolicy`/`CommentPolicy`
+moderation abilities and `ReportPolicy` processing all require role AND
+lifecycle eligibility (`canAccessPrivilegedPanel`), and every content
+moderation write — Approve/Reject/Hide/Restore Post, Hide/Restore
+Comment, Resolve/Ignore Report — re-reads the acting moderator under lock
+inside its transaction (Actor User -> Post/Comment/Report) and
+re-authorizes on the fresh row, so a moderator sanctioned mid-request
+cannot finish a stale moderation write. User-target reports lock the
+reporter and the target user together in ascending id order, refusing a
+target that self-deleted into a tombstone mid-request.
+
 Shadowbanned is **not** viewer-dependent shadow visibility: it is a
 moderation-facing label with the same capability restrictions as
 Limited/Banned, and existing content remains publicly visible.
