@@ -24,6 +24,7 @@ class Comment extends Model
     {
         return [
             'status' => CommentStatus::class,
+            'moderation_removed_at' => 'datetime',
         ];
     }
 
@@ -71,6 +72,18 @@ class Comment extends Model
     public function isModeratorHidden(): bool
     {
         return ! $this->trashed() && $this->status === CommentStatus::Hidden;
+    }
+
+    /**
+     * Finalized moderation removal: Hidden + moderation_removed_at set.
+     * Deliberately trashed-agnostic — PR-D allows Hide -> author Delete,
+     * and a finalized row stays moderation evidence either way
+     * (docs/architecture/moderation-content-lifecycle.md).
+     */
+    public function isModerationRemovalFinalized(): bool
+    {
+        return $this->status === CommentStatus::Hidden
+            && $this->moderation_removed_at !== null;
     }
 
     /**
