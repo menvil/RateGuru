@@ -989,3 +989,13 @@ PR landed.
   diagnostics" above. No integrity/checksum scanner, no automatic repair of
   a missing master, no automatic orphan deletion, no generic queue
   dashboard.
+
+## Moderation content lifecycle (PR-G)
+
+Hide and Finalize never release media: the asset stays referenced and
+active with its physical files in place. Only the physical purge of a
+finalized (or author-retention-expired) post releases the reference via
+`releaseUnreferenced()` — shared assets stay active, a final reference
+soft-deletes, and physical files still wait for `media:purge` after
+`MEDIA_PURGE_GRACE_DAYS`. See
+[moderation-content-lifecycle.md](moderation-content-lifecycle.md).

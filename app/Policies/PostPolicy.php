@@ -76,6 +76,17 @@ class PostPolicy
             && (int) $post->user_id !== (int) $user->id;
     }
 
+    /**
+     * Finalizing an irreversible moderation removal is Active-Admin-only:
+     * moderators may hide/restore but never finalize
+     * (docs/architecture/moderation-content-lifecycle.md).
+     */
+    public function finalizeRemoval(User $user, Post $post): bool
+    {
+        return $user->isAdmin()
+            && $user->canAccessPrivilegedPanel();
+    }
+
     private function canModerate(User $user): bool
     {
         // Role AND lifecycle (PR-F): a sanctioned moderator/admin loses

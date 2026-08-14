@@ -43,6 +43,12 @@ final class RestoreCommentAction
                 throw CannotRestoreCommentException::becauseCommentStatusIsInvalid();
             }
 
+            // A finalized moderation removal never returns through the
+            // normal lifecycle.
+            if ($locked->moderation_removed_at !== null) {
+                throw CannotRestoreCommentException::becauseCommentStatusIsInvalid();
+            }
+
             if ($lockedActor === null || ! Gate::forUser($lockedActor)->allows('restore', $locked)) {
                 throw CannotRestoreCommentException::becauseUserIsNotAllowed();
             }

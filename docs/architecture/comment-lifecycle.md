@@ -13,10 +13,11 @@ stay distinguishable in storage, behavior, UI and audit semantics:
 | Body retained | internally, until a future retention policy | in DB for moderation/audit |
 
 There is deliberately **no admin delete**: moderation acts through
-hide/restore, and the Filament comments table exposes no delete action.
-Permanent purge belongs to a later retention policy — no `forceDelete()`,
-purge command or scheduler exists for comments (PR-C FKs refuse physical
-deletion of referenced comments anyway).
+hide/restore (plus the Admin-only Finalize removal), and the Filament
+comments table exposes no delete or purge action. Physical cleanup exists
+since PR-G but only through the sanctioned retention path — see
+"Physical cleanup (PR-G)" below; PR-C FKs still refuse any other physical
+deletion of referenced comments.
 
 ## Structural tombstones
 
@@ -88,9 +89,16 @@ Author-deleted rows stay reviewable (withTrashed) as audit history, labeled
 via a derived state column (Visible / Hidden by moderation / Deleted by
 author) with an "Author deleted" filter — and expose no actions at all.
 
-## Deferred
+## Physical cleanup (PR-G)
 
-Moderation retention → PR-G. Post retention landed in PR-E
-([post-lifecycle.md](post-lifecycle.md)): comments are preserved exactly
-while their post sits in retention and are physically removed, bottom-up,
-only by the final post purge (`PostRetentionPurgeService`).
+Standalone comment cleanup is resolved
+([moderation-content-lifecycle.md](moderation-content-lifecycle.md)):
+purely author-deleted leaves purge after `COMMENT_AUTHOR_DELETE_RETENTION_DAYS`
+(default 30) via the daily `comments:purge-deleted`; structural roots with
+any child row are retained (`StructuralAnchor`); a comment author-deleted
+while still Hidden is moderation evidence and never enters ordinary
+cleanup (Admin may finalize it into moderation retention); comment cleanup
+pauses entirely while the parent post is author-retained (PR-E restore
+recovers the exact graph) or moderation-hidden. Whole-graph removal
+remains the post purge boundary (`PostGraphDeletionService`), and the
+comment leaf boundary is `CommentPhysicalDeletionService`.

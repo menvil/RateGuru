@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Comments\Tables;
 
 use App\Actions\Comments\HideCommentAction;
 use App\Actions\Comments\RestoreCommentAction;
+use App\Actions\Moderation\FinalizeCommentRemovalAction;
 use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
 use App\Models\Comment;
@@ -64,11 +65,13 @@ class CommentsTable
                     ->label('State')
                     ->badge()
                     ->state(fn (Comment $record): string => match (true) {
+                        $record->isModerationRemovalFinalized() => 'Removal finalized',
                         $record->isAuthorDeleted() => 'Deleted by author',
                         $record->isModeratorHidden() => 'Hidden by moderation',
                         default => 'Visible',
                     })
                     ->color(fn (string $state): string => match ($state) {
+                        'Removal finalized' => 'danger',
                         'Hidden by moderation' => 'danger',
                         'Deleted by author' => 'gray',
                         default => 'success',
@@ -112,6 +115,7 @@ class CommentsTable
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('success')
                     ->visible(fn (Comment $record): bool => $record->status === CommentStatus::Hidden
+                        && $record->moderation_removed_at === null
                         && auth()->user()?->can('restore', $record) === true
                     )
                     ->schema([
@@ -127,11 +131,37 @@ class CommentsTable
                             $data['reason'] ?? null,
                         );
                     }),
+                Action::make('finalizeRemoval')
+                    ->label('Finalize removal')
+                    ->icon('heroicon-o-lock-closed')
+                    ->color('danger')
+                    // Hidden rows only — live or author-deleted alike (a
+                    // trashed Hidden row is still moderation evidence).
+                    ->visible(fn (Comment $record): bool => auth()->user()?->can('finalizeRemoval', $record) === true
+                        && $record->status === CommentStatus::Hidden
+                        && $record->moderation_removed_at === null
+                    )
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Internal reason (required)')
+                            ->required()
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->modalHeading('Finalize moderation removal')
+                    ->modalDescription('Irreversible: this hidden comment will never be restorable. It stays retained internally under the moderation retention policy.')
+                    ->action(function (Comment $record, array $data): void {
+                        app(FinalizeCommentRemovalAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            (string) $data['reason'],
+                        );
+                    }),
                 // No delete action here on purpose: comment deletion is an
                 // authored-content decision that belongs to the author alone
                 // (CommentPolicy::delete is owner-only). Moderation acts
-                // through hide/restore; permanent moderation purge belongs
-                // to a later retention policy.
+                // through hide/restore; physical cleanup belongs to the
+                // retention commands, never to the admin UI.
             ]);
     }
 }

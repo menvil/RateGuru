@@ -24,6 +24,7 @@ use Illuminate\Support\Str;
  * @property Carbon|null $created_at
  * @property Carbon|null $published_at
  * @property Carbon|null $deleted_at
+ * @property Carbon|null $moderation_removed_at
  */
 class Post extends Model
 {
@@ -40,6 +41,7 @@ class Post extends Model
             'hot_score' => 'float',
             'needs_review' => 'boolean',
             'flagged_at' => 'datetime',
+            'moderation_removed_at' => 'datetime',
         ];
     }
 
@@ -94,6 +96,19 @@ class Post extends Model
     public function isAuthorDeleted(): bool
     {
         return $this->trashed() && $this->status === PostStatus::Deleted;
+    }
+
+    /**
+     * Hidden + moderation_removed_at distinguishes the two moderation
+     * states: null = reversible hide, non-null = finalized removal that can
+     * never be restored through the normal lifecycle
+     * (docs/architecture/moderation-content-lifecycle.md).
+     */
+    public function isModerationRemovalFinalized(): bool
+    {
+        return ! $this->trashed()
+            && $this->status === PostStatus::Hidden
+            && $this->moderation_removed_at !== null;
     }
 
     public function canReceiveVotes(): bool

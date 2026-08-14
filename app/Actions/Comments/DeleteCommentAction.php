@@ -40,6 +40,14 @@ final class DeleteCommentAction
                 throw CannotDeleteCommentException::becauseUserIsNotAllowed();
             }
 
+            // A finalized moderation removal must never cross into ordinary
+            // author cleanup: the row is moderation evidence under the
+            // moderation retention policy. Hidden-but-not-finalized keeps
+            // its PR-D author-delete behavior.
+            if ($locked->isModerationRemovalFinalized()) {
+                throw CannotDeleteCommentException::becauseUserIsNotAllowed();
+            }
+
             // Retry-safe: a second delete of an already author-deleted
             // comment is a no-op — no second soft-delete, no double
             // counter refresh.

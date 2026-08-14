@@ -145,8 +145,18 @@ Only the final post purge removes the comment graph — physically,
 bottom-up, inside the purge service. Normal `DeleteCommentAction` remains
 the product lifecycle and is never reused for physical cleanup.
 
-## Deferred (PR-G and later)
+## Moderation removal (PR-G)
 
-Moderation content retention/purge, permanent moderator removal policy,
-moderation-log retention, comment-only retention scheduling, legal-hold
-tooling, permanent-delete-now UI.
+Ordinary Hidden never purges and restores forever. An Active Admin may
+finalize a hidden post (`moderation_removed_at`,
+[moderation-content-lifecycle.md](moderation-content-lifecycle.md)):
+restore then rejects, and the disabled-by-default moderation retention may
+eventually purge it through the same `PostGraphDeletionService` the author
+retention uses — shared physical deletion, fully separate eligibility and
+clocks (`deleted_at` + `deleted_from_status` vs `moderation_removed_at`).
+The author Recently Deleted surface never lists moderation-hidden or
+finalized posts.
+
+## Deferred
+
+Legal-hold tooling, permanent-delete-now UI, timed sanctions, appeals.

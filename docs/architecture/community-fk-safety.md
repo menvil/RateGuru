@@ -12,11 +12,18 @@ authored content, votes, reports or a reply subtree reference the target.
 > authored / community / history data. Physical deletion of community
 > models happens only inside explicit, sanctioned lifecycle services.
 
-Today's sanctioned services: account anonymization
+The sanctioned boundaries today: account anonymization
 (`AnonymizeUserAccountAction` — never deletes the users row at all) and
-`MediaLifecycleService` (the only `forceDelete()` in app code, guarded by a
-test). Comment purge (PR-D) and post retention purge (PR-E) will join this
-list and must clean their child graph explicitly before force-deleting.
+three physical deletion services, each guarded by the forceDelete
+allowlist test — `PostGraphDeletionService` (the only post
+`forceDelete()`: whole-graph, bottom-up, strictly leaves-first through
+the reply tree), `CommentPhysicalDeletionService` (the only standalone
+comment `forceDelete()`: leaf + votes + processed reports) and
+`MediaLifecycleService` (media rows after the media grace). The semantic
+services — `PostRetentionPurgeService`, `ModerationContentPurgeService`,
+`CommentRetentionPurgeService` — decide WHETHER a graph/leaf may be
+deleted (retention, evidence holds, structural anchors); the physical
+services only decide HOW to delete an already-approved target safely.
 
 ## FK deletion-policy matrix
 
@@ -100,3 +107,12 @@ still work; a user nothing references remains deletable by deliberate
 maintenance SQL; and `forceDelete()` stays confined to sanctioned purge
 services. PR-B's rich anonymization scenario is unchanged and keeps
 passing against the new constraints.
+
+## Physical deletion boundaries (PR-G)
+
+RESTRICT FKs stay untouched. Physical deletion happens only through the
+sanctioned boundaries — `PostGraphDeletionService` (whole post graph,
+used by both author retention and finalized moderation purges),
+`CommentPhysicalDeletionService` (standalone leaf comments) and
+`MediaLifecycleService` (media rows) — enforced by the forceDelete
+allowlist test. FKs are never weakened to simplify cleanup.
