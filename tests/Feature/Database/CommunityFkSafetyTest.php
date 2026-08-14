@@ -246,15 +246,17 @@ it('still allows deleting a user no community data references', function () {
 
 /*
  * Sanctioned-purge contract: physical deletion of community models may
- * only live inside explicit lifecycle services — media purge and the PR-E
- * post retention purge (which removes the whole comment graph of a purged
- * post, so no separate comment purge service exists).
+ * only live inside the narrow physical boundaries — media purge, the
+ * shared post graph deleter (used by both author retention and finalized
+ * moderation purges) and the standalone comment leaf deleter. Semantic
+ * services own eligibility but never call forceDelete themselves.
  */
 
 it('keeps forceDelete() out of application code except sanctioned purge services', function () {
     $allowlist = [
         'app/Services/Media/MediaLifecycleService.php',
-        'app/Services/Posts/PostRetentionPurgeService.php',
+        'app/Services/Posts/PostGraphDeletionService.php',
+        'app/Services/Comments/CommentPhysicalDeletionService.php',
     ];
 
     $offenders = collect(File::allFiles(app_path()))
