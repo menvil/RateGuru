@@ -41,22 +41,29 @@ final class PostGraphDeletionService
     {
         // Serialize against in-flight comment writers before sweeping their
         // child rows; whoever was waiting revalidates after our commit and
-        // finds the comment gone.
-        $commentIds = Comment::withTrashed()
+        // finds the comment gone. Locks are acquired in bounded pages —
+        // never materializing the whole id list — and are all held until
+        // the surrounding transaction ends.
+        Comment::withTrashed()
             ->where('post_id', $post->id)
+            ->select('id')
             ->lockForUpdate()
-            ->pluck('id');
+            ->chunkById(500, static function (): void {
+                // Selecting under FOR UPDATE is the point of this pass.
+            });
 
-        if ($commentIds->isNotEmpty()) {
-            CommentVote::query()->whereIn('comment_id', $commentIds)->delete();
+        $postCommentIds = Comment::withTrashed()
+            ->where('post_id', $post->id)
+            ->select('id');
 
-            Report::query()
-                ->where('target_type', Comment::class)
-                ->whereIn('target_id', $commentIds)
-                ->delete();
+        CommentVote::query()->whereIn('comment_id', $postCommentIds)->delete();
 
-            $this->deleteCommentsLeavesFirst($post);
-        }
+        Report::query()
+            ->where('target_type', Comment::class)
+            ->whereIn('target_id', $postCommentIds)
+            ->delete();
+
+        $this->deleteCommentsLeavesFirst($post);
 
         PostVote::query()->where('post_id', $post->id)->delete();
         RatingVote::query()->where('post_id', $post->id)->delete();
@@ -117,25 +124,31 @@ final class PostGraphDeletionService
 
             // A leaf is a comment no other row (trashed included, any post)
             // references as parent. The subquery filters out NULLs, so
-            // NOT IN stays NULL-safe on every supported engine.
-            $leafIds = Comment::withTrashed()
+            // NOT IN stays NULL-safe on every supported engine. Pages of
+            // 500 keep memory bounded on huge trees; a row deleted earlier
+            // in the pass may promote its parent into a later page, which
+            // is fine — it is a genuine leaf by then.
+            $deleted = 0;
+
+            Comment::withTrashed()
                 ->where('post_id', $post->id)
                 ->whereNotIn('id', Comment::withTrashed()
                     ->whereNotNull('parent_id')
                     ->select('parent_id'))
-                ->pluck('id');
+                ->select('id')
+                ->chunkById(500, function ($leaves) use (&$deleted): void {
+                    $deleted += (int) Comment::withTrashed()
+                        ->whereIn('id', $leaves->modelKeys())
+                        ->forceDelete();
+                });
 
-            if ($leafIds->isEmpty()) {
+            if ($deleted === 0) {
                 // No content/PII in the message: ids only.
                 throw new RuntimeException(sprintf(
                     'Cannot purge comment graph of post [%d]: %d rows remain but none is a leaf (corrupted parent cycle?). Rolling back.',
                     $post->id,
                     $remaining,
                 ));
-            }
-
-            foreach ($leafIds->chunk(500) as $chunk) {
-                Comment::withTrashed()->whereIn('id', $chunk)->forceDelete();
             }
         }
     }

@@ -33,7 +33,7 @@ final class ModerationPurgeContentCommand extends Command
         {--older-than= : Override the configured retention, in days, for this run}
         {--dry-run : Report outcomes without deleting anything}
         {--chunk=200 : Number of rows to load per chunk}
-        {--force : Required to destructively run a manual --older-than override while retention is disabled}';
+        {--force : Required to destructively run --older-than while retention is disabled or shorter than the configured window}';
 
     protected $description = 'Physically delete finalized moderation removals past the configured retention, respecting every evidence and structural hold.';
 
@@ -77,7 +77,7 @@ final class ModerationPurgeContentCommand extends Command
             && ($configuredDays === null || $olderThanDays < $configuredDays);
 
         if ($overrideNeedsForce && ! $dryRun && ! $this->option('force')) {
-            $this->error('A destructive --older-than override shorter than the configured retention requires --force (dry-run is allowed without it).');
+            $this->error('A destructive --older-than override requires --force when retention is disabled or the override is shorter than the configured window (dry-run is allowed without it).');
 
             return self::FAILURE;
         }
