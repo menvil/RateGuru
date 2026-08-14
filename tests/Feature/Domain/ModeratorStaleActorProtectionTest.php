@@ -31,8 +31,7 @@ use Illuminate\Support\Facades\Gate;
  * every action re-reads the actor under lock inside its transaction.
  */
 
-function staleActiveModerator(): User
-{
+$staleActiveModerator = function (): User {
     $moderator = User::factory()->moderator()->create();
 
     User::query()->whereKey($moderator->id)->update(['status' => UserStatus::Banned]);
@@ -40,7 +39,7 @@ function staleActiveModerator(): User
     expect($moderator->status)->toBe(UserStatus::Active);
 
     return $moderator;
-}
+};
 
 it('denies content moderation to a sanctioned moderator at the policy layer', function (string $state) {
     $sanctioned = User::factory()->moderator()->{$state}()->create();
@@ -56,8 +55,8 @@ it('denies content moderation to a sanctioned moderator at the policy layer', fu
         ->and($sanctioned->can('ignore', $report))->toBeFalse();
 })->with(['limited', 'banned', 'shadowbanned']);
 
-it('rejects a stale sanctioned moderator approving a post', function () {
-    $stale = staleActiveModerator();
+it('rejects a stale sanctioned moderator approving a post', function () use ($staleActiveModerator) {
+    $stale = $staleActiveModerator();
     $post = Post::factory()->pending()->create();
 
     expect(fn () => app(ApprovePostAction::class)->handle($stale, $post))
@@ -67,8 +66,8 @@ it('rejects a stale sanctioned moderator approving a post', function () {
         ->and(ModerationLog::query()->count())->toBe(0);
 });
 
-it('rejects a stale sanctioned moderator rejecting a post', function () {
-    $stale = staleActiveModerator();
+it('rejects a stale sanctioned moderator rejecting a post', function () use ($staleActiveModerator) {
+    $stale = $staleActiveModerator();
     $post = Post::factory()->pending()->create();
 
     expect(fn () => app(RejectPostAction::class)->handle($stale, $post))
@@ -78,8 +77,8 @@ it('rejects a stale sanctioned moderator rejecting a post', function () {
         ->and(ModerationLog::query()->count())->toBe(0);
 });
 
-it('rejects a stale sanctioned moderator hiding a post', function () {
-    $stale = staleActiveModerator();
+it('rejects a stale sanctioned moderator hiding a post', function () use ($staleActiveModerator) {
+    $stale = $staleActiveModerator();
     $post = Post::factory()->published()->create();
 
     expect(fn () => app(HidePostAction::class)->handle($stale, $post))
@@ -89,8 +88,8 @@ it('rejects a stale sanctioned moderator hiding a post', function () {
         ->and(ModerationLog::query()->count())->toBe(0);
 });
 
-it('rejects a stale sanctioned moderator restoring a hidden post', function () {
-    $stale = staleActiveModerator();
+it('rejects a stale sanctioned moderator restoring a hidden post', function () use ($staleActiveModerator) {
+    $stale = $staleActiveModerator();
     $post = Post::factory()->hidden()->create();
 
     expect(fn () => app(RestorePostAction::class)->handle($stale, $post))
@@ -100,8 +99,8 @@ it('rejects a stale sanctioned moderator restoring a hidden post', function () {
         ->and(ModerationLog::query()->count())->toBe(0);
 });
 
-it('rejects a stale sanctioned moderator hiding a comment', function () {
-    $stale = staleActiveModerator();
+it('rejects a stale sanctioned moderator hiding a comment', function () use ($staleActiveModerator) {
+    $stale = $staleActiveModerator();
     $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create();
 
     expect(fn () => app(HideCommentAction::class)->handle($stale, $comment))
@@ -111,8 +110,8 @@ it('rejects a stale sanctioned moderator hiding a comment', function () {
         ->and(ModerationLog::query()->count())->toBe(0);
 });
 
-it('rejects a stale sanctioned moderator restoring a hidden comment', function () {
-    $stale = staleActiveModerator();
+it('rejects a stale sanctioned moderator restoring a hidden comment', function () use ($staleActiveModerator) {
+    $stale = $staleActiveModerator();
     $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden]);
 
     expect(fn () => app(RestoreCommentAction::class)->handle($stale, $comment))
@@ -122,8 +121,8 @@ it('rejects a stale sanctioned moderator restoring a hidden comment', function (
         ->and(ModerationLog::query()->count())->toBe(0);
 });
 
-it('rejects a stale sanctioned moderator resolving a report', function () {
-    $stale = staleActiveModerator();
+it('rejects a stale sanctioned moderator resolving a report', function () use ($staleActiveModerator) {
+    $stale = $staleActiveModerator();
     $report = Report::factory()->create(['status' => ReportStatus::Open]);
 
     expect(fn () => app(ResolveReportAction::class)->handle($stale, $report, 'note'))
@@ -136,8 +135,8 @@ it('rejects a stale sanctioned moderator resolving a report', function () {
         ->and($fresh->resolution_note)->toBeNull();
 });
 
-it('rejects a stale sanctioned moderator ignoring a report', function () {
-    $stale = staleActiveModerator();
+it('rejects a stale sanctioned moderator ignoring a report', function () use ($staleActiveModerator) {
+    $stale = $staleActiveModerator();
     $report = Report::factory()->create(['status' => ReportStatus::Open]);
 
     expect(fn () => app(IgnoreReportAction::class)->handle($stale, $report))
