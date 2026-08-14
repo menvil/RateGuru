@@ -26,7 +26,8 @@ final class CommentsPurgeDeletedCommand extends Command
         {--comment= : Only process the comment with this id}
         {--older-than= : Override the configured retention, in days, for this run}
         {--dry-run : Report outcomes without deleting anything}
-        {--chunk=200 : Number of comments to load per chunk}';
+        {--chunk=200 : Number of comments to load per chunk}
+        {--force : Required to destructively run an --older-than override shorter than the configured retention}';
 
     protected $description = 'Physically delete author-deleted leaf comments past their retention window, sweeping their votes and processed reports.';
 
@@ -40,17 +41,25 @@ final class CommentsPurgeDeletedCommand extends Command
             return self::FAILURE;
         }
 
-        if ($olderThanDays === null) {
-            // Resolve the configured retention up front: bad config stops
-            // the whole run before any candidate query (fail closed).
-            try {
-                $olderThanDays = CommentRetention::authorDeleteDays();
-            } catch (InvalidArgumentException $exception) {
-                $this->error($exception->getMessage());
+        // Resolve the configured retention up front: bad config stops
+        // the whole run before any candidate query (fail closed).
+        try {
+            $configuredDays = CommentRetention::authorDeleteDays();
+        } catch (InvalidArgumentException $exception) {
+            $this->error($exception->getMessage());
 
-                return self::FAILURE;
-            }
+            return self::FAILURE;
         }
+
+        // A destructive override shorter than the configured window needs
+        // explicit acknowledgement; dry-run is always allowed without it.
+        if ($olderThanDays !== null && $olderThanDays < $configuredDays && ! $dryRun && ! $this->option('force')) {
+            $this->error('A destructive --older-than override shorter than the configured retention requires --force (dry-run is allowed without it).');
+
+            return self::FAILURE;
+        }
+
+        $olderThanDays ??= $configuredDays;
 
         $chunkSize = $this->chunkSize();
 

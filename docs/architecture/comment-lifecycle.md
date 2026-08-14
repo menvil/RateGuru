@@ -13,10 +13,11 @@ stay distinguishable in storage, behavior, UI and audit semantics:
 | Body retained | internally, until a future retention policy | in DB for moderation/audit |
 
 There is deliberately **no admin delete**: moderation acts through
-hide/restore, and the Filament comments table exposes no delete action.
-Permanent purge belongs to a later retention policy — no `forceDelete()`,
-purge command or scheduler exists for comments (PR-C FKs refuse physical
-deletion of referenced comments anyway).
+hide/restore (plus the Admin-only Finalize removal), and the Filament
+comments table exposes no delete or purge action. Physical cleanup exists
+since PR-G but only through the sanctioned retention path — see
+"Physical cleanup (PR-G)" below; PR-C FKs still refuse any other physical
+deletion of referenced comments.
 
 ## Structural tombstones
 

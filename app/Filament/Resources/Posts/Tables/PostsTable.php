@@ -164,6 +164,7 @@ class PostsTable
                     ->color('success')
                     ->visible(fn (Post $record): bool => $record->status === PostStatus::Hidden
                         && $record->moderation_removed_at === null
+                        && auth()->user()?->can('restore', $record) === true
                     )
                     ->schema([
                         Textarea::make('reason')

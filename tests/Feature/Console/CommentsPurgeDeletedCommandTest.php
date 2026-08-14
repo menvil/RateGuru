@@ -38,7 +38,19 @@ it('purges expired leaves and skips young ones at the default retention', functi
 it('honors --older-than and processes a targeted id with precise outcomes', function () {
     $leaf = deletedLeafAgedDays(10);
 
+    // A shortening override is destructive: dry-run is free, execution
+    // needs --force.
+    $this->artisan('comments:purge-deleted --older-than=5 --comment='.$leaf->id.' --dry-run')
+        ->expectsOutputToContain(sprintf('comment %d: would_purge', $leaf->id))
+        ->assertSuccessful();
+
     $this->artisan('comments:purge-deleted --older-than=5 --comment='.$leaf->id)
+        ->expectsOutputToContain('requires --force')
+        ->assertFailed();
+
+    expect(Comment::withTrashed()->find($leaf->id))->not->toBeNull();
+
+    $this->artisan('comments:purge-deleted --older-than=5 --comment='.$leaf->id.' --force')
         ->expectsOutputToContain(sprintf('comment %d: purged', $leaf->id))
         ->assertSuccessful();
 

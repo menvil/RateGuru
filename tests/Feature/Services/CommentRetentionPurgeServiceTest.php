@@ -224,6 +224,30 @@ it('rolls back everything when the physical deletion fails mid-flight', function
         ->and(CommentVote::query()->count())->toBe(1);
 });
 
+it('prefilters candidates to eligible author-deleted rows in id order', function () {
+    $eligibleOld = authorDeletedLeaf();
+    $eligibleOlder = authorDeletedLeaf();
+    Comment::withTrashed()->whereKey($eligibleOld->id)->update(['deleted_at' => now()->subDays(40)]);
+    Comment::withTrashed()->whereKey($eligibleOlder->id)->update(['deleted_at' => now()->subDays(50)]);
+
+    // Excluded shapes: live, hidden author-deleted, finalized, young.
+    Comment::factory()->for(Post::factory()->published(), 'post')->create();
+
+    $hidden = authorDeletedLeaf();
+    Comment::withTrashed()->whereKey($hidden->id)->update(['status' => CommentStatus::Hidden, 'deleted_at' => now()->subDays(40)]);
+
+    $finalized = authorDeletedLeaf();
+    Comment::withTrashed()->whereKey($finalized->id)->update(['moderation_removed_at' => now(), 'deleted_at' => now()->subDays(40)]);
+
+    $young = authorDeletedLeaf();
+
+    $ids = app(CommentRetentionPurgeService::class)->candidates()->orderBy('id')->pluck('id');
+
+    // Only the eligible expired rows, in the command's id order.
+    expect($ids->all())->toBe([$eligibleOld->id, $eligibleOlder->id])
+        ->and($ids)->not->toContain($hidden->id, $finalized->id, $young->id);
+});
+
 it('fails closed when comment retention config is invalid', function () {
     $leaf = authorDeletedLeaf();
     $this->travel(31)->days();

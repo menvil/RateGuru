@@ -13,11 +13,11 @@ return new class extends Migration
         // No backfill: existing Hidden rows stay reversible. Actor/reason live
         // in moderation_logs, never on the content row.
         Schema::table('posts', function (Blueprint $table) {
-            $table->timestamp('moderation_removed_at')->nullable()->after('deleted_at');
+            $table->timestamp('moderation_removed_at')->nullable();
         });
 
         Schema::table('comments', function (Blueprint $table) {
-            $table->timestamp('moderation_removed_at')->nullable()->after('deleted_at');
+            $table->timestamp('moderation_removed_at')->nullable();
         });
     }
 

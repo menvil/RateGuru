@@ -130,6 +130,32 @@ it('filters by type and validates options', function () {
     $this->artisan('moderation:purge-content --chunk=0')->assertFailed();
 });
 
+it('requires --force to destructively shorten an enabled retention window', function () {
+    config(['content_lifecycle.moderation.content_retention_days' => 90]);
+
+    $finalized = finalizedPostAgedDays(30);
+
+    $this->artisan('moderation:purge-content --type=post --id='.$finalized->id.' --older-than=10 --dry-run')
+        ->expectsOutputToContain(sprintf('post %d: would_purge', $finalized->id))
+        ->assertSuccessful();
+
+    $this->artisan('moderation:purge-content --type=post --id='.$finalized->id.' --older-than=10')
+        ->expectsOutputToContain('requires --force')
+        ->assertFailed();
+
+    expect(Post::query()->find($finalized->id))->not->toBeNull();
+
+    $this->artisan('moderation:purge-content --type=post --id='.$finalized->id.' --older-than=10 --force')
+        ->expectsOutputToContain(sprintf('post %d: purged', $finalized->id))
+        ->assertSuccessful();
+
+    // Lengthening (>= configured) stays force-free.
+    $other = finalizedPostAgedDays(200);
+    $this->artisan('moderation:purge-content --type=post --id='.$other->id.' --older-than=120')
+        ->expectsOutputToContain(sprintf('post %d: purged', $other->id))
+        ->assertSuccessful();
+});
+
 it('fails closed on invalid moderation retention config', function () {
     config(['content_lifecycle.moderation.content_retention_days' => 'foo']);
 

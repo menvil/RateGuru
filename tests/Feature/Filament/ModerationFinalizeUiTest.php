@@ -47,6 +47,25 @@ it('finalizes a hidden post through the table action with a required reason', fu
     ]);
 });
 
+it('requires a reason through the finalize table actions', function () {
+    $admin = User::factory()->admin()->create();
+    $post = Post::factory()->hidden()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(ListPosts::class)
+        ->callTableAction('finalizeRemoval', $post, data: ['reason' => ''])
+        ->assertHasTableActionErrors(['reason' => 'required']);
+
+    Livewire::test(ListComments::class)
+        ->callTableAction('finalizeRemoval', $comment, data: ['reason' => ''])
+        ->assertHasTableActionErrors(['reason' => 'required']);
+
+    expect($post->fresh()->moderation_removed_at)->toBeNull()
+        ->and($comment->fresh()->moderation_removed_at)->toBeNull();
+});
+
 it('hides restore and finalize on a finalized post and shows the derived badge', function () {
     $admin = User::factory()->admin()->create();
     $post = Post::factory()->hidden()->create();

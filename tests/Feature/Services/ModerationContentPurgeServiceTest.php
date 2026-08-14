@@ -135,18 +135,23 @@ it('purges a finalized post with its entire graph, keeping tags, users and logs'
     app(FinalizePostRemovalAction::class)->handle(User::factory()->admin()->create(), $post->fresh(), 'Finalized.');
 
     $assetId = $post->fresh()->image_asset_id;
+    $commentIds = Comment::withTrashed()->where('post_id', $post->id)->pluck('id');
     $this->travel(31)->days();
 
     expect(app(ModerationContentPurgeService::class)->purgePost($post->id))->toBe(ModerationPurgeOutcome::Purged);
 
+    // Scoped to the purged graph so unrelated fixtures can never mask a
+    // leak or cause false failures.
     expect(Post::withTrashed()->find($post->id))->toBeNull()
         ->and(Comment::withTrashed()->where('post_id', $post->id)->count())->toBe(0)
-        ->and(CommentVote::query()->count())->toBe(0)
-        ->and(PostVote::query()->count())->toBe(0)
-        ->and(RatingVote::query()->count())->toBe(0)
-        ->and(PostSave::query()->count())->toBe(0)
-        ->and(PostAuthorAnswer::query()->count())->toBe(0)
-        ->and(Report::query()->count())->toBe(0)
+        ->and(CommentVote::query()->whereIn('comment_id', $commentIds)->count())->toBe(0)
+        ->and(PostVote::query()->where('post_id', $post->id)->count())->toBe(0)
+        ->and(RatingVote::query()->where('post_id', $post->id)->count())->toBe(0)
+        ->and(PostSave::query()->where('post_id', $post->id)->count())->toBe(0)
+        ->and(PostAuthorAnswer::query()->where('post_id', $post->id)->count())->toBe(0)
+        ->and(Report::query()->where(fn ($q) => $q
+            ->where(fn ($p) => $p->where('target_type', Post::class)->where('target_id', $post->id))
+            ->orWhere(fn ($c) => $c->where('target_type', Comment::class)->whereIn('target_id', $commentIds)))->count())->toBe(0)
         ->and(Tag::query()->find($tag->id))->not->toBeNull()
         ->and(User::query()->find($owner->id))->not->toBeNull()
         ->and(ModerationLog::query()->count())->toBeGreaterThanOrEqual(1)
