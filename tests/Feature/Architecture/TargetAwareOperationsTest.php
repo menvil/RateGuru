@@ -1177,11 +1177,11 @@ it('builds jq programs only through --arg, never from interpolated target input'
 
 // --- roadmap and runbook -----------------------------------------------------
 
-it('records slices 1-9 completed, without completing Phase 4', function () {
+it('records slices 1-9 completed, and Phase 4 with them', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
-        ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m')
+        ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m')
         ->toContain('Deployment target registry — completed')
         ->toContain('Read-only target operations — completed')
         ->toContain('Install and verify read-only operations — completed')
@@ -1192,11 +1192,15 @@ it('records slices 1-9 completed, without completing Phase 4', function () {
         ->toContain('Offsite backup path — completed')
         ->toContain('Backup-cycle orchestration — completed')
         ->toContain('Perimeter — completed')
-        ->toContain('Complete legacy-selector removal — current')
-        ->not->toContain('## 4. Multi-target production model — completed')
-        ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m');
+        ->toContain('Complete legacy-selector removal — completed')
+        ->toContain('## 4. Multi-target production model — completed')
+        ->not->toContain('## 4. Multi-target production model — current')
+        ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m');
 
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    // Phase 4 is closed and Phase 5 implementation has not started, so no
+    // phase is current right now — a table without a current phase is a
+    // legitimate state, not a reason to promote Phase 5 early.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(0);
 });
 
 it('documents the read-only target operations in the deployment-targets runbook', function () {
