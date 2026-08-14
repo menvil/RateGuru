@@ -21,7 +21,9 @@ use App\Models\Report;
  * (open reports were already checked as holds upstream and must never be
  * silently destroyed). Moderation logs are audit history and remain.
  */
-final class CommentPhysicalDeletionService
+// Deliberately not final (MediaReferenceChecker precedent): rollback
+// regressions substitute a failing double through the container.
+class CommentPhysicalDeletionService
 {
     public function deleteLeaf(Comment $comment): void
     {
