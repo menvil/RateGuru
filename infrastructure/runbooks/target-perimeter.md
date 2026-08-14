@@ -399,6 +399,13 @@ fix it remotely. That cutover has since completed and was accepted on the
 real staging VPS; see `infrastructure/ROADMAP.md` (Phase 4) for the full,
 step-by-step account.
 
+The complete Phase 4 target-only cutover was subsequently accepted on the
+real staging VPS: the fifteen-file operations bundle and the perimeter both
+passed check/apply/verify; all six legacy wrappers were absent; target-only
+rollback and the full backup-cycle completed successfully; and the final
+staging health check passed. See `infrastructure/ROADMAP.md` (Phase 4) for
+the acceptance record.
+
 ## Troubleshooting
 
 - **`--apply` refuses immediately with a destination-directory error**:

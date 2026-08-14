@@ -1287,21 +1287,21 @@ it('changes no runtime configuration in this slice', function () {
     }
 });
 
-it('records the registry as a completed Phase 4 slice without completing the phase', function () {
+it('records the registry as a completed Phase 4 slice inside a completed phase', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)
-        ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m')
-        ->toContain('## 4. Multi-target production model — current')
-        // The registry slice itself is done; later slices in the phase are not.
+        ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m')
+        ->toContain('## 4. Multi-target production model — completed')
+        // The registry slice is one of the nine that closed the phase.
         ->toContain('Deployment target registry — completed')
         ->toContain('runbooks/deployment-targets.md')
-        // Phase 4 must not be marked done.
-        ->not->toContain('## 4. Multi-target production model — completed')
-        ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m');
+        // No stale "current" wording left on the phase.
+        ->not->toContain('## 4. Multi-target production model — current')
+        ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m');
 
-    // Still exactly one current phase.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    // Phase 4 is closed and Phase 5 has not started, so no phase is current.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(0);
 });
 
 it('documents the registry model in a runbook', function () {

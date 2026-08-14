@@ -9,7 +9,7 @@ not reorganize unrelated infrastructure.
 | 1 | VPS / deployment / backup foundation | ✅ completed |
 | 2 | Versioned infrastructure baseline | ✅ completed |
 | 3 | Staging mail capture | ✅ completed |
-| 4 | Multi-target production model | 🚧 current |
+| 4 | Multi-target production model | ✅ completed |
 | 5 | Infrastructure installer and clean-VPS bootstrap | ⏳ planned |
 | 6 | Sentry observability activation | ⏳ planned |
 | 7 | Recovery and release rehearsal | ⏳ planned |
@@ -52,16 +52,19 @@ repository until a second project exists.
 
 See `runbooks/mail-capture.md`.
 
-## 4. Multi-target production model — current
+## 4. Multi-target production model — completed
 
 Generalize the single-target deploy model to multiple production targets
 (shared code, per-target environment, backups, and release history).
 
-Slices, in order. Slices 1 through 8 are completed; slices 3 through 8 are
-additionally accepted on the real staging VPS (slices 1-2 declared the target
-registry and added read-only `--target` support only — neither installed
-anything on the VPS). Slice 9 (complete legacy-selector removal) is current.
-The phase stays **current**.
+Slices, in order. All nine slices are completed. Every slice that deployed or
+changed anything on a host was additionally accepted on the real staging VPS
+(slices 1-2 declared the target registry and added read-only `--target`
+support only — neither installed anything on the VPS). The operational
+interface is now target-only: `--target TARGET_ID` is the sole selector for
+every script, wrapper, cron entry and CI call. `staging-main` remains the
+active staging target; `tits-guru` remains a planned target with no
+provisioned infrastructure. The phase is **completed**.
 
 <!-- legacy-environment-history:start -->
 <!--
@@ -266,23 +269,77 @@ The phase stays **current**.
 
 <!-- legacy-environment-history:end -->
 
-9. **Complete legacy-selector removal — current.** Removes the legacy
+9. **Complete legacy-selector removal — completed.** Removed the legacy
    per-environment operational selector entirely from every script, `common`,
-   `deployment.conf`, and the perimeter, now that `staging-main` parity has
-   been proven end to end across every slice above and accepted on the real
-   staging VPS. `--target TARGET_ID` becomes the sole interface everywhere.
-   `common` loses its selector-dispatch and per-selector helper functions;
-   `deployment.conf` becomes host-global only (no more per-target fields);
-   the six temporary per-environment sudo wrappers and their sudoers grants
-   are deleted by `install-target-perimeter`, transactionally, with backup
-   and rollback on failure. Physical values the legacy interface used to
-   name (paths, database names, backup namespaces, deploy account names) are
+   `deployment.conf`, and the perimeter, once `staging-main` parity had been
+   proven end to end across every slice above and accepted on the real
+   staging VPS. `--target TARGET_ID` is now the sole interface everywhere.
+   `common` lost its selector-dispatch and per-selector helper functions;
+   `deployment.conf` is host-global only (no more per-target fields); the six
+   temporary per-environment sudo wrappers and their sudoers grants are
+   deleted by `install-target-perimeter`, transactionally, with backup and
+   rollback on failure. Physical values the legacy interface used to name
+   (paths, database names, backup namespaces, deploy account names) are
    preserved verbatim as `staging-main`'s own registry values — nothing
    physical is renamed. Backup format and history compatibility (schema 1
    manifests, existing JSONL history files) is preserved unchanged and stays
    readable regardless of which selector originally wrote it.
    `LegacyEnvironmentRemovalTest.php` guards against the removed interface
    ever reappearing.
+
+   **Accepted on the real staging VPS (`PHASE 4 TARGET-ONLY ACCEPTED`):**
+
+   - *Operations bundle.* On a fresh `develop` release,
+     `install-target-operations --check`/`--apply`/`--verify` all passed. The
+     installed bundle is target-only and manages fifteen files, including the
+     host-global `deployment.conf`. After installation,
+     `/home/www/rateguru/bin/status --target staging-main` and
+     `/home/www/rateguru/bin/health-check --target staging-main` both passed.
+   - *Perimeter.* `install-target-perimeter --check`/`--apply`/`--verify` all
+     passed. The three generic wrappers
+     (`/usr/local/sbin/rateguru-deploy`, `rateguru-rollback`,
+     `rateguru-cleanup`) stayed operational; the six legacy per-environment
+     wrappers were removed and `--verify` confirmed their absence;
+     `/etc/sudoers.d/rateguru-deploy` parsed clean under `visudo -cf` and
+     grants the staging deploy user passwordless sudo for only those three
+     generic wrappers; `/etc/cron.d/rateguru-backups` calls
+     `--target staging-main`, and the active cron contains no legacy
+     operational selector at all.
+   - *Target-only CLI.* `targets list`, `status --target staging-main`,
+     `health-check --target staging-main` and
+     `cleanup --target staging-main --dry-run` all worked on the real VPS,
+     with `staging-main` serving as the active staging target. The legacy
+     per-environment invocation is no longer a supported interface: it is
+     rejected through the generic unknown-argument path, and the removed
+     selector is not an active compatibility API.
+   - *Planned-target protection.* `health-check --target tits-guru` was
+     correctly rejected with `lifecycle=planned`. No production
+     infrastructure for `tits-guru` was activated in Phase 4.
+   - *Real rollback.* A full rollback rehearsal ran on the staging VPS: the
+     current release ID was recorded, the generic target-aware rollback
+     switched `staging-main` to the previous release, the post-rollback
+     health check passed, a rollback with an explicit release ID returned the
+     newer release, and the final health check passed — proof that
+     target-only rollback works against real immutable release history, not
+     only syntactically.
+   - *Full backup cycle.*
+     `/home/www/rateguru/bin/backup-cycle --target staging-main` completed the
+     entire pipeline — local backup, local restore-test, offsite B2 upload,
+     offsite retention `--apply`, offsite restore-test — and the cycle was
+     appended to the existing backup-cycle history. The final
+     `health-check --target staging-main` passed.
+
+Phase 4 is therefore complete with these guarantees: the target registry is
+canonical; the operational CLI is target-only; GitHub staging deployment is
+target-aware; the three generic sudo wrappers are installed and the legacy
+wrappers are absent; cron is target-aware and sudoers exposes only the
+generic wrappers; `staging-main` deploy, rollback and cleanup work; local and
+offsite backup/restore work, as does the full backup-cycle orchestration;
+planned targets fail closed; physical staging paths, database and backup
+namespaces are unchanged; and historical backup formats and JSONL history
+remain readable.
+
+Next phase: Phase 5 — Infrastructure installer and clean-VPS bootstrap.
 
 ## 5. Infrastructure installer and clean-VPS bootstrap — planned
 

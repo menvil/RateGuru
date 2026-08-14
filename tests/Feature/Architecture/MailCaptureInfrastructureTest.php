@@ -1243,24 +1243,27 @@ it('runs installer --check with stubbed commands and mutates nothing', function 
     }
 });
 
-it('marks the mail-capture phase completed and the next phase current', function () {
+it('marks the mail-capture phase completed, and the phase after it too', function () {
     $roadmap = mailCaptureSource('ROADMAP.md');
 
-    // Status table: phase 3 is done, phase 4 has taken over as the current one.
+    // Status table: phase 3 is done, and phase 4 — which took over from it —
+    // has since closed as well.
     expect($roadmap)
         ->toMatch('/^\|\s*3\s*\|\s*Staging mail capture\s*\|\s*✅ completed\s*\|$/m')
-        ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m')
+        ->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*✅ completed\s*\|$/m')
         // Section headings must agree with the table.
         ->toContain('## 3. Staging mail capture — completed')
-        ->toContain('## 4. Multi-target production model — current');
+        ->toContain('## 4. Multi-target production model — completed');
 
-    // Exactly one phase is current at a time.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    // At most one phase is current at a time; right now none is, because
+    // Phase 4 closed before Phase 5 implementation started.
+    expect(substr_count($roadmap, '🚧 current'))->toBeLessThanOrEqual(1);
 
     // No stale "current"/"planned" wording left on either phase.
     expect($roadmap)
         ->not->toContain('## 3. Staging mail capture — current')
-        ->not->toContain('## 4. Multi-target production model — planned');
+        ->not->toContain('## 4. Multi-target production model — planned')
+        ->not->toContain('## 4. Multi-target production model — current');
 });
 
 it('states the correct Mailtrap Local listeners in the roadmap', function () {
