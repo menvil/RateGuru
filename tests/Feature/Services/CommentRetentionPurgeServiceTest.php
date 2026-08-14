@@ -7,6 +7,8 @@ use App\Actions\Posts\DeletePostAction;
 use App\Actions\Posts\RestoreDeletedPostAction;
 use App\Enums\CommentPurgeOutcome;
 use App\Enums\CommentStatus;
+use App\Enums\ModerationActionType;
+use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
 use App\Models\Comment;
 use App\Models\CommentVote;
@@ -38,7 +40,7 @@ it('purges a pure author-deleted leaf exactly at the cutoff, sweeping votes and 
     Report::factory()->resolved()->create(['target_type' => Comment::class, 'target_id' => $leaf->id]);
     $log = ModerationLog::create([
         'moderator_id' => User::factory()->moderator()->create()->id,
-        'action' => App\Enums\ModerationActionType::HideComment,
+        'action' => ModerationActionType::HideComment,
         'target_type' => Comment::class,
         'target_id' => $leaf->id,
         'reason' => 'history',
@@ -148,7 +150,7 @@ it('pauses cleanup while the parent post is author-retained, preserving PR-E res
 
 it('pauses cleanup while the parent post is moderation-hidden', function () {
     $leaf = authorDeletedLeaf();
-    Post::query()->whereKey($leaf->post_id)->update(['status' => App\Enums\PostStatus::Hidden]);
+    Post::query()->whereKey($leaf->post_id)->update(['status' => PostStatus::Hidden]);
 
     $this->travel(31)->days();
 

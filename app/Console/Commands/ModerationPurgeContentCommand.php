@@ -69,7 +69,7 @@ final class ModerationPurgeContentCommand extends Command
             return self::SUCCESS;
         }
 
-        if ($configuredDays === null && $olderThanDays !== null && ! $dryRun && ! $this->option('force')) {
+        if ($configuredDays === null && ! $dryRun && ! $this->option('force')) {
             $this->error('Moderation retention is disabled: a destructive manual --older-than override requires --force (dry-run is allowed without it).');
 
             return self::FAILURE;

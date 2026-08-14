@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Posts\Tables;
 
 use App\Actions\Moderation\ApprovePostAction;
+use App\Actions\Moderation\FinalizePostRemovalAction;
 use App\Actions\Moderation\HidePostAction;
 use App\Actions\Moderation\RejectPostAction;
 use App\Actions\Moderation\RestorePostAction;
@@ -64,9 +65,11 @@ class PostsTable
                     ->sortable()
                     // Author deletion reads as its own derived label, not
                     // as the raw Deleted enum value.
-                    ->formatStateUsing(fn (PostStatus $state, Post $record): string => $record->isAuthorDeleted()
-                        ? 'Deleted by author'
-                        : ucfirst($state->value))
+                    ->formatStateUsing(fn (PostStatus $state, Post $record): string => match (true) {
+                        $record->isAuthorDeleted() => 'Deleted by author',
+                        $record->isModerationRemovalFinalized() => 'Removal finalized',
+                        default => ucfirst($state->value),
+                    })
                     ->color(fn (PostStatus $state): string => match ($state) {
                         PostStatus::Pending => 'warning',
                         PostStatus::Published => 'success',
@@ -159,7 +162,9 @@ class PostsTable
                     ->label('Restore')
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('success')
-                    ->visible(fn (Post $record): bool => $record->status === PostStatus::Hidden)
+                    ->visible(fn (Post $record): bool => $record->status === PostStatus::Hidden
+                        && $record->moderation_removed_at === null
+                    )
                     ->schema([
                         Textarea::make('reason')
                             ->label('Reason')
@@ -171,6 +176,31 @@ class PostsTable
                             auth()->user(),
                             $record,
                             $data['reason'] ?? null,
+                        );
+                    }),
+                Action::make('finalizeRemoval')
+                    ->label('Finalize removal')
+                    ->icon('heroicon-o-lock-closed')
+                    ->color('danger')
+                    ->visible(fn (Post $record): bool => auth()->user()?->can('finalizeRemoval', $record) === true
+                        && $record->status === PostStatus::Hidden
+                        && ! $record->trashed()
+                        && $record->moderation_removed_at === null
+                    )
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('Internal reason (required)')
+                            ->required()
+                            ->maxLength(1000),
+                    ])
+                    ->requiresConfirmation()
+                    ->modalHeading('Finalize moderation removal')
+                    ->modalDescription('Irreversible: this hidden post will never be restorable. It stays retained internally under the moderation retention policy.')
+                    ->action(function (Post $record, array $data): void {
+                        app(FinalizePostRemovalAction::class)->handle(
+                            auth()->user(),
+                            $record,
+                            (string) $data['reason'],
                         );
                     }),
             ])

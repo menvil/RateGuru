@@ -3,8 +3,10 @@
 use App\Actions\Moderation\FinalizeCommentRemovalAction;
 use App\Actions\Moderation\FinalizePostRemovalAction;
 use App\Enums\CommentStatus;
+use App\Enums\ReportStatus;
 use App\Models\Comment;
 use App\Models\Post;
+use App\Models\Report;
 use App\Models\User;
 
 function finalizedPostAgedDays(int $ageDays): Post
@@ -97,10 +99,10 @@ it('force cannot bypass state validation or holds', function () {
 
     // Open report hold survives force.
     $held = finalizedPostAgedDays(100);
-    App\Models\Report::factory()->create([
+    Report::factory()->create([
         'target_type' => Post::class,
         'target_id' => $held->id,
-        'status' => App\Enums\ReportStatus::Open,
+        'status' => ReportStatus::Open,
     ]);
 
     $this->artisan('moderation:purge-content --type=post --id='.$held->id.' --older-than=0 --force')

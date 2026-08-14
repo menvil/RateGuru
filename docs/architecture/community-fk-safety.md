@@ -100,3 +100,12 @@ still work; a user nothing references remains deletable by deliberate
 maintenance SQL; and `forceDelete()` stays confined to sanctioned purge
 services. PR-B's rich anonymization scenario is unchanged and keeps
 passing against the new constraints.
+
+## Physical deletion boundaries (PR-G)
+
+RESTRICT FKs stay untouched. Physical deletion happens only through the
+sanctioned boundaries — `PostGraphDeletionService` (whole post graph,
+used by both author retention and finalized moderation purges),
+`CommentPhysicalDeletionService` (standalone leaf comments) and
+`MediaLifecycleService` (media rows) — enforced by the forceDelete
+allowlist test. FKs are never weakened to simplify cleanup.

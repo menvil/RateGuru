@@ -19,6 +19,7 @@ use App\Models\RatingVote;
 use App\Models\Report;
 use App\Models\Tag;
 use App\Models\User;
+use App\Services\Media\MediaReferenceChecker;
 use App\Services\Moderation\ModerationContentPurgeService;
 use Illuminate\Support\Facades\Storage;
 
@@ -294,7 +295,7 @@ it('rolls the whole graph back when the media release fails', function () {
     Comment::factory()->create(['post_id' => $post->id]);
     app(FinalizePostRemovalAction::class)->handle(User::factory()->admin()->create(), $post->fresh(), 'Finalized.');
 
-    $this->mock(App\Services\Media\MediaReferenceChecker::class)
+    $this->mock(MediaReferenceChecker::class)
         ->shouldReceive('referencedAssetIds')
         ->once()
         ->andThrow(new RuntimeException('boom'));

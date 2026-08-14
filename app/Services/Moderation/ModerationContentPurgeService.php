@@ -12,6 +12,7 @@ use App\Models\Report;
 use App\Services\Comments\CommentPhysicalDeletionService;
 use App\Services\Posts\PostGraphDeletionService;
 use App\Support\ContentLifecycle\ModerationContentRetention;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -32,7 +33,7 @@ final class ModerationContentPurgeService
         private readonly CommentPhysicalDeletionService $commentDeletion,
     ) {}
 
-    public function postCandidates(int $olderThanDays): \Illuminate\Database\Eloquent\Builder
+    public function postCandidates(int $olderThanDays): Builder
     {
         return Post::query()
             ->where('status', PostStatus::Hidden)
@@ -40,7 +41,7 @@ final class ModerationContentPurgeService
             ->where('moderation_removed_at', '<=', now()->subDays($olderThanDays));
     }
 
-    public function commentCandidates(int $olderThanDays): \Illuminate\Database\Eloquent\Builder
+    public function commentCandidates(int $olderThanDays): Builder
     {
         return Comment::withTrashed()
             ->where('status', CommentStatus::Hidden)
