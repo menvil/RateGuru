@@ -3,10 +3,12 @@
 namespace App\Actions\Posts;
 
 use App\Exceptions\Posts\CannotRestoreDeletedPostException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\User;
 use App\Support\Cache\PostListCacheManager;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Author self-service restore of an author-deleted post, allowed strictly
@@ -18,6 +20,8 @@ use Illuminate\Support\Facades\DB;
  */
 final class RestoreDeletedPostAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly PostListCacheManager $postListCache,
     ) {}
@@ -25,8 +29,11 @@ final class RestoreDeletedPostAction
     public function handle(User $user, Post $post): void
     {
         DB::transaction(function () use ($user, $post): void {
-            // The caller's instance may be stale (window expired meanwhile,
-            // or a purge already ran); only the locked row decides.
+            // Lock order: Actor User -> Post. The caller's instances may be
+            // stale (window expired, purge already ran, or the owner was
+            // just sanctioned); only the locked rows decide.
+            $lockedActor = $this->lockActor($user);
+
             $locked = Post::withTrashed()
                 ->whereKey($post->id)
                 ->lockForUpdate()
@@ -36,7 +43,7 @@ final class RestoreDeletedPostAction
                 throw CannotRestoreDeletedPostException::becausePostIsNotAuthorDeleted();
             }
 
-            if (! $user->can('restoreDeleted', $locked)) {
+            if ($lockedActor === null || ! Gate::forUser($lockedActor)->allows('restoreDeleted', $locked)) {
                 throw CannotRestoreDeletedPostException::becauseUserIsNotAllowed();
             }
 

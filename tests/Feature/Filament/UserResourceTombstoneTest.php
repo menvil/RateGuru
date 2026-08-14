@@ -1,9 +1,10 @@
 <?php
 
 use App\Actions\Moderation\BanUserAction;
+use App\Actions\Moderation\LimitUserAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
+use App\Actions\Moderation\RestoreUserAccessAction;
 use App\Actions\Moderation\ShadowbanUserAction;
-use App\Actions\Moderation\UnbanUserAction;
 use App\Enums\UserStatus;
 use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Filament\Resources\Users\Pages\EditUser;
@@ -36,7 +37,8 @@ it('hides every moderation and edit action for a tombstone row', function () {
         ->test(ListUsers::class)
         ->assertTableActionHidden('edit', $tombstone)
         ->assertTableActionHidden('ban', $tombstone)
-        ->assertTableActionHidden('unban', $tombstone)
+        ->assertTableActionHidden('limit', $tombstone)
+        ->assertTableActionHidden('restoreAccess', $tombstone)
         ->assertTableActionHidden('shadowban', $tombstone)
         ->assertTableActionHidden('markTrusted', $tombstone);
 });
@@ -49,7 +51,9 @@ it('rejects every moderation action invoked directly against a tombstone', funct
 
     expect(fn () => app(BanUserAction::class)->handle($admin, $tombstone))
         ->toThrow(CannotModerateUserException::class);
-    expect(fn () => app(UnbanUserAction::class)->handle($admin, $tombstone))
+    expect(fn () => app(LimitUserAction::class)->handle($admin, $tombstone))
+        ->toThrow(CannotModerateUserException::class);
+    expect(fn () => app(RestoreUserAccessAction::class)->handle($admin, $tombstone))
         ->toThrow(CannotModerateUserException::class);
     expect(fn () => app(ShadowbanUserAction::class)->handle($admin, $tombstone))
         ->toThrow(CannotModerateUserException::class);

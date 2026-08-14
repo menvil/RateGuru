@@ -4,10 +4,12 @@ namespace App\Actions\Posts;
 
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotDeletePostException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\User;
 use App\Support\Cache\PostListCacheManager;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Author deletion — the only entry into post retention
@@ -18,6 +20,8 @@ use Illuminate\Support\Facades\DB;
  */
 final class DeletePostAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly PostListCacheManager $postListCache,
     ) {}
@@ -25,18 +29,22 @@ final class DeletePostAction
     public function handle(User $user, Post $post): void
     {
         DB::transaction(function () use ($user, $post): void {
-            // The caller's instance may be stale; every decision below runs
-            // against the row re-read under lock.
+            // Lock order: Actor User -> Post. The caller's instances may be
+            // stale; every decision below runs against rows re-read under
+            // lock — including authorization, so a just-sanctioned owner
+            // cannot finish an author deletion.
+            $lockedActor = $this->lockActor($user);
+
             $locked = Post::withTrashed()
                 ->whereKey($post->id)
                 ->lockForUpdate()
                 ->first();
 
-            if ($locked === null) {
+            if ($lockedActor === null || $locked === null) {
                 throw CannotDeletePostException::becauseUserIsNotAllowed();
             }
 
-            if (! $user->can('deleteFromFeed', $locked)) {
+            if (! Gate::forUser($lockedActor)->allows('deleteFromFeed', $locked)) {
                 throw CannotDeletePostException::becauseUserIsNotAllowed();
             }
 

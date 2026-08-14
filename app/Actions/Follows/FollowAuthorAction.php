@@ -5,13 +5,17 @@ namespace App\Actions\Follows;
 use App\Exceptions\Follows\CannotFollowAuthorException;
 use App\Exceptions\Follows\CannotFollowSelfException;
 use App\Exceptions\Follows\FollowFeatureDisabledException;
+use App\Models\Concerns\LocksUsersInOrder;
 use App\Models\Follow;
 use App\Models\User;
 use App\Support\Observability\DomainLogger;
 use App\Support\Settings\ProjectSettingsManager;
+use Illuminate\Support\Facades\DB;
 
 final class FollowAuthorAction
 {
+    use LocksUsersInOrder;
+
     public function __construct(
         private readonly ProjectSettingsManager $settings,
         private readonly DomainLogger $logger,
@@ -32,6 +36,7 @@ final class FollowAuthorAction
             throw new CannotFollowSelfException;
         }
 
+        // Cheap pre-checks; the locked rows below are authoritative.
         if (! $follower->canFollow()) {
             throw CannotFollowAuthorException::followerNotAllowed();
         }
@@ -40,10 +45,31 @@ final class FollowAuthorAction
             throw CannotFollowAuthorException::authorNotViewable();
         }
 
-        Follow::query()->firstOrCreate([
-            'follower_id' => $follower->id,
-            'author_id' => $author->id,
-        ]);
+        DB::transaction(function () use ($follower, $author): void {
+            // Two-user operation: lock both rows one at a time in
+            // ascending primary-key order (the uniform deterministic order
+            // for user pairs, see docs/architecture/user-lifecycle.md),
+            // then identify follower/target — never lock "follower first"
+            // or "author first", which would deadlock against the
+            // opposite pairing.
+            $locked = $this->lockUsersInOrder((int) $follower->id, (int) $author->id);
+
+            $lockedFollower = $locked->get($follower->id);
+            $lockedAuthor = $locked->get($author->id);
+
+            if ($lockedFollower === null || ! $lockedFollower->canFollow()) {
+                throw CannotFollowAuthorException::followerNotAllowed();
+            }
+
+            if ($lockedAuthor === null || ! $lockedAuthor->canBeFollowed()) {
+                throw CannotFollowAuthorException::authorNotViewable();
+            }
+
+            Follow::query()->firstOrCreate([
+                'follower_id' => $follower->id,
+                'author_id' => $author->id,
+            ]);
+        });
 
         $this->logger->info('follows.followed', ['user_id' => $follower->id, 'author_id' => $author->id]);
     }

@@ -81,25 +81,24 @@ enum UserStatus: string
     }
 
     /**
-     * Profile mutation is currently not lifecycle-restricted for living
-     * accounts: banned, limited and shadowbanned users may still edit their
-     * profile. This method pins that audited behavior in one place so a
-     * future PR can tighten it deliberately rather than accidentally. A
-     * Deleted tombstone has no profile left to mutate — fail closed.
+     * Public profile/identity mutation is Active-only (PR-F): a sanctioned
+     * account keeps its existing identity and avatar visible but may not
+     * change them. The separate password-security flow and account
+     * self-deletion are deliberately NOT gated by this capability.
      */
     public function canUpdateProfile(): bool
     {
-        return $this !== self::Deleted;
+        return $this === self::Active;
     }
 
     /**
-     * Login is currently not lifecycle-restricted for living accounts: no
-     * auth code path inspects status, so banned/limited/shadowbanned users
-     * can authenticate and browse (participation is blocked by the
-     * capabilities above). Declared here unenforced so a future
-     * auth-enforcement PR has a single flip point. A Deleted tombstone can
-     * never authenticate again — in practice this is already guaranteed by
-     * anonymization (scrambled email, random password, cleared tokens).
+     * Living sanctions never lock a user out of their account: limited,
+     * banned and shadowbanned users may authenticate, browse and manage
+     * account security — participation is blocked by the capabilities
+     * above. Enforced at the auth boundary (AuthenticateUserAction). A
+     * Deleted tombstone can never authenticate again — additionally
+     * guaranteed by anonymization (scrambled email, random password,
+     * cleared tokens).
      */
     public function canAuthenticate(): bool
     {

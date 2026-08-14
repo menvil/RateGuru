@@ -3,12 +3,12 @@
 namespace App\Filament\Resources\Users;
 
 use App\Enums\UserRole;
-use App\Enums\UserStatus;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\Tables\UsersTable;
 use App\Models\User;
 use BackedEnum;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
@@ -60,15 +60,15 @@ class UserResource extends Resource
                     UserRole::Admin->value => 'Admin',
                 ])
                 ->required(),
-            Select::make('status')
+            // Lifecycle status is deliberately read-only here: transitions
+            // happen only through the explicit moderation actions
+            // (Limit / Ban / Shadowban / Restore access), which lock both
+            // participants, validate the transition matrix and write a
+            // ModerationLog. A raw select would bypass all of that.
+            Placeholder::make('status')
                 ->label('Status')
-                ->options([
-                    UserStatus::Active->value => 'Active',
-                    UserStatus::Limited->value => 'Limited',
-                    UserStatus::Banned->value => 'Banned',
-                    UserStatus::Shadowbanned->value => 'Shadowbanned',
-                ])
-                ->required(),
+                ->content(fn (?User $record): string => $record === null ? '—' : ucfirst($record->status->value))
+                ->helperText('Changed only via the moderation actions on the users list.'),
             TextInput::make('trust_level')
                 ->label('Trust level')
                 ->integer()

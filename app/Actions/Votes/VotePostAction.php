@@ -7,6 +7,7 @@ use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\VoteType;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Votes\CannotVoteException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\User;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\DB;
 
 final class VotePostAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly RecalculatePostCountersAction $recalculatePostCounters,
         private readonly RecalculatePostScoreAction $recalculatePostScore,
@@ -54,11 +57,17 @@ final class VotePostAction
         }
 
         DB::transaction(function () use ($user, $post, $type) {
-            // Lock order: Post row first, then child rows
-            // (docs/architecture/post-lifecycle.md). The pre-check above ran
-            // on the caller's instance, which may be stale — an author
-            // delete or moderation hide can land in between. Only the row
-            // re-read under lock is authoritative.
+            // Lock order: Actor User -> Post -> child rows
+            // (docs/architecture/user-lifecycle.md). The pre-checks above
+            // ran on possibly stale instances — an admin sanction, author
+            // delete or moderation hide can land in between. Only rows
+            // re-read under lock are authoritative.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canVote()) {
+                throw CannotVoteException::becauseUserIsNotAllowed();
+            }
+
             $lockedPost = Post::withTrashed()
                 ->whereKey($post->id)
                 ->lockForUpdate()

@@ -71,7 +71,7 @@ it('does not allow admins to ban other admins', function () {
     expect((new UserPolicy)->ban($admin, $otherAdmin))->toBeFalse();
 });
 
-dataset('admin sanction abilities', ['unban', 'shadowban']);
+dataset('admin sanction abilities', ['limit', 'restoreAccess', 'shadowban']);
 
 it('allows admins to sanction a non-admin target', function (string $ability) {
     $admin = User::factory()->admin()->create();

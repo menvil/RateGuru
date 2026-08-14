@@ -7,6 +7,8 @@ use App\Enums\ReportStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Reports\CannotReportContentException;
 use App\Models\Comment;
+use App\Models\Concerns\LocksActorForWrite;
+use App\Models\Concerns\LocksUsersInOrder;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
@@ -18,6 +20,9 @@ use Illuminate\Support\Facades\DB;
 
 final class ReportContentAction
 {
+    use LocksActorForWrite;
+    use LocksUsersInOrder;
+
     private const POST_REVIEW_REPORT_THRESHOLD = 3;
 
     public function __construct(
@@ -56,6 +61,12 @@ final class ReportContentAction
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 
+        // A Deleted tombstone is not a reportable public target; living
+        // users stay reportable through the existing product flow.
+        if ($content instanceof User && $content->isTombstoned()) {
+            throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+
         try {
             $this->rateLimiter->hitOrFail(
                 key: RateLimitKey::userAction('report', $user),
@@ -85,6 +96,34 @@ final class ReportContentAction
             // never be committed without its reports_count / review flag
             // being recomputed in the same unit of work.
             return DB::transaction(function () use ($user, $content, $reason, $message) {
+                // Lock order: Actor User -> Post -> Comment; for a User
+                // target both user rows are locked together in ascending id
+                // order — sequential reporter-then-target locking would
+                // break the global User lock order shared with sanctions
+                // and follows. Pre-checks ran on possibly stale instances:
+                // the reporter may have been sanctioned and a User target
+                // may have self-deleted into a tombstone in between.
+                if ($content instanceof User) {
+                    $lockedPair = $this->lockUsersInOrder((int) $user->getKey(), (int) $content->getKey());
+
+                    $lockedReporter = $lockedPair->get($user->getKey());
+                    $lockedTarget = $lockedPair->get($content->getKey());
+
+                    if ($lockedReporter === null || ! $lockedReporter->canReport()) {
+                        throw CannotReportContentException::becauseUserIsNotAllowed();
+                    }
+
+                    if ($lockedTarget === null || $lockedTarget->isTombstoned()) {
+                        throw CannotReportContentException::becauseContentIsNotReportable();
+                    }
+                } else {
+                    $lockedReporter = $this->lockActor($user);
+
+                    if ($lockedReporter === null || ! $lockedReporter->canReport()) {
+                        throw CannotReportContentException::becauseUserIsNotAllowed();
+                    }
+                }
+
                 if ($content instanceof Comment) {
                     $this->assertCommentIsReportableUnderLock($content);
                 }

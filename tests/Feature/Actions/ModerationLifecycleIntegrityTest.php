@@ -1,8 +1,8 @@
 <?php
 
 use App\Actions\Moderation\BanUserAction;
+use App\Actions\Moderation\RestoreUserAccessAction;
 use App\Actions\Moderation\ShadowbanUserAction;
-use App\Actions\Moderation\UnbanUserAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Enums\ModerationActionType;
 use App\Enums\UserStatus;
@@ -72,7 +72,7 @@ it('unbans a shadowbanned user and logs both statuses', function () {
     $admin = User::factory()->admin()->create();
     $target = User::factory()->shadowbanned()->create();
 
-    app(UnbanUserAction::class)->handle($admin, $target);
+    app(RestoreUserAccessAction::class)->handle($admin, $target);
 
     expect($target->fresh()->status)->toBe(UserStatus::Active);
     expect(latestModerationLogMetadata())->toBe([
@@ -161,7 +161,7 @@ it('preserves all content and identity across a ban and unban cycle', function (
     $avatarAssetId = $target->avatar_asset_id;
 
     app(BanUserAction::class)->handle($admin, $target);
-    app(UnbanUserAction::class)->handle($admin, $target);
+    app(RestoreUserAccessAction::class)->handle($admin, $target);
 
     expect($target->fresh()->status)->toBe(UserStatus::Active);
     expectLifecycleContentPreserved($target, $avatarAssetId);
@@ -203,9 +203,9 @@ it('records ban and unban as distinct moderation log entries', function () {
     $target = User::factory()->create();
 
     app(BanUserAction::class)->handle($admin, $target);
-    app(UnbanUserAction::class)->handle($admin, $target);
+    app(RestoreUserAccessAction::class)->handle($admin, $target);
 
     $actions = ModerationLog::query()->orderBy('id')->pluck('action')->all();
 
-    expect($actions)->toBe([ModerationActionType::BanUser, ModerationActionType::UnbanUser]);
+    expect($actions)->toBe([ModerationActionType::BanUser, ModerationActionType::RestoreUserAccess]);
 });

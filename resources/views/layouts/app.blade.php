@@ -388,6 +388,8 @@
                         </section>
                     @endisset
 
+                    <x-account-restriction-notice />
+
                     <main
                         class="{{ $isFeedRoute ? 'px-2 py-4 sm:px-6 sm:py-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8' }}"
                         data-testid="app-main"

@@ -21,9 +21,9 @@ it('knows whether a status can create content', function () {
  * The lifecycle capability matrix — the product contract for what each
  * lifecycle state may do. Mirrors docs/architecture/user-lifecycle.md.
  *
- * canUpdateProfile and canAuthenticate are true for every state because the
- * product currently applies no lifecycle restriction to profile editing or
- * login; they are pinned here so a future PR changes them deliberately.
+ * PR-F: profile mutation is Active-only; authentication stays open for
+ * every living state (sanctions restrict participation, not access) and
+ * closed forever for the Deleted tombstone.
  */
 it('enforces the lifecycle capability matrix', function (
     UserStatus $status,
@@ -51,9 +51,9 @@ it('enforces the lifecycle capability matrix', function (
 })->with([
     //                 status                    create comment vote  report follow beFllw manage profile auth  panel
     'active' => [UserStatus::Active, true, true, true, true, true, true, true, true, true, true],
-    'limited' => [UserStatus::Limited, false, false, false, false, false, false, false, true, true, false],
-    'banned' => [UserStatus::Banned, false, false, false, false, false, false, false, true, true, false],
-    'shadowbanned' => [UserStatus::Shadowbanned, false, false, false, false, false, false, false, true, true, false],
+    'limited' => [UserStatus::Limited, false, false, false, false, false, false, false, false, true, false],
+    'banned' => [UserStatus::Banned, false, false, false, false, false, false, false, false, true, false],
+    'shadowbanned' => [UserStatus::Shadowbanned, false, false, false, false, false, false, false, false, true, false],
     'deleted' => [UserStatus::Deleted, false, false, false, false, false, false, false, false, false, false],
 ]);
 
