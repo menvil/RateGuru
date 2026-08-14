@@ -20,4 +20,6 @@ enum ModerationActionType: string
     case MarkUserTrusted = 'mark_user_trusted';
     case HideComment = 'hide_comment';
     case RestoreComment = 'restore_comment';
+    case FinalizePostRemoval = 'finalize_post_removal';
+    case FinalizeCommentRemoval = 'finalize_comment_removal';
 }

@@ -37,6 +37,15 @@ class CommentPolicy
             && $comment->status === CommentStatus::Hidden;
     }
 
+    /**
+     * Finalizing an irreversible moderation removal is Active-Admin-only.
+     */
+    public function finalizeRemoval(User $user, Comment $comment): bool
+    {
+        return $user->isAdmin()
+            && $user->canAccessPrivilegedPanel();
+    }
+
     private function canModerate(User $user): bool
     {
         // Role AND lifecycle (PR-F): a sanctioned moderator/admin loses

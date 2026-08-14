@@ -30,6 +30,12 @@ final class RestorePostAction
         DB::transaction(function () use ($moderator, $post, $reason) {
             [$lockedActor, $locked] = $this->lockAndAuthorizePostModeration($moderator, $post, 'restore', PostStatus::Hidden);
 
+            // A finalized moderation removal never returns through the
+            // normal lifecycle (docs/architecture/moderation-content-lifecycle.md).
+            if ($locked->moderation_removed_at !== null) {
+                throw CannotModeratePostException::becausePostStatusIsInvalid();
+            }
+
             $fromStatus = $locked->status;
 
             $persisted = $locked->forceFill([
