@@ -29,7 +29,7 @@ Both modes print the same grouped report — `HOST`, `TOOLS`, `SERVICES`,
 `SUMMARY` — with each item classified `PASS`, `MISSING`, `WARN` or
 `CONFLICT`, ending with:
 
-```
+```text
 Bootstrap host preflight:
 PASS: 28
 MISSING: 14

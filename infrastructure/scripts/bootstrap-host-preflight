@@ -250,7 +250,7 @@ meminfo_kib() {
 ACTIVE_TARGETS=()
 declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
 declare -A TGT_CODE_GROUP TGT_INCOMING TGT_FPM_SOCKET TGT_FPM_POOL
-declare -A TGT_DB_ROLE TGT_NGINX_SITE
+declare -A TGT_DB_ROLE TGT_NGINX_SITE TGT_PUBLIC_HOSTNAME
 SOURCE_REGISTRY_OK=false
 
 PHP_FPM_SERVICE_EXPECTED=""
@@ -279,14 +279,43 @@ load_source_contract() {
             TGT_FPM_POOL[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.pool' "${SOURCE_REGISTRY}")"
             TGT_DB_ROLE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].database.application_role' "${SOURCE_REGISTRY}")"
             TGT_NGINX_SITE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.site_name' "${SOURCE_REGISTRY}")"
+            TGT_PUBLIC_HOSTNAME[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames[0]' "${SOURCE_REGISTRY}")"
         done < <(jq -r '.targets | to_entries[] | select(.value.lifecycle == "active") | .key' "${SOURCE_REGISTRY}" | sort)
     fi
 
     # deployment.conf template is plain KEY=VALUE text; parse, never source.
     if [[ -r "${SOURCE_DEPLOYMENT_CONF}" ]]; then
-        PHP_FPM_SERVICE_EXPECTED="$(sed -n 's/^PHP_FPM_SERVICE=//p' "${SOURCE_DEPLOYMENT_CONF}" | head -n 1)"
-        PHP_BIN_EXPECTED="$(sed -n 's/^PHP_BIN=//p' "${SOURCE_DEPLOYMENT_CONF}" | head -n 1)"
+        PHP_FPM_SERVICE_EXPECTED="$(template_value PHP_FPM_SERVICE)"
+        PHP_BIN_EXPECTED="$(template_value PHP_BIN)"
     fi
+}
+
+# template_value KEY — the value of the first KEY=VALUE line in the committed
+# deployment.conf template. Plain text extraction (the template is never
+# sourced or eval'd), in one awk pass — a `sed | head -n 1` pipeline would
+# let head close the pipe early and trip pipefail. One surrounding layer of
+# matching single or double quotes is stripped, so a future quoted
+# assignment still yields the bare service/binary name; embedded quotes are
+# preserved.
+template_value() {
+    local key="$1" value
+
+    value="$(awk -v prefix="${key}=" \
+        'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' \
+        "${SOURCE_DEPLOYMENT_CONF}")"
+
+    case "${value}" in
+        \"*\")
+            value="${value#\"}"
+            value="${value%\"}"
+            ;;
+        \'*\')
+            value="${value#\'}"
+            value="${value%\'}"
+            ;;
+    esac
+
+    printf '%s\n' "${value}"
 }
 
 # --- HOST -------------------------------------------------------------------
@@ -482,7 +511,17 @@ report_host_dns() {
         return 0
     fi
 
-    if "${getent_bin}" hosts archive.ubuntu.com >/dev/null 2>&1; then
+    # Bound the probe: a broken resolver must fail fast (and classify as
+    # MISSING), never hang the preflight. Degrade to an unbounded call only
+    # when timeout itself is genuinely absent — its absence is already
+    # reported by the TOOLS section.
+    local dns_probe=("${getent_bin}" hosts archive.ubuntu.com)
+
+    if command -v timeout >/dev/null 2>&1; then
+        dns_probe=(timeout 5 "${dns_probe[@]}")
+    fi
+
+    if "${dns_probe[@]}" >/dev/null 2>&1; then
         item PASS "dns-resolution" "archive.ubuntu.com resolves"
     else
         item MISSING "dns-resolution" "archive.ubuntu.com does not resolve — apt bootstrap would fail" \
@@ -529,6 +568,7 @@ REQUIRED_BASE_TOOLS=(
     du:coreutils
     df:coreutils
     sleep:coreutils
+    timeout:coreutils
     uname:coreutils
     find:findutils
     grep:grep
@@ -983,9 +1023,14 @@ report_registry_parity() {
     fi
 
     # RUNTIME registry: parity/drift only — never modified, never repaired.
+    # An existing-but-unreadable file is its own outcome: cmp failing on it
+    # must not masquerade as drift.
     if ! stat_probe "${RUNTIME_REGISTRY_FILE}" >/dev/null; then
         item MISSING "registry:runtime" "absent: ${RUNTIME_REGISTRY_FILE} (expected on a clean host)" \
             "installed by install-target-operations --apply (slice 5.4 orchestration)"
+    elif [[ ! -r "${RUNTIME_REGISTRY_FILE}" ]]; then
+        item WARN "registry:runtime" "present but not readable — parity cannot be verified" \
+            "re-run as root to compare against the source registry"
     elif cmp -s "${SOURCE_REGISTRY}" "${RUNTIME_REGISTRY_FILE}" 2>/dev/null; then
         item PASS "registry:runtime" "byte-identical to the source registry (parity)"
     else
@@ -996,6 +1041,9 @@ report_registry_parity() {
     if ! stat_probe "${RUNTIME_DEPLOYMENT_CONF_FILE}" >/dev/null; then
         item MISSING "deployment-conf:runtime" "absent: ${RUNTIME_DEPLOYMENT_CONF_FILE} (expected on a clean host)" \
             "installed by install-target-operations --apply (slice 5.4 orchestration)"
+    elif [[ ! -r "${RUNTIME_DEPLOYMENT_CONF_FILE}" ]]; then
+        item WARN "deployment-conf:runtime" "present but not readable — parity cannot be verified" \
+            "re-run as root to compare against the committed template"
     elif cmp -s "${SOURCE_DEPLOYMENT_CONF}" "${RUNTIME_DEPLOYMENT_CONF_FILE}" 2>/dev/null; then
         item PASS "deployment-conf:runtime" "byte-identical to the committed template (parity)"
     else
@@ -1150,14 +1198,14 @@ report_secrets() {
             "credentials for PostgreSQL role ${TGT_DB_ROLE[${target_id}]} live inside shared/.env"
         report_secret "github-deploy-key:${target_id}" "/home/${TGT_DEPLOY_USER[${target_id}]}/.ssh/authorized_keys" \
             "GitHub Actions deploy public key for ${TGT_DEPLOY_USER[${target_id}]}"
+        report_secret "tls:${target_id}" "/etc/letsencrypt/live/${TGT_PUBLIC_HOSTNAME[${target_id}]}/fullchain.pem" \
+            "TLS certificate for ${TGT_PUBLIC_HOSTNAME[${target_id}]} (DNS/ACME credentials are manual if automation needs them)"
     done
 
     report_secret "rclone-credentials" "/root/.config/rclone/rclone.conf" \
         "Backblaze B2 credentials for offsite backups"
     report_secret "basic-auth" "/etc/nginx/rateguru-staging.htpasswd" \
         "Basic Auth hashes for staging and mail-capture vhosts"
-    report_secret "tls-rateguru-staging" "/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem" \
-        "TLS certificate for the staging vhost (DNS/ACME credentials are manual if automation needs them)"
     report_secret "tls-mail-capture" "/etc/letsencrypt/live/staging-mail-capture/fullchain.pem" \
         "TLS certificate for the shared mail-capture vhosts"
 }

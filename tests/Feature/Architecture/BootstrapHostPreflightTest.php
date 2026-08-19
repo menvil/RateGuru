@@ -97,7 +97,7 @@ function bootstrapPreflightAllTools(): array
         'bash', 'jq', 'curl', 'tar', 'gzip', 'sha256sum', 'install', 'stat',
         'readlink', 'mktemp', 'sort', 'cut', 'env', 'tr', 'head', 'tail',
         'date', 'id', 'rm', 'mv', 'cp', 'ls', 'cat', 'chmod', 'chown', 'ln',
-        'od', 'du', 'df', 'sleep', 'uname', 'find', 'grep', 'sed', 'awk',
+        'od', 'du', 'df', 'sleep', 'timeout', 'uname', 'find', 'grep', 'sed', 'awk',
         'cmp', 'diff', 'flock', 'namei', 'runuser', 'hostname', 'useradd',
         'getent', 'visudo', 'ss', 'ip', 'setfacl', 'getfacl',
         // runtime/service
@@ -200,35 +200,13 @@ function bootstrapPreflightCompliantGroup(): string
 }
 
 /**
- * Build a fully simulated host and return the environment to run the script
- * against it. The default is the compliant profile — the current staging
- * host — and every option knocks one aspect back toward a clean or broken
- * host.
- *
- * Options:
- *   os:              'ubuntu-24.04' | 'ubuntu-22.04' | 'debian' | 'absent'
- *   systemd:         bool
- *   tools:           'all' | list<string>
- *   services:        array<string,string> unit => running|stopped ('all-running' default)
- *   passwd/group:    file content overrides
- *   statTable:       list<string> rows (default compliant)
- *   tcpPorts:        list<int> occupied TCP ports
- *   unixSockets:     list<string> occupied unix socket paths
- *   runtimeRegistry: 'parity' | 'drift' | 'absent'
- *   runtimeConf:     'parity' | 'drift' | 'absent'
- *   euid:            string
- *   swap:            bool
- *   timezone:        string
- *   loopback:        bool
- *   dns:             bool
+ * Host identity/state files: os-release, meminfo, passwd, group, timezone,
+ * and the systemd runtime directory.
  *
  * @param  array<string, mixed>  $options
- * @return array<string, string>
  */
-function bootstrapPreflightFixture(string $scratch, array $options = []): array
+function bootstrapPreflightWriteHostFiles(string $fs, array $options): void
 {
-    $fs = $scratch.'/fs';
-
     $os = $options['os'] ?? 'ubuntu-24.04';
     $osRelease = match ($os) {
         'ubuntu-24.04' => "ID=ubuntu\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04 LTS\"\n",
@@ -251,14 +229,30 @@ function bootstrapPreflightFixture(string $scratch, array $options = []): array
     if ($options['systemd'] ?? true) {
         @mkdir($fs.'/run-systemd', 0o755, true);
     }
+}
 
+/**
+ * Stub executables satisfying the script's constrained tool-PATH lookups.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapPreflightWriteToolStubs(string $scratch, array $options): void
+{
     $tools = $options['tools'] ?? 'all';
     $toolNames = $tools === 'all' ? bootstrapPreflightAllTools() : $tools;
 
     foreach ($toolNames as $tool) {
         bootstrapPreflightWriteStub($scratch.'/tools/'.$tool, "#!/bin/sh\nexit 0\n");
     }
+}
 
+/**
+ * The systemctl state table (unit=running|stopped) the systemctl stub reads.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapPreflightWriteServiceFixture(string $scratch, array $options): void
+{
     $services = $options['services'] ?? 'all-running';
 
     if ($services === 'all-running') {
@@ -280,8 +274,19 @@ function bootstrapPreflightFixture(string $scratch, array $options = []): array
     }
 
     file_put_contents($scratch.'/services.txt', $serviceRows);
+}
 
-    $statTable = $options['statTable'] ?? bootstrapPreflightCompliantStatTable();
+/**
+ * Runtime registry and deployment.conf fixtures (parity/drift/absent), plus
+ * the stat-table rows announcing whichever of the two exist.
+ *
+ * @param  array<string, mixed>  $options
+ * @return array{0: string, 1: string, 2: list<string>} [registryPath, confPath, extraStatRows]
+ */
+function bootstrapPreflightWriteRegistryFixtures(string $scratch, array $options): array
+{
+    $fs = $scratch.'/fs';
+    $extraStatRows = [];
 
     $runtimeRegistry = $options['runtimeRegistry'] ?? 'parity';
     $runtimeRegistryPath = $fs.'/deployment-targets.json';
@@ -295,7 +300,7 @@ function bootstrapPreflightFixture(string $scratch, array $options = []): array
     }
 
     if ($runtimeRegistry !== 'absent') {
-        $statTable[] = "{$runtimeRegistryPath}|regular file|root|root|640";
+        $extraStatRows[] = "{$runtimeRegistryPath}|regular file|root|root|640";
     }
 
     $runtimeConf = $options['runtimeConf'] ?? 'parity';
@@ -311,11 +316,19 @@ function bootstrapPreflightFixture(string $scratch, array $options = []): array
     }
 
     if ($runtimeConf !== 'absent') {
-        $statTable[] = "{$runtimeConfPath}|regular file|root|root|640";
+        $extraStatRows[] = "{$runtimeConfPath}|regular file|root|root|640";
     }
 
-    file_put_contents($scratch.'/stat-table.txt', implode("\n", $statTable)."\n");
+    return [$runtimeRegistryPath, $runtimeConfPath, $extraStatRows];
+}
 
+/**
+ * ss listener tables for the TCP and unix probes.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapPreflightWriteListenerFixtures(string $scratch, array $options): void
+{
     $tcpPorts = $options['tcpPorts'] ?? [80, 443, 5432, 6379, 1025, 8025, 3535, 3550];
     $tcpRows = '';
 
@@ -333,7 +346,16 @@ function bootstrapPreflightFixture(string $scratch, array $options = []): array
     }
 
     file_put_contents($scratch.'/ss-unix.txt', $unixRows);
+}
 
+/**
+ * The probe binaries the script's gated *_BIN overrides point at: stat,
+ * systemctl, ss, df, ip, getent.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapPreflightWriteProbeStubs(string $scratch, array $options): void
+{
     $statTablePath = $scratch.'/stat-table.txt';
     bootstrapPreflightWriteStub($scratch.'/bin/stat', <<<SH
 #!/usr/bin/env bash
@@ -389,6 +411,53 @@ SH);
         ? "printf '185.125.190.36 archive.ubuntu.com\\n'\nexit 0"
         : 'exit 2';
     bootstrapPreflightWriteStub($scratch.'/bin/getent', "#!/usr/bin/env bash\n{$dnsBody}\n");
+}
+
+/**
+ * Build a fully simulated host and return the environment to run the script
+ * against it. The default is the compliant profile — the current staging
+ * host — and every option knocks one aspect back toward a clean or broken
+ * host. This function only composes the focused helpers above.
+ *
+ * Options:
+ *   os:              'ubuntu-24.04' | 'ubuntu-22.04' | 'debian' | 'absent'
+ *   systemd:         bool
+ *   tools:           'all' | list<string>
+ *   services:        array<string,string> unit => running|stopped ('all-running' default)
+ *   passwd/group:    file content overrides
+ *   statTable:       list<string> rows (default compliant)
+ *   tcpPorts:        list<int> occupied TCP ports
+ *   unixSockets:     list<string> occupied unix socket paths
+ *   runtimeRegistry: 'parity' | 'drift' | 'absent'
+ *   runtimeConf:     'parity' | 'drift' | 'absent'
+ *   euid:            string
+ *   swap:            bool
+ *   timezone:        string
+ *   loopback:        bool
+ *   dns:             bool
+ *
+ * @param  array<string, mixed>  $options
+ * @return array<string, string>
+ */
+function bootstrapPreflightFixture(string $scratch, array $options = []): array
+{
+    $fs = $scratch.'/fs';
+
+    bootstrapPreflightWriteHostFiles($fs, $options);
+    bootstrapPreflightWriteToolStubs($scratch, $options);
+    bootstrapPreflightWriteServiceFixture($scratch, $options);
+
+    [$runtimeRegistryPath, $runtimeConfPath, $extraStatRows] =
+        bootstrapPreflightWriteRegistryFixtures($scratch, $options);
+
+    $statTable = array_merge(
+        $options['statTable'] ?? bootstrapPreflightCompliantStatTable(),
+        $extraStatRows,
+    );
+    file_put_contents($scratch.'/stat-table.txt', implode("\n", $statTable)."\n");
+
+    bootstrapPreflightWriteListenerFixtures($scratch, $options);
+    bootstrapPreflightWriteProbeStubs($scratch, $options);
 
     return [
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
@@ -445,8 +514,11 @@ function bootstrapPreflightCleanHostFixture(string $scratch): array
 function bootstrapPreflightTreeSnapshot(string $dir): array
 {
     $snapshot = [];
+    // SELF_FIRST so directories themselves are part of the snapshot — a
+    // created or removed (even empty) directory must invalidate it.
     $iterator = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
     );
 
     foreach ($iterator as $entry) {
@@ -1004,24 +1076,50 @@ it('produces byte-identical output and the same exit code across repeated runs',
     }
 });
 
+/**
+ * @param  array<string, string>  $env
+ */
+function bootstrapPreflightAssertSummaryMatchesItems(array $env): string
+{
+    [, $output] = bootstrapPreflightRun(['--check'], $env);
+
+    foreach (['PASS', 'MISSING', 'WARN', 'CONFLICT'] as $status) {
+        preg_match("/^{$status}: (\\d+)$/m", $output, $summary);
+        // A single space suffices as separator: CONFLICT fills the whole
+        // fixed-width %-8s field, so only one space follows it.
+        $counted = preg_match_all("/^  {$status} /m", $output);
+
+        expect($counted)->toBe(
+            (int) $summary[1],
+            "summary {$status} count must match the item lines",
+        );
+    }
+
+    return $output;
+}
+
 it('reports summary counts that exactly match the counted item lines', function () {
     $scratch = bootstrapPreflightScratchDir();
 
     try {
-        $env = bootstrapPreflightCleanHostFixture($scratch);
-        [, $output] = bootstrapPreflightRun(['--check'], $env);
-
-        foreach (['PASS', 'MISSING', 'WARN', 'CONFLICT'] as $status) {
-            preg_match("/^{$status}: (\\d+)$/m", $output, $summary);
-            $counted = preg_match_all("/^  {$status}\\s{2}/m", $output);
-
-            expect($counted)->toBe(
-                (int) $summary[1],
-                "summary {$status} count must match the item lines",
-            );
-        }
+        bootstrapPreflightAssertSummaryMatchesItems(bootstrapPreflightCleanHostFixture($scratch));
     } finally {
         bootstrapPreflightCleanup($scratch);
+    }
+
+    // The clean host has zero CONFLICT items, so the invariant above is
+    // vacuous for that status — prove it against a conflicting host too.
+    $conflictScratch = bootstrapPreflightScratchDir();
+
+    try {
+        $output = bootstrapPreflightAssertSummaryMatchesItems(
+            bootstrapPreflightFixture($conflictScratch, ['os' => 'debian']),
+        );
+
+        preg_match('/^CONFLICT: (\d+)$/m', $output, $conflicts);
+        expect((int) $conflicts[1])->toBeGreaterThan(0, 'the conflicting fixture must produce CONFLICT items');
+    } finally {
+        bootstrapPreflightCleanup($conflictScratch);
     }
 });
 
@@ -1035,9 +1133,10 @@ it('ignores every RATEGURU_PREFLIGHT_* override unless test overrides are explic
         [$exit, $output] = bootstrapPreflightRun(['--report'], $env);
 
         expect($exit)->toBe(0);
-        // The debian fixture os-release would print this marker if the
-        // ungated override were honored.
-        expect($output)->not->toContain('ID=debian');
+        // The fixture-only sentinels would appear if any ungated override
+        // were honored. (Deliberately no assertion on a bare 'ID=debian' —
+        // a real Debian dev host would legitimately print that from its own
+        // /etc/os-release.)
         expect($output)->not->toContain('sentinel-bookworm');
         expect($output)->not->toContain('preflight-fixture-host');
     } finally {
