@@ -10,4 +10,9 @@ class CannotSavePostException extends RuntimeException
     {
         return new self('This post cannot be saved because it is not viewable.');
     }
+
+    public static function userNotAllowed(): self
+    {
+        return new self('This account cannot modify saved posts.');
+    }
 }
