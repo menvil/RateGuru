@@ -84,15 +84,21 @@ jobs:
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
       # get genuine --immutable/check/purge semantics instead of a stub.
-      # apt talks to the Azure Ubuntu mirror, which can hang a connection for
-      # hours: Acquire timeouts + retries turn that into a fast self-healing
-      # failure, and timeout-minutes caps the step instead of letting it sit
-      # until the 6-hour job default.
+      # Installed from the pinned, checksum-verified GitHub release .deb —
+      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
+      # trickling for hours (regional outages), while dpkg -i needs no network
+      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
+      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
       - name: Install rclone
         timeout-minutes: 5
+        env:
+          RCLONE_VERSION: v1.75.0
+          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
         run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 install -y rclone
+          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
+            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
+          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
+          sudo dpkg -i /tmp/rclone.deb
 
       - name: Prepare application
         run: |
