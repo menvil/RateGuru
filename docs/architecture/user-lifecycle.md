@@ -311,10 +311,31 @@ Limited/Banned, and existing content remains publicly visible.
 - `tests/Feature/Filament/UserResourceTombstoneTest.php` — read-only
   tombstones in the admin panel.
 
-## Deferred to later PRs
+## Terminal write barrier and lifecycle-safe notifications
 
-- FK cascade hardening → PR-C
-- comment tombstones (`[comment deleted]`) → PR-D
-- post retention / hard purge → PR-E
-- moderation lifecycle (auth enforcement, suspension UI) → PR-F
-- moderation retention → PR-G
+Deleted is terminal for EVERY mutable User write, not just profile:
+password update/reset, email verification, locale/theme/notification
+preferences and saved-post edges all re-read the user under lock inside
+their transactions and require a living account (`canAuthenticate`) —
+a stale request that lost the race against anonymization mutates nothing
+and reveals nothing (password flows fail with their generic outcomes).
+Living sanctions (Limited/Banned/Shadowbanned) keep every intended
+private/security operation, including saved posts; only Deleted is
+barred.
+
+Identity-bearing database notifications (PostCommented, PostApproved,
+FollowedAuthorPosted) are serialized against anonymization through
+`LifecycleSafeDatabaseNotifier`: recipient and identity source are locked
+in the deterministic ascending-id pair order, the payload is built only
+from the fresh locked identity source, and the row is persisted under
+those locks — either the notification lands and PR-B cleanup later
+removes it via its actor_id/author_id keys, or anonymization wins and
+nothing is created. Deleted recipients receive nothing; living sanctioned
+recipients keep their inbox.
+
+## History (the lifecycle series)
+
+Delivered by the completed series, kept here as history only:
+FK cascade hardening (PR-C), comment tombstones (PR-D), post retention /
+hard purge (PR-E), moderation lifecycle (PR-F), moderation content
+retention (PR-G).
