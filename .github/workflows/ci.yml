@@ -149,6 +149,9 @@ jobs:
   tests:
     name: Tests (Pest + PostgreSQL)
     runs-on: ubuntu-latest
+    # Normal duration is ~15 minutes; the cap exists so a hung external
+    # download can never occupy a runner for the 6-hour default.
+    timeout-minutes: 30
     needs: frontend-build
     env:
       DB_CONNECTION: pgsql
@@ -209,7 +212,17 @@ jobs:
 
       # The Browser test suite (Pest v4 browser tests) drives a real Chromium
       # through Playwright; without it `php artisan test` aborts at startup.
+      # Browser binaries are cached by lockfile hash: on a cache hit
+      # `npx playwright install` skips the CDN download entirely, so a flaky
+      # CDN only ever hurts the first run after a Playwright version bump.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install Playwright
+        timeout-minutes: 10
         run: |
           npm ci --ignore-scripts
           npx playwright install chromium --with-deps
@@ -217,8 +230,15 @@ jobs:
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
       # get genuine --immutable/check/purge semantics instead of a stub.
+      # apt talks to the Azure Ubuntu mirror, which can hang a connection for
+      # hours: Acquire timeouts + retries turn that into a fast self-healing
+      # failure, and timeout-minutes caps the step instead of letting it sit
+      # until the 6-hour job default.
       - name: Install rclone
-        run: sudo apt-get update && sudo apt-get install -y rclone
+        timeout-minutes: 5
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 install -y rclone
 
       - name: Prepare application
         run: |
@@ -282,6 +302,9 @@ jobs:
   migrations-mariadb:
     name: Compatibility (MariaDB)
     runs-on: ubuntu-latest
+    # Normal duration is ~11 minutes; the cap exists so a hung external
+    # download can never occupy a runner for the 6-hour default.
+    timeout-minutes: 30
     needs: frontend-build
     env:
       DB_CONNECTION: mariadb
@@ -337,8 +360,15 @@ jobs:
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
       # get genuine --immutable/check/purge semantics instead of a stub.
+      # apt talks to the Azure Ubuntu mirror, which can hang a connection for
+      # hours: Acquire timeouts + retries turn that into a fast self-healing
+      # failure, and timeout-minutes caps the step instead of letting it sit
+      # until the 6-hour job default.
       - name: Install rclone
-        run: sudo apt-get update && sudo apt-get install -y rclone
+        timeout-minutes: 5
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 install -y rclone
 
       - name: Prepare application
         run: |
@@ -368,6 +398,9 @@ jobs:
   tests-sqlite:
     name: Compatibility (SQLite)
     runs-on: ubuntu-latest
+    # Normal duration is ~14 minutes; the cap exists so a hung external
+    # download can never occupy a runner for the 6-hour default.
+    timeout-minutes: 30
     needs: frontend-build
     outputs:
       migrations: ${{ steps.migration-metrics.outputs.migrations }}
@@ -401,8 +434,15 @@ jobs:
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
       # get genuine --immutable/check/purge semantics instead of a stub.
+      # apt talks to the Azure Ubuntu mirror, which can hang a connection for
+      # hours: Acquire timeouts + retries turn that into a fast self-healing
+      # failure, and timeout-minutes caps the step instead of letting it sit
+      # until the 6-hour job default.
       - name: Install rclone
-        run: sudo apt-get update && sudo apt-get install -y rclone
+        timeout-minutes: 5
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 install -y rclone
 
       - name: Prepare application
         run: |

@@ -84,8 +84,15 @@ jobs:
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
       # get genuine --immutable/check/purge semantics instead of a stub.
+      # apt talks to the Azure Ubuntu mirror, which can hang a connection for
+      # hours: Acquire timeouts + retries turn that into a fast self-healing
+      # failure, and timeout-minutes caps the step instead of letting it sit
+      # until the 6-hour job default.
       - name: Install rclone
-        run: sudo apt-get update && sudo apt-get install -y rclone
+        timeout-minutes: 5
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 install -y rclone
 
       - name: Prepare application
         run: |
