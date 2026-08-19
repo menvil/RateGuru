@@ -22,11 +22,11 @@
 # validates the host contract that later Phase 5 slices (5.2+) will satisfy.
 #
 # Supported host contract: the RateGuru staging VPS baseline only — Ubuntu
-# (apt/dpkg + systemd). SUPPORTED_OS_ID is the hard gate: any other OS
-# family is a CONFLICT. SUPPORTED_OS_VERSION_ID is the pinned baseline; a
-# different Ubuntu release is reported as WARN, not a failure, so the
-# preflight stays honest on a host that tracks a newer LTS before this pin
-# is updated. This script does not pretend to support arbitrary Linux
+# 24.04 (apt/dpkg + systemd), exactly. SUPPORTED_OS_ID and
+# SUPPORTED_OS_VERSION_ID together form the hard gate: any other OS family
+# and any other Ubuntu release are both CONFLICT. The supported set is
+# never silently expanded — moving the baseline is a deliberate edit to the
+# version pin. This script does not pretend to support arbitrary Linux
 # distributions.
 #
 # Source of truth: the repository. The SOURCE registry is
@@ -71,9 +71,9 @@ RUNTIME_DEPLOYMENT_CONF_DEFAULT="${RUNTIME_CONFIG_ROOT}/deployment.conf"
 
 # --- Supported host contract ------------------------------------------------
 
-# The staging VPS baseline. The OS family (ID from /etc/os-release) is the
-# hard gate; the version is the pinned expectation and drifting from it is a
-# WARN. Update the version pin here when the staging baseline moves.
+# The staging VPS baseline — an exact contract: both the OS family (ID from
+# /etc/os-release) and VERSION_ID must match, and any mismatch is CONFLICT.
+# Update the version pin here, deliberately, when the staging baseline moves.
 SUPPORTED_OS_ID="ubuntu"
 SUPPORTED_OS_VERSION_ID="24.04"
 
@@ -252,12 +252,22 @@ declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
 declare -A TGT_CODE_GROUP TGT_INCOMING TGT_FPM_SOCKET TGT_FPM_POOL
 declare -A TGT_DB_ROLE TGT_NGINX_SITE TGT_PUBLIC_HOSTNAME
 SOURCE_REGISTRY_OK=false
+JQ_AVAILABLE=true
 
 PHP_FPM_SERVICE_EXPECTED=""
 PHP_BIN_EXPECTED=""
 
 load_source_contract() {
-    if [[ -r "${SOURCE_REGISTRY}" ]] \
+    # jq is resolved through the real process PATH on purpose — it is the jq
+    # the parsing below actually executes, not the TOOL_PATH-scoped
+    # inventory probe. Without it the target-derived contract is not
+    # evaluated (and never invented): ACTIVE_TARGETS stays empty,
+    # report_registry_parity states the degradation explicitly, and the
+    # TOOLS section reports tool:jq itself as MISSING. Nothing aborts here:
+    # --report must run to completion on a clean host that has no jq yet.
+    if ! command -v jq >/dev/null 2>&1; then
+        JQ_AVAILABLE=false
+    elif [[ -r "${SOURCE_REGISTRY}" ]] \
         && jq -e 'type == "object" and (.targets | type == "object")' \
             "${SOURCE_REGISTRY}" >/dev/null 2>&1
     then
@@ -334,8 +344,8 @@ report_host() {
         item CONFLICT "os-release" "unsupported OS family ID=${os_id:-unknown} (supported: ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} only)" \
             "Phase 5 supports the staging VPS baseline only; reprovision on ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}"
     elif [[ "${os_version}" != "${SUPPORTED_OS_VERSION_ID}" ]]; then
-        item WARN "os-release" "ID=${os_id} VERSION_ID=${os_version:-unknown} differs from pinned baseline ${SUPPORTED_OS_VERSION_ID}" \
-            "confirm the staging baseline and update SUPPORTED_OS_VERSION_ID if the pin moved"
+        item CONFLICT "os-release" "ID=${os_id} VERSION_ID=${os_version:-unknown} is not the supported baseline ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}" \
+            "Phase 5 supports ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} exactly; update SUPPORTED_OS_VERSION_ID deliberately if the staging baseline moves"
     else
         item PASS "os-release" "ID=${os_id} VERSION_ID=${os_version} (supported baseline)"
     fi
@@ -1008,8 +1018,14 @@ report_filesystem() {
 
 report_registry_parity() {
     # SOURCE registry: repository truth, validated through the standalone
-    # `targets` CLI rather than re-implementing its checks here.
-    if [[ "${SOURCE_REGISTRY_OK}" != true ]]; then
+    # `targets` CLI rather than re-implementing its checks here. Without jq
+    # the target contract is not evaluated at all — stated here as its own
+    # MISSING item rather than pretending the registry was read (the
+    # byte-level runtime parity checks below need no jq and still run).
+    if [[ "${JQ_AVAILABLE}" != true ]]; then
+        item MISSING "registry:source" "cannot evaluate the source target contract without jq — per-target users/groups, filesystem paths, PHP-FPM sockets and secret material are omitted from this report" \
+            "install jq (slice 5.2) and re-run for the full target-derived contract"
+    elif [[ "${SOURCE_REGISTRY_OK}" != true ]]; then
         item CONFLICT "registry:source" "unreadable or invalid JSON: ${SOURCE_REGISTRY}" \
             "fix the committed registry before any bootstrap step"
     elif [[ ! -x "${TARGETS_CLI}" ]]; then
@@ -1267,11 +1283,6 @@ parse_args() {
 
 main() {
     parse_args "$@"
-
-    # jq is this script's own hard dependency: without it the source
-    # registry — the bootstrap source of truth — cannot be read at all.
-    command -v jq >/dev/null 2>&1 \
-        || fail "jq is required to read the source target registry"
 
     load_source_contract
 

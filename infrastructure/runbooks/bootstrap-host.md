@@ -60,12 +60,20 @@ for the complete picture.
 
 ## Supported host contract
 
-Only the RateGuru staging VPS baseline: **Ubuntu** with apt/dpkg and
-systemd. Any other OS family is a `CONFLICT`; a different Ubuntu release
-than the pinned baseline (`SUPPORTED_OS_VERSION_ID` in the script) is a
-`WARN`, so the report stays honest if the staging baseline moves before the
-pin is updated. This script deliberately does not pretend to support
-arbitrary Linux distributions.
+Only the RateGuru staging VPS baseline, exactly: **Ubuntu 24.04** with
+apt/dpkg and systemd. Any other OS family **and any other Ubuntu release**
+are both `CONFLICT` — the supported set is never silently expanded. Moving
+the baseline is a deliberate edit to `SUPPORTED_OS_VERSION_ID` in the
+script (and its test fixtures). This script deliberately does not pretend
+to support arbitrary Linux distributions.
+
+The preflight itself has no hard startup dependency beyond bash and the
+POSIX base tools: on a clean host without `jq` the report still runs to
+completion — `tool:jq` is reported `MISSING`, the target-derived parts of
+the contract (per-target users/groups, filesystem paths, PHP-FPM sockets,
+secret material) are explicitly reported as not evaluable until `jq` is
+installed, and everything that needs no registry parsing still runs. Target
+values are never invented.
 
 ## What is inspected
 

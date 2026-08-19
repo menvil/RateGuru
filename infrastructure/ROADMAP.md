@@ -358,9 +358,13 @@ slices 1–2, which installed nothing — so it completes on merge.
    firewall changes. `--check` exits 0 only when every mandatory
    prerequisite already holds; `--report` prints the full detected host
    state plus intended bootstrap actions and stays usable on a completely
-   clean host. It inventories the supported OS baseline (Ubuntu only — the
-   staging VPS family; no pretend multi-distro support), the canonical host
-   tool set derived from the committed scripts, service states
+   clean host — including one where jq is not installed yet, in which case
+   the target-derived contract is explicitly reported as not evaluable
+   rather than invented. It enforces the supported OS baseline as an exact
+   contract (Ubuntu 24.04 only — the staging VPS baseline; any other family
+   or release is a conflict, and no pretend multi-distro support), and
+   inventories the canonical host tool set derived from the committed
+   scripts, service states
    (missing/installed-stopped/installed-running, with the shared staging
    mail capture labeled `shared-host-service`), users/groups and required
    membership relations, the filesystem contract derived from the source

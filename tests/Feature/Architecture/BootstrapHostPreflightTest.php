@@ -696,6 +696,53 @@ it('keeps --report usable on a clean host: exit 0 plus intended bootstrap action
     }
 });
 
+it('stays fully usable when jq is genuinely unresolvable on the process PATH', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        // A restricted real PATH: every tool the script itself executes,
+        // resolved to the host's genuine binaries — but no jq anywhere.
+        // This starves main()'s own resolution, not just the TOOL_PATH
+        // inventory probe the clean-host fixture already constrains.
+        expect(@mkdir($scratch.'/realbin', 0o755))->toBeTrue();
+
+        foreach ([
+            'bash', 'awk', 'sed', 'grep', 'head', 'tr', 'cut', 'sort',
+            'cmp', 'basename', 'dirname', 'hostname', 'uname', 'cat',
+        ] as $bin) {
+            $real = trim((string) shell_exec('command -v '.$bin));
+            expect($real)->not->toBe('', "test host is missing {$bin}");
+            symlink($real, $scratch.'/realbin/'.$bin);
+        }
+
+        $env = bootstrapPreflightCleanHostFixture($scratch);
+        $env['PATH'] = $scratch.'/realbin';
+
+        [$reportExit, $reportOutput] = bootstrapPreflightRun(['--report'], $env);
+
+        // No early abort: the full grouped report and summary must print.
+        expect($reportOutput)->not->toContain('jq is required');
+        expect($reportOutput)->not->toContain('ERROR:');
+
+        foreach (['HOST', 'TOOLS', 'SERVICES', 'USERS/GROUPS', 'FILESYSTEM', 'NETWORK', 'SECRETS REQUIRED LATER', 'SUMMARY'] as $sectionHeader) {
+            expect($reportOutput)->toContain("\n{$sectionHeader}\n");
+        }
+
+        expect($reportOutput)->toContain('MISSING  tool:jq');
+        // The target-derived contract is reported as not evaluable — never
+        // silently skipped, never invented.
+        expect($reportOutput)->toContain('cannot evaluate the source target contract without jq');
+        expect($reportOutput)->toContain('HOST READY: NO');
+        expect($reportExit)->toBe(0, "--report must stay usable without jq:\n{$reportOutput}");
+
+        [$checkExit, $checkOutput] = bootstrapPreflightRun(['--check'], $env);
+        expect($checkOutput)->toContain("\nSUMMARY\n");
+        expect($checkExit)->toBe(1, '--check must fail closed without jq, after the complete report');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
 it('reports a partially configured host with both PASS and MISSING items and fails --check', function () {
     $scratch = bootstrapPreflightScratchDir();
 
@@ -745,16 +792,21 @@ it('treats a wrong OS family as CONFLICT and fails --check even on an otherwise 
     }
 });
 
-it('treats a different Ubuntu version as WARN, not a failure', function () {
+it('treats any Ubuntu release other than the exact 24.04 baseline as CONFLICT', function () {
     $scratch = bootstrapPreflightScratchDir();
 
     try {
         $env = bootstrapPreflightFixture($scratch, ['os' => 'ubuntu-22.04']);
         [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
 
-        expect($output)->toContain('WARN     os-release — ID=ubuntu VERSION_ID=22.04 differs from pinned baseline 24.04');
-        expect($output)->toContain('HOST READY: YES');
-        expect($exit)->toBe(0, "a version drift alone must not fail --check:\n{$output}");
+        expect($output)->toContain('CONFLICT os-release — ID=ubuntu VERSION_ID=22.04 is not the supported baseline ubuntu 24.04');
+        expect($output)->toContain('HOST READY: NO');
+        expect($exit)->toBe(1, "the OS baseline is an exact hard contract, never silently expanded:\n{$output}");
+
+        // --report still completes as inventory on the unsupported release.
+        [$reportExit, $reportOutput] = bootstrapPreflightRun(['--report'], $env);
+        expect($reportExit)->toBe(0);
+        expect($reportOutput)->toContain('HOST READY: NO');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }
