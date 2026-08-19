@@ -10,7 +10,7 @@ stay distinguishable in storage, behavior, UI and audit semantics:
 | Storage | SoftDeletes (`deleted_at`) | `status = Hidden`, `deleted_at` stays null |
 | Reversible | never | yes, via `RestoreCommentAction` |
 | Moderation log | none — not a moderation act | HideComment / RestoreComment logs |
-| Body retained | internally for the author-retention window (default 30 days, then physical cleanup) | in DB for moderation/audit |
+| Body retained | internally at least the author-retention window (default 30 days = earliest cleanup eligibility; structural anchors, open reports and retained/hidden parent posts keep it longer) | in DB for moderation/audit |
 
 There is deliberately **no admin delete**: moderation acts through
 hide/restore (plus the Admin-only Finalize removal), and the Filament

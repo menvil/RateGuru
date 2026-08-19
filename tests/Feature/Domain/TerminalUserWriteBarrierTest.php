@@ -68,34 +68,45 @@ it('lets every living sanctioned account still change its password', function (s
 it('rejects a stale password reset for a tombstone generically, without event or mutation', function () {
     Event::fake([PasswordReset::class]);
 
-    $user = User::factory()->create();
-    $token = Password::createToken($user);
+    // The exact race shape: the broker resolved the user BEFORE
+    // anonymization committed, so its callback runs with a stale
+    // Active-looking instance. Mock the broker seam to deliver exactly
+    // that; the locked re-read inside the callback must see Deleted.
+    $stale = User::factory()->create();
+    $email = $stale->email;
+    app(AnonymizeUserAccountAction::class)->execute(User::findOrFail($stale->id));
 
-    // Anonymization wins between token issuance and the reset submit. The
-    // broker still holds the pre-anonymization email, so craft the stale
-    // window by restoring lookup: anonymize AFTER the broker resolves is
-    // impractical here, so simulate the terminal write barrier directly —
-    // the row is Deleted by the time the callback locks it.
-    $email = $user->email;
-    app(AnonymizeUserAccountAction::class)->execute(User::findOrFail($user->id));
+    expect($stale->isTombstoned())->toBeFalse();
 
-    // The tombstone's email is scrambled, so the broker's own lookup now
-    // yields the generic invalid-user outcome — no mutation either way.
-    $passwordBefore = $user->fresh()->password;
+    $fresh = $stale->fresh();
+    $passwordBefore = $fresh->password;
+    $rememberBefore = $fresh->remember_token;
+
+    Password::shouldReceive('reset')
+        ->once()
+        ->andReturnUsing(function (array $credentials, callable $callback) use ($stale): string {
+            $callback($stale);
+
+            return Password::PASSWORD_RESET;
+        });
 
     try {
         app(ResetPasswordAction::class)->execute([
-            'token' => $token,
+            'token' => 'stale-token',
             'email' => $email,
             'password' => 'brand-new-password',
         ]);
         $this->fail('Expected ValidationException.');
     } catch (ValidationException $e) {
         // Generic outcome only: nothing reveals the account was deleted.
-        expect(implode(' ', $e->errors()['email'] ?? []))->not->toContain('deleted');
+        $message = implode(' ', $e->errors()['email'] ?? []);
+        expect($message)->toBe(__(Password::INVALID_USER))
+            ->and(mb_strtolower($message))->not->toContain('delet');
     }
 
-    expect($user->fresh()->password)->toBe($passwordBefore);
+    $after = $stale->fresh();
+    expect($after->password)->toBe($passwordBefore)
+        ->and($after->remember_token)->toBe($rememberBefore);
     Event::assertNotDispatched(PasswordReset::class);
 });
 

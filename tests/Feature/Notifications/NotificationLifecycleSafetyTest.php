@@ -24,11 +24,15 @@ function safeSend(User $recipient, User $source): bool
     return app(LifecycleSafeDatabaseNotifier::class)->send(
         recipientId: (int) $recipient->id,
         identitySourceId: (int) $source->id,
-        notification: fn (User $fresh) => new PostCommentedNotification(
-            post: Post::factory()->published()->create(),
-            comment: Comment::factory()->for(Post::factory()->published(), 'post')->create(),
-            actor: $fresh,
-        ),
+        notification: function (User $fresh) {
+            $post = Post::factory()->published()->create();
+
+            return new PostCommentedNotification(
+                post: $post,
+                comment: Comment::factory()->create(['post_id' => $post->id]),
+                actor: $fresh,
+            );
+        },
     );
 }
 

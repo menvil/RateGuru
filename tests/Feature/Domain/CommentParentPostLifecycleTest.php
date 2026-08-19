@@ -107,6 +107,22 @@ it('lets the author delete a comment beneath a live post with an exact count', f
         ->and((int) $post->fresh()->comments_count)->toBe(1);
 });
 
+it('lets moderation hide and restore under a Hidden parent with exact counts', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->create(['post_id' => $post->id]);
+
+    app(HidePostAction::class)->handle($moderator, $post);
+
+    app(HideCommentAction::class)->handle($moderator, $comment);
+    expect($comment->fresh()->status)->toBe(CommentStatus::Hidden)
+        ->and((int) $post->fresh()->comments_count)->toBe(0);
+
+    app(RestoreCommentAction::class)->handle($moderator, $comment->fresh());
+    expect($comment->fresh()->status)->toBe(CommentStatus::Visible)
+        ->and((int) $post->fresh()->comments_count)->toBe(1);
+});
+
 it('lets moderation hide and restore under any parent state with exact counts', function () {
     $owner = User::factory()->create();
     $moderator = User::factory()->moderator()->create();

@@ -24,6 +24,8 @@ final class UpdateThemePreferenceAction
             }
 
             $locked->forceFill(['theme_preference' => $preference->value])->save();
+
+            $user->setRawAttributes($locked->getAttributes(), true);
         });
     }
 }
