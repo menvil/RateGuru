@@ -63,7 +63,11 @@ atomically moved into its final timestamped directory — a failed creation
 never triggers retention. Only direct-child directories named
 `YYYYMMDD-HHMMSS` participate; auxiliary entries (a `database`, `manifests`
 or `uploads` directory, any non-timestamp name, or a timestamp-named plain
-file) are never touched.
+file) are never touched. Names are round-trip-validated as real calendar
+timestamps — a shape-matching but calendar-invalid name (month 13, day 99)
+is skipped outright, never deleted and never counted toward the protected
+minimum; offsite retention applies the identical validation to remote
+names.
 
 The listing is sorted newest-first by name, and each entry's age derives
 from the timestamp in its *name*, never from filesystem mtime — the decision

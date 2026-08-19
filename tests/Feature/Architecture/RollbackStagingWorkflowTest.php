@@ -48,10 +48,12 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
     $validate = $stepsByName->get('Validate inputs');
     expect(data_get($validate, 'env.MODE'))->toBe('${{ inputs.mode }}')
         ->and(data_get($validate, 'env.RELEASE_ID'))->toBe('${{ inputs.release-id }}')
+        ->and(data_get($validate, 'env.DEPLOY_HOST'))->toBe('${{ vars.DEPLOY_HOST }}')
         ->and(data_get($validate, 'run'))
         ->toContain('case "${MODE}"')
         ->toContain('release-id must be empty when mode=previous')
         ->toContain('release-id is required when mode=release')
+        ->toContain('is not configured for the staging environment')
         ->toContain('exit 1');
 
     // SSH material comes only from the existing staging secrets, written with
@@ -78,6 +80,7 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
         ->toContain('"${remote_command[@]@Q}"')
         ->toContain('-o BatchMode=yes')
         ->toContain('-o IdentitiesOnly=yes')
+        ->toContain('-o ConnectTimeout=')
         ->toContain('-o StrictHostKeyChecking=yes')
         ->toContain('-o UserKnownHostsFile=');
 
@@ -87,11 +90,16 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
         expect(data_get($step, 'run'))->not->toContain('${{');
     }
 
-    // The step summary reports what happened without echoing any secret.
-    expect(data_get($stepsByName->get('Write summary'), 'run'))
+    // The step summary reports what happened — on failed runs too — with
+    // the result derived from the real job status, and without echoing any
+    // secret.
+    $summary = $stepsByName->get('Write summary');
+    expect(data_get($summary, 'if'))->toBe('always()')
+        ->and(data_get($summary, 'env.JOB_STATUS'))->toBe('${{ job.status }}')
+        ->and(data_get($summary, 'run'))
         ->toContain('GITHUB_STEP_SUMMARY')
         ->toContain('Target: staging-main')
-        ->toContain('Result: success');
+        ->toContain('Result: ${JOB_STATUS}');
 
     // No forbidden constructs anywhere in the workflow: no eval, no bash -c,
     // no disabled host-key checking, no root SSH, no legacy --environment

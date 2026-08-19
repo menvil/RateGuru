@@ -394,15 +394,12 @@ apply_local_backup_retention() {
     local index=0
     local entry
     for entry in "${entries[@]}"; do
-        if (( index < MINIMUM_RETAINED_BACKUPS )); then
-            log "KEEP minimum: ${entry}"
-            index=$((index + 1))
-            continue
-        fi
-
-        index=$((index + 1))
-
-        local year month day hour minute second entry_epoch
+        # A name can match the YYYYMMDD-HHMMSS shape without being a real
+        # calendar timestamp (month 13, day 99). Round-trip through epoch:
+        # anything that fails to parse, or does not format back to exactly
+        # its own name, was not created by this script — it is left alone
+        # entirely, and never consumes a protected-minimum slot.
+        local year month day hour minute second entry_epoch canonical
         year="${entry:0:4}"
         month="${entry:4:2}"
         day="${entry:6:2}"
@@ -410,12 +407,31 @@ apply_local_backup_retention() {
         minute="${entry:11:2}"
         second="${entry:13:2}"
 
-        entry_epoch="$(
+        if ! entry_epoch="$(
             date \
                 -u \
                 -d "${year}-${month}-${day} ${hour}:${minute}:${second} UTC" \
-                +%s
-        )"
+                +%s \
+                2>/dev/null
+        )"; then
+            log "SKIP malformed: ${entry}"
+            continue
+        fi
+
+        canonical="$(date -u -d "@${entry_epoch}" +%Y%m%d-%H%M%S)"
+
+        if [[ "${canonical}" != "${entry}" ]]; then
+            log "SKIP malformed: ${entry}"
+            continue
+        fi
+
+        if (( index < MINIMUM_RETAINED_BACKUPS )); then
+            log "KEEP minimum: ${entry}"
+            index=$((index + 1))
+            continue
+        fi
+
+        index=$((index + 1))
 
         if (( entry_epoch >= cutoff_epoch )); then
             log "KEEP recent: ${entry}"

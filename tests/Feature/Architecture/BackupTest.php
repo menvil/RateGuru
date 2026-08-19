@@ -1108,9 +1108,13 @@ it('retention only considers timestamped directories and never touches auxiliary
     $scratch = backupOpsScratchDir();
 
     try {
+        // 20200199-000000 matches the timestamp shape but is not a real
+        // calendar date (day 99) — and it sorts ABOVE 20200102-000000, so it
+        // would consume a protected-minimum slot if it were not excluded
+        // before the minimum window is applied.
         $result = backupOpsRunRetentionScenario(
             $scratch,
-            ['20200101-000000', '20200102-000000'],
+            ['20200101-000000', '20200102-000000', '20200199-000000'],
             localRetentionDays: 1,
             auxiliaryDirs: ['database', 'manifests', 'uploads', 'not-a-backup', '2020-01-01'],
             auxiliaryFiles: ['20190101-000000'],
@@ -1131,6 +1135,12 @@ it('retention only considers timestamped directories and never touches auxiliary
         }
 
         expect(is_file($result['namespaceRoot'].'/20190101-000000'))->toBeTrue('a timestamp-named file is not a backup directory');
+
+        // The calendar-invalid directory is skipped, never deleted, and never
+        // counted toward the protected minimum (20200102-000000 above kept
+        // its minimum slot despite sorting below it).
+        expect(is_dir($result['namespaceRoot'].'/20200199-000000'))->toBeTrue('a calendar-invalid timestamp name must never be deleted');
+        expect($result['output'])->toContain('SKIP malformed: 20200199-000000');
     } finally {
         backupOpsCleanup($scratch);
     }

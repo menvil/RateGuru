@@ -563,6 +563,9 @@ it('purges a 20-day-old backup under a 17-day retention cutoff but retains the s
         offsiteRetentionOpsBuildRemoteBackup($shortBucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(2));
         offsiteRetentionOpsBuildRemoteBackup($shortBucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(1));
 
+        // Calendar-invalid, shape-matching name: --apply must never purge it.
+        offsiteRetentionOpsBuildRemoteBackup($shortBucketRoot, 'parity', '20200199-000000');
+
         [$shortExit, $shortOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
             parse_offsite_retention_args --target parity-target --apply
             resolve_offsite_retention_subject
@@ -578,6 +581,9 @@ it('purges a 20-day-old backup under a 17-day retention cutoff but retains the s
         expect($shortOutput)->toContain('DELETE: ')->toContain($shortOldTs);
         expect(is_dir("{$shortBucketRoot}/rateguru/parity/{$shortOldTs}"))
             ->toBeFalse('a 20-day-old backup must be purged under a 17-day retention window');
+        expect($shortOutput)->toContain('SKIP malformed: 20200199-000000');
+        expect(is_dir("{$shortBucketRoot}/rateguru/parity/20200199-000000"))
+            ->toBeTrue('a calendar-invalid timestamp name must never be purged');
 
         // The same-age backup under a 30-day window: still beyond the
         // protected minimum, but inside the age window this time.
@@ -695,6 +701,11 @@ it('protects the newest two backups as the minimum, keeps recent backups beyond 
             offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $ts);
         }
 
+        // Matches the timestamp shape but is not a real calendar date (day
+        // 99): it must be skipped outright — never a candidate, never a
+        // consumer of a protected-minimum slot.
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', '20200199-000000');
+
         $env = offsiteRetentionOpsBaseEnv($scratch, ['RATEGURU_RCLONE_BUCKET' => $bucketRoot]);
 
         [$exit, $output] = offsiteRetentionOpsRunHarness(
@@ -708,6 +719,7 @@ it('protects the newest two backups as the minimum, keeps recent backups beyond 
             ->toContain("KEEP minimum: {$tsNewest}")
             ->toContain("KEEP minimum: {$tsSecondNewest}")
             ->toContain("KEEP recent: {$tsRecent}")
+            ->toContain('SKIP malformed: 20200199-000000')
             ->toContain('WOULD DELETE: ')
             ->toContain($tsOld1)
             ->toContain($tsOld2)

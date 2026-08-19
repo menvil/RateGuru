@@ -167,20 +167,16 @@ for name in sorted(set(names)):
 compute_candidates() {
     DELETE_CANDIDATES=()
 
-    local total="${#BACKUPS[@]}"
-    local protected_from=$(( total - MINIMUM_RETAINED_BACKUPS ))
-    (( protected_from < 0 )) && protected_from=0
-
-    local i backup
-    for (( i = 0; i < total; i++ )); do
-        backup="${BACKUPS[i]}"
-
-        if (( i >= protected_from )); then
-            log "KEEP minimum: ${backup}"
-            continue
-        fi
-
-        local year month day hour minute second backup_epoch
+    # Round-trip-validate every listed name first: a name can match the
+    # YYYYMMDD-HHMMSS shape without being a real calendar timestamp (month
+    # 13, day 99). Anything that fails to parse, or does not format back to
+    # exactly its own name, was not uploaded by this pipeline — it is never
+    # a candidate, and never consumes a protected-minimum slot.
+    local -a validated=()
+    local -a validated_epochs=()
+    local backup
+    for backup in "${BACKUPS[@]}"; do
+        local year month day hour minute second backup_epoch canonical
         year="${backup:0:4}"
         month="${backup:4:2}"
         day="${backup:6:2}"
@@ -188,14 +184,42 @@ compute_candidates() {
         minute="${backup:11:2}"
         second="${backup:13:2}"
 
-        backup_epoch="$(
+        if ! backup_epoch="$(
             date \
                 -u \
                 -d "${year}-${month}-${day} ${hour}:${minute}:${second} UTC" \
-                +%s
-        )"
+                +%s \
+                2>/dev/null
+        )"; then
+            log "SKIP malformed: ${backup}"
+            continue
+        fi
 
-        if (( backup_epoch >= CUTOFF_EPOCH )); then
+        canonical="$(date -u -d "@${backup_epoch}" +%Y%m%d-%H%M%S)"
+
+        if [[ "${canonical}" != "${backup}" ]]; then
+            log "SKIP malformed: ${backup}"
+            continue
+        fi
+
+        validated+=("${backup}")
+        validated_epochs+=("${backup_epoch}")
+    done
+
+    local total="${#validated[@]}"
+    local protected_from=$(( total - MINIMUM_RETAINED_BACKUPS ))
+    (( protected_from < 0 )) && protected_from=0
+
+    local i
+    for (( i = 0; i < total; i++ )); do
+        backup="${validated[i]}"
+
+        if (( i >= protected_from )); then
+            log "KEEP minimum: ${backup}"
+            continue
+        fi
+
+        if (( validated_epochs[i] >= CUTOFF_EPOCH )); then
             log "KEEP recent: ${backup}"
             continue
         fi
