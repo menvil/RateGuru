@@ -1,0 +1,1253 @@
+#!/usr/bin/env bash
+#
+# bootstrap-host-preflight — Phase 5 slice 5.1: read-only clean-VPS host
+# contract inspection.
+#
+# Modes:
+#   --check   Read-only. Exits 0 only when the host already satisfies every
+#             mandatory prerequisite of the committed infrastructure (no
+#             MISSING, no CONFLICT). A missing prerequisite never aborts
+#             report generation — every section always prints, then the
+#             final PASS/FAIL summary decides the exit status.
+#   --report  Read-only. Prints the same full detected host state plus the
+#             intended bootstrap action for every non-PASS item. Exits 0
+#             even when prerequisites are missing: this mode is inventory,
+#             not a gate.
+#   --help    Usage.
+#
+# There is deliberately NO --apply in this slice. This script never installs
+# packages, never creates users or directories, never chowns/chmods, never
+# writes configuration, never starts/stops/reloads services, never touches
+# firewall rules, and never modifies the runtime registry — it defines and
+# validates the host contract that later Phase 5 slices (5.2+) will satisfy.
+#
+# Supported host contract: the RateGuru staging VPS baseline only — Ubuntu
+# (apt/dpkg + systemd). SUPPORTED_OS_ID is the hard gate: any other OS
+# family is a CONFLICT. SUPPORTED_OS_VERSION_ID is the pinned baseline; a
+# different Ubuntu release is reported as WARN, not a failure, so the
+# preflight stays honest on a host that tracks a newer LTS before this pin
+# is updated. This script does not pretend to support arbitrary Linux
+# distributions.
+#
+# Source of truth: the repository. The SOURCE registry is
+# infrastructure/config/deployment-targets.json next to this script's
+# checkout, validated through the standalone `targets` CLI (which never
+# needs an installed deployment.conf — see its own header). The RUNTIME
+# registry (/home/www/rateguru/config/deployment-targets.json), if present,
+# is compared for parity/drift and never modified. The same source/runtime
+# split applies to deployment.conf: expected PHP-FPM service and PHP binary
+# come from infrastructure/templates/deployment.conf.example, parsed as
+# plain KEY=VALUE text — never sourced, never eval'd.
+#
+# This script never sources infrastructure/scripts/common: common aborts
+# when /home/www/rateguru/config/deployment.conf is unreadable, and this
+# preflight's whole point is working on a clean host where nothing is
+# installed yet.
+#
+# Secrets: presence of secret material (shared/.env, authorized_keys,
+# rclone.conf, htpasswd, TLS keys) is detected by stat only. Their content
+# is never read, never validated, never printed.
+#
+# Test overrides: every RATEGURU_PREFLIGHT_* override below is honored only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate common,
+# backup and every prior slice use — so a stray variable in a real shell can
+# never redirect a probe at attacker- or operator-controlled data.
+# Production execution ignores all of them.
+
+set -Eeuo pipefail
+
+# --- Locations --------------------------------------------------------------
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+SOURCE_REGISTRY="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+SOURCE_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
+
+RUNTIME_CONFIG_ROOT="/home/www/rateguru/config"
+RUNTIME_BIN_ROOT="/home/www/rateguru/bin"
+RUNTIME_REGISTRY_DEFAULT="${RUNTIME_CONFIG_ROOT}/deployment-targets.json"
+RUNTIME_DEPLOYMENT_CONF_DEFAULT="${RUNTIME_CONFIG_ROOT}/deployment.conf"
+
+# --- Supported host contract ------------------------------------------------
+
+# The staging VPS baseline. The OS family (ID from /etc/os-release) is the
+# hard gate; the version is the pinned expectation and drifting from it is a
+# WARN. Update the version pin here when the staging baseline moves.
+SUPPORTED_OS_ID="ubuntu"
+SUPPORTED_OS_VERSION_ID="24.04"
+
+DISK_MIN_AVAILABLE_MIB=5120
+MEMORY_MIN_TOTAL_MIB=1024
+
+# --- Test override gate -----------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — echoes the gated override when allowed and
+# set, the default otherwise.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+OS_RELEASE_FILE="$(gated_default RATEGURU_PREFLIGHT_OS_RELEASE_FILE /etc/os-release)"
+MEMINFO_FILE="$(gated_default RATEGURU_PREFLIGHT_MEMINFO_FILE /proc/meminfo)"
+PASSWD_FILE="$(gated_default RATEGURU_PREFLIGHT_PASSWD_FILE /etc/passwd)"
+GROUP_FILE="$(gated_default RATEGURU_PREFLIGHT_GROUP_FILE /etc/group)"
+TIMEZONE_FILE="$(gated_default RATEGURU_PREFLIGHT_TIMEZONE_FILE /etc/timezone)"
+SYSTEMD_RUNTIME_DIR="$(gated_default RATEGURU_PREFLIGHT_SYSTEMD_RUNTIME_DIR /run/systemd/system)"
+RUNTIME_REGISTRY_FILE="$(gated_default RATEGURU_PREFLIGHT_RUNTIME_REGISTRY_FILE "${RUNTIME_REGISTRY_DEFAULT}")"
+RUNTIME_DEPLOYMENT_CONF_FILE="$(gated_default RATEGURU_PREFLIGHT_RUNTIME_DEPLOYMENT_CONF_FILE "${RUNTIME_DEPLOYMENT_CONF_DEFAULT}")"
+
+# Empty means "resolve through the real PATH" / "use the real command".
+TOOL_PATH="$(gated_default RATEGURU_PREFLIGHT_TOOL_PATH '')"
+SYSTEMCTL_BIN="$(gated_default RATEGURU_PREFLIGHT_SYSTEMCTL_BIN '')"
+SS_BIN="$(gated_default RATEGURU_PREFLIGHT_SS_BIN '')"
+DF_BIN="$(gated_default RATEGURU_PREFLIGHT_DF_BIN '')"
+IP_BIN="$(gated_default RATEGURU_PREFLIGHT_IP_BIN '')"
+GETENT_BIN="$(gated_default RATEGURU_PREFLIGHT_GETENT_BIN '')"
+STAT_BIN="$(gated_default RATEGURU_PREFLIGHT_STAT_BIN stat)"
+
+# Direct value overrides for report-only host facts.
+HOSTNAME_VALUE="$(gated_default RATEGURU_PREFLIGHT_HOSTNAME "$(hostname 2>/dev/null || printf 'unknown')")"
+KERNEL_VALUE="$(gated_default RATEGURU_PREFLIGHT_KERNEL "$(uname -r 2>/dev/null || printf 'unknown')")"
+ARCH_VALUE="$(gated_default RATEGURU_PREFLIGHT_ARCH "$(uname -m 2>/dev/null || printf 'unknown')")"
+EFFECTIVE_UID="$(gated_default RATEGURU_PREFLIGHT_EUID "${EUID}")"
+
+# The standalone registry validator ships beside this script; the same
+# RATEGURU_TARGETS_CLI override common already honors applies here.
+TARGETS_CLI="$(gated_default RATEGURU_TARGETS_CLI "${SCRIPT_DIR}/targets")"
+
+# --- Output -----------------------------------------------------------------
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+MODE=""
+MODE_SEEN=false
+
+COUNT_PASS=0
+COUNT_MISSING=0
+COUNT_WARN=0
+COUNT_CONFLICT=0
+
+section() {
+    printf '\n%s\n' "$1"
+}
+
+# item STATUS NAME DETAIL [ACTION]
+#
+# One report line. STATUS is PASS/MISSING/WARN/CONFLICT. ACTION is the
+# intended bootstrap action, printed only by --report and only for non-PASS
+# items. Output is deterministic: no timestamps, no ordering surprises.
+item() {
+    local status="$1" name="$2" detail="$3" action="${4:-}"
+
+    case "${status}" in
+        PASS)     COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
+        WARN)     COUNT_WARN=$((COUNT_WARN + 1)) ;;
+        CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
+        *)        fail "internal: unknown item status: ${status}" ;;
+    esac
+
+    printf '  %-8s %s — %s\n' "${status}" "${name}" "${detail}"
+
+    if [[ "${MODE}" == report ]] && [[ "${status}" != PASS ]] && [[ -n "${action}" ]]; then
+        printf '           -> bootstrap: %s\n' "${action}"
+    fi
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  bootstrap-host-preflight --check
+  bootstrap-host-preflight --report
+  bootstrap-host-preflight --help
+
+  --check   Read-only host contract validation. Exits 0 only when every
+            mandatory prerequisite is already satisfied (no MISSING, no
+            CONFLICT items). Prints a final PASS/FAIL summary either way.
+  --report  Read-only full host inventory plus the intended bootstrap action
+            for each unsatisfied item. Exits 0 even on a clean host.
+
+This slice is strictly read-only: it never installs, creates, changes or
+restarts anything. Later Phase 5 slices perform the bootstrap itself.
+USAGE
+}
+
+# --- Probes -----------------------------------------------------------------
+
+# tool_available NAME — command lookup, constrained to the fixture PATH when
+# the gated override is active so a clean host can be simulated exactly.
+tool_available() {
+    local tool="$1"
+
+    if [[ -n "${TOOL_PATH}" ]]; then
+        PATH="${TOOL_PATH}" command -v -- "${tool}" >/dev/null 2>&1
+    else
+        command -v -- "${tool}" >/dev/null 2>&1
+    fi
+}
+
+resolve_probe_bin() {
+    local override="$1" tool="$2"
+
+    if [[ -n "${override}" ]]; then
+        printf '%s\n' "${override}"
+
+        return 0
+    fi
+
+    if tool_available "${tool}"; then
+        printf '%s\n' "${tool}"
+
+        return 0
+    fi
+
+    printf '\n'
+}
+
+# stat_probe PATH — prints "TYPE|OWNER|GROUP|MODE" for an existing path
+# (TYPE is stat %F: "directory", "regular file", "symbolic link", ...),
+# fails when the path is absent or unreadable. Never dereferences symlinks,
+# never recurses, never modifies.
+stat_probe() {
+    "${STAT_BIN}" -c '%F|%U|%G|%a' -- "$1" 2>/dev/null
+}
+
+# os_release_field KEY — value of KEY from the os-release file, unquoted.
+os_release_field() {
+    local key="$1"
+
+    [[ -r "${OS_RELEASE_FILE}" ]] || return 1
+
+    sed -n "s/^${key}=//p" "${OS_RELEASE_FILE}" | head -n 1 | tr -d '"'
+}
+
+# meminfo_kib KEY — the KiB figure for a /proc/meminfo row, empty on failure.
+meminfo_kib() {
+    local key="$1"
+
+    [[ -r "${MEMINFO_FILE}" ]] || return 1
+
+    awk -v key="${key}:" '$1 == key { print $2; found = 1 } END { exit !found }' "${MEMINFO_FILE}"
+}
+
+# --- Source-registry-derived contract ---------------------------------------
+
+# Populated once by load_source_contract; every later section reads these.
+ACTIVE_TARGETS=()
+declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
+declare -A TGT_CODE_GROUP TGT_INCOMING TGT_FPM_SOCKET TGT_FPM_POOL
+declare -A TGT_DB_ROLE TGT_NGINX_SITE
+SOURCE_REGISTRY_OK=false
+
+PHP_FPM_SERVICE_EXPECTED=""
+PHP_BIN_EXPECTED=""
+
+load_source_contract() {
+    if [[ -r "${SOURCE_REGISTRY}" ]] \
+        && jq -e 'type == "object" and (.targets | type == "object")' \
+            "${SOURCE_REGISTRY}" >/dev/null 2>&1
+    then
+        SOURCE_REGISTRY_OK=true
+
+        local target_id
+        while IFS= read -r target_id; do
+            [[ -n "${target_id}" ]] || continue
+
+            ACTIVE_TARGETS+=("${target_id}")
+
+            TGT_ROOT[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].application_root' "${SOURCE_REGISTRY}")"
+            TGT_RUNTIME_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_user' "${SOURCE_REGISTRY}")"
+            TGT_RUNTIME_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_group' "${SOURCE_REGISTRY}")"
+            TGT_DEPLOY_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].deploy_user' "${SOURCE_REGISTRY}")"
+            TGT_CODE_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].code_group' "${SOURCE_REGISTRY}")"
+            TGT_INCOMING[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].incoming_artifacts' "${SOURCE_REGISTRY}")"
+            TGT_FPM_SOCKET[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.socket' "${SOURCE_REGISTRY}")"
+            TGT_FPM_POOL[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.pool' "${SOURCE_REGISTRY}")"
+            TGT_DB_ROLE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].database.application_role' "${SOURCE_REGISTRY}")"
+            TGT_NGINX_SITE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.site_name' "${SOURCE_REGISTRY}")"
+        done < <(jq -r '.targets | to_entries[] | select(.value.lifecycle == "active") | .key' "${SOURCE_REGISTRY}" | sort)
+    fi
+
+    # deployment.conf template is plain KEY=VALUE text; parse, never source.
+    if [[ -r "${SOURCE_DEPLOYMENT_CONF}" ]]; then
+        PHP_FPM_SERVICE_EXPECTED="$(sed -n 's/^PHP_FPM_SERVICE=//p' "${SOURCE_DEPLOYMENT_CONF}" | head -n 1)"
+        PHP_BIN_EXPECTED="$(sed -n 's/^PHP_BIN=//p' "${SOURCE_DEPLOYMENT_CONF}" | head -n 1)"
+    fi
+}
+
+# --- HOST -------------------------------------------------------------------
+
+report_host() {
+    section "HOST"
+
+    local os_id os_version
+    os_id="$(os_release_field ID || true)"
+    os_version="$(os_release_field VERSION_ID || true)"
+
+    if [[ ! -r "${OS_RELEASE_FILE}" ]]; then
+        item MISSING "os-release" "cannot read ${OS_RELEASE_FILE}; supported baseline is ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}" \
+            "provision a ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} host before running any Phase 5 installer"
+    elif [[ "${os_id}" != "${SUPPORTED_OS_ID}" ]]; then
+        item CONFLICT "os-release" "unsupported OS family ID=${os_id:-unknown} (supported: ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} only)" \
+            "Phase 5 supports the staging VPS baseline only; reprovision on ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}"
+    elif [[ "${os_version}" != "${SUPPORTED_OS_VERSION_ID}" ]]; then
+        item WARN "os-release" "ID=${os_id} VERSION_ID=${os_version:-unknown} differs from pinned baseline ${SUPPORTED_OS_VERSION_ID}" \
+            "confirm the staging baseline and update SUPPORTED_OS_VERSION_ID if the pin moved"
+    else
+        item PASS "os-release" "ID=${os_id} VERSION_ID=${os_version} (supported baseline)"
+    fi
+
+    case "${ARCH_VALUE}" in
+        x86_64|aarch64)
+            item PASS "architecture" "${ARCH_VALUE}"
+            ;;
+        *)
+            item WARN "architecture" "${ARCH_VALUE} — untested architecture for the staging baseline" \
+                "confirm package availability for this architecture before bootstrap"
+            ;;
+    esac
+
+    if [[ "${EFFECTIVE_UID}" == "0" ]]; then
+        item PASS "effective-uid" "0 (root — full detail available)"
+    else
+        item WARN "effective-uid" "${EFFECTIVE_UID} (not root — root-only paths report as unverifiable)" \
+            "re-run as root for a complete inventory"
+    fi
+
+    local systemd_state="present"
+    [[ -d "${SYSTEMD_RUNTIME_DIR}" ]] || systemd_state="absent"
+
+    if [[ "${systemd_state}" == present ]] && tool_available systemctl; then
+        item PASS "systemd" "running (${SYSTEMD_RUNTIME_DIR} present, systemctl available)"
+    else
+        item MISSING "systemd" "systemd not detected (${SYSTEMD_RUNTIME_DIR}: ${systemd_state}; systemctl: $(tool_available systemctl && printf 'present' || printf 'absent'))" \
+            "unsupported without systemd — reprovision on the ${SUPPORTED_OS_ID} baseline"
+    fi
+
+    if tool_available apt-get && tool_available dpkg; then
+        item PASS "apt-dpkg" "apt-get and dpkg available"
+    else
+        item MISSING "apt-dpkg" "apt-get/dpkg not available — package bootstrap impossible" \
+            "unsupported without apt — reprovision on the ${SUPPORTED_OS_ID} baseline"
+    fi
+
+    item PASS "hostname" "${HOSTNAME_VALUE}"
+    item PASS "kernel" "${KERNEL_VALUE}"
+
+    report_host_disk
+    report_host_memory
+    report_host_timezone
+    report_host_loopback
+    report_host_dns
+}
+
+report_host_disk() {
+    local df_bin
+    df_bin="$(resolve_probe_bin "${DF_BIN}" df)"
+
+    if [[ -z "${df_bin}" ]]; then
+        item WARN "disk" "df unavailable — cannot measure free space" \
+            "verify free disk space manually before bootstrap"
+
+        return 0
+    fi
+
+    # Report /, /home and /var once each where they are distinct mounts —
+    # deduplicated on the mount point df resolves for the path.
+    local -A seen_mounts=()
+    local path df_line mount_point available_kib available_mib
+
+    for path in / /home /var; do
+        df_line="$("${df_bin}" -P -k -- "${path}" 2>/dev/null | tail -n +2 | head -n 1)" || df_line=""
+
+        if [[ -z "${df_line}" ]]; then
+            item WARN "disk:${path}" "df could not resolve ${path}" \
+                "verify free disk space for ${path} manually"
+            continue
+        fi
+
+        mount_point="$(awk '{ print $NF }' <<<"${df_line}")"
+
+        if [[ -n "${seen_mounts[${mount_point}]:-}" ]]; then
+            continue
+        fi
+
+        seen_mounts[${mount_point}]=1
+        available_kib="$(awk '{ print $4 }' <<<"${df_line}")"
+        available_mib=$((available_kib / 1024))
+
+        if (( available_mib >= DISK_MIN_AVAILABLE_MIB )); then
+            item PASS "disk:${path}" "${available_mib} MiB available on ${mount_point}"
+        else
+            item WARN "disk:${path}" "${available_mib} MiB available on ${mount_point} (below ${DISK_MIN_AVAILABLE_MIB} MiB)" \
+                "free or extend disk space before bootstrap"
+        fi
+    done
+}
+
+report_host_memory() {
+    local mem_total_kib swap_total_kib
+
+    if ! mem_total_kib="$(meminfo_kib MemTotal)"; then
+        item WARN "memory" "cannot read ${MEMINFO_FILE}" \
+            "verify available memory manually before bootstrap"
+        item WARN "swap" "cannot read ${MEMINFO_FILE}" \
+            "verify swap manually before bootstrap"
+
+        return 0
+    fi
+
+    local mem_total_mib=$((mem_total_kib / 1024))
+
+    if (( mem_total_mib >= MEMORY_MIN_TOTAL_MIB )); then
+        item PASS "memory" "${mem_total_mib} MiB total"
+    else
+        item WARN "memory" "${mem_total_mib} MiB total (below ${MEMORY_MIN_TOTAL_MIB} MiB)" \
+            "resize the host or expect degraded composer/queue performance"
+    fi
+
+    swap_total_kib="$(meminfo_kib SwapTotal || printf '0')"
+
+    if (( swap_total_kib > 0 )); then
+        item PASS "swap" "$((swap_total_kib / 1024)) MiB configured"
+    else
+        item WARN "swap" "no swap configured" \
+            "optional: configure swap to absorb memory spikes (never done by preflight)"
+    fi
+}
+
+report_host_timezone() {
+    local tz=""
+
+    if [[ -r "${TIMEZONE_FILE}" ]]; then
+        tz="$(head -n 1 "${TIMEZONE_FILE}" 2>/dev/null || true)"
+    fi
+
+    case "${tz}" in
+        UTC|Etc/UTC)
+            item PASS "timezone" "${tz}"
+            ;;
+        "")
+            item WARN "timezone" "cannot determine timezone from ${TIMEZONE_FILE}" \
+                "confirm the host timezone manually (preflight never changes it)"
+            ;;
+        *)
+            item WARN "timezone" "${tz} (staging baseline runs UTC; preflight never changes timezones)" \
+                "operator decision: align the host to UTC before bootstrap"
+            ;;
+    esac
+}
+
+report_host_loopback() {
+    local ip_bin
+    ip_bin="$(resolve_probe_bin "${IP_BIN}" ip)"
+
+    if [[ -z "${ip_bin}" ]]; then
+        item MISSING "ipv4-loopback" "ip unavailable — cannot verify the IPv4 loopback interface" \
+            "install iproute2 (slice 5.2) and re-run"
+
+        return 0
+    fi
+
+    if "${ip_bin}" -o -4 addr show dev lo 2>/dev/null | grep -q '127\.0\.0\.1'; then
+        item PASS "ipv4-loopback" "lo carries 127.0.0.1 (mail capture also binds 127.0.0.2 within 127.0.0.0/8)"
+    else
+        item MISSING "ipv4-loopback" "no 127.0.0.1 on lo — every loopback-bound service would fail" \
+            "fix host networking before any bootstrap step"
+    fi
+}
+
+report_host_dns() {
+    local getent_bin
+    getent_bin="$(resolve_probe_bin "${GETENT_BIN}" getent)"
+
+    if [[ -z "${getent_bin}" ]]; then
+        item MISSING "dns-resolution" "getent unavailable — cannot verify DNS resolution" \
+            "install libc-bin (slice 5.2) and re-run"
+
+        return 0
+    fi
+
+    if "${getent_bin}" hosts archive.ubuntu.com >/dev/null 2>&1; then
+        item PASS "dns-resolution" "archive.ubuntu.com resolves"
+    else
+        item MISSING "dns-resolution" "archive.ubuntu.com does not resolve — apt bootstrap would fail" \
+            "fix resolver configuration before any bootstrap step"
+    fi
+}
+
+# --- TOOLS ------------------------------------------------------------------
+
+# The canonical host CLI inventory, derived from actual repository usage:
+# REQUIRED_TOOLS arrays and *_BIN defaults in deploy, rollback, cleanup,
+# backup, restore-test, offsite-backup/retention/restore-test, backup-cycle,
+# install-target-operations, install-target-perimeter, install-mail-capture,
+# install-public-storage-access, verify-mail-capture, status, health-check
+# and common. Format: "tool:package".
+REQUIRED_BASE_TOOLS=(
+    bash:bash
+    jq:jq
+    curl:curl
+    tar:tar
+    gzip:gzip
+    sha256sum:coreutils
+    install:coreutils
+    stat:coreutils
+    readlink:coreutils
+    mktemp:coreutils
+    sort:coreutils
+    cut:coreutils
+    env:coreutils
+    tr:coreutils
+    head:coreutils
+    tail:coreutils
+    date:coreutils
+    id:coreutils
+    rm:coreutils
+    mv:coreutils
+    cp:coreutils
+    ls:coreutils
+    cat:coreutils
+    chmod:coreutils
+    chown:coreutils
+    ln:coreutils
+    od:coreutils
+    du:coreutils
+    df:coreutils
+    sleep:coreutils
+    uname:coreutils
+    find:findutils
+    grep:grep
+    sed:sed
+    awk:mawk
+    cmp:diffutils
+    diff:diffutils
+    flock:util-linux
+    namei:util-linux
+    runuser:util-linux
+    hostname:hostname
+    useradd:passwd
+    getent:libc-bin
+    visudo:sudo
+    ss:iproute2
+    ip:iproute2
+    setfacl:acl
+    getfacl:acl
+)
+
+# Filled by report_tools: php CLI name derived from the deployment.conf
+# template (e.g. php8.5), plus the fixed service binaries.
+RUNTIME_SERVICE_TOOLS=(
+    nginx:nginx
+    systemctl:systemd
+    pg_dump:postgresql-client
+    pg_restore:postgresql-client
+    psql:postgresql-client
+    createdb:postgresql-client
+    dropdb:postgresql-client
+    rclone:rclone
+)
+
+OPTIONAL_DEV_TOOLS=(
+    shellcheck:shellcheck
+    actionlint:actionlint
+    wget:wget
+    journalctl:systemd
+)
+
+report_tools() {
+    section "TOOLS"
+
+    local entry tool package
+
+    for entry in "${REQUIRED_BASE_TOOLS[@]}"; do
+        tool="${entry%%:*}"
+        package="${entry#*:}"
+
+        if tool_available "${tool}"; then
+            item PASS "tool:${tool}" "required base tool present (package: ${package})"
+        else
+            item MISSING "tool:${tool}" "required base tool not found (package: ${package})" \
+                "install ${package} (slice 5.2)"
+        fi
+    done
+
+    local runtime_tools=("${RUNTIME_SERVICE_TOOLS[@]}")
+
+    if [[ -n "${PHP_BIN_EXPECTED}" ]]; then
+        # e.g. /usr/bin/php8.5 -> php8.5; the package channel (ppa:ondrej/php
+        # or distribution PHP) is a slice 5.2 decision, not asserted here.
+        runtime_tools+=("$(basename -- "${PHP_BIN_EXPECTED}"):php")
+    fi
+
+    for entry in "${runtime_tools[@]}"; do
+        tool="${entry%%:*}"
+        package="${entry#*:}"
+
+        if tool_available "${tool}"; then
+            item PASS "tool:${tool}" "runtime/service tool present (package: ${package})"
+        else
+            item MISSING "tool:${tool}" "runtime/service tool not found (package: ${package})" \
+                "install ${package} (slice 5.2)"
+        fi
+    done
+
+    for entry in "${OPTIONAL_DEV_TOOLS[@]}"; do
+        tool="${entry%%:*}"
+        package="${entry#*:}"
+
+        if tool_available "${tool}"; then
+            item PASS "tool:${tool}" "optional development/validation tool present (package: ${package})"
+        else
+            item WARN "tool:${tool}" "optional development/validation tool not found (package: ${package}) — never a production runtime requirement" \
+                "optional: install ${package} for local validation only"
+        fi
+    done
+}
+
+# --- SERVICES ---------------------------------------------------------------
+
+# service_state UNIT — prints missing | installed-stopped | installed-running.
+# Always re-probed: callers reach this through command substitution, where a
+# shell-variable cache could never persist anyway (the same subshell caveat
+# common documents for its own registry validation cache).
+service_state() {
+    local unit="$1"
+
+    local systemctl_bin
+    systemctl_bin="$(resolve_probe_bin "${SYSTEMCTL_BIN}" systemctl)"
+
+    if [[ -z "${systemctl_bin}" ]]; then
+        printf 'missing\n'
+    elif [[ -z "$("${systemctl_bin}" list-unit-files --no-legend --no-pager "${unit}" 2>/dev/null || true)" ]]; then
+        printf 'missing\n'
+    elif "${systemctl_bin}" is-active --quiet "${unit}" 2>/dev/null; then
+        printf 'installed-running\n'
+    else
+        printf 'installed-stopped\n'
+    fi
+}
+
+# report_service UNIT LABEL KIND — KIND is "target-service" for RateGuru's
+# own runtime services or "shared-host-service" for the staging mail capture,
+# which belongs to the shared staging environment and is never treated as a
+# per-target RateGuru service.
+report_service() {
+    local unit="$1" label="$2" kind="$3"
+    local state
+    state="$(service_state "${unit}")"
+
+    case "${state}" in
+        installed-running)
+            item PASS "service:${unit}" "STATE: installed-running (${label}; ${kind})"
+            ;;
+        installed-stopped)
+            item WARN "service:${unit}" "STATE: installed-stopped (${label}; ${kind}) — preflight never starts services" \
+                "start/enable via slice 5.4 (never by preflight)"
+            ;;
+        missing)
+            item MISSING "service:${unit}" "STATE: missing (${label}; ${kind})" \
+                "install and configure via slices 5.2/5.4"
+            ;;
+    esac
+}
+
+report_services() {
+    section "SERVICES"
+
+    report_service "nginx.service" "web server" "target-service"
+
+    if [[ -n "${PHP_FPM_SERVICE_EXPECTED}" ]]; then
+        report_service "${PHP_FPM_SERVICE_EXPECTED}.service" "PHP-FPM (expected service from deployment.conf template)" "target-service"
+    else
+        item CONFLICT "service:php-fpm" "cannot derive PHP_FPM_SERVICE from ${SOURCE_DEPLOYMENT_CONF}" \
+            "fix the committed deployment.conf template"
+    fi
+
+    report_service "postgresql.service" "PostgreSQL" "target-service"
+    report_service "redis-server.service" "Redis" "target-service"
+    report_service "supervisor.service" "Supervisor" "target-service"
+
+    # The staging mail capture is owned by the shared staging environment —
+    # detected separately, labeled shared-host-service, never per-target.
+    report_service "staging-mailpit.service" "Mailpit mail capture" "shared-host-service"
+    report_service "staging-mailtrap-local.service" "Mailtrap Local mail capture" "shared-host-service"
+}
+
+# --- USERS/GROUPS -----------------------------------------------------------
+
+passwd_entry() {
+    local user="$1"
+
+    [[ -r "${PASSWD_FILE}" ]] || return 1
+
+    awk -F: -v user="${user}" '$1 == user { print; found = 1 } END { exit !found }' "${PASSWD_FILE}"
+}
+
+group_entry() {
+    local group="$1"
+
+    [[ -r "${GROUP_FILE}" ]] || return 1
+
+    awk -F: -v group="${group}" '$1 == group { print; found = 1 } END { exit !found }' "${GROUP_FILE}"
+}
+
+group_name_for_gid() {
+    local gid="$1"
+
+    [[ -r "${GROUP_FILE}" ]] || return 1
+
+    awk -F: -v gid="${gid}" '$3 == gid { print $1; found = 1; exit } END { exit !found }' "${GROUP_FILE}"
+}
+
+# report_user NAME LABEL — exists/missing with UID/GID and primary group.
+report_user() {
+    local user="$1" label="$2"
+    local entry uid gid primary_group
+
+    if ! entry="$(passwd_entry "${user}")"; then
+        item MISSING "user:${user}" "missing (${label})" \
+            "create via slice 5.3 (never by preflight)"
+
+        return 0
+    fi
+
+    uid="$(cut -d: -f3 <<<"${entry}")"
+    gid="$(cut -d: -f4 <<<"${entry}")"
+    primary_group="$(group_name_for_gid "${gid}" || printf 'gid=%s' "${gid}")"
+
+    if [[ "${user}" == root ]] && [[ "${uid}" != 0 ]]; then
+        item CONFLICT "user:root" "exists but uid=${uid}, not 0" \
+            "unsupportable host state — investigate manually"
+
+        return 0
+    fi
+
+    # No accidental numeric UID/GID is asserted as contract: the committed
+    # infrastructure requires names and relations, never exact numeric IDs.
+    item PASS "user:${user}" "exists (uid=${uid} gid=${gid} primary-group=${primary_group}; ${label})"
+}
+
+report_group() {
+    local group="$1" label="$2"
+    local entry
+
+    if entry="$(group_entry "${group}")"; then
+        item PASS "group:${group}" "exists (gid=$(cut -d: -f3 <<<"${entry}"); ${label})"
+    else
+        item MISSING "group:${group}" "missing (${label})" \
+            "create via slice 5.3 (never by preflight)"
+    fi
+}
+
+# report_membership USER GROUP WHY — supplementary-group relation required by
+# the committed infrastructure.
+report_membership() {
+    local user="$1" group="$2" why="$3"
+    local group_line members user_gid group_gid
+
+    if ! passwd_entry "${user}" >/dev/null || ! group_line="$(group_entry "${group}")"; then
+        item MISSING "membership:${user}:${group}" "user or group absent — relation cannot exist yet (${why})" \
+            "create accounts and add membership via slice 5.3"
+
+        return 0
+    fi
+
+    members=",$(cut -d: -f4 <<<"${group_line}"),"
+    user_gid="$(passwd_entry "${user}" | cut -d: -f4)"
+    group_gid="$(cut -d: -f3 <<<"${group_line}")"
+
+    if [[ "${members}" == *",${user},"* ]] || [[ "${user_gid}" == "${group_gid}" ]]; then
+        item PASS "membership:${user}:${group}" "${user} is a member of ${group} (${why})"
+    else
+        item MISSING "membership:${user}:${group}" "${user} is not a member of ${group} (${why})" \
+            "add supplementary membership via slice 5.3"
+    fi
+}
+
+report_users_groups() {
+    section "USERS/GROUPS"
+
+    report_user root "superuser; owns all installed operational files"
+    report_user www-data "Nginx/PHP-FPM socket owner; storage access is ACL-based, not membership-based"
+    report_user postgres "PostgreSQL service account; backup runs pg_dump via runuser -u postgres"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_user "${TGT_RUNTIME_USER[${target_id}]}" "runtime user for target ${target_id}"
+        report_user "${TGT_DEPLOY_USER[${target_id}]}" "deploy user for target ${target_id}"
+    done
+
+    # Shared staging mail capture accounts — shared-host-service, not
+    # per-target RateGuru accounts.
+    report_user staging-mailpit "shared-host-service account (staging mail capture)"
+    report_user staging-mailtrap-local "shared-host-service account (staging mail capture)"
+
+    report_group www-data "Nginx/PHP-FPM group"
+
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_group "${TGT_RUNTIME_GROUP[${target_id}]}" "runtime group for target ${target_id}"
+        report_group "${TGT_CODE_GROUP[${target_id}]}" "code group for target ${target_id}"
+
+        # deploy chowns releases to deploy_user:code_group with modes
+        # 0750/0640, and the PHP-FPM pool runs as runtime_user — so the
+        # runtime user must be a member of the code group to read releases.
+        report_membership "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_CODE_GROUP[${target_id}]}" \
+            "PHP-FPM must read releases owned ${TGT_DEPLOY_USER[${target_id}]}:${TGT_CODE_GROUP[${target_id}]} mode 0750/0640"
+    done
+}
+
+# --- FILESYSTEM -------------------------------------------------------------
+
+# mode_no_group_other_write MODE — the same acceptance common applies to
+# deployment.conf (0600/0640/0644 all fine, group/other write never).
+mode_no_group_other_write() {
+    local mode="$1"
+
+    (( (8#${mode} & 8#022) == 0 ))
+}
+
+# report_path NAME PATH EXPECTED_TYPE EXPECTED_OWNER EXPECTED_GROUP EXPECTED_MODE LABEL
+#
+# EXPECTED_* may be "-" to skip that assertion (presence/type only).
+# EXPECTED_MODE "nw" means "no group/other write" instead of an exact mode.
+# Absent -> MISSING; wrong type/owner/group/mode -> CONFLICT. One stat call,
+# no recursion — large backup/storage trees are never walked.
+report_path() {
+    local name="$1" path="$2" expected_type="$3" expected_owner="$4"
+    local expected_group="$5" expected_mode="$6" label="$7"
+
+    local probe
+    if ! probe="$(stat_probe "${path}")"; then
+        item MISSING "path:${path}" "absent (${label})" \
+            "create via slice 5.3/5.4 installers (never by preflight)"
+
+        return 0
+    fi
+
+    local actual_type actual_owner actual_group actual_mode
+    IFS='|' read -r actual_type actual_owner actual_group actual_mode <<<"${probe}"
+
+    local detail="${actual_type}, ${actual_owner}:${actual_group}, mode ${actual_mode} (${label})"
+
+    if [[ "${expected_type}" != "-" ]] && [[ "${actual_type}" != "${expected_type}" ]]; then
+        item CONFLICT "path:${path}" "is a ${actual_type}, expected ${expected_type} (${label})" \
+            "resolve manually — preflight never deletes or replaces paths"
+
+        return 0
+    fi
+
+    if [[ "${expected_owner}" != "-" ]] && [[ "${actual_owner}" != "${expected_owner}" ]]; then
+        item CONFLICT "path:${path}" "owned by ${actual_owner}:${actual_group}, expected owner ${expected_owner} (${label})" \
+            "correct ownership via slice 5.3 (never by preflight)"
+
+        return 0
+    fi
+
+    if [[ "${expected_group}" != "-" ]] && [[ "${actual_group}" != "${expected_group}" ]]; then
+        item CONFLICT "path:${path}" "group ${actual_group}, expected ${expected_group} (${label})" \
+            "correct ownership via slice 5.3 (never by preflight)"
+
+        return 0
+    fi
+
+    if [[ "${expected_mode}" == "nw" ]]; then
+        if ! mode_no_group_other_write "${actual_mode}"; then
+            item CONFLICT "path:${path}" "mode ${actual_mode} is group- or other-writable (${label})" \
+                "correct the mode via slice 5.3 (never by preflight)"
+
+            return 0
+        fi
+    elif [[ "${expected_mode}" != "-" ]] && [[ "${actual_mode}" != "${expected_mode}" ]]; then
+        item CONFLICT "path:${path}" "mode ${actual_mode}, expected ${expected_mode} (${label})" \
+            "correct the mode via slice 5.3 (never by preflight)"
+
+        return 0
+    fi
+
+    item PASS "path:${path}" "${detail}"
+}
+
+report_filesystem() {
+    section "FILESYSTEM"
+
+    # Root runtime tree — the two directories install-target-operations
+    # demands but never creates, plus backup's own root-owned trees.
+    report_path root-tree /home/www/rateguru directory root root 755 "runtime root"
+    report_path config-root "${RUNTIME_CONFIG_ROOT}" directory root root 755 "non-secret host configuration"
+    report_path bin-root "${RUNTIME_BIN_ROOT}" directory root root 755 "installed operational CLIs"
+    report_path backups /home/www/rateguru/backups directory root root 700 "local backup base (contents never scanned)"
+    report_path run /home/www/rateguru/run directory root root 700 "operational lock directory"
+
+    # The fifteen files install-target-operations manages.
+    report_path runtime-registry "${RUNTIME_REGISTRY_DEFAULT}" "regular file" root root nw "runtime target registry"
+    report_path deployment-conf "${RUNTIME_DEPLOYMENT_CONF_DEFAULT}" "regular file" root root nw "host-global deployment.conf"
+
+    local cli
+    for cli in targets health-check status cleanup deploy rollback backup \
+        restore-test offsite-backup offsite-retention offsite-restore-test backup-cycle
+    do
+        report_path "bin-${cli}" "${RUNTIME_BIN_ROOT}/${cli}" "regular file" root root 755 "installed operational CLI"
+    done
+
+    report_path bin-common "${RUNTIME_BIN_ROOT}/common" "regular file" root root 644 "sourced library — never executable"
+
+    # Per-target runtime tree, derived from the SOURCE registry — never from
+    # an assumed /home/www/rateguru/current.
+    local target_id target_root
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        target_root="${TGT_ROOT[${target_id}]}"
+
+        report_path "target-root" "${target_root}" directory root root 755 "application root for target ${target_id}"
+        report_path "releases" "${target_root}/releases" directory - - - "immutable release history for ${target_id} (contents never scanned)"
+        report_path "shared" "${target_root}/shared" directory - - - "shared state for ${target_id}"
+        report_path "current" "${target_root}/current" "symbolic link" - - - "atomic current-release switch for ${target_id}"
+        report_path "locks" "${target_root}/locks" directory - - - "deployment lock directory for ${target_id}"
+        report_path "deployments" "${target_root}/deployments" directory - - - "deployment history for ${target_id}"
+        report_path "incoming" "${TGT_INCOMING[${target_id}]}" directory "${TGT_DEPLOY_USER[${target_id}]}" - - "incoming artifacts for ${target_id}"
+    done
+
+    report_path logs /var/log/rateguru directory root root - "operational log directory (cron output)"
+
+    # Perimeter files (install-target-perimeter's contract).
+    local wrapper
+    for wrapper in rateguru-deploy rateguru-rollback rateguru-cleanup; do
+        report_path "wrapper-${wrapper}" "/usr/local/sbin/${wrapper}" "regular file" root root 755 "generic sudo wrapper"
+    done
+
+    report_path sudoers /etc/sudoers.d/rateguru-deploy "regular file" root root 440 "deploy sudoers grant"
+    report_path cron-backups /etc/cron.d/rateguru-backups "regular file" root root 644 "backup-cycle cron"
+    report_path cron-scheduler /etc/cron.d/rateguru-staging-scheduler "regular file" root root 644 "Laravel scheduler cron"
+    report_path sshd-conf /etc/ssh/sshd_config.d/70-rateguru-deploy.conf "regular file" root root - "deploy-user SSH restrictions"
+
+    # Service configuration installed from committed sources (presence and
+    # type; modes for these are not pinned by any installer).
+    local target_site
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        target_site="${TGT_NGINX_SITE[${target_id}]}"
+        report_path "nginx-site" "/etc/nginx/sites-available/${target_site}" "regular file" root root - "Nginx vhost for ${target_id}"
+        report_path "nginx-site-enabled" "/etc/nginx/sites-enabled/${target_site}" "symbolic link" - - - "enabled Nginx vhost for ${target_id}"
+    done
+
+    if [[ -n "${PHP_FPM_SERVICE_EXPECTED}" ]]; then
+        # php8.5-fpm -> /etc/php/8.5/fpm/pool.d
+        local php_version="${PHP_FPM_SERVICE_EXPECTED#php}"
+        php_version="${php_version%-fpm}"
+
+        for target_id in "${ACTIVE_TARGETS[@]}"; do
+            report_path "php-fpm-pool" "/etc/php/${php_version}/fpm/pool.d/${TGT_FPM_POOL[${target_id}]}.conf" "regular file" root root - "PHP-FPM pool for ${target_id}"
+        done
+    fi
+
+    report_path supervisor-conf /etc/supervisor/conf.d/rateguru-staging-queue.conf "regular file" root root - "Supervisor queue worker"
+
+    # Shared staging mail capture (shared-host-service).
+    report_path mailpit-unit /etc/systemd/system/staging-mailpit.service "regular file" root root - "shared-host-service unit"
+    report_path mailtrap-unit /etc/systemd/system/staging-mailtrap-local.service "regular file" root root - "shared-host-service unit"
+    report_path mail-config /etc/staging-mail-capture directory root root - "shared-host-service configuration"
+    report_path mail-state /var/lib/staging-mail-capture directory - - - "shared-host-service state (contents never scanned)"
+    report_path mailpit-bin /usr/local/bin/staging-mailpit "regular file" root root 755 "shared-host-service binary"
+    report_path mailtrap-bin /usr/local/bin/staging-mailtrap-local "regular file" root root 755 "shared-host-service binary"
+
+    report_registry_parity
+}
+
+report_registry_parity() {
+    # SOURCE registry: repository truth, validated through the standalone
+    # `targets` CLI rather than re-implementing its checks here.
+    if [[ "${SOURCE_REGISTRY_OK}" != true ]]; then
+        item CONFLICT "registry:source" "unreadable or invalid JSON: ${SOURCE_REGISTRY}" \
+            "fix the committed registry before any bootstrap step"
+    elif [[ ! -x "${TARGETS_CLI}" ]]; then
+        item WARN "registry:source" "targets validator unavailable at ${TARGETS_CLI} — structural JSON checks only" \
+            "run from a full repository checkout for complete validation"
+    elif "${TARGETS_CLI}" validate --file "${SOURCE_REGISTRY}" >/dev/null 2>&1; then
+        item PASS "registry:source" "valid (${#ACTIVE_TARGETS[@]} active target(s): ${ACTIVE_TARGETS[*]:-none})"
+    else
+        item CONFLICT "registry:source" "fails targets validate: ${SOURCE_REGISTRY}" \
+            "fix the committed registry before any bootstrap step"
+    fi
+
+    # RUNTIME registry: parity/drift only — never modified, never repaired.
+    if ! stat_probe "${RUNTIME_REGISTRY_FILE}" >/dev/null; then
+        item MISSING "registry:runtime" "absent: ${RUNTIME_REGISTRY_FILE} (expected on a clean host)" \
+            "installed by install-target-operations --apply (slice 5.4 orchestration)"
+    elif cmp -s "${SOURCE_REGISTRY}" "${RUNTIME_REGISTRY_FILE}" 2>/dev/null; then
+        item PASS "registry:runtime" "byte-identical to the source registry (parity)"
+    else
+        item WARN "registry:runtime" "differs from the source registry (drift) — preflight never modifies it" \
+            "reconcile via install-target-operations --apply after review"
+    fi
+
+    if ! stat_probe "${RUNTIME_DEPLOYMENT_CONF_FILE}" >/dev/null; then
+        item MISSING "deployment-conf:runtime" "absent: ${RUNTIME_DEPLOYMENT_CONF_FILE} (expected on a clean host)" \
+            "installed by install-target-operations --apply (slice 5.4 orchestration)"
+    elif cmp -s "${SOURCE_DEPLOYMENT_CONF}" "${RUNTIME_DEPLOYMENT_CONF_FILE}" 2>/dev/null; then
+        item PASS "deployment-conf:runtime" "byte-identical to the committed template (parity)"
+    else
+        item WARN "deployment-conf:runtime" "differs from the committed template (drift) — preflight never modifies it" \
+            "reconcile via install-target-operations --apply after review"
+    fi
+}
+
+# --- NETWORK ----------------------------------------------------------------
+
+SS_TCP_LISTENERS=""
+SS_UNIX_LISTENERS=""
+SS_AVAILABLE=false
+
+load_listeners() {
+    local ss_bin
+    ss_bin="$(resolve_probe_bin "${SS_BIN}" ss)"
+
+    [[ -n "${ss_bin}" ]] || return 0
+
+    # -H no header, -l listeners, -n numeric, -t TCP / -x unix. Read-only.
+    SS_TCP_LISTENERS="$("${ss_bin}" -H -l -n -t 2>/dev/null || true)"
+    SS_UNIX_LISTENERS="$("${ss_bin}" -H -l -n -x 2>/dev/null || true)"
+    SS_AVAILABLE=true
+}
+
+tcp_port_occupied() {
+    local port="$1"
+
+    [[ -n "${SS_TCP_LISTENERS}" ]] || return 1
+
+    # Local address is the 4th field: 0.0.0.0:80, 127.0.0.1:8025, [::]:443.
+    awk -v port="${port}" '
+        { addr = $4; n = split(addr, parts, ":") }
+        n > 0 && parts[n] == port { found = 1; exit }
+        END { exit !found }
+    ' <<<"${SS_TCP_LISTENERS}"
+}
+
+unix_socket_occupied() {
+    local path="$1"
+
+    [[ -n "${SS_UNIX_LISTENERS}" ]] || return 1
+
+    awk -v path="${path}" '
+        $5 == path { found = 1; exit }
+        END { exit !found }
+    ' <<<"${SS_UNIX_LISTENERS}"
+}
+
+# report_listener NAME LABEL EXPECTED_UNIT OCCUPIED(0/1)
+#
+# free -> PASS; occupied while the expected service is running -> PASS
+# (occupied by the expected, already-installed service — never a failure);
+# occupied otherwise -> CONFLICT (occupied/unknown). Processes are never
+# killed, listeners never probed beyond ss output.
+report_listener() {
+    local name="$1" label="$2" expected_unit="$3" occupied="$4"
+
+    if [[ "${SS_AVAILABLE}" != true ]]; then
+        item WARN "${name}" "cannot enumerate listeners (ss unavailable) — ${label}" \
+            "install iproute2 (slice 5.2) and re-run"
+
+        return 0
+    fi
+
+    if [[ "${occupied}" != 1 ]]; then
+        item PASS "${name}" "free (${label})"
+
+        return 0
+    fi
+
+    if [[ "$(service_state "${expected_unit}")" == installed-running ]]; then
+        item PASS "${name}" "occupied by expected service ${expected_unit} (${label})"
+    else
+        item CONFLICT "${name}" "occupied, but expected service ${expected_unit} is not running — occupied/unknown (${label})" \
+            "identify and resolve the conflicting listener manually (preflight never kills processes)"
+    fi
+}
+
+report_network() {
+    section "NETWORK"
+
+    load_listeners
+
+    local spec port unit label
+    for spec in \
+        "80|nginx.service|HTTP" \
+        "443|nginx.service|HTTPS" \
+        "5432|postgresql.service|PostgreSQL" \
+        "6379|redis-server.service|Redis" \
+        "1025|staging-mailpit.service|Mailpit SMTP (shared-host-service)" \
+        "8025|staging-mailpit.service|Mailpit HTTP/API (shared-host-service)" \
+        "3535|staging-mailtrap-local.service|Mailtrap Local SMTP (shared-host-service)" \
+        "3550|staging-mailtrap-local.service|Mailtrap Local HTTP/API (shared-host-service)"
+    do
+        IFS='|' read -r port unit label <<<"${spec}"
+
+        local occupied=0
+        tcp_port_occupied "${port}" && occupied=1
+
+        report_listener "port:${port}" "${label}" "${unit}" "${occupied}"
+    done
+
+    local target_id socket_path
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        socket_path="${TGT_FPM_SOCKET[${target_id}]}"
+
+        local occupied=0
+        unix_socket_occupied "${socket_path}" && occupied=1
+
+        report_listener "socket:${socket_path}" "PHP-FPM pool socket for ${target_id}" \
+            "${PHP_FPM_SERVICE_EXPECTED:-php-fpm}.service" "${occupied}"
+    done
+
+    local supervisor_occupied=0
+    unix_socket_occupied /var/run/supervisor.sock && supervisor_occupied=1
+
+    report_listener "socket:/var/run/supervisor.sock" "Supervisor control socket" \
+        "supervisor.service" "${supervisor_occupied}"
+}
+
+# --- SECRETS REQUIRED LATER -------------------------------------------------
+
+# report_secret NAME PATH LABEL — presence by stat only. Content is NEVER
+# read, validated, or printed; this section only says whether later
+# bootstrap slices will need external/manual secret material. When the path
+# cannot be stat'ed and we are not root, absence cannot be distinguished
+# from a permission error, so the item degrades to WARN.
+report_secret() {
+    local name="$1" path="$2" label="$3"
+
+    if stat_probe "${path}" >/dev/null; then
+        item PASS "secret:${name}" "present at ${path} (${label}; content never read or validated)"
+    elif [[ "${EFFECTIVE_UID}" == "0" ]]; then
+        item MISSING "secret:${name}" "absent: ${path} (${label})" \
+            "provide manually during bootstrap — never generated or read by preflight"
+    else
+        item WARN "secret:${name}" "absent or unverifiable without root: ${path} (${label})" \
+            "re-run as root, or provide manually during bootstrap"
+    fi
+}
+
+report_secrets() {
+    section "SECRETS REQUIRED LATER"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_secret "laravel-env:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
+            "Laravel environment for ${target_id}"
+        report_secret "database-credentials:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
+            "credentials for PostgreSQL role ${TGT_DB_ROLE[${target_id}]} live inside shared/.env"
+        report_secret "github-deploy-key:${target_id}" "/home/${TGT_DEPLOY_USER[${target_id}]}/.ssh/authorized_keys" \
+            "GitHub Actions deploy public key for ${TGT_DEPLOY_USER[${target_id}]}"
+    done
+
+    report_secret "rclone-credentials" "/root/.config/rclone/rclone.conf" \
+        "Backblaze B2 credentials for offsite backups"
+    report_secret "basic-auth" "/etc/nginx/rateguru-staging.htpasswd" \
+        "Basic Auth hashes for staging and mail-capture vhosts"
+    report_secret "tls-rateguru-staging" "/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem" \
+        "TLS certificate for the staging vhost (DNS/ACME credentials are manual if automation needs them)"
+    report_secret "tls-mail-capture" "/etc/letsencrypt/live/staging-mail-capture/fullchain.pem" \
+        "TLS certificate for the shared mail-capture vhosts"
+}
+
+# --- SUMMARY ----------------------------------------------------------------
+
+report_summary() {
+    section "SUMMARY"
+
+    printf 'Bootstrap host preflight:\n'
+    printf 'PASS: %d\n' "${COUNT_PASS}"
+    printf 'MISSING: %d\n' "${COUNT_MISSING}"
+    printf 'WARN: %d\n' "${COUNT_WARN}"
+    printf 'CONFLICT: %d\n' "${COUNT_CONFLICT}"
+    printf '\n'
+
+    if host_ready; then
+        printf 'HOST READY: YES\n'
+    else
+        printf 'HOST READY: NO\n'
+    fi
+}
+
+host_ready() {
+    (( COUNT_MISSING == 0 )) && (( COUNT_CONFLICT == 0 ))
+}
+
+# --- Entry point ------------------------------------------------------------
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--report)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "mode given more than once"
+                fi
+
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${MODE_SEEN}" != true ]]; then
+        usage >&2
+        fail "one of --check or --report is required"
+    fi
+}
+
+main() {
+    parse_args "$@"
+
+    # jq is this script's own hard dependency: without it the source
+    # registry — the bootstrap source of truth — cannot be read at all.
+    command -v jq >/dev/null 2>&1 \
+        || fail "jq is required to read the source target registry"
+
+    load_source_contract
+
+    printf 'RateGuru bootstrap host preflight (%s mode, read-only)\n' "${MODE}"
+    printf 'Supported baseline: %s %s\n' "${SUPPORTED_OS_ID}" "${SUPPORTED_OS_VERSION_ID}"
+
+    report_host
+    report_tools
+    report_services
+    report_users_groups
+    report_filesystem
+    report_network
+    report_secrets
+    report_summary
+
+    if [[ "${MODE}" == check ]]; then
+        host_ready || exit 1
+    fi
+
+    exit 0
+}
+
+# Source-guard: allows tests to source this file and call functions directly
+# without main() auto-running — the same pattern the other installers use.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

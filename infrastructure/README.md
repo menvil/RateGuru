@@ -10,6 +10,8 @@ infrastructure, and moves out once a second project exists.
 
 ## Contents
 
+- clean-VPS bootstrap preflight (read-only host contract inspection) — see
+  [`runbooks/bootstrap-host.md`](runbooks/bootstrap-host.md);
 - deployment and rollback scripts;
 - local and offsite backup scripts;
 - shared staging mail capture (Mailpit + Mailtrap Local) — see

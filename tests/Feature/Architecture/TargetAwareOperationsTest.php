@@ -1197,10 +1197,11 @@ it('records slices 1-9 completed, and Phase 4 with them', function () {
         ->not->toContain('## 4. Multi-target production model — current')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m');
 
-    // Phase 4 is closed and Phase 5 implementation has not started, so no
-    // phase is current right now — a table without a current phase is a
-    // legitimate state, not a reason to promote Phase 5 early.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(0);
+    // Phase 4 is closed; Phase 5 (clean-VPS bootstrap) became the single
+    // current phase when its slice 5.1 (bootstrap-host-preflight) landed.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    expect($roadmap)
+        ->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*🚧 current\s*\|$/m');
 });
 
 it('documents the read-only target operations in the deployment-targets runbook', function () {
