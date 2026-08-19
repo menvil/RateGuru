@@ -9,7 +9,7 @@ use App\Models\User;
 
 it('records an upvote on a comment', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
 
     app(VoteCommentAction::class)->handle($user, $comment, VoteType::Up);
 
@@ -26,7 +26,7 @@ it('records an upvote on a comment', function () {
 
 it('switches an existing comment vote', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
 
     app(VoteCommentAction::class)->handle($user, $comment, VoteType::Up);
     app(VoteCommentAction::class)->handle($user, $comment->fresh(), VoteType::Down);
@@ -44,7 +44,7 @@ it('switches an existing comment vote', function () {
 
 it('removes a matching comment vote', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
 
     app(VoteCommentAction::class)->handle($user, $comment, VoteType::Up);
     app(VoteCommentAction::class)->handle($user, $comment->fresh(), VoteType::Up);
@@ -60,7 +60,7 @@ it('removes a matching comment vote', function () {
 });
 
 it('does not let guests vote on comments', function () {
-    $comment = Comment::factory()->create();
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create();
 
     expect(fn () => app(VoteCommentAction::class)->handle(null, $comment, VoteType::Up))
         ->toThrow(CannotVoteCommentException::class, 'Guests cannot vote on comments.');
@@ -76,7 +76,7 @@ it('does not let users vote on their own comments', function () {
 
 it('does not let users vote on hidden comments', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['status' => CommentStatus::Hidden]);
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden]);
 
     expect(fn () => app(VoteCommentAction::class)->handle($user, $comment, VoteType::Up))
         ->toThrow(CannotVoteCommentException::class, 'Comment cannot be voted on.');
@@ -84,7 +84,7 @@ it('does not let users vote on hidden comments', function () {
 
 it('rejects a vote made with a stale instance after the comment was hidden', function () {
     $user = User::factory()->create();
-    $staleComment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+    $staleComment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
 
     // Hide the row behind the instance's back: the in-memory model still
     // says Visible, so the pre-transaction check alone would let it through.
@@ -103,7 +103,7 @@ it('rejects a vote made with a stale instance after the comment was hidden', fun
 
 it('rejects a vote made with a stale instance after the author deleted the comment', function () {
     $user = User::factory()->create();
-    $staleComment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+    $staleComment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
 
     Comment::query()->whereKey($staleComment->id)->update(['deleted_at' => now()]);
 

@@ -124,7 +124,7 @@ final class AddCommentAction
                 'status' => CommentStatus::Visible,
             ]);
 
-            $this->refreshCommentsCount($post);
+            $this->refreshCommentsCount($lockedPost);
             $this->recalculatePostScore->handle($post->refresh());
 
             return $comment;

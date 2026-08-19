@@ -13,24 +13,19 @@ trait RefreshesPostCommentsCount
      * number of visible, non-deleted comments. Using an absolute count rather
      * than increment/decrement keeps the counter self-healing if it ever
      * drifts.
+     *
+     * The CALLER must already hold the posts row lock (every comment writer
+     * locks Actor User -> Post -> Comment): acquiring the post lock here,
+     * after the comment lock, would reverse the global order and deadlock
+     * against writers holding Post while waiting for Comment.
      */
-    protected function refreshCommentsCount(Post $post): void
+    protected function refreshCommentsCount(Post $lockedPost): void
     {
-        // Pessimistically lock the posts row before counting. Callers run this
-        // inside a DB::transaction, so a concurrent recalculation blocks here
-        // until the first commits and then re-counts the already-committed
-        // comment rows. Without the lock the read-then-write loses updates and
-        // persists a stale comments_count. Mirrors RecalculatePostCountersAction.
-        Post::query()
-            ->whereKey($post->getKey())
-            ->lockForUpdate()
-            ->first();
-
         $count = Comment::query()
-            ->where('post_id', $post->id)
+            ->where('post_id', $lockedPost->id)
             ->where('status', CommentStatus::Visible)
             ->count();
 
-        $post->forceFill(['comments_count' => $count])->save();
+        $lockedPost->forceFill(['comments_count' => $count])->save();
     }
 }

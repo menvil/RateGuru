@@ -8,7 +8,7 @@ use App\Models\User;
 use Livewire\Livewire;
 
 it('renders comment voting controls', function () {
-    $comment = Comment::factory()->create();
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create();
 
     Livewire::test(CommentVoting::class, ['commentId' => $comment->id])
         ->assertStatus(200)
@@ -19,7 +19,7 @@ it('renders comment voting controls', function () {
 
 it('records an upvote from the comment voting component', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
 
     Livewire::actingAs($user)
         ->test(CommentVoting::class, ['commentId' => $comment->id])
@@ -36,7 +36,7 @@ it('records an upvote from the comment voting component', function () {
 
 it('toggles an active comment vote off when clicked again in the UI', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
 
     Livewire::actingAs($user)
         ->test(CommentVoting::class, ['commentId' => $comment->id])
@@ -52,7 +52,7 @@ it('toggles an active comment vote off when clicked again in the UI', function (
 
 it('switches comment votes immediately in the UI', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['upvotes_count' => 0, 'downvotes_count' => 0]);
 
     Livewire::actingAs($user)
         ->test(CommentVoting::class, ['commentId' => $comment->id])
@@ -67,7 +67,7 @@ it('switches comment votes immediately in the UI', function () {
 });
 
 it('stops comment vote clicks from triggering parent comment row actions', function () {
-    $comment = Comment::factory()->create();
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create();
 
     Livewire::test(CommentVoting::class, ['commentId' => $comment->id])
         ->assertSee('x-on:click.stop', false)
@@ -78,7 +78,7 @@ it('stops comment vote clicks from triggering parent comment row actions', funct
 
 it('renders selected comment voting state', function () {
     $user = User::factory()->create();
-    $comment = Comment::factory()->create(['upvotes_count' => 1, 'downvotes_count' => 0]);
+    $comment = Comment::factory()->for(App\Models\Post::factory()->published(), 'post')->create(['upvotes_count' => 1, 'downvotes_count' => 0]);
 
     CommentVote::factory()->create([
         'user_id' => $user->id,
