@@ -236,11 +236,14 @@ it('mirrors current staging infrastructure exactly in staging-main', function ()
     expect($target['public_hostnames'])->toBe(['rateguru.staging.myprojects.pp.ua']);
 
     // The backup namespace must stay "staging" so no existing local or B2
-    // backup path moves when the backup scripts are migrated later.
+    // backup path moves when the backup scripts are migrated later. Staging
+    // keeps a short age window on both tiers, backstopped by the minimum
+    // count that age-based deletion can never cut below.
     expect($target['backup'])->toMatchArray([
         'namespace' => 'staging',
-        'local_retention_days' => 14,
-        'offsite_retention_days' => 30,
+        'local_retention_days' => 5,
+        'offsite_retention_days' => 14,
+        'minimum_retained_backups' => 2,
     ]);
 
     expect($target['php_fpm'])->toMatchArray([
@@ -349,6 +352,7 @@ it('declares tits-guru completely but leaves it planned', function () {
         'namespace' => 'tits-guru',
         'local_retention_days' => 30,
         'offsite_retention_days' => 90,
+        'minimum_retained_backups' => 2,
     ]);
     expect($target['php_fpm'])->toMatchArray([
         'pool' => 'rateguru-tits-guru',
@@ -618,6 +622,35 @@ it('rejects non-positive and non-integer retention values', function () {
             [$exit] = validateMutatedRegistry(".targets[\"staging-main\"]{$path} = {$value}");
             expect($exit)->not->toBe(0, "should have rejected {$path} = {$value}");
         }
+    }
+});
+
+it('declares an integer minimum_retained_backups of at least 2 on every target', function () {
+    $targets = json_decode(File::get(targetRegistryPath()), true, 512, JSON_THROW_ON_ERROR)['targets'];
+
+    foreach ($targets as $id => $target) {
+        $minimum = $target['backup']['minimum_retained_backups'] ?? null;
+        expect($minimum)->toBeInt("{$id} must declare backup.minimum_retained_backups as a JSON integer");
+        expect($minimum)->toBeGreaterThanOrEqual(2, "{$id} must never permit fewer than two retained backups");
+    }
+});
+
+it('rejects a minimum_retained_backups that is missing, non-integer, boolean, or below 2', function () {
+    // Strict: a JSON string "2", a float, null, a boolean, and any value
+    // below the hard floor of 2 must all fail — age-based retention must
+    // never be able to reduce the backup count below two.
+    foreach ([
+        'del(.targets["staging-main"].backup.minimum_retained_backups)',
+        '.targets["staging-main"].backup.minimum_retained_backups = "2"',
+        '.targets["staging-main"].backup.minimum_retained_backups = 2.5',
+        '.targets["staging-main"].backup.minimum_retained_backups = null',
+        '.targets["staging-main"].backup.minimum_retained_backups = true',
+        '.targets["staging-main"].backup.minimum_retained_backups = 1',
+        '.targets["staging-main"].backup.minimum_retained_backups = 0',
+        '.targets["staging-main"].backup.minimum_retained_backups = -1',
+    ] as $mutation) {
+        [$exit] = validateMutatedRegistry($mutation);
+        expect($exit)->not->toBe(0, "should have rejected: {$mutation}");
     }
 });
 
@@ -1101,8 +1134,10 @@ it('reads target values through the common helpers', function () {
         'target_health_url staging-main' => 'http://127.0.0.1/',
         'target_health_host_header staging-main' => 'rateguru-staging.internal',
         'target_backup_namespace staging-main' => 'staging',
-        'target_local_backup_retention staging-main' => '14',
-        'target_offsite_backup_retention staging-main' => '30',
+        'target_local_backup_retention staging-main' => '5',
+        'target_offsite_backup_retention staging-main' => '14',
+        'target_minimum_retained_backups staging-main' => '2',
+        'target_minimum_retained_backups tits-guru' => '2',
         'target_php_fpm_pool staging-main' => 'rateguru-staging',
         'target_php_fpm_socket staging-main' => '/run/php/rateguru-staging.sock',
         'target_supervisor_program staging-main' => 'rateguru-staging-queue',

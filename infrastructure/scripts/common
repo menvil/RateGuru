@@ -518,6 +518,7 @@ target_health_host_header()       { _target_property "${1-}" '.health.host_heade
 target_backup_namespace()         { _target_property "${1-}" '.backup.namespace' string; }
 target_local_backup_retention()   { _target_property "${1-}" '.backup.local_retention_days' number; }
 target_offsite_backup_retention() { _target_property "${1-}" '.backup.offsite_retention_days' number; }
+target_minimum_retained_backups() { _target_property "${1-}" '.backup.minimum_retained_backups' number; }
 target_php_fpm_pool()             { _target_property "${1-}" '.php_fpm.pool' string; }
 target_php_fpm_socket()           { _target_property "${1-}" '.php_fpm.socket' string; }
 target_supervisor_program()       { _target_property "${1-}" '.supervisor.program' string; }

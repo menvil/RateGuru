@@ -387,7 +387,7 @@ function deployOpsParityRegistry(string $scratch, array $fixture): array
                 'database' => ['name' => 'parity_db', 'application_role' => 'parity_app'],
                 'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
                 'public_hostnames' => ['parity.example', 'parity-secondary.example'],
-                'backup' => ['namespace' => 'parity', 'local_retention_days' => 1, 'offsite_retention_days' => 1],
+                'backup' => ['namespace' => 'parity', 'local_retention_days' => 1, 'offsite_retention_days' => 1, 'minimum_retained_backups' => 2],
                 'php_fpm' => ['pool' => 'parity', 'socket' => '/run/php/parity.sock'],
                 'supervisor' => ['program' => 'parity-queue', 'queue' => 'parity'],
                 'scheduler' => ['name' => 'parity-scheduler'],

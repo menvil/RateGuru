@@ -25,8 +25,9 @@
       ],
       "backup": {
         "namespace": "staging",
-        "local_retention_days": 14,
-        "offsite_retention_days": 30
+        "local_retention_days": 5,
+        "offsite_retention_days": 14,
+        "minimum_retained_backups": 2
       },
       "php_fpm": {
         "pool": "rateguru-staging",
@@ -70,7 +71,8 @@
       "backup": {
         "namespace": "tits-guru",
         "local_retention_days": 30,
-        "offsite_retention_days": 90
+        "offsite_retention_days": 90,
+        "minimum_retained_backups": 2
       },
       "php_fpm": {
         "pool": "rateguru-tits-guru",

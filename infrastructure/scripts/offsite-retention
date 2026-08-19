@@ -116,6 +116,7 @@ resolve_offsite_retention_subject() {
     ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
     BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
     OFFSITE_RETENTION_DAYS="$(target_offsite_backup_retention "${TARGET_ID}")"
+    MINIMUM_RETAINED_BACKUPS="$(target_minimum_retained_backups "${TARGET_ID}")"
     LABEL="${TARGET_ID}"
 }
 
@@ -156,18 +157,26 @@ for name in sorted(set(names)):
 
 # Classifies every entry in BACKUPS (already populated by list_remote_backups)
 # against CUTOFF_EPOCH, populating DELETE_CANDIDATES and logging a KEEP line
-# for everything protected. The single highest-sorted entry is always
-# protected as the latest, regardless of its age. Deterministic: BACKUPS is
-# already sorted ascending by list_remote_backups, so the same input always
-# produces the same LATEST_BACKUP and the same DELETE_CANDIDATES order.
+# for everything protected. The newest MINIMUM_RETAINED_BACKUPS entries are
+# ALWAYS protected regardless of age — the minimum count has priority over
+# the age cutoff, so age-based retention can never reduce the remote backup
+# count below the configured floor. Deterministic: BACKUPS is already sorted
+# ascending by list_remote_backups, so the same input always produces the
+# same protected set and the same DELETE_CANDIDATES order. Dry-run and
+# --apply share exactly this computation.
 compute_candidates() {
     DELETE_CANDIDATES=()
-    LATEST_BACKUP="${BACKUPS[-1]}"
 
-    local backup
-    for backup in "${BACKUPS[@]}"; do
-        if [[ "${backup}" == "${LATEST_BACKUP}" ]]; then
-            log "KEEP latest: ${backup}"
+    local total="${#BACKUPS[@]}"
+    local protected_from=$(( total - MINIMUM_RETAINED_BACKUPS ))
+    (( protected_from < 0 )) && protected_from=0
+
+    local i backup
+    for (( i = 0; i < total; i++ )); do
+        backup="${BACKUPS[i]}"
+
+        if (( i >= protected_from )); then
+            log "KEEP minimum: ${backup}"
             continue
         fi
 

@@ -1,5 +1,37 @@
 # RateGuru backup operations
 
+## Three retention concepts, never conflated
+
+Three independent retention policies exist, each with its own semantics:
+
+1. **Release retention** (`cleanup`, registry field `release_retention`) —
+   how many deployed release directories stay on disk. The `current` and
+   `previous` releases (and pinned releases) are *always* protected,
+   regardless of the number. `staging-main` keeps 5. This is deployment
+   housekeeping, not a backup policy — deleting an old release directory
+   loses nothing that a backup is expected to preserve.
+2. **Local backup retention** (`backup`, registry fields
+   `local_retention_days` + `minimum_retained_backups`) — an age window over
+   the timestamped directories under
+   `/home/www/rateguru/backups/<namespace>/`, backstopped by a minimum
+   count: the newest `minimum_retained_backups` backups are always kept, no
+   matter how old. `staging-main` keeps 5 days, minimum 2.
+3. **Offsite (B2) backup retention** (`offsite-retention`, registry fields
+   `offsite_retention_days` + `minimum_retained_backups`) — the same
+   age-window-plus-minimum-count model over the remote namespace, with a
+   longer window than local. `staging-main` keeps 14 days, minimum 2.
+
+The minimum count exists so that age-based deletion alone can never leave a
+namespace with fewer than two backups — a paused cron, a long outage, or a
+mis-set window shrinks the *age* coverage, never the *count* below two. The
+registry validator refuses any target whose `minimum_retained_backups` is
+not a strict JSON integer of at least 2.
+
+A backup contains the database dump, storage, `.env`, release metadata and
+the server-configuration snapshot — **not** the built application artifact
+itself. A durable, immutable artifact archive is separate, planned work
+(`infrastructure/ROADMAP.md`, Phase 7 recovery rehearsal).
+
 ## Local backup and restore test
 
 `backup` and `restore-test` accept exactly one selector, `--target TARGET_ID`:
@@ -23,6 +55,24 @@ lock (restore-test) = /home/www/rateguru/run/restore-test-staging.lock
 `require_active_target` runs immediately after root authorization — before
 the backup root, lock, database binary, `rclone`, or any filesystem work — so
 a planned target (`tits-guru`) is rejected before anything is touched.
+
+### Local retention: deterministic, count-aware, creation-gated
+
+Local retention runs only after the new backup has been fully created and
+atomically moved into its final timestamped directory — a failed creation
+never triggers retention. Only direct-child directories named
+`YYYYMMDD-HHMMSS` participate; auxiliary entries (a `database`, `manifests`
+or `uploads` directory, any non-timestamp name, or a timestamp-named plain
+file) are never touched.
+
+The listing is sorted newest-first by name, and each entry's age derives
+from the timestamp in its *name*, never from filesystem mtime — the decision
+is deterministic for a given listing. The newest `minimum_retained_backups`
+entries are always kept (`KEEP minimum: ...`), regardless of age; entries
+beyond the minimum are kept while inside `local_retention_days`
+(`KEEP recent: ...`) and deleted once past it (`DELETE expired: ...`). The
+just-created backup is the newest entry and therefore always inside the
+protected minimum.
 
 ### Manifest: schema 2, backward compatible with schema 1
 
@@ -96,9 +146,14 @@ re-listing are purged — so a backup uploaded between the preview and the
 locked listing is never deleted.
 
 The retention window is read from the target's own `offsite_retention_days`
-field in the registry (`target_offsite_backup_retention`). Every run protects
-the latest backup unconditionally, and otherwise deletes only what falls
-outside that target's own resolved window.
+field in the registry (`target_offsite_backup_retention`), and the minimum
+count from `minimum_retained_backups` (`target_minimum_retained_backups`).
+Every run protects the newest `minimum_retained_backups` remote backups
+unconditionally (`KEEP minimum: ...`), regardless of age; backups beyond the
+minimum are kept while inside the window (`KEEP recent: ...`) and become
+candidates only once past it. Dry-run and `--apply` share the single
+candidate computation — dry-run prints `WOULD DELETE`, apply prints `DELETE`
+from its own locked, authoritative recomputation.
 
 ### Manifest validation reuses the same strict schema contract
 
@@ -162,9 +217,9 @@ as failed — the retention deletion itself is **not** rolled back; this is a
 deliberate, documented limitation, not an oversight.
 
 **This does not delete local backups.** Local retention (pruning old
-timestamped directories under `/home/www/rateguru/backups/<namespace>/`) is
-`backup`'s own existing, unchanged behaviour — `backup-cycle` does not add
-any local retention of its own.
+timestamped directories under `/home/www/rateguru/backups/<namespace>/`,
+minimum-count protected — see "Local retention" above) is `backup`'s own
+behaviour — `backup-cycle` does not add any local retention of its own.
 
 ### Cycle history: one compact JSON record per cycle
 

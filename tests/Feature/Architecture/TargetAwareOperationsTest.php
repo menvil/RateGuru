@@ -335,7 +335,7 @@ function targetOpsParityRegistry(string $scratch, string $applicationRoot): arra
                 'database' => ['name' => 'parity_db', 'application_role' => 'parity_app'],
                 'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
                 'public_hostnames' => ['parity.example'],
-                'backup' => ['namespace' => 'parity', 'local_retention_days' => 1, 'offsite_retention_days' => 1],
+                'backup' => ['namespace' => 'parity', 'local_retention_days' => 1, 'offsite_retention_days' => 1, 'minimum_retained_backups' => 2],
                 'php_fpm' => ['pool' => 'parity', 'socket' => '/run/php/parity.sock'],
                 'supervisor' => ['program' => 'parity-queue', 'queue' => 'parity'],
                 'scheduler' => ['name' => 'parity-scheduler'],
@@ -1246,8 +1246,7 @@ it('leaves every other operational script and workflow byte-identical to develop
         // generic wrappers, sudoers and deployment.conf.example are all
         // deliberately absent here — this is the final Phase 4 cutover
         // slice, and all of them change. Only the genuinely static host
-        // configs and the target registry itself (untouched by the selector
-        // migration from the start) are asserted unchanged.
+        // configs are asserted unchanged.
         'infrastructure/config/ssh/70-rateguru-deploy.conf',
         'infrastructure/config/nginx/rateguru-staging',
         'infrastructure/config/nginx/rateguru-production',
@@ -1255,13 +1254,15 @@ it('leaves every other operational script and workflow byte-identical to develop
         'infrastructure/config/php-fpm/rateguru-production.conf',
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',
-        'infrastructure/config/deployment-targets.json',
-        // Both workflow files are deliberately excluded here: a later slice
-        // (the infrastructure CLI executable-mode fix) legitimately adds an
-        // executable-bit verification step to each, and Phase 4 slice 8
-        // added a required deployment-target input to the staging deploy
-        // workflow. This list only proves *this* slice's own scope, not a
-        // permanent freeze on every file named here forever.
+        // Both workflow files, and the target registry itself, are
+        // deliberately excluded here: a later slice (the infrastructure CLI
+        // executable-mode fix) legitimately adds an executable-bit
+        // verification step to each workflow, Phase 4 slice 8 added a
+        // required deployment-target input to the staging deploy workflow,
+        // and the backup-retention hardening slice added
+        // backup.minimum_retained_backups (and retuned staging's windows) in
+        // the registry. This list only proves *this* slice's own scope, not
+        // a permanent freeze on every file named here forever.
     ];
 
     foreach ($unchanged as $path) {
