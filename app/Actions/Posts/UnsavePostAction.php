@@ -4,6 +4,7 @@ namespace App\Actions\Posts;
 
 use App\Exceptions\SavedPosts\CannotSavePostException;
 use App\Exceptions\SavedPosts\SavedPostsDisabledException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\User;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 final class UnsavePostAction
 {
+    use LocksActorForWrite;
+
     public function __construct(
         private readonly ProjectSettingsManager $settings,
         private readonly DomainLogger $logger,
@@ -25,6 +28,16 @@ final class UnsavePostAction
         }
 
         DB::transaction(function () use ($user, $post): void {
+            // Lock order: Actor User -> Post -> PostSave. Saved posts are
+            // private state: every living account (sanctions included) may
+            // manage them, a Deleted tombstone may not — PR-B removed its
+            // rows and a stale request must never recreate them.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canAuthenticate()) {
+                throw CannotSavePostException::userNotAllowed();
+            }
+
             // Save rows on a post that is no longer live (author-deleted or
             // moderation-hidden) are retained state — no save/unsave
             // mutation may touch them, even through a stale instance.

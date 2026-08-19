@@ -10,7 +10,7 @@ stay distinguishable in storage, behavior, UI and audit semantics:
 | Storage | SoftDeletes (`deleted_at`) | `status = Hidden`, `deleted_at` stays null |
 | Reversible | never | yes, via `RestoreCommentAction` |
 | Moderation log | none — not a moderation act | HideComment / RestoreComment logs |
-| Body retained | internally, until a future retention policy | in DB for moderation/audit |
+| Body retained | internally at least the author-retention window (default 30 days = earliest cleanup eligibility; structural anchors, open reports and retained/hidden parent posts keep it longer) | in DB for moderation/audit |
 
 There is deliberately **no admin delete**: moderation acts through
 hide/restore (plus the Admin-only Finalize removal), and the Filament
@@ -68,11 +68,15 @@ still order by the root's own vote counters — no reply-aggregate ranking).
   deleted immediately before insert; the losing side gets the existing
   reply-target-unavailable error.
 - **Hide/delete racing a vote or report** — `VoteCommentAction` and
-  `ReportContentAction` re-read the comment under `lockForUpdate()` and
-  revalidate `canReceiveVotes()` / `canReceiveReports()` immediately before
-  the write, so a stale Visible instance cannot land a vote or report on a
-  freshly tombstoned row. Posts are deliberately not report-gated:
-  soft-deleted posts stay reportable.
+  `ReportContentAction` lock Actor -> parent Post -> Comment and
+  revalidate everything on the authoritative rows immediately before the
+  write, so a stale Visible instance cannot land a vote or report on a
+  freshly tombstoned row. A Visible comment alone is not enough: the
+  parent post must itself be a live public surface — comments beneath an
+  author-deleted or Hidden post accept no new votes, reports or author
+  deletion (moderation hide/restore/finalize keep working under any
+  parent state; existing reports remain evidence per the moderation
+  retention contract).
 - **Double delete** — idempotent: no error, no double counter decrement.
 - **Double hide** — pre-existing idempotency retained: single log.
 

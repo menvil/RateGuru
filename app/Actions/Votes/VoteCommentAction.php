@@ -9,6 +9,7 @@ use App\Exceptions\Votes\CannotVoteCommentException;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\Concerns\LocksActorForWrite;
+use App\Models\Post;
 use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
@@ -53,13 +54,23 @@ final class VoteCommentAction
         }
 
         DB::transaction(function () use ($user, $comment, $type): void {
-            // Lock order: Actor User -> Comment -> vote rows
-            // (docs/architecture/user-lifecycle.md); the pre-checks ran on
-            // possibly stale instances.
+            // Lock order: Actor User -> Post -> Comment -> vote rows; the
+            // pre-checks ran on possibly stale instances. A still-Visible
+            // comment beneath an author-deleted or Hidden post is not a
+            // public interaction surface and must not accept votes.
             $lockedActor = $this->lockActor($user);
 
             if ($lockedActor === null || ! $lockedActor->canVote()) {
                 throw CannotVoteCommentException::becauseUserIsNotAllowed();
+            }
+
+            $lockedPost = Post::withTrashed()
+                ->whereKey($comment->post_id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedPost === null || ! $lockedPost->canReceiveVotes()) {
+                throw CannotVoteCommentException::becauseCommentIsNotVisible();
             }
 
             $lockedComment = Comment::query()
@@ -73,6 +84,11 @@ final class VoteCommentAction
             // Only the row re-read under lock is authoritative.
             if ($lockedComment === null || ! $lockedComment->canReceiveVotes()) {
                 throw CannotVoteCommentException::becauseCommentIsNotVisible();
+            }
+
+            // Re-check the own-comment rule on the authoritative rows.
+            if ((int) $lockedComment->user_id === (int) $lockedActor->id) {
+                throw CannotVoteCommentException::becauseOwnComment();
             }
 
             $existingVote = CommentVote::query()

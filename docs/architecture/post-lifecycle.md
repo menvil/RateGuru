@@ -118,9 +118,12 @@ allowlist). Per post, in one transaction, after a locked re-read:
 - **Moderation hold**: `needs_review`, an open report against the post, or
   an open report against any of its comments blocks the purge
   (`moderation_hold`). Resolved/ignored reports never block.
-- **Deletion order (PR-C FK-safe, leaves first)**: lock the post's comment
-  rows → comment votes → comment-targeted reports → replies → root
-  comments → post votes → rating votes → saves → author answers →
+- **Deletion order (PR-C FK-safe)**: lock the post's comment rows →
+  comment votes → comment-targeted reports → comments strictly
+  leaves-first until the graph is empty (depth-agnostic: the public
+  product supports one reply level, but malformed/legacy nesting must
+  never make a post unpurgeable, and a corrupted parent cycle fails
+  closed) → post votes → rating votes → saves → author answers →
   `post_tag` pivot (explicit despite the DB cascade) → post-targeted
   reports → the post row → media release. Moderation logs are kept as
   audit history (admin rendering of missing targets is null-safe).

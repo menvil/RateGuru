@@ -9,6 +9,7 @@ use App\Enums\ModerationActionType;
 use App\Exceptions\Comments\CannotRestoreCommentException;
 use App\Models\Comment;
 use App\Models\Concerns\LocksActorForWrite;
+use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -33,13 +34,19 @@ final class RestoreCommentAction
         // concurrent restores cannot both observe the Hidden state and emit
         // duplicate RestoreComment logs. Mirrors HidePostAction.
         DB::transaction(function () use ($moderator, $comment, $reason) {
-            // Lock order: Actor User -> Comment; the moderator instance may
-            // be stale, only the locked rows are authoritative.
+            // Lock order: Actor User -> Post -> Comment; the moderator
+            // instance may be stale, only the locked rows are
+            // authoritative. The post lock is ordering only.
             $lockedActor = $this->lockActor($moderator);
+
+            $lockedPost = Post::withTrashed()
+                ->whereKey($comment->post_id)
+                ->lockForUpdate()
+                ->first();
 
             $locked = $comment->newQuery()->lockForUpdate()->find($comment->getKey());
 
-            if ($locked === null || $locked->status !== CommentStatus::Hidden) {
+            if ($lockedPost === null || $locked === null || $locked->status !== CommentStatus::Hidden) {
                 throw CannotRestoreCommentException::becauseCommentStatusIsInvalid();
             }
 
@@ -53,12 +60,11 @@ final class RestoreCommentAction
                 throw CannotRestoreCommentException::becauseUserIsNotAllowed();
             }
 
-            $post = $locked->post;
             $fromStatus = $locked->status;
 
             $locked->forceFill(['status' => CommentStatus::Visible])->save();
 
-            $this->refreshCommentsCount($post);
+            $this->refreshCommentsCount($lockedPost);
 
             $this->createModerationLog->handle(
                 moderator: $lockedActor,
