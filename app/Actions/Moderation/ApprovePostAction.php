@@ -10,6 +10,7 @@ use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostApprovedNotification;
+use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -20,6 +21,7 @@ final class ApprovePostAction
 
     public function __construct(
         private readonly CreateModerationLogAction $createModerationLog,
+        private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
     ) {}
 
     public function handle(User $moderator, Post $post, ?string $reason = null): void
@@ -60,14 +62,18 @@ final class ApprovePostAction
             $post->setRawAttributes($locked->getAttributes(), true);
         });
 
-        $post->loadMissing('user');
-
         if ($post->user_id !== $moderator->id) {
             try {
-                $post->user?->notify(new PostApprovedNotification(
-                    post: $post,
-                    actor: $moderator,
-                ));
+                // Identity-bearing DB notification: serialized against
+                // anonymization, built from the FRESH locked moderator.
+                $this->safeNotifier->send(
+                    recipientId: (int) $post->user_id,
+                    identitySourceId: (int) $moderator->id,
+                    notification: fn (User $freshModerator) => new PostApprovedNotification(
+                        post: $post,
+                        actor: $freshModerator,
+                    ),
+                );
             } catch (Throwable $exception) {
                 report($exception);
 

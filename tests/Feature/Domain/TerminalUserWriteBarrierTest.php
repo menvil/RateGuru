@@ -10,12 +10,14 @@ use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Actions\Users\UpdateNotificationPreferencesAction;
 use App\Actions\Users\UpdateThemePreferenceAction;
 use App\Enums\ThemePreference;
+use App\Enums\UserStatus;
 use App\Exceptions\SavedPosts\CannotSavePostException;
 use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
@@ -50,7 +52,7 @@ it('rejects a stale password update against a tombstone without mutating it', fu
 
     $after = $stale->fresh();
     expect($after->password)->toBe($passwordBefore)
-        ->and($after->status)->toBe(App\Enums\UserStatus::Deleted)
+        ->and($after->status)->toBe(UserStatus::Deleted)
         ->and($after->anonymized_at?->equalTo($anonymizedAt))->toBeTrue();
 });
 
@@ -137,7 +139,7 @@ it('keeps session locale but never persists preferences to a tombstone', functio
     $stale = staleThenAnonymized();
     $localeBefore = $stale->fresh()->locale;
 
-    $request = Illuminate\Http\Request::create('/locale', 'POST');
+    $request = Request::create('/locale', 'POST');
     $request->setLaravelSession(app('session.store'));
     $request->setUserResolver(fn () => $stale);
 
