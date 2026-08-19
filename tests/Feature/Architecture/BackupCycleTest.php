@@ -219,7 +219,7 @@ function backupCycleParityRegistry(string $scratch, string $backupNamespace = 'p
                 'database' => ['name' => 'parity_db', 'application_role' => 'parity_app'],
                 'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
                 'public_hostnames' => ['parity.example'],
-                'backup' => ['namespace' => $backupNamespace, 'local_retention_days' => 14, 'offsite_retention_days' => 90],
+                'backup' => ['namespace' => $backupNamespace, 'local_retention_days' => 14, 'offsite_retention_days' => 90, 'minimum_retained_backups' => 2],
                 'php_fpm' => ['pool' => 'parity-pool', 'socket' => '/run/php/parity.sock'],
                 'supervisor' => ['program' => 'parity-queue', 'queue' => 'parity'],
                 'scheduler' => ['name' => 'parity-scheduler'],

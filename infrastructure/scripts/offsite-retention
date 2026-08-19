@@ -116,6 +116,7 @@ resolve_offsite_retention_subject() {
     ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
     BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
     OFFSITE_RETENTION_DAYS="$(target_offsite_backup_retention "${TARGET_ID}")"
+    MINIMUM_RETAINED_BACKUPS="$(target_minimum_retained_backups "${TARGET_ID}")"
     LABEL="${TARGET_ID}"
 }
 
@@ -156,22 +157,26 @@ for name in sorted(set(names)):
 
 # Classifies every entry in BACKUPS (already populated by list_remote_backups)
 # against CUTOFF_EPOCH, populating DELETE_CANDIDATES and logging a KEEP line
-# for everything protected. The single highest-sorted entry is always
-# protected as the latest, regardless of its age. Deterministic: BACKUPS is
-# already sorted ascending by list_remote_backups, so the same input always
-# produces the same LATEST_BACKUP and the same DELETE_CANDIDATES order.
+# for everything protected. The newest MINIMUM_RETAINED_BACKUPS entries are
+# ALWAYS protected regardless of age — the minimum count has priority over
+# the age cutoff, so age-based retention can never reduce the remote backup
+# count below the configured floor. Deterministic: BACKUPS is already sorted
+# ascending by list_remote_backups, so the same input always produces the
+# same protected set and the same DELETE_CANDIDATES order. Dry-run and
+# --apply share exactly this computation.
 compute_candidates() {
     DELETE_CANDIDATES=()
-    LATEST_BACKUP="${BACKUPS[-1]}"
 
+    # Round-trip-validate every listed name first: a name can match the
+    # YYYYMMDD-HHMMSS shape without being a real calendar timestamp (month
+    # 13, day 99). Anything that fails to parse, or does not format back to
+    # exactly its own name, was not uploaded by this pipeline — it is never
+    # a candidate, and never consumes a protected-minimum slot.
+    local -a validated=()
+    local -a validated_epochs=()
     local backup
     for backup in "${BACKUPS[@]}"; do
-        if [[ "${backup}" == "${LATEST_BACKUP}" ]]; then
-            log "KEEP latest: ${backup}"
-            continue
-        fi
-
-        local year month day hour minute second backup_epoch
+        local year month day hour minute second backup_epoch canonical
         year="${backup:0:4}"
         month="${backup:4:2}"
         day="${backup:6:2}"
@@ -179,14 +184,42 @@ compute_candidates() {
         minute="${backup:11:2}"
         second="${backup:13:2}"
 
-        backup_epoch="$(
+        if ! backup_epoch="$(
             date \
                 -u \
                 -d "${year}-${month}-${day} ${hour}:${minute}:${second} UTC" \
-                +%s
-        )"
+                +%s \
+                2>/dev/null
+        )"; then
+            log "SKIP malformed: ${backup}"
+            continue
+        fi
 
-        if (( backup_epoch >= CUTOFF_EPOCH )); then
+        canonical="$(date -u -d "@${backup_epoch}" +%Y%m%d-%H%M%S)"
+
+        if [[ "${canonical}" != "${backup}" ]]; then
+            log "SKIP malformed: ${backup}"
+            continue
+        fi
+
+        validated+=("${backup}")
+        validated_epochs+=("${backup_epoch}")
+    done
+
+    local total="${#validated[@]}"
+    local protected_from=$(( total - MINIMUM_RETAINED_BACKUPS ))
+    (( protected_from < 0 )) && protected_from=0
+
+    local i
+    for (( i = 0; i < total; i++ )); do
+        backup="${validated[i]}"
+
+        if (( i >= protected_from )); then
+            log "KEEP minimum: ${backup}"
+            continue
+        fi
+
+        if (( validated_epochs[i] >= CUTOFF_EPOCH )); then
             log "KEEP recent: ${backup}"
             continue
         fi
