@@ -22,7 +22,7 @@
 # validates the host contract that later Phase 5 slices (5.2+) will satisfy.
 #
 # Supported host contract: the RateGuru staging VPS baseline only — Ubuntu
-# 24.04 (apt/dpkg + systemd), exactly. SUPPORTED_OS_ID and
+# 22.04 (apt/dpkg + systemd), exactly. SUPPORTED_OS_ID and
 # SUPPORTED_OS_VERSION_ID together form the hard gate: any other OS family
 # and any other Ubuntu release are both CONFLICT. The supported set is
 # never silently expanded — moving the baseline is a deliberate edit to the
@@ -75,7 +75,7 @@ RUNTIME_DEPLOYMENT_CONF_DEFAULT="${RUNTIME_CONFIG_ROOT}/deployment.conf"
 # /etc/os-release) and VERSION_ID must match, and any mismatch is CONFLICT.
 # Update the version pin here, deliberately, when the staging baseline moves.
 SUPPORTED_OS_ID="ubuntu"
-SUPPORTED_OS_VERSION_ID="24.04"
+SUPPORTED_OS_VERSION_ID="22.04"
 
 DISK_MIN_AVAILABLE_MIB=5120
 MEMORY_MIN_TOTAL_MIB=1024

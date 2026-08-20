@@ -361,7 +361,7 @@ slices 1–2, which installed nothing — so it completes on merge.
    clean host — including one where jq is not installed yet, in which case
    the target-derived contract is explicitly reported as not evaluable
    rather than invented. It enforces the supported OS baseline as an exact
-   contract (Ubuntu 24.04 only — the staging VPS baseline; any other family
+   contract (Ubuntu 22.04 only — the staging VPS baseline; any other family
    or release is a conflict, and no pretend multi-distro support), and
    inventories the canonical host tool set derived from the committed
    scripts, service states

@@ -207,10 +207,10 @@ function bootstrapPreflightCompliantGroup(): string
  */
 function bootstrapPreflightWriteHostFiles(string $fs, array $options): void
 {
-    $os = $options['os'] ?? 'ubuntu-24.04';
+    $os = $options['os'] ?? 'ubuntu-22.04';
     $osRelease = match ($os) {
+        'ubuntu-22.04' => "ID=ubuntu\nVERSION_ID=\"22.04\"\nPRETTY_NAME=\"Ubuntu 22.04.4 LTS\"\n",
         'ubuntu-24.04' => "ID=ubuntu\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04 LTS\"\n",
-        'ubuntu-22.04' => "ID=ubuntu\nVERSION_ID=\"22.04\"\nPRETTY_NAME=\"Ubuntu 22.04 LTS\"\n",
         'debian' => "ID=debian\nVERSION_ID=\"12\"\nVERSION=\"12 (sentinel-bookworm)\"\n",
         'absent' => null,
     };
@@ -420,7 +420,7 @@ SH);
  * host. This function only composes the focused helpers above.
  *
  * Options:
- *   os:              'ubuntu-24.04' | 'ubuntu-22.04' | 'debian' | 'absent'
+ *   os:              'ubuntu-22.04' | 'ubuntu-24.04' | 'debian' | 'absent'
  *   systemd:         bool
  *   tools:           'all' | list<string>
  *   services:        array<string,string> unit => running|stopped ('all-running' default)
@@ -486,7 +486,7 @@ function bootstrapPreflightFixture(string $scratch, array $options = []): array
 }
 
 /**
- * The clean-VPS profile: a fresh Ubuntu 24.04 host with only a minimal tool
+ * The clean-VPS profile: a fresh Ubuntu 22.04 host with only a minimal tool
  * set, no services, no RateGuru accounts, and an empty filesystem.
  *
  * @return array<string, string>
@@ -671,7 +671,7 @@ it('fails --check on a clean host while still printing every section and the sum
             'MISSING  path:/home/www/rateguru — absent',
             'MISSING  registry:runtime — absent',
             'MISSING  secret:laravel-env:staging-main',
-            'PASS     os-release — ID=ubuntu VERSION_ID=24.04',
+            'PASS     os-release — ID=ubuntu VERSION_ID=22.04',
         ] as $needle) {
             expect($output)->toContain($needle);
         }
@@ -792,14 +792,14 @@ it('treats a wrong OS family as CONFLICT and fails --check even on an otherwise 
     }
 });
 
-it('treats any Ubuntu release other than the exact 24.04 baseline as CONFLICT', function () {
+it('treats any Ubuntu release other than the exact 22.04 baseline as CONFLICT', function () {
     $scratch = bootstrapPreflightScratchDir();
 
     try {
-        $env = bootstrapPreflightFixture($scratch, ['os' => 'ubuntu-22.04']);
+        $env = bootstrapPreflightFixture($scratch, ['os' => 'ubuntu-24.04']);
         [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
 
-        expect($output)->toContain('CONFLICT os-release — ID=ubuntu VERSION_ID=22.04 is not the supported baseline ubuntu 24.04');
+        expect($output)->toContain('CONFLICT os-release — ID=ubuntu VERSION_ID=24.04 is not the supported baseline ubuntu 22.04');
         expect($output)->toContain('HOST READY: NO');
         expect($exit)->toBe(1, "the OS baseline is an exact hard contract, never silently expanded:\n{$output}");
 
