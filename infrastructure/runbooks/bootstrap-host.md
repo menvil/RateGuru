@@ -60,7 +60,7 @@ for the complete picture.
 
 ## Supported host contract
 
-Only the RateGuru staging VPS baseline, exactly: **Ubuntu 24.04** with
+Only the RateGuru staging VPS baseline, exactly: **Ubuntu 22.04** with
 apt/dpkg and systemd. Any other OS family **and any other Ubuntu release**
 are both `CONFLICT` — the supported set is never silently expanded. Moving
 the baseline is a deliberate edit to `SUPPORTED_OS_VERSION_ID` in the
