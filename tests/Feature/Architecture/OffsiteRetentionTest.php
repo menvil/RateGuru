@@ -252,7 +252,7 @@ function offsiteRetentionOpsPatchedScript(string $scratch): string
 /**
  * @return array{0: string, 1: string} [registryPath, targetsCliPath]
  */
-function offsiteRetentionOpsParityRegistry(string $scratch, string $backupNamespace = 'parity', int $offsiteRetentionDays = 17): array
+function offsiteRetentionOpsParityRegistry(string $scratch, string $backupNamespace = 'parity', int $offsiteRetentionDays = 17, int $minimumRetainedBackups = 2): array
 {
     $account = trim((string) shell_exec('id -un'));
     $group = trim((string) shell_exec('id -gn'));
@@ -304,7 +304,7 @@ function offsiteRetentionOpsParityRegistry(string $scratch, string $backupNamesp
                 'database' => ['name' => 'parity_db', 'application_role' => 'parity_app'],
                 'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
                 'public_hostnames' => ['parity.example'],
-                'backup' => ['namespace' => $backupNamespace, 'local_retention_days' => 14, 'offsite_retention_days' => $offsiteRetentionDays],
+                'backup' => ['namespace' => $backupNamespace, 'local_retention_days' => 14, 'offsite_retention_days' => $offsiteRetentionDays, 'minimum_retained_backups' => $minimumRetainedBackups],
                 'php_fpm' => ['pool' => 'parity-pool', 'socket' => '/run/php/parity.sock'],
                 'supervisor' => ['program' => 'parity-queue', 'queue' => 'parity'],
                 'scheduler' => ['name' => 'parity-scheduler'],
@@ -553,14 +553,18 @@ it('purges a 20-day-old backup under a 17-day retention cutoff but retains the s
     try {
         [$registryPath, $targetsPath] = offsiteRetentionOpsParityRegistry($scratch, 'parity', 17);
 
-        // Independent bucket roots per retention window — a 20-day-old backup
-        // and a 1-day-old "latest" so the old one is a genuine deletion
-        // candidate rather than being unconditionally protected as the latest.
+        // Independent bucket roots per retention window — three backups each,
+        // so the 20-day-old backup sits beyond the protected minimum of two
+        // and its fate is decided purely by the age window.
         $shortBucketRoot = $scratch.'/bucket-short';
         mkdir($shortBucketRoot, 0o755, true);
         $shortOldTs = offsiteRetentionOpsTimestampDaysAgo(20);
         offsiteRetentionOpsBuildRemoteBackup($shortBucketRoot, 'parity', $shortOldTs);
+        offsiteRetentionOpsBuildRemoteBackup($shortBucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(2));
         offsiteRetentionOpsBuildRemoteBackup($shortBucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(1));
+
+        // Calendar-invalid, shape-matching name: --apply must never purge it.
+        offsiteRetentionOpsBuildRemoteBackup($shortBucketRoot, 'parity', '20200199-000000');
 
         [$shortExit, $shortOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
             parse_offsite_retention_args --target parity-target --apply
@@ -577,26 +581,35 @@ it('purges a 20-day-old backup under a 17-day retention cutoff but retains the s
         expect($shortOutput)->toContain('DELETE: ')->toContain($shortOldTs);
         expect(is_dir("{$shortBucketRoot}/rateguru/parity/{$shortOldTs}"))
             ->toBeFalse('a 20-day-old backup must be purged under a 17-day retention window');
+        expect($shortOutput)->toContain('SKIP malformed: 20200199-000000');
+        expect(is_dir("{$shortBucketRoot}/rateguru/parity/20200199-000000"))
+            ->toBeTrue('a calendar-invalid timestamp name must never be purged');
 
-        // staging-main's committed registry retention is 30 days.
+        // The same-age backup under a 30-day window: still beyond the
+        // protected minimum, but inside the age window this time.
+        [$longRegistryPath, $longTargetsPath] = offsiteRetentionOpsParityRegistry($scratch, 'parity', 30);
+
         $longBucketRoot = $scratch.'/bucket-long';
         mkdir($longBucketRoot, 0o755, true);
         $longOldTs = offsiteRetentionOpsTimestampDaysAgo(20);
-        offsiteRetentionOpsBuildRemoteBackup($longBucketRoot, 'staging', $longOldTs);
-        offsiteRetentionOpsBuildRemoteBackup($longBucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
+        offsiteRetentionOpsBuildRemoteBackup($longBucketRoot, 'parity', $longOldTs);
+        offsiteRetentionOpsBuildRemoteBackup($longBucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(2));
+        offsiteRetentionOpsBuildRemoteBackup($longBucketRoot, 'parity', offsiteRetentionOpsTimestampDaysAgo(1));
 
         [$longExit, $longOutput] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
-            parse_offsite_retention_args --target staging-main --apply
+            parse_offsite_retention_args --target parity-target --apply
             resolve_offsite_retention_subject
             perform_offsite_retention
             BASH, offsiteRetentionOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $longRegistryPath,
+            'RATEGURU_TARGETS_CLI' => $longTargetsPath,
             'RATEGURU_RCLONE_BUCKET' => $longBucketRoot,
             'RATEGURU_RUN_ROOT' => $scratch.'/run-long',
         ]), offsiteRetentionOpsPatchedScript($scratch));
 
         expect($longExit)->toBe(0, $longOutput);
         expect($longOutput)->toContain("KEEP recent: {$longOldTs}");
-        expect(is_dir("{$longBucketRoot}/rateguru/staging/{$longOldTs}"))
+        expect(is_dir("{$longBucketRoot}/rateguru/parity/{$longOldTs}"))
             ->toBeTrue('the same-age backup must be retained under a 30-day retention window');
     } finally {
         offsiteRetentionOpsCleanup($scratch);
@@ -664,26 +677,34 @@ it('cannot run two offsite retentions concurrently against the same namespace lo
 });
 
 // =============================================================================
-// Candidate computation: latest protected, recent protected, old candidate,
-// deterministic order
+// Candidate computation: newest minimum protected, recent protected, old
+// candidate, deterministic order
 // =============================================================================
 
-it('protects the latest backup regardless of age, protects recent backups, and selects only old backups as candidates', function () {
+it('protects the newest two backups as the minimum, keeps recent backups beyond it, and selects only old backups as candidates', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
     try {
         $bucketRoot = $scratch.'/bucket';
         mkdir($bucketRoot, 0o755, true);
 
+        // staging-main's committed offsite window is 14 days: two ancient
+        // candidates, one backup that is old-ish but inside the window, and
+        // two newest entries protected purely by the minimum count.
         $tsOld1 = offsiteRetentionOpsTimestampDaysAgo(40);
         $tsOld2 = offsiteRetentionOpsTimestampDaysAgo(35);
-        $tsRecent = offsiteRetentionOpsTimestampDaysAgo(5);
-        $tsLatest = offsiteRetentionOpsTimestampDaysAgo(1);
+        $tsRecent = offsiteRetentionOpsTimestampDaysAgo(10);
+        $tsSecondNewest = offsiteRetentionOpsTimestampDaysAgo(5);
+        $tsNewest = offsiteRetentionOpsTimestampDaysAgo(1);
 
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsOld1);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsOld2);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsRecent);
-        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $tsLatest);
+        foreach ([$tsOld1, $tsOld2, $tsRecent, $tsSecondNewest, $tsNewest] as $ts) {
+            offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $ts);
+        }
+
+        // Matches the timestamp shape but is not a real calendar date (day
+        // 99): it must be skipped outright — never a candidate, never a
+        // consumer of a protected-minimum slot.
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', '20200199-000000');
 
         $env = offsiteRetentionOpsBaseEnv($scratch, ['RATEGURU_RCLONE_BUCKET' => $bucketRoot]);
 
@@ -695,8 +716,10 @@ it('protects the latest backup regardless of age, protects recent backups, and s
 
         expect($exit)->toBe(0, $output);
         expect($output)
-            ->toContain("KEEP latest: {$tsLatest}")
+            ->toContain("KEEP minimum: {$tsNewest}")
+            ->toContain("KEEP minimum: {$tsSecondNewest}")
             ->toContain("KEEP recent: {$tsRecent}")
+            ->toContain('SKIP malformed: 20200199-000000')
             ->toContain('WOULD DELETE: ')
             ->toContain($tsOld1)
             ->toContain($tsOld2)
@@ -710,6 +733,80 @@ it('protects the latest backup regardless of age, protects recent backups, and s
     }
 });
 
+it('never deletes the newest two backups under --apply, no matter how old they are', function () {
+    $scratch = offsiteRetentionOpsScratchDir();
+
+    try {
+        [$registryPath, $targetsPath] = offsiteRetentionOpsParityRegistry($scratch, 'parity', 17);
+
+        $bucketRoot = $scratch.'/bucket';
+        mkdir($bucketRoot, 0o755, true);
+        $tsAncient1 = offsiteRetentionOpsTimestampDaysAgo(400);
+        $tsAncient2 = offsiteRetentionOpsTimestampDaysAgo(300);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'parity', $tsAncient1);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'parity', $tsAncient2);
+
+        $invocationLog = $scratch.'/rclone-invocations.log';
+
+        [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
+            parse_offsite_retention_args --target parity-target --apply
+            resolve_offsite_retention_subject
+            perform_offsite_retention
+            BASH, offsiteRetentionOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+            'RATEGURU_RCLONE_BUCKET' => $bucketRoot,
+            'RATEGURU_RUN_ROOT' => $scratch.'/run-'.uniqid('', true),
+            'RCLONE_INVOCATION_LOG' => $invocationLog,
+        ]), offsiteRetentionOpsPatchedScript($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain("KEEP minimum: {$tsAncient1}")
+            ->toContain("KEEP minimum: {$tsAncient2}")
+            ->toContain('Retention candidates: 0');
+        expect(is_dir("{$bucketRoot}/rateguru/parity/{$tsAncient1}"))->toBeTrue('minimum count has priority over the age cutoff');
+        expect(is_dir("{$bucketRoot}/rateguru/parity/{$tsAncient2}"))->toBeTrue('minimum count has priority over the age cutoff');
+        expect(File::get($invocationLog))->not->toContain('purge');
+    } finally {
+        offsiteRetentionOpsCleanup($scratch);
+    }
+});
+
+it('never deletes a single remaining backup under --apply, no matter how old it is', function () {
+    $scratch = offsiteRetentionOpsScratchDir();
+
+    try {
+        [$registryPath, $targetsPath] = offsiteRetentionOpsParityRegistry($scratch, 'parity', 17);
+
+        $bucketRoot = $scratch.'/bucket';
+        mkdir($bucketRoot, 0o755, true);
+        $tsAncient = offsiteRetentionOpsTimestampDaysAgo(500);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'parity', $tsAncient);
+
+        $invocationLog = $scratch.'/rclone-invocations.log';
+
+        [$exit, $output] = offsiteRetentionOpsRunHarness($scratch, <<<'BASH'
+            parse_offsite_retention_args --target parity-target --apply
+            resolve_offsite_retention_subject
+            perform_offsite_retention
+            BASH, offsiteRetentionOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+            'RATEGURU_RCLONE_BUCKET' => $bucketRoot,
+            'RATEGURU_RUN_ROOT' => $scratch.'/run-'.uniqid('', true),
+            'RCLONE_INVOCATION_LOG' => $invocationLog,
+        ]), offsiteRetentionOpsPatchedScript($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain("KEEP minimum: {$tsAncient}");
+        expect(is_dir("{$bucketRoot}/rateguru/parity/{$tsAncient}"))->toBeTrue('the last backup must never be deleted');
+        expect(File::get($invocationLog))->not->toContain('purge');
+    } finally {
+        offsiteRetentionOpsCleanup($scratch);
+    }
+});
+
 it('produces deterministic candidate ordering across repeated runs', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
@@ -717,8 +814,8 @@ it('produces deterministic candidate ordering across repeated runs', function ()
         $bucketRoot = $scratch.'/bucket';
         mkdir($bucketRoot, 0o755, true);
 
-        // Ages deliberately well clear of the 30-day legacy cutoff (never
-        // exactly 30) — a fixture built at precisely the cutoff is a genuine
+        // Ages deliberately well clear of staging's 14-day cutoff (never
+        // exactly 14) — a fixture built at precisely the cutoff is a genuine
         // boundary case the script correctly (and deliberately) treats as
         // "keep, inclusive", which would make this specific test flaky
         // depending on whether the fixture and the script's own `date`
@@ -748,7 +845,10 @@ it('produces deterministic candidate ordering across repeated runs', function ()
 
             if ($firstRunOutput === null) {
                 $firstRunOutput = $order;
-                expect($order)->toHaveCount(5);
+                // Six backups total; the newest old one joins the fresh
+                // latest inside the protected minimum of two, leaving four
+                // genuine candidates.
+                expect($order)->toHaveCount(4);
             } else {
                 expect($order)->toBe($firstRunOutput, 'candidate order must be deterministic across repeated runs against identical input');
             }
@@ -811,6 +911,7 @@ it('apply lists remote backups twice — an unlocked preview, then a locked, aut
         mkdir($bucketRoot, 0o755, true);
         $oldTs = offsiteRetentionOpsTimestampDaysAgo(40);
         offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', $oldTs);
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(2));
         offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
 
         $runRoot = $scratch.'/run-'.uniqid('', true);
@@ -897,6 +998,7 @@ it('only apply ever invokes rclone purge — dry-run never does, under any circu
         $bucketRoot = $scratch.'/bucket';
         mkdir($bucketRoot, 0o755, true);
         offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(40));
+        offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(2));
         offsiteRetentionOpsBuildRemoteBackup($bucketRoot, 'staging', offsiteRetentionOpsTimestampDaysAgo(1));
 
         $dryRunLog = $scratch.'/dry-run-invocations.log';
@@ -933,7 +1035,7 @@ it('only apply ever invokes rclone purge — dry-run never does, under any circu
     }
 });
 
-it('reports no candidates when every remote backup is either the latest or within retention', function () {
+it('reports no candidates when every remote backup is inside the protected minimum or within retention', function () {
     $scratch = offsiteRetentionOpsScratchDir();
 
     try {

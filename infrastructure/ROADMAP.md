@@ -10,7 +10,7 @@ not reorganize unrelated infrastructure.
 | 2 | Versioned infrastructure baseline | ✅ completed |
 | 3 | Staging mail capture | ✅ completed |
 | 4 | Multi-target production model | ✅ completed |
-| 5 | Infrastructure installer and clean-VPS bootstrap | ⏳ planned |
+| 5 | Infrastructure installer and clean-VPS bootstrap | 🚧 current |
 | 6 | Sentry observability activation | ⏳ planned |
 | 7 | Recovery and release rehearsal | ⏳ planned |
 | 8 | tits.guru production launch | ⏳ planned |
@@ -341,10 +341,57 @@ remain readable.
 
 Next phase: Phase 5 — Infrastructure installer and clean-VPS bootstrap.
 
-## 5. Infrastructure installer and clean-VPS bootstrap — planned
+## 5. Infrastructure installer and clean-VPS bootstrap — current
 
 One-shot bootstrap of a clean VPS from committed infrastructure: base packages,
 users, Nginx/PHP-FPM/Redis, deploy accounts, and the mail-capture slice.
+
+Slices, in order. Like Phase 4, each slice is independently reviewable; a
+slice that mutates a real host is only marked completed after acceptance on a
+real VPS. Slice 5.1 is strictly read-only — the same category as Phase 4
+slices 1–2, which installed nothing — so it completes on merge.
+
+1. **5.1 Host contract and read-only bootstrap preflight — completed.**
+   `infrastructure/scripts/bootstrap-host-preflight` defines and validates
+   the host contract later slices must satisfy, without mutating anything:
+   no packages, users, directories, permissions, configuration, services or
+   firewall changes. `--check` exits 0 only when every mandatory
+   prerequisite already holds; `--report` prints the full detected host
+   state plus intended bootstrap actions and stays usable on a completely
+   clean host — including one where jq is not installed yet, in which case
+   the target-derived contract is explicitly reported as not evaluable
+   rather than invented. It enforces the supported OS baseline as an exact
+   contract (Ubuntu 24.04 only — the staging VPS baseline; any other family
+   or release is a conflict, and no pretend multi-distro support), and
+   inventories the canonical host tool set derived from the committed
+   scripts, service states
+   (missing/installed-stopped/installed-running, with the shared staging
+   mail capture labeled `shared-host-service`), users/groups and required
+   membership relations, the filesystem contract derived from the source
+   registry and installers, listener/port conflicts, and which secret
+   material later slices need — by presence only, never reading or printing
+   secret content. The repository registry is the bootstrap source of
+   truth; an installed runtime registry is reported for parity/drift and
+   never modified. There is deliberately no `--apply` in this slice. See
+   `runbooks/bootstrap-host.md`.
+2. **5.2 Base packages and runtime — planned.** Install the required base
+   and runtime packages (the preflight's canonical tool inventory: jq,
+   curl, acl, rclone, PostgreSQL client, Nginx, PHP-FPM, Redis,
+   Supervisor, …) on the supported baseline, transactionally and
+   idempotently.
+3. **5.3 Users, groups and filesystem — planned.** Create the service and
+   deploy accounts, group memberships, and the runtime directory tree
+   (ownership and modes exactly as the preflight contract states).
+4. **5.4 Services and configuration — planned.** Install committed service
+   configuration (Nginx vhosts, PHP-FPM pools, Supervisor programs, cron),
+   run the existing installers (target operations, perimeter, public
+   storage ACLs, mail capture), and enable/start services.
+5. **5.5 Bootstrap orchestrator — planned.** One command that sequences
+   5.2–5.4 on a clean host, fail-fast, re-runnable, ending with a passing
+   `bootstrap-host-preflight --check`.
+6. **5.6 Clean-VPS acceptance — planned.** Bootstrap a brand-new empty VPS
+   end to end from the committed infrastructure and accept it for real —
+   the prerequisite for the Phase 7 clean-server recovery rehearsal.
 
 ## 6. Sentry observability activation — planned
 

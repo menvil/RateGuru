@@ -325,7 +325,7 @@ function backupOpsDeploymentConfForFixture(string $scratch): string
  * @param  array{root: string}  $fixture
  * @return array{0: string, 1: string} [registryPath, targetsCliPath]
  */
-function backupOpsParityRegistry(string $scratch, array $fixture, int $localRetentionDays = 14): array
+function backupOpsParityRegistry(string $scratch, array $fixture, int $localRetentionDays = 14, int $minimumRetainedBackups = 2): array
 {
     $account = backupOpsCurrentAccount();
     $group = backupOpsCurrentGroup();
@@ -377,7 +377,7 @@ function backupOpsParityRegistry(string $scratch, array $fixture, int $localRete
                 'database' => ['name' => 'parity_db', 'application_role' => 'parity_app'],
                 'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
                 'public_hostnames' => ['parity.example'],
-                'backup' => ['namespace' => 'parity', 'local_retention_days' => $localRetentionDays, 'offsite_retention_days' => 1],
+                'backup' => ['namespace' => 'parity', 'local_retention_days' => $localRetentionDays, 'offsite_retention_days' => 1, 'minimum_retained_backups' => $minimumRetainedBackups],
                 'php_fpm' => ['pool' => 'parity-pool', 'socket' => '/run/php/parity.sock'],
                 'supervisor' => ['program' => 'parity-queue', 'queue' => 'parity'],
                 'scheduler' => ['name' => 'parity-scheduler'],
@@ -451,7 +451,7 @@ function backupOpsBuildSystemRoot(string $scratch): string
  *
  * @return array{exit: int, output: string, fixture: array, backupBase: string, runRoot: string, sysroot: string, pgDumpLog: string}
  */
-function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false): array
+function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false, int $minimumRetainedBackups = 2): array
 {
     $fixture = backupOpsBuildFixture($scratch);
     $sysroot = backupOpsBuildSystemRoot($scratch);
@@ -465,7 +465,7 @@ function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, b
     $backupBase = $scratch.'/backups-'.uniqid('', true);
     $runRoot = $scratch.'/run-'.uniqid('', true);
 
-    [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, $localRetentionDays);
+    [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, $localRetentionDays, $minimumRetainedBackups);
 
     $env = backupOpsBaseEnv($scratch, [
         'RATEGURU_BACKUP_BASE' => $backupBase,
@@ -948,54 +948,220 @@ it('the server-configuration archive contains only this target\'s own configurat
     }
 });
 
-it('removes timestamped backups older than the resolved retention while keeping the latest', function () {
+/**
+ * Runs a real perform_backup pass with pre-seeded timestamped directories
+ * (and optional auxiliary entries) inside the parity namespace root, so
+ * local retention runs against a controlled listing.
+ *
+ * @param  list<string>  $seededTimestamps
+ * @param  list<string>  $auxiliaryDirs
+ * @param  list<string>  $auxiliaryFiles
+ * @return array{exit: int, output: string, namespaceRoot: string}
+ */
+function backupOpsRunRetentionScenario(
+    string $scratch,
+    array $seededTimestamps,
+    int $localRetentionDays = 1,
+    bool $failPgDump = false,
+    array $auxiliaryDirs = [],
+    array $auxiliaryFiles = [],
+): array {
+    $fixture = backupOpsBuildFixture($scratch);
+    $sysroot = backupOpsBuildSystemRoot($scratch);
+    backupOpsInstallRunuserStub($scratch);
+    $pgDumpLog = $scratch.'/pg_dump-'.uniqid('', true).'.log';
+    touch($pgDumpLog);
+    $pgDumpStub = $failPgDump ? backupOpsFailingPgDumpStub($scratch) : backupOpsPgDumpStub($scratch, $pgDumpLog);
+    $phpStub = backupOpsPhpStub($scratch);
+
+    [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, $localRetentionDays);
+
+    $backupBase = $scratch.'/backups-'.uniqid('', true);
+    $namespaceRoot = $backupBase.'/parity';
+    mkdir($namespaceRoot, 0o755, true);
+
+    foreach ($seededTimestamps as $timestamp) {
+        mkdir($namespaceRoot.'/'.$timestamp, 0o755, true);
+        file_put_contents($namespaceRoot.'/'.$timestamp.'/marker.txt', "seeded\n");
+    }
+
+    foreach ($auxiliaryDirs as $entry) {
+        mkdir($namespaceRoot.'/'.$entry, 0o755, true);
+        file_put_contents($namespaceRoot.'/'.$entry.'/marker.txt', "auxiliary\n");
+    }
+
+    foreach ($auxiliaryFiles as $entry) {
+        file_put_contents($namespaceRoot.'/'.$entry, "auxiliary file\n");
+    }
+
+    $runRoot = $scratch.'/run-'.uniqid('', true);
+
+    [$exit, $output] = backupOpsRunHarness(
+        $scratch,
+        "parse_backup_args --target parity-target\nresolve_backup_subject\nperform_backup",
+        backupOpsBaseEnv($scratch, [
+            'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+            'RATEGURU_TARGETS_CLI' => $targetsPath,
+            'RATEGURU_BACKUP_BASE' => $backupBase,
+            'RATEGURU_RUN_ROOT' => $runRoot,
+            'RATEGURU_SYSTEM_ROOT' => $sysroot,
+            'RATEGURU_PG_DUMP_BIN' => $pgDumpStub,
+            'RATEGURU_PHP_BIN' => $phpStub,
+        ]),
+        backupOpsPatchedScript($scratch),
+    );
+
+    return ['exit' => $exit, 'output' => $output, 'namespaceRoot' => $namespaceRoot];
+}
+
+function backupOpsTimestampDaysAgo(int $days): string
+{
+    return gmdate('Ymd-His', time() - ($days * 86400));
+}
+
+/** @return list<string> */
+function backupOpsRemainingTimestamps(string $namespaceRoot): array
+{
+    return array_values(array_filter(
+        scandir($namespaceRoot) ?: [],
+        fn ($e) => preg_match('/^\d{8}-\d{6}$/', $e) === 1 && is_dir($namespaceRoot.'/'.$e),
+    ));
+}
+
+it('deletes the third-newest backup once it is past the retention window, keeping the newest two', function () {
     $scratch = backupOpsScratchDir();
 
     try {
-        $fixture = backupOpsBuildFixture($scratch);
-        $confPath = backupOpsDeploymentConfForFixture($scratch);
-        $sysroot = backupOpsBuildSystemRoot($scratch);
-        backupOpsInstallRunuserStub($scratch);
-        $pgDumpLog = $scratch.'/pg_dump.log';
-        touch($pgDumpLog);
-        $pgDumpStub = backupOpsPgDumpStub($scratch, $pgDumpLog);
-        $phpStub = backupOpsPhpStub($scratch);
+        $result = backupOpsRunRetentionScenario($scratch, ['20200101-000000', '20200102-000000'], localRetentionDays: 1);
 
-        [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, localRetentionDays: 1);
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(is_dir($result['namespaceRoot'].'/20200101-000000'))->toBeFalse('third-newest expired backup must be deleted');
+        expect(is_dir($result['namespaceRoot'].'/20200102-000000'))->toBeTrue('second-newest backup is inside the protected minimum');
 
-        $backupBase = $scratch.'/backups';
-        $namespaceRoot = $backupBase.'/parity';
-        mkdir($namespaceRoot, 0o755, true);
+        $remaining = backupOpsRemainingTimestamps($result['namespaceRoot']);
+        expect($remaining)->toHaveCount(2, 'the fresh backup plus the protected minimum survivor must remain');
 
-        $oldDir = $namespaceRoot.'/20200101-000000';
-        mkdir($oldDir, 0o755, true);
-        file_put_contents($oldDir.'/marker.txt', "old\n");
-        touch($oldDir, strtotime('-10 days'));
+        expect($result['output'])->toContain('DELETE expired: 20200101-000000');
+        expect($result['output'])->toContain('KEEP minimum: 20200102-000000');
+        expect(substr_count($result['output'], 'KEEP minimum:'))->toBe(2);
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
 
-        $runRoot = $scratch.'/run';
+it('always keeps the newest two backups regardless of age', function () {
+    $scratch = backupOpsScratchDir();
 
-        [$exit, $output] = backupOpsRunHarness(
+    try {
+        // One ancient pre-existing backup plus the fresh one: exactly two in
+        // total, both protected by the minimum even though 20200101-000000 is
+        // years past the 1-day age window.
+        $result = backupOpsRunRetentionScenario($scratch, ['20200101-000000'], localRetentionDays: 1);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(is_dir($result['namespaceRoot'].'/20200101-000000'))->toBeTrue('minimum count has priority over the age cutoff');
+        expect(backupOpsRemainingTimestamps($result['namespaceRoot']))->toHaveCount(2);
+        expect($result['output'])->toContain('KEEP minimum: 20200101-000000');
+        expect($result['output'])->not->toContain('DELETE expired:');
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('keeps backups beyond the minimum count while they are within the retention window', function () {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $recent = [backupOpsTimestampDaysAgo(1), backupOpsTimestampDaysAgo(2), backupOpsTimestampDaysAgo(3)];
+        $result = backupOpsRunRetentionScenario($scratch, $recent, localRetentionDays: 30);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        foreach ($recent as $timestamp) {
+            expect(is_dir($result['namespaceRoot'].'/'.$timestamp))->toBeTrue("recent backup {$timestamp} must be kept");
+        }
+
+        expect(backupOpsRemainingTimestamps($result['namespaceRoot']))->toHaveCount(4);
+        expect($result['output'])->toContain('KEEP recent:');
+        expect($result['output'])->not->toContain('DELETE expired:');
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('a single fresh backup always survives retention', function () {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $result = backupOpsRunRetentionScenario($scratch, [], localRetentionDays: 1);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(backupOpsRemainingTimestamps($result['namespaceRoot']))->toHaveCount(1, 'the just-created backup must never be a deletion candidate');
+        expect($result['output'])->toContain('KEEP minimum:');
+        expect($result['output'])->not->toContain('DELETE expired:');
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('retention only considers timestamped directories and never touches auxiliary entries', function () {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        // 20200199-000000 matches the timestamp shape but is not a real
+        // calendar date (day 99) — and it sorts ABOVE 20200102-000000, so it
+        // would consume a protected-minimum slot if it were not excluded
+        // before the minimum window is applied.
+        $result = backupOpsRunRetentionScenario(
             $scratch,
-            "parse_backup_args --target parity-target\nresolve_backup_subject\nperform_backup",
-            backupOpsBaseEnv($scratch, [
-                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
-                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
-                'RATEGURU_TARGETS_CLI' => $targetsPath,
-                'RATEGURU_BACKUP_BASE' => $backupBase,
-                'RATEGURU_RUN_ROOT' => $runRoot,
-                'RATEGURU_SYSTEM_ROOT' => $sysroot,
-                'RATEGURU_PG_DUMP_BIN' => $pgDumpStub,
-                'RATEGURU_PHP_BIN' => $phpStub,
-            ]),
-            backupOpsPatchedScript($scratch),
+            ['20200101-000000', '20200102-000000', '20200199-000000'],
+            localRetentionDays: 1,
+            auxiliaryDirs: ['database', 'manifests', 'uploads', 'not-a-backup', '2020-01-01'],
+            auxiliaryFiles: ['20190101-000000'],
         );
 
-        expect($exit)->toBe(0, $output);
-        expect(file_exists($oldDir))->toBeFalse('backup older than retention must be deleted');
+        expect($result['exit'])->toBe(0, $result['output']);
 
-        $remaining = array_values(array_filter(scandir($namespaceRoot) ?: [], fn ($e) => preg_match('/^\d{8}-\d{6}$/', $e) === 1));
-        expect($remaining)->toHaveCount(1, 'exactly one (the fresh) backup must remain');
-        expect($remaining[0])->not->toBe('20200101-000000');
+        // Retention still applied to the real timestamped directories...
+        expect(is_dir($result['namespaceRoot'].'/20200101-000000'))->toBeFalse();
+        expect(is_dir($result['namespaceRoot'].'/20200102-000000'))->toBeTrue();
+
+        // ...while every auxiliary entry survives untouched: named auxiliary
+        // directories, non-timestamp names, and even a plain FILE whose name
+        // matches the timestamp pattern (only directories participate).
+        foreach (['database', 'manifests', 'uploads', 'not-a-backup', '2020-01-01'] as $entry) {
+            expect(is_dir($result['namespaceRoot'].'/'.$entry))->toBeTrue("auxiliary directory {$entry} must never be touched");
+            expect(file_exists($result['namespaceRoot'].'/'.$entry.'/marker.txt'))->toBeTrue();
+        }
+
+        expect(is_file($result['namespaceRoot'].'/20190101-000000'))->toBeTrue('a timestamp-named file is not a backup directory');
+
+        // The calendar-invalid directory is skipped, never deleted, and never
+        // counted toward the protected minimum (20200102-000000 above kept
+        // its minimum slot despite sorting below it).
+        expect(is_dir($result['namespaceRoot'].'/20200199-000000'))->toBeTrue('a calendar-invalid timestamp name must never be deleted');
+        expect($result['output'])->toContain('SKIP malformed: 20200199-000000');
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('does not run retention when backup creation fails', function () {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        // Three ancient backups, all far beyond the age window and one beyond
+        // the minimum count — yet a failed creation must delete nothing.
+        $seeded = ['20190101-000000', '20200101-000000', '20200102-000000'];
+        $result = backupOpsRunRetentionScenario($scratch, $seeded, localRetentionDays: 1, failPgDump: true);
+
+        expect($result['exit'])->not->toBe(0);
+
+        foreach ($seeded as $timestamp) {
+            expect(is_dir($result['namespaceRoot'].'/'.$timestamp))->toBeTrue('retention must only run after a fully successful backup');
+        }
+
+        expect($result['output'])->not->toContain('DELETE expired:');
     } finally {
         backupOpsCleanup($scratch);
     }

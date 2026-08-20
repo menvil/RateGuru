@@ -12,6 +12,7 @@ use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostCommentedNotification;
+use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,7 @@ final class AddCommentAction
     public function __construct(
         private readonly RecalculatePostScoreAction $recalculatePostScore,
         private readonly ActionRateLimiter $rateLimiter,
+        private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
     ) {}
 
     public function handle(?User $user, Post $post, string $body, ?Comment $parent = null): Comment
@@ -124,21 +126,25 @@ final class AddCommentAction
                 'status' => CommentStatus::Visible,
             ]);
 
-            $this->refreshCommentsCount($post);
+            $this->refreshCommentsCount($lockedPost);
             $this->recalculatePostScore->handle($post->refresh());
 
             return $comment;
         });
 
         if ($post->user_id !== $user->id) {
-            $post->loadMissing('user');
-
             try {
-                $post->user?->notify(new PostCommentedNotification(
-                    post: $post,
-                    comment: $comment,
-                    actor: $user,
-                ));
+                // Identity-bearing DB notification: serialized against
+                // anonymization, constructed from the FRESH locked actor.
+                $this->safeNotifier->send(
+                    recipientId: (int) $post->user_id,
+                    identitySourceId: (int) $user->id,
+                    notification: fn (User $freshActor) => new PostCommentedNotification(
+                        post: $post,
+                        comment: $comment,
+                        actor: $freshActor,
+                    ),
+                );
             } catch (Throwable $exception) {
                 report($exception);
 

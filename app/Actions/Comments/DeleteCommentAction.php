@@ -6,6 +6,7 @@ use App\Actions\Comments\Concerns\RefreshesPostCommentsCount;
 use App\Exceptions\Comments\CannotDeleteCommentException;
 use App\Models\Comment;
 use App\Models\Concerns\LocksActorForWrite;
+use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -22,10 +23,16 @@ final class DeleteCommentAction
         // by the time this executes, and a delete racing another delete or
         // a moderation action must behave deterministically.
         DB::transaction(function () use ($user, $comment): void {
-            // Lock order: Actor User -> Comment; authorization runs against
-            // the locked actor so a just-sanctioned author cannot finish
-            // the deletion.
+            // Lock order: Actor User -> Post -> Comment; authorization runs
+            // against the locked actor so a just-sanctioned author cannot
+            // finish the deletion. post_id is immutable on comments, so the
+            // caller instance is a safe source for the parent key.
             $lockedActor = $this->lockActor($user);
+
+            $lockedPost = Post::withTrashed()
+                ->whereKey($comment->post_id)
+                ->lockForUpdate()
+                ->first();
 
             $locked = Comment::withTrashed()
                 ->whereKey($comment->getKey())
@@ -57,11 +64,17 @@ final class DeleteCommentAction
                 return;
             }
 
-            $post = $locked->post;
+            // Author rule: the child discussion is frozen while the parent
+            // post is not a live public surface (author-deleted, Hidden or
+            // gone) — PR-E restore must recover the exact untouched graph.
+            // Moderation actions are deliberately not subject to this rule.
+            if ($lockedPost === null || ! $lockedPost->canReceiveComments()) {
+                throw CannotDeleteCommentException::becauseUserIsNotAllowed();
+            }
 
             $locked->delete();
 
-            $this->refreshCommentsCount($post);
+            $this->refreshCommentsCount($lockedPost);
 
             $comment->setRawAttributes($locked->getAttributes(), true);
         });

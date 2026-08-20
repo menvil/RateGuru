@@ -92,6 +92,13 @@ REQUIRED_POSITIVE_INTEGERS=(
     .backup.offsite_retention_days
 )
 
+# Fields that must be strict JSON integers with a hard floor of 2: age-based
+# retention must never be able to reduce the backup count below this minimum,
+# so a registry that even permits fewer than two retained backups is invalid.
+REQUIRED_MINIMUM_COUNTS=(
+    .backup.minimum_retained_backups
+)
+
 ERROR_COUNT=0
 
 log() {
@@ -453,6 +460,25 @@ validate_target() {
 
         if ! is_positive_integer "${value}"; then
             problem "${target_id}: ${path} must be a positive integer, got ${value}"
+        fi
+    done
+
+    for path in "${REQUIRED_MINIMUM_COUNTS[@]}"; do
+        local value
+        if ! value="$(jq -e -r --arg id "${target_id}" \
+            "(.targets[\$id] | ${path}) as \$v
+             | if (\$v | type) != \"number\" then error(\"type\")
+               elif (\$v != (\$v | floor)) then error(\"float\")
+               else \$v end" \
+            "${REGISTRY_FILE}" 2>/dev/null)"
+        then
+            problem "${target_id}: ${path} is missing, null or not an integer"
+
+            continue
+        fi
+
+        if ! is_positive_integer "${value}" || (( value < 2 )); then
+            problem "${target_id}: ${path} must be an integer >= 2, got ${value}"
         fi
     done
 
