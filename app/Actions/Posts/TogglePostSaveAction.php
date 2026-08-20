@@ -4,6 +4,7 @@ namespace App\Actions\Posts;
 
 use App\Data\Posts\PostSaveToggleResult;
 use App\Exceptions\SavedPosts\CannotSavePostException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Post;
 use App\Models\PostSave;
 use App\Models\User;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 final class TogglePostSaveAction
 {
+    use LocksActorForWrite;
+
     public function handleForPostId(?User $user, int $postId): PostSaveToggleResult
     {
         if ($user === null) {
@@ -47,9 +50,19 @@ final class TogglePostSaveAction
     public function handle(User $user, Post $post): bool
     {
         return DB::transaction(function () use ($user, $post): bool {
-            // Lock order: Post row first, then the save row. The caller's
-            // instance may be stale — a save/unsave must never mutate state
-            // for a post that was author-deleted or hidden in between.
+            // Lock order: Actor User -> Post -> PostSave. Saved posts are
+            // private state: every living account (sanctions included) may
+            // manage them, a Deleted tombstone may not — PR-B removed its
+            // rows and a stale request must never recreate them.
+            $lockedActor = $this->lockActor($user);
+
+            if ($lockedActor === null || ! $lockedActor->canAuthenticate()) {
+                throw CannotSavePostException::userNotAllowed();
+            }
+
+            // The caller's post instance may also be stale — a save/unsave
+            // must never mutate state for a post that was author-deleted or
+            // hidden in between.
             $lockedPost = Post::withTrashed()
                 ->whereKey($post->id)
                 ->lockForUpdate()

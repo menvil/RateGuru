@@ -449,8 +449,9 @@ checks existence, but only for its own three OG-image candidates — never
 `responsive()`, and never on every page render for anything but that specific
 DTO. There is still no corruption/integrity scanner (a `media_variants` row
 whose file exists but is truncated or corrupted is not detected) — that
-remains deferred (PR-07 adds orphan detection and safe physical deletion,
-not integrity checking).
+remains unimplemented (the orphan scanner and `media:purge --orphans`
+cover files without DB rows — history: media PR-07 — but nothing verifies
+content integrity of existing variant files).
 
 **Operational recovery step**: if variants for existing assets are ever found
 missing or lost on staging/production, the fix is running

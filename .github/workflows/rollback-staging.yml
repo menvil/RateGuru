@@ -1,0 +1,157 @@
+name: Rollback staging
+
+# Manual-only: rollback is an operator decision, never an automatic
+# reaction. The server-side wrapper owns all business logic (deployment
+# lock, target lifecycle, release validation, atomic current/previous
+# switch, PHP-FPM reload, health check with automatic restore on failure,
+# rollback history) — this workflow only transports the request.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Roll back to the previous release, or to an explicit release ID
+        required: true
+        default: previous
+        type: choice
+        options:
+          - previous
+          - release
+
+      release-id:
+        description: Release ID (required when mode=release, must be empty when mode=previous)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# Same logical deployment domain as deploy-staging.yml: a rollback must
+# never run concurrently with a staging deploy.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Roll back staging-main
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 10
+
+    steps:
+      - name: Validate inputs
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          RELEASE_ID: ${{ inputs.release-id }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+        run: |
+          set -Eeuo pipefail
+
+          for required_var in DEPLOY_HOST DEPLOY_PORT DEPLOY_USER; do
+            if [[ -z "${!required_var}" ]]; then
+              echo "${required_var} is not configured for the staging environment" >&2
+              exit 1
+            fi
+          done
+
+          case "${MODE}" in
+            previous)
+              if [[ -n "${RELEASE_ID}" ]]; then
+                echo "release-id must be empty when mode=previous" >&2
+                exit 1
+              fi
+              ;;
+            release)
+              # Basic non-empty validation only: the server-side rollback
+              # script is the single source of truth for the release ID
+              # format and its existence on the target.
+              if [[ -z "${RELEASE_ID}" ]]; then
+                echo "release-id is required when mode=release" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Invalid mode: ${MODE}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+
+          key_path="${RUNNER_TEMP}/rateguru_rollback_key"
+          known_hosts_path="${RUNNER_TEMP}/rateguru_known_hosts"
+
+          install -m 0600 /dev/null "${key_path}"
+          install -m 0600 /dev/null "${known_hosts_path}"
+
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > "${key_path}"
+          printf '%s\n' "${KNOWN_HOSTS}" > "${known_hosts_path}"
+
+          ssh-keygen -y -f "${key_path}" >/dev/null
+
+          {
+            echo "RATEGURU_SSH_KEY_PATH=${key_path}"
+            echo "RATEGURU_KNOWN_HOSTS_PATH=${known_hosts_path}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Roll back via target-aware wrapper
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          MODE: ${{ inputs.mode }}
+          RELEASE_ID: ${{ inputs.release-id }}
+        run: |
+          set -Eeuo pipefail
+
+          # The remote command is a fixed argv built as a Bash array — never
+          # an interpolated shell string, never user input concatenated into
+          # a command line.
+          remote_command=(
+            sudo -n /usr/local/sbin/rateguru-rollback
+            --target staging-main
+          )
+
+          if [[ "${MODE}" == "previous" ]]; then
+            remote_command+=(--previous)
+          else
+            remote_command+=(--release "${RELEASE_ID}")
+          fi
+
+          ssh \
+            -p "${DEPLOY_PORT}" \
+            -i "${RATEGURU_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "${remote_command[@]@Q}"
+
+      - name: Write summary
+        if: always()
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          RELEASE_ID: ${{ inputs.release-id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "Target: staging-main"
+            echo "Mode: ${MODE}"
+            echo "Requested release: ${RELEASE_ID:-previous}"
+            echo "Result: ${JOB_STATUS}"
+          } >> "${GITHUB_STEP_SUMMARY}"

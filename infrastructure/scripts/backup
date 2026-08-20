@@ -123,6 +123,7 @@ resolve_backup_subject() {
     DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
     BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
     RETENTION_DAYS="$(target_local_backup_retention "${TARGET_ID}")"
+    MINIMUM_RETAINED_BACKUPS="$(target_minimum_retained_backups "${TARGET_ID}")"
     ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
     LABEL="${TARGET_ID}"
 
@@ -345,23 +346,101 @@ perform_backup() {
     mv "${TEMP_ROOT}" "${FINAL_ROOT}"
     trap - EXIT
 
-    # Local retention applies only inside the resolved BACKUP_ROOT — removes
-    # only timestamped backup directories, never auxiliary directories such as
-    # uploads.
-    find "${BACKUP_ROOT}" \
-        -regextype posix-extended \
-        -mindepth 1 \
-        -maxdepth 1 \
-        -type d \
-        -regex '.*/[0-9]{8}-[0-9]{6}' \
-        -mtime "+${RETENTION_DAYS}" \
-        -exec rm -rf -- {} +
+    apply_local_backup_retention
 
     log ""
     log "${LABEL} backup completed:"
     log "${FINAL_ROOT}"
 
     du -sh "${FINAL_ROOT}"
+}
+
+# --- local retention ---------------------------------------------------------
+#
+# Deterministic, count-aware retention over the resolved BACKUP_ROOT. Runs
+# only after the new backup was fully created and atomically moved into
+# FINAL_ROOT — a failed creation never triggers retention. Only direct-child
+# timestamped directories (YYYYMMDD-HHMMSS) participate: auxiliary
+# directories (database, manifests, uploads) and any non-timestamp entries
+# are never touched.
+#
+# The invariant: the newest MINIMUM_RETAINED_BACKUPS timestamped backups are
+# ALWAYS kept regardless of age — the minimum count has priority over the
+# age cutoff — and everything younger than RETENTION_DAYS is kept too. Age
+# derives from the timestamp NAME, not filesystem mtime, so the decision is
+# deterministic for a given listing. The just-created FINAL_ROOT is the
+# newest entry and therefore always inside the protected minimum.
+apply_local_backup_retention() {
+    local cutoff_epoch
+    cutoff_epoch="$(
+        date \
+            -u \
+            -d "${RETENTION_DAYS} days ago" \
+            +%s
+    )"
+
+    local entries
+    mapfile -t entries < <(
+        find "${BACKUP_ROOT}" \
+            -regextype posix-extended \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -regex '.*/[0-9]{8}-[0-9]{6}' \
+            -printf '%f\n' \
+        | sort -r
+    )
+
+    local index=0
+    local entry
+    for entry in "${entries[@]}"; do
+        # A name can match the YYYYMMDD-HHMMSS shape without being a real
+        # calendar timestamp (month 13, day 99). Round-trip through epoch:
+        # anything that fails to parse, or does not format back to exactly
+        # its own name, was not created by this script — it is left alone
+        # entirely, and never consumes a protected-minimum slot.
+        local year month day hour minute second entry_epoch canonical
+        year="${entry:0:4}"
+        month="${entry:4:2}"
+        day="${entry:6:2}"
+        hour="${entry:9:2}"
+        minute="${entry:11:2}"
+        second="${entry:13:2}"
+
+        if ! entry_epoch="$(
+            date \
+                -u \
+                -d "${year}-${month}-${day} ${hour}:${minute}:${second} UTC" \
+                +%s \
+                2>/dev/null
+        )"; then
+            log "SKIP malformed: ${entry}"
+            continue
+        fi
+
+        canonical="$(date -u -d "@${entry_epoch}" +%Y%m%d-%H%M%S)"
+
+        if [[ "${canonical}" != "${entry}" ]]; then
+            log "SKIP malformed: ${entry}"
+            continue
+        fi
+
+        if (( index < MINIMUM_RETAINED_BACKUPS )); then
+            log "KEEP minimum: ${entry}"
+            index=$((index + 1))
+            continue
+        fi
+
+        index=$((index + 1))
+
+        if (( entry_epoch >= cutoff_epoch )); then
+            log "KEEP recent: ${entry}"
+            continue
+        fi
+
+        log "DELETE expired: ${entry}"
+        rm -rf -- "${BACKUP_ROOT:?}/${entry}"
+    done
 }
 
 # --- dispatch -----------------------------------------------------------

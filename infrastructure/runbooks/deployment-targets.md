@@ -188,6 +188,14 @@ infrastructure/scripts/targets show --target staging-main --file infrastructure/
 `validate` reports every problem it finds, not just the first, and exits
 non-zero if any remain.
 
+`release_retention`, `backup.local_retention_days` and
+`backup.offsite_retention_days` must be strict JSON *integers* (a numeric
+string or a float is rejected) of at least 1. `backup.minimum_retained_backups`
+is required on every target and must be a strict JSON integer of at least
+**2**: age-based backup retention must never be able to reduce the backup
+count below this minimum, so a registry that even permits fewer than two
+retained backups is invalid.
+
 Beyond per-field rules, validation rejects collisions across targets on every
 value where sharing would be actively unsafe:
 
@@ -372,6 +380,14 @@ a property of the instance, not the host.
 lifecycle — before any lock is acquired, any path is scanned, or
 `pinned-releases`/history is touched.
 
+**Release retention is not backup retention.** `release_retention` counts
+deployed release *directories*, with `current`/`previous` (and pinned
+releases) always protected regardless of the number. The `backup` family has
+its own, independent policies (`local_retention_days`,
+`offsite_retention_days`, `minimum_retained_backups`) — see
+[`backups.md`](backups.md), "Three retention concepts". Changing one never
+affects the others.
+
 ### Dry-run is genuinely side-effect free
 
 Dry-run acquires no lock, creates no lock file, never creates or modifies
@@ -479,6 +495,31 @@ refused is an unsafe *target* of that symlink — escaping the releases root, a
 nested path, a release directory that is itself a symlink, an invalid release
 ID, or a missing target.
 
+### Rolling back staging from the GitHub UI
+
+`.github/workflows/rollback-staging.yml` ("Rollback staging") wraps the exact
+same server-side pipeline for operators without SSH access:
+
+1. GitHub → **Actions** → **Rollback staging** → **Run workflow**.
+2. Leave `mode` at `previous` (the default) to switch staging back to the
+   previous release. `release-id` must stay empty in this mode.
+3. To roll back to a specific release instead: set `mode` to `release` and
+   enter the release ID in `release-id`. The workflow only checks that the
+   field is non-empty — the server-side `rollback` script remains the single
+   source of truth for release ID format, existence, and every safety rule
+   above (lock, atomic switch, health check with automatic restore).
+
+The workflow is `workflow_dispatch`-only, runs in the `staging` GitHub
+Environment with the same `DEPLOY_*` variables and secrets as
+`deploy-staging.yml`, shares the `rateguru-staging-deployment` concurrency
+group (a rollback never runs concurrently with a staging deploy — it queues,
+nothing is cancelled), and executes exactly
+`sudo -n /usr/local/sbin/rateguru-rollback --target staging-main
+--previous|--release ID` over hardened SSH as `deploy-rateguru-staging`. An
+invalid input combination fails before any SSH connection; a non-zero remote
+exit fails the job. The job's step summary records the target, mode, and
+requested release.
+
 ## Local backup and restore-test
 
 `backup --target TARGET_ID` and `restore-test --target TARGET_ID`. Both scripts
@@ -488,9 +529,15 @@ runs immediately after root authorization — before the backup root, lock,
 database binary, `rclone`, or any filesystem work — so a planned target
 (`tits-guru`) is rejected before anything is touched.
 
-Both scripts resolve `DATABASE_NAME`/`BACKUP_NAMESPACE`/`RETENTION_DAYS` from
-the registry (`target_database_name`, `target_backup_namespace`,
-`target_local_backup_retention`). `staging-main`'s namespace is `staging`, and
+Both scripts resolve `DATABASE_NAME`/`BACKUP_NAMESPACE`/`RETENTION_DAYS`/
+`MINIMUM_RETAINED_BACKUPS` from the registry (`target_database_name`,
+`target_backup_namespace`, `target_local_backup_retention`,
+`target_minimum_retained_backups`). Local retention is deterministic and
+count-aware — newest-first by directory name, the newest
+`minimum_retained_backups` always kept regardless of age, only
+`YYYYMMDD-HHMMSS` directories ever considered, and it runs only after a fully
+successful, atomically finalized backup (see
+[`backups.md`](backups.md)). `staging-main`'s namespace is `staging`, and
 its backup root and lock file are unchanged from before the registry existed:
 
 ```text
@@ -566,10 +613,12 @@ purely from a read-only `rclone lsf` listing.
 operator visibility, never used to decide what gets purged), then the lock is
 acquired and the listing and candidate computation both run again, fresh —
 protecting against a backup uploaded concurrently between the two passes.
-`rclone purge` only ever acts on the second, locked computation. The latest
-backup is always protected, regardless of age; backups within the resolved
-retention window are protected; only backups older than the cutoff and not the
-latest become candidates.
+`rclone purge` only ever acts on the second, locked computation. The newest
+`minimum_retained_backups` backups are always protected, regardless of age
+(`KEEP minimum`); backups beyond the minimum are protected while inside the
+resolved retention window (`KEEP recent`); only backups past the cutoff *and*
+outside the protected minimum become candidates. Dry-run and apply share this
+single candidate algorithm.
 
 ## Target-aware backup cycle
 

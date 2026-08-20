@@ -7,6 +7,7 @@ use App\Models\Follow;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\FollowedAuthorPostedNotification;
+use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
 use App\Support\Observability\DomainLogger;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
@@ -15,7 +16,10 @@ use Throwable;
 
 final class NotifyFollowersAboutNewPostAction
 {
-    public function __construct(private readonly DomainLogger $logger) {}
+    public function __construct(
+        private readonly DomainLogger $logger,
+        private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
+    ) {}
 
     /**
      * @param  \Illuminate\Database\Eloquent\Collection<int, User>  $followers
@@ -75,8 +79,20 @@ final class NotifyFollowersAboutNewPostAction
                     }
 
                     try {
-                        $follower->notify(new FollowedAuthorPostedNotification($post));
-                        $sentCount++;
+                        // Per-recipient safe transaction: author identity
+                        // comes from the fresh locked author row, and a
+                        // Deleted author or follower creates nothing.
+                        $sent = $this->safeNotifier->send(
+                            recipientId: (int) $follower->id,
+                            identitySourceId: (int) $author->id,
+                            notification: fn (User $freshAuthor) => new FollowedAuthorPostedNotification($post, $freshAuthor),
+                        );
+
+                        if ($sent) {
+                            $sentCount++;
+                        } else {
+                            $skippedCount++;
+                        }
                     } catch (Throwable $exception) {
                         report($exception);
 
