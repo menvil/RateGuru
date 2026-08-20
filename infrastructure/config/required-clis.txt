@@ -1,5 +1,6 @@
 backup
 backup-cycle
+bootstrap-host-preflight
 cleanup
 deploy
 health-check

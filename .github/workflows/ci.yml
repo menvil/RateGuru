@@ -149,6 +149,9 @@ jobs:
   tests:
     name: Tests (Pest + PostgreSQL)
     runs-on: ubuntu-latest
+    # Normal duration is ~15 minutes; the cap exists so a hung external
+    # download can never occupy a runner for the 6-hour default.
+    timeout-minutes: 30
     needs: frontend-build
     env:
       DB_CONNECTION: pgsql
@@ -209,16 +212,55 @@ jobs:
 
       # The Browser test suite (Pest v4 browser tests) drives a real Chromium
       # through Playwright; without it `php artisan test` aborts at startup.
+      # Browser binaries are cached by lockfile hash: on a cache hit
+      # `npx playwright install` skips the CDN download entirely, so a flaky
+      # CDN only ever hurts the first run after a Playwright version bump.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install Playwright
+        timeout-minutes: 10
         run: |
           npm ci --ignore-scripts
-          npx playwright install chromium --with-deps
+          npx playwright install chromium
+
+      # Split out of the browser install and made best-effort on purpose:
+      # on the current ubuntu-latest image every hard Chromium library is
+      # already present, and `install-deps` only adds optional international
+      # font packages — via apt, whose Azure mirror proved capable of
+      # trickling for hours. A down mirror must not block the DOM-based
+      # browser tests; if a future runner image ever drops a hard library,
+      # the test step itself fails loudly with a Chromium launch error, so
+      # nothing is silently masked.
+      - name: Install Playwright system dependencies (best effort)
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "15";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-rateguru-ci >/dev/null
+          sudo npx playwright install-deps chromium
 
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
       # get genuine --immutable/check/purge semantics instead of a stub.
+      # Installed from the pinned, checksum-verified GitHub release .deb —
+      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
+      # trickling for hours (regional outages), while dpkg -i needs no network
+      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
+      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
       - name: Install rclone
-        run: sudo apt-get update && sudo apt-get install -y rclone
+        timeout-minutes: 5
+        env:
+          RCLONE_VERSION: v1.75.0
+          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
+            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
+          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
+          sudo dpkg -i /tmp/rclone.deb
 
       - name: Prepare application
         run: |
@@ -282,6 +324,9 @@ jobs:
   migrations-mariadb:
     name: Compatibility (MariaDB)
     runs-on: ubuntu-latest
+    # Normal duration is ~11 minutes; the cap exists so a hung external
+    # download can never occupy a runner for the 6-hour default.
+    timeout-minutes: 30
     needs: frontend-build
     env:
       DB_CONNECTION: mariadb
@@ -337,8 +382,21 @@ jobs:
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
       # get genuine --immutable/check/purge semantics instead of a stub.
+      # Installed from the pinned, checksum-verified GitHub release .deb —
+      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
+      # trickling for hours (regional outages), while dpkg -i needs no network
+      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
+      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
       - name: Install rclone
-        run: sudo apt-get update && sudo apt-get install -y rclone
+        timeout-minutes: 5
+        env:
+          RCLONE_VERSION: v1.75.0
+          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
+            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
+          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
+          sudo dpkg -i /tmp/rclone.deb
 
       - name: Prepare application
         run: |
@@ -368,6 +426,9 @@ jobs:
   tests-sqlite:
     name: Compatibility (SQLite)
     runs-on: ubuntu-latest
+    # Normal duration is ~14 minutes; the cap exists so a hung external
+    # download can never occupy a runner for the 6-hour default.
+    timeout-minutes: 30
     needs: frontend-build
     outputs:
       migrations: ${{ steps.migration-metrics.outputs.migrations }}
@@ -401,8 +462,21 @@ jobs:
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
       # get genuine --immutable/check/purge semantics instead of a stub.
+      # Installed from the pinned, checksum-verified GitHub release .deb —
+      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
+      # trickling for hours (regional outages), while dpkg -i needs no network
+      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
+      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
       - name: Install rclone
-        run: sudo apt-get update && sudo apt-get install -y rclone
+        timeout-minutes: 5
+        env:
+          RCLONE_VERSION: v1.75.0
+          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
+            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
+          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
+          sudo dpkg -i /tmp/rclone.deb
 
       - name: Prepare application
         run: |

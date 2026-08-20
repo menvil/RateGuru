@@ -1335,8 +1335,11 @@ it('records the registry as a completed Phase 4 slice inside a completed phase',
         ->not->toContain('## 4. Multi-target production model — current')
         ->not->toMatch('/^\|\s*4\s*\|\s*Multi-target production model\s*\|\s*🚧 current\s*\|$/m');
 
-    // Phase 4 is closed and Phase 5 has not started, so no phase is current.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(0);
+    // Phase 4 is closed; Phase 5 (clean-VPS bootstrap) is the single current
+    // phase since its slice 5.1 landed.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    expect($roadmap)
+        ->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*🚧 current\s*\|$/m');
 });
 
 it('documents the registry model in a runbook', function () {
