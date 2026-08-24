@@ -20,6 +20,13 @@ use Illuminate\Support\Facades\File;
  * --apply builds it) and the current staging host (runtime already present,
  * repositories configured by the operator, unrelated NodeSource/ClickHouse/
  * Datadog sources on the side — recognized, satisfied, and never touched).
+ *
+ * rclone is a managed external runtime binary (Phase 5.2.1): the fixture
+ * simulates the canonical binary, the committed external-runtimes contract
+ * and signing key, the official download origin (through the curl stub) and
+ * the clearsign verification (through the gpg stub). The archive bytes are
+ * fake, but their SHA256 in the fake SHA256SUMS payload is real, so the
+ * script's checksum verification passes and fails exactly like production.
  */
 
 // =============================================================================
@@ -40,7 +47,7 @@ function bootstrapRuntimeScratchDir(): string
 {
     $dir = sys_get_temp_dir().'/bootstrap-runtime-'.uniqid('', true).'-'.getmypid();
 
-    foreach (['', '/bin', '/fs', '/tools', '/staged', '/log', '/apt/sources.list.d', '/keyrings'] as $sub) {
+    foreach (['', '/bin', '/fs', '/fs/usr-bin', '/tools', '/staged', '/log', '/apt/sources.list.d', '/keyrings'] as $sub) {
         expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
     }
 
@@ -97,8 +104,8 @@ function bootstrapRuntimeRequiredPackages(): array
         'acl', 'bash', 'ca-certificates', 'certbot', 'coreutils', 'curl',
         'diffutils', 'findutils', 'gnupg', 'grep', 'gzip', 'hostname',
         'iproute2', 'jq', 'libc-bin', 'mawk', 'nginx', 'openssh-server',
-        'passwd', 'rclone', 'redis-server', 'rsync', 'sed', 'sudo',
-        'supervisor', 'tar', 'util-linux',
+        'passwd', 'redis-server', 'rsync', 'sed', 'sudo',
+        'supervisor', 'tar', 'unzip', 'util-linux',
     ];
 
     $php = array_map(
@@ -120,7 +127,10 @@ function bootstrapRuntimeRequiredPhpModules(): array
 /**
  * Plain exit-0 tools the fixture PATH carries on a compliant host. The
  * version-bearing binaries (php8.5, php-fpm8.5, psql, pg_dump, pg_restore)
- * are separate behavioral stubs added by the fixture builder.
+ * and unzip are separate behavioral stubs added by the fixture builder.
+ * rclone is deliberately not a PATH tool here: the managed external runtime
+ * is probed at its canonical contract path, and a PATH-resolvable rclone
+ * without the canonical binary is its own CONFLICT scenario.
  *
  * @return list<string>
  */
@@ -130,7 +140,7 @@ function bootstrapRuntimeAllTools(): array
         'apt-get', 'dpkg',
         'setfacl', 'getfacl', 'certbot', 'curl', 'cmp', 'diff', 'find',
         'gpg', 'grep', 'gzip', 'hostname', 'ss', 'ip', 'jq', 'getent',
-        'awk', 'nginx', 'sshd', 'useradd', 'rclone', 'redis-server',
+        'awk', 'nginx', 'sshd', 'useradd', 'redis-server',
         'rsync', 'sed', 'sudo', 'visudo', 'supervisord', 'tar', 'flock',
         'namei', 'runuser', 'createdb', 'dropdb',
     ];
@@ -144,6 +154,67 @@ function bootstrapRuntimePhpPpaFingerprint(): string
 function bootstrapRuntimePgdgFingerprint(): string
 {
     return 'B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8';
+}
+
+function bootstrapRuntimeRcloneFingerprint(): string
+{
+    return 'FBF737ECE9F8AB18604BD2AC93935E02FF3B54FA';
+}
+
+/**
+ * The committed external-runtimes contract, parsed the same way the scripts
+ * parse it (plain KEY=VALUE text). The single test-side source of the pinned
+ * version — never duplicated as a literal.
+ *
+ * @return array<string, string>
+ */
+function bootstrapRuntimeCommittedRcloneContract(): array
+{
+    $contract = [];
+
+    foreach (explode("\n", File::get(base_path('infrastructure/config/external-runtimes/versions.env'))) as $line) {
+        if ($line === '' || str_starts_with($line, '#') || ! str_contains($line, '=')) {
+            continue;
+        }
+
+        [$key, $value] = explode('=', $line, 2);
+        $contract[$key] ??= $value;
+    }
+
+    return $contract;
+}
+
+/**
+ * The rclone version a fixture simulates — the committed pin unless a test
+ * deliberately moves it.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapRuntimeFixtureRcloneVersion(array $options): string
+{
+    return $options['rcloneContractVersion'] ?? bootstrapRuntimeCommittedRcloneContract()['RCLONE_VERSION'];
+}
+
+function bootstrapRuntimeCurrentUser(): string
+{
+    return posix_getpwuid(posix_geteuid())['name'];
+}
+
+function bootstrapRuntimeCurrentGroup(): string
+{
+    return posix_getgrgid(posix_getegid())['name'];
+}
+
+/**
+ * The fake pinned-release archive bytes the curl stub serves. Content is
+ * arbitrary, but its real SHA256 is what the fixture SHA256SUMS payload
+ * carries, so checksum verification is exercised for real.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapRuntimeRcloneArchiveContent(array $options): string
+{
+    return 'RCLONE-ARCHIVE:v'.bootstrapRuntimeFixtureRcloneVersion($options);
 }
 
 /**
@@ -263,6 +334,78 @@ function bootstrapRuntimeWriteHostFiles(string $scratch, array $options): void
         default => $packages,
     };
     file_put_contents($scratch.'/fs/dpkg-installed.txt', implode("\n", $installed).($installed === [] ? '' : "\n"));
+
+    bootstrapRuntimeWriteRcloneFixture($scratch, $options);
+}
+
+/**
+ * The managed rclone runtime landscape: a committed-style contract and
+ * signing key, the SHA256SUMS payload the curl stub serves, the canonical
+ * binary in whatever state the scenario needs, and the operator's decoy
+ * rclone.conf that must never be read or written.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapRuntimeWriteRcloneFixture(string $scratch, array $options): void
+{
+    $version = bootstrapRuntimeFixtureRcloneVersion($options);
+
+    file_put_contents($scratch.'/fs/external-runtimes.env', implode("\n", [
+        '# Test fixture mirror of infrastructure/config/external-runtimes/versions.env.',
+        'RCLONE_VERSION='.$version,
+        'RCLONE_PLATFORM=linux-amd64',
+        'RCLONE_BINARY='.$scratch.'/fs/usr-bin/rclone',
+        'RCLONE_OWNER='.($options['rcloneOwner'] ?? bootstrapRuntimeCurrentUser()),
+        'RCLONE_GROUP='.($options['rcloneGroup'] ?? bootstrapRuntimeCurrentGroup()),
+        'RCLONE_MODE=0755',
+        'RCLONE_RELEASE_SIGNING_FINGERPRINT='.bootstrapRuntimeRcloneFingerprint(),
+    ])."\n");
+
+    // Marker content the gpg stub recognizes as the committed signing key.
+    file_put_contents($scratch.'/fs/rclone-release-signing-key.asc', "RCLONE-SIGNING-KEY\n");
+
+    // The signed SHA256SUMS payload: a foreign-platform row proves digest
+    // selection is by exact artifact name; the linux-amd64 row carries the
+    // genuine SHA256 of the fake archive bytes unless a test corrupts it.
+    $digest = $options['rcloneSumsDigest'] ?? hash('sha256', bootstrapRuntimeRcloneArchiveContent($options));
+    file_put_contents($scratch.'/fs/rclone-sums.txt', implode("\n", [
+        str_repeat('0', 64)."  rclone-v{$version}-linux-arm64.zip",
+        "{$digest}  rclone-v{$version}-linux-amd64.zip",
+    ])."\n");
+
+    // The canonical installed binary. 'compliant' reports the contract
+    // version; a version string simulates drift (the real staging v1.74.4,
+    // the Ubuntu-package v1.53.3); 'broken' cannot report a version at all;
+    // 'absent' is the clean host. Every invocation is logged so tests can
+    // prove the binary is only ever asked for --version — never `config`,
+    // never `selfupdate`.
+    $installedState = $options['rcloneInstalled'] ?? 'compliant';
+
+    if ($installedState !== 'absent') {
+        $reported = $installedState === 'compliant' ? 'v'.$version : $installedState;
+        $versionLine = $installedState === 'broken'
+            ? "    printf 'garbage without a version\\n'"
+            : "    printf 'rclone {$reported}\\n'";
+
+        file_put_contents($scratch.'/fs/usr-bin/rclone', implode("\n", [
+            '#!/bin/bash',
+            'printf \'rclone %s\n\' "$*" >> "${STUB_LOG}/rclone.log"',
+            'if [[ "$1" == "--version" ]]; then',
+            $versionLine,
+            '    exit 0',
+            'fi',
+            'exit 1',
+        ])."\n");
+        chmod($scratch.'/fs/usr-bin/rclone', intval($options['rcloneFileMode'] ?? '0755', 8));
+    }
+
+    // Operator secret material — presence only; content must survive every
+    // mode byte-identically.
+    expect(@mkdir($scratch.'/fs/root-config-rclone', 0o700, true))->toBeTrue();
+    file_put_contents(
+        $scratch.'/fs/root-config-rclone/rclone.conf',
+        "[b2]\ntype = b2\naccount = SECRET-B2-ACCOUNT-SENTINEL\nkey = SECRET-B2-KEY-SENTINEL\n",
+    );
 }
 
 /**
@@ -315,6 +458,46 @@ function bootstrapRuntimeWriteToolStubs(string $scratch, array $options): void
     foreach (['psql', 'pg_dump', 'pg_restore'] as $tool) {
         bootstrapRuntimeWriteStub($scratch.'/tools/'.$tool, $pgStub);
     }
+
+    // unzip: always present as a behavioral stub (like the php/pg binaries).
+    // "Extracting" the fake archive materializes the staged extracted-rclone
+    // stub under the exact directory layout the real release archive uses.
+    bootstrapRuntimeWriteStub($scratch.'/tools/unzip', <<<'STUB'
+        #!/bin/bash
+        zip=""
+        dest=""
+        prev=""
+        for arg in "$@"; do
+            if [[ "${prev}" == "-d" ]]; then
+                dest="${arg}"
+            elif [[ "${arg}" != -* ]]; then
+                zip="${arg}"
+            fi
+            prev="${arg}"
+        done
+        if [[ ! -f "${zip}" || -z "${dest}" ]]; then
+            exit 9
+        fi
+        PATH="${STUB_REAL_PATH}" mkdir -p "${dest}/${STUB_UNZIP_DIR_NAME}"
+        if [[ "${STUB_UNZIP_OMIT_BINARY:-}" == "true" ]]; then
+            exit 0
+        fi
+        PATH="${STUB_REAL_PATH}" cp "${STUB_STAGED_DIR}/rclone-extracted" "${dest}/${STUB_UNZIP_DIR_NAME}/rclone"
+        exit 0
+        STUB);
+
+    // The binary "inside" the archive: reports whatever version the test
+    // configured and logs every invocation, so tests can prove the managed
+    // binary is only ever asked for --version.
+    bootstrapRuntimeWriteStub($scratch.'/staged/rclone-extracted', <<<'STUB'
+        #!/bin/bash
+        printf 'rclone %s\n' "$*" >> "${STUB_LOG}/rclone.log"
+        if [[ "$1" == "--version" ]]; then
+            printf 'rclone %s\n' "${STUB_EXTRACTED_RCLONE_VERSION}"
+            exit 0
+        fi
+        exit 1
+        STUB);
 }
 
 function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): void
@@ -370,6 +553,8 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
     // deliberately NO RATEGURU_BOOTSTRAP_* override for curl/gpg — the
     // script resolves both through the fixture tool PATH, so a host profile
     // without them genuinely cannot fetch keys until apt "installs" them.
+    // For the official rclone download origin it serves the fake pinned
+    // archive and a fake clearsign-enveloped SHA256SUMS instead.
     $curlStub = <<<'STUB'
         #!/bin/bash
         printf 'curl %s\n' "$*" >> "${STUB_LOG}/curl.log"
@@ -385,13 +570,27 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
             fi
             prev="${arg}"
         done
+        if [[ "${url}" == *"downloads.rclone.org"* ]]; then
+            if [[ "${url}" == *SHA256SUMS ]]; then
+                printf 'CLEARSIGNED-BY:%s\n' "${STUB_RCLONE_SUMS_SIGNER}" > "${out}"
+                while IFS= read -r line; do
+                    printf '%s\n' "${line}" >> "${out}"
+                done < "${STUB_RCLONE_SUMS_FILE}"
+                exit 0
+            fi
+            printf '%s' "${STUB_RCLONE_ARCHIVE_CONTENT}" > "${out}"
+            exit 0
+        fi
         printf 'KEY-FROM:%s' "${url}" > "${out}"
         exit 0
         STUB;
 
     // gpg: dearmor copies the staged key with a marker; --show-keys answers
     // with the per-repository fingerprint the test configured (garbage
-    // content yields no fingerprint at all and therefore never validates).
+    // content yields no fingerprint at all and therefore never validates);
+    // --decrypt models clearsign verification — it only succeeds when the
+    // keyring holds the rclone signing-key marker AND the envelope claims
+    // the release signer, and emits the enclosed payload.
     $gpgStub = <<<'STUB'
         #!/bin/bash
         printf 'gpg %s\n' "$*" >> "${STUB_LOG}/gpg.log"
@@ -408,12 +607,48 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
             printf 'DEARMORED:%s\n' "$(<"${src}")" > "${out}"
             exit 0
         fi
+        if [[ " $* " == *" --decrypt "* ]]; then
+            out=""
+            keyring=""
+            prev=""
+            for arg in "$@"; do
+                if [[ "${prev}" == "--output" ]]; then
+                    out="${arg}"
+                fi
+                if [[ "${prev}" == "--keyring" ]]; then
+                    keyring="${arg}"
+                fi
+                prev="${arg}"
+            done
+            src="${!#}"
+            if [[ ! -f "${keyring}" || "$(<"${keyring}")" != *RCLONE-SIGNING-KEY* ]]; then
+                exit 2
+            fi
+            signed=""
+            first=1
+            : > "${out}"
+            while IFS= read -r line; do
+                if [[ "${first}" == 1 ]]; then
+                    first=0
+                    if [[ "${line}" == "CLEARSIGNED-BY:RCLONE-RELEASE" ]]; then
+                        signed=1
+                    fi
+                    continue
+                fi
+                printf '%s\n' "${line}" >> "${out}"
+            done < "${src}"
+            if [[ -z "${signed}" ]]; then
+                exit 2
+            fi
+            exit 0
+        fi
         if [[ " $* " == *" --show-keys "* ]]; then
             keyfile="${!#}"
             content="$(<"${keyfile}")"
             fpr=""
             [[ "${content}" == *keyserver.ubuntu.com* ]] && fpr="${STUB_FPR_PHP}"
             [[ "${content}" == *postgresql.org* ]] && fpr="${STUB_FPR_PGDG}"
+            [[ "${content}" == *RCLONE-SIGNING-KEY* ]] && fpr="${STUB_FPR_RCLONE}"
             if [[ -z "${fpr}" ]]; then
                 exit 2
             fi
@@ -427,6 +662,18 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
         fi
         exit 1
         STUB;
+
+    // stat: the rclone owner/group/mode probe. Delegates to the real stat
+    // so freshly installed fixture files report their genuine ownership and
+    // mode (a static table could never reflect an --apply). Tries the GNU
+    // flavor first and falls back to BSD, so the harness PATH may resolve
+    // either implementation (macOS with or without brew coreutils first).
+    bootstrapRuntimeWriteStub($scratch.'/bin/stat', <<<'STUB'
+        #!/bin/bash
+        path="${!#}"
+        PATH="${STUB_REAL_PATH}" stat -c '%U|%G|%a' -- "${path}" 2>/dev/null && exit 0
+        PATH="${STUB_REAL_PATH}" stat -f '%Su|%Sg|%Lp' "${path}" 2>/dev/null
+        STUB);
 
     // Staged copies for the apt stub to "install"; live copies on the tool
     // PATH only when the simulated host profile actually has the tooling.
@@ -470,6 +717,19 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
  *   bootstrapTooling: 'present' | 'missing' — 'missing' removes curl/gpg
  *                    from the tool PATH entirely; they only appear when the
  *                    apt stub installs the bootstrap tooling packages
+ *   rcloneInstalled: 'compliant' | 'absent' | 'broken' | 'v<X.Y.Z>' — the
+ *                    canonical managed binary's state (default compliant)
+ *   rcloneContractVersion: pinned version the fixture contract carries
+ *                    (default: the committed pin)
+ *   rcloneOwner/rcloneGroup: contract ownership (default: current user, so
+ *                    the real fixture files comply; 'root' simulates drift)
+ *   rcloneFileMode:  octal string mode of the installed binary (default 0755)
+ *   rcloneSumsDigest: digest the SHA256SUMS payload carries for the amd64
+ *                    artifact (default: the genuine hash of the fake bytes)
+ *   rcloneBadSignature: bool — SHA256SUMS envelope claims an unknown signer
+ *   fprRclone:       fingerprint the gpg stub reports for the signing key
+ *   rcloneExtractedVersion: version the extracted binary reports
+ *   rcloneOmitBinary: bool — the archive extracts without an rclone binary
  *
  * @param  array<string, mixed>  $options
  * @return array<string, string>
@@ -498,6 +758,9 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAP_PSQL_BIN' => $scratch.'/tools/psql',
         'RATEGURU_BOOTSTRAP_PG_DUMP_BIN' => $scratch.'/tools/pg_dump',
         'RATEGURU_BOOTSTRAP_PG_RESTORE_BIN' => $scratch.'/tools/pg_restore',
+        'RATEGURU_BOOTSTRAP_STAT_BIN' => $scratch.'/bin/stat',
+        'RATEGURU_BOOTSTRAP_RCLONE_CONTRACT_FILE' => $scratch.'/fs/external-runtimes.env',
+        'RATEGURU_BOOTSTRAP_RCLONE_KEY_FILE' => $scratch.'/fs/rclone-release-signing-key.asc',
         'STUB_LOG' => $scratch.'/log',
         'STUB_DPKG_STATE' => $scratch.'/fs/dpkg-installed.txt',
         'STUB_REAL_PATH' => getenv('PATH') ?: '/usr/bin:/bin',
@@ -508,7 +771,17 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'STUB_PG_VERSION' => $options['pgVersion'] ?? '18.4',
         'STUB_FPR_PHP' => $options['fprPhp'] ?? bootstrapRuntimePhpPpaFingerprint(),
         'STUB_FPR_PGDG' => $options['fprPgdg'] ?? bootstrapRuntimePgdgFingerprint(),
+        'STUB_FPR_RCLONE' => $options['fprRclone'] ?? bootstrapRuntimeRcloneFingerprint(),
+        'STUB_RCLONE_ARCHIVE_CONTENT' => bootstrapRuntimeRcloneArchiveContent($options),
+        'STUB_RCLONE_SUMS_FILE' => $scratch.'/fs/rclone-sums.txt',
+        'STUB_RCLONE_SUMS_SIGNER' => ($options['rcloneBadSignature'] ?? false) ? 'UNKNOWN-KEY' : 'RCLONE-RELEASE',
+        'STUB_UNZIP_DIR_NAME' => 'rclone-v'.bootstrapRuntimeFixtureRcloneVersion($options).'-linux-amd64',
+        'STUB_EXTRACTED_RCLONE_VERSION' => $options['rcloneExtractedVersion'] ?? 'v'.bootstrapRuntimeFixtureRcloneVersion($options),
     ];
+
+    if ($options['rcloneOmitBinary'] ?? false) {
+        $env['STUB_UNZIP_OMIT_BINARY'] = 'true';
+    }
 
     if (isset($options['curlFailPattern'])) {
         $env['STUB_CURL_FAIL_PATTERN'] = $options['curlFailPattern'];
@@ -544,6 +817,7 @@ function bootstrapRuntimeCleanHostFixture(string $scratch, array $extra = []): a
         'packages' => 'none',
         'phpRepo' => 'absent',
         'pgdgRepo' => 'absent',
+        'rcloneInstalled' => 'absent',
     ], $extra));
 }
 
@@ -628,6 +902,19 @@ it('recognizes the current staging host as satisfied: pre-existing repos, instal
         expect($output)->toContain("MISSING: 0\n");
         expect($output)->toContain("CONFLICT: 0\n");
 
+        // The managed rclone runtime reports in its own section, and never
+        // as an apt package requirement.
+        $rcloneVersion = bootstrapRuntimeFixtureRcloneVersion([]);
+        expect($output)->toContain("\nEXTERNAL RUNTIME\n");
+        expect($output)->toContain(sprintf(
+            'PASS     rclone — v%s, %s, %s:%s 0755 (managed external runtime)',
+            $rcloneVersion,
+            $scratch.'/fs/usr-bin/rclone',
+            bootstrapRuntimeCurrentUser(),
+            bootstrapRuntimeCurrentGroup(),
+        ));
+        expect($output)->not->toContain('package:rclone');
+
         // Unrelated repositories are never inspected, reported or required
         // absent — they simply do not appear.
         expect($output)->not->toContain('nodesource');
@@ -653,10 +940,19 @@ it('reports the full work list on a clean Ubuntu 22.04 host and exits non-zero',
         expect($output)->toContain('MISSING  package:php8.5-fpm — not installed');
         expect($output)->toContain('MISSING  package:postgresql-18 — not installed');
         expect($output)->toContain('MISSING  package:nginx — not installed');
+        expect($output)->toContain('MISSING  package:unzip — not installed');
 
         // --check annotates every unsatisfied item with the intended action.
         expect($output)->toContain('-> apply: install '.$scratch.'/apt/sources.list.d/rateguru-php.sources');
         expect($output)->toContain('-> apply: apt-get install postgresql-18');
+
+        // The absent managed rclone runtime is MISSING in its own section,
+        // with the verified-install action — never an apt proposal.
+        $rcloneVersion = bootstrapRuntimeFixtureRcloneVersion([]);
+        expect($output)->toContain('MISSING  rclone — '.$scratch.'/fs/usr-bin/rclone absent');
+        expect($output)->toContain('-> apply: install verified rclone v'.$rcloneVersion);
+        expect($output)->not->toContain('package:rclone');
+        expect($output)->not->toContain('apt-get install rclone');
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -774,7 +1070,7 @@ it('reports missing packages individually against the dpkg database', function (
     try {
         $installed = array_values(array_diff(
             bootstrapRuntimeRequiredPackages(),
-            ['php8.5-fpm', 'postgresql-18', 'rclone'],
+            ['php8.5-fpm', 'postgresql-18', 'unzip'],
         ));
         $env = bootstrapRuntimeFixture($scratch, ['packages' => $installed]);
         [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
@@ -782,7 +1078,7 @@ it('reports missing packages individually against the dpkg database', function (
         expect($exit)->toBe(1);
         expect($output)->toContain('MISSING  package:php8.5-fpm');
         expect($output)->toContain('MISSING  package:postgresql-18');
-        expect($output)->toContain('MISSING  package:rclone');
+        expect($output)->toContain('MISSING  package:unzip');
         expect($output)->toContain('PASS     package:nginx — installed');
     } finally {
         bootstrapRuntimeCleanup($scratch);
@@ -904,6 +1200,13 @@ it('bootstraps a clean host: pinned repositories, one apt update, one install, c
             "apt-get update\n{$bootstrapInstall}\napt-get update\n{$runtimeInstall}\n",
         );
 
+        // The managed rclone runtime converged through the verified-download
+        // path — never through apt (the exact apt log above already proves
+        // no apt action mentioned rclone).
+        $rcloneVersion = bootstrapRuntimeFixtureRcloneVersion([]);
+        expect($output)->toContain('rclone v'.$rcloneVersion.' installed at '.$scratch.'/fs/usr-bin/rclone');
+        expect(is_file($scratch.'/fs/usr-bin/rclone'))->toBeTrue();
+
         // Key material never leaks into the report.
         expect($output)->not->toContain('KEY-FROM');
     } finally {
@@ -982,9 +1285,10 @@ it('is idempotent: a second --apply performs no apt call, no key fetch and no fi
         expect($output)->toContain('repo:php already configured by this installer — nothing to do');
         expect($output)->toContain('repo:pgdg already configured by this installer — nothing to do');
         expect($output)->toContain('packages: all 41 required packages already installed');
+        expect($output)->toContain('rclone v'.bootstrapRuntimeFixtureRcloneVersion([]).' already installed');
 
         expect((string) file_get_contents($scratch.'/log/apt.log'))->toBe('', 'second apply ran apt-get');
-        expect((string) file_get_contents($scratch.'/log/curl.log'))->toBe('', 'second apply re-fetched key material');
+        expect((string) file_get_contents($scratch.'/log/curl.log'))->toBe('', 'second apply re-fetched key material or release artifacts');
 
         // The only gpg activity is the local read-only keyring validation —
         // never a dearmor/import of new material.
@@ -1137,9 +1441,15 @@ it('bootstraps a host that genuinely lacks curl and gpg: tooling first, external
             "apt-get update\n{$bootstrapInstall}\napt-get update\n{$runtimeInstall}\n",
         );
 
-        // Both keys were fetched only after the tooling existed.
+        // Both keys were fetched only after the tooling existed, and the
+        // rclone release material only after both repositories converged.
         $curlLog = (string) file_get_contents($scratch.'/log/curl.log');
-        expect(substr_count($curlLog, "\n"))->toBe(2);
+        $curlLines = array_values(array_filter(explode("\n", $curlLog)));
+        expect(count($curlLines))->toBe(4, "unexpected curl activity:\n{$curlLog}");
+        expect($curlLines[0])->toContain('keyserver.ubuntu.com');
+        expect($curlLines[1])->toContain('postgresql.org');
+        expect($curlLines[2])->toContain('downloads.rclone.org');
+        expect($curlLines[3])->toContain('downloads.rclone.org');
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -1354,13 +1664,12 @@ it('fails --verify when a required runtime binary is missing', function () {
     $scratch = bootstrapRuntimeScratchDir();
 
     try {
-        $env = bootstrapRuntimeFixture($scratch, [
-            'tools' => array_values(array_diff(bootstrapRuntimeAllTools(), ['rclone'])),
-        ]);
+        $env = bootstrapRuntimeFixture($scratch);
+        unlink($scratch.'/tools/unzip');
         [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
 
         expect($exit)->toBe(1);
-        expect($output)->toContain('MISSING  tool:rclone — not found (package: rclone)');
+        expect($output)->toContain('MISSING  tool:unzip — not found (package: unzip)');
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -1520,6 +1829,286 @@ it('keeps --verify strictly read-only', function () {
 });
 
 // =============================================================================
+// Managed external runtime: rclone
+// =============================================================================
+
+it('passes the managed rclone check when the exact standalone binary is present without any apt rclone package', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        // The corrected real-staging model: no rclone package in dpkg (the
+        // required-package fixture set no longer contains one), a compliant
+        // standalone binary at the canonical path.
+        $env = bootstrapRuntimeFixture($scratch);
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(0, "a compliant standalone rclone must satisfy the contract:\n{$output}");
+        expect($output)->toContain('PASS     rclone — v'.bootstrapRuntimeFixtureRcloneVersion([]));
+        expect($output)->not->toContain('package:rclone');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('reports the real staging drift — standalone v1.74.4 — as version reconciliation, never as an apt action', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['rcloneInstalled' => 'v1.74.4']);
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        $rcloneVersion = bootstrapRuntimeFixtureRcloneVersion([]);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT rclone — v1.74.4 installed, required v'.$rcloneVersion);
+        expect($output)->toContain('-> apply: replace with verified rclone v'.$rcloneVersion);
+        expect($output)->not->toContain('apt-get install rclone');
+        expect($output)->not->toContain('package:rclone');
+
+        // The version drift is the only unsatisfied item on this host.
+        expect($output)->toContain("MISSING: 0\n");
+        expect($output)->toContain("CONFLICT: 1\n");
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('treats the old Ubuntu-package rclone 1.53.3 as version drift even when dpkg lists the package', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        // An operator-installed apt rclone: the dpkg database carries the
+        // package (harmless — it is no longer a requirement) and the binary
+        // reports the ancient jammy version.
+        $env = bootstrapRuntimeFixture($scratch, [
+            'packages' => array_merge(bootstrapRuntimeRequiredPackages(), ['rclone']),
+            'rcloneInstalled' => 'v1.53.3',
+        ]);
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT rclone — v1.53.3 installed, required v'.bootstrapRuntimeFixtureRcloneVersion([]));
+        expect($output)->not->toContain('package:rclone');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('flags wrong ownership, wrong mode, a foreign path and a version-less binary as CONFLICT', function () {
+    // Wrong owner/group: the contract demands root:root, the fixture binary
+    // belongs to the test user.
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['rcloneOwner' => 'root', 'rcloneGroup' => 'root']);
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain(sprintf(
+            'CONFLICT rclone — owned by %s:%s, required root:root',
+            bootstrapRuntimeCurrentUser(),
+            bootstrapRuntimeCurrentGroup(),
+        ));
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+
+    // Wrong mode.
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['rcloneFileMode' => '0700']);
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT rclone — mode 700, required 0755');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+
+    // Foreign path: nothing at the canonical path, but a PATH-resolvable
+    // rclone elsewhere.
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['rcloneInstalled' => 'absent']);
+        bootstrapRuntimeWriteStub($scratch.'/tools/rclone', "#!/bin/bash\nexit 0\n");
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain(sprintf(
+            'CONFLICT rclone — found at %s, but the managed binary path is %s',
+            $scratch.'/tools/rclone',
+            $scratch.'/fs/usr-bin/rclone',
+        ));
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+
+    // Malformed version output.
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['rcloneInstalled' => 'broken']);
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT rclone — '.$scratch.'/fs/usr-bin/rclone cannot report a version');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('upgrades the real staging v1.74.4 atomically through signed, checksummed, version-verified material', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['rcloneInstalled' => 'v1.74.4']);
+        $rcloneVersion = bootstrapRuntimeFixtureRcloneVersion([]);
+        $confBefore = (string) file_get_contents($scratch.'/fs/root-config-rclone/rclone.conf');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, "the staged upgrade must converge and verify:\n{$output}");
+        expect($output)->toContain('rclone requires reconciliation (state: version:v1.74.4)');
+        expect($output)->toContain('rclone: signature and checksum verified — extracting');
+        expect($output)->toContain('rclone v'.$rcloneVersion.' installed at '.$scratch.'/fs/usr-bin/rclone');
+        expect($output)->toContain('PASS     rclone — v'.$rcloneVersion);
+        expect($output)->toContain('SLICE 5.2 CONTRACT: SATISFIED');
+
+        // The binary was replaced (it is now the extracted stub) with the
+        // contract mode, and no staged temp file was left beside it.
+        expect((string) file_get_contents($scratch.'/fs/usr-bin/rclone'))->toContain('STUB_EXTRACTED_RCLONE_VERSION');
+        expect(fileperms($scratch.'/fs/usr-bin/rclone') & 0o777)->toBe(0o755);
+        expect(glob($scratch.'/fs/usr-bin/rclone.*') ?: [])->toBe([]);
+
+        // Exactly two HTTPS downloads from the official origin: the exact
+        // versioned artifact and its SHA256SUMS. No apt activity at all.
+        $curlLines = array_values(array_filter(explode("\n", (string) file_get_contents($scratch.'/log/curl.log'))));
+        expect(count($curlLines))->toBe(2, 'unexpected download activity');
+        expect($curlLines[0])->toContain("https://downloads.rclone.org/v{$rcloneVersion}/rclone-v{$rcloneVersion}-linux-amd64.zip");
+        expect($curlLines[1])->toContain("https://downloads.rclone.org/v{$rcloneVersion}/SHA256SUMS");
+        expect(is_file($scratch.'/log/apt.log'))->toBeFalse('the rclone upgrade must never touch apt');
+
+        // The operator's rclone.conf is byte-identical, and the managed
+        // binary was only ever asked for --version — never `config`, never
+        // `selfupdate`.
+        expect((string) file_get_contents($scratch.'/fs/root-config-rclone/rclone.conf'))->toBe($confBefore);
+        foreach (array_filter(explode("\n", (string) file_get_contents($scratch.'/log/rclone.log'))) as $line) {
+            expect($line)->toBe('rclone --version');
+        }
+
+        // A second apply is a no-op: no downloads, no replacement.
+        file_put_contents($scratch.'/log/curl.log', '');
+        $binaryBefore = (string) file_get_contents($scratch.'/fs/usr-bin/rclone');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('rclone v'.$rcloneVersion.' already installed');
+        expect((string) file_get_contents($scratch.'/log/curl.log'))->toBe('');
+        expect((string) file_get_contents($scratch.'/fs/usr-bin/rclone'))->toBe($binaryBefore);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('leaves the working rclone untouched when the download, signature, checksum, archive or extracted version fails', function () {
+    foreach ([
+        'download failure' => ['curlFailPattern' => 'downloads.rclone.org'],
+        'bad SHA256SUMS signature' => ['rcloneBadSignature' => true],
+        'wrong signing-key fingerprint' => ['fprRclone' => str_repeat('DEADBEEF', 5)],
+        'wrong artifact checksum' => ['rcloneSumsDigest' => hash('sha256', 'not-the-artifact')],
+        'archive missing rclone' => ['rcloneOmitBinary' => true],
+        'extracted binary reports wrong version' => ['rcloneExtractedVersion' => 'v1.74.9'],
+    ] as $case => $breakage) {
+        $scratch = bootstrapRuntimeScratchDir();
+
+        try {
+            $env = bootstrapRuntimeFixture($scratch, array_merge(['rcloneInstalled' => 'v1.74.4'], $breakage));
+            $binaryBefore = (string) file_get_contents($scratch.'/fs/usr-bin/rclone');
+
+            [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+            expect($exit)->toBe(1, "{$case} must abort the apply:\n{$output}");
+            expect($output)->toContain('ERROR: rclone:');
+
+            expect((string) file_get_contents($scratch.'/fs/usr-bin/rclone'))
+                ->toBe($binaryBefore, "{$case}: the working binary was modified");
+            expect(glob($scratch.'/fs/usr-bin/rclone.*') ?: [])
+                ->toBe([], "{$case}: a staged candidate was left behind");
+        } finally {
+            bootstrapRuntimeCleanup($scratch);
+        }
+    }
+});
+
+it('names the failure precisely for each broken verification step', function () {
+    $rcloneVersion = bootstrapRuntimeFixtureRcloneVersion([]);
+
+    foreach ([
+        ['rcloneBadSignature' => true, 'SHA256SUMS signature verification failed'],
+        ['fprRclone' => str_repeat('DEADBEEF', 5), 'does not match the pinned fingerprint '.bootstrapRuntimeRcloneFingerprint()],
+        ['rcloneSumsDigest' => hash('sha256', 'not-the-artifact'), 'checksum mismatch'],
+        ['rcloneOmitBinary' => true, 'does not contain the rclone binary'],
+        ['rcloneExtractedVersion' => 'v1.74.9', "extracted binary reports v1.74.9, expected v{$rcloneVersion}"],
+    ] as $case) {
+        $message = array_pop($case);
+        $scratch = bootstrapRuntimeScratchDir();
+
+        try {
+            $env = bootstrapRuntimeFixture($scratch, array_merge(['rcloneInstalled' => 'absent'], $case));
+            [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+            expect($exit)->toBe(1);
+            expect($output)->toContain($message);
+        } finally {
+            bootstrapRuntimeCleanup($scratch);
+        }
+    }
+});
+
+it('keeps the operator rclone.conf byte-identical across a clean-host apply and never invokes rclone beyond --version', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeCleanHostFixture($scratch);
+        $confBefore = (string) file_get_contents($scratch.'/fs/root-config-rclone/rclone.conf');
+
+        [$exit] = bootstrapRuntimeRun(['--apply'], $env);
+        expect($exit)->toBe(0);
+
+        expect((string) file_get_contents($scratch.'/fs/root-config-rclone/rclone.conf'))->toBe($confBefore);
+
+        $rcloneLog = (string) file_get_contents($scratch.'/log/rclone.log');
+        expect($rcloneLog)->not->toBe('', 'the verified install must have version-probed the binary');
+        foreach (array_filter(explode("\n", $rcloneLog)) as $line) {
+            expect($line)->toBe('rclone --version');
+        }
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('fails closed when the external-runtimes contract is unreadable or mangled', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch);
+        file_put_contents($scratch.'/fs/external-runtimes.env', "RCLONE_VERSION=latest\n");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT rclone — external-runtimes contract unreadable or incomplete');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('ERROR: rclone: external-runtimes contract unreadable or incomplete');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+// =============================================================================
 // Security posture
 // =============================================================================
 
@@ -1658,6 +2247,95 @@ it('never installs build-time or unwanted packages: no Node.js, npm, Composer, S
     expect($phpMatch[1] ?? null)->not->toBeNull();
     $phpComponents = preg_split('/\s+/', trim($phpMatch[1]));
     expect($phpComponents)->toBe(['cli', 'common', 'fpm', 'bcmath', 'curl', 'gd', 'intl', 'mbstring', 'pgsql', 'redis', 'xml', 'zip']);
+});
+
+it('never converges rclone through apt, selfupdate, the upstream installer or the operator configuration', function () {
+    $source = bootstrapRuntimeSource();
+
+    // The package contract must not name rclone at all — neither as a
+    // package nor as a package-supplied tool.
+    preg_match('/^BASE_PACKAGES=\(\n(.*?)\n\)$/ms', $source, $baseMatch);
+    expect($baseMatch[1] ?? null)->not->toBeNull();
+    $packages = array_values(array_filter(array_map('trim', explode("\n", $baseMatch[1]))));
+    expect($packages)->not->toContain('rclone');
+
+    preg_match('/^REQUIRED_RUNTIME_TOOLS=\(\n(.*?)\n\)$/ms', $source, $toolsMatch);
+    expect($toolsMatch[1] ?? null)->not->toBeNull();
+    expect($toolsMatch[1])->not->toContain('rclone:rclone');
+
+    // Comment lines may document the forbidden mechanisms; no code line may
+    // use them: no selfupdate, no upstream install.sh, no pipe-to-shell
+    // download, and no reference to the operator's rclone.conf at all.
+    expect(preg_match('/^[^#\n]*\bselfupdate\b/m', $source))->toBe(0, 'a code line invokes rclone selfupdate');
+    expect(preg_match('/^[^#\n]*install\.sh/m', $source))->toBe(0, 'a code line references the upstream install.sh');
+    expect(preg_match('/^[^#\n]*curl[^#\n]*\|\s*(ba)?sh\b/m', $source))->toBe(0, 'a code line pipes a download into a shell');
+    expect(preg_match('/^[^#\n]*rclone\.conf/m', $source))->toBe(0, 'a code line references the operator rclone.conf');
+    expect(preg_match('/^[^#\n]*rclone config\b/m', $source))->toBe(0, 'a code line runs rclone config');
+});
+
+it('commits the external-runtimes contract with the canonical rclone install contract and pinned fingerprint', function () {
+    $contract = bootstrapRuntimeCommittedRcloneContract();
+
+    // The exact version is deliberately not duplicated here: it lives only
+    // in the committed contract, and an upgrade is that file's own reviewed
+    // change. Shape and security-critical pins are what this test freezes.
+    expect($contract['RCLONE_VERSION'] ?? null)->toMatch('/^\d+\.\d+\.\d+$/');
+    expect($contract['RCLONE_PLATFORM'] ?? null)->toBe('linux-amd64');
+    expect($contract['RCLONE_BINARY'] ?? null)->toBe('/usr/bin/rclone');
+    expect($contract['RCLONE_OWNER'] ?? null)->toBe('root');
+    expect($contract['RCLONE_GROUP'] ?? null)->toBe('root');
+    expect($contract['RCLONE_MODE'] ?? null)->toBe('0755');
+    expect($contract['RCLONE_RELEASE_SIGNING_FINGERPRINT'] ?? null)->toBe(bootstrapRuntimeRcloneFingerprint());
+});
+
+it('commits the rclone release-signing public key holding exactly the pinned fingerprint', function () {
+    $keyPath = base_path('infrastructure/config/external-runtimes/rclone-release-signing-key.asc');
+    $key = File::get($keyPath);
+
+    expect($key)->toStartWith('-----BEGIN PGP PUBLIC KEY BLOCK-----');
+    expect(trim($key))->toEndWith('-----END PGP PUBLIC KEY BLOCK-----');
+
+    // With gpg available (always, on the Ubuntu CI runners), apply the
+    // installer's own acceptance to the committed material: exactly one
+    // primary key whose fingerprint equals the pin.
+    $gpg = trim((string) shell_exec('command -v gpg'));
+
+    if ($gpg === '') {
+        return;
+    }
+
+    exec($gpg.' --batch --show-keys --with-colons '.escapeshellarg($keyPath).' 2>/dev/null', $lines, $status);
+    expect($status)->toBe(0, 'the committed key is not a valid OpenPGP key');
+
+    $primaries = 0;
+    $fingerprint = null;
+    $expectFpr = false;
+
+    foreach ($lines as $line) {
+        $fields = explode(':', $line);
+
+        if ($fields[0] === 'pub') {
+            $primaries++;
+            $expectFpr = true;
+
+            continue;
+        }
+
+        if ($fields[0] === 'fpr' && $expectFpr) {
+            $fingerprint ??= $fields[9];
+            $expectFpr = false;
+        }
+    }
+
+    expect($primaries)->toBe(1, 'the committed key must hold exactly one primary key');
+    expect($fingerprint)->toBe(bootstrapRuntimeRcloneFingerprint());
+});
+
+it('shares the committed external-runtimes contract with bootstrap-host-preflight instead of duplicating the pin', function () {
+    $contractPath = 'infrastructure/config/external-runtimes/versions.env';
+
+    expect(bootstrapRuntimeSource())->toContain($contractPath);
+    expect(File::get(base_path('infrastructure/scripts/bootstrap-host-preflight')))->toContain($contractPath);
 });
 
 it('derives its required tool inventory from the Phase 5.1 canonical contract', function () {

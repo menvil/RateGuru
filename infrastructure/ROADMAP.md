@@ -409,6 +409,19 @@ slices 1–2, which installed nothing — so it completes on merge.
    is not installed, and no RateGuru users, directories, databases, roles,
    service configuration or TLS are touched (slices 5.3/5.4). See
    `runbooks/bootstrap-host.md`.
+   *Corrective acceptance fix (5.2.1):* the real staging deployment
+   falsified the assumption that rclone is an Ubuntu apt package — the
+   host runs a standalone, dpkg-unowned `/usr/bin/rclone` far newer than
+   the jammy candidate. rclone is therefore managed as a verified, pinned
+   external runtime binary: the pin lives in
+   `infrastructure/config/external-runtimes/versions.env` alongside the
+   committed release-signing public key, `--check`/`--verify` report it in
+   their own EXTERNAL RUNTIME section (never as a package), and `--apply`
+   converges drift through a signature- and checksum-verified atomic
+   replacement of the exact pinned release — never apt, never
+   `rclone selfupdate`, never touching `/root/.config/rclone/rclone.conf`.
+   `unzip` joined the base package contract to extract the release
+   archive.
 3. **5.3 Users, groups and filesystem — next.** Create the service and
    deploy accounts, group memberships, and the runtime directory tree
    (ownership and modes exactly as the preflight contract states). Known
