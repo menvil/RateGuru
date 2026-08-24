@@ -995,21 +995,32 @@ report_filesystem() {
     report_path bin-common "${RUNTIME_BIN_ROOT}/common" "regular file" root root 644 "sourced library — never executable"
 
     # Per-target runtime tree, derived from the SOURCE registry — never from
-    # an assumed /home/www/rateguru/current.
-    local target_id target_root
+    # an assumed /home/www/rateguru/current. Owners, groups and modes are
+    # the slice 5.3 structural contract (install-bootstrap-host-layout is
+    # the installer that converges them), asserted here authoritatively so
+    # preflight and slice 5.3 can never disagree. current stays
+    # deployment-owned: reported absent until a real deployment creates it,
+    # never fabricated by any bootstrap slice. No exact numeric UID/GID is
+    # ever part of the contract — names are.
+    local target_id target_root deploy_user deploy_home
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         target_root="${TGT_ROOT[${target_id}]}"
+        deploy_user="${TGT_DEPLOY_USER[${target_id}]}"
+        deploy_home="/home/${deploy_user}"
 
-        report_path "target-root" "${target_root}" directory root root 755 "application root for target ${target_id}"
-        report_path "releases" "${target_root}/releases" directory - - - "immutable release history for ${target_id} (contents never scanned)"
-        report_path "shared" "${target_root}/shared" directory - - - "shared state for ${target_id}"
-        report_path "current" "${target_root}/current" "symbolic link" - - - "atomic current-release switch for ${target_id}"
-        report_path "locks" "${target_root}/locks" directory - - - "deployment lock directory for ${target_id}"
-        report_path "deployments" "${target_root}/deployments" directory - - - "deployment history for ${target_id}"
-        report_path "incoming" "${TGT_INCOMING[${target_id}]}" directory "${TGT_DEPLOY_USER[${target_id}]}" - - "incoming artifacts for ${target_id}"
+        report_path "target-root" "${target_root}" directory root root 755 "application root for target ${target_id} (slice 5.3 contract)"
+        report_path "releases" "${target_root}/releases" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "immutable release history for ${target_id} (contents never scanned; slice 5.3 contract)"
+        report_path "shared" "${target_root}/shared" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "shared state for ${target_id} (slice 5.3 contract)"
+        report_path "shared-storage" "${target_root}/shared/storage" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "structural shared-storage root for ${target_id} (slice 5.3 contract)"
+        report_path "current" "${target_root}/current" "symbolic link" - - - "atomic current-release switch for ${target_id} (deployment-owned; absent until the first deployment)"
+        report_path "locks" "${target_root}/locks" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "deployment lock directory for ${target_id} (slice 5.3 contract)"
+        report_path "deployments" "${target_root}/deployments" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "deployment history for ${target_id} (slice 5.3 contract)"
+        report_path "deploy-home" "${deploy_home}" directory "${deploy_user}" "${deploy_user}" nw "deploy user home for ${target_id} (slice 5.3 contract: never group/other-writable)"
+        report_path "deploy-ssh" "${deploy_home}/.ssh" directory "${deploy_user}" "${deploy_user}" 700 "structural SSH directory for ${target_id} (slice 5.3 contract; authorized_keys stays secret material)"
+        report_path "incoming" "${TGT_INCOMING[${target_id}]}" directory "${deploy_user}" "${deploy_user}" 750 "incoming artifacts for ${target_id} (slice 5.3 contract)"
     done
 
-    report_path logs /var/log/rateguru directory root root - "operational log directory (cron output)"
+    report_path logs /var/log/rateguru directory root root 750 "operational log directory (cron output; slice 5.3 contract)"
 
     # Perimeter files (install-target-perimeter's contract).
     local wrapper

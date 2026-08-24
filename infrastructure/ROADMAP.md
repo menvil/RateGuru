@@ -422,15 +422,50 @@ slices 1–2, which installed nothing — so it completes on merge.
    `rclone selfupdate`, never touching `/root/.config/rclone/rclone.conf`.
    `unzip` joined the base package contract to extract the release
    archive.
-3. **5.3 Users, groups and filesystem — next.** Create the service and
-   deploy accounts, group memberships, and the runtime directory tree
-   (ownership and modes exactly as the preflight contract states). Known
-   remediation carried from the real staging preflight: the top-level
-   `/home/www/rateguru/staging` root is currently owned
-   `deploy-rateguru-staging:rateguru-staging-code` and must become
-   root-owned per the Phase 5 contract (slice 5.2 deliberately never
-   chowns anything).
-4. **5.4 Services and configuration — planned.** Install committed service
+3. **5.3 Users, groups and filesystem — implemented; completed after
+   real-host acceptance.**
+   `infrastructure/scripts/install-bootstrap-host-layout` provisions the
+   identity and filesystem layer required before service/configuration
+   installation (root-only `--check` read-only validation with intended
+   actions, root-only `--apply` that validates the entire plan before the
+   first mutation, read-only `--verify` gate). The repository registry is
+   the source of truth (validated through the standalone `targets` CLI —
+   the runtime registry does not exist yet and is never read), and only
+   `lifecycle=active` targets are provisioned: `tits-guru` stays planned
+   and causes zero user, group or filesystem mutation. The identity model:
+   the deploy user owns incoming artifacts and release creation
+   (`releases`/`locks`/`deployments` are `deploy_user:code_group` setgid
+   `2750`); the code group lets the runtime user read immutable release
+   code (mandatory supplementary membership — releases are normalized
+   `0750`/`0640` while PHP-FPM executes as the runtime user); the runtime
+   user owns shared mutable state (`shared` and `shared/storage` are
+   `runtime_user:runtime_group` setgid `2770`); `www-data` is never added
+   to runtime groups (public storage traversal stays the narrow POSIX ACL
+   from `install-public-storage-access` in 5.4); root owns the target
+   namespace root (`root:root 0755`) and the host operational roots
+   (`/home/www/rateguru` + `config`/`bin` `0755`, `backups`/`run` `0700`,
+   `/var/log/rateguru` `0750`) — so a deploy identity can create immutable
+   releases without ever controlling the target namespace itself. The
+   package-created 5.2 accounts (root, www-data, postgres) are validated,
+   never created; the mail-capture accounts stay owned by
+   `install-mail-capture`. The deploy home gets a structural `.ssh`
+   (`0700`) but never an `authorized_keys` (5.4 secret material), no
+   sudoers, and `current`/`previous` stay deployment-owned (never
+   fabricated, rewritten or followed). Reconciliation is strictly
+   per-directory-entry — no recursive chown/chmod, no `rm -rf`, no
+   `userdel`/`groupdel`, no UID/GID renumbering; wrong-type paths and
+   incompatible existing accounts fail closed before any mutation, and a
+   second `--apply` on a compliant host performs zero mutation. The known
+   real staging drift (the top-level `/home/www/rateguru/staging` owned
+   `deploy-rateguru-staging:rateguru-staging-code` instead of root) is the
+   one existing-host remediation this slice carries: `--apply` chowns
+   exactly that directory entry to `root:root 0755`, leaving
+   `releases`/`shared`/`current` and all application data untouched.
+   `bootstrap-host-preflight` now asserts the 5.3 structural contract
+   authoritatively (per-target owners, groups and setgid modes, deploy
+   home/`.ssh`, `shared/storage`, `/var/log/rateguru`), so slices 5.1 and
+   5.3 cannot disagree. See `runbooks/bootstrap-host.md`.
+4. **5.4 Services and configuration — next.** Install committed service
    configuration (Nginx vhosts, PHP-FPM pools, Supervisor programs, cron),
    run the existing installers (target operations, perimeter, public
    storage ACLs, mail capture), and enable/start services.

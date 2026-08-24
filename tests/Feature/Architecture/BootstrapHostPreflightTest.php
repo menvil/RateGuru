@@ -146,14 +146,20 @@ function bootstrapPreflightCompliantStatTable(): array
         '/home/www/rateguru/config/deployment-targets.json|regular file|root|root|640',
         '/home/www/rateguru/config/deployment.conf|regular file|root|root|640',
         '/home/www/rateguru/bin/common|regular file|root|root|644',
+        // Per-target rows mirror the slice 5.3 structural contract that
+        // install-bootstrap-host-layout converges and the preflight now
+        // asserts authoritatively (setgid 2750/2770 modes included).
         '/home/www/rateguru/staging|directory|root|root|755',
-        '/home/www/rateguru/staging/releases|directory|root|root|755',
-        '/home/www/rateguru/staging/shared|directory|root|root|750',
+        '/home/www/rateguru/staging/releases|directory|deploy-rateguru-staging|rateguru-staging-code|2750',
+        '/home/www/rateguru/staging/shared|directory|rateguru-staging|rateguru-staging|2770',
+        '/home/www/rateguru/staging/shared/storage|directory|rateguru-staging|rateguru-staging|2770',
         '/home/www/rateguru/staging/current|symbolic link|root|root|777',
-        '/home/www/rateguru/staging/locks|directory|root|root|755',
-        '/home/www/rateguru/staging/deployments|directory|root|root|755',
-        '/home/deploy-rateguru-staging/incoming|directory|deploy-rateguru-staging|deploy-rateguru-staging|755',
-        '/var/log/rateguru|directory|root|root|755',
+        '/home/www/rateguru/staging/locks|directory|deploy-rateguru-staging|rateguru-staging-code|2750',
+        '/home/www/rateguru/staging/deployments|directory|deploy-rateguru-staging|rateguru-staging-code|2750',
+        '/home/deploy-rateguru-staging|directory|deploy-rateguru-staging|deploy-rateguru-staging|750',
+        '/home/deploy-rateguru-staging/.ssh|directory|deploy-rateguru-staging|deploy-rateguru-staging|700',
+        '/home/deploy-rateguru-staging/incoming|directory|deploy-rateguru-staging|deploy-rateguru-staging|750',
+        '/var/log/rateguru|directory|root|root|750',
         '/usr/local/sbin/rateguru-deploy|regular file|root|root|755',
         '/usr/local/sbin/rateguru-rollback|regular file|root|root|755',
         '/usr/local/sbin/rateguru-cleanup|regular file|root|root|755',
@@ -1024,6 +1030,60 @@ it('flags a regular directory where the current symlink belongs as CONFLICT', fu
 
         expect($exit)->toBe(1);
         expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/current — is a directory, expected symbolic link');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('asserts the slice 5.3 structural contract authoritatively for active-target directories', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        // Drift every 5.3-contract aspect the old preflight left unasserted:
+        // releases ownership, shared mode, incoming mode, a group-writable
+        // deploy home — plus a missing shared/storage row.
+        $statTable = array_values(array_filter(array_map(fn (string $row): ?string => match (true) {
+            str_starts_with($row, '/home/www/rateguru/staging/releases|') => '/home/www/rateguru/staging/releases|directory|root|root|2750',
+            str_starts_with($row, '/home/www/rateguru/staging/shared|') => '/home/www/rateguru/staging/shared|directory|rateguru-staging|rateguru-staging|770',
+            str_starts_with($row, '/home/www/rateguru/staging/shared/storage|') => null,
+            str_starts_with($row, '/home/deploy-rateguru-staging/incoming|') => '/home/deploy-rateguru-staging/incoming|directory|deploy-rateguru-staging|deploy-rateguru-staging|755',
+            str_starts_with($row, '/home/deploy-rateguru-staging|') => '/home/deploy-rateguru-staging|directory|deploy-rateguru-staging|deploy-rateguru-staging|775',
+            default => $row,
+        }, bootstrapPreflightCompliantStatTable())));
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/releases — owned by root:root, expected owner deploy-rateguru-staging');
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/shared — mode 770, expected 2770');
+        expect($output)->toContain('MISSING  path:/home/www/rateguru/staging/shared/storage — absent');
+        expect($output)->toContain('CONFLICT path:/home/deploy-rateguru-staging/incoming — mode 755, expected 750');
+        expect($output)->toContain('CONFLICT path:/home/deploy-rateguru-staging — mode 775 is group- or other-writable');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('keeps reporting an absent current symlink as deployment-owned MISSING state rather than a 5.3 responsibility', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_values(array_filter(
+            bootstrapPreflightCompliantStatTable(),
+            fn (string $row): bool => ! str_starts_with($row, '/home/www/rateguru/staging/current|'),
+        ));
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  path:/home/www/rateguru/staging/current — absent');
+
+        // The remediation stays with deployment, never a bootstrap chown or
+        // a fabricated symlink.
+        preg_match('/^.*path:\/home\/www\/rateguru\/staging\/current.*$/m', $output, $line);
+        expect($line[0])->toContain('deployment-owned');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }
