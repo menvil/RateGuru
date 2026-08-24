@@ -396,7 +396,13 @@ slices 1–2, which installed nothing — so it completes on merge.
    operator-configured sources for the same repositories are recognized
    and left untouched, and unrelated host repositories (NodeSource,
    ClickHouse, Datadog/Vector) are never inspected, managed or required
-   absent. apt runs noninteractively, updates only when needed, never
+   absent. Because a minimal host has neither curl nor gnupg, `--apply`
+   installs the bootstrap repository tooling (ca-certificates, curl,
+   gnupg) from the existing Ubuntu sources before any external repository
+   work, and `--check`/`--verify` validate installer-owned repository
+   files authoritatively and read-only (byte-exact sources, keyring
+   holding exactly the pinned key). apt runs noninteractively, updates
+   only when needed (at most twice on a first clean-host apply), never
    upgrades, never removes; a second `--apply` performs no apt call and
    rewrites no file. Node.js/npm/Composer are intentionally absent (GitHub
    Actions builds the immutable artifact — the host never builds), SQLite

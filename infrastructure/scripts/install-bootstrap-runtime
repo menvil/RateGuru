@@ -41,12 +41,19 @@
 # under /etc/apt/keyrings; key material is fetched over HTTPS only, and is
 # installed only after its primary-key fingerprint matches the pin embedded
 # below (a single key per keyring — a bundle with extra keys is rejected).
-# apt-key is never used. A pre-existing apt source that already provides the
-# same repository (however the operator configured it — e.g. the classic
-# add-apt-repository .list the current staging host carries) is recognized
-# and left untouched. Unrelated host repositories (NodeSource, ClickHouse,
-# Datadog/Vector, anything else) are never inspected, managed or removed —
-# they are outside this installer's ownership.
+# apt-key is never used. For installer-owned repository files, --check and
+# --verify validate authoritatively and read-only: the .sources file must be
+# byte-exact against the composed expectation, and the installed keyring
+# must be a valid OpenPGP keyring holding exactly one primary key whose
+# fingerprint equals the pin (the same local gpg validation --apply uses on
+# freshly fetched material — never a network call). Any drift, garbage or
+# wrong-fingerprint keyring is CONFLICT and fails --verify. A pre-existing
+# apt source that already provides the same repository (however the
+# operator configured it — e.g. the classic add-apt-repository .list the
+# current staging host carries) is recognized and left untouched. Unrelated
+# host repositories (NodeSource, ClickHouse, Datadog/Vector, anything else)
+# are never inspected, managed or removed — they are outside this
+# installer's ownership.
 #
 # Version policy: the contract is major/runtime compatibility, never an
 # incidental security-patch pin. PHP must be series 8.5 (8.5.x floats with
@@ -92,11 +99,22 @@
 # created here. This slice also never enables/disables/starts/stops any
 # service itself and never edits pg_hba.conf or any service configuration.
 #
+# Bootstrap ordering: a genuinely minimal Ubuntu 22.04 host has neither
+# curl nor gnupg, yet both are needed to fetch and validate external
+# repository keys. --apply therefore first ensures the bootstrap repository
+# tooling (ca-certificates, curl, gnupg) is installed from the host's
+# existing Ubuntu sources — before any external repository work — and only
+# then fetches/validates/installs the PHP and PGDG sources.
+#
 # apt policy: --check/--verify never run apt-get at all (package state is
-# read through dpkg-query). --apply runs apt-get update exactly once, and
-# only when repository configuration changed or packages must be installed;
-# a second --apply on a satisfied host runs no apt command, rewrites no
-# repository or keyring file and imports no key. apt-get upgrade/
+# read through dpkg-query). --apply runs apt-get update only when needed:
+# once before installing missing bootstrap repository tooling, and once
+# after repository configuration changed (or when runtime packages must be
+# installed and the indexes were not just refreshed) — so a first clean-host
+# apply performs at most two updates and an already-satisfied host performs
+# none. A second --apply on a satisfied host runs no apt command, fetches
+# no key material and rewrites no repository or keyring file (the local
+# read-only keyring validation is the only gpg activity). apt-get upgrade/
 # dist-upgrade/full-upgrade are never run. Installation is deterministic
 # and noninteractive: DEBIAN_FRONTEND=noninteractive, -y,
 # --no-install-recommends.
@@ -198,6 +216,11 @@ POSTGRES_PACKAGES=(
     "postgresql-client-${POSTGRES_MAJOR}"
 )
 
+# The tooling required to fetch and validate external repository keys — a
+# subset of BASE_PACKAGES, installed first from the host's existing Ubuntu
+# sources because a genuinely minimal host has none of it yet.
+BOOTSTRAP_TOOLING_PACKAGES=(ca-certificates curl gnupg)
+
 REQUIRED_PACKAGES=("${BASE_PACKAGES[@]}" "${PHP_PACKAGES[@]}" "${POSTGRES_PACKAGES[@]}")
 
 # Modules verified through `php8.5 -m` — package presence alone proves
@@ -269,8 +292,15 @@ APT_KEYRINGS_DIR="$(gated_default RATEGURU_BOOTSTRAP_APT_KEYRINGS_DIR /etc/apt/k
 TOOL_PATH="$(gated_default RATEGURU_BOOTSTRAP_TOOL_PATH '')"
 APT_GET_BIN="$(gated_default RATEGURU_BOOTSTRAP_APT_GET_BIN apt-get)"
 DPKG_QUERY_BIN="$(gated_default RATEGURU_BOOTSTRAP_DPKG_QUERY_BIN dpkg-query)"
-GPG_BIN="$(gated_default RATEGURU_BOOTSTRAP_GPG_BIN gpg)"
-CURL_BIN="$(gated_default RATEGURU_BOOTSTRAP_CURL_BIN curl)"
+
+# Deliberately NOT override-gated: curl and gpg must resolve through the
+# same PATH discipline as every tool probe, so a simulated host without
+# them genuinely has no way to fetch or validate keys — the bootstrap
+# tooling ordering below is what makes them exist, and tests must prove
+# that, not bypass it.
+GPG_BIN="gpg"
+CURL_BIN="curl"
+
 PHP_CLI_BIN="$(gated_default RATEGURU_BOOTSTRAP_PHP_CLI_BIN "php${PHP_SERIES}")"
 PHP_FPM_BIN="$(gated_default RATEGURU_BOOTSTRAP_PHP_FPM_BIN "php-fpm${PHP_SERIES}")"
 PSQL_BIN="$(gated_default RATEGURU_BOOTSTRAP_PSQL_BIN psql)"
@@ -448,6 +478,25 @@ apt_source_configured() {
     return 1
 }
 
+# keyring_matches_pin KEYRING_FILE FINGERPRINT — read-only, local-only
+# OpenPGP validation: true only when the file is a valid keyring containing
+# exactly one primary key whose fingerprint equals the pin. The single
+# validation used both on freshly fetched material during --apply and on
+# the installed keyring during --check/--verify — never a network call.
+keyring_matches_pin() {
+    local keyring_file="$1" key_fingerprint="$2"
+
+    [[ -s "${keyring_file}" ]] || return 1
+    tool_available "${GPG_BIN}" || return 1
+
+    probe_exec "${GPG_BIN}" --batch --show-keys --with-colons "${keyring_file}" 2>/dev/null \
+        | awk -F: -v pin="${key_fingerprint}" '
+            $1 == "pub" { pubs++; expect_fpr = 1; next }
+            $1 == "fpr" && expect_fpr { primary = $10; expect_fpr = 0 }
+            END { exit !(pubs == 1 && primary == pin) }
+        '
+}
+
 # sources_file_content LABEL URI SUITE COMPONENT KEYRING — the exact deb822
 # content this installer owns for one repository.
 sources_file_content() {
@@ -509,16 +558,28 @@ report_host() {
     fi
 }
 
-# report_repository LABEL URI SUITE SOURCES_FILE KEYRING_FILE
+# report_repository LABEL URI SUITE COMPONENT KEY_FPR SOURCES_FILE KEYRING_FILE
+#
+# Installer-owned files are validated authoritatively and read-only: the
+# .sources file must be byte-exact against the composed expectation, and
+# the keyring must hold exactly the pinned key (keyring_matches_pin — a
+# local gpg inspection, never a fetch). Anything less is CONFLICT.
 report_repository() {
-    local label="$1" uri="$2" suite="$3" sources_file="$4" keyring_file="$5"
+    local label="$1" uri="$2" suite="$3" component="$4"
+    local key_fingerprint="$5" sources_file="$6" keyring_file="$7"
 
     if [[ -f "${sources_file}" ]]; then
-        if [[ ! -s "${keyring_file}" ]]; then
-            item CONFLICT "repo:${label}" "${sources_file} exists but its keyring ${keyring_file} is absent" \
+        local expected_content
+        expected_content="$(sources_file_content "${label}" "${uri}" "${suite}" "${component}" "${keyring_file}")"
+
+        if ! printf '%s\n' "${expected_content}" | cmp -s - "${sources_file}"; then
+            item CONFLICT "repo:${label}" "installer-owned ${sources_file} drifted from the expected deb822 content" \
+                "re-run --apply to reconcile the ${label} repository transactionally"
+        elif ! keyring_matches_pin "${keyring_file}" "${key_fingerprint}"; then
+            item CONFLICT "repo:${label}" "keyring ${keyring_file} is absent, invalid, or does not hold exactly the pinned key ${key_fingerprint}" \
                 "re-run --apply to reinstall the ${label} repository transactionally"
         else
-            item PASS "repo:${label}" "configured by this installer (${sources_file})"
+            item PASS "repo:${label}" "configured by this installer (exact sources, keyring matches pinned ${key_fingerprint})"
         fi
     elif apt_source_configured "${uri}" "${suite}"; then
         item PASS "repo:${label}" "provided by a pre-existing apt source (${uri#*://} ${suite}) — left untouched"
@@ -531,10 +592,10 @@ report_repository() {
 report_repositories() {
     section "REPOSITORIES"
 
-    report_repository php "${PHP_REPO_URI}" "${PHP_REPO_SUITE}" \
-        "${PHP_REPO_SOURCES_FILE}" "${PHP_REPO_KEYRING_FILE}"
-    report_repository pgdg "${PGDG_REPO_URI}" "${PGDG_REPO_SUITE}" \
-        "${PGDG_REPO_SOURCES_FILE}" "${PGDG_REPO_KEYRING_FILE}"
+    report_repository php "${PHP_REPO_URI}" "${PHP_REPO_SUITE}" "${PHP_REPO_COMPONENT}" \
+        "${PHP_REPO_KEY_FINGERPRINT}" "${PHP_REPO_SOURCES_FILE}" "${PHP_REPO_KEYRING_FILE}"
+    report_repository pgdg "${PGDG_REPO_URI}" "${PGDG_REPO_SUITE}" "${PGDG_REPO_COMPONENT}" \
+        "${PGDG_REPO_KEY_FINGERPRINT}" "${PGDG_REPO_SOURCES_FILE}" "${PGDG_REPO_KEYRING_FILE}"
 }
 
 report_packages() {
@@ -757,11 +818,19 @@ stage_install() {
 #
 # Downloads the repository signing key over HTTPS only, dearmors it, and
 # accepts it only when the material contains exactly one primary key whose
-# fingerprint matches the pin. The validated binary keyring is left at
-# WORKDIR/key.gpg; any failure aborts before anything reaches the real
-# keyring directory.
+# fingerprint matches the pin (keyring_matches_pin — the same validation
+# --check/--verify apply to the installed keyring). The validated binary
+# keyring is left at WORKDIR/key.gpg; any failure aborts before anything
+# reaches the real keyring directory. Fails closed when the bootstrap
+# repository tooling itself is absent — external repository work must never
+# be attempted without it.
 fetch_and_validate_key() {
     local workdir="$1" label="$2" key_url="$3" key_fingerprint="$4"
+
+    tool_available "${CURL_BIN}" \
+        || fail "repo:${label}: curl unavailable — bootstrap repository tooling must be installed before any external repository work"
+    tool_available "${GPG_BIN}" \
+        || fail "repo:${label}: gpg unavailable — bootstrap repository tooling must be installed before any external repository work"
 
     probe_exec "${CURL_BIN}" --fail --silent --show-error --location \
         --proto '=https' --tlsv1.2 --max-time 60 \
@@ -772,16 +841,12 @@ fetch_and_validate_key() {
         --output "${workdir}/key.gpg" "${workdir}/key.asc" 2>/dev/null \
         || fail "repo:${label}: downloaded key material is not a valid OpenPGP key"
 
-    probe_exec "${GPG_BIN}" --batch --show-keys --with-colons "${workdir}/key.gpg" 2>/dev/null \
-        | awk -F: -v pin="${key_fingerprint}" '
-            $1 == "pub" { pubs++; expect_fpr = 1; next }
-            $1 == "fpr" && expect_fpr { primary = $10; expect_fpr = 0 }
-            END { exit !(pubs == 1 && primary == pin) }
-        ' \
+    keyring_matches_pin "${workdir}/key.gpg" "${key_fingerprint}" \
         || fail "repo:${label}: signing key fingerprint does not match the pinned ${key_fingerprint} (or the material bundles extra keys) — refusing to install it"
 }
 
 APT_UPDATE_NEEDED=false
+APT_INDEXES_FRESH=false
 
 # reconcile_repository LABEL URI SUITE COMPONENT KEY_URL KEY_FPR SOURCES_FILE KEYRING_FILE
 #
@@ -798,8 +863,8 @@ reconcile_repository() {
     expected_content="$(sources_file_content "${label}" "${uri}" "${suite}" "${component}" "${keyring_file}")"
 
     if [[ -f "${sources_file}" ]]; then
-        if [[ -s "${keyring_file}" ]] \
-            && printf '%s\n' "${expected_content}" | cmp -s - "${sources_file}"
+        if printf '%s\n' "${expected_content}" | cmp -s - "${sources_file}" \
+            && keyring_matches_pin "${keyring_file}" "${key_fingerprint}"
         then
             action "repo:${label} already configured by this installer — nothing to do"
 
@@ -837,16 +902,42 @@ reconcile_repository() {
 }
 
 apt_update() {
-    action "apt-get update (repository state changed or packages must be installed)"
+    action "apt-get update ($1)"
 
     DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" update \
         || fail "apt-get update failed"
+}
+
+# ensure_bootstrap_repository_tooling — installs ca-certificates/curl/gnupg
+# from the host's existing Ubuntu sources when missing, so external
+# repository keys can be fetched and validated at all. Runs strictly before
+# any external repository work; a satisfied host performs no apt call here.
+ensure_bootstrap_repository_tooling() {
+    local package missing_tooling=()
+    for package in "${BOOTSTRAP_TOOLING_PACKAGES[@]}"; do
+        package_installed "${package}" || missing_tooling+=("${package}")
+    done
+
+    if (( ${#missing_tooling[@]} == 0 )); then
+        return 0
+    fi
+
+    action "bootstrap repository tooling missing: ${missing_tooling[*]} — installing from the existing Ubuntu sources"
+
+    apt_update "refreshing the host's existing Ubuntu sources for the bootstrap tooling"
+    APT_INDEXES_FRESH=true
+
+    DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" install -y --no-install-recommends -- \
+        "${missing_tooling[@]}" \
+        || fail "apt-get install failed for the bootstrap repository tooling (${missing_tooling[*]})"
 }
 
 # perform_apply — root is enforced by run_apply; tests exercising failure
 # paths call this directly with the gated EUID override in place.
 perform_apply() {
     apply_gate_host
+
+    ensure_bootstrap_repository_tooling
 
     reconcile_repository php \
         "${PHP_REPO_URI}" "${PHP_REPO_SUITE}" "${PHP_REPO_COMPONENT}" \
@@ -863,8 +954,13 @@ perform_apply() {
         package_installed "${package}" || missing_packages+=("${package}")
     done
 
-    if [[ "${APT_UPDATE_NEEDED}" == true ]] || (( ${#missing_packages[@]} > 0 )); then
-        apt_update
+    # Repository changes always force a re-read of the indexes (they must
+    # include the new sources); a plain package install reuses indexes that
+    # the bootstrap-tooling phase just refreshed.
+    if [[ "${APT_UPDATE_NEEDED}" == true ]]; then
+        apt_update "repository configuration changed"
+    elif (( ${#missing_packages[@]} > 0 )) && [[ "${APT_INDEXES_FRESH}" != true ]]; then
+        apt_update "packages must be installed"
     fi
 
     if (( ${#missing_packages[@]} > 0 )); then

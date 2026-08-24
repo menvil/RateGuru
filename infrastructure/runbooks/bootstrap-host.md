@@ -218,6 +218,20 @@ embedded in the script; keyring and sources files are staged and renamed
 into place atomically, and a failed repository aborts the run before any
 package installation. `apt-key` is never used.
 
+Because a genuinely minimal Ubuntu 22.04 host has neither curl nor gnupg,
+`--apply` first installs the bootstrap repository tooling
+(`ca-certificates`, `curl`, `gnupg`) from the host's **existing Ubuntu
+sources** — strictly before any external repository work — and only then
+fetches and validates the PHP/PGDG keys.
+
+`--check` and `--verify` validate installer-owned repository files
+authoritatively and read-only: the `.sources` file must be byte-exact
+against the expected deb822 content, and the installed keyring must be a
+valid OpenPGP keyring holding exactly one primary key with the pinned
+fingerprint (the same local gpg validation `--apply` applies to freshly
+fetched material — never a network call). Any drift, garbage or
+wrong-fingerprint keyring is `CONFLICT` and fails `--verify`.
+
 A repository already provided by a pre-existing apt source — however the
 operator configured it, like the classic `add-apt-repository` `.list` on
 the current staging host — is recognized and left untouched. Unrelated
@@ -228,12 +242,17 @@ and `--verify` on the current staging host pass with them present.
 ### apt policy and idempotency
 
 `--check`/`--verify` never run apt-get at all (package state is read via
-`dpkg-query`). `--apply` runs `apt-get update` exactly once and only when
-repository configuration changed or packages must be installed, then one
+`dpkg-query`). `--apply` runs `apt-get update` only when needed: once
+before installing missing bootstrap repository tooling, and once after
+repository configuration changed (or when runtime packages must be
+installed and the indexes were not just refreshed) — so a first clean-host
+apply performs at most two updates, and package installation is one
 deterministic `DEBIAN_FRONTEND=noninteractive apt-get install -y
---no-install-recommends` of the missing set. `apt-get upgrade` in any form
-is never run, and packages are never removed. A second `--apply` on a
-satisfied host performs no apt call, fetches no key and rewrites no file.
+--no-install-recommends` of the missing set per phase. `apt-get upgrade`
+in any form is never run, and packages are never removed. A second
+`--apply` on a satisfied host performs no apt call, fetches no key and
+rewrites no file (its only gpg activity is the local read-only keyring
+validation).
 
 ### Package post-install side effects
 

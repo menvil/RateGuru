@@ -40,7 +40,7 @@ function bootstrapRuntimeScratchDir(): string
 {
     $dir = sys_get_temp_dir().'/bootstrap-runtime-'.uniqid('', true).'-'.getmypid();
 
-    foreach (['', '/bin', '/fs', '/tools', '/log', '/apt/sources.list.d', '/keyrings'] as $sub) {
+    foreach (['', '/bin', '/fs', '/tools', '/staged', '/log', '/apt/sources.list.d', '/keyrings'] as $sub) {
         expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
     }
 
@@ -183,6 +183,12 @@ function bootstrapRuntimeWriteHostFiles(string $scratch, array $options): void
         file_put_contents($scratch.'/fs/os-release', $osRelease);
     }
 
+    // The exact keyring content --apply would have installed: dearmored,
+    // pin-validated key material (the gpg stub recognizes the embedded URL
+    // and answers with the per-repository fingerprint).
+    $phpKeyringContent = 'DEARMORED:KEY-FROM:https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x'.bootstrapRuntimePhpPpaFingerprint()."\n";
+    $pgdgKeyringContent = "DEARMORED:KEY-FROM:https://www.postgresql.org/media/keys/ACCC4CF8.asc\n";
+
     // Unrelated host-wide repositories the real staging host carries — never
     // RateGuru dependencies, never managed, never removed. One deb822 file
     // proves the .sources scan ignores foreign stanzas too.
@@ -223,7 +229,7 @@ function bootstrapRuntimeWriteHostFiles(string $scratch, array $options): void
                 $scratch.'/keyrings/rateguru-php.gpg',
             ),
         );
-        file_put_contents($scratch.'/keyrings/rateguru-php.gpg', "EXISTING-PHP-KEYRING\n");
+        file_put_contents($scratch.'/keyrings/rateguru-php.gpg', $phpKeyringContent);
     }
 
     if (($options['pgdgRepo'] ?? 'preexisting') === 'preexisting') {
@@ -241,7 +247,7 @@ function bootstrapRuntimeWriteHostFiles(string $scratch, array $options): void
                 $scratch.'/keyrings/rateguru-pgdg.gpg',
             ),
         );
-        file_put_contents($scratch.'/keyrings/rateguru-pgdg.gpg', "EXISTING-PGDG-KEYRING\n");
+        file_put_contents($scratch.'/keyrings/rateguru-pgdg.gpg', $pgdgKeyringContent);
     }
 
     // A decoy RateGuru runtime tree: slice 5.2 must never touch application
@@ -311,7 +317,7 @@ function bootstrapRuntimeWriteToolStubs(string $scratch, array $options): void
     }
 }
 
-function bootstrapRuntimeWriteMutationStubs(string $scratch): void
+function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): void
 {
     // dpkg-query: reads the fixture package database; builtins only.
     bootstrapRuntimeWriteStub($scratch.'/bin/dpkg-query', <<<'STUB'
@@ -327,8 +333,10 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch): void
         STUB);
 
     // apt-get: logs every invocation; a successful install marks its
-    // packages installed in the fixture dpkg database (so a second --apply
-    // sees the converged state, exactly like a real host).
+    // packages installed in the fixture dpkg database, and installing the
+    // bootstrap tooling packages materializes the curl/gpg binaries on the
+    // fixture tool PATH — exactly like a real host, where those tools only
+    // exist after their packages are installed.
     bootstrapRuntimeWriteStub($scratch.'/bin/apt-get', <<<'STUB'
         #!/bin/bash
         printf 'apt-get %s\n' "$*" >> "${STUB_LOG}/apt.log"
@@ -342,7 +350,15 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch): void
             for arg in "$@"; do
                 case "${arg}" in
                     install|--|-*) ;;
-                    *) printf '%s\n' "${arg}" >> "${STUB_DPKG_STATE}" ;;
+                    *)
+                        printf '%s\n' "${arg}" >> "${STUB_DPKG_STATE}"
+                        if [[ "${arg}" == "curl" ]]; then
+                            PATH="${STUB_REAL_PATH}" cp "${STUB_STAGED_DIR}/curl" "${STUB_TOOLS_DIR}/curl"
+                        fi
+                        if [[ "${arg}" == "gnupg" ]]; then
+                            PATH="${STUB_REAL_PATH}" cp "${STUB_STAGED_DIR}/gpg" "${STUB_TOOLS_DIR}/gpg"
+                        fi
+                        ;;
                 esac
             done
         fi
@@ -350,8 +366,11 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch): void
         STUB);
 
     // curl: records the request and materializes fake key material carrying
-    // the requested URL, so the gpg stub can answer per-repository.
-    bootstrapRuntimeWriteStub($scratch.'/bin/curl', <<<'STUB'
+    // the requested URL, so the gpg stub can answer per-repository. There is
+    // deliberately NO RATEGURU_BOOTSTRAP_* override for curl/gpg — the
+    // script resolves both through the fixture tool PATH, so a host profile
+    // without them genuinely cannot fetch keys until apt "installs" them.
+    $curlStub = <<<'STUB'
         #!/bin/bash
         printf 'curl %s\n' "$*" >> "${STUB_LOG}/curl.log"
         url="${!#}"
@@ -368,11 +387,12 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch): void
         done
         printf 'KEY-FROM:%s' "${url}" > "${out}"
         exit 0
-        STUB);
+        STUB;
 
     // gpg: dearmor copies the staged key with a marker; --show-keys answers
-    // with the per-repository fingerprint the test configured.
-    bootstrapRuntimeWriteStub($scratch.'/bin/gpg', <<<'STUB'
+    // with the per-repository fingerprint the test configured (garbage
+    // content yields no fingerprint at all and therefore never validates).
+    $gpgStub = <<<'STUB'
         #!/bin/bash
         printf 'gpg %s\n' "$*" >> "${STUB_LOG}/gpg.log"
         if [[ " $* " == *" --dearmor "* ]]; then
@@ -394,6 +414,9 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch): void
             fpr=""
             [[ "${content}" == *keyserver.ubuntu.com* ]] && fpr="${STUB_FPR_PHP}"
             [[ "${content}" == *postgresql.org* ]] && fpr="${STUB_FPR_PGDG}"
+            if [[ -z "${fpr}" ]]; then
+                exit 2
+            fi
             printf 'pub:-:4096:1:AAAAAAAAAAAAAAAA:1:::-:::scESC::::::23::0:\n'
             printf 'fpr:::::::::%s:\n' "${fpr}"
             if [[ "${STUB_GPG_EXTRA_KEY:-}" == "true" ]]; then
@@ -403,7 +426,24 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch): void
             exit 0
         fi
         exit 1
-        STUB);
+        STUB;
+
+    // Staged copies for the apt stub to "install"; live copies on the tool
+    // PATH only when the simulated host profile actually has the tooling.
+    bootstrapRuntimeWriteStub($scratch.'/staged/curl', $curlStub);
+    bootstrapRuntimeWriteStub($scratch.'/staged/gpg', $gpgStub);
+
+    if (($options['bootstrapTooling'] ?? 'present') === 'present') {
+        if (is_file($scratch.'/tools/curl')) {
+            bootstrapRuntimeWriteStub($scratch.'/tools/curl', $curlStub);
+        }
+        if (is_file($scratch.'/tools/gpg')) {
+            bootstrapRuntimeWriteStub($scratch.'/tools/gpg', $gpgStub);
+        }
+    } else {
+        @unlink($scratch.'/tools/curl');
+        @unlink($scratch.'/tools/gpg');
+    }
 }
 
 /**
@@ -427,6 +467,9 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch): void
  *   curlFailPattern: URL substring that makes the curl stub fail
  *   aptUpdateFail/aptInstallFail: bool
  *   gpgExtraKey:     bool — key material bundles a second key
+ *   bootstrapTooling: 'present' | 'missing' — 'missing' removes curl/gpg
+ *                    from the tool PATH entirely; they only appear when the
+ *                    apt stub installs the bootstrap tooling packages
  *
  * @param  array<string, mixed>  $options
  * @return array<string, string>
@@ -435,7 +478,7 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
 {
     bootstrapRuntimeWriteHostFiles($scratch, $options);
     bootstrapRuntimeWriteToolStubs($scratch, $options);
-    bootstrapRuntimeWriteMutationStubs($scratch);
+    bootstrapRuntimeWriteMutationStubs($scratch, $options);
 
     $env = [
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
@@ -450,8 +493,6 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAP_TOOL_PATH' => $scratch.'/tools',
         'RATEGURU_BOOTSTRAP_APT_GET_BIN' => $scratch.'/bin/apt-get',
         'RATEGURU_BOOTSTRAP_DPKG_QUERY_BIN' => $scratch.'/bin/dpkg-query',
-        'RATEGURU_BOOTSTRAP_GPG_BIN' => $scratch.'/bin/gpg',
-        'RATEGURU_BOOTSTRAP_CURL_BIN' => $scratch.'/bin/curl',
         'RATEGURU_BOOTSTRAP_PHP_CLI_BIN' => $scratch.'/tools/php8.5',
         'RATEGURU_BOOTSTRAP_PHP_FPM_BIN' => $scratch.'/tools/php-fpm8.5',
         'RATEGURU_BOOTSTRAP_PSQL_BIN' => $scratch.'/tools/psql',
@@ -459,6 +500,9 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAP_PG_RESTORE_BIN' => $scratch.'/tools/pg_restore',
         'STUB_LOG' => $scratch.'/log',
         'STUB_DPKG_STATE' => $scratch.'/fs/dpkg-installed.txt',
+        'STUB_REAL_PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'STUB_STAGED_DIR' => $scratch.'/staged',
+        'STUB_TOOLS_DIR' => $scratch.'/tools',
         'STUB_PHP_VERSION' => $options['phpVersion'] ?? '8.5.8',
         'STUB_PHP_MODULES' => $options['phpModules'] ?? implode(' ', bootstrapRuntimeRequiredPhpModules()),
         'STUB_PG_VERSION' => $options['pgVersion'] ?? '18.4',
@@ -846,11 +890,19 @@ it('bootstraps a clean host: pinned repositories, one apt update, one install, c
         expect((string) file_get_contents($scratch.'/keyrings/rateguru-php.gpg'))->toStartWith('DEARMORED:KEY-FROM:https://keyserver.ubuntu.com/');
         expect((string) file_get_contents($scratch.'/keyrings/rateguru-pgdg.gpg'))->toStartWith('DEARMORED:KEY-FROM:https://www.postgresql.org/');
 
-        // Exactly one update, then exactly one deterministic noninteractive
-        // install of every required package.
-        $aptLog = bootstrapRuntimeAptLog($scratch);
-        $expectedInstall = 'apt-get install -y --no-install-recommends -- '.implode(' ', bootstrapRuntimeRequiredPackages());
-        expect($aptLog)->toBe("apt-get update\n{$expectedInstall}\n");
+        // Two-phase apt: update + bootstrap repository tooling from the
+        // existing Ubuntu sources, then update (indexes now include the new
+        // repositories) + one deterministic noninteractive install of the
+        // remaining required packages. Never an upgrade.
+        $bootstrapInstall = 'apt-get install -y --no-install-recommends -- ca-certificates curl gnupg';
+        $remaining = array_values(array_diff(
+            bootstrapRuntimeRequiredPackages(),
+            ['ca-certificates', 'curl', 'gnupg'],
+        ));
+        $runtimeInstall = 'apt-get install -y --no-install-recommends -- '.implode(' ', $remaining);
+        expect(bootstrapRuntimeAptLog($scratch))->toBe(
+            "apt-get update\n{$bootstrapInstall}\napt-get update\n{$runtimeInstall}\n",
+        );
 
         // Key material never leaks into the report.
         expect($output)->not->toContain('KEY-FROM');
@@ -933,7 +985,14 @@ it('is idempotent: a second --apply performs no apt call, no key fetch and no fi
 
         expect((string) file_get_contents($scratch.'/log/apt.log'))->toBe('', 'second apply ran apt-get');
         expect((string) file_get_contents($scratch.'/log/curl.log'))->toBe('', 'second apply re-fetched key material');
-        expect((string) file_get_contents($scratch.'/log/gpg.log'))->toBe('', 'second apply re-imported keys');
+
+        // The only gpg activity is the local read-only keyring validation —
+        // never a dearmor/import of new material.
+        $gpgLog = (string) file_get_contents($scratch.'/log/gpg.log');
+        expect($gpgLog)->not->toContain('--dearmor');
+        foreach (array_filter(explode("\n", $gpgLog)) as $line) {
+            expect($line)->toContain('--show-keys');
+        }
 
         expect(bootstrapRuntimeTreeSnapshot($scratch.'/apt'))->toBe($sourcesBefore);
         expect(bootstrapRuntimeTreeSnapshot($scratch.'/keyrings'))->toBe($keyringsBefore);
@@ -992,8 +1051,11 @@ it('fails closed when one repository key cannot be fetched: earlier repo intact,
         );
         expect($leftovers)->toBe([]);
 
-        // Dependent package installation never started.
-        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        // Dependent package installation never started: only the bootstrap
+        // repository tooling phase reached apt.
+        expect(bootstrapRuntimeAptLog($scratch))->toBe(
+            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+        );
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -1013,7 +1075,9 @@ it('refuses key material whose fingerprint does not match the pin and stops befo
 
         expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
         expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
-        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe(
+            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+        );
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -1029,7 +1093,121 @@ it('refuses key material that bundles extra keys beyond the pinned one', functio
         expect($exit)->toBe(1);
         expect($output)->toContain('refusing to install it');
         expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
-        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe(
+            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+        );
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// --apply bootstrap ordering (clean host without curl/gpg)
+// =============================================================================
+
+it('bootstraps a host that genuinely lacks curl and gpg: tooling first, external repositories second', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeCleanHostFixture($scratch, ['bootstrapTooling' => 'missing']);
+
+        expect(is_file($scratch.'/tools/curl'))->toBeFalse('fixture must start without curl');
+        expect(is_file($scratch.'/tools/gpg'))->toBeFalse('fixture must start without gpg');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, "a genuinely minimal host must bootstrap end to end:\n{$output}");
+        expect($output)->toContain('bootstrap repository tooling missing: ca-certificates curl gnupg');
+        expect($output)->toContain('SLICE 5.2 CONTRACT: SATISFIED');
+
+        // The tooling appeared exactly the way a real host gets it —
+        // through the apt install — and both repositories followed.
+        expect(is_file($scratch.'/tools/curl'))->toBeTrue();
+        expect(is_file($scratch.'/tools/gpg'))->toBeTrue();
+        expect(is_file($scratch.'/apt/sources.list.d/rateguru-php.sources'))->toBeTrue();
+        expect(is_file($scratch.'/apt/sources.list.d/rateguru-pgdg.sources'))->toBeTrue();
+
+        $bootstrapInstall = 'apt-get install -y --no-install-recommends -- ca-certificates curl gnupg';
+        $remaining = array_values(array_diff(
+            bootstrapRuntimeRequiredPackages(),
+            ['ca-certificates', 'curl', 'gnupg'],
+        ));
+        $runtimeInstall = 'apt-get install -y --no-install-recommends -- '.implode(' ', $remaining);
+        expect(bootstrapRuntimeAptLog($scratch))->toBe(
+            "apt-get update\n{$bootstrapInstall}\napt-get update\n{$runtimeInstall}\n",
+        );
+
+        // Both keys were fetched only after the tooling existed.
+        $curlLog = (string) file_get_contents($scratch.'/log/curl.log');
+        expect(substr_count($curlLog, "\n"))->toBe(2);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('aborts before any external key fetch when the bootstrap-tooling apt update fails', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeCleanHostFixture($scratch, [
+            'bootstrapTooling' => 'missing',
+            'aptUpdateFail' => true,
+        ]);
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('ERROR: apt-get update failed');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe("apt-get update\n");
+        expect(is_file($scratch.'/log/curl.log'))->toBeFalse('a key fetch happened before the tooling existed');
+        expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
+        expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('aborts before any external key fetch when the bootstrap-tooling apt install fails', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeCleanHostFixture($scratch, [
+            'bootstrapTooling' => 'missing',
+            'aptInstallFail' => true,
+        ]);
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('ERROR: apt-get install failed for the bootstrap repository tooling');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe(
+            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+        );
+        expect(is_file($scratch.'/log/curl.log'))->toBeFalse('a key fetch happened before the tooling existed');
+        expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
+        expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('fails closed when repository work would need curl/gpg that dpkg claims installed but the PATH does not provide', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        // dpkg says everything (including the bootstrap tooling) is
+        // installed, so the tooling phase is skipped — but the tools are
+        // genuinely absent. The fetch must refuse rather than pretend.
+        $env = bootstrapRuntimeFixture($scratch, [
+            'bootstrapTooling' => 'missing',
+            'phpRepo' => 'absent',
+            'pgdgRepo' => 'absent',
+        ]);
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('curl unavailable — bootstrap repository tooling must be installed before any external repository work');
+        expect(is_file($scratch.'/log/curl.log'))->toBeFalse();
+        expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
+        expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -1213,6 +1391,111 @@ it('fails --verify on a wrong PostgreSQL client major even with all packages ins
 
         expect($exit)->toBe(1);
         expect($output)->toContain('CONFLICT psql — reports PostgreSQL 17.2, required major is 18');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('fails --verify on any drift of an installer-owned .sources file and prints the reconciliation action in --check', function () {
+    foreach ([
+        'wrong URI' => ['https://ppa.launchpadcontent.net/ondrej/php/ubuntu', 'https://evil.example/ondrej/php/ubuntu'],
+        'wrong suite' => ['Suites: jammy', 'Suites: noble'],
+        'wrong Signed-By' => ['Signed-By: ', 'Signed-By: /usr/share/keyrings/other-'],
+    ] as $case => [$search, $replace]) {
+        $scratch = bootstrapRuntimeScratchDir();
+
+        try {
+            $env = bootstrapRuntimeFixture($scratch, ['phpRepo' => 'installer-owned', 'pgdgRepo' => 'installer-owned']);
+
+            $sourcesFile = $scratch.'/apt/sources.list.d/rateguru-php.sources';
+            file_put_contents($sourcesFile, str_replace($search, $replace, (string) file_get_contents($sourcesFile)));
+
+            [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+            expect($exit)->toBe(1, "{$case} must fail --verify:\n{$output}");
+            expect($output)->toContain('CONFLICT repo:php — installer-owned');
+            expect($output)->toContain('drifted');
+            expect($output)->toContain('PASS     repo:pgdg');
+
+            [, $checkOutput] = bootstrapRuntimeRun(['--check'], $env);
+            expect($checkOutput)->toContain('-> apply: re-run --apply to reconcile the php repository transactionally');
+        } finally {
+            bootstrapRuntimeCleanup($scratch);
+        }
+    }
+});
+
+it('fails --verify for a keyring that is garbage, carries a wrong fingerprint, or bundles an extra key', function () {
+    // Non-empty garbage that is not an OpenPGP keyring at all.
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpRepo' => 'installer-owned', 'pgdgRepo' => 'installer-owned']);
+        file_put_contents($scratch.'/keyrings/rateguru-php.gpg', "GARBAGE-NOT-A-KEYRING\n");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('CONFLICT repo:php — keyring');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+
+    // A structurally valid key whose fingerprint is not the pin.
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'phpRepo' => 'installer-owned',
+            'pgdgRepo' => 'installer-owned',
+            'fprPhp' => str_repeat('DEADBEEF', 5),
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('CONFLICT repo:php — keyring');
+        expect($output)->toContain('does not hold exactly the pinned key '.bootstrapRuntimePhpPpaFingerprint());
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+
+    // The pinned key plus an extra primary key in the same keyring.
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'phpRepo' => 'installer-owned',
+            'pgdgRepo' => 'installer-owned',
+            'gpgExtraKey' => true,
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('CONFLICT repo:php — keyring');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('validates installer-owned repositories without any network, apt or key-fetch activity', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpRepo' => 'installer-owned', 'pgdgRepo' => 'installer-owned']);
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('keyring matches pinned '.bootstrapRuntimePhpPpaFingerprint());
+        expect($output)->toContain('keyring matches pinned '.bootstrapRuntimePgdgFingerprint());
+
+        expect(is_file($scratch.'/log/apt.log'))->toBeFalse('--verify invoked apt-get');
+        expect(is_file($scratch.'/log/curl.log'))->toBeFalse('--verify fetched key material');
+
+        // gpg ran, but only as the local read-only keyring inspection.
+        $gpgLog = (string) file_get_contents($scratch.'/log/gpg.log');
+        expect($gpgLog)->not->toBe('');
+        expect($gpgLog)->not->toContain('--dearmor');
+        foreach (array_filter(explode("\n", $gpgLog)) as $line) {
+            expect($line)->toContain('--show-keys');
+        }
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
