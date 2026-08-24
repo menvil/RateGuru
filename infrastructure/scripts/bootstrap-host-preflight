@@ -85,6 +85,16 @@ SUPPORTED_OS_VERSION_ID="22.04"
 DISK_MIN_AVAILABLE_MIB=5120
 MEMORY_MIN_TOTAL_MIB=1024
 
+# Slice 5.3 managed-identity contract, kept in exact-token parity with
+# install-bootstrap-host-layout (architecture tests compare the two
+# scripts): the runtime account must hold the non-login service shell, and
+# the deploy account must hold /bin/bash plus the exact canonical
+# /home/<deploy_user> home the GitHub Actions SSH deployment flow and the
+# managed .ssh/incoming directories depend on. Preflight only reports —
+# remediation is an operator decision via slice 5.3, never automatic.
+RUNTIME_USER_SHELL="/usr/sbin/nologin"
+DEPLOY_USER_SHELL="/bin/bash"
+
 # --- Test override gate -----------------------------------------------------
 
 rateguru_test_overrides_allowed() {
@@ -830,6 +840,54 @@ report_user() {
     item PASS "user:${user}" "exists (uid=${uid} gid=${gid} primary-group=${primary_group}; ${label})"
 }
 
+# report_target_user USER EXPECTED_GROUP EXPECTED_HOME EXPECTED_SHELL LABEL
+#
+# The slice 5.3 managed-identity contract, asserted authoritatively with
+# the identical classification install-bootstrap-host-layout --verify
+# applies: primary group, canonical shell, and — where EXPECTED_HOME is
+# not "-" — the exact canonical home (the deploy identity; the runtime
+# account's historic home is deliberately not contract). Drift is
+# CONFLICT; preflight never mutates accounts, and no numeric UID/GID is
+# ever asserted.
+report_target_user() {
+    local user="$1" expected_group="$2" expected_home="$3" expected_shell="$4" label="$5"
+    local entry uid gid primary_group home shell drift=""
+
+    if ! entry="$(passwd_entry "${user}")"; then
+        item MISSING "user:${user}" "missing (${label})" \
+            "create via slice 5.3 (never by preflight)"
+
+        return 0
+    fi
+
+    uid="$(cut -d: -f3 <<<"${entry}")"
+    gid="$(cut -d: -f4 <<<"${entry}")"
+    primary_group="$(group_name_for_gid "${gid}" || printf 'gid=%s' "${gid}")"
+    home="$(cut -d: -f6 <<<"${entry}")"
+    shell="$(cut -d: -f7 <<<"${entry}")"
+
+    if [[ "${primary_group}" != "${expected_group}" ]]; then
+        drift="primary group is ${primary_group}, required ${expected_group}"
+    fi
+
+    if [[ "${expected_home}" != "-" ]] && [[ "${home}" != "${expected_home}" ]]; then
+        drift="${drift:+${drift}; }home is ${home:-empty}, required ${expected_home}"
+    fi
+
+    if [[ "${shell}" != "${expected_shell}" ]]; then
+        drift="${drift:+${drift}; }shell is ${shell:-empty}, required ${expected_shell}"
+    fi
+
+    if [[ -n "${drift}" ]]; then
+        item CONFLICT "user:${user}" "${drift} (${label})" \
+            "incompatible existing account — operator review required; slice 5.3 never rewrites an existing account's home/shell"
+
+        return 0
+    fi
+
+    item PASS "user:${user}" "exists (uid=${uid} primary-group=${primary_group} shell=${shell}; ${label})"
+}
+
 report_group() {
     local group="$1" label="$2"
     local entry
@@ -874,10 +932,18 @@ report_users_groups() {
     report_user www-data "Nginx/PHP-FPM socket owner; storage access is ACL-based, not membership-based"
     report_user postgres "PostgreSQL service account; backup runs pg_dump via runuser -u postgres"
 
+    # Managed per-target identities carry the full slice 5.3 metadata
+    # contract (primary group, canonical shell, and the deploy identity's
+    # exact canonical home) — package-created and shared-host accounts
+    # above/below keep the presence-only report_user probe.
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
-        report_user "${TGT_RUNTIME_USER[${target_id}]}" "runtime user for target ${target_id}"
-        report_user "${TGT_DEPLOY_USER[${target_id}]}" "deploy user for target ${target_id}"
+        report_target_user "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" \
+            - "${RUNTIME_USER_SHELL}" \
+            "runtime user for target ${target_id}; historic home is not contract"
+        report_target_user "${TGT_DEPLOY_USER[${target_id}]}" "${TGT_DEPLOY_USER[${target_id}]}" \
+            "/home/${TGT_DEPLOY_USER[${target_id}]}" "${DEPLOY_USER_SHELL}" \
+            "deploy user for target ${target_id}: GitHub Actions SSH deployment account"
     done
 
     # Shared staging mail capture accounts — shared-host-service, not

@@ -30,7 +30,11 @@ infrastructure, and moves out once a second project exists.
 - sudoers and SSH restrictions;
 - environment variable templates;
 - operational runbooks;
-- the phased [`ROADMAP.md`](ROADMAP.md).
+- the phased [`ROADMAP.md`](ROADMAP.md) — Phase 5 (clean-VPS bootstrap) is
+  current; Phases 6–10 (Sentry observability, disaster recovery and release
+  rehearsal, first production launch, repeatable target onboarding, advanced
+  observability/analytics) are planned there as concrete slices, including
+  the three distinct rehearsal gates and the disposable-rehearsal policy.
 
 ## Committed non-secret config exception
 

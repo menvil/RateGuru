@@ -112,8 +112,14 @@ values are never invented.
   runtime/code groups, and the one repo-required membership relation: the
   runtime user must be in the code group (releases are
   `deploy_user:code_group` mode `0750`/`0640`, and PHP-FPM must read them).
-  Names and relations are the contract — no accidental numeric UID/GID is
-  ever asserted.
+  The managed per-target accounts additionally carry the slice 5.3 identity
+  metadata contract, asserted in tested parity with
+  `install-bootstrap-host-layout`: the runtime account must hold the
+  non-login `/usr/sbin/nologin` shell (historic home not asserted), and the
+  deploy account must hold its exact canonical `/home/<deploy_user>` home
+  plus `/bin/bash`. Drift is `CONFLICT` (operator review — never mutated by
+  preflight). Names and relations are the contract — no accidental numeric
+  UID/GID is ever asserted.
 - **FILESYSTEM** — the runtime tree (`/home/www/rateguru` and its
   config/bin/backups/run subtrees), the fifteen files
   `install-target-operations` manages, the per-target tree derived from the
@@ -430,11 +436,20 @@ incoming directory are ever created for it.
 ### The identity model
 
 - **deploy user** (`deploy-rateguru-staging`) — owns the incoming artifact
-  directory and creates immutable releases. Primary group is its own
-  private group; home is `/home/deploy-rateguru-staging` with a structural
-  `.ssh` (`0700`). No `authorized_keys` is ever created, read or modified —
-  the GitHub deploy public key is external secret material provisioned in
-  Phase 5.4. No sudo is granted here (restricted sudoers stays with
+  directory and creates immutable releases. Its passwd metadata is a hard
+  contract, for existing accounts too: primary group is its own private
+  group, home is exactly the canonical `/home/deploy-rateguru-staging`
+  (the same directory this installer manages, with its `.ssh` and
+  `incoming`), and the shell is `/bin/bash` — the GitHub Actions SSH
+  deployment flow must be able to log in, so `/usr/sbin/nologin` or
+  `/bin/false` is a CONFLICT, and so is a home pointing anywhere else
+  (that would silently break `authorized_keys` lookup and every ownership
+  expectation). An incompatible existing account is never automatically
+  `usermod`ed — it fails `--apply` closed before any mutation and requires
+  operator review. The home carries a structural `.ssh` (`0700`); no
+  `authorized_keys` is ever created, read or modified — the GitHub deploy
+  public key is external secret material provisioned in Phase 5.4. No sudo
+  is granted here (restricted sudoers stays with
   `install-target-perimeter`).
 - **code group** (`rateguru-staging-code`) — permits the runtime user to
   read immutable release code. Releases are owned
@@ -444,8 +459,13 @@ incoming directory are ever created for it.
   (never replacing unrelated memberships).
 - **runtime user** (`rateguru-staging`) — runs Laravel/PHP-FPM/queue
   processes and owns the shared mutable application state. Created as a
-  system account with a non-login shell and no password login; an existing
-  correct account is left untouched (no shell/home/metadata rewrites).
+  system account with no password login. Its primary group and the
+  non-login `/usr/sbin/nologin` shell are hard contract (an interactive
+  shell on the runtime service account is a CONFLICT, never auto-fixed);
+  its historic home is deliberately **not** contract — the runtime home is
+  not operationally significant to PHP-FPM/queue execution the way the
+  deploy home is critical to SSH, so incidental home metadata never fails
+  a healthy host. A compliant existing account is left untouched.
 - **www-data** — is **not** added to any runtime group and no runtime
   account joins www-data; public storage traversal remains the narrow
   POSIX ACL `install-public-storage-access` grants in slice 5.4.

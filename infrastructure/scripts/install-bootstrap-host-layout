@@ -76,12 +76,25 @@
 # material).
 #
 # Accounts are persistent host state: convergence is fail-safe, idempotent
-# and re-runnable, never rolled back destructively. An existing account
-# with an incompatible primary group is a CONFLICT that stops the run
-# before any filesystem mutation; an existing correct account is left
-# untouched (no shell/home/comment rewrites merely to match what a fresh
-# useradd would have produced). No numeric UID/GID is ever part of the
-# contract — names and relationships are.
+# and re-runnable, never rolled back destructively. The semantic identity
+# contract for an EXISTING account is: primary group (both accounts),
+# canonical shell (runtime: the non-login service shell; deploy: /bin/bash,
+# because the GitHub Actions SSH deployment flow must be able to log in),
+# and — for the deploy identity only — the exact canonical home
+# /home/<deploy_user>: this installer manages that home, its .ssh and its
+# incoming directory, so a passwd entry pointing the deploy user elsewhere
+# would silently break authorized_keys lookup and every ownership
+# expectation. The runtime account's historic home is deliberately NOT
+# contract — it is not operationally significant to PHP-FPM/queue
+# execution, and encoding incidental metadata would churn healthy hosts.
+# Any incompatible metadata (wrong primary group, wrong deploy home, wrong
+# shell) is a CONFLICT that stops the run before any mutation: an existing
+# SSH identity is never automatically usermod'ed (no home, shell, UID or
+# primary-GID rewrites — that could break authorized_keys lookup, live
+# session behavior and external automation), so remediation is an explicit
+# operator decision. A compliant existing account is left completely
+# untouched, and no numeric UID/GID is ever part of the contract — names,
+# relationships, the deploy home and the canonical shells are.
 #
 # Test overrides: every RATEGURU_HOSTLAYOUT_* override below is honored
 # only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate
@@ -112,10 +125,12 @@ LOG_DIR="/var/log/rateguru"
 # must be exactly <deploy home>/incoming or the registry is inconsistent.
 HOME_ROOT="/home"
 
-# Shells: a freshly created runtime user gets a non-login service-account
-# shell; the deploy user must remain reachable by the existing GitHub
-# Actions SSH deployment flow. Existing accounts never have their shell
-# rewritten.
+# Canonical shells — a hard contract for existing accounts too (kept in
+# tested parity with bootstrap-host-preflight): the runtime account must
+# hold the non-login service shell, and the deploy account must hold
+# /bin/bash so the existing GitHub Actions SSH deployment flow can log in.
+# An existing account with a different shell is a CONFLICT requiring
+# operator review — this installer never rewrites it.
 RUNTIME_USER_SHELL="/usr/sbin/nologin"
 DEPLOY_USER_SHELL="/bin/bash"
 
@@ -341,6 +356,40 @@ user_in_group() {
     [[ "${members}" == *",${user},"* ]] || [[ "${user_gid}" == "${group_gid}" ]]
 }
 
+# user_metadata_drift USER EXPECTED_GROUP EXPECTED_HOME EXPECTED_SHELL
+#
+# The single classification --check/--verify and the apply gate share for
+# an EXISTING managed account: prints the semicolon-joined list of contract
+# violations ("primary group is X, required Y; shell is A, required B"),
+# empty when the account is compliant. EXPECTED_HOME "-" skips the home
+# assertion — the runtime account's historic home is deliberately not
+# contract. Fails (with no output) when the account is absent; absence is
+# classified by the callers, never here.
+user_metadata_drift() {
+    local user="$1" expected_group="$2" expected_home="$3" expected_shell="$4"
+    local entry primary_group home shell drift=""
+
+    entry="$(passwd_entry "${user}")" || return 1
+
+    primary_group="$(user_primary_group "${user}" || printf 'unresolvable')"
+    home="$(cut -d: -f6 <<<"${entry}")"
+    shell="$(cut -d: -f7 <<<"${entry}")"
+
+    if [[ "${primary_group}" != "${expected_group}" ]]; then
+        drift="primary group is ${primary_group}, required ${expected_group}"
+    fi
+
+    if [[ "${expected_home}" != "-" ]] && [[ "${home}" != "${expected_home}" ]]; then
+        drift="${drift:+${drift}; }home is ${home:-empty}, required ${expected_home}"
+    fi
+
+    if [[ "${shell}" != "${expected_shell}" ]]; then
+        drift="${drift:+${drift}; }shell is ${shell:-empty}, required ${expected_shell}"
+    fi
+
+    printf '%s\n' "${drift}"
+}
+
 # --- Source-registry contract -------------------------------------------------
 
 ACTIVE_TARGETS=()
@@ -487,30 +536,35 @@ report_groups() {
     done
 }
 
-# report_user_required USER EXPECTED_PRIMARY_GROUP LABEL — exists with the
-# exact primary-group relationship, or MISSING/CONFLICT. No numeric UID/GID
-# and no shell/password state is ever asserted for an existing account.
+# report_user_required USER EXPECTED_GROUP EXPECTED_HOME EXPECTED_SHELL LABEL
+#
+# An existing account must satisfy the exact semantic contract: primary
+# group, canonical shell, and — where EXPECTED_HOME is not "-" — the exact
+# canonical home (the deploy identity: this installer manages that home,
+# its .ssh and its incoming directory, so a divergent passwd entry breaks
+# the SSH deployment flow). Any drift is CONFLICT and is never auto-
+# usermod'ed. No numeric UID/GID and no password state is ever asserted.
 report_user_required() {
-    local user="$1" expected_group="$2" label="$3"
-    local primary_group
+    local user="$1" expected_group="$2" expected_home="$3" expected_shell="$4" label="$5"
+    local drift
 
     if ! passwd_entry "${user}" >/dev/null; then
         item MISSING "user:${user}" "missing (${label})" \
-            "useradd with primary group ${expected_group} (no password login; never renumbered later)"
+            "useradd with primary group ${expected_group}, shell ${expected_shell} (no password login; never renumbered later)"
 
         return 0
     fi
 
-    primary_group="$(user_primary_group "${user}" || printf 'unresolvable')"
+    drift="$(user_metadata_drift "${user}" "${expected_group}" "${expected_home}" "${expected_shell}")"
 
-    if [[ "${primary_group}" != "${expected_group}" ]]; then
-        item CONFLICT "user:${user}" "primary group is ${primary_group}, required ${expected_group} (${label})" \
-            "incompatible existing account — resolve manually; this installer never deletes, renumbers or reassigns primary groups"
+    if [[ -n "${drift}" ]]; then
+        item CONFLICT "user:${user}" "${drift} (${label})" \
+            "incompatible existing account — operator review required; this installer never deletes, renumbers or rewrites the home/shell of an existing account"
 
         return 0
     fi
 
-    item PASS "user:${user}" "exists (primary group ${expected_group}; ${label})"
+    item PASS "user:${user}" "exists (primary group ${expected_group}, shell ${expected_shell}; ${label})"
 }
 
 report_users() {
@@ -519,8 +573,10 @@ report_users() {
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         report_user_required "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" \
-            "runtime user for target ${target_id}: runs Laravel/PHP-FPM/queue processes"
+            - "${RUNTIME_USER_SHELL}" \
+            "runtime user for target ${target_id}: runs Laravel/PHP-FPM/queue processes; historic home is not contract"
         report_user_required "${TGT_DEPLOY_USER[${target_id}]}" "${TGT_DEPLOY_USER[${target_id}]}" \
+            "${TGT_DEPLOY_HOME[${target_id}]}" "${DEPLOY_USER_SHELL}" \
             "deploy user for target ${target_id}: GitHub Actions SSH deployment account"
     done
 }
@@ -714,26 +770,35 @@ apply_gate_prerequisites() {
     done
 }
 
-# apply_gate_identities — an existing account whose primary group is
-# incompatible with the contract cannot be safely reconciled (this
-# installer never deletes, renumbers or reassigns primary groups), so it
-# fails the whole run closed before any mutation — identity or filesystem.
+# apply_gate_identities — an existing account whose metadata is
+# incompatible with the contract (wrong primary group; wrong shell; for
+# the deploy identity, wrong home) cannot be safely reconciled: this
+# installer never deletes, renumbers, or rewrites the home/shell of an
+# existing account — automatically changing an existing SSH identity can
+# break authorized_keys lookup, session behavior, ownership expectations
+# and external automation. Any such account fails the whole run closed
+# before any mutation — no group/user creation, no membership change, no
+# install/chown/chmod.
 apply_gate_identities() {
-    local target_id user expected primary
+    local target_id user expected_group expected_home expected_shell drift
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         for user in "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_DEPLOY_USER[${target_id}]}"; do
             passwd_entry "${user}" >/dev/null || continue
 
             if [[ "${user}" == "${TGT_RUNTIME_USER[${target_id}]}" ]]; then
-                expected="${TGT_RUNTIME_GROUP[${target_id}]}"
+                expected_group="${TGT_RUNTIME_GROUP[${target_id}]}"
+                expected_home="-"
+                expected_shell="${RUNTIME_USER_SHELL}"
             else
-                expected="${user}"
+                expected_group="${user}"
+                expected_home="${TGT_DEPLOY_HOME[${target_id}]}"
+                expected_shell="${DEPLOY_USER_SHELL}"
             fi
 
-            primary="$(user_primary_group "${user}" || printf 'unresolvable')"
+            drift="$(user_metadata_drift "${user}" "${expected_group}" "${expected_home}" "${expected_shell}")"
 
-            [[ "${primary}" == "${expected}" ]] \
-                || fail "user:${user} exists with primary group '${primary}', required '${expected}' — incompatible existing account; resolve manually (this installer never deletes or renumbers accounts). No filesystem mutation was performed."
+            [[ -z "${drift}" ]] \
+                || fail "user:${user} exists with incompatible metadata: ${drift} — incompatible existing account; operator review required (this installer never deletes, renumbers or rewrites the home/shell of an existing account). No filesystem mutation was performed."
         done
     done
 }

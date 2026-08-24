@@ -989,6 +989,68 @@ it('reports a runtime user missing from the code group as a MISSING membership',
     }
 });
 
+it('asserts the slice 5.3 identity contract for managed target accounts: deploy home/shell and runtime shell', function () {
+    foreach ([
+        // [compliant passwd line, drifted passwd line, expected CONFLICT detail]
+        [
+            'deploy-rateguru-staging:x:1002:1002::/home/deploy-rateguru-staging:/bin/bash',
+            'deploy-rateguru-staging:x:1002:1002::/root:/bin/bash',
+            'CONFLICT user:deploy-rateguru-staging — home is /root, required /home/deploy-rateguru-staging',
+        ],
+        [
+            'deploy-rateguru-staging:x:1002:1002::/home/deploy-rateguru-staging:/bin/bash',
+            'deploy-rateguru-staging:x:1002:1002::/home/deploy-rateguru-staging:/usr/sbin/nologin',
+            'CONFLICT user:deploy-rateguru-staging — shell is /usr/sbin/nologin, required /bin/bash',
+        ],
+        [
+            'rateguru-staging:x:1001:1001::/home/www/rateguru/staging:/usr/sbin/nologin',
+            'rateguru-staging:x:1001:1001::/home/www/rateguru/staging:/bin/bash',
+            'CONFLICT user:rateguru-staging — shell is /bin/bash, required /usr/sbin/nologin',
+        ],
+    ] as [$compliantLine, $driftedLine, $expectedConflict]) {
+        $scratch = bootstrapPreflightScratchDir();
+
+        try {
+            $passwd = str_replace($compliantLine, $driftedLine, bootstrapPreflightCompliantPasswd());
+            expect($passwd)->not->toBe(bootstrapPreflightCompliantPasswd(), 'fixture drift line did not apply');
+
+            $env = bootstrapPreflightFixture($scratch, ['passwd' => $passwd]);
+            [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+            expect($exit)->toBe(1, "an incompatible managed identity must fail --check:\n{$output}");
+            expect($output)->toContain($expectedConflict);
+
+            // --report annotates the conflict with the operator-review path
+            // (never an automatic rewrite).
+            [, $reportOutput] = bootstrapPreflightRun(['--report'], $env);
+            expect($reportOutput)->toContain('operator review required');
+            expect($reportOutput)->toContain("never rewrites an existing account's home/shell");
+        } finally {
+            bootstrapPreflightCleanup($scratch);
+        }
+    }
+
+    // A divergent historic runtime home alone stays PASS: the deploy home
+    // is critical to SSH, the runtime home is deliberately not contract.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $passwd = str_replace(
+            'rateguru-staging:x:1001:1001::/home/www/rateguru/staging:/usr/sbin/nologin',
+            'rateguru-staging:x:1001:1001::/var/lib/rateguru-staging:/usr/sbin/nologin',
+            bootstrapPreflightCompliantPasswd(),
+        );
+
+        $env = bootstrapPreflightFixture($scratch, ['passwd' => $passwd]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(0, "a divergent runtime home alone must not fail --check:\n{$output}");
+        expect($output)->toContain('PASS     user:rateguru-staging — exists');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
 // =============================================================================
 // Filesystem contract
 // =============================================================================

@@ -12,10 +12,10 @@ not reorganize unrelated infrastructure.
 | 4 | Multi-target production model | ✅ completed |
 | 5 | Infrastructure installer and clean-VPS bootstrap | 🚧 current |
 | 6 | Sentry observability activation | ⏳ planned |
-| 7 | Recovery and release rehearsal | ⏳ planned |
-| 8 | tits.guru production launch | ⏳ planned |
-| 9 | Additional production targets | ⏳ planned |
-| 10 | Optional Nightwatch / PostHog / advanced dashboards | ⏳ planned |
+| 7 | Disaster recovery and release rehearsal | ⏳ planned |
+| 8 | First production launch and target-provisioning proof | ⏳ planned |
+| 9 | Repeatable production target onboarding | ⏳ planned |
+| 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
 ## 1. VPS / deployment / backup foundation — completed
 
@@ -422,8 +422,8 @@ slices 1–2, which installed nothing — so it completes on merge.
    `rclone selfupdate`, never touching `/root/.config/rclone/rclone.conf`.
    `unzip` joined the base package contract to extract the release
    archive.
-3. **5.3 Users, groups and filesystem — implemented; completed after
-   real-host acceptance.**
+3. **5.3 Users, groups and filesystem — implemented; awaiting real-staging
+   acceptance (a mutating host slice is never marked completed on CI alone).**
    `infrastructure/scripts/install-bootstrap-host-layout` provisions the
    identity and filesystem layer required before service/configuration
    installation (root-only `--check` read-only validation with intended
@@ -451,7 +451,15 @@ slices 1–2, which installed nothing — so it completes on merge.
    `install-mail-capture`. The deploy home gets a structural `.ssh`
    (`0700`) but never an `authorized_keys` (5.4 secret material), no
    sudoers, and `current`/`previous` stay deployment-owned (never
-   fabricated, rewritten or followed). Reconciliation is strictly
+   fabricated, rewritten or followed). The managed-identity metadata is a
+   hard contract for existing accounts too: the deploy account must hold
+   its exact canonical home (`/home/<deploy_user>` — the same directory
+   the installer manages) and `/bin/bash` (the GitHub Actions SSH flow
+   must be able to log in), and the runtime account must hold the
+   non-login `/usr/sbin/nologin` service shell; the runtime account's
+   historic home is deliberately not contract. Incompatible existing
+   metadata is CONFLICT and fails `--apply` closed before any mutation —
+   an existing SSH identity is never automatically usermod'ed. Reconciliation is strictly
    per-directory-entry — no recursive chown/chmod, no `rm -rf`, no
    `userdel`/`groupdel`, no UID/GID renumbering; wrong-type paths and
    incompatible existing accounts fail closed before any mutation, and a
@@ -478,13 +486,54 @@ slices 1–2, which installed nothing — so it completes on merge.
 
 ## 6. Sentry observability activation — planned
 
-Wire the existing observability foundation (DomainLogger, exception context) to
-Sentry for staging and production, with release tagging and PII redaction.
+Wire the existing observability foundation (DomainLogger, exception context)
+to Sentry for staging and production, with release tagging and PII redaction.
+The phase overall proves: **we can see and diagnose failures before
+production**. Slices, in order:
 
-## 7. Recovery and release rehearsal — planned
+1. **6.1 Sentry SDK, environments and release identity.** Connect Laravel to
+   Sentry while preserving current application behavior, and establish the
+   canonical Sentry identity/context: target ID, environment class, release
+   ID, source SHA, and application/version identity. Staging and production
+   must be distinguishable. *Acceptance:* a controlled staging exception is
+   attributed in Sentry to the exact target, environment class, deployed
+   release and source SHA — answering "can an exception be attributed to
+   exactly what code and target was running?".
+2. **6.2 Exceptions and application/domain context.** Connect application
+   exception reporting and the existing DomainLogger/domain context to
+   Sentry: correlation/request identity, target, release, domain operation,
+   and authenticated-vs-anonymous state where safe. Expected
+   validation/domain errors must not become high-severity incidents, and no
+   PII may leak. *Acceptance:* representative Laravel/domain failures carry
+   enough context to diagnose the actual operation that failed.
+3. **6.3 Queue, Artisan and scheduler observability.** HTTP monitoring alone
+   is insufficient — background failures can remain invisible. Instrument
+   queue jobs, Artisan commands and scheduler executions; every event
+   carries target, release and job/command identity. *Acceptance:* a
+   controlled failed queue job plus a failed command/scheduled run appear
+   correctly in Sentry.
+4. **6.4 Performance and tracing.** Add controlled performance visibility
+   only after error reporting works reliably: HTTP requests, database-heavy
+   requests, queue jobs, outbound HTTP calls. Maximal trace collection is
+   never enabled by default. *Acceptance:* useful traces exist on staging
+   without unacceptable overhead or noise.
+5. **6.5 PII, sampling and noise policy.** Make the Sentry configuration
+   safe enough for production: request-body policy, headers/cookies policy,
+   PII redaction, sampling, expected-error filtering, bot/noise
+   suppression. *Acceptance:* synthetic sensitive values intentionally
+   submitted during testing never appear in Sentry, and expected
+   operational noise does not dominate incident signal.
+6. **6.6 Alerts and staging acceptance.** Convert telemetry into actionable
+   operations: alerts for new serious exceptions, error-rate spikes,
+   queue/job failures, and meaningful performance regressions where
+   justified. *Acceptance:* controlled staging failures verify the
+   notification path end to end.
 
-Rehearse recovery end to end. This phase explicitly distinguishes four distinct
-activities that must never be conflated:
+## 7. Disaster recovery and release rehearsal — planned
+
+Rehearse recovery end to end. The phase overall proves: **we can lose the
+whole server and recover correctly**. It explicitly distinguishes four
+distinct activities that must never be conflated:
 
 1. **Backup creation** — producing a verified local + offsite backup artifact
    (database dump, storage, environment, server-configuration snapshot,
@@ -502,16 +551,204 @@ activities that must never be conflated:
    RPO/RTO targets, DNS/TLS cutover, and a communications checklist. *The real
    event, not a drill.*
 
-## 8. tits.guru production launch — planned
+Slices, in order:
 
-First production target go-live on `tits.guru`: production environment, TLS,
-backups, monitoring, and the disaster-recovery procedure from Phase 7.
+1. **7.1 Durable immutable release artifact archive.** GitHub artifact
+   retention is finite, and the data backup only tells us what data existed
+   — total VPS loss also requires the exact application artifact that was
+   running. Create a durable offsite archive of immutable releases
+   (conceptually `rateguru/artifacts/<release-id>/` holding
+   `artifact.tar.gz`, `artifact.sha256`, `release.json`; likely storage
+   Backblaze B2). The full application artifact is NOT copied into every
+   daily data backup. *Acceptance:* an old release can be retrieved and
+   checksum-verified without depending on GitHub artifact retention.
+2. **7.2 Backup ↔ exact release mapping.** A data backup must
+   deterministically identify the exact application release that belongs to
+   it. Strengthen backup metadata: target, release ID, source SHA, artifact
+   reference, artifact checksum, backup time/schema/version metadata.
+   *Acceptance:* starting from a backup manifest, recovery identifies the
+   exact deployable artifact without guessing or rebuilding from source.
+3. **7.3 Clean-server recovery rehearsal.** Prove recovery from total VPS
+   loss: new Ubuntu VPS → Phase 5 bootstrap → retrieve the exact immutable
+   artifact → recover secrets/environment → restore database → restore
+   storage → deploy the exact release → start the target → health check.
+   Explicitly distinct from the current restore-test: restore-test answers
+   "can this backup technically be restored?"; 7.3 answers "can the entire
+   host disappear and the application be reconstructed?".
+4. **7.4 Application-level restore verification.** A successful pg_restore
+   is not enough. Verify actual recovered application behavior: Laravel
+   boots, DB queries work, migration state is coherent, storage/media
+   works, queues work, the scheduler works, representative smoke tests
+   pass. *Acceptance:* the recovered application behaves like a valid
+   running target, not merely a restored PostgreSQL database.
+5. **7.5 Full timed DR drill, RPO/RTO and runbook.** Turn recovery
+   technology into an operational procedure: rehearse full host loss,
+   backup selection, release selection, provisioning, restore, DNS/TLS
+   implications, verification and fallback; measure real recovery
+   duration; define RPO and RTO; produce the final disaster-recovery
+   runbook.
 
-## 9. Additional production targets — planned
+## 8. First production launch and target-provisioning proof — planned
 
-Onboard further production targets on the multi-target model from Phase 4.
+First production target go-live on `tits.guru`, launched through a generic,
+rehearsed provisioning procedure rather than hand-built commands. The phase
+overall proves: **we can launch the first production site using a rehearsed
+procedure**. Slices, in order:
 
-## 10. Optional Nightwatch / PostHog / advanced dashboards — planned
+1. **8.1 Generic target provisioner.** A target described in
+   `deployment-targets.json` must be provisionable reproducibly rather than
+   through one-off manual commands. Build a generic target provisioning
+   mechanism that will eventually create/configure target identities,
+   filesystem, database and role, environment placement, PHP-FPM pool,
+   Nginx vhost, Supervisor worker, scheduler, backup namespace, perimeter
+   integration and health identity. Lifecycle gating remains mandatory: a
+   `planned` target existing in the registry must NOT become publicly
+   active just because provisioning tools exist. *Acceptance:* a temporary
+   test target can be provisioned without hand-writing target-specific
+   server commands.
+2. **8.2 Disposable multi-site rehearsal.** Before real production, prove
+   the architecture can create multiple independent new brand targets from
+   scratch — on a separate disposable rehearsal VPS, never by destroying
+   the long-lived staging host. Conceptual temporary targets (`tits-test`,
+   `food-test`, `animals-test`) on isolated rehearsal DNS names (e.g.
+   `tits.rehearsal.<technical-domain>`), each independently owning its
+   application root, `.env`, database/role, FPM pool/socket, queue,
+   scheduler, release history, storage, backup namespace and health
+   identity. Exercise deploy, rollback, backup, restore and target
+   isolation. After acceptance: destroy the rehearsal targets/VPS, then
+   recreate them again from committed infrastructure. Use a separate B2
+   rehearsal namespace — the real staging backup namespace is NEVER
+   deleted to make this test clean. *Proves:* we know how to create new
+   sites from scratch, not merely maintain staging.
+3. **8.3 Provision real tits-guru target.** Create the first real
+   production target using the generic mechanism already proven in
+   8.1/8.2 — `tits-guru` must not become a hand-built exception. Provision
+   production infrastructure while keeping public activation controlled.
+4. **8.4 Production secrets, database, TLS, mail and backups.** Supply the
+   production-only external material and services: production `.env`, DB
+   credentials, deploy key, TLS, production backup credentials/policy,
+   production mail delivery, inbound replies/bounces where applicable, and
+   SPF/DKIM/DMARC domain authentication. No production secrets in Git.
+   *Acceptance:* the target is internally functional, observable and backed
+   up before public traffic is enabled.
+5. **8.5 Production GitHub release/deploy flow.** Prove the real immutable
+   production deployment path: a production GitHub Environment, a
+   reviewed/tagged immutable artifact, and the same exact artifact carried
+   through deployment. Application code is never rebuilt on the server.
+   Test production rollback mechanics before public launch where safely
+   possible.
+6. **8.6 Exact production dress rehearsal.** Perform the production
+   procedure one final time without exposing the real public service, on
+   production-like configuration and isolated rehearsal DNS/traffic:
+   provision → secrets → deploy → TLS → health → Sentry → backup →
+   restore/recovery check → rollback. No infrastructure operation performed
+   during the eventual real launch should be happening for the first time.
+7. **8.7 tits.guru GO LIVE.** The actual first public production
+   activation. Only final state changes remain: lifecycle activation where
+   required, public DNS/routing, TLS/public health verification, monitoring
+   confirmation. Immediately verify health, smoke tests, backup,
+   queues/scheduler, Sentry, and mail where applicable.
+
+## 9. Repeatable production target onboarding — planned
+
+Turn the first production launch into a routine, repeatable procedure on the
+multi-target model from Phase 4. The phase overall proves: **adding another
+production site is routine**. Slices, in order:
+
+1. **9.1 Formal target onboarding template.** Turn the successful first
+   production launch into a formal reusable contract: a new site
+   specification explicitly defines target ID, domains,
+   branding/application configuration, environment, DB identity, backup
+   retention, mail identity, monitoring identity, and the secrets
+   required. *Acceptance:* a complete target specification can be reviewed
+   before any server mutation.
+2. **9.2 Second real production brand.** The second real production site
+   proves the system is actually generic rather than merely generalized
+   around tits.guru. Provision using the standard workflow, with no
+   target-specific infrastructure exceptions.
+3. **9.3 Independent deploy / rollback / backup proof.** Prove real target
+   isolation: deploy target A → target B unchanged; rollback target B →
+   target A unchanged; backup/retention in isolated namespaces; health is
+   target-specific. *Acceptance:* operational changes to one production
+   target do not mutate another.
+4. **9.4 Third-target repeatability.** The second target may still expose
+   assumptions and receive one-off fixes; the third target proves
+   onboarding is routine. Measure the remaining manual host steps — the
+   desired result is approximately zero manual server customization.
+5. **9.5 Reconsider shared infrastructure extraction.** Only after 2+ real
+   production brands/projects exist, reconsider moving shared
+   infrastructure out of RateGuru, evaluated using actual duplication.
+   Possible future forms: a separate infrastructure repository, a shared
+   tooling/package, or a subtree/submodule/synchronization model.
+   Infrastructure is NOT extracted merely because this roadmap slice
+   exists.
+
+## 10. Advanced observability and product analytics — planned / optional
 
 Optional analytics and advanced operational dashboards, evaluated after the
-core production and recovery phases are stable.
+core production and recovery phases are stable. The phase overall proves:
+**we can efficiently operate and understand a mature multi-target
+platform**. Slices, in order:
+
+1. **10.1 Nightwatch evaluation.** After Sentry and production are stable,
+   determine whether Laravel-native Nightwatch provides additional value
+   rather than duplicating Sentry. Evaluate first; never install
+   automatically.
+2. **10.2 PostHog product analytics.** Separate product/user behavior
+   analytics from operational error monitoring: Sentry answers "why did
+   the application fail?", PostHog answers "how is the product being
+   used?". Define the privacy/event/retention policy before any
+   instrumentation.
+3. **10.3 Internal infrastructure/admin dashboard.** Expose reliable
+   operational state inside the RateGuru admin UI: server/target identity,
+   current release, source SHA/tag, last deploy, last backup, last
+   restore-test, last offsite backup, queue state, scheduler heartbeat,
+   runtime versions, observability state. Prefer structured
+   machine-readable operational state over parsing human logs.
+4. **10.4 Aggregate host / target health.** Once multiple targets exist,
+   provide an operational overview (conceptually: `staging-main` healthy,
+   `tits-guru` healthy, `food-guru` degraded, `animals-guru` healthy).
+   The aggregate dashboard does NOT replace per-target health/readiness
+   gates — deployment remains target-specific.
+5. **10.5 SLI/SLO and alert tuning.** After real production behavior is
+   known, formalize meaningful service objectives — availability, latency,
+   error rate, queue delay, backup freshness, restore-test freshness — and
+   tune thresholds using real data rather than guessed pre-production
+   values.
+
+## Three distinct rehearsal gates
+
+The roadmap deliberately contains three different infrastructure exams. They
+test different failure domains and must never be collapsed into one generic
+rehearsal:
+
+- **Phase 5.6 — "Can we build a completely empty server?"** Proves host
+  bootstrap and reproducibility: a brand-new VPS becomes a working host
+  purely from committed infrastructure.
+- **Phase 7.5 — "Can we recover after complete server/data loss?"** Proves
+  disaster recovery: the host and its data disappear, and the application
+  is reconstructed from offsite backups plus the archived exact release
+  artifact, within measured RPO/RTO.
+- **Phase 8.2 + 8.6 — "Can we repeatedly create new sites and execute the
+  exact production launch procedure without first-time surprises?"** Proves
+  target onboarding and production readiness: multiple independent targets
+  from scratch, then a full production dress rehearsal so the real launch
+  contains no first-time operations.
+
+## Disposable rehearsal policy
+
+The long-lived staging VPS is NOT destroyed merely to test clean bootstrap
+or new-site provisioning. Destructive rehearsals use a disposable rehearsal
+VPS instead, because:
+
+- staging retains realistic accumulated state;
+- staging retains useful deployment/release history;
+- staging remains available during destructive testing;
+- a genuinely empty machine is a stronger bootstrap test;
+- a rehearsal host can be destroyed and recreated repeatedly.
+
+Rehearsal resources must be isolated from real ones in every namespace:
+target IDs, DNS names, databases, secrets, and the backup namespace. The
+real staging B2 backup namespace is never reused or deleted for rehearsal.
+Disposable rehearsal resources may be completely destroyed after
+acceptance.

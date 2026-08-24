@@ -677,7 +677,8 @@ it('reports the full work list on a clean Phase-5.2-compliant host and exits non
 
         // Intended actions annotate every unsatisfied item.
         expect($output)->toContain('-> apply: groupadd rateguru-staging-code');
-        expect($output)->toContain('-> apply: useradd with primary group rateguru-staging (no password login; never renumbered later)');
+        expect($output)->toContain('-> apply: useradd with primary group rateguru-staging, shell /usr/sbin/nologin (no password login; never renumbered later)');
+        expect($output)->toContain('-> apply: useradd with primary group deploy-rateguru-staging, shell /bin/bash (no password login; never renumbered later)');
         expect($output)->toContain('-> apply: create the accounts, then usermod --append --groups rateguru-staging-code rateguru-staging');
         expect($output)->toContain('-> apply: install -d mode 2750, chown deploy-rateguru-staging:rateguru-staging-code — this directory entry only');
 
@@ -879,10 +880,14 @@ it('bootstraps a clean host: groups, users, membership and the full tree in depe
             $previous = $position;
         }
 
-        // The fixture account database now carries the full contract.
+        // The fixture account database now carries the full contract,
+        // including the canonical shells and the canonical deploy home.
         $group = file_get_contents($fs.'/etc-group');
         expect($group)->toContain('rateguru-staging-code');
-        expect(file_get_contents($fs.'/etc-passwd'))->toContain('rateguru-staging');
+        $passwd = file_get_contents($fs.'/etc-passwd');
+        expect($passwd)->toContain('rateguru-staging');
+        expect($passwd)->toContain(':/home/www/rateguru/staging:/usr/sbin/nologin');
+        expect($passwd)->toContain(':/home/deploy-rateguru-staging:/bin/bash');
 
         // Real directories with exact modes, including setgid bits.
         foreach (hostLayoutContractDirs() as $logical => [, , $mode]) {
@@ -1201,6 +1206,121 @@ it('fails closed on an incompatible existing primary group before any filesystem
     }
 });
 
+it('enforces the canonical deploy home and shell for an existing deploy account without ever rewriting it', function () {
+    $compliantDeployLine = 'deploy-rateguru-staging:x:5002:5002::/home/deploy-rateguru-staging:/bin/bash';
+
+    foreach ([
+        // [drifted passwd line, expected CONFLICT detail]
+        [
+            'deploy-rateguru-staging:x:5002:5002::/root:/bin/bash',
+            'CONFLICT user:deploy-rateguru-staging — home is /root, required /home/deploy-rateguru-staging',
+        ],
+        [
+            'deploy-rateguru-staging:x:5002:5002::/tmp/wherever:/bin/bash',
+            'CONFLICT user:deploy-rateguru-staging — home is /tmp/wherever, required /home/deploy-rateguru-staging',
+        ],
+        [
+            'deploy-rateguru-staging:x:5002:5002::/home/deploy-rateguru-staging:/usr/sbin/nologin',
+            'CONFLICT user:deploy-rateguru-staging — shell is /usr/sbin/nologin, required /bin/bash',
+        ],
+        [
+            'deploy-rateguru-staging:x:5002:5002::/home/deploy-rateguru-staging:/bin/false',
+            'CONFLICT user:deploy-rateguru-staging — shell is /bin/false, required /bin/bash',
+        ],
+    ] as [$driftedLine, $expectedConflict]) {
+        $scratch = hostLayoutScratchDir();
+
+        try {
+            $passwd = str_replace($compliantDeployLine, $driftedLine, hostLayoutCompliantPasswd());
+            expect($passwd)->not->toBe(hostLayoutCompliantPasswd(), 'fixture drift line did not apply');
+
+            $env = hostLayoutFixture($scratch, ['passwd' => $passwd]);
+
+            // --check names the incompatibility and the operator-review path.
+            [$checkExit, $checkOutput] = hostLayoutRun(['--check'], $env);
+            expect($checkExit)->toBe(1, "an incompatible deploy account must fail --check:\n{$checkOutput}");
+            expect($checkOutput)->toContain($expectedConflict);
+            expect($checkOutput)->toContain('operator review required');
+
+            // --verify fails on the same drift.
+            [$verifyExit] = hostLayoutRun(['--verify'], $env);
+            expect($verifyExit)->toBe(1);
+
+            // --apply fails closed before any mutation of any kind; the
+            // account is never usermod'ed and authorized_keys stays intact.
+            $before = hostLayoutTreeSnapshot($scratch.'/fs');
+            [$applyExit, $applyOutput] = hostLayoutRun(['--apply'], $env);
+
+            expect($applyExit)->toBe(1);
+            expect($applyOutput)->toContain('incompatible existing account');
+            expect($applyOutput)->toContain('No filesystem mutation was performed');
+
+            foreach (['identity.log', 'install.log', 'chown.log', 'chmod.log'] as $log) {
+                expect(hostLayoutLog($scratch, $log))->toBe('', "apply mutated despite the incompatible deploy account ({$log})");
+            }
+
+            expect(hostLayoutTreeSnapshot($scratch.'/fs'))->toBe($before, 'apply changed the filesystem despite the incompatible deploy account');
+            expect(file_get_contents($scratch.'/fs/etc-passwd'))->toBe($passwd, 'the incompatible deploy account was rewritten');
+            expect(file_get_contents($scratch.'/fs/home/deploy-rateguru-staging/.ssh/authorized_keys'))
+                ->toContain('DEPLOY-KEY-SENTINEL');
+        } finally {
+            hostLayoutCleanup($scratch);
+        }
+    }
+});
+
+it('enforces the non-login runtime shell while keeping the runtime home out of the contract', function () {
+    $compliantRuntimeLine = 'rateguru-staging:x:5001:5001::/home/www/rateguru/staging:/usr/sbin/nologin';
+
+    // An interactive runtime shell is CONFLICT and blocks apply pre-mutation.
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $passwd = str_replace(
+            $compliantRuntimeLine,
+            'rateguru-staging:x:5001:5001::/home/www/rateguru/staging:/bin/bash',
+            hostLayoutCompliantPasswd(),
+        );
+        $env = hostLayoutFixture($scratch, ['passwd' => $passwd]);
+
+        [$checkExit, $checkOutput] = hostLayoutRun(['--check'], $env);
+        expect($checkExit)->toBe(1);
+        expect($checkOutput)->toContain('CONFLICT user:rateguru-staging — shell is /bin/bash, required /usr/sbin/nologin');
+
+        [$applyExit, $applyOutput] = hostLayoutRun(['--apply'], $env);
+        expect($applyExit)->toBe(1);
+        expect($applyOutput)->toContain('incompatible existing account');
+        expect($applyOutput)->toContain('No filesystem mutation was performed');
+
+        foreach (['identity.log', 'install.log', 'chown.log', 'chmod.log'] as $log) {
+            expect(hostLayoutLog($scratch, $log))->toBe('', "apply mutated despite the incompatible runtime shell ({$log})");
+        }
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+
+    // A divergent historic runtime home alone is NOT contract drift: the
+    // deploy home is critical to SSH, the runtime home is not.
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $passwd = str_replace(
+            $compliantRuntimeLine,
+            'rateguru-staging:x:5001:5001::/var/lib/rateguru-staging:/usr/sbin/nologin',
+            hostLayoutCompliantPasswd(),
+        );
+        $env = hostLayoutFixture($scratch, ['passwd' => $passwd]);
+
+        [$verifyExit, $verifyOutput] = hostLayoutRun(['--verify'], $env);
+
+        expect($verifyExit)->toBe(0, "a divergent runtime home alone must not fail --verify:\n{$verifyOutput}");
+        expect($verifyOutput)->toContain('SLICE 5.3 CONTRACT: SATISFIED');
+        expect($verifyOutput)->toContain('PASS     user:rateguru-staging — exists (primary group rateguru-staging, shell /usr/sbin/nologin');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
 it('validates the source registry through the standalone targets CLI and fails closed on an invalid one', function () {
     $scratch = hostLayoutScratchDir();
 
@@ -1347,4 +1467,67 @@ it('keeps the structural directory contract in parity with bootstrap-host-prefli
     }
 
     expect($layout)->toContain('"${LOG_DIR}" root root 0750');
+
+    // The managed-identity contract is pinned identically in both scripts:
+    // the non-login runtime shell and the SSH-capable deploy shell can
+    // never drift apart between preflight and installer.
+    foreach ([
+        'RUNTIME_USER_SHELL="/usr/sbin/nologin"',
+        'DEPLOY_USER_SHELL="/bin/bash"',
+    ] as $shellPin) {
+        expect(str_contains($layout, $shellPin))->toBeTrue("installer no longer pins {$shellPin}");
+        expect(str_contains($preflight, $shellPin))->toBeTrue("preflight no longer pins {$shellPin}");
+    }
+
+    // Both assert the deploy identity's canonical home and both leave the
+    // runtime account's historic home out of the contract ("-").
+    expect(preg_match('/report_target_user "\$\{TGT_RUNTIME_USER\[[^\]]+\]\}" "\$\{TGT_RUNTIME_GROUP\[[^\]]+\]\}" \\\\\n\s+- "\$\{RUNTIME_USER_SHELL\}"/', $preflight))
+        ->toBe(1, 'preflight no longer skips the runtime home while pinning the runtime shell');
+    expect($preflight)->toContain('"/home/${TGT_DEPLOY_USER[${target_id}]}" "${DEPLOY_USER_SHELL}"');
+    expect($layout)->toContain('- "${RUNTIME_USER_SHELL}"');
+    expect($layout)->toContain('"${TGT_DEPLOY_HOME[${target_id}]}" "${DEPLOY_USER_SHELL}"');
+});
+
+// =============================================================================
+// Roadmap structure (stable facts only — never prose)
+// =============================================================================
+
+it('keeps the roadmap structure: Phase 5 current with 5.4 next, Phases 6-10 planned with their slices and rehearsal gates', function () {
+    $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
+
+    // Phase 5 is the single current phase; 5.3 is implemented but stays a
+    // mutating slice awaiting real-staging acceptance; 5.4 is next.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    expect($roadmap)->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*🚧 current\s*\|$/m');
+    expect($roadmap)->toContain('5.3 Users, groups and filesystem — implemented');
+    expect($roadmap)->toContain('5.4 Services and configuration — next');
+    expect($roadmap)->toContain('5.5 Bootstrap orchestrator — planned');
+    expect($roadmap)->toContain('5.6 Clean-VPS acceptance — planned');
+
+    // Phases 6-10 stay planned in the summary table.
+    foreach ([6, 7, 8, 9, 10] as $phase) {
+        expect($roadmap)->toMatch(
+            '/^\|\s*'.$phase.'\s*\|[^|]+\|\s*⏳ planned[^|]*\|$/m',
+            "phase {$phase} is no longer a planned row in the summary table",
+        );
+    }
+
+    // Every architecturally decided future slice identifier exists. Only
+    // the identifiers are pinned — the prose is deliberately free to evolve.
+    foreach ([6 => 6, 7 => 5, 8 => 7, 9 => 5, 10 => 5] as $phase => $sliceCount) {
+        for ($slice = 1; $slice <= $sliceCount; $slice++) {
+            expect(str_contains($roadmap, "**{$phase}.{$slice} "))
+                ->toBeTrue("roadmap lost the {$phase}.{$slice} slice identifier");
+        }
+    }
+
+    // The three distinct rehearsal gates and the disposable-rehearsal
+    // policy exist as explicit architectural decisions.
+    expect($roadmap)->toContain('Three distinct rehearsal gates');
+    expect($roadmap)->toContain('Disposable rehearsal policy');
+
+    // Nothing future is marked completed.
+    foreach ([6, 7, 8, 9, 10] as $phase) {
+        expect($roadmap)->not->toMatch('/^##\s*'.$phase.'\.\s[^\n]*completed/m');
+    }
 });
