@@ -10,7 +10,10 @@ infrastructure, and moves out once a second project exists.
 
 ## Contents
 
-- clean-VPS bootstrap preflight (read-only host contract inspection) — see
+- clean-VPS bootstrap preflight (read-only host contract inspection) and the
+  base/runtime package installer (Ubuntu 22.04 baseline, PHP 8.5, PostgreSQL
+  18; Node.js/Composer intentionally absent — GitHub Actions builds the
+  immutable artifact) — see
   [`runbooks/bootstrap-host.md`](runbooks/bootstrap-host.md);
 - deployment and rollback scripts;
 - local and offsite backup scripts;

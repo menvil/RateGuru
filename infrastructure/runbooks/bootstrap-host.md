@@ -1,8 +1,14 @@
-# Bootstrap host preflight
+# Bootstrap host
 
-This runbook covers `infrastructure/scripts/bootstrap-host-preflight` —
-Phase 5 slice 5.1, the read-only host contract inspection for the clean-VPS
-bootstrap.
+This runbook covers the clean-VPS bootstrap scripts:
+
+- `infrastructure/scripts/bootstrap-host-preflight` — Phase 5 slice 5.1,
+  the read-only host contract inspection;
+- `infrastructure/scripts/install-bootstrap-runtime` — Phase 5 slice 5.2,
+  the reproducible base/runtime package installation (see its own section
+  below).
+
+## Slice 5.1: bootstrap-host-preflight
 
 **This slice cannot bootstrap a server.** It is strictly read-only: it never
 installs packages, never adds repositories or GPG keys, never creates users
@@ -147,11 +153,163 @@ execution ignores all of them. This is what lets
 compliant-host, wrong-OS, port-conflict and drift behavior without the CI
 host running nginx, PostgreSQL or even systemd.
 
-## What later slices do (and this one does not)
+## Slice 5.2: install-bootstrap-runtime
+
+`infrastructure/scripts/install-bootstrap-runtime` reproducibly installs the
+base/runtime package layer on the exact supported baseline. Its scope is
+repositories and packages only — nothing else.
+
+### Usage
+
+```bash
+# Read-only contract validation plus the intended --apply action for every
+# unsatisfied item. Never runs apt-get. Exit 0 only when already satisfied.
+infrastructure/scripts/install-bootstrap-runtime --check
+
+# Root only. Idempotently configures the two RateGuru-owned repositories,
+# installs missing required packages, ends with the full --verify report.
+infrastructure/scripts/install-bootstrap-runtime --apply
+
+# Read-only contract gate: exit 0 only when every repository, package,
+# binary, PHP module and client-version requirement holds.
+infrastructure/scripts/install-bootstrap-runtime --verify
+```
+
+### The proven staging baseline
+
+The contract reproduces what the real staging VPS runs, inspected directly:
+
+- **Ubuntu 22.04 (jammy), x86_64** — the exact OS pin is shared with the
+  preflight (architecture tests keep the two scripts in parity); any other
+  family, release or architecture fails closed before any mutation.
+- **PHP 8.5 (CLI + FPM)** from the Ondřej Surý PPA
+  (`ppa.launchpadcontent.net/ondrej/php/ubuntu jammy`) — Ubuntu 22.04's
+  base repository has no PHP 8.5.
+- **PostgreSQL 18** from PGDG (`apt.postgresql.org jammy-pgdg`) — the
+  staging packages identify as `18.x-1.pgdg22.04+1`.
+- **Nginx, Redis, Supervisor** and every base utility from the Ubuntu
+  22.04 distribution repository.
+
+Exact patch versions (PHP 8.5.8, PostgreSQL 18.4, nginx 1.18.0, redis
+6.0.16, supervisor 4.2.1 as observed) deliberately **float with security
+updates**: the contract is PHP series 8.5 and PostgreSQL major 18, and the
+Ubuntu jammy package family for everything else. No external repository is
+ever introduced to chase an incidental patch version.
+
+**Node.js, npm and Composer are intentionally absent.** GitHub Actions
+builds the immutable application artifact (`composer install --no-dev`,
+`npm ci`, `npm run build`; `vendor/` and `public/build` ship inside the
+artifact), so the application host never builds anything and the bootstrap
+contract excludes those toolchains on purpose.
+
+### Repository ownership and key handling
+
+The installer manages exactly two apt sources, written as deb822
+`.sources` files with dedicated keyrings:
+
+- `/etc/apt/sources.list.d/rateguru-php.sources` +
+  `/etc/apt/keyrings/rateguru-php.gpg`
+- `/etc/apt/sources.list.d/rateguru-pgdg.sources` +
+  `/etc/apt/keyrings/rateguru-pgdg.gpg`
+
+Keys are fetched over HTTPS only and installed only after the downloaded
+material contains exactly one primary key whose fingerprint matches the pin
+embedded in the script; keyring and sources files are staged and renamed
+into place atomically, and a failed repository aborts the run before any
+package installation. `apt-key` is never used.
+
+Because a genuinely minimal Ubuntu 22.04 host has neither curl nor gnupg,
+`--apply` first installs the bootstrap repository tooling
+(`ca-certificates`, `curl`, `gnupg`) from the host's **existing Ubuntu
+sources** — strictly before any external repository work — and only then
+fetches and validates the PHP/PGDG keys.
+
+`--check` and `--verify` validate installer-owned repository files
+authoritatively and read-only: the `.sources` file must be byte-exact
+against the expected deb822 content, and the installed keyring must be a
+valid OpenPGP keyring holding exactly one primary key with the pinned
+fingerprint (the same local gpg validation `--apply` applies to freshly
+fetched material — never a network call). Any drift, garbage or
+wrong-fingerprint keyring is `CONFLICT` and fails `--verify`.
+
+A repository already provided by a pre-existing apt source — however the
+operator configured it, like the classic `add-apt-repository` `.list` on
+the current staging host — is recognized and left untouched. Unrelated
+host-wide repositories (NodeSource, ClickHouse, Datadog/Vector, anything
+else) are never inspected, managed, removed or required absent: `--check`
+and `--verify` on the current staging host pass with them present.
+
+### apt policy and idempotency
+
+`--check`/`--verify` never run apt-get at all (package state is read via
+`dpkg-query`). `--apply` runs `apt-get update` only when needed: once
+before installing missing bootstrap repository tooling, and once after
+repository configuration changed (or when runtime packages must be
+installed and the indexes were not just refreshed) — so a first clean-host
+apply performs at most two updates, and package installation is one
+deterministic `DEBIAN_FRONTEND=noninteractive apt-get install -y
+--no-install-recommends` of the missing set per phase. `apt-get upgrade`
+in any form is never run, and packages are never removed. A second
+`--apply` on a satisfied host performs no apt call, fetches no key and
+rewrites no file (its only gpg activity is the local read-only keyring
+validation).
+
+### Package post-install side effects
+
+Installing the packages lets their Ubuntu maintainer scripts do what they
+always do: `postgresql-18` creates the default `main` cluster (via
+`postgresql-common`) and starts `postgresql.service`; `nginx` starts with
+the distribution default site; `redis-server` starts bound to localhost;
+`php8.5-fpm` starts with the distribution `www` pool; `supervisor` starts
+with an empty `conf.d`. None of that is RateGuru configuration — vhosts,
+pools, workers, databases, roles, `pg_hba.conf`, users, directories and TLS
+all belong to slices 5.3/5.4. Certbot is installed as base tooling only:
+no certificate is requested, ACME is never contacted, and no renewal hook
+is configured (TLS issuance is slice 5.4/5.6).
+
+Deliberate module/package decisions: `php8.5-igbinary` arrives as a
+dependency of `php8.5-redis` and is not an independent requirement;
+`php8.5-readline` is an interactive convenience, not contract; `exif` and
+`pcntl` ship inside `php8.5-common`/`php8.5-cli` and are verified as loaded
+modules (composer.json requires `ext-exif`; queue workers use pcntl);
+SQLite is not installed (tests support it, the runtime contract is
+PostgreSQL); `openssh-server` is required because the deploy pipeline
+delivers artifacts over SSH; shellcheck/actionlint/wget are never runtime
+requirements.
+
+### Verification depth
+
+`--verify` (and the closing report of every `--apply`) checks more than
+dpkg state: `php8.5 -v` and `php-fpm8.5 -v` must report series 8.5,
+`php8.5 -m` must list bcmath, curl, exif, gd, intl, mbstring, pcntl,
+pdo_pgsql, pgsql, redis, xml and zip, and `psql`/`pg_dump`/`pg_restore`
+must report major 18 (`createdb`/`dropdb` present). Slice 5.2 verification
+deliberately does **not** require `bootstrap-host-preflight --check` to
+pass: a clean host naturally lacks the slice 5.3/5.4 resources the
+preflight also inspects.
+
+### Known staging drift (5.3 remediation, not 5.2)
+
+The real staging preflight currently reports one conflict:
+`/home/www/rateguru/staging` is owned
+`deploy-rateguru-staging:rateguru-staging-code` while the Phase 5 contract
+expects the top-level application root to be root-owned. Slice 5.2 never
+`chown`s anything — this is recorded here as a slice 5.3 (users/groups/
+filesystem) remediation.
+
+### Test overrides
+
+Like the preflight, every probe and mutation path can be redirected through
+`RATEGURU_BOOTSTRAP_*` environment variables — honored only alongside
+`RATEGURU_ALLOW_TEST_OVERRIDES=true`. This is what lets
+`tests/Feature/Architecture/InstallBootstrapRuntimeTest.php` prove clean-host
+bootstrap, staging compatibility, repository failure safety, idempotency and
+the full check/apply/verify matrix without the CI runner ever running apt.
+
+## What later slices do (and these do not)
 
 | Slice | Mutation |
 |---|---|
-| 5.2 | base/runtime packages |
 | 5.3 | users, groups, filesystem tree |
 | 5.4 | service configuration + existing installers |
 | 5.5 | one-shot orchestrator ending in `--check` passing |

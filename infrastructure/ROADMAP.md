@@ -374,14 +374,49 @@ slices 1–2, which installed nothing — so it completes on merge.
    truth; an installed runtime registry is reported for parity/drift and
    never modified. There is deliberately no `--apply` in this slice. See
    `runbooks/bootstrap-host.md`.
-2. **5.2 Base packages and runtime — planned.** Install the required base
-   and runtime packages (the preflight's canonical tool inventory: jq,
-   curl, acl, rclone, PostgreSQL client, Nginx, PHP-FPM, Redis,
-   Supervisor, …) on the supported baseline, transactionally and
-   idempotently.
-3. **5.3 Users, groups and filesystem — planned.** Create the service and
+2. **5.2 Base packages and runtime — completed.**
+   `infrastructure/scripts/install-bootstrap-runtime` reproducibly installs
+   the base/runtime package layer on the exact supported baseline
+   (`--check` read-only validation with intended actions, root-only
+   `--apply`, read-only `--verify` gate; the real clean-VPS `--apply` run
+   is re-proven end to end by the 5.6 acceptance). The contract reproduces
+   the directly-inspected staging VPS: Ubuntu 22.04/x86_64 exactly (pins
+   kept in tested parity with the preflight; any other family, release or
+   architecture fails closed before mutation), PHP 8.5 CLI+FPM and
+   extensions from the Ondřej Surý PPA, PostgreSQL 18 from PGDG, and
+   Nginx/Redis/Supervisor plus the whole Phase 5.1 canonical tool
+   inventory from the Ubuntu jammy distribution repository. Exact patch
+   versions deliberately float with security updates — the contract is PHP
+   series 8.5 and PostgreSQL major 18, verified through `php8.5 -m`/`-v`
+   and the PostgreSQL client versions, not just dpkg state. The two
+   RateGuru-owned repositories are deb822 `.sources` files with dedicated
+   `/etc/apt/keyrings` keyrings, HTTPS-only key fetch validated against
+   pinned fingerprints, staged-and-renamed atomically, failing closed
+   before any package installation; `apt-key` is never used, pre-existing
+   operator-configured sources for the same repositories are recognized
+   and left untouched, and unrelated host repositories (NodeSource,
+   ClickHouse, Datadog/Vector) are never inspected, managed or required
+   absent. Because a minimal host has neither curl nor gnupg, `--apply`
+   installs the bootstrap repository tooling (ca-certificates, curl,
+   gnupg) from the existing Ubuntu sources before any external repository
+   work, and `--check`/`--verify` validate installer-owned repository
+   files authoritatively and read-only (byte-exact sources, keyring
+   holding exactly the pinned key). apt runs noninteractively, updates
+   only when needed (at most twice on a first clean-host apply), never
+   upgrades, never removes; a second `--apply` performs no apt call and
+   rewrites no file. Node.js/npm/Composer are intentionally absent (GitHub
+   Actions builds the immutable artifact — the host never builds), SQLite
+   is not installed, and no RateGuru users, directories, databases, roles,
+   service configuration or TLS are touched (slices 5.3/5.4). See
+   `runbooks/bootstrap-host.md`.
+3. **5.3 Users, groups and filesystem — next.** Create the service and
    deploy accounts, group memberships, and the runtime directory tree
-   (ownership and modes exactly as the preflight contract states).
+   (ownership and modes exactly as the preflight contract states). Known
+   remediation carried from the real staging preflight: the top-level
+   `/home/www/rateguru/staging` root is currently owned
+   `deploy-rateguru-staging:rateguru-staging-code` and must become
+   root-owned per the Phase 5 contract (slice 5.2 deliberately never
+   chowns anything).
 4. **5.4 Services and configuration — planned.** Install committed service
    configuration (Nginx vhosts, PHP-FPM pools, Supervisor programs, cron),
    run the existing installers (target operations, perimeter, public
