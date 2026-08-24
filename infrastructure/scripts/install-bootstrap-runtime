@@ -1,0 +1,943 @@
+#!/usr/bin/env bash
+#
+# install-bootstrap-runtime — Phase 5 slice 5.2: reproducible base/runtime
+# package installation for a clean Ubuntu 22.04 RateGuru host.
+#
+# Modes:
+#   --check   Strictly read-only. Validates the OS/architecture/package-
+#             manager prerequisites and reports repository, package and
+#             runtime state, plus the intended --apply action for every
+#             unsatisfied item. Never runs apt-get update, never installs
+#             anything, never adds repositories or keys. Exits 0 only when
+#             the slice 5.2 contract is already satisfied.
+#   --apply   Root only. Idempotently configures the two RateGuru-owned
+#             package repositories (PHP PPA, PGDG), installs missing
+#             required packages, and ends with the full --verify report.
+#             Never removes packages, never runs apt upgrade/dist-upgrade/
+#             full-upgrade, never touches application users, directories,
+#             services or RateGuru configuration.
+#   --verify  Read-only. The authoritative slice 5.2 contract gate: exits 0
+#             only when every repository, package, binary, PHP module and
+#             client version requirement holds. --check is exactly this
+#             report with intended actions added.
+#   --help    Usage.
+#
+# Supported host contract: the RateGuru staging VPS baseline only — Ubuntu
+# 22.04 (apt/dpkg), exactly, on x86_64/amd64 only. SUPPORTED_OS_ID and
+# SUPPORTED_OS_VERSION_ID mirror bootstrap-host-preflight and architecture
+# tests enforce that the two scripts never drift apart. Any other OS family,
+# release or architecture fails closed before any repository or package
+# mutation — this mutating installer does not silently claim support for
+# hosts the staging baseline has not proven.
+#
+# Repository ownership: this installer manages exactly two apt sources, both
+# required specifically by the RateGuru runtime and both proven on the real
+# staging host:
+#   - Ondřej Surý PHP PPA (ppa.launchpadcontent.net/ondrej/php/ubuntu jammy)
+#     — PHP 8.5 is not supplied by the Ubuntu 22.04 base repository.
+#   - PGDG (apt.postgresql.org jammy-pgdg) — the staging host runs
+#     PostgreSQL 18 packages (18.x-1.pgdg22.04+1).
+# Each is written as a deb822 .sources file referencing a dedicated keyring
+# under /etc/apt/keyrings; key material is fetched over HTTPS only, and is
+# installed only after its primary-key fingerprint matches the pin embedded
+# below (a single key per keyring — a bundle with extra keys is rejected).
+# apt-key is never used. A pre-existing apt source that already provides the
+# same repository (however the operator configured it — e.g. the classic
+# add-apt-repository .list the current staging host carries) is recognized
+# and left untouched. Unrelated host repositories (NodeSource, ClickHouse,
+# Datadog/Vector, anything else) are never inspected, managed or removed —
+# they are outside this installer's ownership.
+#
+# Version policy: the contract is major/runtime compatibility, never an
+# incidental security-patch pin. PHP must be series 8.5 (8.5.x floats with
+# security updates), PostgreSQL must be major 18. Nginx, Redis, Supervisor
+# and every base utility come from the Ubuntu 22.04 (jammy) distribution
+# repository — no external repository is introduced to chase the exact
+# staging patch versions (nginx 1.18.0, redis 6.0.16, supervisor 4.2.1).
+#
+# Deliberate package decisions:
+#   - Node.js, npm and Composer are intentionally absent: GitHub Actions
+#     builds the immutable application artifact (composer install --no-dev,
+#     npm ci, npm run build; vendor/ and public/build ship inside the
+#     artifact), so the application host never builds anything.
+#   - php8.5-igbinary is not listed: it arrives automatically as a
+#     dependency of php8.5-redis (the redis extension is built against the
+#     igbinary serializer) and is not an independent runtime requirement.
+#   - php8.5-readline is not listed: an interactive-CLI convenience, not
+#     part of the runtime contract; it may appear as a dependency but is
+#     never required or verified.
+#   - exif and pcntl ship inside php8.5-common/php8.5-cli — no extra
+#     package, but both are verified as loaded modules (composer.json
+#     requires ext-exif; queue workers rely on pcntl signal handling).
+#   - SQLite is not installed: repository tests support SQLite, but the
+#     staging/production runtime contract is PostgreSQL only.
+#   - openssh-server is required: the committed deploy pipeline delivers
+#     release artifacts over SSH (deploy-staging.yml), so sshd is a genuine
+#     runtime prerequisite even though slice 5.2 never touches its
+#     configuration.
+#   - shellcheck/actionlint/wget/journalctl are not requirements: the first
+#     two are development-only validators, wget is unused by the committed
+#     scripts (curl is the contract), and journalctl ships with systemd
+#     anyway. Their absence never fails --check/--verify.
+#
+# Package post-install side effects (documented, distro-standard, never
+# RateGuru-specific): installing these packages lets their maintainer
+# scripts do what they always do on Ubuntu — postgresql-18 creates the
+# default "main" cluster (via postgresql-common) and starts
+# postgresql.service; nginx starts with the distribution default site;
+# redis-server starts bound to localhost; php8.5-fpm starts with the
+# distribution "www" pool; supervisor starts with an empty conf.d. None of
+# that is RateGuru configuration: vhosts, pools, workers, databases, roles,
+# users, directories and TLS all belong to slices 5.3/5.4 and are never
+# created here. This slice also never enables/disables/starts/stops any
+# service itself and never edits pg_hba.conf or any service configuration.
+#
+# apt policy: --check/--verify never run apt-get at all (package state is
+# read through dpkg-query). --apply runs apt-get update exactly once, and
+# only when repository configuration changed or packages must be installed;
+# a second --apply on a satisfied host runs no apt command, rewrites no
+# repository or keyring file and imports no key. apt-get upgrade/
+# dist-upgrade/full-upgrade are never run. Installation is deterministic
+# and noninteractive: DEBIAN_FRONTEND=noninteractive, -y,
+# --no-install-recommends.
+#
+# Failure safety: repository configuration fails closed. Key material is
+# fetched and validated in a private work directory; the real keyring and
+# .sources files are only ever replaced by staging a complete candidate in
+# the destination directory and renaming it into place. A repository that
+# cannot be fetched/validated aborts the run before any package
+# installation, and a previously working repository file is never deleted —
+# the old file stays in place until its complete replacement is renamed
+# over it.
+#
+# Test overrides: every RATEGURU_BOOTSTRAP_* override below is honored only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate common,
+# backup, bootstrap-host-preflight and every installer use — so a stray
+# variable in a real shell can never redirect probes or mutation at
+# attacker- or operator-controlled paths. Production execution ignores all
+# of them.
+
+set -Eeuo pipefail
+
+# --- Supported host contract ------------------------------------------------
+
+# Kept in exact-token parity with bootstrap-host-preflight (architecture
+# tests compare the two scripts); moving the baseline is a deliberate edit
+# to both pins.
+SUPPORTED_OS_ID="ubuntu"
+SUPPORTED_OS_VERSION_ID="22.04"
+SUPPORTED_OS_CODENAME="jammy"
+
+# The only architecture proven by the staging baseline. This mutating
+# installer fails closed on anything else (the read-only preflight merely
+# warns — it never mutates, so it can afford to).
+SUPPORTED_ARCHITECTURES="x86_64 amd64"
+
+PHP_SERIES="8.5"
+POSTGRES_MAJOR="18"
+
+# --- RateGuru-owned repositories ----------------------------------------------
+
+PHP_REPO_URI="https://ppa.launchpadcontent.net/ondrej/php/ubuntu"
+PHP_REPO_SUITE="${SUPPORTED_OS_CODENAME}"
+PHP_REPO_COMPONENT="main"
+# Launchpad PPA signing key for ppa:ondrej/php.
+PHP_REPO_KEY_FINGERPRINT="14AA40EC0831756756D7F66C4F4EA0AAE5267A6C"
+PHP_REPO_KEY_URL="https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${PHP_REPO_KEY_FINGERPRINT}"
+
+PGDG_REPO_URI="https://apt.postgresql.org/pub/repos/apt"
+PGDG_REPO_SUITE="${SUPPORTED_OS_CODENAME}-pgdg"
+PGDG_REPO_COMPONENT="main"
+# PostgreSQL Global Development Group apt signing key (ACCC4CF8).
+PGDG_REPO_KEY_FINGERPRINT="B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8"
+PGDG_REPO_KEY_URL="https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+
+# --- Required package contract ----------------------------------------------
+
+# The smallest Ubuntu 22.04 package set supplying the Phase 5.1 canonical
+# tool inventory (REQUIRED_BASE_TOOLS + RUNTIME_SERVICE_TOOLS in
+# bootstrap-host-preflight) plus the runtime services and certbot tooling.
+BASE_PACKAGES=(
+    acl
+    bash
+    ca-certificates
+    certbot
+    coreutils
+    curl
+    diffutils
+    findutils
+    gnupg
+    grep
+    gzip
+    hostname
+    iproute2
+    jq
+    libc-bin
+    mawk
+    nginx
+    openssh-server
+    passwd
+    rclone
+    redis-server
+    rsync
+    sed
+    sudo
+    supervisor
+    tar
+    util-linux
+)
+
+PHP_PACKAGES=()
+for _php_component in cli common fpm bcmath curl gd intl mbstring pgsql redis xml zip; do
+    PHP_PACKAGES+=("php${PHP_SERIES}-${_php_component}")
+done
+unset _php_component
+
+POSTGRES_PACKAGES=(
+    "postgresql-${POSTGRES_MAJOR}"
+    "postgresql-client-${POSTGRES_MAJOR}"
+)
+
+REQUIRED_PACKAGES=("${BASE_PACKAGES[@]}" "${PHP_PACKAGES[@]}" "${POSTGRES_PACKAGES[@]}")
+
+# Modules verified through `php8.5 -m` — package presence alone proves
+# nothing about what the CLI/FPM runtime actually loads.
+REQUIRED_PHP_MODULES=(bcmath curl exif gd intl mbstring pcntl pdo_pgsql pgsql redis xml zip)
+
+# Binaries the installed packages must supply, verified by lookup
+# ("tool:package" — the package named is where the tool comes from).
+REQUIRED_RUNTIME_TOOLS=(
+    setfacl:acl
+    getfacl:acl
+    certbot:certbot
+    curl:curl
+    cmp:diffutils
+    diff:diffutils
+    find:findutils
+    gpg:gnupg
+    grep:grep
+    gzip:gzip
+    hostname:hostname
+    ss:iproute2
+    ip:iproute2
+    jq:jq
+    getent:libc-bin
+    awk:mawk
+    nginx:nginx
+    sshd:openssh-server
+    useradd:passwd
+    rclone:rclone
+    redis-server:redis-server
+    rsync:rsync
+    sed:sed
+    sudo:sudo
+    visudo:sudo
+    supervisord:supervisor
+    tar:tar
+    flock:util-linux
+    namei:util-linux
+    runuser:util-linux
+)
+
+# --- Test override gate -----------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — echoes the gated override when allowed and
+# set, the default otherwise.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+OS_RELEASE_FILE="$(gated_default RATEGURU_BOOTSTRAP_OS_RELEASE_FILE /etc/os-release)"
+ARCH_VALUE="$(gated_default RATEGURU_BOOTSTRAP_ARCH "$(uname -m 2>/dev/null || printf 'unknown')")"
+EFFECTIVE_UID="$(gated_default RATEGURU_BOOTSTRAP_EUID "${EUID}")"
+
+APT_SOURCES_MAIN="$(gated_default RATEGURU_BOOTSTRAP_APT_SOURCES_MAIN /etc/apt/sources.list)"
+APT_SOURCES_DIR="$(gated_default RATEGURU_BOOTSTRAP_APT_SOURCES_DIR /etc/apt/sources.list.d)"
+APT_KEYRINGS_DIR="$(gated_default RATEGURU_BOOTSTRAP_APT_KEYRINGS_DIR /etc/apt/keyrings)"
+
+# Empty means "resolve through the real PATH" / "use the real command".
+TOOL_PATH="$(gated_default RATEGURU_BOOTSTRAP_TOOL_PATH '')"
+APT_GET_BIN="$(gated_default RATEGURU_BOOTSTRAP_APT_GET_BIN apt-get)"
+DPKG_QUERY_BIN="$(gated_default RATEGURU_BOOTSTRAP_DPKG_QUERY_BIN dpkg-query)"
+GPG_BIN="$(gated_default RATEGURU_BOOTSTRAP_GPG_BIN gpg)"
+CURL_BIN="$(gated_default RATEGURU_BOOTSTRAP_CURL_BIN curl)"
+PHP_CLI_BIN="$(gated_default RATEGURU_BOOTSTRAP_PHP_CLI_BIN "php${PHP_SERIES}")"
+PHP_FPM_BIN="$(gated_default RATEGURU_BOOTSTRAP_PHP_FPM_BIN "php-fpm${PHP_SERIES}")"
+PSQL_BIN="$(gated_default RATEGURU_BOOTSTRAP_PSQL_BIN psql)"
+PG_DUMP_BIN="$(gated_default RATEGURU_BOOTSTRAP_PG_DUMP_BIN pg_dump)"
+PG_RESTORE_BIN="$(gated_default RATEGURU_BOOTSTRAP_PG_RESTORE_BIN pg_restore)"
+
+PHP_REPO_SOURCES_FILE="${APT_SOURCES_DIR}/rateguru-php.sources"
+PHP_REPO_KEYRING_FILE="${APT_KEYRINGS_DIR}/rateguru-php.gpg"
+PGDG_REPO_SOURCES_FILE="${APT_SOURCES_DIR}/rateguru-pgdg.sources"
+PGDG_REPO_KEYRING_FILE="${APT_KEYRINGS_DIR}/rateguru-pgdg.gpg"
+
+# --- Output -----------------------------------------------------------------
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+MODE=""
+MODE_SEEN=false
+
+COUNT_PASS=0
+COUNT_MISSING=0
+COUNT_WARN=0
+COUNT_CONFLICT=0
+
+section() {
+    printf '\n%s\n' "$1"
+}
+
+# item STATUS NAME DETAIL [ACTION]
+#
+# One report line, identical in shape to bootstrap-host-preflight. ACTION is
+# the intended --apply action, printed only by --check and only for non-PASS
+# items. Output is deterministic: no timestamps, no ordering surprises.
+item() {
+    local status="$1" name="$2" detail="$3" action="${4:-}"
+
+    case "${status}" in
+        PASS)     COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
+        WARN)     COUNT_WARN=$((COUNT_WARN + 1)) ;;
+        CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
+        *)        fail "internal: unknown item status: ${status}" ;;
+    esac
+
+    printf '  %-8s %s — %s\n' "${status}" "${name}" "${detail}"
+
+    if [[ "${MODE}" == check ]] && [[ "${status}" != PASS ]] && [[ -n "${action}" ]]; then
+        printf '           -> apply: %s\n' "${action}"
+    fi
+}
+
+# action MESSAGE — one --apply progress line. Deterministic, no timestamps.
+action() {
+    printf 'APPLY    %s\n' "$*"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-bootstrap-runtime --check
+  install-bootstrap-runtime --apply
+  install-bootstrap-runtime --verify
+  install-bootstrap-runtime --help
+
+  --check   Read-only slice 5.2 contract validation plus the intended
+            --apply action for every unsatisfied item. Never runs apt-get,
+            never installs anything. Exits 0 only when the contract is
+            already satisfied.
+  --apply   Root only. Idempotently configures the RateGuru-owned PHP PPA
+            and PGDG repositories, installs missing required packages, and
+            ends with the full --verify report. Never upgrades, never
+            removes, never touches users/directories/services/RateGuru
+            configuration.
+  --verify  Read-only slice 5.2 contract gate: exit 0 only when every
+            repository, package, binary, PHP module and client-version
+            requirement holds.
+
+Repository/package scope only: users, groups, filesystem, databases,
+service configuration and TLS belong to later Phase 5 slices.
+USAGE
+}
+
+# --- Probes -----------------------------------------------------------------
+
+# tool_available NAME — command lookup, constrained to the fixture PATH when
+# the gated override is active. The real lookup appends /usr/sbin:/sbin so
+# non-root --check/--verify still see daemon binaries (sshd, nginx, ...).
+tool_available() {
+    local tool="$1"
+
+    if [[ -n "${TOOL_PATH}" ]]; then
+        PATH="${TOOL_PATH}" command -v -- "${tool}" >/dev/null 2>&1
+    else
+        PATH="${PATH}:/usr/sbin:/sbin" command -v -- "${tool}" >/dev/null 2>&1
+    fi
+}
+
+# probe_exec BIN [ARGS...] — executes a probe binary under the same PATH
+# discipline tool_available uses, so bare tool names resolve identically.
+probe_exec() {
+    if [[ -n "${TOOL_PATH}" ]]; then
+        PATH="${TOOL_PATH}" "$@"
+    else
+        PATH="${PATH}:/usr/sbin:/sbin" "$@"
+    fi
+}
+
+# os_release_field KEY — value of KEY from the os-release file, unquoted.
+os_release_field() {
+    local key="$1"
+
+    [[ -r "${OS_RELEASE_FILE}" ]] || return 1
+
+    sed -n "s/^${key}=//p" "${OS_RELEASE_FILE}" | head -n 1 | tr -d '"'
+}
+
+architecture_supported() {
+    local arch
+    for arch in ${SUPPORTED_ARCHITECTURES}; do
+        [[ "${ARCH_VALUE}" == "${arch}" ]] && return 0
+    done
+
+    return 1
+}
+
+# package_installed NAME — dpkg database state, read-only. Anything but
+# "installed" (including an unknown package) counts as not installed.
+package_installed() {
+    local package="$1" state
+
+    state="$(probe_exec "${DPKG_QUERY_BIN}" -W -f "\${db:Status-Status}" -- "${package}" 2>/dev/null)" || return 1
+
+    [[ "${state}" == installed ]]
+}
+
+# apt_source_configured URI SUITE — true when any existing apt source
+# already provides the repository, in either the classic one-line format or
+# deb822. Matching is scheme-agnostic on the URI body so however the
+# operator originally added the repository (http/https, .list or .sources,
+# any file name) it is recognized and left alone.
+apt_source_configured() {
+    local uri="$1" suite="$2"
+    local uri_body="${uri#*://}"
+    local file
+
+    for file in "${APT_SOURCES_MAIN}" "${APT_SOURCES_DIR}"/*.list; do
+        [[ -r "${file}" ]] || continue
+
+        if awk -v uri="${uri_body}" -v suite="${suite}" '
+            /^[[:space:]]*#/ { next }
+            /^[[:space:]]*deb(-src)?[[:space:]]/ && index($0, uri) > 0 {
+                for (i = 3; i <= NF; i++) if ($i == suite) { found = 1; exit }
+            }
+            END { exit !found }
+        ' "${file}"; then
+            return 0
+        fi
+    done
+
+    for file in "${APT_SOURCES_DIR}"/*.sources; do
+        [[ -r "${file}" ]] || continue
+
+        if awk -v uri="${uri_body}" -v suite="${suite}" '
+            /^[[:space:]]*#/ { next }
+            /^URIs:/ && index($0, uri) > 0 { have_uri = 1 }
+            /^Suites:/ { for (i = 2; i <= NF; i++) if ($i == suite) have_suite = 1 }
+            END { exit !(have_uri && have_suite) }
+        ' "${file}"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# sources_file_content LABEL URI SUITE COMPONENT KEYRING — the exact deb822
+# content this installer owns for one repository.
+sources_file_content() {
+    local label="$1" uri="$2" suite="$3" component="$4" keyring="$5"
+
+    cat <<CONTENT
+# RateGuru ${label} repository — managed by install-bootstrap-runtime
+# (Phase 5 slice 5.2). Do not edit: re-run --apply to reconcile.
+Types: deb
+URIs: ${uri}
+Suites: ${suite}
+Components: ${component}
+Architectures: amd64
+Signed-By: ${keyring}
+CONTENT
+}
+
+# --- Report sections (shared by --check and --verify) -----------------------
+
+report_host() {
+    section "HOST"
+
+    local os_id os_version
+    os_id="$(os_release_field ID || true)"
+    os_version="$(os_release_field VERSION_ID || true)"
+
+    if [[ ! -r "${OS_RELEASE_FILE}" ]]; then
+        item MISSING "os-release" "cannot read ${OS_RELEASE_FILE}; supported baseline is ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}" \
+            "provision a ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} host — never installable by this script"
+    elif [[ "${os_id}" != "${SUPPORTED_OS_ID}" ]]; then
+        item CONFLICT "os-release" "unsupported OS family ID=${os_id:-unknown} (supported: ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} only)" \
+            "unsupported host — reprovision on ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}"
+    elif [[ "${os_version}" != "${SUPPORTED_OS_VERSION_ID}" ]]; then
+        item CONFLICT "os-release" "ID=${os_id} VERSION_ID=${os_version:-unknown} is not the supported baseline ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}" \
+            "unsupported release — the baseline moves only by deliberately editing both version pins"
+    else
+        item PASS "os-release" "ID=${os_id} VERSION_ID=${os_version} (supported baseline)"
+    fi
+
+    if architecture_supported; then
+        item PASS "architecture" "${ARCH_VALUE} (supported: ${SUPPORTED_ARCHITECTURES})"
+    else
+        item CONFLICT "architecture" "${ARCH_VALUE} is not a supported architecture (supported: ${SUPPORTED_ARCHITECTURES})" \
+            "unsupported architecture — this installer never mutates unproven platforms"
+    fi
+
+    if tool_available apt-get && tool_available dpkg; then
+        item PASS "apt-dpkg" "apt-get and dpkg available"
+    else
+        item MISSING "apt-dpkg" "apt-get/dpkg not available — package bootstrap impossible" \
+            "unsupported without apt — reprovision on the ${SUPPORTED_OS_ID} baseline"
+    fi
+
+    if [[ "${EFFECTIVE_UID}" == "0" ]]; then
+        item PASS "effective-uid" "0 (root — --apply available)"
+    else
+        item WARN "effective-uid" "${EFFECTIVE_UID} (not root — ${MODE} is read-only; --apply requires root)" \
+            "run --apply as root"
+    fi
+}
+
+# report_repository LABEL URI SUITE SOURCES_FILE KEYRING_FILE
+report_repository() {
+    local label="$1" uri="$2" suite="$3" sources_file="$4" keyring_file="$5"
+
+    if [[ -f "${sources_file}" ]]; then
+        if [[ ! -s "${keyring_file}" ]]; then
+            item CONFLICT "repo:${label}" "${sources_file} exists but its keyring ${keyring_file} is absent" \
+                "re-run --apply to reinstall the ${label} repository transactionally"
+        else
+            item PASS "repo:${label}" "configured by this installer (${sources_file})"
+        fi
+    elif apt_source_configured "${uri}" "${suite}"; then
+        item PASS "repo:${label}" "provided by a pre-existing apt source (${uri#*://} ${suite}) — left untouched"
+    else
+        item MISSING "repo:${label}" "no apt source provides ${uri#*://} ${suite}" \
+            "install ${sources_file} and its pinned keyring"
+    fi
+}
+
+report_repositories() {
+    section "REPOSITORIES"
+
+    report_repository php "${PHP_REPO_URI}" "${PHP_REPO_SUITE}" \
+        "${PHP_REPO_SOURCES_FILE}" "${PHP_REPO_KEYRING_FILE}"
+    report_repository pgdg "${PGDG_REPO_URI}" "${PGDG_REPO_SUITE}" \
+        "${PGDG_REPO_SOURCES_FILE}" "${PGDG_REPO_KEYRING_FILE}"
+}
+
+report_packages() {
+    section "PACKAGES"
+
+    local package
+    for package in "${REQUIRED_PACKAGES[@]}"; do
+        if package_installed "${package}"; then
+            item PASS "package:${package}" "installed"
+        else
+            item MISSING "package:${package}" "not installed" \
+                "apt-get install ${package}"
+        fi
+    done
+}
+
+# version_series_of BIN — second word of `BIN -v` line 1 ("PHP 8.5.8 ...").
+php_reported_version() {
+    probe_exec "$1" -v 2>/dev/null | head -n 1 | awk '{ print $2 }'
+}
+
+# postgres_reported_version BIN — third word of `BIN --version`
+# ("psql (PostgreSQL) 18.4 ...").
+postgres_reported_version() {
+    probe_exec "$1" --version 2>/dev/null | head -n 1 | awk '{ print $3 }'
+}
+
+# report_php_binary NAME BIN LABEL — version-series check for one PHP SAPI.
+report_php_binary() {
+    local name="$1" bin="$2" label="$3" version
+
+    if ! tool_available "${bin}" && [[ ! -x "${bin}" ]]; then
+        item MISSING "${name}" "${bin} not found (${label})" \
+            "apt-get install the php${PHP_SERIES} packages"
+
+        return 0
+    fi
+
+    version="$(php_reported_version "${bin}")"
+
+    if [[ "${version}" == "${PHP_SERIES}".* ]]; then
+        item PASS "${name}" "PHP ${version} (required series ${PHP_SERIES})"
+    else
+        item CONFLICT "${name}" "reports PHP ${version:-unknown}, required series is ${PHP_SERIES}" \
+            "install the php${PHP_SERIES} packages from the PHP PPA (never removes the conflicting PHP)"
+    fi
+}
+
+report_php_runtime() {
+    report_php_binary "php-cli" "${PHP_CLI_BIN}" "CLI SAPI"
+    report_php_binary "php-fpm" "${PHP_FPM_BIN}" "FPM SAPI"
+
+    if ! tool_available "${PHP_CLI_BIN}" && [[ ! -x "${PHP_CLI_BIN}" ]]; then
+        item MISSING "php-modules" "cannot enumerate modules without ${PHP_CLI_BIN}" \
+            "install the php${PHP_SERIES} packages, then re-verify"
+
+        return 0
+    fi
+
+    local loaded_modules module missing_modules=()
+    loaded_modules="$(probe_exec "${PHP_CLI_BIN}" -m 2>/dev/null || true)"
+
+    for module in "${REQUIRED_PHP_MODULES[@]}"; do
+        if ! grep -ixq -- "${module}" <<<"${loaded_modules}"; then
+            missing_modules+=("${module}")
+        fi
+    done
+
+    if (( ${#missing_modules[@]} == 0 )); then
+        item PASS "php-modules" "all required modules loaded (${REQUIRED_PHP_MODULES[*]})"
+    else
+        item MISSING "php-modules" "not loaded: ${missing_modules[*]}" \
+            "apt-get install the matching php${PHP_SERIES}-* packages"
+    fi
+}
+
+# report_postgres_client NAME BIN — major-version check for one client tool.
+report_postgres_client() {
+    local name="$1" bin="$2" version major
+
+    if ! tool_available "${bin}" && [[ ! -x "${bin}" ]]; then
+        item MISSING "${name}" "${bin} not found" \
+            "apt-get install postgresql-client-${POSTGRES_MAJOR}"
+
+        return 0
+    fi
+
+    version="$(postgres_reported_version "${bin}")"
+    major="${version%%.*}"
+
+    if [[ "${major}" == "${POSTGRES_MAJOR}" ]]; then
+        item PASS "${name}" "PostgreSQL ${version} (required major ${POSTGRES_MAJOR})"
+    else
+        item CONFLICT "${name}" "reports PostgreSQL ${version:-unknown}, required major is ${POSTGRES_MAJOR}" \
+            "install postgresql-client-${POSTGRES_MAJOR} from PGDG (never removes the conflicting version)"
+    fi
+}
+
+report_runtime() {
+    section "RUNTIME"
+
+    report_php_runtime
+
+    report_postgres_client "psql" "${PSQL_BIN}"
+    report_postgres_client "pg_dump" "${PG_DUMP_BIN}"
+    report_postgres_client "pg_restore" "${PG_RESTORE_BIN}"
+
+    local tool
+    for tool in createdb dropdb; do
+        if tool_available "${tool}"; then
+            item PASS "tool:${tool}" "present (package: postgresql-client-${POSTGRES_MAJOR})"
+        else
+            item MISSING "tool:${tool}" "not found (package: postgresql-client-${POSTGRES_MAJOR})" \
+                "apt-get install postgresql-client-${POSTGRES_MAJOR}"
+        fi
+    done
+
+    local entry package
+    for entry in "${REQUIRED_RUNTIME_TOOLS[@]}"; do
+        tool="${entry%%:*}"
+        package="${entry#*:}"
+
+        if tool_available "${tool}"; then
+            item PASS "tool:${tool}" "present (package: ${package})"
+        else
+            item MISSING "tool:${tool}" "not found (package: ${package})" \
+                "apt-get install ${package}"
+        fi
+    done
+}
+
+report_summary() {
+    section "SUMMARY"
+
+    printf 'Bootstrap runtime installer (%s):\n' "${MODE}"
+    printf 'PASS: %d\n' "${COUNT_PASS}"
+    printf 'MISSING: %d\n' "${COUNT_MISSING}"
+    printf 'WARN: %d\n' "${COUNT_WARN}"
+    printf 'CONFLICT: %d\n' "${COUNT_CONFLICT}"
+    printf '\n'
+
+    if contract_satisfied; then
+        printf 'SLICE 5.2 CONTRACT: SATISFIED\n'
+    else
+        printf 'SLICE 5.2 CONTRACT: NOT SATISFIED\n'
+    fi
+}
+
+contract_satisfied() {
+    (( COUNT_MISSING == 0 )) && (( COUNT_CONFLICT == 0 ))
+}
+
+# run_contract_report — the full read-only report used by --check and
+# --verify (and by --apply as its closing gate). Exits 0 only when the
+# slice 5.2 contract is satisfied.
+run_contract_report() {
+    printf 'RateGuru bootstrap runtime installer (%s mode)\n' "${MODE}"
+    printf 'Supported baseline: %s %s (%s), architectures: %s\n' \
+        "${SUPPORTED_OS_ID}" "${SUPPORTED_OS_VERSION_ID}" "${SUPPORTED_OS_CODENAME}" "${SUPPORTED_ARCHITECTURES}"
+    printf 'Required runtime: PHP %s, PostgreSQL %s\n' "${PHP_SERIES}" "${POSTGRES_MAJOR}"
+
+    report_host
+    report_repositories
+    report_packages
+    report_runtime
+    report_summary
+
+    contract_satisfied
+}
+
+# --- Apply ------------------------------------------------------------------
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == "0" ]] || fail "--apply must run as root"
+}
+
+# The hard gates every mutation hides behind: exact OS baseline, proven
+# architecture, and a working package manager. Fail closed before any
+# repository or package mutation.
+apply_gate_host() {
+    local os_id os_version
+    os_id="$(os_release_field ID || true)"
+    os_version="$(os_release_field VERSION_ID || true)"
+
+    [[ -r "${OS_RELEASE_FILE}" ]] \
+        || fail "cannot read ${OS_RELEASE_FILE}; supported baseline is ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID}"
+
+    [[ "${os_id}" == "${SUPPORTED_OS_ID}" ]] && [[ "${os_version}" == "${SUPPORTED_OS_VERSION_ID}" ]] \
+        || fail "unsupported host ID=${os_id:-unknown} VERSION_ID=${os_version:-unknown}; supported baseline is ${SUPPORTED_OS_ID} ${SUPPORTED_OS_VERSION_ID} exactly"
+
+    architecture_supported \
+        || fail "unsupported architecture ${ARCH_VALUE}; supported: ${SUPPORTED_ARCHITECTURES}"
+
+    if ! tool_available apt-get || ! tool_available dpkg; then
+        fail "apt-get/dpkg not available — package bootstrap impossible"
+    fi
+}
+
+# stage_install SRC DST MODE — replaces DST with SRC atomically: a complete
+# candidate is staged in DST's own directory and renamed into place, so a
+# previously working file is never deleted and no partial file is ever
+# observable at DST.
+stage_install() {
+    local src="$1" dst="$2" mode="$3" staged
+
+    staged="$(mktemp "${dst}.XXXXXX")" || fail "cannot stage candidate for ${dst}"
+
+    if ! install -m "${mode}" -- "${src}" "${staged}"; then
+        rm -f -- "${staged}"
+        fail "cannot stage candidate for ${dst}"
+    fi
+
+    if ! mv -f -- "${staged}" "${dst}"; then
+        rm -f -- "${staged}"
+        fail "cannot install ${dst}"
+    fi
+}
+
+# fetch_and_validate_key WORKDIR LABEL KEY_URL KEY_FINGERPRINT
+#
+# Downloads the repository signing key over HTTPS only, dearmors it, and
+# accepts it only when the material contains exactly one primary key whose
+# fingerprint matches the pin. The validated binary keyring is left at
+# WORKDIR/key.gpg; any failure aborts before anything reaches the real
+# keyring directory.
+fetch_and_validate_key() {
+    local workdir="$1" label="$2" key_url="$3" key_fingerprint="$4"
+
+    probe_exec "${CURL_BIN}" --fail --silent --show-error --location \
+        --proto '=https' --tlsv1.2 --max-time 60 \
+        --output "${workdir}/key.asc" -- "${key_url}" \
+        || fail "repo:${label}: cannot download signing key from ${key_url}"
+
+    probe_exec "${GPG_BIN}" --batch --yes --dearmor \
+        --output "${workdir}/key.gpg" "${workdir}/key.asc" 2>/dev/null \
+        || fail "repo:${label}: downloaded key material is not a valid OpenPGP key"
+
+    probe_exec "${GPG_BIN}" --batch --show-keys --with-colons "${workdir}/key.gpg" 2>/dev/null \
+        | awk -F: -v pin="${key_fingerprint}" '
+            $1 == "pub" { pubs++; expect_fpr = 1; next }
+            $1 == "fpr" && expect_fpr { primary = $10; expect_fpr = 0 }
+            END { exit !(pubs == 1 && primary == pin) }
+        ' \
+        || fail "repo:${label}: signing key fingerprint does not match the pinned ${key_fingerprint} (or the material bundles extra keys) — refusing to install it"
+}
+
+APT_UPDATE_NEEDED=false
+
+# reconcile_repository LABEL URI SUITE COMPONENT KEY_URL KEY_FPR SOURCES_FILE KEYRING_FILE
+#
+# Idempotent, fail-closed convergence of one installer-owned repository:
+#   - already provided by a pre-existing apt source -> left untouched;
+#   - installer-owned files present and exact -> no rewrite, no key fetch;
+#   - absent or drifted -> fetch + pin-validate the key, then stage and
+#     rename keyring and .sources into place.
+reconcile_repository() {
+    local label="$1" uri="$2" suite="$3" component="$4"
+    local key_url="$5" key_fingerprint="$6" sources_file="$7" keyring_file="$8"
+
+    local expected_content
+    expected_content="$(sources_file_content "${label}" "${uri}" "${suite}" "${component}" "${keyring_file}")"
+
+    if [[ -f "${sources_file}" ]]; then
+        if [[ -s "${keyring_file}" ]] \
+            && printf '%s\n' "${expected_content}" | cmp -s - "${sources_file}"
+        then
+            action "repo:${label} already configured by this installer — nothing to do"
+
+            return 0
+        fi
+
+        action "repo:${label} installer-owned configuration drifted — reinstalling transactionally"
+    elif apt_source_configured "${uri}" "${suite}"; then
+        action "repo:${label} provided by a pre-existing apt source — left untouched"
+
+        return 0
+    else
+        action "repo:${label} not configured — installing ${sources_file}"
+    fi
+
+    local workdir
+    workdir="$(mktemp -d)" || fail "repo:${label}: cannot create work directory"
+
+    fetch_and_validate_key "${workdir}" "${label}" "${key_url}" "${key_fingerprint}"
+
+    printf '%s\n' "${expected_content}" >"${workdir}/repo.sources" \
+        || fail "repo:${label}: cannot compose sources candidate"
+
+    install -d -m 0755 -- "${APT_KEYRINGS_DIR}" \
+        || fail "repo:${label}: cannot create ${APT_KEYRINGS_DIR}"
+
+    stage_install "${workdir}/key.gpg" "${keyring_file}" 0644
+    stage_install "${workdir}/repo.sources" "${sources_file}" 0644
+
+    rm -rf -- "${workdir}"
+
+    action "repo:${label} installed (${sources_file}, keyring ${keyring_file})"
+
+    APT_UPDATE_NEEDED=true
+}
+
+apt_update() {
+    action "apt-get update (repository state changed or packages must be installed)"
+
+    DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" update \
+        || fail "apt-get update failed"
+}
+
+# perform_apply — root is enforced by run_apply; tests exercising failure
+# paths call this directly with the gated EUID override in place.
+perform_apply() {
+    apply_gate_host
+
+    reconcile_repository php \
+        "${PHP_REPO_URI}" "${PHP_REPO_SUITE}" "${PHP_REPO_COMPONENT}" \
+        "${PHP_REPO_KEY_URL}" "${PHP_REPO_KEY_FINGERPRINT}" \
+        "${PHP_REPO_SOURCES_FILE}" "${PHP_REPO_KEYRING_FILE}"
+
+    reconcile_repository pgdg \
+        "${PGDG_REPO_URI}" "${PGDG_REPO_SUITE}" "${PGDG_REPO_COMPONENT}" \
+        "${PGDG_REPO_KEY_URL}" "${PGDG_REPO_KEY_FINGERPRINT}" \
+        "${PGDG_REPO_SOURCES_FILE}" "${PGDG_REPO_KEYRING_FILE}"
+
+    local package missing_packages=()
+    for package in "${REQUIRED_PACKAGES[@]}"; do
+        package_installed "${package}" || missing_packages+=("${package}")
+    done
+
+    if [[ "${APT_UPDATE_NEEDED}" == true ]] || (( ${#missing_packages[@]} > 0 )); then
+        apt_update
+    fi
+
+    if (( ${#missing_packages[@]} > 0 )); then
+        action "installing ${#missing_packages[@]} missing package(s): ${missing_packages[*]}"
+
+        DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" install -y --no-install-recommends -- \
+            "${missing_packages[@]}" \
+            || fail "apt-get install failed"
+    else
+        action "packages: all ${#REQUIRED_PACKAGES[@]} required packages already installed"
+    fi
+
+    action "apply finished — running the full contract verification"
+
+    MODE=verify
+    run_contract_report
+}
+
+run_apply() {
+    require_root
+    perform_apply
+}
+
+# --- Entry point ------------------------------------------------------------
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "mode given more than once"
+                fi
+
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${MODE_SEEN}" != true ]]; then
+        usage >&2
+        fail "one of --check, --apply or --verify is required"
+    fi
+}
+
+main() {
+    parse_args "$@"
+
+    case "${MODE}" in
+        check|verify)
+            run_contract_report || exit 1
+            ;;
+        apply)
+            printf 'RateGuru bootstrap runtime installer (apply mode)\n'
+            run_apply || exit 1
+            ;;
+    esac
+
+    exit 0
+}
+
+# Source-guard: allows tests to source this file and call functions directly
+# without main() auto-running — the same pattern the other installers use.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
