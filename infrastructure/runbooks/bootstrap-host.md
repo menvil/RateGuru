@@ -504,6 +504,23 @@ releases inside `releases/` — the setgid `2750` keeps new releases in the
 code group — and letting the runtime user own only the mutable state it
 actually writes.
 
+**Exact directory modes (GNU chmod semantics).** On the supported GNU
+coreutils baseline, `chmod` on a **directory** preserves existing
+setuid/setgid bits when given a plain numeric mode — `chmod 0755` on a
+`2750` directory yields `2755`, not `0755` (clearing directory special
+bits requires explicit replacement semantics). The installer therefore
+converges every exact-mode directory entry with the GNU operator numeric
+form (`chmod =0755`, `chmod =2750`, …), which replaces the complete mode
+in both directions — clearing an unwanted setgid and setting an
+intentional one — and pins the same explicit `=MODE` after creating a
+directory, so a child born under a setgid parent never inherits special
+bits the contract does not require. The deploy-home `nw` remediation uses
+`=0750` for the same reason, without changing what `nw` accepts. This is
+the real staging acceptance regression: the pre-apply target root was
+`deploy:code 2750`, the original plain `chmod 0755` left it `2755`, and
+the closing `--verify` correctly failed — the fix is in the installer,
+never a server-side workaround.
+
 The setgid bits are intentional: new releases created by the deploy
 account inherit the code group; new shared/storage content inherits the
 runtime group. `shared/storage` is created as a structural root only — the

@@ -459,7 +459,16 @@ slices 1–2, which installed nothing — so it completes on merge.
    non-login `/usr/sbin/nologin` service shell; the runtime account's
    historic home is deliberately not contract. Incompatible existing
    metadata is CONFLICT and fails `--apply` closed before any mutation —
-   an existing SSH identity is never automatically usermod'ed. Reconciliation is strictly
+   an existing SSH identity is never automatically usermod'ed.
+   *Corrective acceptance fix:* the first real staging `--apply` surfaced
+   a GNU chmod semantic — on directories a plain numeric mode preserves
+   existing set[ug]id bits, so remediating the `2750` target root with
+   `chmod 0755` left `2755` and the closing `--verify` correctly failed.
+   Exact-mode convergence (reconciliation, creation, and the `nw`
+   remediation) now uses explicit operator-numeric replacement
+   (`chmod =MODE`), regression-tested against the real pre-apply staging
+   state (`deploy:code 2750` → exactly `root:root 0755`).
+   Reconciliation is strictly
    per-directory-entry — no recursive chown/chmod, no `rm -rf`, no
    `userdel`/`groupdel`, no UID/GID renumbering; wrong-type paths and
    incompatible existing accounts fail closed before any mutation, and a

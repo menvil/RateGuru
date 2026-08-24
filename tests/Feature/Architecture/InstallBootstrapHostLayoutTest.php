@@ -921,7 +921,7 @@ it('bootstraps a clean host: groups, users, membership and the full tree in depe
     }
 });
 
-it('remediates the known staging target-root drift by touching exactly that directory entry', function () {
+it('remediates the real staging target-root drift — deploy:code 2750 — to exactly root:root 0755', function () {
     $scratch = hostLayoutScratchDir();
 
     try {
@@ -931,19 +931,32 @@ it('remediates the known staging target-root drift by touching exactly that dire
             $staging => ['deploy-rateguru-staging', 'rateguru-staging-code'],
         ]]);
 
+        // The ACTUAL pre-apply state of the real staging VPS: the target
+        // root was deploy:code with setgid mode 2750 — the case where a
+        // plain numeric `chmod 0755` under GNU coreutils preserves the
+        // directory setgid bit and yields 2755, failing the closing verify.
+        chmod($staging, 0o2750);
+        expect(hostLayoutMode($staging))->toBe(0o2750, 'fixture must reproduce the real 2750 staging mode');
+
         $before = hostLayoutTreeSnapshot($scratch.'/fs/home/www/rateguru/staging');
         $rowsBefore = hostLayoutOwnerTableRows($scratch);
 
         [$exit, $output] = hostLayoutRun(['--apply'], $env);
 
-        expect($exit)->toBe(0, "the drift remediation must converge and verify:\n{$output}");
+        expect($exit)->toBe(0, "the drift remediation must converge and pass its own closing verify:\n{$output}");
         expect($output)->toContain('APPLY    path:/home/www/rateguru/staging reconciling ownership deploy-rateguru-staging:rateguru-staging-code -> root:root (this directory entry only, never recursive)');
+        expect($output)->toContain('APPLY    path:/home/www/rateguru/staging reconciling mode 2750 -> 0755 (this directory entry only, never recursive)');
+        expect($output)->toContain('SLICE 5.3 CONTRACT: SATISFIED');
 
-        // Exactly one chown, of exactly the drifted entry; nothing else ran.
+        // Exactly one chown and one complete-mode-replacing chmod, of
+        // exactly the drifted entry; nothing else ran. The `=` operator
+        // numeric mode is what clears the setgid bit — the final mode is
+        // exactly 0755, never 2755.
         expect(hostLayoutLog($scratch, 'chown.log'))->toBe("chown -- root:root {$staging}\n");
-        expect(hostLayoutLog($scratch, 'chmod.log'))->toBe('');
+        expect(hostLayoutLog($scratch, 'chmod.log'))->toBe("chmod =0755 {$staging}\n");
         expect(hostLayoutLog($scratch, 'install.log'))->toBe('');
         expect(hostLayoutLog($scratch, 'identity.log'))->toBe('');
+        expect(hostLayoutMode($staging))->toBe(0o755, sprintf('target root ended mode %o — GNU chmod preserved the setgid bit', hostLayoutMode($staging)));
 
         // Every nested sentinel — immutable release code, uploaded storage,
         // .env, current/previous — kept its bytes, mode and ownership; only
@@ -962,6 +975,107 @@ it('remediates the known staging target-root drift by touching exactly that dire
         expect(file_get_contents($fs.'/home/www/rateguru/backups/db-20240101.tar.gz'))->toBe('BACKUP-HISTORY-SENTINEL');
         expect(readlink($staging.'/current'))->toBe('releases/20240101120000');
         expect(readlink($staging.'/previous'))->toBe('releases/20240101120000');
+
+        // No endless 2755 cycle (verify sees drift -> apply chmods -> mode
+        // unchanged -> verify fails again): after exact reconciliation a
+        // second apply performs zero mutation and still verifies clean.
+        foreach (['identity.log', 'install.log', 'chown.log', 'chmod.log'] as $log) {
+            @unlink($scratch.'/log/'.$log);
+        }
+
+        [$secondExit, $secondOutput] = hostLayoutRun(['--apply'], $env);
+        expect($secondExit)->toBe(0, "second apply after exact reconciliation must verify clean:\n{$secondOutput}");
+
+        foreach (['identity.log', 'install.log', 'chown.log', 'chmod.log'] as $log) {
+            expect(hostLayoutLog($scratch, $log))->toBe('', "second apply mutated again ({$log}) — exact-mode convergence did not stick");
+        }
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('converges exact directory modes in both directions of the setgid bit', function () {
+    // Real-filesystem matrix through the delegating GNU chmod stub: exact
+    // convergence must clear an unwanted setgid, set an intentional one,
+    // and strip unwanted permission bits while keeping the expected setgid.
+    foreach ([
+        // [logical path, pre-apply mode, contract mode string, exact final mode]
+        ['/home/www/rateguru/staging', 0o2750, '0755', 0o755],
+        ['/home/www/rateguru/staging', 0o2755, '0755', 0o755],
+        ['/home/www/rateguru/staging/releases', 0o755, '2750', 0o2750],
+        ['/home/www/rateguru/staging/shared', 0o755, '2770', 0o2770],
+        ['/home/www/rateguru/staging/shared', 0o2775, '2770', 0o2770],
+    ] as [$logical, $preMode, $contractMode, $finalMode]) {
+        $scratch = hostLayoutScratchDir();
+
+        try {
+            $env = hostLayoutFixture($scratch);
+            $physical = $scratch.'/fs'.$logical;
+
+            chmod($physical, $preMode);
+
+            [$exit, $output] = hostLayoutRun(['--apply'], $env);
+
+            expect($exit)->toBe(0, sprintf(
+                "apply must converge %s from %o to exactly %o:\n%s",
+                $logical,
+                $preMode,
+                $finalMode,
+                $output,
+            ));
+            expect(hostLayoutLog($scratch, 'chmod.log'))->toBe(
+                "chmod ={$contractMode} {$physical}\n",
+                'exact convergence must replace the complete mode via the = operator, exactly once',
+            );
+            expect(hostLayoutMode($physical))->toBe($finalMode, sprintf(
+                '%s ended mode %o after converging %o -> %s',
+                $logical,
+                hostLayoutMode($physical),
+                $preMode,
+                $contractMode,
+            ));
+
+            // Mode-only drift: ownership was already compliant.
+            expect(hostLayoutLog($scratch, 'chown.log'))->toBe('');
+            expect(hostLayoutLog($scratch, 'install.log'))->toBe('');
+        } finally {
+            hostLayoutCleanup($scratch);
+        }
+    }
+});
+
+it('creates exact-mode directories even beneath a setgid parent: the contract, not inheritance, decides', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $fs = $scratch.'/fs';
+        $env = hostLayoutFixture($scratch, ['profile' => 'clean']);
+
+        // A pre-existing setgid /home/www: mkdir-level group inheritance
+        // would mark every child setgid unless creation pins exact modes.
+        expect(@mkdir($fs.'/home/www', 0o755, true))->toBeTrue();
+        chmod($fs.'/home/www', 0o2775);
+        expect(hostLayoutMode($fs.'/home/www'))->toBe(0o2775, 'fixture parent must carry setgid');
+
+        [$exit, $output] = hostLayoutRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, "clean-host apply beneath a setgid parent must converge:\n{$output}");
+        expect($output)->toContain('SLICE 5.3 CONTRACT: SATISFIED');
+
+        // Every created directory ends with its exact contract mode — a
+        // plain 0755 child under the setgid parent must be 0755, not 2755,
+        // and the intentional setgid trees are exactly 2750/2770.
+        foreach (hostLayoutContractDirs() as $logical => [, , $mode]) {
+            expect(hostLayoutMode($fs.$logical))->toBe($mode, sprintf(
+                '%s ended mode %o under a setgid ancestor, expected %o',
+                $logical,
+                hostLayoutMode($fs.$logical),
+                $mode,
+            ));
+        }
+
+        // The unmanaged existing parent itself is left exactly as it was.
+        expect(hostLayoutMode($fs.'/home/www'))->toBe(0o2775, 'the pre-existing unmanaged /home/www must never be re-moded');
     } finally {
         hostLayoutCleanup($scratch);
     }
@@ -1046,8 +1160,10 @@ it('accepts a safe existing deploy home mode and remediates only a group/other-w
         [$exit] = hostLayoutRun(['--apply'], $env);
 
         expect($exit)->toBe(0);
+        // Remediation replaces the complete mode (`=`), so the result is
+        // exactly 0750 with no inherited special bits.
         expect(hostLayoutLog($scratch, 'chmod.log'))
-            ->toBe("chmod 0750 {$scratch}/fs/home/deploy-rateguru-staging\n");
+            ->toBe("chmod =0750 {$scratch}/fs/home/deploy-rateguru-staging\n");
         expect(hostLayoutMode($scratch.'/fs/home/deploy-rateguru-staging'))->toBe(0o750);
     } finally {
         hostLayoutCleanup($scratch);
