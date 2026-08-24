@@ -62,6 +62,32 @@
 # repository — no external repository is introduced to chase the exact
 # staging patch versions (nginx 1.18.0, redis 6.0.16, supervisor 4.2.1).
 #
+# Managed external runtime — rclone: the real staging host runs a standalone
+# /usr/bin/rclone that no dpkg package owns, and the Ubuntu 22.04 rclone
+# package (1.53.x) is far older than the runtime the committed offsite-backup
+# scripts were proven against. rclone is therefore a RateGuru-managed
+# external runtime binary, never an Ubuntu package dependency: the rclone apt
+# package is neither required nor ever installed, no third-party apt
+# repository is added for it, and dpkg ownership of the binary is deliberately
+# not part of the contract. The exact pinned release lives in the committed
+# external-runtimes contract (infrastructure/config/external-runtimes/
+# versions.env) — never "latest", never a dynamic lookup; moving the pin is a
+# deliberate repository change. --check/--verify report rclone in their own
+# EXTERNAL RUNTIME section (separate from PACKAGES), and --apply reconciles
+# drift by downloading the exact pinned release archive plus its SHA256SUMS
+# from the official rclone download origin over HTTPS, verifying the
+# clearsigned SHA256SUMS against the committed release-signing public key
+# (trusted only through the pinned fingerprint the contract carries — never
+# because of where any file was downloaded from), verifying the artifact
+# checksum, extracting, confirming the extracted binary reports exactly the
+# pinned version, and only then staging the candidate with final ownership
+# and mode and renaming it over the installed binary atomically. Any failure
+# before that rename leaves the currently working rclone untouched. The
+# operator's rclone configuration (/root/.config/rclone/rclone.conf) is never
+# read, written or touched, `rclone selfupdate` and the upstream install.sh
+# pipeline are never used, and a compliant host performs no network activity
+# at all for rclone.
+#
 # Deliberate package decisions:
 #   - Node.js, npm and Composer are intentionally absent: GitHub Actions
 #     builds the immutable application artifact (composer install --no-dev,
@@ -137,6 +163,11 @@
 
 set -Eeuo pipefail
 
+# --- Locations ----------------------------------------------------------------
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
 # --- Supported host contract ------------------------------------------------
 
 # Kept in exact-token parity with bootstrap-host-preflight (architecture
@@ -170,11 +201,28 @@ PGDG_REPO_COMPONENT="main"
 PGDG_REPO_KEY_FINGERPRINT="B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8"
 PGDG_REPO_KEY_URL="https://www.postgresql.org/media/keys/ACCC4CF8.asc"
 
+# --- Managed external runtime: rclone -----------------------------------------
+
+# The official rclone release download origin. Deliberately a constant: the
+# bootstrap controls exactly which release is installed, and neither the
+# origin nor the version is ever discovered dynamically.
+RCLONE_DOWNLOAD_BASE_URL="https://downloads.rclone.org"
+
+# The pinned release, install contract and release-signing fingerprint live
+# in the committed external-runtimes contract; the release-signing public
+# key is committed next to it and is trusted only after it matches the
+# pinned fingerprint.
+RCLONE_CONTRACT_FILE_DEFAULT="${REPO_ROOT}/infrastructure/config/external-runtimes/versions.env"
+RCLONE_SIGNING_KEY_FILE_DEFAULT="${REPO_ROOT}/infrastructure/config/external-runtimes/rclone-release-signing-key.asc"
+
 # --- Required package contract ----------------------------------------------
 
 # The smallest Ubuntu 22.04 package set supplying the Phase 5.1 canonical
 # tool inventory (REQUIRED_BASE_TOOLS + RUNTIME_SERVICE_TOOLS in
 # bootstrap-host-preflight) plus the runtime services and certbot tooling.
+# rclone is deliberately NOT here: it is a managed external runtime binary
+# (see the header and reconcile_rclone), never an apt package requirement.
+# unzip is required because the pinned rclone release ships as a .zip.
 BASE_PACKAGES=(
     acl
     bash
@@ -195,13 +243,13 @@ BASE_PACKAGES=(
     nginx
     openssh-server
     passwd
-    rclone
     redis-server
     rsync
     sed
     sudo
     supervisor
     tar
+    unzip
     util-linux
 )
 
@@ -249,7 +297,6 @@ REQUIRED_RUNTIME_TOOLS=(
     nginx:nginx
     sshd:openssh-server
     useradd:passwd
-    rclone:rclone
     redis-server:redis-server
     rsync:rsync
     sed:sed
@@ -257,6 +304,7 @@ REQUIRED_RUNTIME_TOOLS=(
     visudo:sudo
     supervisord:supervisor
     tar:tar
+    unzip:unzip
     flock:util-linux
     namei:util-linux
     runuser:util-linux
@@ -306,6 +354,44 @@ PHP_FPM_BIN="$(gated_default RATEGURU_BOOTSTRAP_PHP_FPM_BIN "php-fpm${PHP_SERIES
 PSQL_BIN="$(gated_default RATEGURU_BOOTSTRAP_PSQL_BIN psql)"
 PG_DUMP_BIN="$(gated_default RATEGURU_BOOTSTRAP_PG_DUMP_BIN pg_dump)"
 PG_RESTORE_BIN="$(gated_default RATEGURU_BOOTSTRAP_PG_RESTORE_BIN pg_restore)"
+
+STAT_BIN="$(gated_default RATEGURU_BOOTSTRAP_STAT_BIN stat)"
+RCLONE_CONTRACT_FILE="$(gated_default RATEGURU_BOOTSTRAP_RCLONE_CONTRACT_FILE "${RCLONE_CONTRACT_FILE_DEFAULT}")"
+RCLONE_SIGNING_KEY_FILE="$(gated_default RATEGURU_BOOTSTRAP_RCLONE_KEY_FILE "${RCLONE_SIGNING_KEY_FILE_DEFAULT}")"
+
+# rclone_contract_value KEY — the value of the first KEY=VALUE line in the
+# committed external-runtimes contract. Plain text extraction in one awk
+# pass — the contract is never sourced, never eval'd.
+rclone_contract_value() {
+    local key="$1"
+
+    [[ -r "${RCLONE_CONTRACT_FILE}" ]] || return 1
+
+    awk -v prefix="${key}=" \
+        'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' \
+        "${RCLONE_CONTRACT_FILE}"
+}
+
+RCLONE_VERSION="$(rclone_contract_value RCLONE_VERSION || true)"
+RCLONE_PLATFORM="$(rclone_contract_value RCLONE_PLATFORM || true)"
+RCLONE_BINARY_PATH="$(rclone_contract_value RCLONE_BINARY || true)"
+RCLONE_OWNER="$(rclone_contract_value RCLONE_OWNER || true)"
+RCLONE_GROUP="$(rclone_contract_value RCLONE_GROUP || true)"
+RCLONE_MODE="$(rclone_contract_value RCLONE_MODE || true)"
+RCLONE_KEY_FINGERPRINT="$(rclone_contract_value RCLONE_RELEASE_SIGNING_FINGERPRINT || true)"
+
+# The contract is only usable when every field is present and well-formed —
+# a truncated or hand-mangled contract must fail closed, never install
+# "whatever was parseable".
+rclone_contract_valid() {
+    [[ "${RCLONE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+        && [[ "${RCLONE_PLATFORM}" =~ ^[a-z0-9][a-z0-9-]*$ ]] \
+        && [[ "${RCLONE_BINARY_PATH}" == /* ]] \
+        && [[ -n "${RCLONE_OWNER}" ]] \
+        && [[ -n "${RCLONE_GROUP}" ]] \
+        && [[ "${RCLONE_MODE}" =~ ^0[0-7]{3}$ ]] \
+        && [[ "${RCLONE_KEY_FINGERPRINT}" =~ ^[0-9A-F]{40}$ ]]
+}
 
 PHP_REPO_SOURCES_FILE="${APT_SOURCES_DIR}/rateguru-php.sources"
 PHP_REPO_KEYRING_FILE="${APT_KEYRINGS_DIR}/rateguru-php.gpg"
@@ -407,6 +493,18 @@ probe_exec() {
         PATH="${TOOL_PATH}" "$@"
     else
         PATH="${PATH}:/usr/sbin:/sbin" "$@"
+    fi
+}
+
+# tool_path NAME — the resolved path of a tool under the same PATH
+# discipline as tool_available; empty output and non-zero when absent.
+tool_path() {
+    local tool="$1"
+
+    if [[ -n "${TOOL_PATH}" ]]; then
+        PATH="${TOOL_PATH}" command -v -- "${tool}" 2>/dev/null
+    else
+        PATH="${PATH}:/usr/sbin:/sbin" command -v -- "${tool}" 2>/dev/null
     fi
 }
 
@@ -514,6 +612,82 @@ Signed-By: ${keyring}
 CONTENT
 }
 
+# --- Managed rclone runtime probes -------------------------------------------
+
+# rclone_stat_probe PATH — "OWNER|GROUP|MODE" for an existing path, fails
+# when absent or unreadable. Never dereferenced further, never recursive.
+rclone_stat_probe() {
+    probe_exec "${STAT_BIN}" -c '%U|%G|%a' -- "$1" 2>/dev/null
+}
+
+# rclone_reported_version BIN — "v1.75.0" from the first line of
+# `BIN --version` ("rclone v1.75.0 ..."); empty when the binary cannot
+# report a version at all.
+rclone_reported_version() {
+    probe_exec "$1" --version 2>/dev/null | head -n 1 | awk '$1 == "rclone" { print $2 }'
+}
+
+# rclone_state — classifies the installed binary against the pinned
+# contract. Prints exactly one of:
+#   compliant | absent | foreign:<path> | no-stat | owner:<o>:<g> |
+#   mode:<m> | no-version | version:<v>
+# Checked in contract order: path, owner/group, mode, version. dpkg
+# ownership is deliberately never consulted — an operator-installed
+# standalone binary that matches the contract is fully compliant.
+rclone_state() {
+    if [[ ! -e "${RCLONE_BINARY_PATH}" ]]; then
+        local found
+        found="$(tool_path rclone || true)"
+
+        if [[ -n "${found}" ]]; then
+            printf 'foreign:%s\n' "${found}"
+        else
+            printf 'absent\n'
+        fi
+
+        return 0
+    fi
+
+    local probe owner group mode
+    if ! probe="$(rclone_stat_probe "${RCLONE_BINARY_PATH}")"; then
+        printf 'no-stat\n'
+
+        return 0
+    fi
+    IFS='|' read -r owner group mode <<<"${probe}"
+
+    if [[ "${owner}" != "${RCLONE_OWNER}" ]] || [[ "${group}" != "${RCLONE_GROUP}" ]]; then
+        printf 'owner:%s:%s\n' "${owner}" "${group}"
+
+        return 0
+    fi
+
+    # stat %a prints modes without a leading zero; compare numerically so
+    # 755 and 0755 never masquerade as drift.
+    if (( 8#${mode} != 8#${RCLONE_MODE} )); then
+        printf 'mode:%s\n' "${mode}"
+
+        return 0
+    fi
+
+    local version
+    version="$(rclone_reported_version "${RCLONE_BINARY_PATH}" || true)"
+
+    if [[ ! "${version}" =~ ^v[0-9]+(\.[0-9]+){2}$ ]]; then
+        printf 'no-version\n'
+
+        return 0
+    fi
+
+    if [[ "${version}" != "v${RCLONE_VERSION}" ]]; then
+        printf 'version:%s\n' "${version}"
+
+        return 0
+    fi
+
+    printf 'compliant\n'
+}
+
 # --- Report sections (shared by --check and --verify) -----------------------
 
 report_host() {
@@ -610,6 +784,60 @@ report_packages() {
                 "apt-get install ${package}"
         fi
     done
+}
+
+# The managed external runtime section — deliberately separate from
+# PACKAGES: rclone is never an apt requirement, so its absence must never
+# surface as "MISSING package:rclone" or propose any apt action.
+report_external_runtime() {
+    section "EXTERNAL RUNTIME"
+
+    if ! rclone_contract_valid; then
+        item CONFLICT "rclone" "external-runtimes contract unreadable or incomplete: ${RCLONE_CONTRACT_FILE}" \
+            "restore the committed contract from the repository — never editable on the host"
+
+        return 0
+    fi
+
+    local state
+    state="$(rclone_state)"
+
+    case "${state}" in
+        compliant)
+            item PASS "rclone" "v${RCLONE_VERSION}, ${RCLONE_BINARY_PATH}, ${RCLONE_OWNER}:${RCLONE_GROUP} ${RCLONE_MODE} (managed external runtime)"
+            ;;
+        absent)
+            item MISSING "rclone" "${RCLONE_BINARY_PATH} absent" \
+                "install verified rclone v${RCLONE_VERSION}"
+            ;;
+        foreign:*)
+            item CONFLICT "rclone" "found at ${state#foreign:}, but the managed binary path is ${RCLONE_BINARY_PATH}" \
+                "install verified rclone v${RCLONE_VERSION} at ${RCLONE_BINARY_PATH} (the unexpected copy is never touched)"
+            ;;
+        no-stat)
+            item CONFLICT "rclone" "cannot stat ${RCLONE_BINARY_PATH}" \
+                "investigate the binary manually, then re-run --apply"
+            ;;
+        owner:*)
+            item CONFLICT "rclone" "owned by ${state#owner:}, required ${RCLONE_OWNER}:${RCLONE_GROUP}" \
+                "replace with verified rclone v${RCLONE_VERSION}"
+            ;;
+        mode:*)
+            item CONFLICT "rclone" "mode ${state#mode:}, required ${RCLONE_MODE}" \
+                "replace with verified rclone v${RCLONE_VERSION}"
+            ;;
+        no-version)
+            item CONFLICT "rclone" "${RCLONE_BINARY_PATH} cannot report a version" \
+                "replace with verified rclone v${RCLONE_VERSION}"
+            ;;
+        version:*)
+            item CONFLICT "rclone" "${state#version:} installed, required v${RCLONE_VERSION}" \
+                "replace with verified rclone v${RCLONE_VERSION}"
+            ;;
+        *)
+            fail "internal: unknown rclone state: ${state}"
+            ;;
+    esac
 }
 
 # version_series_of BIN — second word of `BIN -v` line 1 ("PHP 8.5.8 ...").
@@ -760,6 +988,7 @@ run_contract_report() {
     report_host
     report_repositories
     report_packages
+    report_external_runtime
     report_runtime
     report_summary
 
@@ -932,6 +1161,159 @@ ensure_bootstrap_repository_tooling() {
         || fail "apt-get install failed for the bootstrap repository tooling (${missing_tooling[*]})"
 }
 
+# --- Apply: managed rclone runtime -------------------------------------------
+
+RCLONE_WORKDIR=""
+
+# Temporary download/verify material is cleaned via trap, so every failure
+# path (fail() exits, apt errors, signal) leaves nothing behind. ERR/EXIT
+# traps can fire inside $(...) subshells, so only the process that owns the
+# trap may ever remove the directory.
+cleanup_rclone_workdir() {
+    [[ "${BASHPID:-$$}" == "$$" ]] || return 0
+    [[ -n "${RCLONE_WORKDIR}" ]] || return 0
+
+    rm -rf -- "${RCLONE_WORKDIR}"
+    RCLONE_WORKDIR=""
+}
+
+# fetch_rclone_file URL DST — HTTPS-only download from the official rclone
+# release origin.
+fetch_rclone_file() {
+    local url="$1" dst="$2"
+
+    probe_exec "${CURL_BIN}" --fail --silent --show-error --location \
+        --proto '=https' --tlsv1.2 --max-time 300 \
+        --output "${dst}" -- "${url}" \
+        || fail "rclone: cannot download ${url}"
+}
+
+# reconcile_rclone — idempotent, fail-closed convergence of the managed
+# rclone binary onto the pinned contract:
+#   - compliant -> no network request, no download, no file replacement;
+#   - anything else -> download the exact pinned release archive and its
+#     SHA256SUMS, verify the clearsigned SHA256SUMS against the committed
+#     release-signing key (accepted only after the key matches the pinned
+#     fingerprint), verify the artifact checksum, extract, confirm the
+#     extracted binary reports exactly the pinned version, then stage the
+#     candidate with final ownership/mode in the destination directory and
+#     rename it into place atomically. The currently installed binary is
+#     untouched until that rename; any earlier failure aborts the run.
+# The operator's rclone configuration is never read or written, and
+# `rclone selfupdate` is never invoked.
+reconcile_rclone() {
+    rclone_contract_valid \
+        || fail "rclone: external-runtimes contract unreadable or incomplete: ${RCLONE_CONTRACT_FILE}"
+
+    local state
+    state="$(rclone_state)"
+
+    if [[ "${state}" == compliant ]]; then
+        action "rclone v${RCLONE_VERSION} already installed at ${RCLONE_BINARY_PATH} — nothing to do"
+
+        return 0
+    fi
+
+    action "rclone requires reconciliation (state: ${state}) — installing verified v${RCLONE_VERSION}"
+
+    tool_available "${CURL_BIN}" \
+        || fail "rclone: curl unavailable — the bootstrap tooling must be installed first"
+    tool_available "${GPG_BIN}" \
+        || fail "rclone: gpg unavailable — the bootstrap tooling must be installed first"
+    tool_available unzip \
+        || fail "rclone: unzip unavailable — the base package contract installs it"
+
+    [[ -r "${RCLONE_SIGNING_KEY_FILE}" ]] \
+        || fail "rclone: committed release-signing key not readable: ${RCLONE_SIGNING_KEY_FILE}"
+
+    RCLONE_WORKDIR="$(mktemp -d)" || fail "rclone: cannot create work directory"
+    trap cleanup_rclone_workdir EXIT
+
+    local workdir="${RCLONE_WORKDIR}"
+    local artifact="rclone-v${RCLONE_VERSION}-${RCLONE_PLATFORM}.zip"
+    local release_url="${RCLONE_DOWNLOAD_BASE_URL}/v${RCLONE_VERSION}"
+
+    action "rclone: downloading ${artifact} and SHA256SUMS from ${release_url}"
+
+    fetch_rclone_file "${release_url}/${artifact}" "${workdir}/${artifact}"
+    fetch_rclone_file "${release_url}/SHA256SUMS" "${workdir}/SHA256SUMS"
+
+    # The committed key is trusted only through the pinned fingerprint: it
+    # must dearmor to a keyring holding exactly that key (keyring_matches_pin
+    # — the same validation the repository keyrings get) before it may
+    # verify anything. A private GNUPGHOME keeps the operator's keyrings
+    # completely out of the trust decision.
+    install -d -m 0700 -- "${workdir}/gnupg" || fail "rclone: cannot create gpg work home"
+
+    GNUPGHOME="${workdir}/gnupg" probe_exec "${GPG_BIN}" --batch --yes --dearmor \
+        --output "${workdir}/signing-key.gpg" "${RCLONE_SIGNING_KEY_FILE}" 2>/dev/null \
+        || fail "rclone: committed release-signing key is not a valid OpenPGP key"
+
+    keyring_matches_pin "${workdir}/signing-key.gpg" "${RCLONE_KEY_FINGERPRINT}" \
+        || fail "rclone: committed release-signing key does not match the pinned fingerprint ${RCLONE_KEY_FINGERPRINT} — refusing to trust it"
+
+    # SHA256SUMS is clearsigned; --decrypt verifies the signature against
+    # the pin-validated keyring (and only that keyring) and emits the signed
+    # payload. A signature by any other key fails closed.
+    GNUPGHOME="${workdir}/gnupg" probe_exec "${GPG_BIN}" --batch \
+        --no-default-keyring --keyring "${workdir}/signing-key.gpg" \
+        --output "${workdir}/SHA256SUMS.verified" --decrypt "${workdir}/SHA256SUMS" 2>/dev/null \
+        || fail "rclone: SHA256SUMS signature verification failed against the pinned release-signing key"
+
+    local expected_sha actual_sha
+    expected_sha="$(awk -v name="${artifact}" '$2 == name { print $1; exit }' "${workdir}/SHA256SUMS.verified")"
+
+    [[ "${expected_sha}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "rclone: verified SHA256SUMS carries no usable digest for ${artifact}"
+
+    actual_sha="$(sha256sum "${workdir}/${artifact}" | awk '{ print $1 }')"
+
+    [[ "${actual_sha}" == "${expected_sha}" ]] \
+        || fail "rclone: checksum mismatch for ${artifact}: expected ${expected_sha}, got ${actual_sha}"
+
+    action "rclone: signature and checksum verified — extracting"
+
+    probe_exec unzip -q "${workdir}/${artifact}" -d "${workdir}/extract" \
+        || fail "rclone: cannot extract ${artifact}"
+
+    local candidate="${workdir}/extract/rclone-v${RCLONE_VERSION}-${RCLONE_PLATFORM}/rclone"
+
+    [[ -f "${candidate}" ]] || fail "rclone: ${artifact} does not contain the rclone binary"
+
+    # No `--` separator: BSD chmod (local test hosts) rejects it, and the
+    # candidate path is always inside this run's own work directory.
+    chmod 0755 "${candidate}" || fail "rclone: cannot mark the extracted binary executable"
+
+    local candidate_version
+    candidate_version="$(rclone_reported_version "${candidate}" || true)"
+
+    [[ "${candidate_version}" == "v${RCLONE_VERSION}" ]] \
+        || fail "rclone: extracted binary reports ${candidate_version:-no version}, expected v${RCLONE_VERSION}"
+
+    # Atomic replacement: a complete candidate with final ownership and mode
+    # is staged in the destination directory and renamed into place.
+    local staged
+    staged="$(mktemp "${RCLONE_BINARY_PATH}.XXXXXX")" || fail "rclone: cannot stage the candidate"
+
+    if ! install -m "${RCLONE_MODE}" -o "${RCLONE_OWNER}" -g "${RCLONE_GROUP}" -- "${candidate}" "${staged}"; then
+        rm -f -- "${staged}"
+        fail "rclone: cannot stage the verified binary with final ownership"
+    fi
+
+    if ! mv -f -- "${staged}" "${RCLONE_BINARY_PATH}"; then
+        rm -f -- "${staged}"
+        fail "rclone: cannot install ${RCLONE_BINARY_PATH}"
+    fi
+
+    cleanup_rclone_workdir
+
+    state="$(rclone_state)"
+    [[ "${state}" == compliant ]] \
+        || fail "rclone: post-install verification failed (state: ${state})"
+
+    action "rclone v${RCLONE_VERSION} installed at ${RCLONE_BINARY_PATH} (${RCLONE_OWNER}:${RCLONE_GROUP} ${RCLONE_MODE})"
+}
+
 # perform_apply — root is enforced by run_apply; tests exercising failure
 # paths call this directly with the gated EUID override in place.
 perform_apply() {
@@ -972,6 +1354,10 @@ perform_apply() {
     else
         action "packages: all ${#REQUIRED_PACKAGES[@]} required packages already installed"
     fi
+
+    # After the package phase, so unzip exists on a clean host. Never an apt
+    # action: rclone converges through the verified-download path only.
+    reconcile_rclone
 
     action "apply finished — running the full contract verification"
 

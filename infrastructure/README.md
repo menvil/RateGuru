@@ -13,7 +13,8 @@ infrastructure, and moves out once a second project exists.
 - clean-VPS bootstrap preflight (read-only host contract inspection) and the
   base/runtime package installer (Ubuntu 22.04 baseline, PHP 8.5, PostgreSQL
   18; Node.js/Composer intentionally absent — GitHub Actions builds the
-  immutable artifact) — see
+  immutable artifact; rclone managed as a verified, pinned external runtime
+  binary rather than an Ubuntu package) — see
   [`runbooks/bootstrap-host.md`](runbooks/bootstrap-host.md);
 - deployment and rollback scripts;
 - local and offsite backup scripts;
@@ -31,12 +32,21 @@ infrastructure, and moves out once a second project exists.
 ## Committed non-secret config exception
 
 `infrastructure/**/*.env` is gitignored by default so secret env files are
-never committed. Two mail-capture files are explicitly re-included because they
-are non-secret:
+never committed. Three files are explicitly re-included because they are
+non-secret:
 
 - `config/mail-capture/versions.env` — pinned upstream release versions only;
 - `config/mail-capture/mailpit.env` — loopback-only bind addresses, retention,
-  and the loopback relay target.
+  and the loopback relay target;
+- `config/external-runtimes/versions.env` — the pinned rclone release, its
+  install contract and the official release-signing key fingerprint (the
+  matching public key is committed next to it as
+  `config/external-runtimes/rclone-release-signing-key.asc`).
+
+Ubuntu packages are OS/runtime dependencies; rclone is a verified, pinned
+external runtime binary managed by `install-bootstrap-runtime`. Exact external
+versions are intentionally pinned and only ever move through an explicit
+repository change.
 
 ## Secrets are not stored here
 

@@ -98,9 +98,10 @@ function bootstrapPreflightAllTools(): array
         'readlink', 'mktemp', 'sort', 'cut', 'env', 'tr', 'head', 'tail',
         'date', 'id', 'rm', 'mv', 'cp', 'ls', 'cat', 'chmod', 'chown', 'ln',
         'od', 'du', 'df', 'sleep', 'timeout', 'uname', 'find', 'grep', 'sed', 'awk',
-        'cmp', 'diff', 'flock', 'namei', 'runuser', 'hostname', 'useradd',
+        'cmp', 'diff', 'unzip', 'flock', 'namei', 'runuser', 'hostname', 'useradd',
         'getent', 'visudo', 'ss', 'ip', 'setfacl', 'getfacl',
-        // runtime/service
+        // runtime/service (rclone is probed as a managed external runtime
+        // binary, never as an Ubuntu package requirement)
         'nginx', 'systemctl', 'pg_dump', 'pg_restore', 'psql', 'createdb',
         'dropdb', 'rclone', 'php8.5',
         // optional development/validation
@@ -108,6 +109,24 @@ function bootstrapPreflightAllTools(): array
         // HOST section probes
         'apt-get', 'dpkg',
     ];
+}
+
+/**
+ * The pinned rclone version from the committed external-runtimes contract —
+ * the same file the preflight itself consumes, so the pin is never
+ * duplicated as a test literal.
+ */
+function bootstrapPreflightRclonePin(): string
+{
+    preg_match(
+        '/^RCLONE_VERSION=(.+)$/m',
+        File::get(base_path('infrastructure/config/external-runtimes/versions.env')),
+        $match,
+    );
+
+    expect($match[1] ?? null)->not->toBeNull('the committed external-runtimes contract no longer pins RCLONE_VERSION');
+
+    return $match[1];
 }
 
 /**
@@ -639,6 +658,15 @@ it('recognizes the existing installation as present rather than conflicting', fu
         ] as $needle) {
             expect($output)->toContain($needle);
         }
+
+        // rclone is recognized as the managed external runtime binary the
+        // slice 5.2 contract pins — dpkg package ownership is deliberately
+        // not required (the real staging binary is standalone).
+        expect($output)->toContain(sprintf(
+            'PASS     tool:rclone — managed external runtime binary present (pinned v%s; dpkg ownership not required)',
+            bootstrapPreflightRclonePin(),
+        ));
+        expect($output)->not->toContain('tool:rclone — runtime/service tool present (package: rclone)');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }
@@ -689,7 +717,9 @@ it('keeps --report usable on a clean host: exit 0 plus intended bootstrap action
 
         expect($exit)->toBe(0, "--report is inventory, never a gate:\n{$output}");
         expect($output)->toContain('HOST READY: NO');
-        expect($output)->toContain('-> bootstrap: install rclone (slice 5.2)');
+        expect($output)->toContain(
+            '-> bootstrap: install verified rclone v'.bootstrapPreflightRclonePin().' via install-bootstrap-runtime --apply (slice 5.2)',
+        );
         expect($output)->toContain('-> bootstrap: create via slice 5.3 (never by preflight)');
     } finally {
         bootstrapPreflightCleanup($scratch);

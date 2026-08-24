@@ -64,6 +64,11 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
 SOURCE_REGISTRY="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
 SOURCE_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
 
+# The committed external-runtimes contract (slice 5.2): rclone is a
+# RateGuru-managed external runtime binary pinned here — never an Ubuntu
+# package dependency, so this preflight never requires dpkg ownership of it.
+EXTERNAL_RUNTIMES_CONTRACT="${REPO_ROOT}/infrastructure/config/external-runtimes/versions.env"
+
 RUNTIME_CONFIG_ROOT="/home/www/rateguru/config"
 RUNTIME_BIN_ROOT="/home/www/rateguru/bin"
 RUNTIME_REGISTRY_DEFAULT="${RUNTIME_CONFIG_ROOT}/deployment-targets.json"
@@ -545,8 +550,9 @@ report_host_dns() {
 # REQUIRED_TOOLS arrays and *_BIN defaults in deploy, rollback, cleanup,
 # backup, restore-test, offsite-backup/retention/restore-test, backup-cycle,
 # install-target-operations, install-target-perimeter, install-mail-capture,
-# install-public-storage-access, verify-mail-capture, status, health-check
-# and common. Format: "tool:package".
+# install-public-storage-access, verify-mail-capture, status, health-check,
+# common, and install-bootstrap-runtime (unzip extracts the pinned rclone
+# release archive). Format: "tool:package".
 REQUIRED_BASE_TOOLS=(
     bash:bash
     jq:jq
@@ -586,6 +592,7 @@ REQUIRED_BASE_TOOLS=(
     awk:mawk
     cmp:diffutils
     diff:diffutils
+    unzip:unzip
     flock:util-linux
     namei:util-linux
     runuser:util-linux
@@ -600,7 +607,9 @@ REQUIRED_BASE_TOOLS=(
 )
 
 # Filled by report_tools: php CLI name derived from the deployment.conf
-# template (e.g. php8.5), plus the fixed service binaries.
+# template (e.g. php8.5), plus the fixed service binaries. rclone is
+# deliberately not listed here: it is a managed external runtime binary
+# (see report_tools), never an Ubuntu package requirement.
 RUNTIME_SERVICE_TOOLS=(
     nginx:nginx
     systemctl:systemd
@@ -609,7 +618,6 @@ RUNTIME_SERVICE_TOOLS=(
     psql:postgresql-client
     createdb:postgresql-client
     dropdb:postgresql-client
-    rclone:rclone
 )
 
 OPTIONAL_DEV_TOOLS=(
@@ -618,6 +626,20 @@ OPTIONAL_DEV_TOOLS=(
     wget:wget
     journalctl:systemd
 )
+
+# external_runtime_value KEY — the value of the first KEY=VALUE line in the
+# committed external-runtimes contract. Plain text extraction — the contract
+# is never sourced, never eval'd (the same discipline template_value applies
+# to the deployment.conf template).
+external_runtime_value() {
+    local key="$1"
+
+    [[ -r "${EXTERNAL_RUNTIMES_CONTRACT}" ]] || return 1
+
+    awk -v prefix="${key}=" \
+        'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' \
+        "${EXTERNAL_RUNTIMES_CONTRACT}"
+}
 
 report_tools() {
     section "TOOLS"
@@ -655,6 +677,22 @@ report_tools() {
                 "install ${package} (slice 5.2)"
         fi
     done
+
+    # rclone: required, but as a RateGuru-managed external runtime binary
+    # pinned by the committed external-runtimes contract. Presence is the
+    # preflight contract — Ubuntu/dpkg package ownership is deliberately
+    # never required, and absence is remediated by the slice 5.2 installer's
+    # verified-download path, never by apt.
+    local rclone_pin
+    rclone_pin="$(external_runtime_value RCLONE_VERSION || true)"
+    rclone_pin="${rclone_pin:-unknown}"
+
+    if tool_available rclone; then
+        item PASS "tool:rclone" "managed external runtime binary present (pinned v${rclone_pin}; dpkg ownership not required)"
+    else
+        item MISSING "tool:rclone" "managed external runtime binary not found (pinned v${rclone_pin})" \
+            "install verified rclone v${rclone_pin} via install-bootstrap-runtime --apply (slice 5.2)"
+    fi
 
     for entry in "${OPTIONAL_DEV_TOOLS[@]}"; do
         tool="${entry%%:*}"

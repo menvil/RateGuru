@@ -93,6 +93,11 @@ values are never invented.
   backup-cycle, and every installer). Each is classified required base,
   runtime/service, or optional development/validation — ShellCheck and
   actionlint are never production runtime requirements and only ever `WARN`.
+  `tool:rclone` remains required (absence is `MISSING`) but is probed as the
+  slice 5.2 **managed external runtime binary** pinned by
+  `infrastructure/config/external-runtimes/versions.env` — Ubuntu/dpkg
+  package ownership is deliberately never required, and remediation is the
+  slice 5.2 installer's verified-download path, never apt.
 - **SERVICES** — nginx, the PHP-FPM service named by the committed
   `deployment.conf` template, PostgreSQL, Redis, Supervisor: each reported
   `missing` / `installed-stopped` / `installed-running`, never started or
@@ -187,8 +192,11 @@ The contract reproduces what the real staging VPS runs, inspected directly:
   base repository has no PHP 8.5.
 - **PostgreSQL 18** from PGDG (`apt.postgresql.org jammy-pgdg`) — the
   staging packages identify as `18.x-1.pgdg22.04+1`.
-- **Nginx, Redis, Supervisor** and every base utility from the Ubuntu
-  22.04 distribution repository.
+- **Nginx, Redis, Supervisor** and every base utility (including `unzip`,
+  which extracts the pinned rclone release archive) from the Ubuntu 22.04
+  distribution repository.
+- **rclone as a managed external runtime binary** — not an Ubuntu package;
+  see the dedicated section below.
 
 Exact patch versions (PHP 8.5.8, PostgreSQL 18.4, nginx 1.18.0, redis
 6.0.16, supervisor 4.2.1 as observed) deliberately **float with security
@@ -238,6 +246,62 @@ the current staging host — is recognized and left untouched. Unrelated
 host-wide repositories (NodeSource, ClickHouse, Datadog/Vector, anything
 else) are never inspected, managed, removed or required absent: `--check`
 and `--verify` on the current staging host pass with them present.
+
+### Managed external runtime: rclone (Phase 5.2.1 corrective fix)
+
+Acceptance on the real staging VPS falsified the original slice 5.2
+assumption that rclone is an Ubuntu apt package: the host runs a standalone
+`/usr/bin/rclone` (v1.74.4 at inspection time) that **no dpkg package
+owns**, and the Ubuntu 22.04 candidate package is the far older
+1.53.3-4ubuntu1.22.04.x. The corrected contract:
+
+- **Ubuntu packages are OS/runtime dependencies. rclone is a verified,
+  pinned external runtime binary** — never an apt package requirement, and
+  no third-party apt repository is added for it. dpkg ownership of the
+  binary is deliberately not required, so the current standalone staging
+  binary is a fully legitimate installation shape.
+- The canonical contract lives in the committed
+  `infrastructure/config/external-runtimes/versions.env`: the exact pinned
+  release version, `linux-amd64` platform, `/usr/bin/rclone`, `root:root`,
+  mode `0755`, and the official rclone release-signing key fingerprint
+  (`FBF737ECE9F8AB18604BD2AC93935E02FF3B54FA`). The matching public key is
+  committed next to it. Exact external versions are intentionally pinned
+  and updated explicitly — never `latest`, never a dynamic lookup: an
+  upgrade is its own reviewed change to that contract file.
+- `--check`/`--verify` report rclone in their own `EXTERNAL RUNTIME`
+  section, separate from `PACKAGES`. A compliant binary is
+  `PASS rclone — v<pin>, /usr/bin/rclone, root:root 0755`; an absent binary
+  is `MISSING` with the action `install verified rclone v<pin>`; version
+  drift (like the current staging v1.74.4), a wrong owner/group or mode, an
+  unexpected path, or a binary that cannot report a version are `CONFLICT`
+  with the action `replace with verified rclone v<pin>`. An apt action for
+  rclone is never proposed.
+- `--apply` converges drift through verification only: download the exact
+  versioned release archive and its `SHA256SUMS` from the official
+  `downloads.rclone.org` origin (HTTPS only), verify the clearsigned
+  `SHA256SUMS` with the committed release-signing key — which is itself
+  accepted only after it dearmors to exactly one primary key matching the
+  pinned fingerprint (a key is never trusted merely because of where it was
+  downloaded from) — extract the expected digest for the exact artifact,
+  verify the archive checksum, extract with `unzip`, confirm the extracted
+  binary reports exactly the pinned version, then stage the candidate with
+  final ownership and mode in the destination directory and rename it over
+  `/usr/bin/rclone` atomically. Any failure before that rename leaves the
+  currently working binary untouched; temporary material is cleaned via
+  trap. `rclone selfupdate` and the upstream pipe-to-shell installer are
+  never used.
+- When the exact pinned rclone already exists with the correct path, owner,
+  group and mode, `--apply` performs **no network request, no download and
+  no file replacement** for rclone.
+- The operator's `/root/.config/rclone/rclone.conf` (Backblaze B2
+  credentials) is never read, changed, moved, chmodded or recreated, and
+  `rclone config` is never run.
+
+**Existing staging migration:** after this fix deploys, `--check` on the
+current staging host reports exactly one unsatisfied item — the rclone
+version drift (installed v1.74.4, required pinned version) — and proposes
+the verified replacement, never `apt-get install rclone`. `--apply` then
+performs the signature- and checksum-verified atomic upgrade.
 
 ### apt policy and idempotency
 
