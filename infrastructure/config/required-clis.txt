@@ -4,6 +4,7 @@ bootstrap-host-preflight
 cleanup
 deploy
 health-check
+install-bootstrap-host-layout
 install-bootstrap-runtime
 install-mail-capture
 install-public-storage-access

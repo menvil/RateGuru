@@ -1,0 +1,1164 @@
+#!/usr/bin/env bash
+#
+# install-bootstrap-host-layout — Phase 5 slice 5.3: users, groups and
+# filesystem bootstrap for a clean RateGuru host.
+#
+# Modes (all root-only — this slice manages host identities and root-owned
+# directory trees, and even its read-only inspection must see them exactly
+# as the mutating path would):
+#   --check   Strictly read-only. Validates the source registry, the
+#             package-created prerequisite accounts from slice 5.2, and the
+#             full slice 5.3 identity/filesystem contract, reporting the
+#             intended --apply action for every unsatisfied item. Never
+#             creates, chowns, chmods or writes anything. Exits 0 only when
+#             the contract is already satisfied.
+#   --apply   Validates the entire plan before the first mutation, then
+#             idempotently converges only the Phase 5.3 identities and
+#             directories in dependency order (groups, users, membership,
+#             deploy home/.ssh, host root directories, active-target
+#             directories, exact known ownership/mode drift), and ends with
+#             the same authoritative verification --verify runs.
+#   --verify  Read-only. The authoritative slice 5.3 contract gate: exits 0
+#             only when every identity, membership and structural
+#             directory ownership/mode requirement holds exactly.
+#   --help    Usage.
+#
+# Source of truth: the repository. The SOURCE registry is
+# infrastructure/config/deployment-targets.json next to this script's
+# checkout, validated through the standalone `targets` CLI (never
+# re-implemented here). The RUNTIME registry
+# (/home/www/rateguru/config/deployment-targets.json) does not exist on a
+# clean host — install-target-operations installs it in slice 5.4 — so this
+# installer never reads or depends on it. Only targets whose lifecycle is
+# `active` are provisioned; lifecycle=planned targets (tits-guru) cause
+# zero user, group or filesystem mutation and are reported as deliberately
+# skipped.
+#
+# Identity model (why the ownership boundary looks the way it does):
+#   deploy user (deploy-rateguru-staging)  owns incoming artifacts and
+#       creates immutable releases (releases/locks/deployments are
+#       deploy_user:code_group, setgid 2750);
+#   code group (rateguru-staging-code)     lets the runtime user read
+#       immutable release code normalized to 0750/0640 without owning it;
+#   runtime user (rateguru-staging)        runs Laravel/PHP-FPM/queue
+#       processes and owns the shared mutable state (shared and
+#       shared/storage are runtime_user:runtime_group, setgid 2770);
+#   www-data                               is NOT added to any runtime
+#       group and no runtime account joins www-data — public storage
+#       traversal remains the narrow POSIX ACL that
+#       install-public-storage-access grants in slice 5.4;
+#   root                                   owns the target namespace root
+#       (/home/www/rateguru/<target> is root:root 0755) and the host
+#       operational/configuration roots.
+# The root-owned target root is deliberate: a deploy identity must be able
+# to create immutable releases inside releases/ without ever controlling
+# the target namespace itself (swapping shared/, locks/ or the current
+# symlink's parent directory).
+#
+# Package-created prerequisite accounts: root, www-data and postgres are
+# created by the slice 5.2 packages, never by this installer. Their absence
+# fails closed with an explicit "Phase 5.2 runtime prerequisite is
+# incomplete" message. The shared-host mail-capture accounts
+# (staging-mailpit, staging-mailtrap-local) belong to install-mail-capture
+# (slice 5.4 orchestration) and are never managed or validated here.
+#
+# Existing-data safety: reconciliation touches only the exact directory
+# entry whose owner/group/mode is part of the contract — never anything
+# beneath it. There is no recursive chown/chmod anywhere, no rm -rf, no
+# userdel/groupdel, no UID/GID renumbering, and no deletion or replacement
+# of a conflicting path: a regular file, symlink or any other wrong type
+# where a managed directory is required is a CONFLICT the operator resolves
+# manually. current/previous are deployment-owned state: never fabricated
+# on a clean host, never rewritten, never followed. .env, authorized_keys,
+# rclone.conf, releases, backups and deployment history are never read or
+# written (this installer creates the structural .ssh directory but never
+# an authorized_keys file — the deploy public key is Phase 5.4 secret
+# material).
+#
+# Accounts are persistent host state: convergence is fail-safe, idempotent
+# and re-runnable, never rolled back destructively. The semantic identity
+# contract for an EXISTING account is: primary group (both accounts),
+# canonical shell (runtime: the non-login service shell; deploy: /bin/bash,
+# because the GitHub Actions SSH deployment flow must be able to log in),
+# and — for the deploy identity only — the exact canonical home
+# /home/<deploy_user>: this installer manages that home, its .ssh and its
+# incoming directory, so a passwd entry pointing the deploy user elsewhere
+# would silently break authorized_keys lookup and every ownership
+# expectation. The runtime account's historic home is deliberately NOT
+# contract — it is not operationally significant to PHP-FPM/queue
+# execution, and encoding incidental metadata would churn healthy hosts.
+# Any incompatible metadata (wrong primary group, wrong deploy home, wrong
+# shell) is a CONFLICT that stops the run before any mutation: an existing
+# SSH identity is never automatically usermod'ed (no home, shell, UID or
+# primary-GID rewrites — that could break authorized_keys lookup, live
+# session behavior and external automation), so remediation is an explicit
+# operator decision. A compliant existing account is left completely
+# untouched, and no numeric UID/GID is ever part of the contract — names,
+# relationships, the deploy home and the canonical shells are.
+#
+# Test overrides: every RATEGURU_HOSTLAYOUT_* override below is honored
+# only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate
+# common, backup, bootstrap-host-preflight and every installer use — so a
+# stray variable in a real shell can never redirect probes or mutation at
+# attacker- or operator-controlled paths. Production execution ignores all
+# of them. RATEGURU_HOSTLAYOUT_FS_ROOT prefixes every filesystem path with
+# a fixture root so tests exercise the real mutation code against a
+# simulated host; the contract paths themselves stay canonical.
+
+set -Eeuo pipefail
+
+# --- Locations ----------------------------------------------------------------
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+SOURCE_REGISTRY_DEFAULT="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
+
+# --- Slice 5.3 contract -------------------------------------------------------
+
+# The allowed RateGuru namespace: every target application root must live
+# below this root, and the host operational directories live directly in it.
+RATEGURU_ROOT="/home/www/rateguru"
+LOG_DIR="/var/log/rateguru"
+
+# Deploy user homes live directly under /home; a target's incoming_artifacts
+# must be exactly <deploy home>/incoming or the registry is inconsistent.
+HOME_ROOT="/home"
+
+# Canonical shells — a hard contract for existing accounts too (kept in
+# tested parity with bootstrap-host-preflight): the runtime account must
+# hold the non-login service shell, and the deploy account must hold
+# /bin/bash so the existing GitHub Actions SSH deployment flow can log in.
+# An existing account with a different shell is a CONFLICT requiring
+# operator review — this installer never rewrites it.
+RUNTIME_USER_SHELL="/usr/sbin/nologin"
+DEPLOY_USER_SHELL="/bin/bash"
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — echoes the gated override when allowed and
+# set, the default otherwise.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_HOSTLAYOUT_EUID "${EUID}")"
+
+SOURCE_REGISTRY="$(gated_default RATEGURU_HOSTLAYOUT_SOURCE_REGISTRY "${SOURCE_REGISTRY_DEFAULT}")"
+
+# The standalone registry validator ships beside this script; the same
+# RATEGURU_TARGETS_CLI override common and the preflight already honor.
+TARGETS_CLI="$(gated_default RATEGURU_TARGETS_CLI "${SCRIPT_DIR}/targets")"
+
+PASSWD_FILE="$(gated_default RATEGURU_HOSTLAYOUT_PASSWD_FILE /etc/passwd)"
+GROUP_FILE="$(gated_default RATEGURU_HOSTLAYOUT_GROUP_FILE /etc/group)"
+
+# Fixture filesystem prefix: '' in production. Every stat/install/chown/
+# chmod below operates on physical(LOGICAL) = FS_ROOT + LOGICAL, so tests
+# can simulate a whole host under a scratch directory while the contract
+# keeps its canonical paths.
+FS_ROOT="$(gated_default RATEGURU_HOSTLAYOUT_FS_ROOT '')"
+
+STAT_BIN="$(gated_default RATEGURU_HOSTLAYOUT_STAT_BIN stat)"
+INSTALL_BIN="$(gated_default RATEGURU_HOSTLAYOUT_INSTALL_BIN install)"
+CHOWN_BIN="$(gated_default RATEGURU_HOSTLAYOUT_CHOWN_BIN chown)"
+CHMOD_BIN="$(gated_default RATEGURU_HOSTLAYOUT_CHMOD_BIN chmod)"
+GROUPADD_BIN="$(gated_default RATEGURU_HOSTLAYOUT_GROUPADD_BIN groupadd)"
+USERADD_BIN="$(gated_default RATEGURU_HOSTLAYOUT_USERADD_BIN useradd)"
+USERMOD_BIN="$(gated_default RATEGURU_HOSTLAYOUT_USERMOD_BIN usermod)"
+
+# --- Output -------------------------------------------------------------------
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+MODE=""
+MODE_SEEN=false
+
+COUNT_PASS=0
+COUNT_MISSING=0
+COUNT_WARN=0
+COUNT_CONFLICT=0
+
+section() {
+    printf '\n%s\n' "$1"
+}
+
+# item STATUS NAME DETAIL [ACTION]
+#
+# One report line, identical in shape to the other bootstrap scripts.
+# ACTION is the intended --apply action, printed only by --check and only
+# for non-PASS items. Output is deterministic: no timestamps, no ordering
+# surprises.
+item() {
+    local status="$1" name="$2" detail="$3" action="${4:-}"
+
+    case "${status}" in
+        PASS)     COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
+        WARN)     COUNT_WARN=$((COUNT_WARN + 1)) ;;
+        CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
+        *)        fail "internal: unknown item status: ${status}" ;;
+    esac
+
+    printf '  %-8s %s — %s\n' "${status}" "${name}" "${detail}"
+
+    if [[ "${MODE}" == check ]] && [[ "${status}" != PASS ]] && [[ -n "${action}" ]]; then
+        printf '           -> apply: %s\n' "${action}"
+    fi
+}
+
+# action MESSAGE — one --apply progress line. Deterministic, no timestamps.
+action() {
+    printf 'APPLY    %s\n' "$*"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-bootstrap-host-layout --check
+  install-bootstrap-host-layout --apply
+  install-bootstrap-host-layout --verify
+  install-bootstrap-host-layout --help
+
+All modes require root.
+
+  --check   Read-only slice 5.3 contract validation plus the intended
+            --apply action for every unsatisfied item. Validates the source
+            registry and the slice 5.2 package-created prerequisite
+            accounts, and never mutates anything. Exits 0 only when the
+            contract is already satisfied.
+  --apply   Validates the entire plan before the first mutation, then
+            idempotently creates/reconciles only the Phase 5.3 identities
+            and directories (groups, users, membership, deploy home/.ssh,
+            host root directories, active-target directories, exact known
+            ownership/mode drift), ending with the full --verify report.
+            Never deletes accounts or paths, never renumbers UIDs/GIDs,
+            never recurses into existing trees.
+  --verify  Read-only slice 5.3 contract gate: exit 0 only when every
+            identity, membership and structural directory ownership/mode
+            requirement holds exactly.
+
+Identity and filesystem scope only: packages belong to slice 5.2; service
+configuration, runtime registry, perimeter, SSH keys, ACLs, databases and
+TLS belong to slice 5.4. Only lifecycle=active targets are provisioned —
+planned targets cause zero mutation.
+USAGE
+}
+
+# --- Filesystem probes --------------------------------------------------------
+
+# physical LOGICAL — the on-disk path for a canonical contract path. In
+# production FS_ROOT is empty and the two are identical.
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+# stat_probe LOGICAL — prints "TYPE|OWNER|GROUP|MODE" for an existing path
+# (TYPE is stat %F: "directory", "regular file", "symbolic link", ...),
+# fails when the path is absent. Never dereferences symlinks, never
+# recurses, never modifies.
+stat_probe() {
+    local phys
+    phys="$(physical "$1")"
+
+    "${STAT_BIN}" -c '%F|%U|%G|%a' -- "${phys}" 2>/dev/null
+}
+
+# mode_equals ACTUAL EXPECTED — numeric octal comparison, so 755/0755 and
+# setgid modes (stat %a prints 2750 without a leading zero) never
+# masquerade as drift.
+mode_equals() {
+    (( 8#$1 == 8#$2 ))
+}
+
+# mode_group_other_writable MODE — true when group or others hold a write
+# bit; the deploy home acceptance is "no group/other write", not one exact
+# mode, so an existing sane 0755/0750 home is never churned.
+mode_group_other_writable() {
+    (( 8#$1 & 8#022 ))
+}
+
+# require_real_directory LOGICAL WHY — the path must exist as a genuine
+# directory, not a symlink (probed on the final component; every ancestor
+# inside the managed tree is itself validated as a managed directory, so
+# containment holds link-free down from the namespace roots).
+require_real_directory() {
+    local logical="$1" why="$2" phys
+    phys="$(physical "${logical}")"
+
+    [[ -L "${phys}" ]] && fail "path:${logical} is a symlink where a real directory is required (${why}) — refusing to follow it"
+    [[ -d "${phys}" ]] || fail "path:${logical} is missing or not a directory (${why})"
+}
+
+# --- Account probes -----------------------------------------------------------
+
+passwd_entry() {
+    local user="$1"
+
+    [[ -r "${PASSWD_FILE}" ]] || return 1
+
+    awk -F: -v user="${user}" '$1 == user { print; found = 1 } END { exit !found }' "${PASSWD_FILE}"
+}
+
+group_entry() {
+    local group="$1"
+
+    [[ -r "${GROUP_FILE}" ]] || return 1
+
+    awk -F: -v group="${group}" '$1 == group { print; found = 1 } END { exit !found }' "${GROUP_FILE}"
+}
+
+group_name_for_gid() {
+    local gid="$1"
+
+    [[ -r "${GROUP_FILE}" ]] || return 1
+
+    awk -F: -v gid="${gid}" '$3 == gid { print $1; found = 1; exit } END { exit !found }' "${GROUP_FILE}"
+}
+
+# user_primary_group USER — the group NAME of the user's primary GID; empty
+# output (and failure) when the user is absent or the GID has no name.
+user_primary_group() {
+    local user="$1" entry gid
+
+    entry="$(passwd_entry "${user}")" || return 1
+    gid="$(cut -d: -f4 <<<"${entry}")"
+
+    group_name_for_gid "${gid}"
+}
+
+# user_in_group USER GROUP — true when USER is a supplementary member of
+# GROUP or GROUP is the user's primary group.
+user_in_group() {
+    local user="$1" group="$2"
+    local group_line members user_gid group_gid
+
+    group_line="$(group_entry "${group}")" || return 1
+    passwd_entry "${user}" >/dev/null || return 1
+
+    members=",$(cut -d: -f4 <<<"${group_line}"),"
+    user_gid="$(passwd_entry "${user}" | cut -d: -f4)"
+    group_gid="$(cut -d: -f3 <<<"${group_line}")"
+
+    [[ "${members}" == *",${user},"* ]] || [[ "${user_gid}" == "${group_gid}" ]]
+}
+
+# user_metadata_drift USER EXPECTED_GROUP EXPECTED_HOME EXPECTED_SHELL
+#
+# The single classification --check/--verify and the apply gate share for
+# an EXISTING managed account: prints the semicolon-joined list of contract
+# violations ("primary group is X, required Y; shell is A, required B"),
+# empty when the account is compliant. EXPECTED_HOME "-" skips the home
+# assertion — the runtime account's historic home is deliberately not
+# contract. Fails (with no output) when the account is absent; absence is
+# classified by the callers, never here.
+user_metadata_drift() {
+    local user="$1" expected_group="$2" expected_home="$3" expected_shell="$4"
+    local entry primary_group home shell drift=""
+
+    entry="$(passwd_entry "${user}")" || return 1
+
+    primary_group="$(user_primary_group "${user}" || printf 'unresolvable')"
+    home="$(cut -d: -f6 <<<"${entry}")"
+    shell="$(cut -d: -f7 <<<"${entry}")"
+
+    if [[ "${primary_group}" != "${expected_group}" ]]; then
+        drift="primary group is ${primary_group}, required ${expected_group}"
+    fi
+
+    if [[ "${expected_home}" != "-" ]] && [[ "${home}" != "${expected_home}" ]]; then
+        drift="${drift:+${drift}; }home is ${home:-empty}, required ${expected_home}"
+    fi
+
+    if [[ "${shell}" != "${expected_shell}" ]]; then
+        drift="${drift:+${drift}; }shell is ${shell:-empty}, required ${expected_shell}"
+    fi
+
+    printf '%s\n' "${drift}"
+}
+
+# --- Source-registry contract -------------------------------------------------
+
+ACTIVE_TARGETS=()
+PLANNED_TARGETS=()
+declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
+declare -A TGT_CODE_GROUP TGT_INCOMING TGT_DEPLOY_HOME
+
+# load_source_contract — fail-closed source-of-truth loading. This installer
+# runs strictly after slice 5.2, so jq and the targets CLI are hard
+# prerequisites (their absence is a clear 5.2-incomplete error, never a
+# degraded report). The registry is validated through the standalone
+# `targets` CLI — never re-implemented — and only then parsed.
+load_source_contract() {
+    command -v jq >/dev/null 2>&1 \
+        || fail "jq is not available — the Phase 5.2 runtime prerequisite is incomplete (run install-bootstrap-runtime --apply first)"
+
+    [[ -r "${SOURCE_REGISTRY}" ]] \
+        || fail "source registry not readable: ${SOURCE_REGISTRY}"
+
+    [[ -x "${TARGETS_CLI}" ]] \
+        || fail "targets validator not executable: ${TARGETS_CLI} — run from a full repository checkout"
+
+    "${TARGETS_CLI}" validate --file "${SOURCE_REGISTRY}" >/dev/null 2>&1 \
+        || fail "source registry fails targets validate: ${SOURCE_REGISTRY} — fix the committed registry before any bootstrap step"
+
+    local target_id lifecycle
+    while IFS= read -r target_id; do
+        [[ -n "${target_id}" ]] || continue
+
+        lifecycle="$(jq -r --arg id "${target_id}" '.targets[$id].lifecycle' "${SOURCE_REGISTRY}")"
+
+        if [[ "${lifecycle}" != active ]]; then
+            PLANNED_TARGETS+=("${target_id}")
+            continue
+        fi
+
+        ACTIVE_TARGETS+=("${target_id}")
+
+        TGT_ROOT[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].application_root' "${SOURCE_REGISTRY}")"
+        TGT_RUNTIME_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_user' "${SOURCE_REGISTRY}")"
+        TGT_RUNTIME_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_group' "${SOURCE_REGISTRY}")"
+        TGT_DEPLOY_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].deploy_user' "${SOURCE_REGISTRY}")"
+        TGT_CODE_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].code_group' "${SOURCE_REGISTRY}")"
+        TGT_INCOMING[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].incoming_artifacts' "${SOURCE_REGISTRY}")"
+        TGT_DEPLOY_HOME[${target_id}]="${HOME_ROOT}/${TGT_DEPLOY_USER[${target_id}]}"
+    done < <(jq -r '.targets | keys[]' "${SOURCE_REGISTRY}" | sort)
+
+    validate_target_contract
+}
+
+# validate_target_contract — this installer's own defense in depth on top
+# of `targets validate`: every active application root must live below the
+# allowed RateGuru root, and the registry's incoming directory must be
+# exactly <deploy home>/incoming. Violations fail closed before any report
+# or mutation.
+validate_target_contract() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        [[ "${TGT_ROOT[${target_id}]}" == "${RATEGURU_ROOT}"/* ]] \
+            || fail "target ${target_id}: application_root ${TGT_ROOT[${target_id}]} is outside the allowed RateGuru root ${RATEGURU_ROOT} — refusing to provision it"
+
+        [[ "${TGT_INCOMING[${target_id}]}" == "${TGT_DEPLOY_HOME[${target_id}]}/incoming" ]] \
+            || fail "target ${target_id}: incoming_artifacts ${TGT_INCOMING[${target_id}]} is inconsistent with the deploy user home ${TGT_DEPLOY_HOME[${target_id}]} — refusing to provision it"
+    done
+
+    if [[ -n "${FS_ROOT}" ]] && [[ "${FS_ROOT}" != /* ]]; then
+        fail "fixture filesystem root must be an absolute path: ${FS_ROOT}"
+    fi
+}
+
+# --- Report sections (shared by --check and --verify) -------------------------
+
+report_targets() {
+    section "TARGETS"
+
+    item PASS "registry:source" "valid (${#ACTIVE_TARGETS[@]} active target(s): ${ACTIVE_TARGETS[*]:-none})"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        item PASS "target:${target_id}" "lifecycle=active — provisioned by this slice"
+    done
+
+    for target_id in "${PLANNED_TARGETS[@]}"; do
+        item PASS "target:${target_id}" "lifecycle=planned — not provisioned by this slice (no users, groups or directories are ever created for it)"
+    done
+}
+
+# The package-created accounts slice 5.2 is responsible for. Never created
+# or reconfigured here — absence means the runtime bootstrap is incomplete.
+PREREQUISITE_USERS=(root www-data postgres)
+PREREQUISITE_GROUPS=(www-data postgres)
+
+report_prerequisites() {
+    section "PREREQUISITES"
+
+    local user entry uid
+    for user in "${PREREQUISITE_USERS[@]}"; do
+        if ! entry="$(passwd_entry "${user}")"; then
+            item MISSING "prerequisite:user:${user}" "missing — the Phase 5.2 runtime prerequisite is incomplete" \
+                "run install-bootstrap-runtime --apply (slice 5.2) first — package-owned accounts are never created here"
+            continue
+        fi
+
+        uid="$(cut -d: -f3 <<<"${entry}")"
+
+        if [[ "${user}" == root ]] && [[ "${uid}" != 0 ]]; then
+            item CONFLICT "prerequisite:user:root" "exists but uid=${uid}, not 0" \
+                "unsupportable host state — investigate manually"
+        else
+            item PASS "prerequisite:user:${user}" "exists (package-created account; never managed here)"
+        fi
+    done
+
+    local group
+    for group in "${PREREQUISITE_GROUPS[@]}"; do
+        if group_entry "${group}" >/dev/null; then
+            item PASS "prerequisite:group:${group}" "exists (package-created group; never managed here)"
+        else
+            item MISSING "prerequisite:group:${group}" "missing — the Phase 5.2 runtime prerequisite is incomplete" \
+                "run install-bootstrap-runtime --apply (slice 5.2) first — package-owned groups are never created here"
+        fi
+    done
+}
+
+report_group_required() {
+    local group="$1" label="$2"
+
+    if group_entry "${group}" >/dev/null; then
+        item PASS "group:${group}" "exists (${label})"
+    else
+        item MISSING "group:${group}" "missing (${label})" \
+            "groupadd ${group}"
+    fi
+}
+
+report_groups() {
+    section "GROUPS"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_group_required "${TGT_RUNTIME_GROUP[${target_id}]}" "runtime group for target ${target_id} (system group)"
+        report_group_required "${TGT_CODE_GROUP[${target_id}]}" "code group for target ${target_id} (system group)"
+        report_group_required "${TGT_DEPLOY_USER[${target_id}]}" "deploy user's primary private group for target ${target_id}"
+    done
+}
+
+# report_user_required USER EXPECTED_GROUP EXPECTED_HOME EXPECTED_SHELL LABEL
+#
+# An existing account must satisfy the exact semantic contract: primary
+# group, canonical shell, and — where EXPECTED_HOME is not "-" — the exact
+# canonical home (the deploy identity: this installer manages that home,
+# its .ssh and its incoming directory, so a divergent passwd entry breaks
+# the SSH deployment flow). Any drift is CONFLICT and is never auto-
+# usermod'ed. No numeric UID/GID and no password state is ever asserted.
+report_user_required() {
+    local user="$1" expected_group="$2" expected_home="$3" expected_shell="$4" label="$5"
+    local drift
+
+    if ! passwd_entry "${user}" >/dev/null; then
+        item MISSING "user:${user}" "missing (${label})" \
+            "useradd with primary group ${expected_group}, shell ${expected_shell} (no password login; never renumbered later)"
+
+        return 0
+    fi
+
+    drift="$(user_metadata_drift "${user}" "${expected_group}" "${expected_home}" "${expected_shell}")"
+
+    if [[ -n "${drift}" ]]; then
+        item CONFLICT "user:${user}" "${drift} (${label})" \
+            "incompatible existing account — operator review required; this installer never deletes, renumbers or rewrites the home/shell of an existing account"
+
+        return 0
+    fi
+
+    item PASS "user:${user}" "exists (primary group ${expected_group}, shell ${expected_shell}; ${label})"
+}
+
+report_users() {
+    section "USERS"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_user_required "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" \
+            - "${RUNTIME_USER_SHELL}" \
+            "runtime user for target ${target_id}: runs Laravel/PHP-FPM/queue processes; historic home is not contract"
+        report_user_required "${TGT_DEPLOY_USER[${target_id}]}" "${TGT_DEPLOY_USER[${target_id}]}" \
+            "${TGT_DEPLOY_HOME[${target_id}]}" "${DEPLOY_USER_SHELL}" \
+            "deploy user for target ${target_id}: GitHub Actions SSH deployment account"
+    done
+}
+
+report_memberships() {
+    section "MEMBERSHIP"
+
+    local target_id user group
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        user="${TGT_RUNTIME_USER[${target_id}]}"
+        group="${TGT_CODE_GROUP[${target_id}]}"
+
+        if ! passwd_entry "${user}" >/dev/null || ! group_entry "${group}" >/dev/null; then
+            item MISSING "membership:${user}:${group}" "user or group absent — relation cannot exist yet" \
+                "create the accounts, then usermod --append --groups ${group} ${user}"
+        elif user_in_group "${user}" "${group}"; then
+            item PASS "membership:${user}:${group}" "${user} is a member of ${group} (PHP-FPM must read releases owned ${TGT_DEPLOY_USER[${target_id}]}:${group} mode 0750/0640)"
+        else
+            item MISSING "membership:${user}:${group}" "${user} is not a member of ${group}" \
+                "usermod --append --groups ${group} ${user} (append-only; unrelated memberships are never removed)"
+        fi
+    done
+}
+
+# report_directory PATH OWNER GROUP MODE POLICY LABEL
+#
+# POLICY is "exact" (the mode must match exactly) or "nw" (any mode without
+# group/other write is accepted — the deploy home contract). One stat call,
+# no recursion — existing trees beneath the entry are never scanned.
+report_directory() {
+    local path="$1" owner="$2" group="$3" mode="$4" policy="$5" label="$6"
+
+    local probe
+    if ! probe="$(stat_probe "${path}")"; then
+        item MISSING "path:${path}" "absent (${label})" \
+            "install -d mode ${mode}, chown ${owner}:${group} — this directory entry only"
+
+        return 0
+    fi
+
+    local actual_type actual_owner actual_group actual_mode
+    IFS='|' read -r actual_type actual_owner actual_group actual_mode <<<"${probe}"
+
+    if [[ "${actual_type}" != directory ]]; then
+        item CONFLICT "path:${path}" "is a ${actual_type}, expected directory (${label})" \
+            "resolve manually — this installer never deletes, replaces or follows a conflicting path"
+
+        return 0
+    fi
+
+    if [[ "${actual_owner}" != "${owner}" ]] || [[ "${actual_group}" != "${group}" ]]; then
+        item CONFLICT "path:${path}" "owned by ${actual_owner}:${actual_group}, required ${owner}:${group} (${label})" \
+            "chown ${owner}:${group} on this directory entry only (never recursive; contents keep their ownership)"
+
+        return 0
+    fi
+
+    if [[ "${policy}" == nw ]]; then
+        if mode_group_other_writable "${actual_mode}"; then
+            item CONFLICT "path:${path}" "mode ${actual_mode} is group- or other-writable (${label})" \
+                "chmod 0750 on this directory entry only (never recursive)"
+
+            return 0
+        fi
+    elif ! mode_equals "${actual_mode}" "${mode}"; then
+        item CONFLICT "path:${path}" "mode ${actual_mode}, required ${mode} (${label})" \
+            "chmod ${mode} on this directory entry only (never recursive)"
+
+        return 0
+    fi
+
+    item PASS "path:${path}" "directory, ${actual_owner}:${actual_group}, mode ${actual_mode} (${label})"
+}
+
+# report_deployment_symlink PATH LABEL — current/previous are owned by the
+# deploy/rollback pipeline: absent until a real artifact is deployed, and
+# never fabricated, rewritten or followed by this installer.
+report_deployment_symlink() {
+    local path="$1" label="$2"
+
+    local probe
+    if ! probe="$(stat_probe "${path}")"; then
+        item PASS "path:${path}" "absent (${label}; created by the first real deployment — never fabricated by this installer)"
+
+        return 0
+    fi
+
+    local actual_type
+    actual_type="${probe%%|*}"
+
+    if [[ "${actual_type}" == "symbolic link" ]]; then
+        item PASS "path:${path}" "symbolic link (${label}; deployment-owned — never rewritten or followed by this installer)"
+    else
+        item WARN "path:${path}" "is a ${actual_type} (${label}; deployment-owned path in an unexpected shape — never modified by this installer)" \
+            "investigate manually — the deploy/rollback pipeline owns this path"
+    fi
+}
+
+report_filesystem() {
+    section "FILESYSTEM"
+
+    report_directory "${RATEGURU_ROOT}" root root 0755 exact "host namespace root"
+    report_directory "${RATEGURU_ROOT}/config" root root 0755 exact "non-secret host configuration root (contents installed by slice 5.4)"
+    report_directory "${RATEGURU_ROOT}/bin" root root 0755 exact "operational CLI root (contents installed by slice 5.4)"
+    report_directory "${RATEGURU_ROOT}/backups" root root 0700 exact "local backup base (contents never scanned)"
+    report_directory "${RATEGURU_ROOT}/run" root root 0700 exact "operational lock directory"
+    report_directory "${LOG_DIR}" root root 0750 exact "operational log directory"
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        local root="${TGT_ROOT[${target_id}]}"
+        local runtime_user="${TGT_RUNTIME_USER[${target_id}]}"
+        local runtime_group="${TGT_RUNTIME_GROUP[${target_id}]}"
+        local deploy_user="${TGT_DEPLOY_USER[${target_id}]}"
+        local code_group="${TGT_CODE_GROUP[${target_id}]}"
+        local deploy_home="${TGT_DEPLOY_HOME[${target_id}]}"
+
+        report_directory "${root}" root root 0755 exact "application root for ${target_id} (root-owned namespace boundary)"
+        report_directory "${root}/releases" "${deploy_user}" "${code_group}" 2750 exact "immutable release history for ${target_id} (setgid; contents never scanned or re-owned)"
+        report_directory "${root}/shared" "${runtime_user}" "${runtime_group}" 2770 exact "shared mutable state for ${target_id} (setgid; contents never scanned or re-owned)"
+        report_directory "${root}/shared/storage" "${runtime_user}" "${runtime_group}" 2770 exact "structural shared-storage root for ${target_id} (Laravel descendants belong to the deploy pipeline)"
+        report_directory "${root}/locks" "${deploy_user}" "${code_group}" 2750 exact "deployment lock directory for ${target_id}"
+        report_directory "${root}/deployments" "${deploy_user}" "${code_group}" 2750 exact "deployment history for ${target_id} (contents never scanned or re-owned)"
+        report_directory "${deploy_home}" "${deploy_user}" "${deploy_user}" 0750 nw "deploy user home for ${target_id} (accepted with any non-group/other-writable mode)"
+        report_directory "${deploy_home}/.ssh" "${deploy_user}" "${deploy_user}" 0700 exact "structural SSH directory for ${target_id} (the deploy public key is Phase 5.4 secret material — never created or read here)"
+        report_directory "${TGT_INCOMING[${target_id}]}" "${deploy_user}" "${deploy_user}" 0750 exact "incoming artifacts for ${target_id}"
+
+        report_deployment_symlink "${root}/current" "atomic current-release switch for ${target_id}"
+        report_deployment_symlink "${root}/previous" "previous-release rollback pointer for ${target_id}"
+    done
+}
+
+report_summary() {
+    section "SUMMARY"
+
+    printf 'Bootstrap host layout installer (%s):\n' "${MODE}"
+    printf 'PASS: %d\n' "${COUNT_PASS}"
+    printf 'MISSING: %d\n' "${COUNT_MISSING}"
+    printf 'WARN: %d\n' "${COUNT_WARN}"
+    printf 'CONFLICT: %d\n' "${COUNT_CONFLICT}"
+    printf '\n'
+
+    if contract_satisfied; then
+        printf 'SLICE 5.3 CONTRACT: SATISFIED\n'
+    else
+        printf 'SLICE 5.3 CONTRACT: NOT SATISFIED\n'
+    fi
+}
+
+contract_satisfied() {
+    (( COUNT_MISSING == 0 )) && (( COUNT_CONFLICT == 0 ))
+}
+
+# run_contract_report — the full read-only report used by --check and
+# --verify (and by --apply as its closing gate). Exits 0 only when the
+# slice 5.3 contract is satisfied.
+run_contract_report() {
+    printf 'RateGuru bootstrap host layout installer (%s mode)\n' "${MODE}"
+    printf 'Allowed namespace: %s (active targets only; planned targets are never provisioned)\n' "${RATEGURU_ROOT}"
+
+    report_targets
+    report_prerequisites
+    report_groups
+    report_users
+    report_memberships
+    report_filesystem
+    report_summary
+
+    contract_satisfied
+}
+
+# --- Apply: plan validation ---------------------------------------------------
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == "0" ]] || fail "--${MODE} must run as root"
+}
+
+# apply_gate_prerequisites — the slice 5.2 package-created accounts must
+# already exist; they are never created or reconfigured here.
+apply_gate_prerequisites() {
+    local user
+    for user in "${PREREQUISITE_USERS[@]}"; do
+        passwd_entry "${user}" >/dev/null \
+            || fail "package-created account '${user}' is missing — the Phase 5.2 runtime prerequisite is incomplete (run install-bootstrap-runtime --apply first)"
+    done
+
+    local group
+    for group in "${PREREQUISITE_GROUPS[@]}"; do
+        group_entry "${group}" >/dev/null \
+            || fail "package-created group '${group}' is missing — the Phase 5.2 runtime prerequisite is incomplete (run install-bootstrap-runtime --apply first)"
+    done
+}
+
+# apply_gate_identities — an existing account whose metadata is
+# incompatible with the contract (wrong primary group; wrong shell; for
+# the deploy identity, wrong home) cannot be safely reconciled: this
+# installer never deletes, renumbers, or rewrites the home/shell of an
+# existing account — automatically changing an existing SSH identity can
+# break authorized_keys lookup, session behavior, ownership expectations
+# and external automation. Any such account fails the whole run closed
+# before any mutation — no group/user creation, no membership change, no
+# install/chown/chmod.
+apply_gate_identities() {
+    local target_id user expected_group expected_home expected_shell drift
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        for user in "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_DEPLOY_USER[${target_id}]}"; do
+            passwd_entry "${user}" >/dev/null || continue
+
+            if [[ "${user}" == "${TGT_RUNTIME_USER[${target_id}]}" ]]; then
+                expected_group="${TGT_RUNTIME_GROUP[${target_id}]}"
+                expected_home="-"
+                expected_shell="${RUNTIME_USER_SHELL}"
+            else
+                expected_group="${user}"
+                expected_home="${TGT_DEPLOY_HOME[${target_id}]}"
+                expected_shell="${DEPLOY_USER_SHELL}"
+            fi
+
+            drift="$(user_metadata_drift "${user}" "${expected_group}" "${expected_home}" "${expected_shell}")"
+
+            [[ -z "${drift}" ]] \
+                || fail "user:${user} exists with incompatible metadata: ${drift} — incompatible existing account; operator review required (this installer never deletes, renumbers or rewrites the home/shell of an existing account). No filesystem mutation was performed."
+        done
+    done
+}
+
+# managed_directory_paths — every directory this slice owns, in convergence
+# order (parents strictly before children).
+managed_directory_paths() {
+    local target_id
+
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        printf '%s\n' "${TGT_DEPLOY_HOME[${target_id}]}"
+        printf '%s\n' "${TGT_DEPLOY_HOME[${target_id}]}/.ssh"
+    done
+
+    printf '%s\n' "${RATEGURU_ROOT}"
+    printf '%s\n' "${RATEGURU_ROOT}/config"
+    printf '%s\n' "${RATEGURU_ROOT}/bin"
+    printf '%s\n' "${RATEGURU_ROOT}/backups"
+    printf '%s\n' "${RATEGURU_ROOT}/run"
+    printf '%s\n' "${LOG_DIR}"
+
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        printf '%s\n' "${TGT_ROOT[${target_id}]}"
+        printf '%s\n' "${TGT_ROOT[${target_id}]}/releases"
+        printf '%s\n' "${TGT_ROOT[${target_id}]}/shared"
+        printf '%s\n' "${TGT_ROOT[${target_id}]}/shared/storage"
+        printf '%s\n' "${TGT_ROOT[${target_id}]}/locks"
+        printf '%s\n' "${TGT_ROOT[${target_id}]}/deployments"
+        printf '%s\n' "${TGT_INCOMING[${target_id}]}"
+    done
+}
+
+# apply_gate_filesystem — every managed path that already exists must be a
+# genuine directory (never a symlink, file, socket or anything else), and
+# the unmanaged namespace parents must be real directories. All conflicts
+# are collected and reported together, then the run fails closed with zero
+# mutation performed.
+apply_gate_filesystem() {
+    require_real_directory "${HOME_ROOT}" "parent of every deploy user home"
+    require_real_directory "$(dirname -- "${LOG_DIR}")" "parent of the operational log directory"
+
+    # /home/www is not part of the managed contract (only created, root:root
+    # 0755, when absent) — but if it exists it must be a real directory.
+    local namespace_parent
+    namespace_parent="$(dirname -- "${RATEGURU_ROOT}")"
+
+    if [[ -e "$(physical "${namespace_parent}")" ]] || [[ -L "$(physical "${namespace_parent}")" ]]; then
+        require_real_directory "${namespace_parent}" "parent of the RateGuru namespace root"
+    fi
+
+    local conflicts=() path probe actual_type
+    while IFS= read -r path; do
+        probe="$(stat_probe "${path}")" || continue
+        actual_type="${probe%%|*}"
+
+        if [[ "${actual_type}" != directory ]]; then
+            conflicts+=("path:${path} is a ${actual_type} where a managed directory is required")
+        fi
+    done < <(managed_directory_paths)
+
+    if (( ${#conflicts[@]} > 0 )); then
+        local conflict
+        for conflict in "${conflicts[@]}"; do
+            printf 'CONFLICT %s\n' "${conflict}" >&2
+        done
+
+        fail "refusing to apply: ${#conflicts[@]} filesystem conflict(s) — conflicting paths are never deleted or replaced, and no mutation was performed"
+    fi
+}
+
+# --- Apply: identity convergence ----------------------------------------------
+
+# ensure_group NAME KIND LABEL — creates the group when missing (KIND
+# "system" adds --system). Existing groups are never modified, renumbered
+# or deleted.
+ensure_group() {
+    local group="$1" kind="$2" label="$3"
+
+    if group_entry "${group}" >/dev/null; then
+        return 0
+    fi
+
+    action "group:${group} creating (${label})"
+
+    if [[ "${kind}" == system ]]; then
+        "${GROUPADD_BIN}" --system "${group}" \
+            || fail "group:${group}: groupadd failed"
+    else
+        "${GROUPADD_BIN}" "${group}" \
+            || fail "group:${group}: groupadd failed"
+    fi
+
+    group_entry "${group}" >/dev/null \
+        || fail "group:${group}: created but not visible in ${GROUP_FILE}"
+}
+
+converge_groups() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        ensure_group "${TGT_RUNTIME_GROUP[${target_id}]}" system "runtime group for target ${target_id}"
+        ensure_group "${TGT_CODE_GROUP[${target_id}]}" system "code group for target ${target_id}"
+        ensure_group "${TGT_DEPLOY_USER[${target_id}]}" regular "deploy user's primary private group for target ${target_id}"
+    done
+}
+
+converge_users() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        local runtime_user="${TGT_RUNTIME_USER[${target_id}]}"
+        local deploy_user="${TGT_DEPLOY_USER[${target_id}]}"
+
+        # Existing accounts already passed the compatibility gate; their
+        # shell, home and other metadata are deliberately left untouched.
+        if ! passwd_entry "${runtime_user}" >/dev/null; then
+            action "user:${runtime_user} creating system service account (primary group ${TGT_RUNTIME_GROUP[${target_id}]}, shell ${RUNTIME_USER_SHELL}, no password login)"
+
+            "${USERADD_BIN}" --system \
+                --gid "${TGT_RUNTIME_GROUP[${target_id}]}" \
+                --no-create-home --home-dir "${TGT_ROOT[${target_id}]}" \
+                --shell "${RUNTIME_USER_SHELL}" \
+                "${runtime_user}" \
+                || fail "user:${runtime_user}: useradd failed"
+        fi
+
+        if ! passwd_entry "${deploy_user}" >/dev/null; then
+            action "user:${deploy_user} creating deploy account (primary group ${deploy_user}, home ${TGT_DEPLOY_HOME[${target_id}]}, shell ${DEPLOY_USER_SHELL}, no password login)"
+
+            # --no-create-home: the home directory is converged explicitly
+            # below with the exact contract ownership and mode.
+            "${USERADD_BIN}" \
+                --gid "${deploy_user}" \
+                --no-create-home --home-dir "${TGT_DEPLOY_HOME[${target_id}]}" \
+                --shell "${DEPLOY_USER_SHELL}" \
+                "${deploy_user}" \
+                || fail "user:${deploy_user}: useradd failed"
+        fi
+    done
+}
+
+converge_memberships() {
+    local target_id user group
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        user="${TGT_RUNTIME_USER[${target_id}]}"
+        group="${TGT_CODE_GROUP[${target_id}]}"
+
+        if user_in_group "${user}" "${group}"; then
+            continue
+        fi
+
+        action "membership:${user}:${group} appending supplementary membership (unrelated memberships are never removed)"
+
+        "${USERMOD_BIN}" --append --groups "${group}" "${user}" \
+            || fail "membership:${user}:${group}: usermod failed"
+
+        user_in_group "${user}" "${group}" \
+            || fail "membership:${user}:${group}: appended but not visible in ${GROUP_FILE}"
+    done
+}
+
+# --- Apply: filesystem convergence --------------------------------------------
+
+# ensure_directory PATH OWNER GROUP MODE POLICY — converges exactly one
+# directory entry. Creation stages the final mode via install -d and then
+# sets ownership; reconciliation of an existing directory changes only the
+# drifted aspect of the entry itself. NEVER recursive: contents keep their
+# ownership and modes untouched. POLICY "nw" accepts any existing mode
+# without group/other write and only remediates a group/other-writable one.
+ensure_directory() {
+    local path="$1" owner="$2" group="$3" mode="$4" policy="$5"
+    local phys
+    phys="$(physical "${path}")"
+
+    local probe
+    if ! probe="$(stat_probe "${path}")"; then
+        local parent
+        parent="$(dirname -- "${path}")"
+
+        require_real_directory "${parent}" "parent of managed directory ${path}"
+
+        action "path:${path} creating directory (${owner}:${group}, mode ${mode})"
+
+        "${INSTALL_BIN}" -d -m "${mode}" -- "${phys}" \
+            || fail "path:${path}: cannot create directory"
+        "${CHOWN_BIN}" -- "${owner}:${group}" "${phys}" \
+            || fail "path:${path}: cannot set ownership ${owner}:${group}"
+
+        return 0
+    fi
+
+    local actual_type actual_owner actual_group actual_mode
+    IFS='|' read -r actual_type actual_owner actual_group actual_mode <<<"${probe}"
+
+    # Defense in depth: the plan gate already rejected wrong types.
+    [[ "${actual_type}" == directory ]] \
+        || fail "path:${path} is a ${actual_type} where a managed directory is required — refusing to touch it"
+
+    if [[ "${actual_owner}" != "${owner}" ]] || [[ "${actual_group}" != "${group}" ]]; then
+        action "path:${path} reconciling ownership ${actual_owner}:${actual_group} -> ${owner}:${group} (this directory entry only, never recursive)"
+
+        "${CHOWN_BIN}" -- "${owner}:${group}" "${phys}" \
+            || fail "path:${path}: cannot set ownership ${owner}:${group}"
+    fi
+
+    if [[ "${policy}" == nw ]]; then
+        if mode_group_other_writable "${actual_mode}"; then
+            action "path:${path} reconciling group/other-writable mode ${actual_mode} -> 0750 (this directory entry only, never recursive)"
+
+            "${CHMOD_BIN}" 0750 "${phys}" \
+                || fail "path:${path}: cannot set mode 0750"
+        fi
+    elif ! mode_equals "${actual_mode}" "${mode}"; then
+        action "path:${path} reconciling mode ${actual_mode} -> ${mode} (this directory entry only, never recursive)"
+
+        "${CHMOD_BIN}" "${mode}" "${phys}" \
+            || fail "path:${path}: cannot set mode ${mode}"
+    fi
+}
+
+# ensure_namespace_parent — /home/www is not part of the managed contract,
+# but on a genuinely clean host it does not exist yet and the namespace
+# root cannot be created through a missing parent. Created root:root 0755
+# only when absent; an existing /home/www is left exactly as it is.
+ensure_namespace_parent() {
+    local parent phys
+    parent="$(dirname -- "${RATEGURU_ROOT}")"
+    phys="$(physical "${parent}")"
+
+    if [[ -e "${phys}" ]] || [[ -L "${phys}" ]]; then
+        require_real_directory "${parent}" "parent of the RateGuru namespace root"
+
+        return 0
+    fi
+
+    require_real_directory "$(dirname -- "${parent}")" "grandparent of the RateGuru namespace root"
+
+    action "path:${parent} creating namespace parent (root:root, mode 0755; not otherwise managed)"
+
+    "${INSTALL_BIN}" -d -m 0755 -- "${phys}" \
+        || fail "path:${parent}: cannot create directory"
+    "${CHOWN_BIN}" -- root:root "${phys}" \
+        || fail "path:${parent}: cannot set ownership root:root"
+}
+
+converge_filesystem() {
+    local target_id
+
+    # Deploy home and .ssh first (spec order: the deploy account structure
+    # precedes the shared namespace), then host roots, then target trees.
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        ensure_directory "${TGT_DEPLOY_HOME[${target_id}]}" "${TGT_DEPLOY_USER[${target_id}]}" "${TGT_DEPLOY_USER[${target_id}]}" 0750 nw
+        ensure_directory "${TGT_DEPLOY_HOME[${target_id}]}/.ssh" "${TGT_DEPLOY_USER[${target_id}]}" "${TGT_DEPLOY_USER[${target_id}]}" 0700 exact
+    done
+
+    ensure_namespace_parent
+    ensure_directory "${RATEGURU_ROOT}" root root 0755 exact
+    ensure_directory "${RATEGURU_ROOT}/config" root root 0755 exact
+    ensure_directory "${RATEGURU_ROOT}/bin" root root 0755 exact
+    ensure_directory "${RATEGURU_ROOT}/backups" root root 0700 exact
+    ensure_directory "${RATEGURU_ROOT}/run" root root 0700 exact
+    ensure_directory "${LOG_DIR}" root root 0750 exact
+
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        local root="${TGT_ROOT[${target_id}]}"
+        local runtime_user="${TGT_RUNTIME_USER[${target_id}]}"
+        local runtime_group="${TGT_RUNTIME_GROUP[${target_id}]}"
+        local deploy_user="${TGT_DEPLOY_USER[${target_id}]}"
+        local code_group="${TGT_CODE_GROUP[${target_id}]}"
+
+        # The known real-staging remediation lives here: a drifted target
+        # root is chowned/chmodded as one directory entry, and nothing
+        # beneath it (releases, shared, current, application data) is ever
+        # re-owned through the parent.
+        ensure_directory "${root}" root root 0755 exact
+        ensure_directory "${root}/releases" "${deploy_user}" "${code_group}" 2750 exact
+        ensure_directory "${root}/shared" "${runtime_user}" "${runtime_group}" 2770 exact
+        ensure_directory "${root}/shared/storage" "${runtime_user}" "${runtime_group}" 2770 exact
+        ensure_directory "${root}/locks" "${deploy_user}" "${code_group}" 2750 exact
+        ensure_directory "${root}/deployments" "${deploy_user}" "${code_group}" 2750 exact
+        ensure_directory "${TGT_INCOMING[${target_id}]}" "${deploy_user}" "${deploy_user}" 0750 exact
+    done
+}
+
+# perform_apply — root is enforced by run_apply; tests exercising failure
+# paths call this directly with the gated EUID override in place.
+perform_apply() {
+    action "validating the entire plan before any mutation"
+
+    apply_gate_prerequisites
+    apply_gate_identities
+    apply_gate_filesystem
+
+    converge_groups
+    converge_users
+    converge_memberships
+    converge_filesystem
+
+    action "apply finished — running the full contract verification"
+
+    MODE=verify
+    run_contract_report
+}
+
+run_apply() {
+    require_root
+    perform_apply
+}
+
+# --- Entry point --------------------------------------------------------------
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "mode given more than once"
+                fi
+
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${MODE_SEEN}" != true ]]; then
+        usage >&2
+        fail "one of --check, --apply or --verify is required"
+    fi
+}
+
+main() {
+    parse_args "$@"
+
+    require_root
+    load_source_contract
+
+    case "${MODE}" in
+        check|verify)
+            run_contract_report || exit 1
+            ;;
+        apply)
+            printf 'RateGuru bootstrap host layout installer (apply mode)\n'
+            perform_apply || exit 1
+            ;;
+    esac
+
+    exit 0
+}
+
+# Source-guard: allows tests to source this file and call functions directly
+# without main() auto-running — the same pattern the other installers use.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

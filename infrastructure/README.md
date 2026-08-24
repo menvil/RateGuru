@@ -10,11 +10,14 @@ infrastructure, and moves out once a second project exists.
 
 ## Contents
 
-- clean-VPS bootstrap preflight (read-only host contract inspection) and the
+- clean-VPS bootstrap preflight (read-only host contract inspection), the
   base/runtime package installer (Ubuntu 22.04 baseline, PHP 8.5, PostgreSQL
   18; Node.js/Composer intentionally absent — GitHub Actions builds the
   immutable artifact; rclone managed as a verified, pinned external runtime
-  binary rather than an Ubuntu package) — see
+  binary rather than an Ubuntu package), and the users/groups/filesystem
+  bootstrap installer (`install-bootstrap-host-layout` — per-target deploy/
+  runtime identities, code-group membership, and the root-owned namespace
+  plus setgid release/shared trees, active targets only) — see
   [`runbooks/bootstrap-host.md`](runbooks/bootstrap-host.md);
 - deployment and rollback scripts;
 - local and offsite backup scripts;
@@ -27,7 +30,11 @@ infrastructure, and moves out once a second project exists.
 - sudoers and SSH restrictions;
 - environment variable templates;
 - operational runbooks;
-- the phased [`ROADMAP.md`](ROADMAP.md).
+- the phased [`ROADMAP.md`](ROADMAP.md) — Phase 5 (clean-VPS bootstrap) is
+  current; Phases 6–10 (Sentry observability, disaster recovery and release
+  rehearsal, first production launch, repeatable target onboarding, advanced
+  observability/analytics) are planned there as concrete slices, including
+  the three distinct rehearsal gates and the disposable-rehearsal policy.
 
 ## Committed non-secret config exception
 

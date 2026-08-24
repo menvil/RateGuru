@@ -6,7 +6,9 @@ This runbook covers the clean-VPS bootstrap scripts:
   the read-only host contract inspection;
 - `infrastructure/scripts/install-bootstrap-runtime` — Phase 5 slice 5.2,
   the reproducible base/runtime package installation (see its own section
-  below).
+  below);
+- `infrastructure/scripts/install-bootstrap-host-layout` — Phase 5 slice
+  5.3, the users/groups/filesystem bootstrap (see its own section below).
 
 ## Slice 5.1: bootstrap-host-preflight
 
@@ -110,16 +112,32 @@ values are never invented.
   runtime/code groups, and the one repo-required membership relation: the
   runtime user must be in the code group (releases are
   `deploy_user:code_group` mode `0750`/`0640`, and PHP-FPM must read them).
-  Names and relations are the contract — no accidental numeric UID/GID is
-  ever asserted.
+  The managed per-target accounts additionally carry the slice 5.3 identity
+  metadata contract, asserted in tested parity with
+  `install-bootstrap-host-layout`: the runtime account must hold the
+  non-login `/usr/sbin/nologin` shell (historic home not asserted), and the
+  deploy account must hold its exact canonical `/home/<deploy_user>` home
+  plus `/bin/bash`. Drift is `CONFLICT` (operator review — never mutated by
+  preflight). Names and relations are the contract — no accidental numeric
+  UID/GID is ever asserted.
 - **FILESYSTEM** — the runtime tree (`/home/www/rateguru` and its
   config/bin/backups/run subtrees), the fifteen files
   `install-target-operations` manages, the per-target tree derived from the
-  **source registry** (application root, `releases`, `shared`, the
-  `current` symlink, `locks`, `deployments`, incoming artifacts — never an
-  assumed `/home/www/rateguru/current`), `/var/log/rateguru`, the perimeter
+  **source registry** (application root, `releases`, `shared`,
+  `shared/storage`, the `current` symlink, `locks`, `deployments`, the
+  deploy home and its `.ssh`, incoming artifacts — never an assumed
+  `/home/www/rateguru/current`), `/var/log/rateguru`, the perimeter
   files (wrappers, sudoers, cron, sshd config), and installed service
-  configuration. Each item: absent/present, type, owner/group, mode, and
+  configuration. The per-target owners, groups and modes are asserted
+  **authoritatively as the slice 5.3 structural contract** (target root
+  `root:root 0755`; `releases`/`locks`/`deployments`
+  `deploy_user:code_group 2750`; `shared` and `shared/storage`
+  `runtime_user:runtime_group 2770`; incoming `deploy_user:deploy_user
+  0750`; deploy home owned by the deploy user with no group/other write;
+  `.ssh` `0700`; `/var/log/rateguru` `root:root 0750`), so the preflight
+  and `install-bootstrap-host-layout` can never disagree. `current` stays
+  deployment-owned and keeps reporting as absent until a real deployment
+  creates it. Each item: absent/present, type, owner/group, mode, and
   symlink state where relevant. Large backup/storage trees are never
   recursively scanned — one `stat` per path.
 - **NETWORK** — listeners on 80/443, PostgreSQL, Redis, the Mailpit and
@@ -354,12 +372,13 @@ preflight also inspects.
 
 ### Known staging drift (5.3 remediation, not 5.2)
 
-The real staging preflight currently reports one conflict:
+The real staging preflight reported one conflict:
 `/home/www/rateguru/staging` is owned
 `deploy-rateguru-staging:rateguru-staging-code` while the Phase 5 contract
 expects the top-level application root to be root-owned. Slice 5.2 never
-`chown`s anything — this is recorded here as a slice 5.3 (users/groups/
-filesystem) remediation.
+`chown`s anything — the remediation belongs to
+`install-bootstrap-host-layout` (slice 5.3, below), which converges exactly
+that directory entry and nothing beneath it.
 
 ### Test overrides
 
@@ -370,11 +389,183 @@ Like the preflight, every probe and mutation path can be redirected through
 bootstrap, staging compatibility, repository failure safety, idempotency and
 the full check/apply/verify matrix without the CI runner ever running apt.
 
+## Slice 5.3: install-bootstrap-host-layout
+
+`infrastructure/scripts/install-bootstrap-host-layout` provisions the
+identity and filesystem layer required before service/configuration
+installation. Its scope is users, groups, memberships and the structural
+directory tree only — nothing else.
+
+### Usage
+
+All modes require root.
+
+```bash
+# Read-only contract validation plus the intended --apply action for every
+# unsatisfied item. Exit 0 only when already satisfied.
+infrastructure/scripts/install-bootstrap-host-layout --check
+
+# Validates the entire plan before the first mutation, then idempotently
+# converges the slice 5.3 identities and directories, ending with the full
+# --verify report.
+infrastructure/scripts/install-bootstrap-host-layout --apply
+
+# Read-only contract gate: exit 0 only when every identity, membership and
+# structural directory ownership/mode requirement holds exactly.
+infrastructure/scripts/install-bootstrap-host-layout --verify
+```
+
+The slice gate is `--verify` — deliberately **not**
+`bootstrap-host-preflight --check`, because the Phase 5.4 resources
+(runtime registry, installed CLIs, service configuration, secrets) are
+legitimately still missing at this point and the preflight rightly reports
+them.
+
+### Source of truth and target selection
+
+The repository's `infrastructure/config/deployment-targets.json` is the
+bootstrap source of truth, validated through the standalone `targets` CLI —
+never re-implemented. The runtime registry
+(`/home/www/rateguru/config/deployment-targets.json`) does not exist on a
+clean host (`install-target-operations` installs it in slice 5.4) and is
+never read. Only `lifecycle=active` targets are provisioned: `tits-guru`
+is `lifecycle=planned` and causes **zero** user, group or filesystem
+mutation — no production runtime/deploy users, groups, application root or
+incoming directory are ever created for it.
+
+### The identity model
+
+- **deploy user** (`deploy-rateguru-staging`) — owns the incoming artifact
+  directory and creates immutable releases. Its passwd metadata is a hard
+  contract, for existing accounts too: primary group is its own private
+  group, home is exactly the canonical `/home/deploy-rateguru-staging`
+  (the same directory this installer manages, with its `.ssh` and
+  `incoming`), and the shell is `/bin/bash` — the GitHub Actions SSH
+  deployment flow must be able to log in, so `/usr/sbin/nologin` or
+  `/bin/false` is a CONFLICT, and so is a home pointing anywhere else
+  (that would silently break `authorized_keys` lookup and every ownership
+  expectation). An incompatible existing account is never automatically
+  `usermod`ed — it fails `--apply` closed before any mutation and requires
+  operator review. The home carries a structural `.ssh` (`0700`); no
+  `authorized_keys` is ever created, read or modified — the GitHub deploy
+  public key is external secret material provisioned in Phase 5.4. No sudo
+  is granted here (restricted sudoers stays with
+  `install-target-perimeter`).
+- **code group** (`rateguru-staging-code`) — permits the runtime user to
+  read immutable release code. Releases are owned
+  `deploy_user:code_group` with files normalized `0750`/`0640`, while
+  PHP-FPM executes Laravel as the runtime user — so the runtime user's
+  supplementary membership in the code group is mandatory and is appended
+  (never replacing unrelated memberships).
+- **runtime user** (`rateguru-staging`) — runs Laravel/PHP-FPM/queue
+  processes and owns the shared mutable application state. Created as a
+  system account with no password login. Its primary group and the
+  non-login `/usr/sbin/nologin` shell are hard contract (an interactive
+  shell on the runtime service account is a CONFLICT, never auto-fixed);
+  its historic home is deliberately **not** contract — the runtime home is
+  not operationally significant to PHP-FPM/queue execution the way the
+  deploy home is critical to SSH, so incidental home metadata never fails
+  a healthy host. A compliant existing account is left untouched.
+- **www-data** — is **not** added to any runtime group and no runtime
+  account joins www-data; public storage traversal remains the narrow
+  POSIX ACL `install-public-storage-access` grants in slice 5.4.
+- **root** — owns the target namespace root and the host operational and
+  configuration roots.
+
+No numeric UID/GID is ever part of the contract — names and relationships
+are. Accounts are never deleted, renumbered or recreated; an existing
+account with an incompatible primary group is a CONFLICT that stops the
+run before any filesystem mutation.
+
+### The filesystem contract
+
+Host roots: `/home/www/rateguru`, `config`, `bin` (`root:root 0755` —
+contents belong to slice 5.4), `backups`, `run` (`root:root 0700`),
+`/var/log/rateguru` (`root:root 0750`). Per active target:
+
+| Path | Owner | Mode |
+|---|---|---|
+| `<root>` (e.g. `/home/www/rateguru/staging`) | `root:root` | `0755` |
+| `<root>/releases` | `deploy_user:code_group` | `2750` |
+| `<root>/shared` | `runtime_user:runtime_group` | `2770` |
+| `<root>/shared/storage` | `runtime_user:runtime_group` | `2770` |
+| `<root>/locks` | `deploy_user:code_group` | `2750` |
+| `<root>/deployments` | `deploy_user:code_group` | `2750` |
+| deploy home | `deploy_user:deploy_user` | `0750` on create; any non-group/other-writable mode accepted |
+| deploy home `/.ssh` | `deploy_user:deploy_user` | `0700` |
+| deploy home `/incoming` | `deploy_user:deploy_user` | `0750` |
+
+**Why the target root is `root:root 0755` while `releases` belongs to the
+deploy user and `shared` to the runtime user:** the boundary prevents the
+deploy identity from controlling the entire target namespace (it could
+otherwise replace `shared`, `locks` or the parent of the `current`
+symlink) while still letting the deployment pipeline create immutable
+releases inside `releases/` — the setgid `2750` keeps new releases in the
+code group — and letting the runtime user own only the mutable state it
+actually writes.
+
+The setgid bits are intentional: new releases created by the deploy
+account inherit the code group; new shared/storage content inherits the
+runtime group. `shared/storage` is created as a structural root only — the
+Laravel-specific descendants (framework caches, logs, `app/public`) remain
+the deploy pipeline's responsibility, and no `.env` is ever created, read
+or changed. `current`/`previous` are deployment-owned: never fabricated on
+a clean host, never rewritten, never followed for any operation, and
+reported by the preflight as absent until a real deployment creates them.
+
+### Existing-data and symlink safety
+
+Reconciliation touches only the exact directory entry whose owner/group/
+mode is part of the contract. There is **no recursive chown/chmod
+anywhere**, no `rm -rf`, and existing nested data (immutable releases,
+shared storage uploads, `.env`, `authorized_keys`, backup history,
+deployment history) is never re-owned, re-moded or rewritten through a
+parent remediation. A managed path that exists as anything but a real
+directory — regular file, symlink, socket — is a CONFLICT: the plan
+validation collects every such conflict and fails the apply closed before
+any mutation, and conflicting paths are never deleted, replaced or
+followed. A registry whose application root escapes `/home/www/rateguru`,
+or whose incoming directory is inconsistent with the deploy user's home,
+fails closed the same way.
+
+### The known real staging drift
+
+The real staging host reported one conflict: `/home/www/rateguru/staging`
+owned `deploy-rateguru-staging:rateguru-staging-code` instead of
+`root:root 0755`. This is the one existing-host remediation this slice
+deliberately carries. The expected real-host sequence:
+
+```bash
+install-bootstrap-host-layout --check    # shows the target-root ownership drift
+install-bootstrap-host-layout --apply    # chowns ONLY /home/www/rateguru/staging itself
+install-bootstrap-host-layout --verify   # slice 5.3 satisfied
+```
+
+No application outage is required: `current`, `releases`, `shared`,
+storage and deployment history remain operational and untouched beneath
+the reconciled parent.
+
+### Idempotency
+
+A second `--apply` on a compliant host performs no meaningful mutation:
+no `groupadd`/`useradd`/`usermod`, no `install -d`, no `chown`, no
+`chmod`. Convergence is fail-safe and re-runnable; identity creation is
+persistent host state and is never rolled back destructively.
+
+### Test overrides
+
+Like the other bootstrap scripts, every probe and mutation path can be
+redirected through `RATEGURU_HOSTLAYOUT_*` environment variables — honored
+only alongside `RATEGURU_ALLOW_TEST_OVERRIDES=true`. This is what lets
+`tests/Feature/Architecture/InstallBootstrapHostLayoutTest.php` prove
+clean-host bootstrap, the staging drift remediation, existing-data safety,
+planned-target protection, fail-closed conflicts and idempotency without
+the CI runner ever creating a real account or root-owned directory.
+
 ## What later slices do (and these do not)
 
 | Slice | Mutation |
 |---|---|
-| 5.3 | users, groups, filesystem tree |
 | 5.4 | service configuration + existing installers |
 | 5.5 | one-shot orchestrator ending in `--check` passing |
 | 5.6 | real clean-VPS acceptance |
