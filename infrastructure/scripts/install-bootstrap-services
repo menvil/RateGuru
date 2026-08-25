@@ -633,9 +633,13 @@ validate_cron_source() {
 # --- External prerequisites ---------------------------------------------------
 
 # nginx_external_prerequisites SRC_FILE — prints "CATEGORY|PATH" for every
-# external file the committed vhost references. Only absolute paths outside
-# /etc/nginx snippets are external; relative includes ship with the nginx
-# package. Content is never read — categories only.
+# external file the committed vhost references. Only absolute paths are
+# external; relative includes ship with the nginx package. An absolute
+# include carrying a glob pattern is a directory sweep, not a single
+# external file — nginx treats an unmatched include glob as valid, so a
+# literal pattern is never handed to a presence probe (which would
+# misreport it as MISSING forever). Content is never read — categories
+# only.
 nginx_external_prerequisites() {
     local src="$1" directive value
 
@@ -648,7 +652,12 @@ nginx_external_prerequisites() {
             ssl_certificate)      printf 'tls-certificate|%s\n' "${value}" ;;
             ssl_certificate_key)  printf 'tls-private-key|%s\n' "${value}" ;;
             ssl_dhparam)          printf 'tls-dhparams|%s\n' "${value}" ;;
-            include)              printf 'tls-include|%s\n' "${value}" ;;
+            include)
+                case "${value}" in
+                    *'*'*|*'?'*|*'['*) ;;
+                    *) printf 'nginx-include|%s\n' "${value}" ;;
+                esac
+                ;;
         esac
     done < <(awk '$1 ~ /^(auth_basic_user_file|ssl_certificate|ssl_certificate_key|ssl_dhparam|include)$/ { print $1, $2 }' "${src}")
 }
@@ -1268,6 +1277,7 @@ TXN_DIR_REMOVE=()        # logical directories created by this run (removed only
 TXN_SERVICE_STARTED=()   # units started by this run
 TXN_SERVICE_ENABLED=()   # units enabled by this run
 TXN_RELOADED_UNITS=()    # units reloaded/restarted with new config by this run
+TXN_SUPERVISOR_UPDATED=() # program groups pushed into the running supervisor by this run
 APPLY_COMMITTED=false
 MAIN_BASHPID=""
 
@@ -1384,6 +1394,22 @@ restore_runtime_after_rollback() {
                 fi
                 ;;
         esac
+    done
+
+    # Program groups this run pushed into the running supervisor: the
+    # restored configuration is validated first (a program is never
+    # re-updated onto a config the parser rejected), then re-applied so the
+    # running supervisor matches the rolled-back file again.
+    local program
+    for program in "${TXN_SUPERVISOR_UPDATED[@]:-}"; do
+        [[ -n "${program}" ]] || continue
+        if service_active supervisor && supervisor_reread_validation; then
+            "${SUPERVISORCTL_BIN}" update "${program}" >/dev/null 2>&1 \
+                && action "rollback: supervisor program ${program} re-applied from the restored configuration" \
+                || printf 'ROLLBACK ERROR: supervisorctl update %s with the restored configuration failed\n' "${program}" >&2
+        else
+            printf 'ROLLBACK ERROR: cannot re-apply supervisor program %s (supervisor inactive or restored configuration invalid)\n' "${program}" >&2
+        fi
     done
 }
 
@@ -1731,6 +1757,12 @@ converge_supervisor() {
         || fail "supervisorctl reread reported a configuration error with the candidate installed — restoring the previous configuration (nothing was applied to the running supervisor)"
 
     if [[ "${TGT_STATE[${target_id}]}" == PRE_DEPLOY ]]; then
+        # Residual, documented window: the installed committed config keeps
+        # autostart=true (it is never rewritten to a fake shape), so a
+        # supervisord restart/host reboot BEFORE the first deployment would
+        # read it and fail-loop the program until a release exists. That
+        # window closes with the first-deploy activation path recorded as a
+        # required 5.5/5.6 integration fix (see runbooks/bootstrap-services.md).
         action "queue:${TGT_SUPERVISOR_PROGRAM[${target_id}]} activation DEFERRED until the first release exists (PRE_DEPLOY — config installed and validated; the program is not added to the running supervisor, its directory=current does not exist yet)"
         return 0
     fi
@@ -1739,6 +1771,10 @@ converge_supervisor() {
         action "queue:${TGT_SUPERVISOR_PROGRAM[${target_id}]} applying updated program configuration (supervisorctl update)"
         "${SUPERVISORCTL_BIN}" update "${TGT_SUPERVISOR_PROGRAM[${target_id}]}" >/dev/null 2>&1 \
             || fail "supervisorctl update ${TGT_SUPERVISOR_PROGRAM[${target_id}]} failed"
+        # Recorded so a later-step failure re-runs update against the
+        # RESTORED configuration — the running supervisor must never be
+        # left on a program config whose file was just rolled back.
+        TXN_SUPERVISOR_UPDATED+=("${TGT_SUPERVISOR_PROGRAM[${target_id}]}")
     fi
 
     local attempt
@@ -1751,6 +1787,7 @@ converge_supervisor() {
             action "queue:${TGT_SUPERVISOR_PROGRAM[${target_id}]} not running on a DEPLOYED target — starting it"
             "${SUPERVISORCTL_BIN}" update "${TGT_SUPERVISOR_PROGRAM[${target_id}]}" >/dev/null 2>&1 || true
             "${SUPERVISORCTL_BIN}" start "${TGT_SUPERVISOR_PROGRAM[${target_id}]}:*" >/dev/null 2>&1 || true
+            TXN_SUPERVISOR_UPDATED+=("${TGT_SUPERVISOR_PROGRAM[${target_id}]}")
         fi
 
         sleep "${RETRY_DELAY_SECONDS}"
@@ -1901,6 +1938,7 @@ perform_apply() {
     TXN_SERVICE_STARTED=()
     TXN_SERVICE_ENABLED=()
     TXN_RELOADED_UNITS=()
+    TXN_SUPERVISOR_UPDATED=()
     APPLY_COMMITTED=false
 
     action "validating the entire plan before any mutation"

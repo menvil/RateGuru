@@ -827,6 +827,48 @@ it('recognizes the compliant DEPLOYED staging host: --check and --verify pass, -
     }
 });
 
+it('--verify fails read-only on a non-compliant host, mutating nothing', function () {
+    // A clean PRE_DEPLOY host: nothing installed yet -> contract not
+    // satisfied, and strictly read-only.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+        $before = bsvcTreeSnapshot($scratch.'/fs');
+
+        [$exit, $output] = bsvcRun(['--verify'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('SLICE 5.4 CONTRACT: NOT SATISFIED');
+        expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before, 'a failing --verify mutated the clean fixture');
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+        expect(bsvcLog($scratch, 'children.log'))->not->toContain('--apply');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+
+    // A compliant DEPLOYED host with one drifted managed file: --verify
+    // reports the drift, fails, and never converges it (that is --apply's
+    // job).
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        file_put_contents($scratch.'/fs/etc/nginx/sites-available/rateguru-staging', "# drifted nginx config\n");
+
+        $before = bsvcTreeSnapshot($scratch.'/fs');
+        [$exit, $output] = bsvcRun(['--verify'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('DRIFT    file:/etc/nginx/sites-available/rateguru-staging');
+        expect($output)->toContain('SLICE 5.4 CONTRACT: NOT SATISFIED');
+        expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before, 'a failing --verify mutated the drifted fixture');
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
 it('starts a stopped queue program on a DEPLOYED host and verifies it is stably RUNNING', function () {
     $scratch = bsvcScratchDir();
 
@@ -1149,6 +1191,43 @@ it('reverts service enable/start state changes when a later step fails', functio
 
         // ssh was running before this run and stays running.
         expect(file_exists($scratch.'/svc/ssh.active'))->toBeTrue('ssh must never be stopped by rollback');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('re-applies the restored supervisor program configuration when a later step fails after supervisorctl update ran', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        // DEPLOYED host with a drifted supervisor conf (so apply reinstalls
+        // it and pushes it into the running supervisor via update), then a
+        // later component (mail capture) fails.
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        $conf = $scratch.'/fs/etc/supervisor/conf.d/rateguru-staging-queue.conf';
+        $previous = "# previous installed supervisor configuration\n";
+        file_put_contents($conf, $previous);
+
+        unlink($scratch.'/toggles/verify-mail-capture-compliant');
+        touch($scratch.'/toggles/mail-capture-installer-apply-fail');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('install-mail-capture --apply failed');
+        expect($output)->toContain('rollback complete');
+
+        // The file is back to its exact previous content, and the running
+        // supervisor was re-pointed at the restored configuration — never
+        // left on the rolled-back candidate.
+        expect(file_get_contents($conf))->toBe($previous);
+        expect($output)->toContain('rollback: supervisor program rateguru-staging-queue re-applied from the restored configuration');
+
+        // Validation preceded the re-apply: a reread ran before the final
+        // update in the supervisorctl log.
+        $supervisorctl = bsvcLog($scratch, 'supervisorctl.log');
+        expect(strrpos($supervisorctl, 'supervisorctl reread'))
+            ->toBeLessThan(strrpos($supervisorctl, 'supervisorctl update rateguru-staging-queue'));
     } finally {
         bsvcCleanup($scratch);
     }

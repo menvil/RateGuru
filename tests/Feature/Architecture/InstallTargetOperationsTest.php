@@ -3274,21 +3274,45 @@ it('installs the bundle on a PRE_DEPLOY host, deferring every application-health
     $scratch = installOpsScratchDir();
 
     try {
-        // Health-check and status stubs that would FAIL for staging-main —
-        // the proof that pre-deploy genuinely defers the probes is that this
-        // apply still succeeds without ever needing them to pass.
+        // A health-check that fails for staging-main from EVERY path (the
+        // repository candidate, the staged mktemp copy and the installed
+        // copy alike) plus an unhealthy status stub — the proof that
+        // pre-deploy genuinely defers the health probes is that this apply
+        // still succeeds without ever needing them to pass, while status
+        // itself (headers, section shape) still runs and is validated.
+        $alwaysFailStagingHealthCheck = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+target=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --target) target="$2"; shift 2 ;;
+        --help) printf 'Usage: health-check --target TARGET_ID\n'; exit 0 ;;
+        *) shift ;;
+    esac
+done
+
+if [[ "$target" == "tits-guru" ]]; then
+    printf 'ERROR: target tits-guru has lifecycle=planned, not active\n' >&2
+    exit 1
+fi
+
+printf 'forced staging failure (test)\n' >&2
+exit 1
+SH;
+
         $vars = installOpsBaseVars(
             $scratch,
-            installOpsHealthCheckStub(failStagingAtPath: $vars0 = $scratch.'/dst-bin/health-check'),
+            $alwaysFailStagingHealthCheck,
             installOpsStatusStub(healthy: false),
         );
 
         // PRE_DEPLOY: current truly absent.
         unlink($scratch.'/target/current');
 
-        // The currently-installed health check would also fail — pre-deploy
-        // must defer the preflight health gate too.
-        installOpsWriteExecutable($vars['DST_HEALTH_CHECK'], installOpsHealthCheckStub(failStagingAtPath: $vars['DST_HEALTH_CHECK']));
+        // The currently-installed health check fails too — pre-deploy must
+        // defer the preflight health gate as well.
+        installOpsWriteExecutable($vars['DST_HEALTH_CHECK'], $alwaysFailStagingHealthCheck);
 
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
 
@@ -3298,12 +3322,18 @@ it('installs the bundle on a PRE_DEPLOY host, deferring every application-health
         expect($output)->toContain('staged health-check --target staging-main: DEFERRED');
         expect($output)->toContain('staged status --target staging-main: DEFERRED');
         expect($output)->toContain('health-check --target staging-main: DEFERRED (pre-deploy: no current release exists yet)');
-        expect($output)->toContain('status --target staging-main: DEFERRED');
         expect($output)->toContain('apply complete');
+
+        // status ran for real (headers and section shape validated against
+        // the no-release 'Status: unhealthy' output) — only the healthy
+        // assertion is deferred.
+        expect($output)->toContain('status --target staging-main: OK');
+        expect($output)->toContain('status header: OK');
+        expect($output)->toContain('status healthy assertion: DEFERRED');
 
         // Deferred means deferred — never reported as the passing probe.
         expect($output)->not->toContain('health-check --target staging-main: OK');
-        expect($output)->not->toContain('Status: healthy');
+        expect($output)->not->toContain('status reports Status: healthy');
 
         // Every static and lifecycle check still ran.
         expect($output)->toContain('staged cleanup --target staging-main --dry-run: OK');
@@ -3339,8 +3369,9 @@ it('--verify passes on a PRE_DEPLOY host with the application probes deferred, a
         expect($output)->toContain('target state: PRE_DEPLOY');
         expect($output)->toContain('health-check --target staging-main: DEFERRED (pre-deploy: no current release exists yet)');
         expect($output)->not->toContain('health-check --target staging-main: OK');
-        expect($output)->not->toContain('Status: healthy');
-        expect($output)->toContain('status --target staging-main: DEFERRED');
+        expect($output)->not->toContain('status reports Status: healthy');
+        expect($output)->toContain('status --target staging-main: OK');
+        expect($output)->toContain('status healthy assertion: DEFERRED');
         expect($output)->toContain('cleanup --target staging-main --dry-run: OK');
         expect($output)->toContain('PASS: installed files and runtime behaviour verified');
     } finally {

@@ -135,7 +135,12 @@ preserved unchanged.
 **Known integration gap (required 5.5/5.6 fix):** `deploy` currently runs
 `artisan queue:restart` but never `supervisorctl update`/`start`, so a
 Supervisor program that the PRE_DEPLOY bootstrap deferred is not activated
-by the first deployment. The first-deploy activation path is a required
+by the first deployment. The same gap carries a residual pre-deploy
+window: the installed committed config keeps `autostart=true` (it is never
+rewritten to a fake shape), so a supervisord restart or host reboot before
+the first deployment would read it and fail-loop the program until a
+release exists — harmless to the host, noisy in supervisor logs, and
+closed by the same first-deploy activation fix. The first-deploy activation path is a required
 5.5/5.6 integration fix and is exercised end to end by the 5.6 clean-VPS
 acceptance.
 
@@ -145,7 +150,7 @@ The committed vhosts being activated reference external secret material.
 Before the first mutation, every such file must exist; a missing one fails
 closed as:
 
-```
+```text
 EXTERNAL PREREQUISITE MISSING: <category> (<path>)
 ```
 
@@ -156,9 +161,11 @@ printed. Categories and current paths:
 - `tls-certificate` / `tls-private-key` —
   `/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/{fullchain,privkey}.pem`
   and `/etc/letsencrypt/live/staging-mail-capture/{fullchain,privkey}.pem`
-- `tls-include` / `tls-dhparams` —
+- `nginx-include` / `tls-dhparams` —
   `/etc/letsencrypt/options-ssl-nginx.conf`,
-  `/etc/letsencrypt/ssl-dhparams.pem`
+  `/etc/letsencrypt/ssl-dhparams.pem` (absolute `include` directives
+  carrying a glob pattern are directory sweeps, not single external files,
+  and are never treated as prerequisites)
 
 This installer never creates fake certificates, dummy Basic Auth
 credentials or self-signed material, and never calls certbot. Likewise,

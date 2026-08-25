@@ -849,13 +849,12 @@ verify_target_health() {
 }
 
 verify_status() {
-    # Same PRE_DEPLOY deferral as verify_target_health: status asserts
-    # 'Status: healthy', which requires a deployed application.
-    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
-        log "status --target staging-main: DEFERRED (pre-deploy: the healthy assertion requires a deployed release)"
-        return 0
-    fi
-
+    # status itself works without a deployed release (absent current prints
+    # "not configured" and the embedded health probe reports unhealthy
+    # without failing the script), so the invocation, the header checks and
+    # the section-shape validation always run in both states — only the
+    # final 'Status: healthy' assertion requires a deployed application and
+    # is deferred on a PRE_DEPLOY host (see verify_target_health).
     local status_output
     status_output="$(no_overrides_env "${DST_STATUS}" --target staging-main)" \
         || fail "installed status --target staging-main failed"
@@ -874,6 +873,11 @@ verify_status() {
     # missing section — not a downstream symptom like a missing
     # Status: healthy line.
     assert_status_sections_present "${status_output}" "status"
+
+    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+        log "status healthy assertion: DEFERRED (pre-deploy: 'Status: healthy' requires a deployed release; the no-release 'Status: unhealthy' output is the expected shape)"
+        return 0
+    fi
 
     grep -Fxq 'Status: healthy' <<<"${status_output}" \
         || fail "status output does not report 'Status: healthy'"

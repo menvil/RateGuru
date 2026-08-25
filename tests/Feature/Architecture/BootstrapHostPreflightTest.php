@@ -1456,6 +1456,27 @@ it('reports the public-storage ACL contract: PASS when granted, MISSING when the
     } finally {
         bootstrapPreflightCleanup($scratch);
     }
+
+    // getfacl unavailable (not on the tool PATH, no gated override): WARN
+    // that ACLs cannot be enumerated — never an invented verdict.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, [
+            'tools' => array_values(array_filter(
+                bootstrapPreflightAllTools(),
+                fn (string $tool): bool => $tool !== 'getfacl',
+            )),
+        ]);
+        unset($env['RATEGURU_PREFLIGHT_GETFACL_BIN']);
+
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('WARN     acl:public-storage:staging-main — cannot enumerate ACLs (getfacl unavailable)');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
 });
 
 it('requires the slice 5.4 service-support log directory with the exact runtime ownership and setgid mode', function () {

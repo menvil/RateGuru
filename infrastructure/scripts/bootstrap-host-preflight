@@ -266,7 +266,7 @@ meminfo_kib() {
 ACTIVE_TARGETS=()
 declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
 declare -A TGT_CODE_GROUP TGT_INCOMING TGT_FPM_SOCKET TGT_FPM_POOL
-declare -A TGT_DB_ROLE TGT_NGINX_SITE TGT_PUBLIC_HOSTNAME
+declare -A TGT_DB_ROLE TGT_NGINX_SITE TGT_PUBLIC_HOSTNAME TGT_SUPERVISOR_PROGRAM
 SOURCE_REGISTRY_OK=false
 JQ_AVAILABLE=true
 
@@ -305,6 +305,7 @@ load_source_contract() {
             TGT_FPM_POOL[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.pool' "${SOURCE_REGISTRY}")"
             TGT_DB_ROLE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].database.application_role' "${SOURCE_REGISTRY}")"
             TGT_NGINX_SITE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.site_name' "${SOURCE_REGISTRY}")"
+            TGT_SUPERVISOR_PROGRAM[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].supervisor.program' "${SOURCE_REGISTRY}")"
             TGT_PUBLIC_HOSTNAME[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames[0]' "${SOURCE_REGISTRY}")"
         done < <(jq -r '.targets | to_entries[] | select(.value.lifecycle == "active") | .key' "${SOURCE_REGISTRY}" | sort)
     fi
@@ -1171,7 +1172,9 @@ report_filesystem() {
         done
     fi
 
-    report_path supervisor-conf /etc/supervisor/conf.d/rateguru-staging-queue.conf "regular file" root root 644 "Supervisor queue worker (slice 5.4 contract)"
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_path "supervisor-conf" "/etc/supervisor/conf.d/${TGT_SUPERVISOR_PROGRAM[${target_id}]}.conf" "regular file" root root 644 "Supervisor queue worker for ${target_id} (slice 5.4 contract)"
+    done
 
     report_public_storage_acl
 
