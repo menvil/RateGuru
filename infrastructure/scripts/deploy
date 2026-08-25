@@ -211,7 +211,11 @@ resolve_target() {
 
 # queue_program_running — every process of the target program group is
 # RUNNING according to supervisorctl (the identical classification
-# install-bootstrap-services uses).
+# install-bootstrap-services uses). Deliberately strict: STARTING, BACKOFF,
+# FATAL, EXITED and STOPPED are all "not running". The committed program sets
+# startsecs=3, so Supervisor only promotes a process to RUNNING once it has
+# survived that window — accepting STARTING as success would accept a worker
+# that is about to crash-loop.
 queue_program_running() {
     local output
 
@@ -219,6 +223,36 @@ queue_program_running() {
     [[ -n "${output}" ]] || return 1
 
     ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+# wait_for_queue_program_running — bounded observation of the target program
+# reaching RUNNING, spending the existing production budget
+# (QUEUE_WAIT_ATTEMPTS × QUEUE_RETRY_DELAY_SECONDS) rather than introducing a
+# second timeout constant.
+#
+# This exists because a single immediate status check after Laravel's restart
+# signal is racy. The committed program carries autorestart=true and
+# startsecs=3: an idle worker may exit the moment it is signalled, and the
+# replacement Supervisor spawns legitimately sits in STARTING until it has
+# survived startsecs. Checking once can therefore observe STARTING and roll
+# back a perfectly healthy deployment. A worker still finishing a job simply
+# stays RUNNING and the wait returns on the first attempt.
+#
+# Strictly an observer: it never rereads, updates, starts, restarts or stops
+# anything, and only ever looks at the registry-declared target program.
+wait_for_queue_program_running() {
+    local attempt
+
+    for ((attempt = 1; attempt <= QUEUE_WAIT_ATTEMPTS; attempt++)); do
+        if queue_program_running; then
+            return 0
+        fi
+
+        sleep "${QUEUE_RETRY_DELAY_SECONDS}"
+    done
+
+    # One final observation, so the last sleep is not wasted.
+    queue_program_running
 }
 
 # activate_supervisor_worker — the CASE A path: the target program is not
@@ -254,16 +288,9 @@ activate_supervisor_worker() {
         supervisorctl start "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1 || true
     fi
 
-    local attempt
-    for ((attempt = 1; attempt <= QUEUE_WAIT_ATTEMPTS; attempt++)); do
-        if queue_program_running; then
-            break
-        fi
-
-        sleep "${QUEUE_RETRY_DELAY_SECONDS}"
-    done
-
-    if ! queue_program_running; then
+    # A freshly started process is STARTING until it survives startsecs, so
+    # the same bounded wait applies here as after a restart signal.
+    if ! wait_for_queue_program_running; then
         FAILURE_STATUS="failed-supervisor-activation"
         fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING"
     fi
@@ -338,10 +365,16 @@ perform_queue_transition() {
         log "queue restart signal issued; Supervisor performs the eventual worker process replacement"
     fi
 
-    # The program must still be operational after signalling.
-    if ! queue_program_running; then
+    # The program must be operational after signalling — observed through the
+    # bounded wait, never a single immediate check. Laravel's restart makes an
+    # idle worker exit at once, and Supervisor's replacement is STARTING until
+    # it survives startsecs; a worker still finishing a job just stays RUNNING
+    # and this returns on the first attempt. Neither a PID change nor proof
+    # that the old process already exited is required — only that the signal
+    # was issued and the program becomes/continues operational in the window.
+    if ! wait_for_queue_program_running; then
         FAILURE_STATUS="failed-queue-restart"
-        fail "supervisor worker ${SUPERVISOR_PROGRAM} is not RUNNING after the queue restart signal"
+        fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget after the queue restart signal"
     fi
 }
 
@@ -468,7 +501,13 @@ handle_deployment_exit() {
                 fi
             fi
 
-            if ! queue_program_running; then
+            # Bounded wait, not a single check: a recovery restart signal
+            # races Supervisor's replacement exactly like the deploy-time one,
+            # so a transient STARTING must not be reported as degraded
+            # recovery. The worker is never force-started here — this is a
+            # normal deployed-target recovery, and only the target's own
+            # program is ever observed.
+            if ! wait_for_queue_program_running; then
                 # Either something outside this pipeline stopped it, or the
                 # program did not survive the transition — surfaced through
                 # the existing recovery warning semantics, never silently
