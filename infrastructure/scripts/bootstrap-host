@@ -1,0 +1,503 @@
+#!/usr/bin/env bash
+#
+# bootstrap-host — Phase 5 slice 5.5: the one authoritative host-bootstrap
+# entry point. Composes the existing, authoritative Phase 5 slices in their
+# only valid dependency order:
+#
+#   5.2 install-bootstrap-runtime      runtime/packages
+#   5.3 install-bootstrap-host-layout  users/groups/filesystem
+#   5.4 install-bootstrap-services     services/configuration
+#   ->  bootstrap-host-preflight       final bootstrap readiness
+#
+# This script owns ORCHESTRATION ONLY: ordering, per-slice status, fail-fast
+# behavior and the final readiness aggregation. Every child installer remains
+# authoritative for its own contract — no package list, user/group logic,
+# filesystem ownership logic, service configuration, mail-capture, perimeter
+# or ACL decision is ever duplicated or absorbed here. There is deliberately
+# no --force, no --skip, no --continue-on-error: if a host is
+# unsafe/incompatible, the owning child fails and this orchestrator stops.
+#
+# Modes (all root-only — 5.3/5.4 require root even for their read-only
+# modes, and missing root privileges are never silently downgraded into
+# success):
+#   --check   Strictly read-only, dependency-aware: "how far is this host
+#             from satisfying the full bootstrap pipeline?". Runs each
+#             child's own --check in order; a slice whose prerequisite slice
+#             is not satisfied is reported BLOCKED rather than pretending it
+#             can be authoritatively judged. Never mutates anything, never
+#             invokes any child --apply.
+#   --apply   Convergent, not one giant transaction. Per slice: run the
+#             authoritative child --verify; if already satisfied, SKIP;
+#             otherwise run the child's own --apply and require its --verify
+#             to pass before the next slice. Any child failure stops the run
+#             immediately — later slices are never attempted and no
+#             destructive global rollback is ever performed: safely converged
+#             earlier slices stay converged, and re-running bootstrap-host
+#             --apply resumes at the failing slice. Ends with the final
+#             bootstrap preflight.
+#   --verify  Read-only, root-authoritative: every child --verify must pass,
+#             then the final bootstrap preflight must pass.
+#   --help    Usage.
+#
+# Clean-host rule: this command is executed from a checked-out/extracted
+# RateGuru repository used to bootstrap the machine. Children are resolved
+# as siblings of this script's own canonical location (BASH_SOURCE[0],
+# physically resolved) — never through /home/www/rateguru/current (a clean
+# server has no deployment) and never through /home/www/rateguru/bin (which
+# only exists after 5.4 installs the operational bundle).
+#
+# bootstrap-host never deploys an application (no artifact, no release, no
+# current switch, no migration — the first deployment remains the separate
+# existing `deploy` operation), never provisions a planned target, never
+# creates databases/roles, and never creates secret material (.env,
+# authorized_keys, rclone.conf, TLS keys/certificates, htpasswd, database
+# passwords). When a child requires external material, the child's own
+# failure is surfaced and the run is safely repeatable after the operator
+# supplies it.
+#
+# Signals: SIGINT is never trapped or reinterpreted — interrupting a long
+# child verification terminates the orchestration without continuing
+# downstream slices, and the child's signal-derived exit status is
+# propagated.
+#
+# Test overrides: every RATEGURU_BOOTSTRAPHOST_* override below is honored
+# only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate
+# every other bootstrap script uses — so a stray variable in a real root
+# shell can never redirect this orchestrator at attacker- or
+# operator-controlled child executables. Production execution ignores all
+# of them.
+
+set -Eeuo pipefail
+
+# --- Locations ----------------------------------------------------------------
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
+# Reject a symlink-confused or copied-out-of-place layout: the canonical
+# location of this command is the repository's infrastructure/scripts
+# directory, and the sibling children below are only authoritative there.
+if [[ "${SCRIPT_DIR}" != */infrastructure/scripts ]]; then
+    printf 'ERROR: bootstrap-host must run from the repository checkout (…/infrastructure/scripts); resolved location: %s\n' "${SCRIPT_DIR}" >&2
+    exit 1
+fi
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+# gated_default VAR_NAME DEFAULT — echoes the gated override when allowed and
+# set, the default otherwise.
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_BOOTSTRAPHOST_EUID "${EUID}")"
+
+# The authoritative children, in the only valid dependency order.
+RUNTIME_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPHOST_RUNTIME_INSTALLER_BIN "${SCRIPT_DIR}/install-bootstrap-runtime")"
+HOSTLAYOUT_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPHOST_HOSTLAYOUT_INSTALLER_BIN "${SCRIPT_DIR}/install-bootstrap-host-layout")"
+SERVICES_INSTALLER_BIN="$(gated_default RATEGURU_BOOTSTRAPHOST_SERVICES_INSTALLER_BIN "${SCRIPT_DIR}/install-bootstrap-services")"
+PREFLIGHT_BIN="$(gated_default RATEGURU_BOOTSTRAPHOST_PREFLIGHT_BIN "${SCRIPT_DIR}/bootstrap-host-preflight")"
+
+# --- Output -------------------------------------------------------------------
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+MODE=""
+MODE_SEEN=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  bootstrap-host --check
+  bootstrap-host --apply
+  bootstrap-host --verify
+  bootstrap-host --help
+
+All modes require root.
+
+  --check   Read-only, dependency-aware bootstrap pipeline status: runs each
+            slice's own --check in order (5.2 -> 5.3 -> 5.4 -> final
+            preflight) and reports PASS / NEEDS_APPLY / BLOCKED per slice.
+            A slice whose prerequisite is unsatisfied is BLOCKED, never
+            misjudged. Exit 0 only when the whole pipeline is satisfied.
+  --apply   Convergent bootstrap: per slice, skip when its authoritative
+            --verify already passes, otherwise run the child's own --apply
+            and require its --verify. Fails fast on the first child failure
+            and never rolls back safely converged earlier slices — re-run
+            after fixing the surfaced problem to resume at the failing
+            slice. Ends with the final bootstrap preflight.
+  --verify  Read-only: every slice --verify must pass, then the final
+            bootstrap preflight must pass.
+
+Orchestration only: ordering, status, fail-fast and readiness aggregation.
+Each child installer stays authoritative for its own contract. No
+application deploy, no database/role provisioning, no secret creation, no
+planned-target provisioning, and no --force/--skip escape hatches.
+USAGE
+}
+
+# --- Slice table --------------------------------------------------------------
+
+SLICE_IDS=(5.2 5.3 5.4)
+
+slice_label() {
+    case "$1" in
+        5.2) printf 'runtime/packages\n' ;;
+        5.3) printf 'users/groups/filesystem\n' ;;
+        5.4) printf 'services/configuration\n' ;;
+        *)   fail "internal: unknown slice: $1" ;;
+    esac
+}
+
+slice_bin() {
+    case "$1" in
+        5.2) printf '%s\n' "${RUNTIME_INSTALLER_BIN}" ;;
+        5.3) printf '%s\n' "${HOSTLAYOUT_INSTALLER_BIN}" ;;
+        5.4) printf '%s\n' "${SERVICES_INSTALLER_BIN}" ;;
+        *)   fail "internal: unknown slice: $1" ;;
+    esac
+}
+
+# Long-child visibility (usability only — no invented progress): 5.4's
+# authoritative verification includes end-to-end mail-capture checks that
+# take noticeable time, so its announcement says so.
+slice_duration_note() {
+    case "$1" in
+        5.4) printf ' (child mail-capture verification performs end-to-end checks — this may take a while)' ;;
+        *)   printf '' ;;
+    esac
+}
+
+declare -A SLICE_STATUS
+PREFLIGHT_STATUS=""
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == "0" ]] || fail "--${MODE} must run as root"
+}
+
+require_children_executable() {
+    local slice_id bin
+
+    for slice_id in "${SLICE_IDS[@]}"; do
+        bin="$(slice_bin "${slice_id}")"
+        [[ -x "${bin}" ]] || fail "slice ${slice_id} installer is not executable: ${bin} — run from a full repository checkout"
+    done
+
+    [[ -x "${PREFLIGHT_BIN}" ]] || fail "bootstrap preflight is not executable: ${PREFLIGHT_BIN} — run from a full repository checkout"
+}
+
+# --- Child invocation ---------------------------------------------------------
+
+# run_child_captured CMD... — runs a read-only child mode, capturing its
+# combined output into CHILD_OUTPUT and its exit status into CHILD_STATUS
+# (preserved verbatim, including signal-derived statuses like 130).
+CHILD_OUTPUT=""
+CHILD_STATUS=0
+
+run_child_captured() {
+    CHILD_OUTPUT=""
+    CHILD_STATUS=0
+    CHILD_OUTPUT="$("$@" 2>&1)" || CHILD_STATUS=$?
+}
+
+# print_child_excerpt — the child's own SUMMARY section (from its last
+# SUMMARY line to the end), indented: a concise summary without re-dumping
+# the whole child report. A child that failed before printing any SUMMARY
+# has its complete output shown instead — the failing slice is never hidden.
+print_child_excerpt() {
+    if grep -q '^SUMMARY$' <<<"${CHILD_OUTPUT}"; then
+        awk '/^SUMMARY$/ { buffer = ""; collecting = 1 }
+             collecting { buffer = buffer "    " $0 "\n" }
+             END { printf "%s", buffer }' <<<"${CHILD_OUTPUT}"
+    else
+        awk '{ print "    | " $0 }' <<<"${CHILD_OUTPUT}"
+    fi
+}
+
+# child_failed SLICE_DESCRIPTION CMD... — the uniform fail-fast exit:
+# identifies slice, command and exit status, then propagates the child's own
+# exit status (never remapped, so an interrupt's 130 survives).
+child_failed() {
+    local description="$1"
+    shift
+
+    printf 'ERROR: %s failed: %s (exit status %d)\n' "${description}" "$*" "${CHILD_STATUS}" >&2
+    exit "${CHILD_STATUS}"
+}
+
+# --- Summary ------------------------------------------------------------------
+
+print_summary() {
+    local ready_label="$1" slice_id
+    local ready=true
+
+    printf '\nSUMMARY\n'
+
+    for slice_id in "${SLICE_IDS[@]}"; do
+        printf '%s %s\n' "${slice_id}" "${SLICE_STATUS[${slice_id}]}"
+        [[ "${SLICE_STATUS[${slice_id}]}" == PASS* ]] || ready=false
+    done
+
+    printf 'FINAL PREFLIGHT %s\n' "${PREFLIGHT_STATUS}"
+    [[ "${PREFLIGHT_STATUS}" == PASS* ]] || ready=false
+
+    printf '\n'
+
+    if [[ "${ready}" == true ]]; then
+        printf '%s: YES\n' "${ready_label}"
+        return 0
+    fi
+
+    printf '%s: NO\n' "${ready_label}"
+    return 1
+}
+
+# --- Read-only walkers (--check / --verify) -----------------------------------
+
+# run_readonly_walk CHILD_MODE UNSATISFIED_STATUS — the shared
+# dependency-aware, strictly read-only pipeline walk. Runs each child's own
+# CHILD_MODE (--check or --verify) in order; the first unsatisfied slice
+# gets UNSATISFIED_STATUS plus its concise child summary, and every
+# downstream slice (and the final preflight) is BLOCKED rather than being
+# misjudged on a host its prerequisite has not prepared. No path in here
+# executes any child --apply — read-only means read-only.
+run_readonly_walk() {
+    local child_mode="$1" unsatisfied_status="$2"
+    local blocked=false previous_slice="" slice_id label bin
+
+    for slice_id in "${SLICE_IDS[@]}"; do
+        label="$(slice_label "${slice_id}")"
+        bin="$(slice_bin "${slice_id}")"
+
+        printf '\nPHASE %s %s\n' "${slice_id}" "${label}"
+
+        # A blocked slice is blocked on its immediate prerequisite — which
+        # is itself either the unsatisfied slice or blocked in turn — so the
+        # report reads as the dependency chain, never a flat repeat of the
+        # first failing slice.
+        if [[ "${blocked}" == true ]]; then
+            SLICE_STATUS[${slice_id}]=BLOCKED
+            printf '  BLOCKED until Phase %s is satisfied\n' "${previous_slice}"
+            previous_slice="${slice_id}"
+            continue
+        fi
+
+        previous_slice="${slice_id}"
+
+        printf '  %s %s %s%s...\n' "${child_mode^^}" "${slice_id}" "${label}" "$(slice_duration_note "${slice_id}")"
+
+        run_child_captured "${bin}" "--${child_mode}"
+
+        if (( CHILD_STATUS == 0 )); then
+            SLICE_STATUS[${slice_id}]=PASS
+            printf '  PASS — slice contract satisfied (%s --%s)\n' "${bin}" "${child_mode}"
+            continue
+        fi
+
+        # Exit status 1 is the children's one and only "contract not
+        # satisfied" verdict. Anything else (127, a signal-derived 130, ...)
+        # is abnormal termination — surfaced and propagated verbatim, never
+        # reinterpreted as an unsatisfied contract.
+        if (( CHILD_STATUS != 1 )); then
+            print_child_excerpt
+            child_failed "slice ${slice_id} ${child_mode}" "${bin}" "--${child_mode}"
+        fi
+
+        SLICE_STATUS[${slice_id}]="${unsatisfied_status}"
+        blocked=true
+        printf '  %s — slice contract not satisfied (%s --%s, exit status %d)\n' \
+            "${unsatisfied_status}" "${bin}" "${child_mode}" "${CHILD_STATUS}"
+        print_child_excerpt
+        printf '  run for the full report: %s --%s\n' "${bin}" "${child_mode}"
+    done
+
+    printf '\nFINAL PREFLIGHT\n'
+
+    if [[ "${blocked}" == true ]]; then
+        PREFLIGHT_STATUS=BLOCKED
+        printf '  BLOCKED until Phase %s is satisfied\n' "${previous_slice}"
+        return 0
+    fi
+
+    printf '  VERIFY final bootstrap readiness (%s --check)...\n' "${PREFLIGHT_BIN}"
+
+    run_child_captured "${PREFLIGHT_BIN}" --check
+
+    if (( CHILD_STATUS == 0 )); then
+        PREFLIGHT_STATUS=PASS
+        printf '  PASS — bootstrap host ready\n'
+        print_child_excerpt
+    elif (( CHILD_STATUS == 1 )); then
+        PREFLIGHT_STATUS=FAIL
+        printf '  FAIL — bootstrap preflight not satisfied (exit status %d)\n' "${CHILD_STATUS}"
+        print_child_excerpt
+        printf '  run for the full report: %s --check\n' "${PREFLIGHT_BIN}"
+    else
+        print_child_excerpt
+        child_failed 'final bootstrap preflight' "${PREFLIGHT_BIN}" --check
+    fi
+}
+
+run_check() {
+    printf 'RateGuru host bootstrap (check mode, read-only)\n'
+    printf 'Pipeline: 5.2 runtime -> 5.3 identities/filesystem -> 5.4 services/configuration -> final preflight\n'
+
+    run_readonly_walk check NEEDS_APPLY
+
+    print_summary 'BOOTSTRAP READY' || exit 1
+}
+
+run_verify() {
+    printf 'RateGuru host bootstrap (verify mode, read-only)\n'
+
+    run_readonly_walk verify FAIL
+
+    print_summary 'HOST BOOTSTRAP READY' || exit 1
+}
+
+# --- Apply --------------------------------------------------------------------
+
+run_apply() {
+    printf 'RateGuru host bootstrap (apply)\n'
+    printf 'Convergent, fail-fast; safely converged earlier slices are never rolled back — re-run to resume\n'
+
+    local slice_id label bin apply_status
+
+    for slice_id in "${SLICE_IDS[@]}"; do
+        label="$(slice_label "${slice_id}")"
+        bin="$(slice_bin "${slice_id}")"
+
+        printf '\nPHASE %s %s\n' "${slice_id}" "${label}"
+        printf '  VERIFY %s %s%s...\n' "${slice_id}" "${label}" "$(slice_duration_note "${slice_id}")"
+
+        run_child_captured "${bin}" --verify
+
+        if (( CHILD_STATUS == 0 )); then
+            SLICE_STATUS[${slice_id}]='PASS (already satisfied — skipped)'
+            printf '  SKIP — already satisfied (%s --verify passed); no child apply\n' "${bin}"
+            continue
+        fi
+
+        # Only the children's explicit "contract not satisfied" verdict
+        # (exit 1) triggers convergence. Abnormal termination — including a
+        # signal-derived status like 130 from an interrupted verification —
+        # is propagated verbatim and never escalated into a child apply.
+        if (( CHILD_STATUS != 1 )); then
+            print_child_excerpt
+            child_failed "slice ${slice_id} pre-apply verification" "${bin}" --verify
+        fi
+
+        printf '  APPLY required (%s --verify exit status %d)\n' "${bin}" "${CHILD_STATUS}"
+        printf '  APPLY %s %s --apply (child output follows)\n' "${slice_id}" "${bin}"
+
+        # The child's own --apply streams directly: its transaction, its
+        # rollback, its diagnostics — never captured, never swallowed.
+        apply_status=0
+        "${bin}" --apply || apply_status=$?
+
+        if (( apply_status != 0 )); then
+            printf 'ERROR: slice %s apply failed: %s --apply (exit status %d)\n' \
+                "${slice_id}" "${bin}" "${apply_status}" >&2
+            printf 'Earlier slices remain safely converged; fix the surfaced problem and re-run bootstrap-host --apply to resume at slice %s\n' \
+                "${slice_id}" >&2
+            exit "${apply_status}"
+        fi
+
+        printf '  VERIFY %s %s (post-apply)%s...\n' "${slice_id}" "${label}" "$(slice_duration_note "${slice_id}")"
+
+        run_child_captured "${bin}" --verify
+
+        # The child's own apply reported success while its authoritative
+        # contract still does not hold — the one case where a summary
+        # excerpt is not enough, so the complete child report is printed.
+        if (( CHILD_STATUS != 0 )); then
+            printf '%s\n' "${CHILD_OUTPUT}"
+            child_failed "slice ${slice_id} post-apply verification" "${bin}" --verify
+        fi
+
+        SLICE_STATUS[${slice_id}]='PASS (applied and verified)'
+        printf '  PASS verified\n'
+    done
+
+    printf '\nFINAL PREFLIGHT\n'
+    printf '  VERIFY final bootstrap readiness (%s --check; output follows)...\n' "${PREFLIGHT_BIN}"
+
+    apply_status=0
+    "${PREFLIGHT_BIN}" --check || apply_status=$?
+
+    if (( apply_status != 0 )); then
+        printf 'ERROR: final bootstrap preflight failed: %s --check (exit status %d)\n' \
+            "${PREFLIGHT_BIN}" "${apply_status}" >&2
+        exit "${apply_status}"
+    fi
+
+    PREFLIGHT_STATUS='PASS — bootstrap host ready'
+    printf '  PASS bootstrap host ready\n'
+
+    print_summary 'HOST BOOTSTRAP READY' || exit 1
+}
+
+# --- Entry point --------------------------------------------------------------
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "mode given more than once"
+                fi
+
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${MODE_SEEN}" != true ]]; then
+        usage >&2
+        fail "one of --check, --apply or --verify is required"
+    fi
+}
+
+main() {
+    parse_args "$@"
+
+    require_root
+    require_children_executable
+
+    case "${MODE}" in
+        check)  run_check ;;
+        verify) run_verify ;;
+        apply)  run_apply ;;
+    esac
+
+    exit 0
+}
+
+# Source-guard: allows tests to source this file and call functions directly
+# without main() auto-running — the same pattern the other installers use.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

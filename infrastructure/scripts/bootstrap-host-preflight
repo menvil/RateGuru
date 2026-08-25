@@ -48,6 +48,27 @@
 # rclone.conf, htpasswd, TLS keys) is detected by stat only. Their content
 # is never read, never validated, never printed.
 #
+# PRE_DEPLOY vs DEPLOYED (Phase 5.5): this preflight applies the exact
+# target-state model Phase 5.4 established for install-bootstrap-services —
+# never a second slightly-different interpretation. For each ACTIVE target:
+#   PRE_DEPLOY  TARGET_ROOT/current is truly absent — legitimate before the
+#               first application release. `current` and the deploy-time
+#               external material (shared/.env, database credentials inside
+#               it, the deploy authorized_keys, rclone.conf) are DEFERRED —
+#               "required before first deploy" — never MISSING, and never
+#               fabricated. HOST BOOTSTRAP READINESS is judged separately
+#               from FIRST-DEPLOY/OPERATIONAL SECRET READINESS.
+#   DEPLOYED    current resolves to a valid immutable release directly under
+#               releases/ — the full strict deployed-host contract applies,
+#               unchanged from before this distinction existed.
+#   BROKEN      current exists but is dangling, not a symlink, outside
+#               releases/, or resolves to a non-directory — CONFLICT in
+#               every mode; DEFERRED never hides a broken present current.
+# External material Phase 5.4 itself requires to activate committed host
+# configuration (TLS certificates/keys, the Basic Auth htpasswd) remains a
+# hard host-bootstrap prerequisite — MISSING when absent, never softened —
+# because install-bootstrap-services fails closed without it.
+#
 # Test overrides: every RATEGURU_PREFLIGHT_* override below is honored only
 # alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate common,
 # backup and every prior slice use — so a stray variable in a real shell can
@@ -131,6 +152,7 @@ IP_BIN="$(gated_default RATEGURU_PREFLIGHT_IP_BIN '')"
 GETENT_BIN="$(gated_default RATEGURU_PREFLIGHT_GETENT_BIN '')"
 STAT_BIN="$(gated_default RATEGURU_PREFLIGHT_STAT_BIN stat)"
 GETFACL_BIN="$(gated_default RATEGURU_PREFLIGHT_GETFACL_BIN '')"
+READLINK_BIN="$(gated_default RATEGURU_PREFLIGHT_READLINK_BIN readlink)"
 
 # Direct value overrides for report-only host facts.
 HOSTNAME_VALUE="$(gated_default RATEGURU_PREFLIGHT_HOSTNAME "$(hostname 2>/dev/null || printf 'unknown')")"
@@ -156,6 +178,7 @@ COUNT_PASS=0
 COUNT_MISSING=0
 COUNT_WARN=0
 COUNT_CONFLICT=0
+COUNT_DEFERRED=0
 
 section() {
     printf '\n%s\n' "$1"
@@ -163,7 +186,11 @@ section() {
 
 # item STATUS NAME DETAIL [ACTION]
 #
-# One report line. STATUS is PASS/MISSING/WARN/CONFLICT. ACTION is the
+# One report line. STATUS is PASS/MISSING/WARN/CONFLICT/DEFERRED — DEFERRED
+# is the Phase 5.4 vocabulary applied here: a legitimately-pre-deploy item
+# (the absent current symlink, deploy-time external secret material) that is
+# required before the first deployment but never blocks the host-bootstrap
+# contract, and is never used to hide a genuine conflict. ACTION is the
 # intended bootstrap action, printed only by --report and only for non-PASS
 # items. Output is deterministic: no timestamps, no ordering surprises.
 item() {
@@ -174,6 +201,7 @@ item() {
         MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
         WARN)     COUNT_WARN=$((COUNT_WARN + 1)) ;;
         CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
+        DEFERRED) COUNT_DEFERRED=$((COUNT_DEFERRED + 1)) ;;
         *)        fail "internal: unknown item status: ${status}" ;;
     esac
 
@@ -267,6 +295,7 @@ ACTIVE_TARGETS=()
 declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
 declare -A TGT_CODE_GROUP TGT_INCOMING TGT_FPM_SOCKET TGT_FPM_POOL
 declare -A TGT_DB_ROLE TGT_NGINX_SITE TGT_PUBLIC_HOSTNAME TGT_SUPERVISOR_PROGRAM
+declare -A TGT_STATE TGT_STATE_REASON
 SOURCE_REGISTRY_OK=false
 JQ_AVAILABLE=true
 
@@ -343,6 +372,87 @@ template_value() {
     esac
 
     printf '%s\n' "${value}"
+}
+
+# --- Target deployment state (the Phase 5.4 shared model) --------------------
+
+# classify_target_state TARGET_ID — sets TGT_STATE[id] to PRE_DEPLOY,
+# DEPLOYED or BROKEN (with the reason in TGT_STATE_REASON[id]), in exact
+# semantic parity with install-bootstrap-services' classify_target_state:
+# a truly absent `current` is the only legitimate PRE_DEPLOY signal, and
+# every present-but-broken shape is BROKEN — never silently downgraded.
+# Strictly read-only: one readlink resolution plus stat probes; current is
+# never fabricated, rewritten or followed for any operation.
+classify_target_state() {
+    local target_id="$1"
+    local root="${TGT_ROOT[${target_id}]}"
+    local current="${root}/current"
+    local probe current_type resolved resolved_releases resolved_type
+
+    TGT_STATE[${target_id}]=BROKEN
+    TGT_STATE_REASON[${target_id}]=""
+
+    if ! probe="$(stat_probe "${current}")"; then
+        TGT_STATE[${target_id}]=PRE_DEPLOY
+        return 0
+    fi
+
+    current_type="${probe%%|*}"
+
+    if [[ "${current_type}" != "symbolic link" ]]; then
+        TGT_STATE_REASON[${target_id}]='current exists but is not a symlink (deployment-owned path in a broken shape)'
+        return 0
+    fi
+
+    if ! resolved="$("${READLINK_BIN}" -f -- "${current}" 2>/dev/null)" \
+        || [[ -z "${resolved}" ]] \
+        || ! stat_probe "${resolved}" >/dev/null
+    then
+        TGT_STATE_REASON[${target_id}]='current is a dangling symlink'
+        return 0
+    fi
+
+    if ! resolved_releases="$("${READLINK_BIN}" -f -- "${root}/releases" 2>/dev/null)" \
+        || [[ -z "${resolved_releases}" ]]
+    then
+        TGT_STATE_REASON[${target_id}]='releases directory is missing while current exists'
+        return 0
+    fi
+
+    if [[ "$(dirname -- "${resolved}")" != "${resolved_releases}" ]]; then
+        TGT_STATE_REASON[${target_id}]="current resolves outside the releases directory (${resolved})"
+        return 0
+    fi
+
+    resolved_type="$(stat_probe "${resolved}")"
+    resolved_type="${resolved_type%%|*}"
+
+    if [[ "${resolved_type}" != directory ]]; then
+        TGT_STATE_REASON[${target_id}]='current resolves to a non-directory release'
+        return 0
+    fi
+
+    TGT_STATE[${target_id}]=DEPLOYED
+}
+
+classify_target_states() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        classify_target_state "${target_id}"
+    done
+}
+
+# host_pre_deploy — true only when there is at least one active target and
+# every one of them is PRE_DEPLOY. A BROKEN target anywhere means the
+# pre-deploy softening never applies (its CONFLICT still fails the report),
+# and a DEPLOYED target keeps the strict deployed-host summary contract.
+host_pre_deploy() {
+    (( ${#ACTIVE_TARGETS[@]} > 0 )) || return 1
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        [[ "${TGT_STATE[${target_id}]:-}" == PRE_DEPLOY ]] || return 1
+    done
 }
 
 # --- HOST -------------------------------------------------------------------
@@ -1038,6 +1148,31 @@ report_path() {
     item PASS "path:${path}" "${detail}"
 }
 
+# report_target_current TARGET_ID — the deployment-owned current symlink
+# through the Phase 5.4 target-state model: PRE_DEPLOY absence is DEFERRED
+# (legitimate before the first immutable deployment — never MISSING, never
+# fabricated), a DEPLOYED current resolving to a valid immutable release is
+# PASS, and every broken present shape is CONFLICT — DEFERRED never hides a
+# broken present current.
+report_target_current() {
+    local target_id="$1"
+    local current="${TGT_ROOT[${target_id}]}/current"
+
+    case "${TGT_STATE[${target_id}]:-BROKEN}" in
+        PRE_DEPLOY)
+            item DEFERRED "path:${current}" "absent — first immutable deployment has not happened yet (PRE_DEPLOY for ${target_id}; deployment-owned, never fabricated by any bootstrap slice)" \
+                "created by the first real deploy — never by preflight or any bootstrap installer"
+            ;;
+        DEPLOYED)
+            item PASS "path:${current}" "symbolic link resolving to a valid immutable release under releases/ (DEPLOYED; deployment-owned)"
+            ;;
+        *)
+            item CONFLICT "path:${current}" "${TGT_STATE_REASON[${target_id}]:-current is in a broken shape}" \
+                "resolve the broken release state manually — never treated as PRE_DEPLOY, never repaired by preflight"
+            ;;
+    esac
+}
+
 # report_public_storage_acl — the slice 5.4 public-storage access contract:
 # install-public-storage-access grants www-data execute-only traversal
 # (user:www-data:--x) on each active target's shared and shared/storage —
@@ -1130,7 +1265,7 @@ report_filesystem() {
         report_path "shared" "${target_root}/shared" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "shared state for ${target_id} (slice 5.3 contract)"
         report_path "shared-storage" "${target_root}/shared/storage" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "structural shared-storage root for ${target_id} (slice 5.3 contract)"
         report_path "shared-storage-logs" "${target_root}/shared/storage/logs" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "service-support log directory for ${target_id} (slice 5.4 contract: the committed PHP-FPM/Supervisor configs log here)"
-        report_path "current" "${target_root}/current" "symbolic link" - - - "atomic current-release switch for ${target_id} (deployment-owned; absent until the first deployment)"
+        report_target_current "${target_id}"
         report_path "locks" "${target_root}/locks" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "deployment lock directory for ${target_id} (slice 5.3 contract)"
         report_path "deployments" "${target_root}/deployments" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "deployment history for ${target_id} (slice 5.3 contract)"
         report_path "deploy-home" "${deploy_home}" directory "${deploy_user}" "${deploy_user}" nw "deploy user home for ${target_id} (slice 5.3 contract: never group/other-writable)"
@@ -1361,7 +1496,11 @@ report_network() {
 # read, validated, or printed; this section only says whether later
 # bootstrap slices will need external/manual secret material. When the path
 # cannot be stat'ed and we are not root, absence cannot be distinguished
-# from a permission error, so the item degrades to WARN.
+# from a permission error, so the item degrades to WARN. This strict probe
+# stays the shape for HOST BOOTSTRAP material — external files Phase 5.4
+# itself requires to activate committed host configuration (TLS
+# certificates, the Basic Auth htpasswd) — which is a hard prerequisite in
+# every target state.
 report_secret() {
     local name="$1" path="$2" label="$3"
 
@@ -1376,31 +1515,70 @@ report_secret() {
     fi
 }
 
+# report_deploy_secret NAME PATH LABEL STATE — the FIRST-DEPLOY/OPERATIONAL
+# variant of report_secret, for deliberately-external material no Phase
+# 5.2–5.5 slice creates and no host-bootstrap step needs (shared/.env with
+# its database credentials, the deploy authorized_keys, rclone.conf). On a
+# PRE_DEPLOY target its absence is DEFERRED — REQUIRED BEFORE FIRST DEPLOY —
+# because host bootstrap is legitimately complete without it; on a DEPLOYED
+# (or broken) target the strict deployed-host semantics apply unchanged.
+report_deploy_secret() {
+    local name="$1" path="$2" label="$3" state="$4"
+
+    if stat_probe "${path}" >/dev/null; then
+        item PASS "secret:${name}" "present at ${path} (${label}; content never read or validated)"
+    elif [[ "${state}" == PRE_DEPLOY ]]; then
+        item DEFERRED "secret:${name}" "absent: ${path} (${label}) — REQUIRED BEFORE FIRST DEPLOY; deliberately external, not part of the host-bootstrap contract" \
+            "provide manually before the first deployment — never generated or read by preflight"
+    elif [[ "${EFFECTIVE_UID}" == "0" ]]; then
+        item MISSING "secret:${name}" "absent: ${path} (${label})" \
+            "provide manually — never generated or read by preflight"
+    else
+        item WARN "secret:${name}" "absent or unverifiable without root: ${path} (${label})" \
+            "re-run as root, or provide manually"
+    fi
+}
+
 report_secrets() {
     section "SECRETS REQUIRED LATER"
 
-    local target_id
+    local target_id target_state host_state
+    host_state=DEPLOYED
+    host_pre_deploy && host_state=PRE_DEPLOY
+
     for target_id in "${ACTIVE_TARGETS[@]}"; do
-        report_secret "laravel-env:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
-            "Laravel environment for ${target_id}"
-        report_secret "database-credentials:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
-            "credentials for PostgreSQL role ${TGT_DB_ROLE[${target_id}]} live inside shared/.env"
-        report_secret "github-deploy-key:${target_id}" "/home/${TGT_DEPLOY_USER[${target_id}]}/.ssh/authorized_keys" \
-            "GitHub Actions deploy public key for ${TGT_DEPLOY_USER[${target_id}]}"
+        target_state="${TGT_STATE[${target_id}]:-BROKEN}"
+
+        report_deploy_secret "laravel-env:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
+            "Laravel environment for ${target_id}" "${target_state}"
+        report_deploy_secret "database-credentials:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
+            "credentials for PostgreSQL role ${TGT_DB_ROLE[${target_id}]} live inside shared/.env" "${target_state}"
+        report_deploy_secret "github-deploy-key:${target_id}" "/home/${TGT_DEPLOY_USER[${target_id}]}/.ssh/authorized_keys" \
+            "GitHub Actions deploy public key for ${TGT_DEPLOY_USER[${target_id}]}" "${target_state}"
         report_secret "tls:${target_id}" "/etc/letsencrypt/live/${TGT_PUBLIC_HOSTNAME[${target_id}]}/fullchain.pem" \
-            "TLS certificate for ${TGT_PUBLIC_HOSTNAME[${target_id}]} (DNS/ACME credentials are manual if automation needs them)"
+            "TLS certificate for ${TGT_PUBLIC_HOSTNAME[${target_id}]} (hard slice 5.4 prerequisite; DNS/ACME credentials are manual if automation needs them)"
     done
 
-    report_secret "rclone-credentials" "/root/.config/rclone/rclone.conf" \
-        "Backblaze B2 credentials for offsite backups"
+    report_deploy_secret "rclone-credentials" "/root/.config/rclone/rclone.conf" \
+        "Backblaze B2 credentials for offsite backups" "${host_state}"
     report_secret "basic-auth" "/etc/nginx/rateguru-staging.htpasswd" \
-        "Basic Auth hashes for staging and mail-capture vhosts"
+        "Basic Auth hashes for staging and mail-capture vhosts (hard slice 5.4 prerequisite)"
     report_secret "tls-mail-capture" "/etc/letsencrypt/live/staging-mail-capture/fullchain.pem" \
-        "TLS certificate for the shared mail-capture vhosts"
+        "TLS certificate for the shared mail-capture vhosts (hard slice 5.4 prerequisite)"
 }
 
 # --- SUMMARY ----------------------------------------------------------------
 
+# report_summary — the readiness aggregation. WARN and DEFERRED never block;
+# MISSING and CONFLICT always do. Two summary shapes, one shared gate:
+#   DEPLOYED (or no target contract): the existing strict `HOST READY`
+#   verdict, byte-compatible with what today's staging host produces.
+#   PRE_DEPLOY (every active target legitimately pre-deploy): host bootstrap
+#   readiness is judged separately from application/first-deploy readiness —
+#   `HOST BOOTSTRAP READY` uses the same MISSING/CONFLICT gate, and
+#   `APPLICATION READY: DEFERRED` states plainly that no release has been
+#   deployed. A BROKEN current keeps its CONFLICT, so it can never ride the
+#   pre-deploy shape into a passing report.
 report_summary() {
     section "SUMMARY"
 
@@ -1409,7 +1587,20 @@ report_summary() {
     printf 'MISSING: %d\n' "${COUNT_MISSING}"
     printf 'WARN: %d\n' "${COUNT_WARN}"
     printf 'CONFLICT: %d\n' "${COUNT_CONFLICT}"
+    printf 'DEFERRED: %d\n' "${COUNT_DEFERRED}"
     printf '\n'
+
+    if host_pre_deploy; then
+        if host_ready; then
+            printf 'HOST BOOTSTRAP READY: YES\n'
+        else
+            printf 'HOST BOOTSTRAP READY: NO\n'
+        fi
+
+        printf 'APPLICATION READY: DEFERRED — no release has been deployed (PRE_DEPLOY)\n'
+
+        return 0
+    fi
 
     if host_ready; then
         printf 'HOST READY: YES\n'
@@ -1458,6 +1649,7 @@ main() {
     parse_args "$@"
 
     load_source_contract
+    classify_target_states
 
     printf 'RateGuru bootstrap host preflight (%s mode, read-only)\n' "${MODE}"
     printf 'Supported baseline: %s %s\n' "${SUPPORTED_OS_ID}" "${SUPPORTED_OS_VERSION_ID}"

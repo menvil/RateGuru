@@ -37,6 +37,15 @@ VERIFY_REQUIRED_CLIS_BIN_DEFAULT="/home/www/rateguru/bin/verify-required-clis"
 HEALTH_CHECK_BIN="${HEALTH_CHECK_BIN_DEFAULT}"
 VERIFY_REQUIRED_CLIS_BIN="${VERIFY_REQUIRED_CLIS_BIN_DEFAULT}"
 
+# Phase 5 slice 5.5: how long the first-deploy Supervisor activation waits
+# for the target queue program to reach RUNNING. supervisorctl itself is
+# resolved through PATH — the same way this script already resolves
+# systemctl and runuser, and the same way tests already PATH-shadow both —
+# so only the wait tuning needs gated value overrides (shrunk by tests,
+# never by production).
+QUEUE_WAIT_ATTEMPTS=10
+QUEUE_RETRY_DELAY_SECONDS=1
+
 if rateguru_test_overrides_allowed; then
     if [[ -n "${RATEGURU_HEALTH_CHECK_BIN:-}" ]]; then
         HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_BIN}"
@@ -44,6 +53,14 @@ if rateguru_test_overrides_allowed; then
 
     if [[ -n "${RATEGURU_VERIFY_REQUIRED_CLIS_BIN:-}" ]]; then
         VERIFY_REQUIRED_CLIS_BIN="${RATEGURU_VERIFY_REQUIRED_CLIS_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS:-}" ]]; then
+        QUEUE_WAIT_ATTEMPTS="${RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS}"
+    fi
+
+    if [[ -n "${RATEGURU_DEPLOY_QUEUE_RETRY_DELAY:-}" ]]; then
+        QUEUE_RETRY_DELAY_SECONDS="${RATEGURU_DEPLOY_QUEUE_RETRY_DELAY}"
     fi
 fi
 
@@ -176,8 +193,94 @@ resolve_target() {
     DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
     PUBLIC_HOSTNAME="$(target_primary_public_hostname "${TARGET_ID}")"
     INCOMING_ROOT="$(readlink -f "$(target_incoming_artifacts "${TARGET_ID}")")"
+    SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
     LABEL="${TARGET_ID}"
     HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
+}
+
+# --- target Supervisor worker (Phase 5 slice 5.5) ----------------------------
+#
+# Closes the documented Phase 5.4 first-deploy gap: on a PRE_DEPLOY host the
+# bootstrap installs the committed Supervisor program config but defers its
+# activation (directory=current does not exist yet), so the first deployment
+# must be the step that makes the target worker RUNNING. The program
+# identity comes exclusively from the target registry
+# (target_supervisor_program) — never hard-coded — and only the target's own
+# program group is ever touched: no global reread-and-update-everything, no
+# global restart of every program, no unrelated program.
+
+# queue_program_running — every process of the target program group is
+# RUNNING according to supervisorctl (the identical classification
+# install-bootstrap-services uses).
+queue_program_running() {
+    local output
+
+    output="$(supervisorctl status "${SUPERVISOR_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+# ensure_supervisor_worker — runs after the post-switch health check. An
+# already-RUNNING worker (every normal deployment on today's staging) is
+# left completely untouched: no reread, no update, no start — the existing
+# `artisan queue:restart` signal later in the pipeline remains the only
+# queue interaction, exactly as before this slice. Only when the program is
+# not active (the first deployment after a PRE_DEPLOY bootstrap, or a
+# worker an operator stopped) does the activation path run: reread parses
+# the installed config, update registers/refreshes exactly the target
+# program group, start covers a program registered but stopped, and the
+# wait loop requires RUNNING. Activation failure is a deployment failure —
+# a DEPLOYED target without its required queue worker is not a successful
+# deployment.
+ensure_supervisor_worker() {
+    if queue_program_running; then
+        log "supervisor worker ${SUPERVISOR_PROGRAM} already RUNNING — no supervisor changes needed"
+
+        return 0
+    fi
+
+    log "activating supervisor worker ${SUPERVISOR_PROGRAM} (not active — first deployment after a PRE_DEPLOY bootstrap, or a stopped worker)"
+
+    # reread only parses the installed configuration into supervisord's
+    # memory — add/remove/start happens exclusively on update, which is why
+    # slice 5.4 uses reread as its side-effect-free validation. So the
+    # "this deploy may have started the worker" flag is armed after reread
+    # and before update: a failed reread genuinely activated nothing, and
+    # recovery must not then try to stop a program that was never added.
+    if ! supervisorctl reread >/dev/null; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisorctl reread failed"
+    fi
+
+    SUPERVISOR_ACTIVATED_NOW=true
+
+    if ! supervisorctl update "${SUPERVISOR_PROGRAM}" >/dev/null; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisorctl update ${SUPERVISOR_PROGRAM} failed"
+    fi
+
+    if ! queue_program_running; then
+        # Registered but not started (e.g. the program group already existed
+        # in a stopped state, where update alone changes nothing).
+        supervisorctl start "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1 || true
+    fi
+
+    local attempt
+    for ((attempt = 1; attempt <= QUEUE_WAIT_ATTEMPTS; attempt++)); do
+        if queue_program_running; then
+            break
+        fi
+
+        sleep "${QUEUE_RETRY_DELAY_SECONDS}"
+    done
+
+    if ! queue_program_running; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING"
+    fi
+
+    log "supervisor worker ${SUPERVISOR_PROGRAM} RUNNING"
 }
 
 # --- deployment recovery (unchanged internals; process-global trap, not
@@ -253,6 +356,32 @@ handle_deployment_exit() {
                 recovery_succeeded=false
                 log "WARNING: unable to fully restore deployment symlinks"
             fi
+        fi
+
+        # Supervisor state recovery (slice 5.5): only when THIS deploy
+        # activated the target worker (which only happens when it was not
+        # active before the deploy — an already-RUNNING worker is never
+        # touched, so there is nothing to recover for it). Stopping the
+        # newly-activated program restores the exact pre-deploy state and,
+        # on a failed first deployment, guarantees no worker keeps executing
+        # against a current that recovery just removed. A worker that cannot
+        # be stopped blocks the failed release directory's cleanup below —
+        # never delete a release a process may still be running in. Only the
+        # target's own program group is touched.
+        if [[ "${SUPERVISOR_ACTIVATED_NOW}" == true ]]; then
+            log "deployment failed after supervisor activation; stopping ${SUPERVISOR_PROGRAM} (it was not active before this deployment)"
+
+            if ! supervisorctl stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1; then
+                recovery_succeeded=false
+                log "WARNING: unable to stop supervisor worker ${SUPERVISOR_PROGRAM} during recovery"
+            fi
+        elif [[ "${ORIGINAL_QUEUE_RUNNING}" == true ]] && ! queue_program_running; then
+            # The worker ran before this deploy and this deploy never
+            # touched it (no reread/update/start ran), so a not-RUNNING
+            # worker here means something outside this pipeline stopped it —
+            # surfaced as a recovery warning, never silently absorbed and
+            # never force-started by recovery.
+            log "WARNING: supervisor worker ${SUPERVISOR_PROGRAM} was RUNNING before this deployment but is not RUNNING after recovery — investigate manually"
         fi
 
         if [[ "${TERMINAL_HISTORY_WRITTEN}" == false ]]; then
@@ -341,6 +470,15 @@ perform_deploy() {
         ORIGINAL_PREVIOUS_PRESENT=true
         ORIGINAL_PREVIOUS_PATH="$(readlink -f "${PREVIOUS_LINK}")"
     fi
+
+    # Snapshot the target worker's state before any mutation (a read-only
+    # supervisorctl status query — never reread/update/start): recovery must
+    # distinguish "was RUNNING before this deploy" (left alone, stays
+    # coherent against a restored old current) from "was not active before"
+    # (a failed deploy that activated it must stop it again).
+    ORIGINAL_QUEUE_RUNNING=false
+    queue_program_running && ORIGINAL_QUEUE_RUNNING=true
+    SUPERVISOR_ACTIVATED_NOW=false
 
     DEPLOYMENT_STARTED=false
     TERMINAL_HISTORY_WRITTEN=false
@@ -615,6 +753,13 @@ perform_deploy() {
         FAILURE_STATUS="failed-health-check"
         fail "deployment health check failed"
     fi
+
+    # Slice 5.5: a DEPLOYED target requires its registry-declared queue
+    # worker RUNNING — activated here on the first deployment after a
+    # PRE_DEPLOY bootstrap, untouched on every normal deployment where it
+    # already runs. Runs after the HTTP health check and before the success
+    # record: both must hold before the deployment may be called successful.
+    ensure_supervisor_worker
 
     if [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
         && [[ -d "${ORIGINAL_CURRENT_PATH}" ]]

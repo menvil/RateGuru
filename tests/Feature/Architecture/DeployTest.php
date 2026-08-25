@@ -166,6 +166,11 @@ function deployOpsBaseEnv(string $scratch, array $overrides = []): array
         'RATEGURU_DEPLOYMENT_CONF_FILE' => deployOpsDeploymentConfPath(),
         'RATEGURU_TARGET_REGISTRY_FILE' => deployOpsRegistryPath(),
         'RATEGURU_TARGETS_CLI' => deployOpsTargetsCli(),
+        // Slice 5.5 supervisor-activation wait tuning, shrunk so an
+        // activation that will never reach RUNNING fails immediately
+        // instead of sleeping through the production retry budget.
+        'RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS' => '1',
+        'RATEGURU_DEPLOY_QUEUE_RETRY_DELAY' => '0',
     ], $overrides);
 }
 
@@ -198,10 +203,18 @@ function deployOpsVerifyRequiredClisStub(string $scratch, string $logFile): stri
 }
 
 /**
- * PATH-shadowed stubs for systemctl and runuser — real fixtures use numeric
- * uid/gid strings as RUNTIME_USER, which real runuser cannot resolve to a
- * real account and does not need to: this stub drops "-u VALUE --" and execs
- * the remaining command directly as the current (test) user.
+ * PATH-shadowed stubs for systemctl, runuser and supervisorctl — real
+ * fixtures use numeric uid/gid strings as RUNTIME_USER, which real runuser
+ * cannot resolve to a real account and does not need to: this stub drops
+ * "-u VALUE --" and execs the remaining command directly as the current
+ * (test) user.
+ *
+ * supervisorctl (slice 5.5) is stateful, mirroring the technique
+ * InstallBootstrapServicesTest already established: `status` answers from a
+ * queue-running state file, `update`/`start` create it (unless the
+ * activation-fail toggle simulates a worker that never reaches RUNNING),
+ * `stop` removes it, and every invocation is logged so tests can assert
+ * exactly which supervisor commands a deployment ran — or that it ran none.
  */
 function deployOpsInstallCoreStubs(string $scratch): void
 {
@@ -215,6 +228,58 @@ function deployOpsInstallCoreStubs(string $scratch): void
         .'shift 2; shift'."\n"
         .'exec "$@"'."\n");
     chmod($scratch.'/bin/runuser', 0o755);
+
+    $stateDir = $scratch.'/supervisor-state';
+    @mkdir($stateDir, 0o755, true);
+
+    file_put_contents($scratch.'/bin/supervisorctl', "#!/usr/bin/env bash\n"
+        .'echo "supervisorctl $*" >> '.escapeshellarg($scratch.'/supervisorctl.log')."\n"
+        .'state='.escapeshellarg($stateDir)."\n"
+        .<<<'STUB'
+        case "${1:-}" in
+            status)
+                if [[ -e "${state}/queue-running" ]]; then
+                    echo "parity-queue:parity-queue_00   RUNNING   pid 123, uptime 0:05:00"
+                    exit 0
+                fi
+                echo "parity-queue:*: ERROR (no such process)"
+                exit 1
+                ;;
+            reread)
+                echo "parity-queue: available"
+                exit 0
+                ;;
+            update|start)
+                if [[ ! -e "${state}/activation-fail" ]]; then
+                    touch "${state}/queue-running"
+                fi
+                exit 0
+                ;;
+            stop)
+                rm -f "${state}/queue-running"
+                exit 0
+                ;;
+        esac
+        exit 0
+        STUB."\n");
+    chmod($scratch.'/bin/supervisorctl', 0o755);
+}
+
+/**
+ * The supervisorctl invocations a run performed (empty when the stub was
+ * never reached).
+ *
+ * @return list<string>
+ */
+function deployOpsSupervisorctlLog(string $scratch): array
+{
+    $path = $scratch.'/supervisorctl.log';
+
+    if (! is_file($path)) {
+        return [];
+    }
+
+    return array_values(array_filter(explode("\n", trim((string) file_get_contents($path)))));
 }
 
 function deployOpsFakePhpBin(string $scratch): string
@@ -1193,6 +1258,268 @@ it('recovers correctly from a failed post-switch health check', function () {
         // unlike rollback's, never re-checks health — see
         // restore_deployment_links).
         expect(trim(File::get($failingHealthCheckLog)))->toBe('--target parity-target');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Slice 5.5: first-deploy Supervisor activation
+// =============================================================================
+
+it('activates the deferred supervisor worker on the first deployment: reread, update, RUNNING — only the target program', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        // deployOpsRunFullDeployment builds a first deployment: current is
+        // absent and the stateful supervisorctl stub starts with no
+        // queue-running state — exactly the PRE_DEPLOY host shape after
+        // install-bootstrap-services deferred the program.
+        $result = deployOpsRunFullDeployment($scratch);
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        expect($result['output'])->toContain('activating supervisor worker parity-queue');
+        expect($result['output'])->toContain('supervisor worker parity-queue RUNNING');
+
+        $calls = deployOpsSupervisorctlLog($scratch);
+        expect($calls)->not->toBe([], 'the activation path must actually run supervisorctl');
+
+        // reread precedes update; update targets exactly the registry
+        // program; the worker reached RUNNING without needing a start.
+        $joined = implode("\n", $calls);
+        expect(strpos($joined, 'supervisorctl reread'))
+            ->toBeLessThan(strpos($joined, 'supervisorctl update parity-queue'));
+        expect($joined)->toContain('supervisorctl update parity-queue');
+        expect($joined)->not->toContain('restart');
+        expect($joined)->not->toContain('stop');
+
+        // Only the target program group is ever touched: every supervisorctl
+        // invocation is a bare reread or names parity-queue.
+        foreach ($calls as $call) {
+            expect(
+                $call === 'supervisorctl reread'
+                    || str_starts_with($call, 'supervisorctl status parity-queue:')
+                    || str_starts_with($call, 'supervisorctl update parity-queue')
+                    || str_starts_with($call, 'supervisorctl start parity-queue:'),
+            )->toBeTrue("unexpected supervisorctl invocation: {$call}");
+        }
+
+        // The worker state the stub tracks ends RUNNING.
+        expect(file_exists($scratch.'/supervisor-state/queue-running'))->toBeTrue();
+
+        // The deployment success record only exists because both health and
+        // the queue requirement held.
+        $history = array_values(array_filter(explode("\n", trim(file_get_contents($result['fixture']['root'].'/deployments/history.jsonl')))));
+        $finished = json_decode(end($history), true, 512, JSON_THROW_ON_ERROR);
+        expect($finished['event'])->toBe('deployment-finished');
+        expect($finished['status'])->toBe('success');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('fails the first deployment when supervisor activation cannot reach RUNNING, and recovery stops the partially-activated worker', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        // The activation-fail toggle makes update/start succeed as commands
+        // while the worker never reaches RUNNING — the crash-looping shape.
+        deployOpsInstallCoreStubs($scratch);
+        touch($scratch.'/supervisor-state/activation-fail');
+
+        $result = deployOpsRunFullDeployment($scratch);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('supervisor worker parity-queue did not reach RUNNING');
+
+        $root = $result['fixture']['root'];
+
+        // First-deploy failure recovery: original current did not exist, so
+        // current is removed again, the failed release is cleaned, and the
+        // newly-activated worker is stopped — never left running against a
+        // missing current.
+        expect(is_link($root.'/current'))->toBeFalse('current must be removed by first-deploy failure recovery');
+        expect(glob($root.'/releases/*'))->toBe([], 'the failed release must be cleaned');
+        expect(implode("\n", deployOpsSupervisorctlLog($scratch)))->toContain('supervisorctl stop parity-queue:*');
+        expect(file_exists($scratch.'/supervisor-state/queue-running'))->toBeFalse();
+
+        // The failed deployment is recorded with the activation status.
+        $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
+        $finished = json_decode(end($history), true, 512, JSON_THROW_ON_ERROR);
+        expect($finished['event'])->toBe('deployment-finished');
+        expect($finished['status'])->toBe('failed-supervisor-activation');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('performs zero supervisor registration/start churn on a normal deployment whose worker is already RUNNING', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        // First deployment activates the worker (proven above); this test is
+        // about the second, normal deployment on the now-DEPLOYED target.
+        $first = deployOpsRunFullDeployment($scratch);
+        expect($first['exit'])->toBe(0, $first['output']);
+        expect(file_exists($scratch.'/supervisor-state/queue-running'))->toBeTrue();
+
+        file_put_contents($scratch.'/supervisorctl.log', '');
+
+        $confPath = deployOpsDeploymentConfForFixture($scratch);
+        [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $first['fixture']);
+        $healthCheckLog = $scratch.'/second-hc.log';
+        touch($healthCheckLog);
+        $healthCheckStub = deployOpsHealthCheckStub($scratch, $healthCheckLog);
+        $verifyCliLog = $scratch.'/second-vc.log';
+        touch($verifyCliLog);
+        $verifyCliStub = deployOpsVerifyRequiredClisStub($scratch, $verifyCliLog);
+
+        $secondReleaseId = 'v1.0.1-20260102-000000-def9999';
+
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            "parse_deploy_args --target parity-target --release {$secondReleaseId} --artifact {$first['fixture']['artifact']}\nresolve_target\nperform_deploy",
+            deployOpsBaseEnv($scratch, [
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_HEALTH_CHECK_BIN' => $healthCheckStub,
+                'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyCliStub,
+            ]),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('supervisor worker parity-queue already RUNNING — no supervisor changes needed');
+
+        // Only read-only status queries ran — no reread, update, start,
+        // stop or restart on a healthy worker.
+        $calls = deployOpsSupervisorctlLog($scratch);
+        expect($calls)->not->toBe([]);
+
+        foreach ($calls as $call) {
+            expect(str_starts_with($call, 'supervisorctl status parity-queue:'))
+                ->toBeTrue("normal deployment must not run supervisor mutations: {$call}");
+        }
+
+        expect(file_exists($scratch.'/supervisor-state/queue-running'))->toBeTrue('the worker must remain RUNNING');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('leaves a previously-RUNNING worker coherent when a later deployment step fails and the old current is restored', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $first = deployOpsRunFullDeployment($scratch);
+        expect($first['exit'])->toBe(0, $first['output']);
+
+        $root = $first['fixture']['root'];
+        $originalCurrent = realpath($root.'/current');
+
+        file_put_contents($scratch.'/supervisorctl.log', '');
+
+        $confPath = deployOpsDeploymentConfForFixture($scratch);
+        [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $first['fixture']);
+        $failingHealthCheckLog = $scratch.'/failing-hc-supervisor.log';
+        touch($failingHealthCheckLog);
+        $failingHealthCheckStub = deployOpsHealthCheckStub($scratch, $failingHealthCheckLog, fail: true);
+        $verifyCliLog = $scratch.'/vc-supervisor.log';
+        touch($verifyCliLog);
+        $verifyCliStub = deployOpsVerifyRequiredClisStub($scratch, $verifyCliLog);
+
+        $secondReleaseId = 'v1.0.2-20260103-000000-abc7777';
+
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            "parse_deploy_args --target parity-target --release {$secondReleaseId} --artifact {$first['fixture']['artifact']}\nresolve_target\nperform_deploy",
+            deployOpsBaseEnv($scratch, [
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_HEALTH_CHECK_BIN' => $failingHealthCheckStub,
+                'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyCliStub,
+            ]),
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('deployment health check failed');
+
+        // The old current is restored, and the worker that was RUNNING
+        // before the deploy — and was never touched by it (the failure came
+        // before the activation step) — is still RUNNING against it.
+        expect(realpath($root.'/current'))->toBe($originalCurrent);
+        expect(file_exists($scratch.'/supervisor-state/queue-running'))->toBeTrue('the pre-existing worker must remain RUNNING');
+
+        $calls = deployOpsSupervisorctlLog($scratch);
+
+        foreach ($calls as $call) {
+            expect(str_starts_with($call, 'supervisorctl status parity-queue:'))
+                ->toBeTrue("recovery must not mutate the previously-RUNNING worker: {$call}");
+        }
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('rejects a planned target before any supervisorctl invocation', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        deployOpsInstallCoreStubs($scratch);
+
+        [$exit, $output] = deployOpsRunHarness($scratch, <<<'BASH'
+            parse_deploy_args --target tits-guru --release v0.0.0-20260101-000000-abc0000 --artifact /definitely/missing.tar.gz
+            resolve_target
+            perform_deploy
+            BASH, deployOpsBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('lifecycle=planned');
+        expect(deployOpsSupervisorctlLog($scratch))->toBe([], 'a planned target must never cause a supervisorctl invocation');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('resolves the supervisor program from the target registry, never a hard-coded name', function () {
+    // The generic pipeline references the registry accessor and the resolved
+    // variable — the literal staging program name appears nowhere in deploy.
+    $source = deployOpsSource();
+
+    expect($source)->toContain('target_supervisor_program');
+    expect($source)->toContain('${SUPERVISOR_PROGRAM}');
+    expect($source)->not->toContain('rateguru-staging-queue');
+    expect($source)->not->toContain('restart all');
+});
+
+it('gates the supervisor wait tuning behind the shared test-override flag', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        // Granted: with the shared flag on, the tuning values are honored.
+        [$exit, $output] = deployOpsRunHarness($scratch, <<<'BASH'
+            printf 'ATTEMPTS=%s DELAY=%s\n' "${QUEUE_WAIT_ATTEMPTS}" "${QUEUE_RETRY_DELAY_SECONDS}"
+            BASH, deployOpsBaseEnv($scratch, [
+            'RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS' => '7',
+            'RATEGURU_DEPLOY_QUEUE_RETRY_DELAY' => '2',
+        ]));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('ATTEMPTS=7 DELAY=2');
+
+        // Denied: without the flag a real subprocess never honors any
+        // override — proven by failing at the hardcoded COMMON_FILE default
+        // (the same technique the existing override-gate test uses).
+        [$deniedExit, $deniedOutput] = deployOpsRunScript(['--help'], [
+            'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+            'HOME' => getenv('HOME') ?: '/tmp',
+            'RATEGURU_COMMON_FILE' => deployOpsCommonFile(),
+            'RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS' => '999',
+            'RATEGURU_DEPLOY_QUEUE_RETRY_DELAY' => '999',
+        ]);
+        expect($deniedExit)->not->toBe(0);
+        expect($deniedOutput)->toContain('/home/www/rateguru/bin/common');
     } finally {
         deployOpsCleanup($scratch);
     }

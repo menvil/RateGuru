@@ -132,17 +132,22 @@ real `runuser` access checks) and defer only the application-health
 probes; on a DEPLOYED host their existing strong verification is
 preserved unchanged.
 
-**Known integration gap (required 5.5/5.6 fix):** `deploy` currently runs
-`artisan queue:restart` but never `supervisorctl update`/`start`, so a
-Supervisor program that the PRE_DEPLOY bootstrap deferred is not activated
-by the first deployment. The same gap carries a residual pre-deploy
-window: the installed committed config keeps `autostart=true` (it is never
-rewritten to a fake shape), so a supervisord restart or host reboot before
-the first deployment would read it and fail-loop the program until a
-release exists — harmless to the host, noisy in supervisor logs, and
-closed by the same first-deploy activation fix. The first-deploy activation path is a required
-5.5/5.6 integration fix and is exercised end to end by the 5.6 clean-VPS
-acceptance.
+**First-deploy activation (the 5.5/5.6 integration fix — mechanism closed
+in 5.5):** `deploy` now ensures the registry-declared Supervisor queue
+program is RUNNING after the atomic `current` switch and HTTP health check
+— an already-RUNNING worker is left completely untouched (zero supervisor
+churn on normal deployments), while a program the PRE_DEPLOY bootstrap
+deferred is activated via `supervisorctl reread`/`update` (plus `start`
+when needed), scoped to exactly the target program group. Activation
+failure fails the deployment, and recovery stops a worker that this deploy
+activated so nothing keeps running against a removed `current` — see
+`bootstrap-host.md` for the full PRE_DEPLOY → DEPLOYED transition. A
+residual pre-deploy window remains: the installed committed config keeps
+`autostart=true` (it is never rewritten to a fake shape), so a supervisord
+restart or host reboot before the first deployment would read it and
+fail-loop the program until a release exists — harmless to the host, noisy
+in supervisor logs, and ended by the first real deployment. The mechanism
+is exercised end to end by the 5.6 clean-VPS acceptance.
 
 ## External prerequisites — never generated, copied or read
 

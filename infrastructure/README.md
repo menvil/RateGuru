@@ -10,6 +10,11 @@ infrastructure, and moves out once a second project exists.
 
 ## Contents
 
+- host bootstrap: `infrastructure/scripts/bootstrap-host` — the one
+  canonical entry point that sequences the bootstrap slices (runtime →
+  identities/filesystem → services/configuration → final preflight) on a
+  clean or existing host, run by root from the repository checkout — see
+  [`runbooks/bootstrap-host.md`](runbooks/bootstrap-host.md);
 - clean-VPS bootstrap preflight (read-only host contract inspection), the
   base/runtime package installer (Ubuntu 22.04 baseline, PHP 8.5, PostgreSQL
   18; Node.js/Composer intentionally absent — GitHub Actions builds the
