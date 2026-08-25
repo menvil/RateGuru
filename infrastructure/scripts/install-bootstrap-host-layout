@@ -961,11 +961,23 @@ converge_memberships() {
 # --- Apply: filesystem convergence --------------------------------------------
 
 # ensure_directory PATH OWNER GROUP MODE POLICY — converges exactly one
-# directory entry. Creation stages the final mode via install -d and then
-# sets ownership; reconciliation of an existing directory changes only the
-# drifted aspect of the entry itself. NEVER recursive: contents keep their
-# ownership and modes untouched. POLICY "nw" accepts any existing mode
-# without group/other write and only remediates a group/other-writable one.
+# directory entry. Creation stages the mode via install -d, sets ownership,
+# then pins the exact final mode; reconciliation of an existing directory
+# changes only the drifted aspect of the entry itself. NEVER recursive:
+# contents keep their ownership and modes untouched. POLICY "nw" accepts
+# any existing mode without group/other write and only remediates a
+# group/other-writable one.
+#
+# Exact-mode semantics (real staging acceptance regression): GNU chmod on
+# a DIRECTORY preserves existing setuid/setgid bits when given a plain
+# numeric mode — `chmod 0755` on a 2750 directory yields 2755, not 0755 —
+# so every exact-mode mutation here uses the GNU operator numeric form
+# (`chmod =0755`, `chmod =2750`), which replaces the complete mode in both
+# directions: it clears an unwanted setgid (2750 -> 0755) and sets an
+# intentional one (0755 -> 2750). Creation gets the same explicit `=MODE`
+# pin after ownership is set, so a child born under a setgid parent can
+# never inherit special bits the contract does not require — the installer
+# contract, never parent state or umask, decides the final mode.
 ensure_directory() {
     local path="$1" owner="$2" group="$3" mode="$4" policy="$5"
     local phys
@@ -984,6 +996,8 @@ ensure_directory() {
             || fail "path:${path}: cannot create directory"
         "${CHOWN_BIN}" -- "${owner}:${group}" "${phys}" \
             || fail "path:${path}: cannot set ownership ${owner}:${group}"
+        "${CHMOD_BIN}" "=${mode}" "${phys}" \
+            || fail "path:${path}: cannot pin exact mode ${mode}"
 
         return 0
     fi
@@ -1006,13 +1020,20 @@ ensure_directory() {
         if mode_group_other_writable "${actual_mode}"; then
             action "path:${path} reconciling group/other-writable mode ${actual_mode} -> 0750 (this directory entry only, never recursive)"
 
-            "${CHMOD_BIN}" 0750 "${phys}" \
+            # Explicit replacement (`=`): the canonical remediation result
+            # is exactly 0750, never 0750 plus inherited special bits. The
+            # accepted nw contract itself stays unchanged — any existing
+            # non-group/other-writable mode passes untouched above.
+            "${CHMOD_BIN}" "=0750" "${phys}" \
                 || fail "path:${path}: cannot set mode 0750"
         fi
     elif ! mode_equals "${actual_mode}" "${mode}"; then
         action "path:${path} reconciling mode ${actual_mode} -> ${mode} (this directory entry only, never recursive)"
 
-        "${CHMOD_BIN}" "${mode}" "${phys}" \
+        # Operator numeric mode (`=MODE`): a plain numeric chmod would
+        # preserve directory set[ug]id bits (2750 -> "chmod 0755" -> 2755
+        # on the real staging host); `=` replaces the complete mode.
+        "${CHMOD_BIN}" "=${mode}" "${phys}" \
             || fail "path:${path}: cannot set mode ${mode}"
     fi
 }
@@ -1040,6 +1061,8 @@ ensure_namespace_parent() {
         || fail "path:${parent}: cannot create directory"
     "${CHOWN_BIN}" -- root:root "${phys}" \
         || fail "path:${parent}: cannot set ownership root:root"
+    "${CHMOD_BIN}" "=0755" "${phys}" \
+        || fail "path:${parent}: cannot pin exact mode 0755"
 }
 
 converge_filesystem() {
