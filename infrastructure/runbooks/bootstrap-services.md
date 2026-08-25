@@ -142,12 +142,18 @@ when needed), scoped to exactly the target program group. Activation
 failure fails the deployment, and recovery stops a worker that this deploy
 activated so nothing keeps running against a removed `current` — see
 `bootstrap-host.md` for the full PRE_DEPLOY → DEPLOYED transition. A
-residual pre-deploy window remains: the installed committed config keeps
-`autostart=true` (it is never rewritten to a fake shape), so a supervisord
-restart or host reboot before the first deployment would read it and
-fail-loop the program until a release exists — harmless to the host, noisy
-in supervisor logs, and ended by the first real deployment. The mechanism
-is exercised end to end by the 5.6 clean-VPS acceptance.
+residual window remains while no release exists: the installed committed
+config keeps `autostart=true` (it is never rewritten to a fake shape), so a
+supervisord restart or host reboot would read it and fail-loop the program
+until a release exists — harmless to the host, noisy in supervisor logs,
+and ended by the first *successful* deployment. That window covers two
+cases: before any deployment has been attempted, and after a **failed**
+first deployment — recovery stops the worker it activated, but does not
+unregister the program group, so the config's `autostart=true` still
+applies on the next supervisord restart. Recovery deliberately does not
+remove the program: it does not own the operator's supervisor
+registration. The mechanism is exercised end to end by the 5.6 clean-VPS
+acceptance.
 
 ## External prerequisites — never generated, copied or read
 

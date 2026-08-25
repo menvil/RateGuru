@@ -362,12 +362,21 @@ handle_deployment_exit() {
         # activated the target worker (which only happens when it was not
         # active before the deploy — an already-RUNNING worker is never
         # touched, so there is nothing to recover for it). Stopping the
-        # newly-activated program restores the exact pre-deploy state and,
-        # on a failed first deployment, guarantees no worker keeps executing
+        # newly-activated program guarantees no worker keeps executing
         # against a current that recovery just removed. A worker that cannot
         # be stopped blocks the failed release directory's cleanup below —
         # never delete a release a process may still be running in. Only the
         # target's own program group is touched.
+        #
+        # This stops the processes; it does not unregister the program. The
+        # program group stays known to the running supervisord, so a failed
+        # first deployment leaves the host in the same residual window the
+        # PRE_DEPLOY bootstrap already documents: the committed config keeps
+        # autostart=true, so a later supervisord restart would start it
+        # against a current that does not exist and fail-loop until a
+        # deployment succeeds. Deliberately not resolved by removing the
+        # program here — recovery does not own the operator's supervisor
+        # registration. See runbooks/bootstrap-services.md.
         if [[ "${SUPERVISOR_ACTIVATED_NOW}" == true ]]; then
             log "deployment failed after supervisor activation; stopping ${SUPERVISOR_PROGRAM} (it was not active before this deployment)"
 

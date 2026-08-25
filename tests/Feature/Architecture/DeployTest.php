@@ -230,7 +230,10 @@ function deployOpsInstallCoreStubs(string $scratch): void
     chmod($scratch.'/bin/runuser', 0o755);
 
     $stateDir = $scratch.'/supervisor-state';
-    @mkdir($stateDir, 0o755, true);
+
+    if (! is_dir($stateDir)) {
+        expect(@mkdir($stateDir, 0o755, true))->toBeTrue("could not create supervisor state directory: {$stateDir}");
+    }
 
     file_put_contents($scratch.'/bin/supervisorctl', "#!/usr/bin/env bash\n"
         .'echo "supervisorctl $*" >> '.escapeshellarg($scratch.'/supervisorctl.log')."\n"
@@ -238,6 +241,13 @@ function deployOpsInstallCoreStubs(string $scratch): void
         .<<<'STUB'
         case "${1:-}" in
             status)
+                # Group-aware on purpose: answering for any requested group
+                # would let deploy query the wrong program (e.g. a
+                # hard-coded name) and still look healthy.
+                if [[ "${2:-}" != "parity-queue:*" ]]; then
+                    echo "${2:-}: ERROR (no such process)"
+                    exit 1
+                fi
                 if [[ -e "${state}/queue-running" ]]; then
                     echo "parity-queue:parity-queue_00   RUNNING   pid 123, uptime 0:05:00"
                     exit 0

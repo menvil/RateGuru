@@ -470,11 +470,22 @@ SH);
     ];
     file_put_contents($aclTablePath, implode("\n", $aclRows)."\n");
 
-    // readlink: consults the readlink-table (path|resolved) for `-f` symlink
-    // resolution — the slice 5.5 target-state classification resolves
-    // `current` and `releases` through it. An unlisted path fails like GNU
-    // readlink -f on an unresolvable path.
+    bootstrapPreflightWriteReadlinkStub($scratch, $options);
+}
+
+/**
+ * readlink: consults the readlink-table (path|resolved) for `-f` symlink
+ * resolution — the slice 5.5 target-state classification resolves `current`
+ * and `releases` through it. An unlisted path fails like GNU readlink -f on
+ * an unresolvable path, which is how the "releases directory is missing
+ * while current exists" branch is reachable.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapPreflightWriteReadlinkStub(string $scratch, array $options): void
+{
     $readlinkTablePath = $scratch.'/readlink-table.txt';
+
     bootstrapPreflightWriteStub($scratch.'/bin/readlink', <<<SH
 #!/usr/bin/env bash
 path="\${!#}"
@@ -1225,6 +1236,70 @@ it('classifies every broken current shape as CONFLICT — never DEFERRED — in 
 
         expect($exit)->toBe(1);
         expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/current — current resolves to a non-directory release');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+
+    // Releases unresolvable while current exists: current itself resolves,
+    // but the releases directory it must live under does not, so the
+    // containment comparison can never be made.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, [
+            'readlinkTable' => [
+                '/home/www/rateguru/staging/current|/home/www/rateguru/staging/releases/20260101120000',
+            ],
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/current — releases directory is missing while current exists');
+        expect($output)->not->toContain('DEFERRED path:/home/www/rateguru/staging/current');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('never infers PRE_DEPLOY from an unreadable current: a non-root probe is WARN and keeps the strict summary shape', function () {
+    // A failing stat cannot distinguish "absent" from "unreadable" without
+    // root. Inferring PRE_DEPLOY from a permission error would soften
+    // current and the deploy-time secrets to DEFERRED and flip the whole
+    // summary on a host that may well be DEPLOYED — the same caveat
+    // report_secret already applies to secret material.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_values(array_filter(
+            bootstrapPreflightCompliantStatTable(),
+            fn (string $row): bool => ! str_starts_with($row, '/home/www/rateguru/staging/current|'),
+        ));
+
+        $env = bootstrapPreflightFixture($scratch, [
+            'statTable' => $statTable,
+            'euid' => '1000',
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($output)->toContain('WARN     path:/home/www/rateguru/staging/current — absent or unverifiable without root');
+        expect($output)->not->toContain('DEFERRED path:/home/www/rateguru/staging/current');
+
+        // The strict deployed-host summary shape is kept — the pre-deploy
+        // split is never entered on a guess.
+        expect($output)->not->toContain('HOST BOOTSTRAP READY');
+        expect($output)->not->toContain('APPLICATION READY');
+        expect($output)->toMatch('/^HOST READY: (YES|NO)$/m');
+
+        // Deploy-time secret material is not softened either.
+        expect($output)->not->toContain('DEFERRED secret:laravel-env:staging-main');
+
+        // Root on the same fixture is the authoritative verdict: PRE_DEPLOY.
+        $rootEnv = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [, $rootOutput] = bootstrapPreflightRun(['--check'], $rootEnv);
+
+        expect($rootOutput)->toContain('DEFERRED path:/home/www/rateguru/staging/current');
+        expect($rootOutput)->toContain('HOST BOOTSTRAP READY');
+        expect($exit)->toBeIn([0, 1]);
     } finally {
         bootstrapPreflightCleanup($scratch);
     }

@@ -64,6 +64,11 @@
 #   BROKEN      current exists but is dangling, not a symlink, outside
 #               releases/, or resolves to a non-directory — CONFLICT in
 #               every mode; DEFERRED never hides a broken present current.
+#   UNVERIFIABLE  current cannot be stat'ed and we are not root, so absence
+#               is indistinguishable from a permission error — WARN, and
+#               never treated as pre-deploy, so a non-root run keeps the
+#               strict summary shape instead of softening on a guess. Only
+#               a root probe may conclude PRE_DEPLOY.
 # External material Phase 5.4 itself requires to activate committed host
 # configuration (TLS certificates/keys, the Basic Auth htpasswd) remains a
 # hard host-bootstrap prerequisite — MISSING when absent, never softened —
@@ -377,12 +382,21 @@ template_value() {
 # --- Target deployment state (the Phase 5.4 shared model) --------------------
 
 # classify_target_state TARGET_ID — sets TGT_STATE[id] to PRE_DEPLOY,
-# DEPLOYED or BROKEN (with the reason in TGT_STATE_REASON[id]), in exact
-# semantic parity with install-bootstrap-services' classify_target_state:
-# a truly absent `current` is the only legitimate PRE_DEPLOY signal, and
-# every present-but-broken shape is BROKEN — never silently downgraded.
+# DEPLOYED, BROKEN or UNVERIFIABLE (with the reason in
+# TGT_STATE_REASON[id]), in exact semantic parity with
+# install-bootstrap-services' classify_target_state: a truly absent
+# `current` is the only legitimate PRE_DEPLOY signal, and every
+# present-but-broken shape is BROKEN — never silently downgraded.
 # Strictly read-only: one readlink resolution plus stat probes; current is
 # never fabricated, rewritten or followed for any operation.
+#
+# UNVERIFIABLE exists because a failing stat cannot distinguish "absent"
+# from "unreadable" without root — the identical caveat report_secret
+# already applies to secret material. Inferring PRE_DEPLOY from a
+# permission error would let a non-root run on a genuinely DEPLOYED host
+# soften `current` and the deploy-time secrets to DEFERRED and flip the
+# whole summary to the pre-deploy shape. Root sees absence definitively, so
+# only a root probe may conclude PRE_DEPLOY.
 classify_target_state() {
     local target_id="$1"
     local root="${TGT_ROOT[${target_id}]}"
@@ -393,7 +407,13 @@ classify_target_state() {
     TGT_STATE_REASON[${target_id}]=""
 
     if ! probe="$(stat_probe "${current}")"; then
-        TGT_STATE[${target_id}]=PRE_DEPLOY
+        if [[ "${EFFECTIVE_UID}" == "0" ]]; then
+            TGT_STATE[${target_id}]=PRE_DEPLOY
+        else
+            TGT_STATE[${target_id}]=UNVERIFIABLE
+            TGT_STATE_REASON[${target_id}]='absent or unverifiable without root — absence cannot be distinguished from a permission error'
+        fi
+
         return 0
     fi
 
@@ -444,8 +464,10 @@ classify_target_states() {
 
 # host_pre_deploy — true only when there is at least one active target and
 # every one of them is PRE_DEPLOY. A BROKEN target anywhere means the
-# pre-deploy softening never applies (its CONFLICT still fails the report),
-# and a DEPLOYED target keeps the strict deployed-host summary contract.
+# pre-deploy softening never applies (its CONFLICT still fails the report);
+# a DEPLOYED target keeps the strict deployed-host summary contract; and an
+# UNVERIFIABLE target is never treated as pre-deploy, so a non-root run
+# falls back to the strict shape rather than softening on a guess.
 host_pre_deploy() {
     (( ${#ACTIVE_TARGETS[@]} > 0 )) || return 1
 
@@ -1162,6 +1184,10 @@ report_target_current() {
         PRE_DEPLOY)
             item DEFERRED "path:${current}" "absent — first immutable deployment has not happened yet (PRE_DEPLOY for ${target_id}; deployment-owned, never fabricated by any bootstrap slice)" \
                 "created by the first real deploy — never by preflight or any bootstrap installer"
+            ;;
+        UNVERIFIABLE)
+            item WARN "path:${current}" "${TGT_STATE_REASON[${target_id}]} (${target_id})" \
+                "re-run as root for the authoritative deployment-state verdict"
             ;;
         DEPLOYED)
             item PASS "path:${current}" "symbolic link resolving to a valid immutable release under releases/ (DEPLOYED; deployment-owned)"

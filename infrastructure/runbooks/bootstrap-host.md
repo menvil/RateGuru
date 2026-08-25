@@ -171,16 +171,22 @@ PASS: 28
 MISSING: 14
 WARN: 3
 CONFLICT: 0
-DEFERRED: 0
+DEFERRED: 5
 
-HOST READY: NO
+HOST BOOTSTRAP READY: NO
+APPLICATION READY: DEFERRED — no release has been deployed (PRE_DEPLOY)
 ```
 
-`HOST READY: YES` (and `--check` exiting 0) requires zero `MISSING` and zero
-`CONFLICT` items. `WARN` and `DEFERRED` never block. A missing prerequisite
-is never individually fatal — every section always prints, so a clean host
-produces a complete inventory of what Phase 5 has to build rather than an
-early abort.
+That is the summary shape of a host with no release yet — a clean host has
+no `current`, so it is PRE_DEPLOY and the five deferrals are the absent
+`current` plus the four deploy-time secrets. A DEPLOYED host prints the
+single strict `HOST READY: YES/NO` line instead; see the section below.
+
+Either shape uses the same gate: readiness requires zero `MISSING` and zero
+`CONFLICT` items, and `--check` exits 0 exactly when that holds. `WARN` and
+`DEFERRED` never block. A missing prerequisite is never individually fatal —
+every section always prints, so a clean host produces a complete inventory of
+what Phase 5 has to build rather than an early abort.
 
 ### PRE_DEPLOY vs DEPLOYED (slice 5.5)
 
