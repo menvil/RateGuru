@@ -153,6 +153,7 @@ function bootstrapPreflightCompliantStatTable(): array
         '/home/www/rateguru/staging/releases|directory|deploy-rateguru-staging|rateguru-staging-code|2750',
         '/home/www/rateguru/staging/shared|directory|rateguru-staging|rateguru-staging|2770',
         '/home/www/rateguru/staging/shared/storage|directory|rateguru-staging|rateguru-staging|2770',
+        '/home/www/rateguru/staging/shared/storage/logs|directory|rateguru-staging|rateguru-staging|2770',
         '/home/www/rateguru/staging/current|symbolic link|root|root|777',
         '/home/www/rateguru/staging/locks|directory|deploy-rateguru-staging|rateguru-staging-code|2750',
         '/home/www/rateguru/staging/deployments|directory|deploy-rateguru-staging|rateguru-staging-code|2750',
@@ -436,6 +437,34 @@ SH);
         ? "printf '185.125.190.36 archive.ubuntu.com\\n'\nexit 0"
         : 'exit 2';
     bootstrapPreflightWriteStub($scratch.'/bin/getent', "#!/usr/bin/env bash\n{$dnsBody}\n");
+
+    // getfacl: consults the acl-table — "DIR|granted" prints an ACL holding
+    // the exact user:www-data:--x entry, "DIR|present" prints one without
+    // it, and an unlisted directory fails like getfacl on an absent or
+    // unreadable path.
+    $aclTablePath = $scratch.'/acl-table.txt';
+    bootstrapPreflightWriteStub($scratch.'/bin/getfacl', <<<SH
+#!/usr/bin/env bash
+dir="\${!#}"
+state="\$(awk -F'|' -v d="\${dir}" '\$1 == d { print \$2; exit }' '{$aclTablePath}' 2>/dev/null)"
+case "\${state}" in
+    granted)
+        printf '# file: %s\\n# owner: sim\\n# group: sim\\nuser::rwx\\nuser:www-data:--x\\ngroup::rwx\\nmask::rwx\\nother::---\\n' "\${dir#/}"
+        ;;
+    present)
+        printf '# file: %s\\n# owner: sim\\n# group: sim\\nuser::rwx\\ngroup::rwx\\nother::---\\n' "\${dir#/}"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+SH);
+
+    $aclRows = $options['aclTable'] ?? [
+        '/home/www/rateguru/staging/shared|granted',
+        '/home/www/rateguru/staging/shared/storage|granted',
+    ];
+    file_put_contents($aclTablePath, implode("\n", $aclRows)."\n");
 }
 
 /**
@@ -501,6 +530,7 @@ function bootstrapPreflightFixture(string $scratch, array $options = []): array
         'RATEGURU_PREFLIGHT_IP_BIN' => $scratch.'/bin/ip',
         'RATEGURU_PREFLIGHT_GETENT_BIN' => $scratch.'/bin/getent',
         'RATEGURU_PREFLIGHT_STAT_BIN' => $scratch.'/bin/stat',
+        'RATEGURU_PREFLIGHT_GETFACL_BIN' => $scratch.'/bin/getfacl',
         'RATEGURU_PREFLIGHT_HOSTNAME' => 'preflight-fixture-host',
         'RATEGURU_PREFLIGHT_KERNEL' => '6.8.0-fixture',
         'RATEGURU_PREFLIGHT_ARCH' => 'x86_64',
@@ -1343,6 +1373,106 @@ it('ignores every RATEGURU_PREFLIGHT_* override unless test overrides are explic
         // /etc/os-release.)
         expect($output)->not->toContain('sentinel-bookworm');
         expect($output)->not->toContain('preflight-fixture-host');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Slice 5.4 parity: the preflight asserts the same service-file modes and
+// public-storage ACL contract install-bootstrap-services installs, so the
+// two can never disagree.
+// =============================================================================
+
+it('asserts the slice 5.4 service-file modes: a drifted installed mode is CONFLICT, not PASS', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_map(
+            fn (string $row): string => str_replace(
+                '/etc/nginx/sites-available/rateguru-staging|regular file|root|root|644',
+                '/etc/nginx/sites-available/rateguru-staging|regular file|root|root|600',
+                $row,
+            ),
+            bootstrapPreflightCompliantStatTable(),
+        );
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/etc/nginx/sites-available/rateguru-staging — mode 600, expected 644');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('reports the public-storage ACL contract: PASS when granted, MISSING when the www-data entry is absent, WARN without root', function () {
+    // Absent entry on shared/storage: MISSING, pointing at the owning
+    // installer — never a chmod or group-membership suggestion.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, [
+            'aclTable' => [
+                '/home/www/rateguru/staging/shared|granted',
+                '/home/www/rateguru/staging/shared/storage|present',
+            ],
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  acl:public-storage:staging-main — user:www-data:--x is absent on /home/www/rateguru/staging/shared/storage');
+
+        // The intended action (printed by --report) names the owning
+        // installer — never a chmod or group-membership suggestion.
+        [, $reportOutput] = bootstrapPreflightRun(['--report'], $env);
+        expect($reportOutput)->toContain('install-public-storage-access --apply --target staging-main');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+
+    // Unreadable directories without root: WARN, never a verdict.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, ['aclTable' => [], 'euid' => '1000']);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($output)->toContain('WARN     acl:public-storage:staging-main — cannot read the target directories without root');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+
+    // The compliant fixture (default acl table) is PASS — proven by the
+    // existing fully-compliant test; assert the exact item here too.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch);
+        [, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($output)->toContain('PASS     acl:public-storage:staging-main — user:www-data:--x present on shared and shared/storage');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('requires the slice 5.4 service-support log directory with the exact runtime ownership and setgid mode', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_values(array_filter(
+            bootstrapPreflightCompliantStatTable(),
+            fn (string $row): bool => ! str_starts_with($row, '/home/www/rateguru/staging/shared/storage/logs|'),
+        ));
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  path:/home/www/rateguru/staging/shared/storage/logs');
+        expect($output)->toContain('service-support log directory for staging-main (slice 5.4 contract');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }

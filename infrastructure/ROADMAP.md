@@ -422,8 +422,7 @@ slices 1–2, which installed nothing — so it completes on merge.
    `rclone selfupdate`, never touching `/root/.config/rclone/rclone.conf`.
    `unzip` joined the base package contract to extract the release
    archive.
-3. **5.3 Users, groups and filesystem — implemented; awaiting real-staging
-   acceptance (a mutating host slice is never marked completed on CI alone).**
+3. **5.3 Users, groups and filesystem — completed.**
    `infrastructure/scripts/install-bootstrap-host-layout` provisions the
    identity and filesystem layer required before service/configuration
    installation (root-only `--check` read-only validation with intended
@@ -482,10 +481,71 @@ slices 1–2, which installed nothing — so it completes on merge.
    authoritatively (per-target owners, groups and setgid modes, deploy
    home/`.ssh`, `shared/storage`, `/var/log/rateguru`), so slices 5.1 and
    5.3 cannot disagree. See `runbooks/bootstrap-host.md`.
-4. **5.4 Services and configuration — next.** Install committed service
-   configuration (Nginx vhosts, PHP-FPM pools, Supervisor programs, cron),
-   run the existing installers (target operations, perimeter, public
-   storage ACLs, mail capture), and enable/start services.
+
+   **Accepted on the real staging VPS:** `install-bootstrap-host-layout
+   --check` found only the known target-root drift; the first real
+   `--apply` exposed the GNU chmod directory special-bit behaviour (a plain
+   numeric mode preserves set[ug]id bits on directories), the corrective
+   exact-mode (`chmod =MODE`) fix was merged and deployed, and the
+   corrected `--apply` converged `/home/www/rateguru/staging` to exactly
+   `root:root 0755`; `install-bootstrap-host-layout --verify` passed; a
+   second `--apply` was idempotent (zero mutation); the `current`/
+   `previous` release links remained unchanged; staging health remained
+   healthy throughout; and planned `tits-guru` remained completely
+   unprovisioned.
+4. **5.4 Services and configuration — implemented; awaiting real-staging
+   acceptance (a mutating host slice is never marked completed on CI
+   alone).** `infrastructure/scripts/install-bootstrap-services`
+   reproducibly turns the prepared 5.2/5.3 host into the configured
+   RateGuru service host required for deployment (root-only `--check`
+   read-only validation with intended actions, root-only `--apply` that
+   validates the entire plan before the first mutation, root-only
+   read-only `--verify` gate). It coordinates the existing installers as
+   authoritative owners — `install-target-operations` (runtime registry,
+   `deployment.conf`, the operational bundle), `install-target-perimeter`
+   (wrappers/sudoers/backup cron), `install-public-storage-access` (the
+   narrow www-data ACL, active targets only) and `install-mail-capture`
+   (the shared-host mail capture, verified through `verify-mail-capture`)
+   — invoking each child's own `--apply` only when its own authoritative
+   `--verify` does not already pass, and directly owns only the service
+   files that had committed sources but no dedicated installer: the
+   active-target Nginx site plus its `sites-enabled` symlink, the PHP-FPM
+   pool, the Supervisor queue program, the scheduler cron, the host-global
+   SSH deploy restriction (all `root:root 0644`, installed
+   transactionally), and the exact service-support log directory the
+   committed PHP-FPM/Supervisor configs write into
+   (`TARGET_ROOT/shared/storage/logs`, runtime-owned setgid `2770`).
+   Every configuration family is validated by its authoritative parser
+   before any reload (`nginx -t`, `sshd -t`, the PHP 8.5 FPM config test,
+   `supervisorctl reread`), a failed candidate is restored before any
+   daemon could see it, and base services (nginx, php8.5-fpm, postgresql,
+   redis-server, supervisor) are enabled/started without ever touching
+   databases, roles, `pg_hba.conf` or Redis auth. The prerequisite gate is
+   the authoritative `install-bootstrap-runtime --verify` plus
+   `install-bootstrap-host-layout --verify` — deliberately not the full
+   preflight, which expects things 5.4 itself creates. The slice
+   introduces the explicit PRE_DEPLOY/DEPLOYED distinction: a clean host
+   legitimately has no `current` release, so infrastructure bootstrap
+   readiness and application runtime readiness are separate states —
+   application-runtime probes (queue activation, HTTP health, the
+   public-storage HTTP canary) are DEFERRED with explicit log lines on a
+   PRE_DEPLOY host, never faked with fabricated releases, while every
+   present-but-broken `current` shape stays a hard failure;
+   `install-target-operations` and `install-public-storage-access` gained
+   the same state split without weakening any check on a deployed host.
+   External secret material (TLS certificates/keys, the Basic Auth
+   htpasswd, `shared/.env`, `authorized_keys`, `rclone.conf`) is never
+   generated, copied or read — a committed vhost being activated whose
+   external files are missing fails closed with `EXTERNAL PREREQUISITE
+   MISSING` naming only category and path. Planned `tits-guru` receives
+   zero service configuration (its committed production config sources are
+   ignored), and a second `--apply` on a compliant host performs zero
+   meaningful mutation: no file rewrite, no reload/restart, no repeated
+   child mutation. Known integration gap, deliberately deferred: `deploy`
+   does not yet activate a Supervisor program the PRE_DEPLOY bootstrap
+   deferred — the first-deploy activation path is a required 5.5/5.6
+   integration fix, exercised by the 5.6 clean-VPS acceptance. See
+   `runbooks/bootstrap-services.md`.
 5. **5.5 Bootstrap orchestrator — planned.** One command that sequences
    5.2–5.4 on a clean host, fail-fast, re-runnable, ending with a passing
    `bootstrap-host-preflight --check`.

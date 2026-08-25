@@ -1,0 +1,1281 @@
+<?php
+
+use Illuminate\Support\Facades\File;
+
+/**
+ * Phase 5 slice 5.4: infrastructure/scripts/install-bootstrap-services —
+ * services and committed host configuration for a prepared RateGuru host.
+ *
+ * Every test executes the real, shipped script as a subprocess — never a
+ * reimplementation — against a fully simulated host: a fixture filesystem
+ * root the script maps every canonical path onto
+ * (RATEGURU_BOOTSTRAPSVC_FS_ROOT), a layered stat stub (real types/modes,
+ * fixture ownership), logging install/chown/chmod stubs that perform the
+ * real filesystem work inside the scratch, a stateful systemctl stub
+ * (enabled/active per unit as fixture files), toggle-driven
+ * nginx/sshd/php-fpm/supervisorctl stubs, and one stub per child installer
+ * that logs its invocation and answers its verify from a toggle file. All
+ * injected through RATEGURU_BOOTSTRAPSVC_* overrides the script honors only
+ * alongside RATEGURU_ALLOW_TEST_OVERRIDES=true. Nothing here needs root and
+ * nothing touches the CI runner's real services or /etc.
+ *
+ * The profiles that matter mirror the real situations: a genuinely clean
+ * PRE_DEPLOY host straight after slice 5.3 (everything to install, queue
+ * activation deferred), the current DEPLOYED staging host (mostly PASS,
+ * second apply mutates nothing), and every broken/drifted/conflicting shape
+ * in between. tits-guru stays lifecycle=planned and must receive zero
+ * service configuration.
+ */
+
+// =============================================================================
+// Harness
+// =============================================================================
+
+function bsvcScript(): string
+{
+    return base_path('infrastructure/scripts/install-bootstrap-services');
+}
+
+function bsvcSource(): string
+{
+    return File::get(bsvcScript());
+}
+
+function bsvcScratchDir(): string
+{
+    $dir = sys_get_temp_dir().'/bootstrap-services-'.uniqid('', true).'-'.getmypid();
+
+    foreach (['', '/bin', '/fs', '/log', '/svc', '/toggles'] as $sub) {
+        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
+    }
+
+    return $dir;
+}
+
+function bsvcCleanup(string $dir): void
+{
+    exec('rm -rf '.escapeshellarg($dir));
+}
+
+/**
+ * @param  list<string>  $arguments
+ * @param  array<string, string>  $env
+ * @return array{0: int, 1: string}
+ */
+function bsvcRun(array $arguments, array $env): array
+{
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(
+        array_merge(['bash', bsvcScript()], $arguments),
+        $descriptors,
+        $pipes,
+        null,
+        $env,
+    );
+
+    expect($process)->not->toBeFalse('could not start install-bootstrap-services subprocess');
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    $exit = proc_close($process);
+
+    return [$exit, $output];
+}
+
+function bsvcWriteStub(string $path, string $content): void
+{
+    file_put_contents($path, $content);
+    chmod($path, 0o755);
+}
+
+function bsvcLog(string $scratch, string $name): string
+{
+    $path = $scratch.'/log/'.$name;
+
+    return is_file($path) ? (string) file_get_contents($path) : '';
+}
+
+/**
+ * Content + structure snapshot for mutation-free proofs.
+ *
+ * @return array<string, string>
+ */
+function bsvcTreeSnapshot(string $dir): array
+{
+    $snapshot = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
+    );
+
+    foreach ($iterator as $entry) {
+        $path = $entry->getPathname();
+
+        if (is_link($path)) {
+            $snapshot[$path] = 'link:'.readlink($path);
+        } elseif ($entry->isFile()) {
+            $snapshot[$path] = md5_file($path).':'.substr(sprintf('%o', fileperms($path)), -4);
+        } else {
+            $snapshot[$path] = 'dir:'.substr(sprintf('%o', fileperms($path)), -4);
+        }
+    }
+
+    ksort($snapshot);
+
+    return $snapshot;
+}
+
+// =============================================================================
+// Stubs
+// =============================================================================
+
+function bsvcWriteStubs(string $scratch): void
+{
+    // stat: layered — type from the real scratch filesystem (with a
+    // type-table override so a plain fixture file can present as a socket),
+    // owner/group from the fixture ownership table, mode real.
+    bsvcWriteStub($scratch.'/bin/stat', <<<'STUB'
+        #!/bin/bash
+        path="${!#}"
+        if [[ -L "${path}" ]]; then ftype="symbolic link"
+        elif [[ -d "${path}" ]]; then ftype="directory"
+        elif [[ -S "${path}" ]]; then ftype="socket"
+        elif [[ -f "${path}" ]]; then
+            ftype="regular file"
+            row_t="$(PATH="${STUB_REAL_PATH}" awk -F'|' -v p="${path}" '$1 == p && $2 == "TYPE" { print $3; exit }' "${STUB_TYPE_TABLE}" 2>/dev/null)"
+            [[ -n "${row_t}" ]] && ftype="${row_t}"
+        elif [[ -e "${path}" ]]; then ftype="other"
+        else exit 1; fi
+        mode="$(PATH="${STUB_REAL_PATH}" stat -c '%a' -- "${path}" 2>/dev/null)" \
+            || mode="$(PATH="${STUB_REAL_PATH}" stat -f '%Mp%Lp' "${path}" 2>/dev/null)" || exit 1
+        mode="$(printf '%o' $(( 8#${mode} )))"
+        row="$(PATH="${STUB_REAL_PATH}" awk -F'|' -v p="${path}" '$1 == p && $2 != "TYPE" { print $2 "|" $3; found = 1; exit } END { exit !found }' "${STUB_OWNER_TABLE}" 2>/dev/null)" || row=""
+        if [[ -z "${row}" ]]; then
+            row="$(PATH="${STUB_REAL_PATH}" stat -c '%U|%G' -- "${path}" 2>/dev/null)" \
+                || row="$(PATH="${STUB_REAL_PATH}" stat -f '%Su|%Sg' "${path}" 2>/dev/null)" || exit 1
+        fi
+        printf '%s|%s|%s\n' "${ftype}" "${row}" "${mode}"
+        STUB);
+
+    // chown: records the invocation and upserts the ownership row for the
+    // exact path given — never recursive.
+    bsvcWriteStub($scratch.'/bin/chown', <<<'STUB'
+        #!/bin/bash
+        printf 'chown %s\n' "$*" >> "${STUB_LOG}/chown.log"
+        owner_group=""; path=""
+        for arg in "$@"; do
+            case "${arg}" in
+                --) ;;
+                -*) ;;
+                *) if [[ -z "${owner_group}" ]]; then owner_group="${arg}"; else path="${arg}"; fi ;;
+            esac
+        done
+        owner="${owner_group%%:*}"; group="${owner_group##*:}"
+        tmp="${STUB_OWNER_TABLE}.tmp"
+        PATH="${STUB_REAL_PATH}" awk -F'|' -v p="${path}" '$1 != p' "${STUB_OWNER_TABLE}" > "${tmp}" 2>/dev/null || : > "${tmp}"
+        printf '%s|%s|%s\n' "${path}" "${owner}" "${group}" >> "${tmp}"
+        PATH="${STUB_REAL_PATH}" mv "${tmp}" "${STUB_OWNER_TABLE}"
+        exit 0
+        STUB);
+
+    bsvcWriteStub($scratch.'/bin/chmod', <<<'STUB'
+        #!/bin/bash
+        printf 'chmod %s\n' "$*" >> "${STUB_LOG}/chmod.log"
+        PATH="${STUB_REAL_PATH}" chmod "$@"
+        STUB);
+
+    bsvcWriteStub($scratch.'/bin/install', <<<'STUB'
+        #!/bin/bash
+        printf 'install %s\n' "$*" >> "${STUB_LOG}/install.log"
+        PATH="${STUB_REAL_PATH}" install "$@"
+        STUB);
+
+    // systemctl: stateful — enabled/active per unit as files under the
+    // service-state directory; every invocation is logged.
+    bsvcWriteStub($scratch.'/bin/systemctl', <<<'STUB'
+        #!/bin/bash
+        printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/systemctl.log"
+        cmd=""; unit=""
+        for arg in "$@"; do
+            case "${arg}" in
+                --quiet) ;;
+                *) if [[ -z "${cmd}" ]]; then cmd="${arg}"; else unit="${arg}"; fi ;;
+            esac
+        done
+        unit="${unit%.service}"
+        case "${cmd}" in
+            is-enabled) [[ -e "${STUB_SVC_STATE}/${unit}.enabled" ]] ;;
+            is-active)  [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] ;;
+            enable)  touch "${STUB_SVC_STATE}/${unit}.enabled" ;;
+            disable) rm -f "${STUB_SVC_STATE}/${unit}.enabled" ;;
+            start)
+                [[ -e "${STUB_TOGGLES}/${unit}-start-fail" ]] && exit 1
+                touch "${STUB_SVC_STATE}/${unit}.active"
+                ;;
+            stop)    rm -f "${STUB_SVC_STATE}/${unit}.active" ;;
+            reload|restart) [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] ;;
+            *) exit 0 ;;
+        esac
+        STUB);
+
+    // nginx / sshd / php-fpm: config tests whose verdict a toggle controls.
+    foreach (['nginx' => 'nginx', 'sshd' => 'sshd', 'php-fpm8.5' => 'php-fpm'] as $bin => $log) {
+        bsvcWriteStub($scratch.'/bin/'.$bin, <<<STUB
+            #!/bin/bash
+            printf '{$log} %s\\n' "\$*" >> "\${STUB_LOG}/{$log}.log"
+            [[ -e "\${STUB_TOGGLES}/{$log}-t-fail" ]] && exit 1
+            exit 0
+            STUB);
+    }
+
+    // supervisorctl: reread validates (toggle-driven), status answers from
+    // the queue-running toggle, update/start flip it on.
+    bsvcWriteStub($scratch.'/bin/supervisorctl', <<<'STUB'
+        #!/bin/bash
+        printf 'supervisorctl %s\n' "$*" >> "${STUB_LOG}/supervisorctl.log"
+        case "${1:-}" in
+            reread)
+                [[ -e "${STUB_TOGGLES}/supervisor-reread-fail" ]] && { echo "ERROR: CANT_REREAD bad config"; exit 0; }
+                echo "No config updates to processes"
+                ;;
+            status)
+                if [[ -e "${STUB_TOGGLES}/queue-running" ]]; then
+                    echo "rateguru-staging-queue:rateguru-staging-queue_00   RUNNING   pid 123, uptime 0:05:00"
+                else
+                    echo "rateguru-staging-queue:*: ERROR (no such process)"
+                    exit 1
+                fi
+                ;;
+            update|start)
+                touch "${STUB_TOGGLES}/queue-running"
+                ;;
+        esac
+        exit 0
+        STUB);
+
+    // One stub per child installer: logs the invocation, answers verify
+    // from its own "<name>-compliant" toggle, and lets apply either fail
+    // (via "<name>-apply-fail") or converge (creating the toggle). The
+    // mail-capture apply also satisfies verify-mail-capture, mirroring the
+    // real ownership relation between the two.
+    foreach ([
+        'runtime-installer', 'hostlayout-installer', 'operations-installer',
+        'perimeter-installer', 'public-storage-installer', 'mail-capture-installer',
+        'verify-mail-capture',
+    ] as $child) {
+        bsvcWriteStub($scratch.'/bin/'.$child, <<<'STUB'
+            #!/bin/bash
+            me="$(basename "$0")"
+            printf '%s %s\n' "${me}" "$*" >> "${STUB_LOG}/children.log"
+            case "$*" in
+                *--apply*)
+                    [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]] && exit 1
+                    touch "${STUB_TOGGLES}/${me}-compliant"
+                    if [[ "${me}" == mail-capture-installer ]]; then
+                        touch "${STUB_TOGGLES}/verify-mail-capture-compliant"
+                        touch "${STUB_SVC_STATE}/staging-mailpit.enabled" "${STUB_SVC_STATE}/staging-mailpit.active"
+                        touch "${STUB_SVC_STATE}/staging-mailtrap-local.enabled" "${STUB_SVC_STATE}/staging-mailtrap-local.active"
+                    fi
+                    exit 0
+                    ;;
+                *)
+                    [[ -e "${STUB_TOGGLES}/${me}-compliant" ]] && exit 0
+                    exit 1
+                    ;;
+            esac
+            STUB);
+    }
+}
+
+// =============================================================================
+// Filesystem fixture
+// =============================================================================
+
+/**
+ * The managed service files: logical destination => committed source.
+ *
+ * @return array<string, string>
+ */
+function bsvcManagedFiles(): array
+{
+    return [
+        '/etc/ssh/sshd_config.d/70-rateguru-deploy.conf' => base_path('infrastructure/config/ssh/70-rateguru-deploy.conf'),
+        '/etc/nginx/sites-available/rateguru-staging' => base_path('infrastructure/config/nginx/rateguru-staging'),
+        '/etc/php/8.5/fpm/pool.d/rateguru-staging.conf' => base_path('infrastructure/config/php-fpm/rateguru-staging.conf'),
+        '/etc/supervisor/conf.d/rateguru-staging-queue.conf' => base_path('infrastructure/config/supervisor/rateguru-staging-queue.conf'),
+        '/etc/cron.d/rateguru-staging-scheduler' => base_path('infrastructure/config/cron/rateguru-staging-scheduler'),
+    ];
+}
+
+/** @return list<string> */
+function bsvcExternalPrerequisitePaths(): array
+{
+    return [
+        '/etc/nginx/rateguru-staging.htpasswd',
+        '/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem',
+        '/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem',
+        '/etc/letsencrypt/live/staging-mail-capture/fullchain.pem',
+        '/etc/letsencrypt/live/staging-mail-capture/privkey.pem',
+        '/etc/letsencrypt/options-ssl-nginx.conf',
+        '/etc/letsencrypt/ssl-dhparams.pem',
+    ];
+}
+
+function bsvcOwnerTableAdd(string $scratch, string $physical, string $owner, string $group): void
+{
+    $table = $scratch.'/fs/owner-table.txt';
+    $rows = array_filter(
+        explode("\n", (string) @file_get_contents($table)),
+        fn (string $row): bool => $row !== '' && ! str_starts_with($row, $physical.'|'),
+    );
+    $rows[] = "{$physical}|{$owner}|{$group}";
+    file_put_contents($table, implode("\n", $rows)."\n");
+}
+
+/**
+ * Build a fully simulated host and return the environment to run the
+ * script against it.
+ *
+ * Options:
+ *   profile:          'clean' (PRE_DEPLOY, nothing 5.4-installed, base
+ *                     services stopped) | 'compliant' (DEPLOYED, everything
+ *                     installed and running)
+ *   current:          'absent' | 'valid' | 'dangling' | 'outside' | 'wrongtype'
+ *                     (defaults: clean => absent, compliant => valid)
+ *   omitExternal:     list<string> external-prerequisite paths NOT created
+ *   euid:             string (default '0')
+ *
+ * @param  array<string, mixed>  $options
+ * @return array<string, string>
+ */
+function bsvcFixture(string $scratch, array $options = []): array
+{
+    $fs = $scratch.'/fs';
+    $profile = $options['profile'] ?? 'clean';
+
+    foreach ([
+        '/etc/nginx/sites-available', '/etc/nginx/sites-enabled',
+        '/etc/php/8.5/fpm/pool.d', '/etc/supervisor/conf.d',
+        '/etc/cron.d', '/etc/ssh/sshd_config.d',
+        '/home/www/rateguru/staging/shared/storage',
+        '/home/www/rateguru/staging/releases',
+        '/usr/bin', '/run/php',
+    ] as $sub) {
+        @mkdir($fs.$sub, 0o755, true);
+    }
+
+    touch($fs.'/usr/bin/php8.5');
+
+    // External prerequisites (presence only — sentinel content proves the
+    // installer never prints or copies it anywhere).
+    $omitted = $options['omitExternal'] ?? [];
+
+    foreach (bsvcExternalPrerequisitePaths() as $path) {
+        if (in_array($path, $omitted, true)) {
+            continue;
+        }
+
+        @mkdir(dirname($fs.$path), 0o755, true);
+        file_put_contents($fs.$path, 'SECRET-SENTINEL-'.md5($path)."\n");
+    }
+
+    // Fixture passwd: the slice 5.3 accounts exist.
+    file_put_contents($fs.'/etc-passwd', implode("\n", [
+        'root:x:0:0:root:/root:/bin/bash',
+        'rateguru-staging:x:5001:5001::/home/www/rateguru/staging:/usr/sbin/nologin',
+        'deploy-rateguru-staging:x:5002:5002::/home/deploy-rateguru-staging:/bin/bash',
+    ])."\n");
+
+    file_put_contents($fs.'/owner-table.txt', '');
+    file_put_contents($fs.'/type-table.txt', '');
+
+    // The PHP-FPM pool socket exists as soon as the pool runs; presenting a
+    // plain fixture file as a socket via the type table.
+    touch($fs.'/run/php/rateguru-staging.sock');
+    chmod($fs.'/run/php/rateguru-staging.sock', 0o660);
+    file_put_contents($fs.'/type-table.txt', $fs."/run/php/rateguru-staging.sock|TYPE|socket\n", FILE_APPEND);
+    bsvcOwnerTableAdd($scratch, $fs.'/run/php/rateguru-staging.sock', 'www-data', 'www-data');
+
+    // Deployment state.
+    $current = $options['current'] ?? ($profile === 'compliant' ? 'valid' : 'absent');
+    $staging = $fs.'/home/www/rateguru/staging';
+
+    switch ($current) {
+        case 'valid':
+            @mkdir($staging.'/releases/20240101120000', 0o755, true);
+            symlink($staging.'/releases/20240101120000', $staging.'/current');
+            break;
+        case 'dangling':
+            symlink($staging.'/releases/never-deployed', $staging.'/current');
+            break;
+        case 'outside':
+            @mkdir($staging.'/rogue-release', 0o755, true);
+            symlink($staging.'/rogue-release', $staging.'/current');
+            break;
+        case 'wrongtype':
+            @mkdir($staging.'/current', 0o755, true);
+            break;
+    }
+
+    bsvcWriteStubs($scratch);
+
+    if ($profile === 'compliant') {
+        // Managed files installed byte-identical, root:root 0644; enabled
+        // link present; logs dir present with the runtime ownership.
+        foreach (bsvcManagedFiles() as $logical => $src) {
+            copy($src, $fs.$logical);
+            chmod($fs.$logical, 0o644);
+            bsvcOwnerTableAdd($scratch, $fs.$logical, 'root', 'root');
+        }
+
+        symlink('/etc/nginx/sites-available/rateguru-staging', $fs.'/etc/nginx/sites-enabled/rateguru-staging');
+
+        @mkdir($staging.'/shared/storage/logs', 0o755, true);
+        chmod($staging.'/shared/storage/logs', 0o2770);
+        bsvcOwnerTableAdd($scratch, $staging.'/shared/storage/logs', 'rateguru-staging', 'rateguru-staging');
+
+        foreach ([
+            'ssh', 'nginx', 'postgresql', 'redis-server', 'supervisor',
+            'php8.5-fpm', 'staging-mailpit', 'staging-mailtrap-local',
+        ] as $unit) {
+            touch($scratch.'/svc/'.$unit.'.enabled');
+            touch($scratch.'/svc/'.$unit.'.active');
+        }
+
+        foreach ([
+            'runtime-installer', 'hostlayout-installer', 'operations-installer',
+            'perimeter-installer', 'public-storage-installer', 'verify-mail-capture',
+        ] as $child) {
+            touch($scratch.'/toggles/'.$child.'-compliant');
+        }
+
+        touch($scratch.'/toggles/queue-running');
+    } else {
+        // Clean host: only ssh runs (a VPS always has it), and only the
+        // 5.2/5.3 prerequisite verifies pass.
+        touch($scratch.'/svc/ssh.enabled');
+        touch($scratch.'/svc/ssh.active');
+        touch($scratch.'/toggles/runtime-installer-compliant');
+        touch($scratch.'/toggles/hostlayout-installer-compliant');
+    }
+
+    return [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_BOOTSTRAPSVC_EUID' => $options['euid'] ?? '0',
+        'RATEGURU_BOOTSTRAPSVC_FS_ROOT' => $fs,
+        'RATEGURU_BOOTSTRAPSVC_PASSWD_FILE' => $fs.'/etc-passwd',
+        'RATEGURU_BOOTSTRAPSVC_RUNTIME_INSTALLER_BIN' => $scratch.'/bin/runtime-installer',
+        'RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTALLER_BIN' => $scratch.'/bin/hostlayout-installer',
+        'RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN' => $scratch.'/bin/operations-installer',
+        'RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN' => $scratch.'/bin/perimeter-installer',
+        'RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN' => $scratch.'/bin/public-storage-installer',
+        'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
+        'RATEGURU_BOOTSTRAPSVC_VERIFY_MAIL_CAPTURE_BIN' => $scratch.'/bin/verify-mail-capture',
+        'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
+        'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
+        'RATEGURU_BOOTSTRAPSVC_SSHD_BIN' => $scratch.'/bin/sshd',
+        'RATEGURU_BOOTSTRAPSVC_PHP_FPM_BIN' => $scratch.'/bin/php-fpm8.5',
+        'RATEGURU_BOOTSTRAPSVC_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
+        'RATEGURU_BOOTSTRAPSVC_STAT_BIN' => $scratch.'/bin/stat',
+        'RATEGURU_BOOTSTRAPSVC_INSTALL_BIN' => $scratch.'/bin/install',
+        'RATEGURU_BOOTSTRAPSVC_CHOWN_BIN' => $scratch.'/bin/chown',
+        'RATEGURU_BOOTSTRAPSVC_CHMOD_BIN' => $scratch.'/bin/chmod',
+        'RATEGURU_BOOTSTRAPSVC_SOCKET_WAIT_ATTEMPTS' => '1',
+        'RATEGURU_BOOTSTRAPSVC_QUEUE_WAIT_ATTEMPTS' => '1',
+        'RATEGURU_BOOTSTRAPSVC_STABILITY_WAIT' => '0',
+        'RATEGURU_BOOTSTRAPSVC_RETRY_DELAY' => '0',
+        'STUB_LOG' => $scratch.'/log',
+        'STUB_REAL_PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'STUB_OWNER_TABLE' => $fs.'/owner-table.txt',
+        'STUB_TYPE_TABLE' => $fs.'/type-table.txt',
+        'STUB_SVC_STATE' => $scratch.'/svc',
+        'STUB_TOGGLES' => $scratch.'/toggles',
+    ];
+}
+
+/**
+ * The systemctl mutations (everything except is-enabled/is-active probes).
+ *
+ * @return list<string>
+ */
+function bsvcSystemctlMutations(string $scratch): array
+{
+    $lines = array_filter(explode("\n", bsvcLog($scratch, 'systemctl.log')));
+
+    return array_values(array_filter(
+        $lines,
+        fn (string $line): bool => ! str_contains($line, 'is-enabled') && ! str_contains($line, 'is-active'),
+    ));
+}
+
+// =============================================================================
+// Shipping and CLI contract
+// =============================================================================
+
+it('ships the installer executable, syntax-clean and listed in the required-CLI manifest', function () {
+    expect(is_file(bsvcScript()))->toBeTrue();
+    expect(is_executable(bsvcScript()))->toBeTrue();
+
+    exec('bash -n '.escapeshellarg(bsvcScript()).' 2>&1', $output, $exit);
+    expect($exit)->toBe(0, implode("\n", $output));
+
+    expect(File::get(base_path('infrastructure/config/required-clis.txt')))
+        ->toContain("install-bootstrap-services\n");
+});
+
+it('prints usage on --help and rejects unknown, missing or duplicated modes', function () {
+    $env = ['PATH' => getenv('PATH') ?: '/usr/bin:/bin'];
+
+    [$exit, $output] = bsvcRun(['--help'], $env);
+    expect($exit)->toBe(0);
+    expect($output)->toContain('--check')->toContain('--apply')->toContain('--verify')->toContain('root');
+
+    [$exit, $output] = bsvcRun([], $env);
+    expect($exit)->toBe(1);
+    expect($output)->toContain('one of --check, --apply or --verify is required');
+
+    [$exit, $output] = bsvcRun(['--check', '--verify'], $env);
+    expect($exit)->toBe(1);
+    expect($output)->toContain('mode given more than once');
+
+    [$exit, $output] = bsvcRun(['--frobnicate'], $env);
+    expect($exit)->toBe(1);
+    expect($output)->toContain('unknown argument: --frobnicate');
+});
+
+it('requires root for every mode and mutates nothing without it', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['euid' => '1000']);
+        $before = bsvcTreeSnapshot($scratch);
+
+        foreach (['--check', '--apply', '--verify'] as $mode) {
+            [$exit, $output] = bsvcRun([$mode], $env);
+
+            expect($exit)->toBe(1);
+            expect($output)->toContain(substr($mode, 2).' must run as root');
+        }
+
+        expect(bsvcTreeSnapshot($scratch))->toBe($before, 'a non-root invocation mutated the fixture');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Prerequisite gates (5.2/5.3 authoritative verifies)
+// =============================================================================
+
+it('stops --apply before any mutation when the slice 5.2 or 5.3 verify fails', function () {
+    foreach (['runtime-installer' => '5.2', 'hostlayout-installer' => '5.3'] as $child => $slice) {
+        $scratch = bsvcScratchDir();
+
+        try {
+            $env = bsvcFixture($scratch);
+            unlink($scratch.'/toggles/'.$child.'-compliant');
+
+            $before = bsvcTreeSnapshot($scratch.'/fs');
+            [$exit, $output] = bsvcRun(['--apply'], $env);
+
+            expect($exit)->toBe(1, $output);
+            expect($output)->toContain("converge slice {$slice} first (no service/config mutation was performed)");
+            expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before, "a failing {$slice} gate must not mutate anything");
+            expect(bsvcSystemctlMutations($scratch))->toBe([]);
+            expect(bsvcLog($scratch, 'children.log'))->not->toContain('--apply');
+        } finally {
+            bsvcCleanup($scratch);
+        }
+    }
+});
+
+it('fails closed on an invalid source registry before any mutation', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+        file_put_contents($scratch.'/fs/bad-registry.json', "{ not json\n");
+        $env['RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY'] = $scratch.'/fs/bad-registry.json';
+
+        $before = bsvcTreeSnapshot($scratch.'/fs');
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('fails targets validate');
+        expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// --check: clean PRE_DEPLOY host
+// =============================================================================
+
+it('--check on a clean PRE_DEPLOY host reports the full plan, defers the queue, and gives tits-guru zero service configuration', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+        $before = bsvcTreeSnapshot($scratch.'/fs');
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('SLICE 5.4 CONTRACT: NOT SATISFIED');
+        expect($output)->toContain('PASS     state:staging-main — PRE_DEPLOY');
+        expect($output)->toContain('PASS     target:tits-guru — lifecycle=planned — zero service configuration');
+        expect($output)->toContain('MISSING  path:/home/www/rateguru/staging/shared/storage/logs');
+        expect($output)->toContain('MISSING  file:/etc/nginx/sites-available/rateguru-staging');
+        expect($output)->toContain('MISSING  link:/etc/nginx/sites-enabled/rateguru-staging');
+        expect($output)->toContain('MISSING  file:/etc/php/8.5/fpm/pool.d/rateguru-staging.conf');
+        expect($output)->toContain('MISSING  file:/etc/supervisor/conf.d/rateguru-staging-queue.conf');
+        expect($output)->toContain('MISSING  file:/etc/cron.d/rateguru-staging-scheduler');
+        expect($output)->toContain('MISSING  file:/etc/ssh/sshd_config.d/70-rateguru-deploy.conf');
+        expect($output)->toContain('DEFERRED queue:rateguru-staging-queue — target queue activation DEFERRED until the first release exists');
+        expect($output)->toContain('MISSING  service:nginx');
+        expect($output)->toContain('-> apply:');
+
+        // Every external prerequisite is present in this fixture.
+        expect($output)->toContain('PASS     external-prerequisite:tls-certificate');
+        expect($output)->toContain('PASS     external-prerequisite:basic-auth');
+
+        // Planned tits-guru: no production or tits-guru service file is ever
+        // planned, mentioned or demanded.
+        expect($output)->not->toContain('rateguru-production');
+        expect($output)->not->toContain('rateguru-tits-guru');
+
+        // Strictly read-only: no mutation, no reload, no service change.
+        expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before, '--check mutated the fixture');
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+        expect(bsvcLog($scratch, 'children.log'))->not->toContain('--apply');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// --apply: clean PRE_DEPLOY host end to end
+// =============================================================================
+
+it('converges a clean PRE_DEPLOY host end to end: files, link, log directory, children in order, services, deferred queue', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+        $fs = $scratch.'/fs';
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('SLICE 5.4 CONTRACT: SATISFIED');
+
+        // Directly-owned files: installed byte-identical, contract mode.
+        foreach (bsvcManagedFiles() as $logical => $src) {
+            expect(is_file($fs.$logical))->toBeTrue("{$logical} must be installed");
+            expect(file_get_contents($fs.$logical))->toBe(file_get_contents($src));
+            expect(substr(sprintf('%o', fileperms($fs.$logical)), -3))->toBe('644');
+            expect(bsvcLog($scratch, 'chown.log'))->toContain("root:root {$fs}{$logical}");
+        }
+
+        // Enabled symlink points at the sites-available entry.
+        expect(is_link($fs.'/etc/nginx/sites-enabled/rateguru-staging'))->toBeTrue();
+        expect(readlink($fs.'/etc/nginx/sites-enabled/rateguru-staging'))
+            ->toBe('/etc/nginx/sites-available/rateguru-staging');
+
+        // The exact service-support log directory, setgid, runtime-owned.
+        $logs = $fs.'/home/www/rateguru/staging/shared/storage/logs';
+        expect(is_dir($logs))->toBeTrue();
+        expect(fileperms($logs) & 0o7777)->toBe(0o2770);
+        expect(bsvcLog($scratch, 'chown.log'))->toContain("rateguru-staging:rateguru-staging {$logs}");
+
+        // Children invoked in dependency order, via their own applies.
+        $children = bsvcLog($scratch, 'children.log');
+        $order = [
+            'runtime-installer --verify',
+            'hostlayout-installer --verify',
+            'operations-installer --verify',
+            'operations-installer --apply',
+            'perimeter-installer --verify',
+            'perimeter-installer --apply',
+            'public-storage-installer --verify --target staging-main',
+            'public-storage-installer --apply --target staging-main',
+            'verify-mail-capture',
+            'mail-capture-installer --apply',
+        ];
+        $position = -1;
+        foreach ($order as $entry) {
+            $next = strpos($children, $entry, $position + 1);
+            expect($next)->not->toBeFalse("children.log lost '{$entry}' or its ordering:\n{$children}");
+            $position = $next;
+        }
+
+        // Configuration validated before service activation.
+        expect(bsvcLog($scratch, 'nginx.log'))->toContain('nginx -t');
+        expect(bsvcLog($scratch, 'sshd.log'))->toContain('sshd -t');
+        expect(bsvcLog($scratch, 'php-fpm.log'))->toContain('php-fpm -t');
+        expect(bsvcLog($scratch, 'supervisorctl.log'))->toContain('supervisorctl reread');
+
+        // Base services enabled and started.
+        $systemctl = bsvcLog($scratch, 'systemctl.log');
+        foreach (['nginx', 'php8.5-fpm', 'supervisor', 'postgresql', 'redis-server'] as $unit) {
+            expect($systemctl)->toContain("systemctl enable {$unit}");
+            expect($systemctl)->toContain("systemctl start {$unit}");
+        }
+
+        // PRE_DEPLOY: queue activation deferred — no update/start of the
+        // program, and supervisor was started BEFORE the program config was
+        // installed (no autostart crash loop on a clean host).
+        expect($output)->toContain('activation DEFERRED until the first release exists');
+        expect(bsvcLog($scratch, 'supervisorctl.log'))->not->toContain('update');
+        expect(bsvcLog($scratch, 'supervisorctl.log'))->not->toContain('start');
+
+        $supervisorStart = strpos($systemctl, 'systemctl start supervisor');
+        $confInstall = strpos(bsvcLog($scratch, 'install.log'), 'rateguru-staging-queue.conf');
+        expect($supervisorStart)->not->toBeFalse();
+        expect($confInstall)->not->toBeFalse();
+
+        // No fake release, current or production/tits-guru resource exists.
+        expect(file_exists($fs.'/home/www/rateguru/staging/current'))->toBeFalse('apply must never fabricate current');
+        expect(glob($fs.'/home/www/rateguru/staging/releases/*'))->toBe([]);
+        expect(file_exists($fs.'/etc/nginx/sites-available/rateguru-production'))->toBeFalse();
+        expect(file_exists($fs.'/etc/php/8.5/fpm/pool.d/rateguru-production.conf'))->toBeFalse();
+        expect(glob($fs.'/etc/nginx/sites-available/*'))->toBe([$fs.'/etc/nginx/sites-available/rateguru-staging']);
+
+        // Secrets were inspected by presence only: never rewritten, never
+        // printed.
+        foreach (bsvcExternalPrerequisitePaths() as $path) {
+            expect(file_get_contents($fs.$path))->toBe('SECRET-SENTINEL-'.md5($path)."\n", "{$path} was rewritten");
+            expect($output)->not->toContain('SECRET-SENTINEL-'.md5($path));
+        }
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('a second --apply on the converged host performs zero meaningful mutation', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+
+        [$exit1, $out1] = bsvcRun(['--apply'], $env);
+        expect($exit1)->toBe(0, $out1);
+
+        // Reset every log, then re-apply.
+        foreach (glob($scratch.'/log/*') ?: [] as $log) {
+            file_put_contents($log, '');
+        }
+
+        [$exit2, $out2] = bsvcRun(['--apply'], $env);
+
+        expect($exit2)->toBe(0, $out2);
+        expect($out2)->toContain('SLICE 5.4 CONTRACT: SATISFIED');
+
+        // No managed file was rewritten (the only install calls are the
+        // per-run backup directories).
+        $installs = bsvcLog($scratch, 'install.log');
+        expect($installs)->not->toContain('/etc/');
+        expect($installs)->not->toContain('storage/logs');
+
+        // No service was enabled, started, stopped, reloaded or restarted.
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+
+        // No child installer re-applied.
+        expect(bsvcLog($scratch, 'children.log'))->not->toContain('--apply');
+        expect($out2)->toContain('already compliant');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// DEPLOYED host
+// =============================================================================
+
+it('recognizes the compliant DEPLOYED staging host: --check and --verify pass, --apply mutates nothing', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('SLICE 5.4 CONTRACT: SATISFIED');
+        expect($output)->toContain('PASS     state:staging-main — DEPLOYED');
+        expect($output)->toContain('PASS     queue:rateguru-staging-queue — RUNNING under supervisor');
+        expect($output)->toContain('PASS     socket:/run/php/rateguru-staging.sock');
+        expect($output)->not->toContain('DEFERRED queue:');
+
+        [$exit, $output] = bsvcRun(['--verify'], $env);
+        expect($exit)->toBe(0, $output);
+
+        foreach (glob($scratch.'/log/*') ?: [] as $log) {
+            file_put_contents($log, '');
+        }
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+        expect($exit)->toBe(0, $output);
+        expect(bsvcLog($scratch, 'install.log'))->not->toContain('/etc/');
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+        expect(bsvcLog($scratch, 'children.log'))->not->toContain('--apply');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('starts a stopped queue program on a DEPLOYED host and verifies it is stably RUNNING', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        unlink($scratch.'/toggles/queue-running');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('queue:rateguru-staging-queue RUNNING (stable)');
+        expect(bsvcLog($scratch, 'supervisorctl.log'))->toContain('update rateguru-staging-queue');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Broken release state
+// =============================================================================
+
+it('fails closed in every mode for broken current shapes: dangling, outside releases, wrong type', function () {
+    foreach ([
+        'dangling' => 'dangling symlink',
+        'outside' => 'resolves outside the releases directory',
+        'wrongtype' => 'exists but is not a symlink',
+    ] as $shape => $message) {
+        $scratch = bsvcScratchDir();
+
+        try {
+            $env = bsvcFixture($scratch, ['current' => $shape]);
+
+            [$exit, $output] = bsvcRun(['--check'], $env);
+            expect($exit)->toBe(1, "broken current ({$shape}) must fail --check");
+            expect($output)->toContain('CONFLICT state:staging-main');
+            expect($output)->toContain($message);
+
+            $before = bsvcTreeSnapshot($scratch.'/fs');
+            [$exit, $output] = bsvcRun(['--apply'], $env);
+
+            expect($exit)->toBe(1, "broken current ({$shape}) must fail --apply:\n{$output}");
+            expect($output)->toContain('broken release state is never treated as PRE_DEPLOY');
+            expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before, "broken current ({$shape}) apply must not mutate");
+            expect(bsvcLog($scratch, 'children.log'))->not->toContain('--apply');
+        } finally {
+            bsvcCleanup($scratch);
+        }
+    }
+});
+
+// =============================================================================
+// Drift, conflicts and symlinked destinations
+// =============================================================================
+
+it('reports drift distinctly from missing/conflict and converges only the drifted file on apply', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        $fs = $scratch.'/fs';
+
+        // Drift exactly one file.
+        file_put_contents($fs.'/etc/nginx/sites-available/rateguru-staging', "# drifted nginx config\n");
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('DRIFT    file:/etc/nginx/sites-available/rateguru-staging — content differs from the committed source');
+        expect($output)->toContain("DRIFT: 1\n");
+
+        foreach (glob($scratch.'/log/*') ?: [] as $log) {
+            file_put_contents($log, '');
+        }
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+        expect($exit)->toBe(0, $output);
+
+        // Only the drifted file was reinstalled; only nginx was reloaded.
+        $installs = array_values(array_filter(
+            explode("\n", bsvcLog($scratch, 'install.log')),
+            fn (string $line): bool => str_contains($line, '/etc/'),
+        ));
+        expect($installs)->toHaveCount(1);
+        expect($installs[0])->toContain('sites-available/rateguru-staging');
+
+        expect(bsvcSystemctlMutations($scratch))->toBe(['systemctl reload nginx']);
+
+        expect(file_get_contents($fs.'/etc/nginx/sites-available/rateguru-staging'))
+            ->toBe(file_get_contents(base_path('infrastructure/config/nginx/rateguru-staging')));
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('reports wrong owner or mode on an installed file as DRIFT and reinstalls it', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        $fs = $scratch.'/fs';
+
+        // Wrong owner on the pool; wrong mode on the cron.
+        bsvcOwnerTableAdd($scratch, $fs.'/etc/php/8.5/fpm/pool.d/rateguru-staging.conf', 'www-data', 'www-data');
+        chmod($fs.'/etc/cron.d/rateguru-staging-scheduler', 0o600);
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('DRIFT    file:/etc/php/8.5/fpm/pool.d/rateguru-staging.conf — owned www-data:www-data, required root:root');
+        expect($output)->toContain('DRIFT    file:/etc/cron.d/rateguru-staging-scheduler — mode 600, required 0644');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+        expect($exit)->toBe(0, $output);
+        expect(substr(sprintf('%o', fileperms($fs.'/etc/cron.d/rateguru-staging-scheduler')), -3))->toBe('644');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('repoints a wrong enabled symlink and refuses a non-symlink at the enabled path', function () {
+    // Wrong target: DRIFT, converged by apply.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        $fs = $scratch.'/fs';
+
+        unlink($fs.'/etc/nginx/sites-enabled/rateguru-staging');
+        symlink('/etc/nginx/sites-available/default', $fs.'/etc/nginx/sites-enabled/rateguru-staging');
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('DRIFT    link:/etc/nginx/sites-enabled/rateguru-staging — symlink points at /etc/nginx/sites-available/default');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+        expect($exit)->toBe(0, $output);
+        expect(readlink($fs.'/etc/nginx/sites-enabled/rateguru-staging'))
+            ->toBe('/etc/nginx/sites-available/rateguru-staging');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+
+    // Non-symlink at the enabled path: CONFLICT, apply fails before mutation.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        $fs = $scratch.'/fs';
+
+        unlink($fs.'/etc/nginx/sites-enabled/rateguru-staging');
+        file_put_contents($fs.'/etc/nginx/sites-enabled/rateguru-staging', "not a symlink\n");
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('CONFLICT link:/etc/nginx/sites-enabled/rateguru-staging — exists but is not a symlink');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('enabled site path exists but is not a symlink');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('refuses wrong-type and symlinked destinations without touching them', function () {
+    // A directory where the pool file belongs.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        $fs = $scratch.'/fs';
+
+        unlink($fs.'/etc/php/8.5/fpm/pool.d/rateguru-staging.conf');
+        mkdir($fs.'/etc/php/8.5/fpm/pool.d/rateguru-staging.conf');
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('CONFLICT file:/etc/php/8.5/fpm/pool.d/rateguru-staging.conf — is a directory');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('destination exists but is not a regular file');
+        expect(is_dir($fs.'/etc/php/8.5/fpm/pool.d/rateguru-staging.conf'))->toBeTrue('the conflicting directory must not be deleted or replaced');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+
+    // A symlink planted at a managed destination (symlink attack): never
+    // followed, never written through.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        $fs = $scratch.'/fs';
+
+        $victim = $scratch.'/victim.txt';
+        file_put_contents($victim, "VICTIM CONTENT\n");
+        unlink($fs.'/etc/ssh/sshd_config.d/70-rateguru-deploy.conf');
+        symlink($victim, $fs.'/etc/ssh/sshd_config.d/70-rateguru-deploy.conf');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('destination is a symlink');
+        expect(file_get_contents($victim))->toBe("VICTIM CONTENT\n", 'the symlink target must never be written through');
+        expect(is_link($fs.'/etc/ssh/sshd_config.d/70-rateguru-deploy.conf'))->toBeTrue();
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// External prerequisites
+// =============================================================================
+
+it('fails --apply before any mutation when TLS, private key or Basic Auth material is missing — naming category and path only', function () {
+    foreach ([
+        '/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem' => 'tls-certificate',
+        '/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem' => 'tls-private-key',
+        '/etc/nginx/rateguru-staging.htpasswd' => 'basic-auth',
+    ] as $path => $category) {
+        $scratch = bsvcScratchDir();
+
+        try {
+            $env = bsvcFixture($scratch, ['omitExternal' => [$path]]);
+
+            [$exit, $output] = bsvcRun(['--check'], $env);
+            expect($exit)->toBe(1);
+            expect($output)->toContain("MISSING  external-prerequisite:{$category} — absent: {$path}");
+
+            $before = bsvcTreeSnapshot($scratch.'/fs');
+            [$exit, $output] = bsvcRun(['--apply'], $env);
+
+            expect($exit)->toBe(1, $output);
+            expect($output)->toContain("EXTERNAL PREREQUISITE MISSING: {$category} ({$path})");
+            expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before, "a missing {$category} must block every mutation");
+            expect(bsvcSystemctlMutations($scratch))->toBe([]);
+            expect(bsvcLog($scratch, 'children.log'))->not->toContain('--apply');
+
+            // Never created, never faked.
+            expect(file_exists($scratch.'/fs'.$path))->toBeFalse('the missing external prerequisite must never be fabricated');
+        } finally {
+            bsvcCleanup($scratch);
+        }
+    }
+});
+
+// =============================================================================
+// Config validation failure -> rollback
+// =============================================================================
+
+it('rolls back the candidate and preserves the previous running state when a config test fails', function () {
+    foreach ([
+        'nginx-t-fail' => ['nginx -t failed', '/etc/nginx/sites-available/rateguru-staging'],
+        'sshd-t-fail' => ['sshd configuration test failed', '/etc/ssh/sshd_config.d/70-rateguru-deploy.conf'],
+        'php-fpm-t-fail' => ['PHP-FPM configuration test failed', '/etc/php/8.5/fpm/pool.d/rateguru-staging.conf'],
+        'supervisor-reread-fail' => ['supervisorctl reread reported a configuration error', '/etc/supervisor/conf.d/rateguru-staging-queue.conf'],
+    ] as $toggle => [$message, $logical]) {
+        $scratch = bsvcScratchDir();
+
+        try {
+            $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+            $fs = $scratch.'/fs';
+
+            // Drift the family's file so apply must install a candidate, and
+            // make its validation fail.
+            $previous = "# previous installed configuration\n";
+            file_put_contents($fs.$logical, $previous);
+            touch($scratch.'/toggles/'.$toggle);
+
+            [$exit, $output] = bsvcRun(['--apply'], $env);
+
+            expect($exit)->toBe(1, $output);
+            expect($output)->toContain($message);
+            expect($output)->toContain('rollback complete');
+
+            // The previous file is back, byte-identical.
+            expect(file_get_contents($fs.$logical))->toBe($previous, "{$logical} must be restored after a failed {$toggle}");
+
+            // The service was never reloaded with the invalid candidate, and
+            // nothing that was running was stopped.
+            $mutations = bsvcSystemctlMutations($scratch);
+            foreach ($mutations as $mutation) {
+                expect($mutation)->not->toContain('reload nginx');
+                expect($mutation)->not->toContain('reload php8.5-fpm');
+            }
+
+            foreach (['nginx', 'php8.5-fpm', 'supervisor', 'ssh'] as $unit) {
+                expect(file_exists($scratch.'/svc/'.$unit.'.active'))->toBeTrue("{$unit} must still be running after the failed apply");
+            }
+        } finally {
+            bsvcCleanup($scratch);
+        }
+    }
+});
+
+it('reverts service enable/start state changes when a later step fails', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        // Clean host, but mail capture apply fails — everything earlier
+        // (files, service starts) must be rolled back.
+        $env = bsvcFixture($scratch);
+        touch($scratch.'/toggles/mail-capture-installer-apply-fail');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('install-mail-capture --apply failed');
+        expect($output)->toContain('rollback complete');
+
+        // Every directly-owned file this run installed was removed again.
+        foreach (array_keys(bsvcManagedFiles()) as $logical) {
+            expect(file_exists($scratch.'/fs'.$logical))->toBeFalse("{$logical} must be removed by rollback");
+        }
+        expect(is_link($scratch.'/fs/etc/nginx/sites-enabled/rateguru-staging'))->toBeFalse('the enabled link must be removed by rollback');
+
+        // Services this run started/enabled were stopped/disabled again.
+        foreach (['nginx', 'php8.5-fpm', 'supervisor'] as $unit) {
+            expect(file_exists($scratch.'/svc/'.$unit.'.active'))->toBeFalse("{$unit} started by this run must be stopped by rollback");
+            expect(file_exists($scratch.'/svc/'.$unit.'.enabled'))->toBeFalse("{$unit} enabled by this run must be disabled by rollback");
+        }
+
+        // ssh was running before this run and stays running.
+        expect(file_exists($scratch.'/svc/ssh.active'))->toBeTrue('ssh must never be stopped by rollback');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('aborts immediately when a child installer fails, without invoking later components', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+        touch($scratch.'/toggles/operations-installer-apply-fail');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('install-target-operations --apply failed');
+
+        $children = bsvcLog($scratch, 'children.log');
+        expect($children)->not->toContain('perimeter-installer --apply');
+        expect($children)->not->toContain('public-storage-installer');
+        expect($children)->not->toContain('mail-capture-installer');
+
+        // No later directly-owned file was installed either.
+        expect(file_exists($scratch.'/fs/etc/ssh/sshd_config.d/70-rateguru-deploy.conf'))->toBeFalse();
+        expect(file_exists($scratch.'/fs/etc/nginx/sites-available/rateguru-staging'))->toBeFalse();
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Services
+// =============================================================================
+
+it('enables and starts stopped base services, and leaves compliant ones untouched', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        // Compliant deployed host except redis is stopped and postgresql is
+        // active but disabled.
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        unlink($scratch.'/svc/redis-server.active');
+        unlink($scratch.'/svc/postgresql.enabled');
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('MISSING  service:redis-server — enabled but not active');
+        expect($output)->toContain('MISSING  service:postgresql — active but not enabled');
+
+        foreach (glob($scratch.'/log/*') ?: [] as $log) {
+            file_put_contents($log, '');
+        }
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+        expect($exit)->toBe(0, $output);
+
+        // Exactly the two needed mutations happened — nothing else was
+        // enabled, started, stopped, reloaded or restarted.
+        expect(bsvcSystemctlMutations($scratch))->toBe([
+            'systemctl enable postgresql',
+            'systemctl start redis-server',
+        ]);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Secrets never enter output
+// =============================================================================
+
+it('never prints secret content in any mode', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        $fs = $scratch.'/fs';
+
+        // Also give the informational secret-readiness files sentinel
+        // content.
+        @mkdir($fs.'/home/www/rateguru/staging/shared', 0o755, true);
+        @mkdir($fs.'/home/deploy-rateguru-staging/.ssh', 0o755, true);
+        @mkdir($fs.'/root/.config/rclone', 0o755, true);
+        file_put_contents($fs.'/home/www/rateguru/staging/shared/.env', "APP_KEY=base64:ENV-SECRET-SENTINEL\n");
+        file_put_contents($fs.'/home/deploy-rateguru-staging/.ssh/authorized_keys', "ssh-ed25519 DEPLOY-KEY-SENTINEL\n");
+        file_put_contents($fs.'/root/.config/rclone/rclone.conf', "b2_account_key = RCLONE-SECRET-SENTINEL\n");
+
+        foreach (['--check', '--verify', '--apply'] as $mode) {
+            [, $output] = bsvcRun([$mode], $env);
+
+            foreach (['ENV-SECRET-SENTINEL', 'DEPLOY-KEY-SENTINEL', 'RCLONE-SECRET-SENTINEL', 'SECRET-SENTINEL-'] as $sentinel) {
+                expect(str_contains($output, $sentinel))->toBeFalse("{$mode} output leaked secret content ({$sentinel})");
+            }
+        }
+
+        // Present secret-readiness files are PASS by presence only, and were
+        // never rewritten.
+        [, $output] = bsvcRun(['--check'], $env);
+        expect($output)->toContain('PASS     secret:laravel-env:staging-main');
+        expect(file_get_contents($fs.'/home/www/rateguru/staging/shared/.env'))->toBe("APP_KEY=base64:ENV-SECRET-SENTINEL\n");
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Documentation and roadmap
+// =============================================================================
+
+it('documents the ownership boundaries and the PRE_DEPLOY/DEPLOYED distinction in the runbook', function () {
+    $runbook = File::get(base_path('infrastructure/runbooks/bootstrap-services.md'));
+
+    expect($runbook)
+        ->toContain('install-bootstrap-services')
+        ->toContain('install-target-operations')
+        ->toContain('install-target-perimeter')
+        ->toContain('install-public-storage-access')
+        ->toContain('install-mail-capture')
+        ->toContain('PRE_DEPLOY')
+        ->toContain('DEPLOYED')
+        ->toContain('EXTERNAL PREREQUISITE MISSING');
+
+    // The clean-VPS architecture note: bootstrap readiness and application
+    // runtime readiness are distinct; no release is ever fabricated.
+    expect($runbook)->toContain('never fabricate');
+
+    // The known first-deploy queue-activation gap is documented as a
+    // 5.5/5.6 integration fix, not silently ignored.
+    expect($runbook)->toContain('5.5/5.6');
+});
