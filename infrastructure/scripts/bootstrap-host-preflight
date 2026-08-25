@@ -130,6 +130,7 @@ DF_BIN="$(gated_default RATEGURU_PREFLIGHT_DF_BIN '')"
 IP_BIN="$(gated_default RATEGURU_PREFLIGHT_IP_BIN '')"
 GETENT_BIN="$(gated_default RATEGURU_PREFLIGHT_GETENT_BIN '')"
 STAT_BIN="$(gated_default RATEGURU_PREFLIGHT_STAT_BIN stat)"
+GETFACL_BIN="$(gated_default RATEGURU_PREFLIGHT_GETFACL_BIN '')"
 
 # Direct value overrides for report-only host facts.
 HOSTNAME_VALUE="$(gated_default RATEGURU_PREFLIGHT_HOSTNAME "$(hostname 2>/dev/null || printf 'unknown')")"
@@ -265,7 +266,7 @@ meminfo_kib() {
 ACTIVE_TARGETS=()
 declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
 declare -A TGT_CODE_GROUP TGT_INCOMING TGT_FPM_SOCKET TGT_FPM_POOL
-declare -A TGT_DB_ROLE TGT_NGINX_SITE TGT_PUBLIC_HOSTNAME
+declare -A TGT_DB_ROLE TGT_NGINX_SITE TGT_PUBLIC_HOSTNAME TGT_SUPERVISOR_PROGRAM
 SOURCE_REGISTRY_OK=false
 JQ_AVAILABLE=true
 
@@ -304,6 +305,7 @@ load_source_contract() {
             TGT_FPM_POOL[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.pool' "${SOURCE_REGISTRY}")"
             TGT_DB_ROLE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].database.application_role' "${SOURCE_REGISTRY}")"
             TGT_NGINX_SITE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.site_name' "${SOURCE_REGISTRY}")"
+            TGT_SUPERVISOR_PROGRAM[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].supervisor.program' "${SOURCE_REGISTRY}")"
             TGT_PUBLIC_HOSTNAME[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames[0]' "${SOURCE_REGISTRY}")"
         done < <(jq -r '.targets | to_entries[] | select(.value.lifecycle == "active") | .key' "${SOURCE_REGISTRY}" | sort)
     fi
@@ -1036,6 +1038,55 @@ report_path() {
     item PASS "path:${path}" "${detail}"
 }
 
+# report_public_storage_acl — the slice 5.4 public-storage access contract:
+# install-public-storage-access grants www-data execute-only traversal
+# (user:www-data:--x) on each active target's shared and shared/storage —
+# never a chmod, never a group membership. The preflight asserts the same
+# contract read-only via getfacl; when getfacl is unavailable or the
+# directories cannot be read (non-root run), the item degrades to WARN
+# rather than inventing a verdict.
+report_public_storage_acl() {
+    local getfacl_bin
+    getfacl_bin="$(resolve_probe_bin "${GETFACL_BIN}" getfacl)"
+
+    local target_id dir acl_output missing
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        if [[ -z "${getfacl_bin}" ]]; then
+            item WARN "acl:public-storage:${target_id}" "cannot enumerate ACLs (getfacl unavailable)" \
+                "install the acl package (slice 5.2) and re-run"
+            continue
+        fi
+
+        missing=""
+        for dir in "${TGT_ROOT[${target_id}]}/shared" "${TGT_ROOT[${target_id}]}/shared/storage"; do
+            if ! acl_output="$("${getfacl_bin}" -p "${dir}" 2>/dev/null)"; then
+                missing="unreadable"
+                break
+            fi
+
+            if ! grep -Fxq "user:www-data:--x" <<<"${acl_output}"; then
+                missing="${dir}"
+                break
+            fi
+        done
+
+        if [[ -z "${missing}" ]]; then
+            item PASS "acl:public-storage:${target_id}" "user:www-data:--x present on shared and shared/storage (slice 5.4 contract; installed by install-public-storage-access)"
+        elif [[ "${missing}" == unreadable ]]; then
+            if [[ "${EFFECTIVE_UID}" == "0" ]]; then
+                item MISSING "acl:public-storage:${target_id}" "shared/shared-storage directories cannot be read — ACL not verifiable (directories may be absent on a clean host)" \
+                    "created by slice 5.3; ACL granted by install-public-storage-access --apply --target ${target_id} (slice 5.4)"
+            else
+                item WARN "acl:public-storage:${target_id}" "cannot read the target directories without root — ACL not verifiable" \
+                    "re-run as root for the authoritative ACL check"
+            fi
+        else
+            item MISSING "acl:public-storage:${target_id}" "user:www-data:--x is absent on ${missing}" \
+                "install-public-storage-access --apply --target ${target_id} (slice 5.4) — never chmod, never group membership"
+        fi
+    done
+}
+
 report_filesystem() {
     section "FILESYSTEM"
 
@@ -1078,6 +1129,7 @@ report_filesystem() {
         report_path "releases" "${target_root}/releases" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "immutable release history for ${target_id} (contents never scanned; slice 5.3 contract)"
         report_path "shared" "${target_root}/shared" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "shared state for ${target_id} (slice 5.3 contract)"
         report_path "shared-storage" "${target_root}/shared/storage" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "structural shared-storage root for ${target_id} (slice 5.3 contract)"
+        report_path "shared-storage-logs" "${target_root}/shared/storage/logs" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "service-support log directory for ${target_id} (slice 5.4 contract: the committed PHP-FPM/Supervisor configs log here)"
         report_path "current" "${target_root}/current" "symbolic link" - - - "atomic current-release switch for ${target_id} (deployment-owned; absent until the first deployment)"
         report_path "locks" "${target_root}/locks" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "deployment lock directory for ${target_id} (slice 5.3 contract)"
         report_path "deployments" "${target_root}/deployments" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "deployment history for ${target_id} (slice 5.3 contract)"
@@ -1097,14 +1149,16 @@ report_filesystem() {
     report_path sudoers /etc/sudoers.d/rateguru-deploy "regular file" root root 440 "deploy sudoers grant"
     report_path cron-backups /etc/cron.d/rateguru-backups "regular file" root root 644 "backup-cycle cron"
     report_path cron-scheduler /etc/cron.d/rateguru-staging-scheduler "regular file" root root 644 "Laravel scheduler cron"
-    report_path sshd-conf /etc/ssh/sshd_config.d/70-rateguru-deploy.conf "regular file" root root - "deploy-user SSH restrictions"
+    report_path sshd-conf /etc/ssh/sshd_config.d/70-rateguru-deploy.conf "regular file" root root 644 "deploy-user SSH restrictions (slice 5.4 contract)"
 
-    # Service configuration installed from committed sources (presence and
-    # type; modes for these are not pinned by any installer).
+    # Service configuration installed from committed sources by
+    # install-bootstrap-services (slice 5.4), which pins every one of these
+    # files root:root 0644 — the preflight asserts the identical contract so
+    # the two can never disagree.
     local target_site
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         target_site="${TGT_NGINX_SITE[${target_id}]}"
-        report_path "nginx-site" "/etc/nginx/sites-available/${target_site}" "regular file" root root - "Nginx vhost for ${target_id}"
+        report_path "nginx-site" "/etc/nginx/sites-available/${target_site}" "regular file" root root 644 "Nginx vhost for ${target_id} (slice 5.4 contract)"
         report_path "nginx-site-enabled" "/etc/nginx/sites-enabled/${target_site}" "symbolic link" - - - "enabled Nginx vhost for ${target_id}"
     done
 
@@ -1114,11 +1168,15 @@ report_filesystem() {
         php_version="${php_version%-fpm}"
 
         for target_id in "${ACTIVE_TARGETS[@]}"; do
-            report_path "php-fpm-pool" "/etc/php/${php_version}/fpm/pool.d/${TGT_FPM_POOL[${target_id}]}.conf" "regular file" root root - "PHP-FPM pool for ${target_id}"
+            report_path "php-fpm-pool" "/etc/php/${php_version}/fpm/pool.d/${TGT_FPM_POOL[${target_id}]}.conf" "regular file" root root 644 "PHP-FPM pool for ${target_id} (slice 5.4 contract)"
         done
     fi
 
-    report_path supervisor-conf /etc/supervisor/conf.d/rateguru-staging-queue.conf "regular file" root root - "Supervisor queue worker"
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_path "supervisor-conf" "/etc/supervisor/conf.d/${TGT_SUPERVISOR_PROGRAM[${target_id}]}.conf" "regular file" root root 644 "Supervisor queue worker for ${target_id} (slice 5.4 contract)"
+    done
+
+    report_public_storage_acl
 
     # Shared staging mail capture (shared-host-service).
     report_path mailpit-unit /etc/systemd/system/staging-mailpit.service "regular file" root root - "shared-host-service unit"

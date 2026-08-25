@@ -19,6 +19,13 @@ infrastructure, and moves out once a second project exists.
   runtime identities, code-group membership, and the root-owned namespace
   plus setgid release/shared trees, active targets only) — see
   [`runbooks/bootstrap-host.md`](runbooks/bootstrap-host.md);
+- the services/configuration bootstrap installer
+  (`install-bootstrap-services` — coordinates the target operations,
+  perimeter, public-storage-ACL and mail-capture installers as
+  authoritative owners, and directly owns the active-target Nginx/PHP-FPM/
+  Supervisor/cron files plus the host-global SSH restriction; PRE_DEPLOY
+  vs DEPLOYED aware, external secrets never generated) — see
+  [`runbooks/bootstrap-services.md`](runbooks/bootstrap-services.md);
 - deployment and rollback scripts;
 - local and offsite backup scripts;
 - shared staging mail capture (Mailpit + Mailtrap Local) — see

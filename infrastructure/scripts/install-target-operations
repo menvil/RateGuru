@@ -111,6 +111,76 @@ INSTALL_GROUP_ID=0
 
 REQUIRED_TOOLS=(bash jq curl install stat cmp diff awk mv cp mktemp readlink tail env find sort cut sed rm flock)
 
+# --- Deployment-state classification (Phase 5.4) -----------------------------
+#
+# A genuinely clean pre-deploy host legitimately has no `current` symlink for
+# the staging target: infrastructure bootstrap readiness and application
+# runtime readiness are distinct states, and this installer must be able to
+# install the operational bundle before the first application deployment
+# without inventing a fake release to satisfy runtime probes.
+#
+#   PRE_DEPLOY  `current` is truly absent. The bundle installs and every
+#               static/config check still runs (source validation, installed
+#               parity, syntax, lifecycle rejection, cleanup --dry-run), but
+#               application-health probes that require current/public
+#               (health-check, the status healthy assertion) are DEFERRED —
+#               logged explicitly, never reported as PASS.
+#   DEPLOYED    `current` resolves to a valid immutable release directly
+#               under releases/ — the full existing runtime verification is
+#               preserved unchanged.
+#   BROKEN      a present-but-broken current (dangling, outside releases/,
+#               not a symlink, resolving to a non-directory) is a hard
+#               failure in every mode — never silently treated as
+#               PRE_DEPLOY, never repaired here.
+#
+# STAGING_TARGET_ROOT is reassignable by tests exactly like the SRC_/DST_
+# constants above; empty means "derive application_root from SRC_REGISTRY at
+# classification time" (production).
+STAGING_TARGET_ID="staging-main"
+STAGING_TARGET_ROOT=""
+TARGET_DEPLOYMENT_STATE=""
+
+classify_staging_deployment_state() {
+    local root="${STAGING_TARGET_ROOT}"
+
+    if [[ -z "${root}" ]]; then
+        root="$(jq -r --arg id "${STAGING_TARGET_ID}" '.targets[$id].application_root' "${SRC_REGISTRY}")"
+    fi
+
+    [[ -n "${root}" ]] && [[ "${root}" != null ]] \
+        || fail "cannot derive the ${STAGING_TARGET_ID} application root from ${SRC_REGISTRY}"
+
+    local current="${root}/current"
+    local releases="${root}/releases"
+
+    if [[ ! -e "${current}" ]] && [[ ! -L "${current}" ]]; then
+        TARGET_DEPLOYMENT_STATE=PRE_DEPLOY
+        log "target state: PRE_DEPLOY — ${current} is absent (no application release deployed yet); application-health probes are deferred, never faked"
+        return 0
+    fi
+
+    [[ -L "${current}" ]] \
+        || fail "target state: ${current} exists but is not a symlink — broken deployment-owned state is never treated as PRE_DEPLOY; resolve it manually"
+
+    local resolved resolved_releases
+    resolved="$(readlink -f "${current}" 2>/dev/null || true)"
+    [[ -n "${resolved}" ]] && [[ -e "${resolved}" ]] \
+        || fail "target state: ${current} is a dangling symlink — broken deployment-owned state is never treated as PRE_DEPLOY; resolve it manually"
+
+    resolved_releases="$(readlink -f "${releases}" 2>/dev/null || true)"
+    [[ -n "${resolved_releases}" ]] \
+        || fail "target state: ${releases} is missing while ${current} exists — resolve the broken release state manually"
+
+    [[ "$(dirname "${resolved}")" == "${resolved_releases}" ]] \
+        || fail "target state: ${current} resolves outside the releases directory (${resolved}) — resolve the broken release state manually"
+
+    [[ -d "${resolved}" ]] \
+        || fail "target state: ${current} resolves to a non-directory release (${resolved}) — resolve the broken release state manually"
+
+    TARGET_DEPLOYMENT_STATE=DEPLOYED
+    log "target state: DEPLOYED — ${current} resolves to a valid immutable release; full runtime verification applies"
+}
+
 # --- Logging ------------------------------------------------------------
 
 log() {
@@ -342,13 +412,22 @@ verify_staged_candidates() {
     done
     log "  staged usage: every script shows --target only, none mention --environment"
 
-    "${override_env[@]}" bash "${staged_health_check}" --target staging-main >/dev/null 2>&1 \
-        || fail "staged health-check --target staging-main failed"
-    log "  staged health-check --target staging-main: OK"
+    # Application-health probes require a deployed release behind
+    # current/public: on a PRE_DEPLOY host they are deferred — logged, never
+    # reported as OK — instead of failing against an application that does
+    # not exist yet. Every static/lifecycle check below still runs.
+    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+        log "  staged health-check --target staging-main: DEFERRED (pre-deploy: no current release exists yet)"
+        log "  staged status --target staging-main: DEFERRED (pre-deploy: status asserts application health, which requires a deployed release)"
+    else
+        "${override_env[@]}" bash "${staged_health_check}" --target staging-main >/dev/null 2>&1 \
+            || fail "staged health-check --target staging-main failed"
+        log "  staged health-check --target staging-main: OK"
 
-    "${override_env[@]}" bash "${staged_status}" --target staging-main >/dev/null 2>&1 \
-        || fail "staged status --target staging-main failed"
-    log "  staged status --target staging-main: OK"
+        "${override_env[@]}" bash "${staged_status}" --target staging-main >/dev/null 2>&1 \
+            || fail "staged status --target staging-main failed"
+        log "  staged status --target staging-main: OK"
+    fi
 
     # cleanup is exercised in --dry-run only here — dry-run is genuinely
     # side-effect free (no lock, no write, no delete; see cleanup's own
@@ -754,12 +833,28 @@ verify_installed_files() {
 }
 
 verify_target_health() {
+    # PRE_DEPLOY (see classify_staging_deployment_state): the application
+    # health probe requires a deployed release behind current/public —
+    # deferred with an explicit log line, never reported as OK, never
+    # satisfied by fabricating a release. The default when the variable is
+    # unset (extracted-block harnesses) is the strict DEPLOYED behaviour.
+    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+        log "health-check --target staging-main: DEFERRED (pre-deploy: no current release exists yet)"
+        return 0
+    fi
+
     no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null \
         || fail "installed health-check --target staging-main failed"
     log "health-check --target staging-main: OK"
 }
 
 verify_status() {
+    # status itself works without a deployed release (absent current prints
+    # "not configured" and the embedded health probe reports unhealthy
+    # without failing the script), so the invocation, the header checks and
+    # the section-shape validation always run in both states — only the
+    # final 'Status: healthy' assertion requires a deployed application and
+    # is deferred on a PRE_DEPLOY host (see verify_target_health).
     local status_output
     status_output="$(no_overrides_env "${DST_STATUS}" --target staging-main)" \
         || fail "installed status --target staging-main failed"
@@ -778,6 +873,11 @@ verify_status() {
     # missing section — not a downstream symptom like a missing
     # Status: healthy line.
     assert_status_sections_present "${status_output}" "status"
+
+    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+        log "status healthy assertion: DEFERRED (pre-deploy: 'Status: healthy' requires a deployed release; the no-release 'Status: unhealthy' output is the expected shape)"
+        return 0
+    fi
 
     grep -Fxq 'Status: healthy' <<<"${status_output}" \
         || fail "status output does not report 'Status: healthy'"
@@ -1089,6 +1189,15 @@ validate_destination_directories() {
 }
 
 verify_preflight_target_health() {
+    # PRE_DEPLOY: there is no installed application to be healthy yet — the
+    # preflight health gate is deferred (logged, never faked). A BROKEN
+    # current already failed classify_staging_deployment_state before this
+    # runs, so this deferral can never mask a broken deployment.
+    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+        log "currently installed staging-main health check: DEFERRED (pre-deploy: no current release exists yet)"
+        return 0
+    fi
+
     no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null \
         || fail "currently installed staging-main health check failed — refusing to install anything (${DST_HEALTH_CHECK} --target staging-main)"
     log "currently installed staging-main health check: OK"
@@ -1125,7 +1234,9 @@ on_apply_error() {
     if [[ "${APPLY_COMMITTED}" == false ]] && [[ -n "${BACKUP_DIR}" ]]; then
         if rollback_installed_files; then
             log "rollback complete: previous files restored"
-            if no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null 2>&1; then
+            if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+                log "post-rollback staging-main health check: DEFERRED (pre-deploy: no current release exists yet)"
+            elif no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null 2>&1; then
                 log "confirmed: staging-main health check still succeeds after rollback"
             else
                 log "ERROR: staging-main health check FAILED even after rollback — manual intervention required"
@@ -1167,6 +1278,7 @@ perform_apply() {
     log "mode: apply"
 
     run_source_validation
+    classify_staging_deployment_state
     validate_destination_directories
     verify_preflight_target_health
 
@@ -1271,6 +1383,9 @@ perform_verify() {
 
     log "--- source validation ---"
     run_source_validation
+
+    log "--- target deployment state ---"
+    classify_staging_deployment_state
 
     log "--- installed-file validation ---"
     verify_installed_files

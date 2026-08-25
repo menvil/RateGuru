@@ -6,6 +6,7 @@ deploy
 health-check
 install-bootstrap-host-layout
 install-bootstrap-runtime
+install-bootstrap-services
 install-mail-capture
 install-public-storage-access
 install-target-operations

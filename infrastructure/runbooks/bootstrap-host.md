@@ -579,15 +579,24 @@ clean-host bootstrap, the staging drift remediation, existing-data safety,
 planned-target protection, fail-closed conflicts and idempotency without
 the CI runner ever creating a real account or root-owned directory.
 
+## Slice 5.4: install-bootstrap-services
+
+Services and committed host configuration — the slice that turns the
+prepared 5.2/5.3 host into the configured RateGuru service host required
+for deployment. It has its own runbook: see
+[`bootstrap-services.md`](bootstrap-services.md) for the ownership
+boundaries (coordinator vs. the child installers it invokes), the
+PRE_DEPLOY/DEPLOYED distinction, the external-prerequisite contract and
+the real staging acceptance sequence.
+
 ## What later slices do (and these do not)
 
 | Slice | Mutation |
 |---|---|
-| 5.4 | service configuration + existing installers |
 | 5.5 | one-shot orchestrator ending in `--check` passing |
 | 5.6 | real clean-VPS acceptance |
 
-Until those land, bringing up a new host remains the manual procedure spread
-across the existing runbooks (`install-target-operations.md`,
-`target-perimeter.md`, `public-storage-access.md`, `mail-capture.md`,
-`backups.md`).
+Until those land, bringing up a new host remains the ordered sequence of
+the bootstrap installers (`install-bootstrap-runtime`,
+`install-bootstrap-host-layout`, `install-bootstrap-services`) plus the
+manual external prerequisites documented in `bootstrap-services.md`.
