@@ -43,7 +43,7 @@ installer's logic:
 | `install-target-operations` | `/home/www/rateguru/config/deployment-targets.json`, `deployment.conf`, the operational bundle under `/home/www/rateguru/bin` |
 | `install-target-perimeter` | generic deploy/rollback/cleanup wrappers, sudoers, backup cron, legacy-wrapper absence |
 | `install-public-storage-access` | the narrow `user:www-data:--x` POSIX ACL on `shared` and `shared/storage` (active targets only) |
-| `install-mail-capture` (+ `verify-mail-capture`) | Mailpit/Mailtrap Local end to end: users, state, units, pinned binaries, their Nginx vhosts — a shared-host-service, never per-target |
+| `install-mail-capture` (+ `verify-mail-capture --read-only`) | Mailpit/Mailtrap Local end to end: users, state, units, pinned binaries, their Nginx vhosts — a shared-host-service, never per-target |
 
 Each child is invoked through its own `--apply` only when its own
 authoritative `--verify` does not already pass — that is what makes a
@@ -215,8 +215,14 @@ generalized in Phase 8.
 12. scheduler cron
 13. `install-public-storage-access --apply --target <active>` (active
     targets only — never `tits-guru`)
-14. mail capture (`verify-mail-capture` → skip | `install-mail-capture
-    --apply`)
+14. mail capture (`verify-mail-capture --read-only` → skip |
+    `install-mail-capture --apply`). Both the skip decision and the
+    post-apply confirmation use `--read-only`: the verifier's default
+    (`--e2e`) sends mail, deletes messages and bounces
+    `staging-mailtrap-local.service`, so using it here would make every
+    idempotent `--apply` — and every `--check`/`--verify` — mutating. The
+    full acceptance run is an explicit operator command, documented in
+    [`mail-capture.md`](mail-capture.md)
 15. remaining base services: PostgreSQL and Redis get service enablement
     only — never databases, roles, passwords, `pg_hba.conf` or Redis
     auth/network changes

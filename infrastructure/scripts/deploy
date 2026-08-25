@@ -221,25 +221,13 @@ queue_program_running() {
     ! grep -qv 'RUNNING' <<<"${output}"
 }
 
-# ensure_supervisor_worker — runs after the post-switch health check. An
-# already-RUNNING worker (every normal deployment on today's staging) is
-# left completely untouched: no reread, no update, no start — the existing
-# `artisan queue:restart` signal later in the pipeline remains the only
-# queue interaction, exactly as before this slice. Only when the program is
-# not active (the first deployment after a PRE_DEPLOY bootstrap, or a
-# worker an operator stopped) does the activation path run: reread parses
-# the installed config, update registers/refreshes exactly the target
-# program group, start covers a program registered but stopped, and the
-# wait loop requires RUNNING. Activation failure is a deployment failure —
-# a DEPLOYED target without its required queue worker is not a successful
-# deployment.
-ensure_supervisor_worker() {
-    if queue_program_running; then
-        log "supervisor worker ${SUPERVISOR_PROGRAM} already RUNNING — no supervisor changes needed"
-
-        return 0
-    fi
-
+# activate_supervisor_worker — the CASE A path: the target program is not
+# active, so this deployment must make it RUNNING. reread parses the
+# installed config, update registers/refreshes exactly the target program
+# group, start covers a program registered but stopped, and the wait loop
+# requires RUNNING. Activation failure is a deployment failure — a DEPLOYED
+# target without its required queue worker is not a successful deployment.
+activate_supervisor_worker() {
     log "activating supervisor worker ${SUPERVISOR_PROGRAM} (not active — first deployment after a PRE_DEPLOY bootstrap, or a stopped worker)"
 
     # reread only parses the installed configuration into supervisord's
@@ -281,6 +269,80 @@ ensure_supervisor_worker() {
     fi
 
     log "supervisor worker ${SUPERVISOR_PROGRAM} RUNNING"
+}
+
+# issue_queue_restart RELEASE_DIR — writes Laravel's queue restart signal
+# from RELEASE_DIR, as the runtime user. Returns the artisan exit status; the
+# caller decides whether a failure is fatal (deploy) or a recovery warning.
+issue_queue_restart() {
+    local release_dir="$1"
+
+    (
+        cd "${release_dir}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan queue:restart
+    )
+}
+
+# perform_queue_transition — the single place the queue is handled, after the
+# atomic current switch and the HTTP health check, and before the success
+# record. Which action is correct depends entirely on the worker's state
+# BEFORE this deployment, captured in ORIGINAL_QUEUE_RUNNING:
+#
+#   CASE A — the worker was not running (first deploy after a PRE_DEPLOY
+#   bootstrap, or a worker an operator stopped). Activate the
+#   registry-declared program and require RUNNING. Deliberately NO
+#   queue:restart afterwards: the process was just started against the new
+#   current, so it already booted the new release — signalling a restart
+#   would only ask a fresh worker to exit for nothing.
+#
+#   CASE B — the worker was already running (every normal deployment on a
+#   DEPLOYED target). No reread/update/start churn merely because a
+#   deployment happened. Instead queue:restart is MANDATORY: Laravel workers
+#   are long-lived and keep the application code they booted with, so a
+#   worker that never receives the signal keeps serving the OLD release
+#   indefinitely. A restart signal that cannot be written is therefore a
+#   failed deployment, not a warning.
+#
+# PID turnover is deliberately not a deployment condition. Laravel's restart
+# is graceful: the worker finishes its current job and exits afterwards, and
+# Supervisor then replaces the process. Requiring immediate turnover would
+# fail deployments for a worker that is simply mid-job. What is required is
+# that the signal was written and the program remains operational.
+perform_queue_transition() {
+    if [[ "${ORIGINAL_QUEUE_RUNNING}" != true ]]; then
+        activate_supervisor_worker
+
+        log "worker ${SUPERVISOR_PROGRAM} was freshly started against the new release — no queue:restart signal needed"
+
+        return 0
+    fi
+
+    log "supervisor worker ${SUPERVISOR_PROGRAM} already RUNNING — no supervisor registration/start churn"
+
+    # A release with no artisan is not a Laravel application and has no queue
+    # to signal; deploy already gates its whole Laravel preparation on the
+    # same condition.
+    if [[ ! -f "${RELEASE_ROOT}/artisan" ]]; then
+        log "release contains no artisan — no queue restart signal applicable"
+    else
+        if ! issue_queue_restart "${RELEASE_ROOT}"; then
+            FAILURE_STATUS="failed-queue-restart"
+            fail "artisan queue:restart failed — the running worker would keep serving the previous release"
+        fi
+
+        QUEUE_RESTART_ISSUED=true
+
+        log "queue restart signal issued; Supervisor performs the eventual worker process replacement"
+    fi
+
+    # The program must still be operational after signalling.
+    if ! queue_program_running; then
+        FAILURE_STATUS="failed-queue-restart"
+        fail "supervisor worker ${SUPERVISOR_PROGRAM} is not RUNNING after the queue restart signal"
+    fi
 }
 
 # --- deployment recovery (unchanged internals; process-global trap, not
@@ -384,13 +446,36 @@ handle_deployment_exit() {
                 recovery_succeeded=false
                 log "WARNING: unable to stop supervisor worker ${SUPERVISOR_PROGRAM} during recovery"
             fi
-        elif [[ "${ORIGINAL_QUEUE_RUNNING}" == true ]] && ! queue_program_running; then
-            # The worker ran before this deploy and this deploy never
-            # touched it (no reread/update/start ran), so a not-RUNNING
-            # worker here means something outside this pipeline stopped it —
-            # surfaced as a recovery warning, never silently absorbed and
-            # never force-started by recovery.
-            log "WARNING: supervisor worker ${SUPERVISOR_PROGRAM} was RUNNING before this deployment but is not RUNNING after recovery — investigate manually"
+        elif [[ "${ORIGINAL_QUEUE_RUNNING}" == true ]]; then
+            # The worker ran before this deploy and was never registered or
+            # started by it. If this deploy already signalled a restart, the
+            # workers were told to exit and reboot against what `current`
+            # points at — which recovery has just changed back to the old
+            # release. Re-signal from the RESTORED release so the queue ends
+            # up coherent with the release actually being served, rather than
+            # leaving workers that booted (or are about to boot) the failed
+            # one. Only the target's own program is involved.
+            if [[ "${QUEUE_RESTART_ISSUED}" == true ]] \
+                && [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
+                && [[ -d "${ORIGINAL_CURRENT_PATH}" ]] \
+                && [[ -f "${ORIGINAL_CURRENT_PATH}/artisan" ]]
+            then
+                log "re-issuing the queue restart signal from the restored release ${ORIGINAL_CURRENT_PATH}"
+
+                if ! issue_queue_restart "${ORIGINAL_CURRENT_PATH}"; then
+                    recovery_succeeded=false
+                    log "WARNING: unable to re-issue the queue restart signal against the restored release"
+                fi
+            fi
+
+            if ! queue_program_running; then
+                # Either something outside this pipeline stopped it, or the
+                # program did not survive the transition — surfaced through
+                # the existing recovery warning semantics, never silently
+                # absorbed and never force-started by recovery.
+                recovery_succeeded=false
+                log "WARNING: supervisor worker ${SUPERVISOR_PROGRAM} was RUNNING before this deployment but is not RUNNING after recovery — investigate manually"
+            fi
         fi
 
         if [[ "${TERMINAL_HISTORY_WRITTEN}" == false ]]; then
@@ -488,6 +573,7 @@ perform_deploy() {
     ORIGINAL_QUEUE_RUNNING=false
     queue_program_running && ORIGINAL_QUEUE_RUNNING=true
     SUPERVISOR_ACTIVATED_NOW=false
+    QUEUE_RESTART_ISSUED=false
 
     DEPLOYMENT_STARTED=false
     TERMINAL_HISTORY_WRITTEN=false
@@ -763,12 +849,11 @@ perform_deploy() {
         fail "deployment health check failed"
     fi
 
-    # Slice 5.5: a DEPLOYED target requires its registry-declared queue
-    # worker RUNNING — activated here on the first deployment after a
-    # PRE_DEPLOY bootstrap, untouched on every normal deployment where it
-    # already runs. Runs after the HTTP health check and before the success
-    # record: both must hold before the deployment may be called successful.
-    ensure_supervisor_worker
+    # Slice 5.5: the queue transition — activation on a first deployment,
+    # a mandatory restart signal on a normal one. Runs after the HTTP health
+    # check and before the success record: both must hold before the
+    # deployment may be called successful.
+    perform_queue_transition
 
     if [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
         && [[ -d "${ORIGINAL_CURRENT_PATH}" ]]
@@ -782,15 +867,9 @@ perform_deploy() {
             "${PREVIOUS_LINK}"
     fi
 
-    if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
-        (
-            cd "${RELEASE_ROOT}"
-
-            runuser \
-                -u "${RUNTIME_USER}" \
-                -- "${PHP_BIN}" artisan queue:restart
-        ) || log "WARNING: queue restart command failed"
-    fi
+    # The queue transition already ran, immediately after the health check —
+    # it is a deployment requirement, not a best-effort afterthought, so
+    # there is deliberately no second, warning-only restart attempt here.
 
     log "${LABEL} deployed successfully: ${RELEASE_ID}"
 

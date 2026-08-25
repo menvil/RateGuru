@@ -71,11 +71,35 @@ set -Eeuo pipefail
 
 # --- Locations ----------------------------------------------------------------
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+# The script FILE is canonicalized before its directory, and that ordering is
+# security-relevant. Resolving only the directory
+# (`cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P`) physically resolves the
+# path components but NOT a symlink used as the bootstrap-host file itself:
+# an attacker-writable /tmp/evil/infrastructure/scripts/bootstrap-host
+# symlinked at the real script would yield SCRIPT_DIR=/tmp/evil/…/scripts,
+# pass the layout check below, and make this root command execute
+# attacker-controlled `install-bootstrap-*` and `bootstrap-host-preflight`
+# siblings. Canonicalizing the file first pins SCRIPT_DIR to the directory
+# holding the REAL script, so sibling resolution can never be redirected by
+# how the command was invoked. Resolution failure is fatal — never a silent
+# fallback to the invocation path.
+if ! SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null)" \
+    || [[ -z "${SCRIPT_PATH}" ]]
+then
+    printf 'ERROR: cannot canonicalize the bootstrap-host script path: %s\n' "${BASH_SOURCE[0]}" >&2
+    exit 1
+fi
 
-# Reject a symlink-confused or copied-out-of-place layout: the canonical
-# location of this command is the repository's infrastructure/scripts
-# directory, and the sibling children below are only authoritative there.
+if ! SCRIPT_DIR="$(cd -- "$(dirname -- "${SCRIPT_PATH}")" >/dev/null 2>&1 && pwd -P)" \
+    || [[ -z "${SCRIPT_DIR}" ]]
+then
+    printf 'ERROR: cannot resolve the bootstrap-host script directory: %s\n' "${SCRIPT_PATH}" >&2
+    exit 1
+fi
+
+# Reject a copied-out-of-place layout: the canonical location of this command
+# is the repository's infrastructure/scripts directory, and the sibling
+# children below are only authoritative there.
 if [[ "${SCRIPT_DIR}" != */infrastructure/scripts ]]; then
     printf 'ERROR: bootstrap-host must run from the repository checkout (…/infrastructure/scripts); resolved location: %s\n' "${SCRIPT_DIR}" >&2
     exit 1

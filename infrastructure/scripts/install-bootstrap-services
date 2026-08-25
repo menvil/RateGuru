@@ -47,7 +47,10 @@
 #   install-mail-capture         owns Mailpit/Mailtrap Local end to end
 #                                (users, state, units, pinned binaries,
 #                                their Nginx vhosts), verified through
-#                                verify-mail-capture.
+#                                `verify-mail-capture --read-only` — never
+#                                its mutating --e2e acceptance mode, which
+#                                sends mail and bounces the mirror service
+#                                and stays an explicit operator command.
 # This installer directly owns only the service files that have committed
 # sources but no dedicated installer: the active-target Nginx site (plus its
 # enabled symlink), the PHP-FPM pool, the Supervisor queue program, the
@@ -1042,9 +1045,14 @@ report_child_contracts() {
             "${PUBLIC_STORAGE_INSTALLER_BIN}" --verify --target "${target_id}"
     done
 
+    # --read-only is mandatory here: verify-mail-capture's default (--e2e)
+    # sends SMTP, deletes messages and stops/starts the mirror service, which
+    # would make this installer's --check/--verify — and bootstrap-host's,
+    # which delegates to them — mutating. The full acceptance run is an
+    # explicit operator command, never ordinary bootstrap verification.
     report_child_state "mail-capture:verify-mail-capture" \
-        "shared-host-service Mailpit/Mailtrap Local (never per-target)" \
-        "${VERIFY_MAIL_CAPTURE_BIN}"
+        "shared-host-service Mailpit/Mailtrap Local (never per-target; read-only probe)" \
+        "${VERIFY_MAIL_CAPTURE_BIN}" --read-only
 }
 
 # report_child_state NAME LABEL BIN ARGS... — a failing child contract is
@@ -1867,9 +1875,16 @@ converge_public_storage_access() {
         || fail "install-public-storage-access --apply --target ${target_id} failed — aborting before any later component"
 }
 
+# converge_mail_capture — both probes use --read-only on purpose. The skip
+# decision must not itself mutate (otherwise a fully compliant host would
+# send mail and bounce the mirror service on every idempotent --apply), and
+# the post-apply confirmation must not either. The mutating end-to-end
+# acceptance run (`verify-mail-capture --e2e`) is a deliberate operator
+# command documented in runbooks/mail-capture.md — never something an
+# automated convergence pass performs behind the operator's back.
 converge_mail_capture() {
-    if "${VERIFY_MAIL_CAPTURE_BIN}" >/dev/null 2>&1; then
-        action "child:mail-capture already compliant (verify-mail-capture passes) — skipped, no service restarted"
+    if "${VERIFY_MAIL_CAPTURE_BIN}" --read-only >/dev/null 2>&1; then
+        action "child:mail-capture already compliant (verify-mail-capture --read-only passes) — skipped, no service restarted"
         return 0
     fi
 
@@ -1877,8 +1892,8 @@ converge_mail_capture() {
     "${MAIL_CAPTURE_INSTALLER_BIN}" --apply \
         || fail "install-mail-capture --apply failed — aborting before any later component (its own transaction restored files and runtime state)"
 
-    "${VERIFY_MAIL_CAPTURE_BIN}" >/dev/null 2>&1 \
-        || fail "verify-mail-capture still fails after install-mail-capture --apply"
+    "${VERIFY_MAIL_CAPTURE_BIN}" --read-only >/dev/null 2>&1 \
+        || fail "verify-mail-capture --read-only still fails after install-mail-capture --apply"
 }
 
 # --- Apply --------------------------------------------------------------------

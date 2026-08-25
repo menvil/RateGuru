@@ -92,6 +92,14 @@ of the orchestrator.
 - `--verify` — read-only: every child `--verify` must pass, then the final
   preflight must pass.
 
+`--check` and `--verify` are read-only all the way down, not just at this
+level. In particular the Phase 5.4 child verifies mail capture through
+`verify-mail-capture --read-only`, never its default `--e2e` mode — which
+sends real mail, deletes messages and stops/starts
+`staging-mailtrap-local.service`. Running the full mail acceptance is an
+explicit operator command (see [`mail-capture.md`](mail-capture.md)); no
+`bootstrap-host` mode ever triggers it, including `--apply`.
+
 ### Safe interruption and re-run
 
 Any child failure stops the run immediately — later slices are never
@@ -129,14 +137,38 @@ legitimate **PRE_DEPLOY** state (see the shared model in
 deploy-time secret material reported `DEFERRED`, never `MISSING`.
 `bootstrap-host` does **not** deploy an application — no artifact, no
 release, no `current` switch, no migration. The separate existing `deploy`
-operation performs the PRE_DEPLOY → DEPLOYED transition, and (since slice
-5.5) also activates the deferred target Supervisor queue worker after the
-atomic `current` switch and HTTP health check: an already-RUNNING worker is
-never touched, an inactive one is activated via `supervisorctl
-reread`/`update` (plus `start` when needed) scoped to exactly the target
-program group, and a worker that cannot reach RUNNING fails the deployment
-(recovery stops a worker the failed deploy activated). Phase 5.6 exercises
-both, in sequence, on a real clean VPS.
+operation performs the PRE_DEPLOY → DEPLOYED transition, and since slice 5.5
+it also owns the queue transition, immediately after the atomic `current`
+switch and the HTTP health check and before the success record. Which action
+is correct depends on the worker's state *before* the deployment:
+
+- **The worker was not running** (first deploy after a PRE_DEPLOY bootstrap,
+  or one an operator stopped): the registry-declared program is activated via
+  `supervisorctl reread`/`update` (plus `start` when needed), scoped to
+  exactly that program group, and must reach RUNNING. No `queue:restart`
+  follows — the process was just started against the new `current`, so it
+  already booted the new release.
+- **The worker was already running** (every normal deployment): no
+  reread/update/start churn merely because a deployment happened. Instead
+  `php artisan queue:restart` is **mandatory** — Laravel workers are
+  long-lived and keep the code they booted with, so a worker that never
+  receives the signal keeps serving the old release indefinitely. A restart
+  signal that cannot be written fails the deployment; it is not a warning,
+  and no success history is recorded.
+
+Immediate PID turnover is deliberately **not** a deployment condition:
+Laravel's restart is graceful, so a worker finishes its current job before
+exiting, and **Supervisor performs the eventual process replacement**. What
+is required is that the signal was written and the program is still
+operational.
+
+Recovery stays coherent with whichever of those happened. A failed first
+deployment stops the worker it activated, so nothing runs against a `current`
+recovery removed. A failure after a successful restart signal restores the
+old `current` and then re-issues the signal *from the restored release*, so
+the workers end up matching the release actually being served. Unrelated
+Supervisor programs are never touched. Phase 5.6 exercises all of it, in
+sequence, on a real clean VPS.
 
 ## Slice 5.1: bootstrap-host-preflight
 

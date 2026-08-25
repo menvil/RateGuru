@@ -378,6 +378,50 @@ it('--check walks forward exactly as far as slices are satisfied', function () {
     }
 });
 
+it('inherits a real read-only guarantee: the 5.4 child it delegates to never runs the mutating mail verifier', function () {
+    // bootstrap-host's own read-only guarantee is only as real as the chain
+    // beneath it. It passes --check/--verify to install-bootstrap-services
+    // (asserted here), which in turn only ever invokes
+    // `verify-mail-capture --read-only` (asserted in
+    // InstallBootstrapServicesTest), which performs zero mutation (asserted in
+    // MailCaptureInfrastructureTest, by running the real script). A stub alone
+    // could never establish this, so each link is pinned where it lives.
+    $scratch = bhostScratchDir();
+
+    try {
+        $env = bhostFixture($scratch, ['compliant' => ['5.2', '5.3', '5.4']]);
+
+        bhostRun(['--check'], $env);
+        bhostRun(['--verify'], $env);
+
+        $invocations = bhostChildrenLog($scratch);
+        expect($invocations)->not->toBe([]);
+
+        foreach ($invocations as $invocation) {
+            expect($invocation)->toMatch(
+                '/ --(check|verify)$/',
+                "a read-only orchestration mode passed something other than --check/--verify: {$invocation}",
+            );
+        }
+
+        // The real services installer is the one that must carry --read-only
+        // down to the mail verifier; prove the source actually does so.
+        $services = File::get(base_path('infrastructure/scripts/install-bootstrap-services'));
+        preg_match_all('/\$\{VERIFY_MAIL_CAPTURE_BIN\}"(.*)$/m', $services, $matches);
+
+        expect($matches[1])->not->toBe([], 'no verify-mail-capture call sites found — assertion would be vacuous');
+
+        foreach ($matches[1] as $callSite) {
+            // toContain() is variadic in Pest — a second argument would be
+            // another needle, not a failure message.
+            expect(str_contains($callSite, '--read-only'))
+                ->toBeTrue("mail verifier invoked without --read-only: {$callSite}");
+        }
+    } finally {
+        bhostCleanup($scratch);
+    }
+});
+
 it('--check and --verify contain no path that executes a child --apply', function () {
     foreach ([[], ['5.2'], ['5.2', '5.3'], ['5.2', '5.3', '5.4']] as $compliant) {
         $scratch = bhostScratchDir();
@@ -785,6 +829,91 @@ it('resolves children as canonical repository siblings, in the exact 5.2 -> 5.3 
     ] as $forbidden) {
         expect($source)->not->toContain($forbidden);
     }
+});
+
+// =============================================================================
+// Bootstrap source safety: the script FILE is canonicalized, not just its
+// directory, so a symlinked invocation cannot redirect sibling resolution.
+// =============================================================================
+
+it('never executes attacker-controlled siblings when invoked through a symlinked script file', function () {
+    // Resolving only the directory (cd "$(dirname "$0")" && pwd -P) physically
+    // resolves the path components but NOT a symlink used as the bootstrap-host
+    // file itself — so an attacker-writable
+    // /tmp/evil/infrastructure/scripts/bootstrap-host symlinked at the real
+    // script would keep SCRIPT_DIR inside /tmp/evil, pass the layout check, and
+    // make this root command run the attacker's install-bootstrap-* siblings.
+    $scratch = bhostScratchDir();
+
+    try {
+        $evil = $scratch.'/evil/infrastructure/scripts';
+        expect(@mkdir($evil, 0o755, true))->toBeTrue("could not create fake layout: {$evil}");
+
+        // The real script, reachable under the attacker-controlled directory.
+        expect(symlink(bhostScript(), $evil.'/bootstrap-host'))->toBeTrue();
+
+        // Malicious siblings that record the fact they ran.
+        $siblings = [
+            'install-bootstrap-runtime',
+            'install-bootstrap-host-layout',
+            'install-bootstrap-services',
+            'bootstrap-host-preflight',
+        ];
+
+        foreach ($siblings as $sibling) {
+            bhostWriteStub($evil.'/'.$sibling, "#!/bin/bash\ntouch ".escapeshellarg($scratch.'/PWNED-'.$sibling)."\nexit 0\n");
+        }
+
+        // Invoked through the symlink, with NO test overrides in play beyond
+        // the root gate — production child resolution must apply.
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+        $process = proc_open(
+            ['bash', $evil.'/bootstrap-host', '--check'],
+            $descriptors,
+            $pipes,
+            null,
+            [
+                'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+                'HOME' => getenv('HOME') ?: '/tmp',
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_BOOTSTRAPHOST_EUID' => '0',
+            ],
+        );
+        expect($process)->not->toBeFalse();
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        proc_close($process);
+
+        // The attacker's siblings must never have run — whether because the
+        // canonical real siblings were used instead, or because the invocation
+        // failed closed. Both outcomes are acceptable; execution is not.
+        foreach ($siblings as $sibling) {
+            expect(file_exists($scratch.'/PWNED-'.$sibling))
+                ->toBeFalse("attacker-controlled sibling was executed: {$sibling}\n{$output}");
+        }
+
+        // Positive confirmation that resolution landed on the real checkout.
+        expect($output)->toContain(dirname(bhostScript()).'/install-bootstrap-runtime');
+        expect($output)->not->toContain($evil.'/install-bootstrap-runtime');
+    } finally {
+        bhostCleanup($scratch);
+    }
+});
+
+it('canonicalizes the script file before its directory, and fails closed if that cannot be resolved', function () {
+    $source = bhostSource();
+
+    // The file is canonicalized first; the directory is derived from the
+    // canonical path, never from the invocation path.
+    expect($source)->toContain('readlink -f -- "${BASH_SOURCE[0]}"');
+    expect($source)->toContain('dirname -- "${SCRIPT_PATH}"');
+
+    // The pre-fix form — deriving the directory straight from BASH_SOURCE —
+    // must be gone.
+    expect($source)->not->toContain('dirname -- "${BASH_SOURCE[0]}"');
+
+    // Resolution failure is fatal, never a silent fallback.
+    expect($source)->toContain('cannot canonicalize the bootstrap-host script path');
 });
 
 it('is never part of the installed operational bundle and grants the deploy user no path to it', function () {

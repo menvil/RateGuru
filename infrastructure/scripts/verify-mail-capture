@@ -1,20 +1,40 @@
 #!/usr/bin/env bash
 #
-# verify-mail-capture — end-to-end verification of the staging mail-capture slice.
+# verify-mail-capture — verification of the staging mail-capture slice, in two
+# explicitly separated modes.
 #
-# Verifies, in order:
-#   1. both systemd services are active;
-#   2. all four loopback listeners are up (1025, 8025 mailpit; 3535, 3550 mirror);
-#   3. Mailpit API is available;
-#   4. Mailtrap Local API is available;
-#   5. an SMTP message with a unique identifier is accepted by Mailpit;
-#   6. the message appears in Mailpit (canonical copy);
-#   7. its mirrored copy appears in Mailtrap Local;
-#   8. Mailpit keeps accepting messages while Mailtrap Local is stopped;
-#   9. Mailtrap Local can be restarted and mirroring resumes.
+#   --read-only  STRICTLY READ-ONLY structural/liveness verification. Performs
+#                ZERO mutation: no SMTP submission, no message creation, no
+#                message deletion, no service stop/start/restart/reload, no
+#                file or systemd state change. Checks:
+#                  1. both systemd services are active;
+#                  2. all four loopback listeners are up (1025, 8025 mailpit;
+#                     3535, 3550 mirror);
+#                  3. Mailpit API is available;
+#                  4. Mailtrap Local API is available.
+#                This is the mode automated bootstrap verification uses, so
+#                install-bootstrap-services --check/--verify/--apply — and
+#                therefore bootstrap-host --check/--verify — genuinely keep
+#                their read-only contract.
 #
-# All test messages are deleted again on exit, and Mailtrap Local is restarted
-# if this script stopped it.
+#   --e2e        MUTATING acceptance verification (the default when no mode is
+#                given, preserving the existing operational invocation). Runs
+#                every read-only check, then additionally:
+#                  5. an SMTP message with a unique identifier is accepted by
+#                     Mailpit;
+#                  6. the message appears in Mailpit (canonical copy);
+#                  7. its mirrored copy appears in Mailtrap Local;
+#                  8. Mailpit keeps accepting messages while Mailtrap Local is
+#                     stopped;
+#                  9. Mailtrap Local can be restarted and mirroring resumes.
+#                It SENDS mail, DELETES the synthetic messages it created, and
+#                STOPS/STARTS staging-mailtrap-local.service. It is a
+#                deliberate, operator-invoked acceptance run — never ordinary
+#                bootstrap verification. Root is required because it changes
+#                service state.
+#
+# In --e2e, all test messages are deleted again on exit and Mailtrap Local is
+# restarted if this script stopped it.
 
 set -Eeuo pipefail
 
@@ -47,9 +67,34 @@ require_root() {
     [[ "${EUID}" -eq 0 ]] || fail "this command must be executed as root (it stops/starts services)"
 }
 
-for tool in curl jq systemctl; do
-    command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
-done
+usage() {
+    cat <<'USAGE'
+Usage:
+  verify-mail-capture --read-only
+  verify-mail-capture --e2e
+  verify-mail-capture              (equivalent to --e2e)
+  verify-mail-capture --help
+
+  --read-only  Strictly read-only structural/liveness verification: services
+               active, the four loopback listeners up, both APIs responding.
+               Performs NO mutation whatsoever — no SMTP submission, no
+               message creation or deletion, no service state change. This is
+               what automated bootstrap verification uses.
+  --e2e        Mutating acceptance verification: everything --read-only does,
+               plus real SMTP submission, canonical/mirrored delivery,
+               stopping and starting staging-mailtrap-local.service, and
+               deletion of the synthetic messages it created. Requires root.
+USAGE
+}
+
+# Checked from main, after argument parsing, so --help never depends on the
+# host having systemd (and a bad argument is reported as a bad argument).
+require_tools() {
+    local tool
+    for tool in curl jq systemctl; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+}
 
 # --- SMTP submission over /dev/tcp (no external mail client needed) ----------
 
@@ -181,39 +226,49 @@ cleanup() {
         systemctl start staging-mailtrap-local.service >/dev/null 2>&1 || true
     fi
 }
-trap cleanup EXIT
 
-# --- Verification -----------------------------------------------------------
+# --- Read-only verification ---------------------------------------------------
+#
+# Every probe below is a pure read: systemctl is-active, a listener lookup, and
+# GET requests against the two APIs. Nothing here submits mail, creates or
+# deletes messages, or changes service state — that is the whole point of the
+# mode, and install-bootstrap-services depends on it.
 
-require_root
-log "verifying staging mail capture"
+run_read_only_checks() {
+    # 1. systemd services.
+    systemctl is-active --quiet staging-mailpit.service \
+        || fail "staging-mailpit.service is not active"
+    ok "staging-mailpit.service is active"
+    systemctl is-active --quiet staging-mailtrap-local.service \
+        || fail "staging-mailtrap-local.service is not active"
+    ok "staging-mailtrap-local.service is active"
 
-# 1. systemd services.
-systemctl is-active --quiet staging-mailpit.service \
-    || fail "staging-mailpit.service is not active"
-ok "staging-mailpit.service is active"
-systemctl is-active --quiet staging-mailtrap-local.service \
-    || fail "staging-mailtrap-local.service is not active"
-ok "staging-mailtrap-local.service is active"
+    # 2. Four exact loopback listeners: 127.0.0.1:1025, 127.0.0.1:8025,
+    #    127.0.0.2:3535, 127.0.0.1:3550.
+    check_listener "${MAILPIT_SMTP_HOST}" "${MAILPIT_SMTP_PORT}" || fail "Mailpit SMTP not listening on ${MAILPIT_SMTP_HOST}:${MAILPIT_SMTP_PORT}"
+    ok "Mailpit SMTP listening on ${MAILPIT_SMTP_HOST}:${MAILPIT_SMTP_PORT}"
+    check_listener "${MAILPIT_HTTP_HOST}" "${MAILPIT_HTTP_PORT}" || fail "Mailpit HTTP not listening on ${MAILPIT_HTTP_HOST}:${MAILPIT_HTTP_PORT}"
+    ok "Mailpit HTTP listening on ${MAILPIT_HTTP_HOST}:${MAILPIT_HTTP_PORT}"
+    check_listener "${MAILTRAP_SMTP_HOST}" "${MAILTRAP_SMTP_PORT}" || fail "Mailtrap SMTP not listening on ${MAILTRAP_SMTP_HOST}:${MAILTRAP_SMTP_PORT}"
+    ok "Mailtrap Local SMTP listening on ${MAILTRAP_SMTP_HOST}:${MAILTRAP_SMTP_PORT}"
+    check_listener "${MAILTRAP_HTTP_HOST}" "${MAILTRAP_HTTP_PORT}" || fail "Mailtrap HTTP not listening on ${MAILTRAP_HTTP_HOST}:${MAILTRAP_HTTP_PORT}"
+    ok "Mailtrap Local HTTP listening on ${MAILTRAP_HTTP_HOST}:${MAILTRAP_HTTP_PORT}"
 
-# 2. Four exact loopback listeners: 127.0.0.1:1025, 127.0.0.1:8025,
-#    127.0.0.2:3535, 127.0.0.1:3550.
-check_listener "${MAILPIT_SMTP_HOST}" "${MAILPIT_SMTP_PORT}" || fail "Mailpit SMTP not listening on ${MAILPIT_SMTP_HOST}:${MAILPIT_SMTP_PORT}"
-ok "Mailpit SMTP listening on ${MAILPIT_SMTP_HOST}:${MAILPIT_SMTP_PORT}"
-check_listener "${MAILPIT_HTTP_HOST}" "${MAILPIT_HTTP_PORT}" || fail "Mailpit HTTP not listening on ${MAILPIT_HTTP_HOST}:${MAILPIT_HTTP_PORT}"
-ok "Mailpit HTTP listening on ${MAILPIT_HTTP_HOST}:${MAILPIT_HTTP_PORT}"
-check_listener "${MAILTRAP_SMTP_HOST}" "${MAILTRAP_SMTP_PORT}" || fail "Mailtrap SMTP not listening on ${MAILTRAP_SMTP_HOST}:${MAILTRAP_SMTP_PORT}"
-ok "Mailtrap Local SMTP listening on ${MAILTRAP_SMTP_HOST}:${MAILTRAP_SMTP_PORT}"
-check_listener "${MAILTRAP_HTTP_HOST}" "${MAILTRAP_HTTP_PORT}" || fail "Mailtrap HTTP not listening on ${MAILTRAP_HTTP_HOST}:${MAILTRAP_HTTP_PORT}"
-ok "Mailtrap Local HTTP listening on ${MAILTRAP_HTTP_HOST}:${MAILTRAP_HTTP_PORT}"
+    # 3. Mailpit API.
+    wait_for_api "${MAILPIT_API}/api/v1/info" "${POLL_TIMEOUT}" || fail "Mailpit API is unavailable"
+    ok "Mailpit API is available"
 
-# 3. Mailpit API.
-wait_for_api "${MAILPIT_API}/api/v1/info" "${POLL_TIMEOUT}" || fail "Mailpit API is unavailable"
-ok "Mailpit API is available"
+    # 4. Mailtrap Local API.
+    wait_for_api "${MAILTRAP_API}/api/v1/version" "${POLL_TIMEOUT}" || fail "Mailtrap Local API is unavailable"
+    ok "Mailtrap Local API is available"
+}
 
-# 4. Mailtrap Local API.
-wait_for_api "${MAILTRAP_API}/api/v1/version" "${POLL_TIMEOUT}" || fail "Mailtrap Local API is unavailable"
-ok "Mailtrap Local API is available"
+# --- Mutating end-to-end acceptance -------------------------------------------
+#
+# Everything below sends real mail, deletes the synthetic messages it created,
+# and stops/starts staging-mailtrap-local.service. Only ever reached in --e2e.
+
+run_e2e_checks() {
 
 # 5-7. Submit a message and confirm canonical + mirrored copies.
 TOKEN_MIRROR="$(new_token)"
@@ -267,3 +322,60 @@ poll_present "${MAILTRAP_API}" "${TOKEN_RESUME}" "${POLL_TIMEOUT}" \
 ok "mirroring resumes after Mailtrap Local restart"
 
 log "verification succeeded; cleaning up test messages"
+
+}
+
+# --- Entry point --------------------------------------------------------------
+
+MODE="e2e"
+
+parse_args() {
+    local mode_seen=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --read-only|--e2e)
+                if [[ "${mode_seen}" == true ]]; then
+                    usage >&2
+                    fail "mode given more than once"
+                fi
+
+                MODE="${1#--}"
+                mode_seen=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+}
+
+main() {
+    parse_args "$@"
+    require_tools
+
+    if [[ "${MODE}" == "read-only" ]]; then
+        # No root requirement and no cleanup trap: this mode changes nothing,
+        # so there is nothing to restore and no privileged action to take.
+        log "verifying staging mail capture (read-only; no mutation performed)"
+        run_read_only_checks
+        log "read-only verification succeeded"
+
+        exit 0
+    fi
+
+    require_root
+    trap cleanup EXIT
+
+    log "verifying staging mail capture (end-to-end acceptance; MUTATING)"
+    run_read_only_checks
+    run_e2e_checks
+}
+
+main "$@"

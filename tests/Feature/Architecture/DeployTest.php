@@ -249,6 +249,10 @@ function deployOpsInstallCoreStubs(string $scratch): void
                     exit 1
                 fi
                 if [[ -e "${state}/queue-running" ]]; then
+                    # drop-after-status simulates a worker that is RUNNING when
+                    # the pre-deploy snapshot reads it and gone by the time the
+                    # transition re-checks it.
+                    [[ -e "${state}/drop-after-status" ]] && rm -f "${state}/queue-running"
                     echo "parity-queue:parity-queue_00   RUNNING   pid 123, uptime 0:05:00"
                     exit 0
                 fi
@@ -301,6 +305,70 @@ function deployOpsFakePhpBin(string $scratch): string
     chmod($path, 0o755);
 
     return $path;
+}
+
+/**
+ * A php stub whose `artisan queue:restart` fails while every other artisan
+ * command succeeds — the "restart signal cannot be written" case.
+ */
+function deployOpsFailingQueueRestartPhpBin(string $scratch): string
+{
+    $path = $scratch.'/bin/fake-php-queue-fail';
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'echo "php $*" >> '.escapeshellarg($scratch.'/artisan.log')."\n"
+        ."for arg in \"\$@\"; do\n"
+        ."    if [[ \"\${arg}\" == 'queue:restart' ]]; then exit 1; fi\n"
+        ."done\n"
+        ."exit 0\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * A minimal release directory containing artisan, for exercising the queue
+ * transition directly without running deploy's full Laravel preparation
+ * (whose `install -g www-data` needs a membership CI does not have).
+ */
+function deployOpsReleaseDirWithArtisan(string $scratch): string
+{
+    $dir = $scratch.'/release-'.uniqid('', true);
+    expect(@mkdir($dir, 0o755, true))->toBeTrue("could not create release directory: {$dir}");
+    file_put_contents($dir.'/artisan', "#!/usr/bin/env php\n<?php // fixture artisan\n");
+
+    return $dir;
+}
+
+/**
+ * Sources deploy and calls perform_queue_transition with an explicitly
+ * controlled pre-deploy worker state, which is what selects CASE A
+ * (activate, no restart) versus CASE B (no churn, mandatory restart).
+ *
+ * @return array{0: int, 1: string}
+ */
+function deployOpsRunQueueTransition(string $scratch, bool $originalRunning, array $env = []): array
+{
+    $releaseDir = deployOpsReleaseDirWithArtisan($scratch);
+    $phpBin = $env['__php'] ?? $scratch.'/bin/fake-php';
+    unset($env['__php']);
+    // PHP heredocs interpolate variables, never function calls — the literal
+    // has to be computed before the heredoc.
+    $originalRunningLiteral = $originalRunning ? 'true' : 'false';
+
+    $body = <<<BASH
+        SUPERVISOR_PROGRAM=parity-queue
+        RELEASE_ROOT={$releaseDir}
+        RUNTIME_USER="\$(id -un)"
+        PHP_BIN={$phpBin}
+        ORIGINAL_QUEUE_RUNNING={$originalRunningLiteral}
+        SUPERVISOR_ACTIVATED_NOW=false
+        QUEUE_RESTART_ISSUED=false
+        FAILURE_STATUS=failed
+        perform_queue_transition
+        printf 'TRANSITION_OK activated=%s restarted=%s\\n' "\${SUPERVISOR_ACTIVATED_NOW}" "\${QUEUE_RESTART_ISSUED}"
+        BASH;
+
+    return deployOpsRunHarness($scratch, $body, deployOpsBaseEnv($scratch, $env));
 }
 
 /**
@@ -1399,7 +1467,7 @@ it('performs zero supervisor registration/start churn on a normal deployment who
         );
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('supervisor worker parity-queue already RUNNING — no supervisor changes needed');
+        expect($output)->toContain('supervisor worker parity-queue already RUNNING — no supervisor registration/start churn');
 
         // Only read-only status queries ran — no reread, update, start,
         // stop or restart on a healthy worker.
@@ -1487,6 +1555,216 @@ it('rejects a planned target before any supervisorctl invocation', function () {
         expect($exit)->not->toBe(0);
         expect($output)->toContain('lifecycle=planned');
         expect(deployOpsSupervisorctlLog($scratch))->toBe([], 'a planned target must never cause a supervisorctl invocation');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Slice 5.5: queue transition semantics (CASE A activation vs CASE B restart)
+// =============================================================================
+
+it('CASE A — a worker that was not running is activated and is NOT then sent a queue:restart', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        deployOpsInstallCoreStubs($scratch);
+        deployOpsFakePhpBin($scratch);
+        @unlink($scratch.'/artisan.log');
+
+        [$exit, $output] = deployOpsRunQueueTransition($scratch, originalRunning: false);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('activating supervisor worker parity-queue');
+        expect($output)->toContain('freshly started against the new release — no queue:restart signal needed');
+        expect($output)->toContain('TRANSITION_OK activated=true restarted=false');
+
+        // The worker was started by supervisor against the new current, so it
+        // already booted the new release — signalling a restart would ask a
+        // brand-new worker to exit for nothing.
+        expect(file_exists($scratch.'/artisan.log'))->toBeFalse('a freshly started worker must not be sent queue:restart');
+
+        $calls = implode("\n", deployOpsSupervisorctlLog($scratch));
+        expect($calls)->toContain('supervisorctl reread');
+        expect($calls)->toContain('supervisorctl update parity-queue');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('CASE B — an already-running worker is sent queue:restart with zero supervisor registration churn', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        deployOpsInstallCoreStubs($scratch);
+        deployOpsFakePhpBin($scratch);
+        touch($scratch.'/supervisor-state/queue-running');
+        @unlink($scratch.'/artisan.log');
+
+        [$exit, $output] = deployOpsRunQueueTransition($scratch, originalRunning: true);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('already RUNNING — no supervisor registration/start churn');
+        expect($output)->toContain('queue restart signal issued; Supervisor performs the eventual worker process replacement');
+        expect($output)->toContain('TRANSITION_OK activated=false restarted=true');
+
+        // The mandatory signal was written.
+        expect(file_get_contents($scratch.'/artisan.log'))->toContain('artisan queue:restart');
+
+        // And no registration/start churn happened — only read-only status.
+        foreach (deployOpsSupervisorctlLog($scratch) as $call) {
+            expect(str_starts_with($call, 'supervisorctl status parity-queue:'))
+                ->toBeTrue("a normal deployment must not reread/update/start: {$call}");
+        }
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('CASE B — a queue:restart that cannot be written fails the deployment instead of warning', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        deployOpsInstallCoreStubs($scratch);
+        $failingPhp = deployOpsFailingQueueRestartPhpBin($scratch);
+        touch($scratch.'/supervisor-state/queue-running');
+
+        [$exit, $output] = deployOpsRunQueueTransition(
+            $scratch,
+            originalRunning: true,
+            env: ['__php' => $failingPhp],
+        );
+
+        expect($exit)->not->toBe(0, 'a failed restart signal must be fatal');
+        expect($output)->toContain('artisan queue:restart failed');
+        expect($output)->toContain('would keep serving the previous release');
+        expect($output)->not->toContain('TRANSITION_OK');
+
+        // Explicitly not the old warning-only behavior.
+        expect($output)->not->toContain('WARNING: queue restart command failed');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('does not require immediate PID turnover: a graceful restart with the worker still RUNNING succeeds', function () {
+    // Laravel's restart is graceful — the worker finishes its current job and
+    // exits afterwards, and Supervisor replaces the process. Requiring
+    // turnover here would fail deployments for a worker that is mid-job.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        deployOpsInstallCoreStubs($scratch);
+        deployOpsFakePhpBin($scratch);
+        touch($scratch.'/supervisor-state/queue-running');
+
+        [$exit, $output] = deployOpsRunQueueTransition($scratch, originalRunning: true);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('TRANSITION_OK activated=false restarted=true');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('fails the deployment and writes no success history when the worker is not RUNNING after the queue transition', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        // The worker is RUNNING at snapshot time and gone by the time the
+        // transition re-checks it — the "queue did not survive" case.
+        deployOpsInstallCoreStubs($scratch);
+        touch($scratch.'/supervisor-state/queue-running');
+        touch($scratch.'/supervisor-state/drop-after-status');
+
+        $first = deployOpsRunFullDeployment($scratch);
+
+        expect($first['exit'])->not->toBe(0, $first['output']);
+        expect($first['output'])->toContain('is not RUNNING after the queue restart signal');
+
+        $root = $first['fixture']['root'];
+
+        // No success record; the failure is recorded instead.
+        $history = array_values(array_filter(explode("\n", trim(file_get_contents($root.'/deployments/history.jsonl')))));
+        $finished = json_decode(end($history), true, 512, JSON_THROW_ON_ERROR);
+        expect($finished['event'])->toBe('deployment-finished');
+        expect($finished['status'])->toBe('failed-queue-restart');
+
+        foreach ($history as $entry) {
+            $row = json_decode($entry, true, 512, JSON_THROW_ON_ERROR);
+            expect($row['status'])->not->toBe('success', 'no success history may be written');
+        }
+
+        // First deployment: current is removed again by recovery.
+        expect(is_link($root.'/current'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('re-signals the queue against the restored release when a deployment fails after a successful restart signal', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        deployOpsInstallCoreStubs($scratch);
+        deployOpsFakePhpBin($scratch);
+
+        $oldRelease = deployOpsReleaseDirWithArtisan($scratch);
+        $newRelease = deployOpsReleaseDirWithArtisan($scratch);
+        $target = $scratch.'/recovery-target';
+        expect(@mkdir($target.'/deployments', 0o755, true))->toBeTrue();
+        symlink($newRelease, $target.'/current');
+        touch($scratch.'/supervisor-state/queue-running');
+        @unlink($scratch.'/artisan.log');
+
+        // Drive deploy's real recovery handler with the exact state a
+        // post-restart failure leaves behind.
+        $body = <<<BASH
+            SUPERVISOR_PROGRAM=parity-queue
+            TARGET_ROOT={$target}
+            RELEASE_ID=v9.9.9-20260101-000000-abc0000
+            RELEASE_ROOT={$newRelease}
+            TEMP_RELEASE_ROOT={$scratch}/nonexistent-temp
+            CURRENT_LINK={$target}/current
+            PREVIOUS_LINK={$target}/previous
+            ORIGINAL_CURRENT_PRESENT=true
+            ORIGINAL_CURRENT_PATH={$oldRelease}
+            ORIGINAL_PREVIOUS_PRESENT=false
+            ORIGINAL_PREVIOUS_PATH=""
+            ORIGINAL_QUEUE_RUNNING=true
+            SUPERVISOR_ACTIVATED_NOW=false
+            QUEUE_RESTART_ISSUED=true
+            DEPLOYMENT_STARTED=true
+            CURRENT_SWITCHED=true
+            TERMINAL_HISTORY_WRITTEN=false
+            FAILURE_STATUS=failed-queue-restart
+            RUNTIME_USER="\$(id -un)"
+            PHP_BIN={$scratch}/bin/fake-php
+            # set +e so the deliberate failure status reaches the handler
+            # instead of aborting the harness under set -e.
+            set +e
+            false
+            handle_deployment_exit
+            BASH;
+
+        [$exit, $output] = deployOpsRunHarness($scratch, $body, deployOpsBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0);
+
+        // The old current is restored...
+        expect(realpath($target.'/current'))->toBe(realpath($oldRelease));
+
+        // ...and the queue was re-signalled from the RESTORED release, so the
+        // workers end up coherent with the release actually being served.
+        expect($output)->toContain('re-issuing the queue restart signal from the restored release');
+        expect(file_get_contents($scratch.'/artisan.log'))->toContain('artisan queue:restart');
+
+        // Only the target program was involved — no unrelated supervisor
+        // program and no stop/start of anything.
+        foreach (deployOpsSupervisorctlLog($scratch) as $call) {
+            expect(str_starts_with($call, 'supervisorctl status parity-queue:'))
+                ->toBeTrue("recovery must not mutate supervisor state here: {$call}");
+        }
     } finally {
         deployOpsCleanup($scratch);
     }

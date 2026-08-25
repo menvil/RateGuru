@@ -1140,6 +1140,114 @@ it('reports exact endpoints, restart-loop state and unfiltered journal in status
         ->not->toMatch('/journalctl[^\n]* -p /');
 });
 
+// =============================================================================
+// Slice 5.5: the read-only / E2E split.
+//
+// verify-mail-capture's default mode sends SMTP, deletes messages and
+// stops/starts the mirror service. Automated bootstrap verification
+// (install-bootstrap-services --check/--verify, and therefore bootstrap-host
+// --check/--verify) must never do any of that, so --read-only exists and must
+// be provably inert.
+// =============================================================================
+
+/**
+ * Replace the workspace curl stub with one that logs every invocation, so a
+ * DELETE can be detected rather than merely assumed absent.
+ */
+function mailCaptureInstallLoggingCurl(array $workspace): void
+{
+    $path = $workspace['bin'].'/curl';
+    file_put_contents($path, <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "curl $*" >>"${STUB_STATE_DIR}/calls"
+url=""
+for arg in "$@"; do
+    case "${arg}" in http*) url="${arg}" ;; esac
+done
+grep -Fxq "${url}" "${STUB_STATE_DIR}/apis" 2>/dev/null || exit 22
+exit 0
+SH);
+    chmod($path, 0o755);
+}
+
+it('verify-mail-capture --read-only performs zero mutation: no SMTP, no deletion, no service state change', function () {
+    $workspace = mailCaptureStubWorkspace();
+
+    try {
+        mailCaptureHealthyState($workspace['state']);
+        mailCaptureInstallLoggingCurl($workspace);
+
+        $result = mailCaptureRunHarness(
+            $workspace,
+            'exec bash '.escapeshellarg(base_path('infrastructure/scripts/verify-mail-capture')).' --read-only'."\n",
+        );
+
+        expect($result['exit'])->toBe(0, "read-only verification must succeed on a healthy host:\n{$result['output']}");
+        expect($result['output'])->toContain('read-only; no mutation performed');
+        expect($result['output'])->toContain('read-only verification succeeded');
+
+        $calls = (string) file_get_contents($workspace['state'].'/calls');
+
+        // Zero service state change.
+        foreach (['stop', 'start', 'restart', 'reload', 'enable', 'disable', 'mask'] as $verb) {
+            // toContain() is variadic in Pest — a second argument would be
+            // another needle, not a failure message.
+            expect(str_contains($calls, "systemctl {$verb}"))
+                ->toBeFalse("read-only mode ran a mutating systemctl verb: {$verb}");
+        }
+
+        // Zero message deletion.
+        expect($calls)->not->toContain('-X DELETE');
+        expect($calls)->not->toContain('/api/v1/search');
+
+        // Zero SMTP submission — proven behaviourally: the only e2e step that
+        // reports success after a real send never appears, and none of the
+        // mutating acceptance milestones ran.
+        expect($result['output'])->not->toContain('SMTP message accepted by Mailpit');
+        expect($result['output'])->not->toContain('mirrored copy appears in Mailtrap Local');
+        expect($result['output'])->not->toContain('stopping Mailtrap Local');
+        expect($result['output'])->not->toContain('cleaning up test messages');
+
+        // The read-only probes really did run.
+        expect($calls)->toContain('systemctl is-active');
+        expect($result['output'])->toContain('Mailpit API is available');
+        expect($result['output'])->toContain('Mailtrap Local API is available');
+    } finally {
+        exec('rm -rf '.escapeshellarg($workspace['root']));
+    }
+});
+
+it('keeps --e2e as the mutating acceptance mode, and the default when no mode is given', function () {
+    $verify = mailCaptureSource('scripts/verify-mail-capture');
+
+    // The mutating acceptance behavior still exists, unchanged.
+    expect($verify)
+        ->toContain('systemctl stop staging-mailtrap-local.service')
+        ->toContain('systemctl start staging-mailtrap-local.service')
+        ->toContain('delete_by_token')
+        ->toContain('run_e2e_checks');
+
+    // Backward compatibility: a bare invocation is still the full acceptance
+    // run, so existing operational usage keeps working.
+    expect($verify)->toContain('MODE="e2e"');
+
+    // Only the mutating mode demands root and arms the cleanup trap.
+    expect($verify)
+        ->toContain('require_root')
+        ->toContain('trap cleanup EXIT');
+
+    // A non-root --e2e still refuses, while --read-only does not require root.
+    if (getmyuid() !== 0) {
+        $script = escapeshellarg(base_path('infrastructure/scripts/verify-mail-capture'));
+        exec("bash {$script} --e2e 2>&1", $e2eOutput, $e2eExit);
+        expect($e2eExit)->not->toBe(0);
+        // Either the root gate or a missing systemd tool stops it — never a
+        // silent mutating run.
+        expect(implode("\n", $e2eOutput))->toMatch('/executed as root|required tool not found/');
+    }
+});
+
 it('uses distinct Mailtrap SMTP and HTTP hosts in the verifier', function () {
     $verify = mailCaptureSource('scripts/verify-mail-capture');
 
