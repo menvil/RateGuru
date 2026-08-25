@@ -1296,6 +1296,47 @@ it('enables and starts stopped base services, and leaves compliant ones untouche
 });
 
 // =============================================================================
+// Slice 5.5: mail-capture verification is genuinely read-only
+// =============================================================================
+
+it('only ever invokes verify-mail-capture in --read-only mode, in every mode including apply', function () {
+    // verify-mail-capture's default (--e2e) sends SMTP, deletes messages and
+    // stops/starts the mirror service. If this installer used it, its
+    // --check/--verify would be mutating — and bootstrap-host, which delegates
+    // to them, would inherit that. The full acceptance run stays an explicit
+    // operator command.
+    foreach (['clean', 'compliant'] as $profile) {
+        foreach (['--check', '--verify', '--apply'] as $mode) {
+            $scratch = bsvcScratchDir();
+
+            try {
+                $env = bsvcFixture($scratch, ['profile' => $profile]);
+                bsvcRun([$mode], $env);
+
+                $invocations = array_values(array_filter(
+                    explode("\n", bsvcLog($scratch, 'children.log')),
+                    fn (string $line): bool => str_starts_with($line, 'verify-mail-capture'),
+                ));
+
+                expect($invocations)->not->toBe(
+                    [],
+                    "{$profile} {$mode} never reached verify-mail-capture — the assertion would be vacuous",
+                );
+
+                foreach ($invocations as $invocation) {
+                    // toContain() is variadic in Pest — a second argument
+                    // would be another needle, not a failure message.
+                    expect(str_contains($invocation, '--read-only'))
+                        ->toBeTrue("{$profile} {$mode} invoked the mutating mail-capture verifier: {$invocation}");
+                }
+            } finally {
+                bsvcCleanup($scratch);
+            }
+        }
+    }
+});
+
+// =============================================================================
 // Secrets never enter output
 // =============================================================================
 

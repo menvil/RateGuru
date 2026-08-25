@@ -493,9 +493,8 @@ slices 1–2, which installed nothing — so it completes on merge.
    `previous` release links remained unchanged; staging health remained
    healthy throughout; and planned `tits-guru` remained completely
    unprovisioned.
-4. **5.4 Services and configuration — implemented; awaiting real-staging
-   acceptance (a mutating host slice is never marked completed on CI
-   alone).** `infrastructure/scripts/install-bootstrap-services`
+4. **5.4 Services and configuration — completed.**
+   `infrastructure/scripts/install-bootstrap-services`
    reproducibly turns the prepared 5.2/5.3 host into the configured
    RateGuru service host required for deployment (root-only `--check`
    read-only validation with intended actions, root-only `--apply` that
@@ -541,14 +540,65 @@ slices 1–2, which installed nothing — so it completes on merge.
    zero service configuration (its committed production config sources are
    ignored), and a second `--apply` on a compliant host performs zero
    meaningful mutation: no file rewrite, no reload/restart, no repeated
-   child mutation. Known integration gap, deliberately deferred: `deploy`
-   does not yet activate a Supervisor program the PRE_DEPLOY bootstrap
-   deferred — the first-deploy activation path is a required 5.5/5.6
-   integration fix, exercised by the 5.6 clean-VPS acceptance. See
+   child mutation. The integration gap the slice documented — `deploy` did
+   not yet activate a Supervisor program the PRE_DEPLOY bootstrap deferred —
+   was closed by slice 5.5's first-deploy activation. See
    `runbooks/bootstrap-services.md`.
-5. **5.5 Bootstrap orchestrator — planned.** One command that sequences
-   5.2–5.4 on a clean host, fail-fast, re-runnable, ending with a passing
-   `bootstrap-host-preflight --check`.
+
+   **Accepted on the real staging VPS:** `install-bootstrap-services
+   --check` reported the contract already satisfied (PASS: 41, MISSING: 0,
+   DRIFT: 0, WARN: 0, CONFLICT: 0, DEFERRED: 0 — `SLICE 5.4 CONTRACT:
+   SATISFIED`); `--apply`, `--verify` and a second `--apply` all succeeded,
+   with the second apply idempotent (zero meaningful mutation) and staging
+   healthy throughout. Every child contract passed — target operations,
+   perimeter, public-storage ACL, mail capture — and Nginx, PHP-FPM,
+   PostgreSQL, Redis, Supervisor and the two staging mail-capture services
+   remained active with the deployed `rateguru-staging-queue` worker
+   RUNNING.
+5. **5.5 Bootstrap orchestrator — implemented; awaiting real-staging
+   acceptance (a mutating host slice is never marked completed on CI
+   alone).** `infrastructure/scripts/bootstrap-host` is the one canonical
+   host-bootstrap entry point: clean/prepared Ubuntu host → 5.2 runtime →
+   5.3 identities/filesystem → 5.4 services/configuration → final bootstrap
+   preflight, executed from the bootstrap repository checkout (children are
+   resolved as canonical siblings — never through an application deployment
+   or the installed operational bundle, which do not exist on a clean
+   host). It owns orchestration only — ordering, per-slice status,
+   fail-fast, readiness aggregation — while every child installer stays
+   authoritative for its own contract; there is no `--force`/`--skip`
+   escape hatch, no application deploy, no database/role provisioning, no
+   secret creation, and planned `tits-guru` remains untouched. `--check` is
+   dependency-aware and strictly read-only (an unsatisfied earlier slice
+   marks later slices BLOCKED rather than misjudging them); `--apply` is
+   convergent, not one transaction: per slice, an already-passing
+   authoritative `--verify` is SKIPped, otherwise the child's own `--apply`
+   runs and its `--verify` must pass before the next slice — a failure
+   (e.g. a missing external prerequisite 5.4 fails closed on) stops the run
+   without rolling back safely converged earlier slices, and re-running
+   resumes at the failing slice. SIGINT is never trapped or reinterpreted;
+   child/signal exit statuses propagate verbatim. The slice also unified
+   the PRE_DEPLOY/DEPLOYED/BROKEN target-state model across
+   `bootstrap-host-preflight`, `install-bootstrap-services` and `deploy`:
+   the preflight now classifies each active target's `current` exactly like
+   slice 5.4 (an absent `current` and the deploy-time external material —
+   `shared/.env`, database credentials, `authorized_keys`, `rclone.conf` —
+   are DEFERRED "required before first deploy" on a PRE_DEPLOY host, with a
+   `HOST BOOTSTRAP READY` / `APPLICATION READY: DEFERRED` summary and exit
+   0 when only legitimate deferrals remain; every broken `current` shape
+   stays CONFLICT, and the strict `HOST READY` contract on a DEPLOYED host
+   is unchanged — 5.4-hard TLS/Basic Auth material stays MISSING in every
+   state). And it closed the documented 5.4 first-deploy gap: `deploy` now
+   ensures the registry-declared Supervisor queue program is RUNNING after
+   the atomic `current` switch and HTTP health check — an already-RUNNING
+   worker is never touched (zero supervisor churn on normal deployments),
+   an inactive one is activated via `supervisorctl reread`/`update` (plus
+   `start` when needed) scoped to exactly the target program group, and
+   activation failure fails the deployment with recovery stopping a
+   worker this deploy activated so nothing keeps running against a
+   removed `current`. Real staging acceptance still required: on the
+   compliant staging host `bootstrap-host --apply` must skip all three
+   slices, mutate nothing, and end with a passing preflight — twice. See
+   `runbooks/bootstrap-host.md`.
 6. **5.6 Clean-VPS acceptance — planned.** Bootstrap a brand-new empty VPS
    end to end from the committed infrastructure and accept it for real —
    the prerequisite for the Phase 7 clean-server recovery rehearsal.

@@ -2,6 +2,8 @@
 
 This runbook covers the clean-VPS bootstrap scripts:
 
+- `infrastructure/scripts/bootstrap-host` — Phase 5 slice 5.5, the one
+  canonical host-bootstrap entry point (see its own section below);
 - `infrastructure/scripts/bootstrap-host-preflight` — Phase 5 slice 5.1,
   the read-only host contract inspection;
 - `infrastructure/scripts/install-bootstrap-runtime` — Phase 5 slice 5.2,
@@ -9,6 +11,164 @@ This runbook covers the clean-VPS bootstrap scripts:
   below);
 - `infrastructure/scripts/install-bootstrap-host-layout` — Phase 5 slice
   5.3, the users/groups/filesystem bootstrap (see its own section below).
+
+## Slice 5.5: bootstrap-host — the canonical entry point
+
+`infrastructure/scripts/bootstrap-host` sequences the authoritative Phase 5
+slices in their only valid dependency order:
+
+```text
+clean/prepared Ubuntu 22.04 host
+  → 5.2 install-bootstrap-runtime      (runtime/packages)
+  → 5.3 install-bootstrap-host-layout  (users/groups/filesystem)
+  → 5.4 install-bootstrap-services     (services/configuration)
+  → bootstrap-host-preflight --check   (final bootstrap readiness)
+```
+
+The operator no longer needs to know which individual slice installer to
+run next. Each child installer remains authoritative for its own contract —
+`bootstrap-host` owns **orchestration only**: ordering, per-slice status,
+fail-fast behavior and the final readiness aggregation. There is no
+`--force`, no `--skip`, no `--continue-on-error`: if a host is
+unsafe/incompatible, the owning child fails and the orchestrator stops.
+
+It is executed **from the bootstrap repository checkout** used to construct
+the host (children are resolved as canonical siblings of the script's own
+location) — never from `/home/www/rateguru/current` (a clean server has no
+deployment) and never from `/home/www/rateguru/bin` (which only exists
+after 5.4 installs the operational bundle). It is deliberately **not**
+installed into the operational bundle and the deploy user gets no sudo
+path to it: only root/operator runs it, from the checkout.
+
+### Usage
+
+All modes require root.
+
+**Existing host** (e.g. today's compliant staging) — the whole flow:
+
+```bash
+sudo infrastructure/scripts/bootstrap-host --check
+sudo infrastructure/scripts/bootstrap-host --apply
+sudo infrastructure/scripts/bootstrap-host --verify
+```
+
+**Clean host** — the same three commands, with one operator step in the
+middle: `--check` first tells you how far the host is from the full
+pipeline (see the dependency-aware output below), you supply the external
+prerequisites the report and [`bootstrap-services.md`](bootstrap-services.md)
+name (TLS material, the Basic Auth htpasswd), then `--apply` converges
+5.2 → 5.3 → 5.4 and `--verify` gates the result. Nothing about the command
+sequence changes between a clean and an existing host — that is the point
+of the orchestrator.
+
+- `--check` — strictly read-only and **dependency-aware**: "how far is this
+  host from satisfying the full bootstrap pipeline?". Runs each child's own
+  `--check` in order and reports `PASS` / `NEEDS_APPLY` / `BLOCKED` per
+  slice. On a completely clean host that reads:
+
+  ```text
+  PHASE 5.2 runtime/packages
+    NEEDS_APPLY — slice contract not satisfied
+  PHASE 5.3 users/groups/filesystem
+    BLOCKED until Phase 5.2 is satisfied
+  PHASE 5.4 services/configuration
+    BLOCKED until Phase 5.3 is satisfied
+  FINAL PREFLIGHT
+    BLOCKED until Phase 5.4 is satisfied
+
+  BOOTSTRAP READY: NO
+  ```
+
+  A slice whose prerequisite is unsatisfied is `BLOCKED` rather than being
+  misjudged on a host its prerequisite has not prepared. The first
+  unsatisfied slice's own concise summary is shown (with a pointer to the
+  child's full report) — the failing slice is never hidden.
+- `--apply` — **convergent, not one giant transaction**. Per slice: run the
+  authoritative child `--verify`; if it already passes, `SKIP` (no child
+  apply); otherwise run the child's own `--apply` (its transaction, its
+  rollback, its streamed diagnostics) and require its `--verify` to pass
+  before the next slice. On today's compliant staging this skips all three
+  slices, mutates nothing, and ends with a passing preflight — twice.
+- `--verify` — read-only: every child `--verify` must pass, then the final
+  preflight must pass.
+
+`--check` and `--verify` are read-only all the way down, not just at this
+level. In particular the Phase 5.4 child verifies mail capture through
+`verify-mail-capture --read-only`, never its default `--e2e` mode — which
+sends real mail, deletes messages and stops/starts
+`staging-mailtrap-local.service`. Running the full mail acceptance is an
+explicit operator command (see [`mail-capture.md`](mail-capture.md)); no
+`bootstrap-host` mode ever triggers it, including `--apply`.
+
+### Safe interruption and re-run
+
+Any child failure stops the run immediately — later slices are never
+attempted — and safely converged earlier slices are **never rolled back**
+(there is deliberately no destructive global rollback; installed packages
+and created identities are persistent host state). Fix the surfaced
+problem, then re-run `bootstrap-host --apply`: already-satisfied slices are
+skipped and the run resumes at the failing slice. Example: 5.2 and 5.3
+converge, then 5.4 stops because a TLS prerequisite is missing
+(`EXTERNAL PREREQUISITE MISSING`) — supply the material, re-run, and the
+apply skips 5.2/5.3 and completes 5.4.
+
+Ctrl+C terminates the orchestration without continuing downstream slices;
+the interrupted child's signal-derived exit status is propagated, never
+reinterpreted as a contract failure. Long child verifications announce
+themselves first (the 5.4 verification includes end-to-end mail-capture
+checks and takes noticeable time).
+
+### External material is never generated
+
+`bootstrap-host` never creates `.env`, `authorized_keys`, `rclone.conf`,
+TLS private keys/certificates, htpasswd files or database passwords — and
+never provisions databases/roles or planned targets (`tits-guru` stays
+untouched). When a child requires external material, the child's own
+failure is surfaced and the bootstrap is safely re-runnable after the
+operator supplies it. The documented supply points are in
+[`bootstrap-services.md`](bootstrap-services.md).
+
+### PRE_DEPLOY: host bootstrap completes before the first release
+
+A correctly bootstrapped host that has never received a release is in the
+legitimate **PRE_DEPLOY** state (see the shared model in
+[`bootstrap-services.md`](bootstrap-services.md)): `bootstrap-host
+--verify` and the final preflight pass with the absent `current` and the
+deploy-time secret material reported `DEFERRED`, never `MISSING`.
+`bootstrap-host` does **not** deploy an application — no artifact, no
+release, no `current` switch, no migration. The separate existing `deploy`
+operation performs the PRE_DEPLOY → DEPLOYED transition, and since slice 5.5
+it also owns the queue transition, immediately after the atomic `current`
+switch and the HTTP health check and before the success record. Which action
+is correct depends on the worker's state *before* the deployment:
+
+- **The worker was not running** (first deploy after a PRE_DEPLOY bootstrap,
+  or one an operator stopped): the registry-declared program is activated via
+  `supervisorctl reread`/`update` (plus `start` when needed), scoped to
+  exactly that program group, and must reach RUNNING. No `queue:restart`
+  follows — the process was just started against the new `current`, so it
+  already booted the new release.
+- **The worker was already running** (every normal deployment): no
+  reread/update/start churn merely because a deployment happened. Instead
+  `php artisan queue:restart` is **mandatory** — Laravel workers are
+  long-lived and keep the code they booted with, so a worker that never
+  receives the signal keeps serving the old release indefinitely. A restart
+  signal that cannot be written fails the deployment; it is not a warning,
+  and no success history is recorded.
+
+Immediate PID turnover is deliberately **not** a deployment condition:
+Laravel's restart is graceful, so a worker finishes its current job before
+exiting, and **Supervisor performs the eventual process replacement**. What
+is required is that the signal was written and the program is still
+operational.
+
+Recovery stays coherent with whichever of those happened. A failed first
+deployment stops the worker it activated, so nothing runs against a `current`
+recovery removed. A failure after a successful restart signal restores the
+old `current` and then re-issues the signal *from the restored release*, so
+the workers end up matching the release actually being served. Unrelated
+Supervisor programs are never touched. Phase 5.6 exercises all of it, in
+sequence, on a real clean VPS.
 
 ## Slice 5.1: bootstrap-host-preflight
 
@@ -34,8 +194,8 @@ infrastructure/scripts/bootstrap-host-preflight --report
 
 Both modes print the same grouped report — `HOST`, `TOOLS`, `SERVICES`,
 `USERS/GROUPS`, `FILESYSTEM`, `NETWORK`, `SECRETS REQUIRED LATER`,
-`SUMMARY` — with each item classified `PASS`, `MISSING`, `WARN` or
-`CONFLICT`, ending with:
+`SUMMARY` — with each item classified `PASS`, `MISSING`, `WARN`,
+`CONFLICT` or `DEFERRED`, ending with:
 
 ```text
 Bootstrap host preflight:
@@ -43,14 +203,55 @@ PASS: 28
 MISSING: 14
 WARN: 3
 CONFLICT: 0
+DEFERRED: 5
 
-HOST READY: NO
+HOST BOOTSTRAP READY: NO
+APPLICATION READY: DEFERRED — no release has been deployed (PRE_DEPLOY)
 ```
 
-`HOST READY: YES` (and `--check` exiting 0) requires zero `MISSING` and zero
-`CONFLICT` items. `WARN` never blocks. A missing prerequisite is never
-individually fatal — every section always prints, so a clean host produces a
-complete inventory of what Phase 5 has to build rather than an early abort.
+That is the summary shape of a host with no release yet — a clean host has
+no `current`, so it is PRE_DEPLOY and the five deferrals are the absent
+`current` plus the four deploy-time secrets. A DEPLOYED host prints the
+single strict `HOST READY: YES/NO` line instead; see the section below.
+
+Either shape uses the same gate: readiness requires zero `MISSING` and zero
+`CONFLICT` items, and `--check` exits 0 exactly when that holds. `WARN` and
+`DEFERRED` never block. A missing prerequisite is never individually fatal —
+every section always prints, so a clean host produces a complete inventory of
+what Phase 5 has to build rather than an early abort.
+
+### PRE_DEPLOY vs DEPLOYED (slice 5.5)
+
+The preflight applies the exact target-state model slice 5.4 established
+(see [`bootstrap-services.md`](bootstrap-services.md)) — never a second
+slightly-different interpretation. For an active target:
+
+- **PRE_DEPLOY** — `TARGET_ROOT/current` is truly absent: legitimate before
+  the first application release. The absent `current` is `DEFERRED`
+  ("first immutable deployment has not happened yet"), **not** `MISSING`,
+  and the deliberately-external deploy-time material (`shared/.env` with
+  its database credentials, the deploy `authorized_keys`, `rclone.conf`)
+  is `DEFERRED — REQUIRED BEFORE FIRST DEPLOY`. Host bootstrap readiness
+  is judged separately from first-deploy readiness, and the summary reads:
+
+  ```text
+  HOST BOOTSTRAP READY: YES
+  APPLICATION READY: DEFERRED — no release has been deployed (PRE_DEPLOY)
+  ```
+
+  `--check` exits 0 for a correctly bootstrapped PRE_DEPLOY host whose only
+  remaining items are legitimate deferrals. External material Phase 5.4
+  itself requires to activate committed host configuration — TLS
+  certificates and the Basic Auth htpasswd — remains a hard prerequisite:
+  `MISSING` when absent, in every state.
+- **DEPLOYED** — `current` resolves to a valid immutable release directly
+  under `releases/`: the strict `HOST READY: YES/NO` contract applies,
+  unchanged from what today's staging host produces (absent secret material
+  is `MISSING` again).
+- **BROKEN** — a dangling `current`, a non-symlink `current`, one resolving
+  outside `releases/` or to a non-directory is `CONFLICT` in both modes —
+  `DEFERRED` never hides a broken present `current`, and no fake
+  release/current is ever fabricated.
 
 Root is not required, but some root-only paths (`/root/.config/rclone`,
 Let's Encrypt keys) cannot be distinguished from absent without it — those
@@ -136,8 +337,9 @@ values are never invented.
   0750`; deploy home owned by the deploy user with no group/other write;
   `.ssh` `0700`; `/var/log/rateguru` `root:root 0750`), so the preflight
   and `install-bootstrap-host-layout` can never disagree. `current` stays
-  deployment-owned and keeps reporting as absent until a real deployment
-  creates it. Each item: absent/present, type, owner/group, mode, and
+  deployment-owned and reports as `DEFERRED` (PRE_DEPLOY) until a real
+  deployment creates it — a broken present `current` is `CONFLICT`.
+  Each item: absent/present, type, owner/group, mode, and
   symlink state where relevant. Large backup/storage trees are never
   recursively scanned — one `stat` per path.
 - **NETWORK** — listeners on 80/443, PostgreSQL, Redis, the Mailpit and
@@ -150,7 +352,10 @@ values are never invented.
   credentials for the registry's application role), the deploy user's
   `authorized_keys`, `rclone.conf`, the Basic Auth htpasswd, and TLS
   certificates. **Presence by `stat` only — content is never read,
-  validated, or printed.**
+  validated, or printed.** The first three are deploy-time material —
+  `DEFERRED` on a PRE_DEPLOY host, `MISSING` on a DEPLOYED one — while the
+  TLS/Basic Auth material Phase 5.4 hard-requires stays `MISSING` when
+  absent in every state (see the PRE_DEPLOY section above).
 
 ## Source vs runtime registry
 
@@ -589,14 +794,13 @@ boundaries (coordinator vs. the child installers it invokes), the
 PRE_DEPLOY/DEPLOYED distinction, the external-prerequisite contract and
 the real staging acceptance sequence.
 
-## What later slices do (and these do not)
+## What the remaining slice does (and these do not)
 
-| Slice | Mutation |
+| Slice | Scope |
 |---|---|
-| 5.5 | one-shot orchestrator ending in `--check` passing |
-| 5.6 | real clean-VPS acceptance |
+| 5.6 | real clean-VPS acceptance: obtain the bootstrap source on a disposable Ubuntu 22.04 VPS → `bootstrap-host --check` → supply the documented external prerequisites → `bootstrap-host --apply` → `bootstrap-host --verify` → first immutable deploy (with the first-deploy Supervisor activation) → health/queue/scheduler/backup/rollback → idempotent repeat → `bootstrap-host-preflight` |
 
-Until those land, bringing up a new host remains the ordered sequence of
-the bootstrap installers (`install-bootstrap-runtime`,
-`install-bootstrap-host-layout`, `install-bootstrap-services`) plus the
-manual external prerequisites documented in `bootstrap-services.md`.
+Slice 5.5 built the machinery; 5.6 proves it in reality. The canonical
+entry point for bringing up a host is now `bootstrap-host` (see its section
+at the top), with the manual external prerequisites documented in
+`bootstrap-services.md`.

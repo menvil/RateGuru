@@ -37,6 +37,15 @@ VERIFY_REQUIRED_CLIS_BIN_DEFAULT="/home/www/rateguru/bin/verify-required-clis"
 HEALTH_CHECK_BIN="${HEALTH_CHECK_BIN_DEFAULT}"
 VERIFY_REQUIRED_CLIS_BIN="${VERIFY_REQUIRED_CLIS_BIN_DEFAULT}"
 
+# Phase 5 slice 5.5: how long the first-deploy Supervisor activation waits
+# for the target queue program to reach RUNNING. supervisorctl itself is
+# resolved through PATH — the same way this script already resolves
+# systemctl and runuser, and the same way tests already PATH-shadow both —
+# so only the wait tuning needs gated value overrides (shrunk by tests,
+# never by production).
+QUEUE_WAIT_ATTEMPTS=10
+QUEUE_RETRY_DELAY_SECONDS=1
+
 if rateguru_test_overrides_allowed; then
     if [[ -n "${RATEGURU_HEALTH_CHECK_BIN:-}" ]]; then
         HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_BIN}"
@@ -44,6 +53,14 @@ if rateguru_test_overrides_allowed; then
 
     if [[ -n "${RATEGURU_VERIFY_REQUIRED_CLIS_BIN:-}" ]]; then
         VERIFY_REQUIRED_CLIS_BIN="${RATEGURU_VERIFY_REQUIRED_CLIS_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS:-}" ]]; then
+        QUEUE_WAIT_ATTEMPTS="${RATEGURU_DEPLOY_QUEUE_WAIT_ATTEMPTS}"
+    fi
+
+    if [[ -n "${RATEGURU_DEPLOY_QUEUE_RETRY_DELAY:-}" ]]; then
+        QUEUE_RETRY_DELAY_SECONDS="${RATEGURU_DEPLOY_QUEUE_RETRY_DELAY}"
     fi
 fi
 
@@ -176,8 +193,189 @@ resolve_target() {
     DEPLOY_ACCOUNT="$(target_deploy_user "${TARGET_ID}")"
     PUBLIC_HOSTNAME="$(target_primary_public_hostname "${TARGET_ID}")"
     INCOMING_ROOT="$(readlink -f "$(target_incoming_artifacts "${TARGET_ID}")")"
+    SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
     LABEL="${TARGET_ID}"
     HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
+}
+
+# --- target Supervisor worker (Phase 5 slice 5.5) ----------------------------
+#
+# Closes the documented Phase 5.4 first-deploy gap: on a PRE_DEPLOY host the
+# bootstrap installs the committed Supervisor program config but defers its
+# activation (directory=current does not exist yet), so the first deployment
+# must be the step that makes the target worker RUNNING. The program
+# identity comes exclusively from the target registry
+# (target_supervisor_program) — never hard-coded — and only the target's own
+# program group is ever touched: no global reread-and-update-everything, no
+# global restart of every program, no unrelated program.
+
+# queue_program_running — every process of the target program group is
+# RUNNING according to supervisorctl (the identical classification
+# install-bootstrap-services uses). Deliberately strict: STARTING, BACKOFF,
+# FATAL, EXITED and STOPPED are all "not running". The committed program sets
+# startsecs=3, so Supervisor only promotes a process to RUNNING once it has
+# survived that window — accepting STARTING as success would accept a worker
+# that is about to crash-loop.
+queue_program_running() {
+    local output
+
+    output="$(supervisorctl status "${SUPERVISOR_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+# wait_for_queue_program_running — bounded observation of the target program
+# reaching RUNNING, spending the existing production budget
+# (QUEUE_WAIT_ATTEMPTS × QUEUE_RETRY_DELAY_SECONDS) rather than introducing a
+# second timeout constant.
+#
+# This exists because a single immediate status check after Laravel's restart
+# signal is racy. The committed program carries autorestart=true and
+# startsecs=3: an idle worker may exit the moment it is signalled, and the
+# replacement Supervisor spawns legitimately sits in STARTING until it has
+# survived startsecs. Checking once can therefore observe STARTING and roll
+# back a perfectly healthy deployment. A worker still finishing a job simply
+# stays RUNNING and the wait returns on the first attempt.
+#
+# Strictly an observer: it never rereads, updates, starts, restarts or stops
+# anything, and only ever looks at the registry-declared target program.
+wait_for_queue_program_running() {
+    local attempt
+
+    for ((attempt = 1; attempt <= QUEUE_WAIT_ATTEMPTS; attempt++)); do
+        if queue_program_running; then
+            return 0
+        fi
+
+        sleep "${QUEUE_RETRY_DELAY_SECONDS}"
+    done
+
+    # One final observation, so the last sleep is not wasted.
+    queue_program_running
+}
+
+# activate_supervisor_worker — the CASE A path: the target program is not
+# active, so this deployment must make it RUNNING. reread parses the
+# installed config, update registers/refreshes exactly the target program
+# group, start covers a program registered but stopped, and the wait loop
+# requires RUNNING. Activation failure is a deployment failure — a DEPLOYED
+# target without its required queue worker is not a successful deployment.
+activate_supervisor_worker() {
+    log "activating supervisor worker ${SUPERVISOR_PROGRAM} (not active — first deployment after a PRE_DEPLOY bootstrap, or a stopped worker)"
+
+    # reread only parses the installed configuration into supervisord's
+    # memory — add/remove/start happens exclusively on update, which is why
+    # slice 5.4 uses reread as its side-effect-free validation. So the
+    # "this deploy may have started the worker" flag is armed after reread
+    # and before update: a failed reread genuinely activated nothing, and
+    # recovery must not then try to stop a program that was never added.
+    if ! supervisorctl reread >/dev/null; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisorctl reread failed"
+    fi
+
+    SUPERVISOR_ACTIVATED_NOW=true
+
+    if ! supervisorctl update "${SUPERVISOR_PROGRAM}" >/dev/null; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisorctl update ${SUPERVISOR_PROGRAM} failed"
+    fi
+
+    if ! queue_program_running; then
+        # Registered but not started (e.g. the program group already existed
+        # in a stopped state, where update alone changes nothing).
+        supervisorctl start "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1 || true
+    fi
+
+    # A freshly started process is STARTING until it survives startsecs, so
+    # the same bounded wait applies here as after a restart signal.
+    if ! wait_for_queue_program_running; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING"
+    fi
+
+    log "supervisor worker ${SUPERVISOR_PROGRAM} RUNNING"
+}
+
+# issue_queue_restart RELEASE_DIR — writes Laravel's queue restart signal
+# from RELEASE_DIR, as the runtime user. Returns the artisan exit status; the
+# caller decides whether a failure is fatal (deploy) or a recovery warning.
+issue_queue_restart() {
+    local release_dir="$1"
+
+    (
+        cd "${release_dir}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan queue:restart
+    )
+}
+
+# perform_queue_transition — the single place the queue is handled, after the
+# atomic current switch and the HTTP health check, and before the success
+# record. Which action is correct depends entirely on the worker's state
+# BEFORE this deployment, captured in ORIGINAL_QUEUE_RUNNING:
+#
+#   CASE A — the worker was not running (first deploy after a PRE_DEPLOY
+#   bootstrap, or a worker an operator stopped). Activate the
+#   registry-declared program and require RUNNING. Deliberately NO
+#   queue:restart afterwards: the process was just started against the new
+#   current, so it already booted the new release — signalling a restart
+#   would only ask a fresh worker to exit for nothing.
+#
+#   CASE B — the worker was already running (every normal deployment on a
+#   DEPLOYED target). No reread/update/start churn merely because a
+#   deployment happened. Instead queue:restart is MANDATORY: Laravel workers
+#   are long-lived and keep the application code they booted with, so a
+#   worker that never receives the signal keeps serving the OLD release
+#   indefinitely. A restart signal that cannot be written is therefore a
+#   failed deployment, not a warning.
+#
+# PID turnover is deliberately not a deployment condition. Laravel's restart
+# is graceful: the worker finishes its current job and exits afterwards, and
+# Supervisor then replaces the process. Requiring immediate turnover would
+# fail deployments for a worker that is simply mid-job. What is required is
+# that the signal was written and the program remains operational.
+perform_queue_transition() {
+    if [[ "${ORIGINAL_QUEUE_RUNNING}" != true ]]; then
+        activate_supervisor_worker
+
+        log "worker ${SUPERVISOR_PROGRAM} was freshly started against the new release — no queue:restart signal needed"
+
+        return 0
+    fi
+
+    log "supervisor worker ${SUPERVISOR_PROGRAM} already RUNNING — no supervisor registration/start churn"
+
+    # A release with no artisan is not a Laravel application and has no queue
+    # to signal; deploy already gates its whole Laravel preparation on the
+    # same condition.
+    if [[ ! -f "${RELEASE_ROOT}/artisan" ]]; then
+        log "release contains no artisan — no queue restart signal applicable"
+    else
+        if ! issue_queue_restart "${RELEASE_ROOT}"; then
+            FAILURE_STATUS="failed-queue-restart"
+            fail "artisan queue:restart failed — the running worker would keep serving the previous release"
+        fi
+
+        QUEUE_RESTART_ISSUED=true
+
+        log "queue restart signal issued; Supervisor performs the eventual worker process replacement"
+    fi
+
+    # The program must be operational after signalling — observed through the
+    # bounded wait, never a single immediate check. Laravel's restart makes an
+    # idle worker exit at once, and Supervisor's replacement is STARTING until
+    # it survives startsecs; a worker still finishing a job just stays RUNNING
+    # and this returns on the first attempt. Neither a PID change nor proof
+    # that the old process already exited is required — only that the signal
+    # was issued and the program becomes/continues operational in the window.
+    if ! wait_for_queue_program_running; then
+        FAILURE_STATUS="failed-queue-restart"
+        fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget after the queue restart signal"
+    fi
 }
 
 # --- deployment recovery (unchanged internals; process-global trap, not
@@ -252,6 +450,70 @@ handle_deployment_exit() {
             if ! restore_deployment_links; then
                 recovery_succeeded=false
                 log "WARNING: unable to fully restore deployment symlinks"
+            fi
+        fi
+
+        # Supervisor state recovery (slice 5.5): only when THIS deploy
+        # activated the target worker (which only happens when it was not
+        # active before the deploy — an already-RUNNING worker is never
+        # touched, so there is nothing to recover for it). Stopping the
+        # newly-activated program guarantees no worker keeps executing
+        # against a current that recovery just removed. A worker that cannot
+        # be stopped blocks the failed release directory's cleanup below —
+        # never delete a release a process may still be running in. Only the
+        # target's own program group is touched.
+        #
+        # This stops the processes; it does not unregister the program. The
+        # program group stays known to the running supervisord, so a failed
+        # first deployment leaves the host in the same residual window the
+        # PRE_DEPLOY bootstrap already documents: the committed config keeps
+        # autostart=true, so a later supervisord restart would start it
+        # against a current that does not exist and fail-loop until a
+        # deployment succeeds. Deliberately not resolved by removing the
+        # program here — recovery does not own the operator's supervisor
+        # registration. See runbooks/bootstrap-services.md.
+        if [[ "${SUPERVISOR_ACTIVATED_NOW}" == true ]]; then
+            log "deployment failed after supervisor activation; stopping ${SUPERVISOR_PROGRAM} (it was not active before this deployment)"
+
+            if ! supervisorctl stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1; then
+                recovery_succeeded=false
+                log "WARNING: unable to stop supervisor worker ${SUPERVISOR_PROGRAM} during recovery"
+            fi
+        elif [[ "${ORIGINAL_QUEUE_RUNNING}" == true ]]; then
+            # The worker ran before this deploy and was never registered or
+            # started by it. If this deploy already signalled a restart, the
+            # workers were told to exit and reboot against what `current`
+            # points at — which recovery has just changed back to the old
+            # release. Re-signal from the RESTORED release so the queue ends
+            # up coherent with the release actually being served, rather than
+            # leaving workers that booted (or are about to boot) the failed
+            # one. Only the target's own program is involved.
+            if [[ "${QUEUE_RESTART_ISSUED}" == true ]] \
+                && [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
+                && [[ -d "${ORIGINAL_CURRENT_PATH}" ]] \
+                && [[ -f "${ORIGINAL_CURRENT_PATH}/artisan" ]]
+            then
+                log "re-issuing the queue restart signal from the restored release ${ORIGINAL_CURRENT_PATH}"
+
+                if ! issue_queue_restart "${ORIGINAL_CURRENT_PATH}"; then
+                    recovery_succeeded=false
+                    log "WARNING: unable to re-issue the queue restart signal against the restored release"
+                fi
+            fi
+
+            # Bounded wait, not a single check: a recovery restart signal
+            # races Supervisor's replacement exactly like the deploy-time one,
+            # so a transient STARTING must not be reported as degraded
+            # recovery. The worker is never force-started here — this is a
+            # normal deployed-target recovery, and only the target's own
+            # program is ever observed.
+            if ! wait_for_queue_program_running; then
+                # Either something outside this pipeline stopped it, or the
+                # program did not survive the transition — surfaced through
+                # the existing recovery warning semantics, never silently
+                # absorbed and never force-started by recovery.
+                recovery_succeeded=false
+                log "WARNING: supervisor worker ${SUPERVISOR_PROGRAM} was RUNNING before this deployment but is not RUNNING after recovery — investigate manually"
             fi
         fi
 
@@ -341,6 +603,16 @@ perform_deploy() {
         ORIGINAL_PREVIOUS_PRESENT=true
         ORIGINAL_PREVIOUS_PATH="$(readlink -f "${PREVIOUS_LINK}")"
     fi
+
+    # Snapshot the target worker's state before any mutation (a read-only
+    # supervisorctl status query — never reread/update/start): recovery must
+    # distinguish "was RUNNING before this deploy" (left alone, stays
+    # coherent against a restored old current) from "was not active before"
+    # (a failed deploy that activated it must stop it again).
+    ORIGINAL_QUEUE_RUNNING=false
+    queue_program_running && ORIGINAL_QUEUE_RUNNING=true
+    SUPERVISOR_ACTIVATED_NOW=false
+    QUEUE_RESTART_ISSUED=false
 
     DEPLOYMENT_STARTED=false
     TERMINAL_HISTORY_WRITTEN=false
@@ -616,6 +888,12 @@ perform_deploy() {
         fail "deployment health check failed"
     fi
 
+    # Slice 5.5: the queue transition — activation on a first deployment,
+    # a mandatory restart signal on a normal one. Runs after the HTTP health
+    # check and before the success record: both must hold before the
+    # deployment may be called successful.
+    perform_queue_transition
+
     if [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
         && [[ -d "${ORIGINAL_CURRENT_PATH}" ]]
     then
@@ -628,15 +906,9 @@ perform_deploy() {
             "${PREVIOUS_LINK}"
     fi
 
-    if [[ -f "${RELEASE_ROOT}/artisan" ]]; then
-        (
-            cd "${RELEASE_ROOT}"
-
-            runuser \
-                -u "${RUNTIME_USER}" \
-                -- "${PHP_BIN}" artisan queue:restart
-        ) || log "WARNING: queue restart command failed"
-    fi
+    # The queue transition already ran, immediately after the health check —
+    # it is a deployment requirement, not a best-effort afterthought, so
+    # there is deliberately no second, warning-only restart attempt here.
 
     log "${LABEL} deployed successfully: ${RELEASE_ID}"
 
