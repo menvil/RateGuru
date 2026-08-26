@@ -5,7 +5,8 @@ installs the deployment target registry, the host-global `deployment.conf`,
 and the full set of target-aware operational scripts onto the staging VPS:
 `targets`, `common`, `health-check`, `status`, `cleanup`, `deploy`,
 `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
-`offsite-restore-test`, and `backup-cycle`.
+`offsite-restore-test`, `backup-cycle`, and the release-tree helper
+`verify-required-clis` that `deploy` invokes on every deployment.
 
 For what the registry and the target-aware commands themselves are, see
 [`deployment-targets.md`](deployment-targets.md). This document is only about
@@ -164,8 +165,13 @@ sudo infrastructure/scripts/install-target-operations --apply
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract, and **only** here — to prove the candidate set is
    internally consistent before anything real is touched: `targets validate`;
-   every script's `--help` output is checked to mention `--target` and never
-   the retired legacy selector; `health-check --target staging-main`;
+   every **target-aware** script's `--help` output is checked to mention
+   `--target` and never the retired legacy selector;
+   `verify-required-clis --help` is checked separately, for the flag it
+   actually has (`--release-root`) and for the absence of the legacy
+   selector — it is the one bundle script that is deliberately not
+   target-aware, so asserting `--target` against it would be asserting the
+   wrong contract; `health-check --target staging-main`;
    `status --target staging-main`; `cleanup --target staging-main --dry-run`;
    and that `health-check`, `cleanup --dry-run`, `deploy` (with a deliberately
    unusable release/artifact combination), `rollback` (with a deliberately
@@ -183,7 +189,8 @@ sudo infrastructure/scripts/install-target-operations --apply
    destination is installed in dependency order — registry, `targets`,
    `common`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`,
    `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
-   `offsite-restore-test`, `backup-cycle`, then `deployment.conf` last — via
+   `offsite-restore-test`, `backup-cycle`, `verify-required-clis`, then
+   `deployment.conf` last — via
    stage-in-place-then-atomic-rename into a same-directory, `mktemp`-created
    temporary file, never a direct overwrite and never a predictable temporary
    path. `deployment.conf` is installed last so every script sourcing it
@@ -238,6 +245,7 @@ install. Reports each phase separately:
 --- offsite-restore-test planned-target rejection ---
 --- backup-cycle help ---
 --- backup-cycle planned-target rejection ---
+--- verify-required-clis help ---
 --- final result ---
 PASS: installed files and runtime behaviour verified
 ```
@@ -251,7 +259,7 @@ line — `--verify` never claims success after a step it didn't actually pass.
 |---|---|---|---|
 | `deployment-targets.json` | `root:root` | `0640` | registry — non-secret, but not world-readable |
 | `deployment.conf` | `root:root` | `0640` | host-global settings — non-secret, but not world-readable, same protection as the registry |
-| `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle` | `root:root` | `0755` | executable scripts |
+| `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle`, `verify-required-clis` | `root:root` | `0755` | executable scripts |
 | `common` | `root:root` | `0644` | sourced library, never a CLI — must never be executable |
 
 None of the sixteen may be group- or world-writable, and none may be a
@@ -414,7 +422,12 @@ a rehearsal against overridden paths:
     file, or child-command work ever reached. `backup-cycle` is never
     invoked for a real cycle by this installer, at any point, and never
     contacts Backblaze B2 — a real backup cycle is always a separate,
-    explicit, human- or cron-triggered action.
+    explicit, human- or cron-triggered action;
+22. `verify-required-clis --help` succeeds and documents `--release-root`,
+    proving the helper `deploy` invokes by absolute path on every deployment
+    is actually installed and runnable. There is deliberately no
+    planned-target counterpart: it is a generic release-tree check and takes
+    no `--target` at all. It is never invoked against a real release here.
 
 ## Expected server commands
 

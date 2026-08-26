@@ -219,7 +219,8 @@ anywhere.
 already installed a fully current sixteen-file bundle — the registry,
 `deployment.conf`, and `targets`/`common`/`health-check`/`status`/`cleanup`/
 `deploy`/`rollback`/`backup`/`restore-test`/`offsite-backup`/
-`offsite-retention`/`offsite-restore-test`/`backup-cycle` — at
+`offsite-retention`/`offsite-restore-test`/`backup-cycle`/
+`verify-required-clis` — at
 `/home/www/rateguru`. This installer never installs, modifies, or takes
 ownership of any of those sixteen files; it only ever verifies them, for
 `--check`, `--apply`'s own preflight, and `--verify` alike, before a staging
