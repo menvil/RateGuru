@@ -1259,13 +1259,19 @@ report_filesystem() {
     report_path backups /home/www/rateguru/backups directory root root 700 "local backup base (contents never scanned)"
     report_path run /home/www/rateguru/run directory root root 700 "operational lock directory"
 
-    # The fifteen files install-target-operations manages.
+    # The sixteen files install-target-operations manages.
     report_path runtime-registry "${RUNTIME_REGISTRY_DEFAULT}" "regular file" root root nw "runtime target registry"
     report_path deployment-conf "${RUNTIME_DEPLOYMENT_CONF_DEFAULT}" "regular file" root root nw "host-global deployment.conf"
 
     local cli
+    # verify-required-clis belongs here for the same reason as every other
+    # entry: deploy invokes it by absolute path from this directory before
+    # switching current, so a host missing it cannot perform its first
+    # deployment. Omitting it is what let a clean host report READY and then
+    # fail the Phase 5.6 acceptance deploy.
     for cli in targets health-check status cleanup deploy rollback backup \
-        restore-test offsite-backup offsite-retention offsite-restore-test backup-cycle
+        restore-test offsite-backup offsite-retention offsite-restore-test backup-cycle \
+        verify-required-clis
     do
         report_path "bin-${cli}" "${RUNTIME_BIN_ROOT}/${cli}" "regular file" root root 755 "installed operational CLI"
     done

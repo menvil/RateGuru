@@ -7,7 +7,7 @@
 #
 # Modes:
 #   --check   Validate the committed source files, host tooling, AND that
-#             the real installed fifteen-file target operations bundle
+#             the real installed sixteen-file target operations bundle
 #             (install-target-operations' own responsibility, a prerequisite
 #             this installer depends on but does not own) is present,
 #             correctly owned/moded, and byte-identical to this repository's
@@ -106,6 +106,7 @@ SRC_OFFSITE_BACKUP="${REPO_ROOT}/infrastructure/scripts/offsite-backup"
 SRC_OFFSITE_RETENTION="${REPO_ROOT}/infrastructure/scripts/offsite-retention"
 SRC_OFFSITE_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/offsite-restore-test"
 SRC_BACKUP_CYCLE="${REPO_ROOT}/infrastructure/scripts/backup-cycle"
+SRC_VERIFY_REQUIRED_CLIS="${REPO_ROOT}/infrastructure/scripts/verify-required-clis"
 
 # Gates RATEGURU_PERIMETER_ROOT and RATEGURU_VISUDO_BIN below — the identical
 # plain condition every operational script's own top-of-file COMMON_FILE
@@ -153,7 +154,7 @@ BACKUP_ROOT="${PERIMETER_ROOT}/var/backups/rateguru-target-perimeter"
 # A second, independently gated test seam — never conflated with
 # PERIMETER_ROOT above, which prefixes destinations this installer actually
 # owns and installs. INSTALLED_OPERATIONS_ROOT instead prefixes the
-# fifteen-file operations bundle install-target-operations owns: a
+# sixteen-file operations bundle install-target-operations owns: a
 # read-only dependency this installer only ever verifies, never installs or
 # modifies. Empty by default, so production resolves to the exact real
 # absolute /home/www/rateguru paths below.
@@ -176,6 +177,7 @@ DST_OPS_OFFSITE_BACKUP="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/offsi
 DST_OPS_OFFSITE_RETENTION="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/offsite-retention"
 DST_OPS_OFFSITE_RESTORE_TEST="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/offsite-restore-test"
 DST_OPS_BACKUP_CYCLE="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/backup-cycle"
+DST_OPS_VERIFY_REQUIRED_CLIS="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/bin/verify-required-clis"
 DST_OPS_DEPLOYMENT_CONF="${INSTALLED_OPERATIONS_ROOT}/home/www/rateguru/config/deployment.conf"
 
 VISUDO_BIN_DEFAULT="$(command -v visudo || true)"
@@ -189,7 +191,7 @@ SUDOERS_MODE="0440"
 CRON_MODE="0644"
 
 # The exact modes install-target-operations itself enforces for the same
-# fifteen files (see its own REGISTRY_MODE/COMMON_MODE/CLI_MODE/
+# sixteen files (see its own REGISTRY_MODE/COMMON_MODE/CLI_MODE/
 # DEPLOYMENT_CONF_MODE) — kept as separate OPS_-prefixed constants here,
 # never reused from WRAPPER_MODE/etc above, since these describe a
 # dependency this installer only reads, not one it owns.
@@ -237,7 +239,7 @@ Usage:
   install-target-perimeter --help
 
   --check   Validate committed source files, host tooling, and that the
-            installed fifteen-file target operations bundle is current.
+            installed sixteen-file target operations bundle is current.
             Read-only; makes no changes.
   --apply   Install the three wrappers, the sudoers rule and the cron
             entry (requires root). Transactional: verifies a staged copy
@@ -420,9 +422,9 @@ validate_source_registry() {
 # --- Installed operations bundle staleness guard ----------------------------
 #
 # install-target-perimeter depends on install-target-operations having
-# already installed a fully current fifteen-file bundle at
+# already installed a fully current sixteen-file bundle at
 # /home/www/rateguru — this installer never installs, modifies, or takes
-# ownership of any of those fifteen files itself (see the file header).
+# ownership of any of those sixteen files itself (see the file header).
 # Before this installer ever creates a staging directory, a backup
 # directory, or touches a single destination file, it confirms that bundle
 # is not missing, incomplete, drifted, or otherwise stale relative to this
@@ -480,9 +482,10 @@ validate_installed_operations_bundle() {
     check_installed_operation_file "${DST_OPS_OFFSITE_RETENTION}" "${SRC_OFFSITE_RETENTION}" "${OPS_CLI_MODE}" "offsite-retention"
     check_installed_operation_file "${DST_OPS_OFFSITE_RESTORE_TEST}" "${SRC_OFFSITE_RESTORE_TEST}" "${OPS_CLI_MODE}" "offsite-restore-test"
     check_installed_operation_file "${DST_OPS_BACKUP_CYCLE}" "${SRC_BACKUP_CYCLE}" "${OPS_CLI_MODE}" "backup-cycle"
+    check_installed_operation_file "${DST_OPS_VERIFY_REQUIRED_CLIS}" "${SRC_VERIFY_REQUIRED_CLIS}" "${OPS_CLI_MODE}" "verify-required-clis"
     check_installed_operation_file "${DST_OPS_DEPLOYMENT_CONF}" "${SRC_DEPLOYMENT_CONF}" "${OPS_DEPLOYMENT_CONF_MODE}" "deployment.conf"
 
-    log "installed target operations bundle (fifteen files) matches this repository's committed sources"
+    log "installed target operations bundle (sixteen files) matches this repository's committed sources"
 }
 
 validate_sudoers_syntax() {
