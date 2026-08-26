@@ -742,7 +742,12 @@ it('announces potentially long child verifications before invoking them', functi
         [, $output] = bhostRun(['--verify'], $env);
 
         expect($output)->toContain('VERIFY 5.4 services/configuration');
-        expect($output)->toContain('mail-capture verification performs end-to-end checks — this may take a while');
+        expect($output)->toContain('runs several child contract verifies — this may take a while');
+
+        // The old wording claimed normal 5.4 verification performs
+        // end-to-end mail checks. It no longer does — it uses
+        // verify-mail-capture --read-only — so that claim must not reappear.
+        expect($output)->not->toContain('end-to-end');
         expect($output)->toContain('VERIFY final bootstrap readiness');
     } finally {
         bhostCleanup($scratch);

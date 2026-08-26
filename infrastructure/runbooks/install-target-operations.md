@@ -13,7 +13,7 @@ getting them onto the host safely.
 
 ## What this installer owns — and does not
 
-Exactly fifteen files:
+Exactly sixteen files:
 
 | Source (this repo) | Destination |
 |---|---|
@@ -32,19 +32,37 @@ Exactly fifteen files:
 | `infrastructure/scripts/offsite-retention` | `/home/www/rateguru/bin/offsite-retention` |
 | `infrastructure/scripts/offsite-restore-test` | `/home/www/rateguru/bin/offsite-restore-test` |
 | `infrastructure/scripts/backup-cycle` | `/home/www/rateguru/bin/backup-cycle` |
+| `infrastructure/scripts/verify-required-clis` | `/home/www/rateguru/bin/verify-required-clis` |
 
 These destinations are **fixed, hardcoded constants** in the installer — not
 configurable by environment variable or CLI argument, on purpose. This
-installer's entire job is putting these fifteen files in these fifteen
+installer's entire job is putting these sixteen files in these sixteen
 places with these exact permissions. Nothing else. It never sources or
 evaluates `deployment.conf` as shell — it installs it as plain file content,
 identically to every other file it manages.
+
+**`verify-required-clis` is a deployment prerequisite, not a convenience.**
+`deploy` invokes `/home/www/rateguru/bin/verify-required-clis` by absolute
+path on every deployment, before `current` is ever switched, to prove the
+release's own infrastructure CLIs kept their executable bit. Deploy uses the
+**installed, root-owned** helper rather than the copy inside the release tree
+on purpose — that trust boundary means an artifact cannot supply the program
+that validates it. The consequence is that the helper must be part of this
+bundle: the Phase 5.6 clean-VPS acceptance failed on exactly this, with
+`deploy: /home/www/rateguru/bin/verify-required-clis: No such file or
+directory` on the first real deployment. Long-lived hosts were unaffected
+only because the file happened to exist there historically.
+
+Unlike the other managed scripts it never sources `common` and is not
+target-aware — it takes `--release-root` rather than `--target` — so it
+carries no install-ordering dependency and has no planned-target rejection
+check.
 
 ### The two destination directories must already exist
 
 `/home/www/rateguru/config` and `/home/www/rateguru/bin` are **not** owned by
 this installer, and it never creates, `chown`s or `chmod`s either one — only
-the fifteen files inside them. `--apply` validates both directories before
+the sixteen files inside them. `--apply` validates both directories before
 it creates a backup or changes anything: each must exist, be a real
 directory (not a symlink), owned by `root:root`, and not group- or
 other-writable. `--apply` refuses to proceed — before touching anything — if
@@ -110,8 +128,8 @@ clear error before anything else runs.
 
 ### `--check` — repository-only, no root
 
-Validates the fifteen source files (exist, regular, not a symlink), runs
-`bash -n` on the thirteen shell scripts (every source file except the
+Validates the sixteen source files (exist, regular, not a symlink), runs
+`bash -n` on the fourteen shell scripts (every source file except the
 registry and `deployment.conf`, neither of which is shell), confirms `jq`
 can parse the registry, runs the *committed* `targets` CLI against the
 *committed* registry and confirms it both validates and lists `staging-main`
@@ -142,7 +160,7 @@ sudo infrastructure/scripts/install-target-operations --apply
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-4. The fifteen source files are copied into a private, root-only temporary
+4. The sixteen source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract, and **only** here — to prove the candidate set is
    internally consistent before anything real is touched: `targets validate`;
@@ -236,7 +254,7 @@ line — `--verify` never claims success after a step it didn't actually pass.
 | `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle` | `root:root` | `0755` | executable scripts |
 | `common` | `root:root` | `0644` | sourced library, never a CLI — must never be executable |
 
-None of the fifteen may be group- or world-writable, and none may be a
+None of the sixteen may be group- or world-writable, and none may be a
 symlink — enforced both when installing and when verifying. Existing
 destinations must also be a plain regular file or absent — a directory,
 FIFO, socket or device is refused the same way a symlink is.
@@ -300,7 +318,7 @@ sudo cp -a \
     /home/www/rateguru/bin/common
 ```
 
-Repeat for each of the fifteen destinations that need restoring. Confirm with:
+Repeat for each of the sixteen destinations that need restoring. Confirm with:
 
 ```bash
 sudo infrastructure/scripts/install-target-operations --verify

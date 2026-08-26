@@ -194,7 +194,7 @@ function bootstrapPreflightCompliantStatTable(): array
     foreach ([
         'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback',
         'backup', 'restore-test', 'offsite-backup', 'offsite-retention',
-        'offsite-restore-test', 'backup-cycle',
+        'offsite-restore-test', 'backup-cycle', 'verify-required-clis',
     ] as $cli) {
         $rows[] = "/home/www/rateguru/bin/{$cli}|regular file|root|root|755";
     }

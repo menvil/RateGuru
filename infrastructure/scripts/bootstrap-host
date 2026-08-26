@@ -199,7 +199,7 @@ slice_bin() {
 # take noticeable time, so its announcement says so.
 slice_duration_note() {
     case "$1" in
-        5.4) printf ' (child mail-capture verification performs end-to-end checks — this may take a while)' ;;
+        5.4) printf ' (runs several child contract verifies — this may take a while)' ;;
         *)   printf '' ;;
     esac
 }

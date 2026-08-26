@@ -188,7 +188,7 @@ infrastructure/scripts/install-target-perimeter --verify
 ```
 
 Same contract as `install-target-operations`, scoped to five installed
-files (plus the six-file legacy removal) instead of fifteen.
+files (plus the six-file legacy removal) instead of sixteen.
 
 ### `--check` — read-only
 
@@ -205,7 +205,7 @@ the three generic wrappers; the candidate cron file has exactly three
 operational lines, all using `--target staging-main`, with schedule and log
 paths unchanged; and — see
 [Installed operations bundle staleness guard](#installed-operations-bundle-staleness-guard)
-below — that the real, installed fifteen-file target operations bundle at
+below — that the real, installed sixteen-file target operations bundle at
 `/home/www/rateguru` is present, correctly owned and moded, and
 byte-identical to this repository's own committed sources. `--check` also
 reports, for each of the six legacy wrapper paths, whether it is currently
@@ -216,17 +216,17 @@ anywhere.
 ### Installed operations bundle staleness guard
 
 `install-target-perimeter` depends on `install-target-operations` having
-already installed a fully current fifteen-file bundle — the registry,
+already installed a fully current sixteen-file bundle — the registry,
 `deployment.conf`, and `targets`/`common`/`health-check`/`status`/`cleanup`/
 `deploy`/`rollback`/`backup`/`restore-test`/`offsite-backup`/
 `offsite-retention`/`offsite-restore-test`/`backup-cycle` — at
 `/home/www/rateguru`. This installer never installs, modifies, or takes
-ownership of any of those fifteen files; it only ever verifies them, for
+ownership of any of those sixteen files; it only ever verifies them, for
 `--check`, `--apply`'s own preflight, and `--verify` alike, before a staging
 directory, a backup directory, or a single perimeter destination file is
 ever touched.
 
-For each of the fifteen files, the check confirms: it exists; it is a
+For each of the sixteen files, the check confirms: it exists; it is a
 regular file, never a symlink; its owner/mode match what
 `install-target-operations` installs (registry and `deployment.conf` both
 `root:root 0640`, `common` `root:root 0644`, every other file `root:root
@@ -377,7 +377,7 @@ backup root — the one deliberate seam that lets this installer's
 transactional core, including legacy wrapper removal, be exercised end to
 end against a private scratch tree), `RATEGURU_VISUDO_BIN` (which `visudo`
 binary to use), and `RATEGURU_INSTALLED_OPERATIONS_ROOT` (prefixes the
-fifteen-file operations bundle path this installer only ever verifies — a
+sixteen-file operations bundle path this installer only ever verifies — a
 second, independently gated seam, never conflated with
 `RATEGURU_PERIMETER_ROOT`, since this bundle is a read-only dependency, not
 something this installer owns or installs). Without the allow flag, all

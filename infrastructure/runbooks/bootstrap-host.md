@@ -115,8 +115,8 @@ apply skips 5.2/5.3 and completes 5.4.
 Ctrl+C terminates the orchestration without continuing downstream slices;
 the interrupted child's signal-derived exit status is propagated, never
 reinterpreted as a contract failure. Long child verifications announce
-themselves first (the 5.4 verification includes end-to-end mail-capture
-checks and takes noticeable time).
+themselves first (the 5.4 verification runs several child contract verifies
+and takes noticeable time — all of them read-only).
 
 ### External material is never generated
 
@@ -322,7 +322,7 @@ values are never invented.
   preflight). Names and relations are the contract — no accidental numeric
   UID/GID is ever asserted.
 - **FILESYSTEM** — the runtime tree (`/home/www/rateguru` and its
-  config/bin/backups/run subtrees), the fifteen files
+  config/bin/backups/run subtrees), the sixteen files
   `install-target-operations` manages, the per-target tree derived from the
   **source registry** (application root, `releases`, `shared`,
   `shared/storage`, the `current` symlink, `locks`, `deployments`, the
