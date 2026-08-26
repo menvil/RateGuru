@@ -1506,7 +1506,8 @@ it('--apply reloads nginx once for stale workers and then verifies the replaceme
         [$exit, $output] = bsvcRun(['--apply'], $env);
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('service:nginx workers are stale for rateguru-staging-code');
+        expect($output)->toContain('service:nginx workers are stale — reloading once');
+        expect($output)->toContain('stale: rateguru-staging-code:');
         expect($output)->toContain('nginx-workers:rateguru-staging-code every running worker carries the code-group GID');
         expect($output)->toContain('SLICE 5.4 CONTRACT: SATISFIED');
 
@@ -1531,7 +1532,7 @@ it('--apply performs no nginx reload when the running workers already carry the 
         [$exit, $output] = bsvcRun(['--apply'], $env);
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('workers already carry rateguru-staging-code — no reload needed');
+        expect($output)->toContain('workers already carry every active code group — no reload needed');
         expect(bsvcSystemctlMutations($scratch))->toBe([], 'a converged host must not be reloaded');
 
         // And a second apply stays mutation-free too.
@@ -1569,43 +1570,271 @@ it('fails closed when a reload does not produce workers carrying the required gr
     }
 });
 
-it('handles multiple active target code groups generically', function () {
-    // www-data may legitimately need membership in several code groups at
-    // once. A worker carrying only one of them is stale for the other.
+/**
+ * A genuine multi-active-target repository: the real infrastructure/ tree
+ * copied to a scratch root, its registry replaced by one declaring TWO
+ * lifecycle=active targets with different code groups (plus the planned
+ * tits-guru), the targets validator's active allowlist widened to match, and
+ * a full set of committed service sources authored for the second target.
+ *
+ * The installer derives REPO_ROOT from its own location, so running the copy
+ * exercises the real script against a real second target — no fabricated
+ * GIDs and no new override surface.
+ *
+ * @return array{0: string, 1: array<string, string>} [scriptPath, env]
+ */
+function bsvcMultiTargetRepo(string $scratch, array $options = []): array
+{
+    $repo = $scratch.'/repo';
+    exec('cp -R '.escapeshellarg(base_path('infrastructure')).' '.escapeshellarg($repo.'-infra-tmp').' 2>&1', $o, $c);
+    expect($c)->toBe(0, 'could not copy the infrastructure tree');
+    @mkdir($repo, 0o755, true);
+    rename($repo.'-infra-tmp', $repo.'/infrastructure');
+
+    // Two active targets, different code groups; tits-guru stays planned.
+    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+    $second = $registry['targets']['staging-main'];
+    $second['id'] = 'staging-second';
+    $second['application_root'] = '/home/www/rateguru/second';
+    $second['runtime_user'] = 'rateguru-second';
+    $second['runtime_group'] = 'rateguru-second';
+    $second['deploy_user'] = 'deploy-rateguru-second';
+    $second['code_group'] = 'rateguru-second-code';
+    $second['incoming_artifacts'] = '/home/deploy-rateguru-second/incoming';
+    $second['database'] = ['name' => 'rateguru_second', 'application_role' => 'rateguru_second_app'];
+    $second['health'] = ['url' => 'http://127.0.0.1/', 'host_header' => 'rateguru-second.internal'];
+    $second['public_hostnames'] = ['second.staging.myprojects.pp.ua'];
+    $second['backup'] = ['namespace' => 'second', 'local_retention_days' => 5, 'offsite_retention_days' => 14, 'minimum_retained_backups' => 2];
+    $second['php_fpm'] = ['pool' => 'rateguru-second', 'socket' => '/run/php/rateguru-second.sock'];
+    $second['supervisor'] = ['program' => 'rateguru-second-queue', 'queue' => 'rateguru-second'];
+    $second['scheduler'] = ['name' => 'rateguru-second-scheduler'];
+    $second['nginx'] = ['site_name' => 'rateguru-second', 'internal_hostname' => 'rateguru-second.internal'];
+    $registry['targets']['staging-second'] = $second;
+
+    file_put_contents(
+        $repo.'/infrastructure/config/deployment-targets.json',
+        json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n",
+    );
+
+    // The validator allows exactly one active target by name; widen it for
+    // this fixture only.
+    $targets = $repo.'/infrastructure/scripts/targets';
+    file_put_contents($targets, str_replace(
+        'ACTIVE_ALLOWLIST="staging-main"',
+        'ACTIVE_ALLOWLIST_MULTI=(staging-main staging-second)',
+        File::get($targets),
+    ));
+    file_put_contents($targets, str_replace(
+        '[[ "${target_id}" != "${ACTIVE_ALLOWLIST}" ]]',
+        '! printf \'%s\\n\' "${ACTIVE_ALLOWLIST_MULTI[@]}" | grep -Fxq "${target_id}"',
+        File::get($targets),
+    ));
+    file_put_contents($targets, str_replace(
+        'lifecycle=active is currently allowed only for ${ACTIVE_ALLOWLIST}',
+        'lifecycle=active is currently allowed only for ${ACTIVE_ALLOWLIST_MULTI[*]}',
+        File::get($targets),
+    ));
+
+    // Committed service sources for the second target, derived from the
+    // first so every registry/config consistency check still applies.
+    foreach ([
+        'config/nginx/rateguru-staging' => 'config/nginx/rateguru-second',
+        'config/php-fpm/rateguru-staging.conf' => 'config/php-fpm/rateguru-second.conf',
+        'config/supervisor/rateguru-staging-queue.conf' => 'config/supervisor/rateguru-second-queue.conf',
+        'config/cron/rateguru-staging-scheduler' => 'config/cron/rateguru-second-scheduler',
+    ] as $from => $to) {
+        $body = File::get($repo.'/infrastructure/'.$from);
+        $body = str_replace(
+            ['/home/www/rateguru/staging', 'rateguru-staging-queue', 'rateguru-staging', 'rateguru.staging.myprojects.pp.ua'],
+            ['/home/www/rateguru/second', 'rateguru-second-queue', 'rateguru-second', 'second.staging.myprojects.pp.ua'],
+            $body,
+        );
+        file_put_contents($repo.'/infrastructure/'.$to, $body);
+    }
+
+    return [$repo.'/infrastructure/scripts/install-bootstrap-services', $options];
+}
+
+it('requires www-data in every active target code group, on a real two-active-target registry', function () {
     $scratch = bsvcScratchDir();
 
     try {
+        // Workers carry only the FIRST target's code group (5010). The
+        // second target's group (5020) is genuinely declared by the registry
+        // now, not fabricated.
         $env = bsvcFixture($scratch, [
             'profile' => 'compliant',
-            // 5010 is staging-main's code group; 5020 models a second
-            // active target's. The worker has only the second.
-            'nginxWorkers' => ['4101' => ['33', '5020']],
+            'nginxWorkers' => ['4101' => ['33', '5010']],
         ]);
+        [$script] = bsvcMultiTargetRepo($scratch);
 
-        [$exit, $output] = bsvcRun(['--check'], $env);
+        // The second target's group exists in the group database.
+        file_put_contents($scratch.'/fs/etc-group', file_get_contents($scratch.'/fs/etc-group')
+            ."rateguru-second:x:5002:\nrateguru-second-code:x:5020:rateguru-second,www-data\n");
 
-        expect($exit)->toBe(1);
-        expect($output)->toContain('DRIFT    nginx-workers:rateguru-staging-code');
-        // The report names the GID it actually looked for, so a
-        // multi-target host says which group is missing where.
-        expect($output)->toContain('worker(s) without gid 5010');
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+        $process = proc_open(array_merge(['bash', $script, '--check'], []), $descriptors, $pipes, null, $env);
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $exit = proc_close($process);
+
+        // Both targets are active and both code groups are asserted.
+        expect($output)->toContain('2 active target(s): staging-main staging-second');
+        expect($output)->toContain('PASS     nginx-workers:rateguru-staging-code');
+        expect($output)->toContain('DRIFT    nginx-workers:rateguru-second-code');
+        expect($output)->toContain('worker(s) without gid 5020');
+        expect($exit)->toBe(1, "a worker missing one active code group must not pass:\n{$output}");
+
+        // The planned target never appears in the worker contract.
+        expect($output)->not->toContain('nginx-workers:tits-guru');
+        expect($output)->toContain('target:tits-guru — lifecycle=planned');
     } finally {
         bsvcCleanup($scratch);
     }
+});
 
-    // And a worker carrying every required GID passes.
+it('passes on the two-active-target registry once workers carry both code groups', function () {
     $scratch = bsvcScratchDir();
 
     try {
         $env = bsvcFixture($scratch, [
             'profile' => 'compliant',
-            'nginxWorkers' => ['4101' => ['33', '5010', '5020']],
+            'nginxWorkers' => ['4101' => ['33', '5010', '5020'], '4102' => ['33', '5010', '5020']],
         ]);
+        [$script] = bsvcMultiTargetRepo($scratch);
 
-        [$exit, $output] = bsvcRun(['--check'], $env);
+        file_put_contents($scratch.'/fs/etc-group', file_get_contents($scratch.'/fs/etc-group')
+            ."rateguru-second:x:5002:\nrateguru-second-code:x:5020:rateguru-second,www-data\n");
+
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+        $process = proc_open(['bash', $script, '--check'], $descriptors, $pipes, null, $env);
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        proc_close($process);
+
+        expect($output)->toContain('PASS     nginx-workers:rateguru-staging-code');
+        expect($output)->toContain('PASS     nginx-workers:rateguru-second-code');
+        expect(bsvcSystemctlMutations($scratch))->toBe([], '--check must never touch a service');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+/**
+ * Extend a compliant fixture with everything the SECOND active target needs
+ * for a full --apply: identities, filesystem roots and its PHP-FPM socket.
+ */
+function bsvcAddSecondTargetHostState(string $scratch): void
+{
+    $fs = $scratch.'/fs';
+
+    file_put_contents($fs.'/etc-group', file_get_contents($fs.'/etc-group')
+        ."rateguru-second:x:5002:\nrateguru-second-code:x:5020:rateguru-second,www-data\n");
+
+    file_put_contents($fs.'/etc-passwd', file_get_contents($fs.'/etc-passwd')
+        ."rateguru-second:x:5003:5002::/home/www/rateguru/second:/usr/sbin/nologin\n"
+        ."deploy-rateguru-second:x:5004:5004::/home/deploy-rateguru-second:/bin/bash\n");
+
+    foreach (['/home/www/rateguru/second/shared/storage', '/home/www/rateguru/second/releases'] as $dir) {
+        @mkdir($fs.$dir, 0o755, true);
+    }
+
+    // External prerequisites the second target's committed vhost references.
+    // The installer correctly refuses to apply without them, so the fixture
+    // must supply them exactly as an operator would.
+    foreach ([
+        '/etc/nginx/rateguru-second.htpasswd',
+        '/etc/letsencrypt/live/second.staging.myprojects.pp.ua/fullchain.pem',
+        '/etc/letsencrypt/live/second.staging.myprojects.pp.ua/privkey.pem',
+    ] as $path) {
+        @mkdir(dirname($fs.$path), 0o755, true);
+        file_put_contents($fs.$path, 'SECRET-SENTINEL-'.md5($path)."\n");
+    }
+
+    // The second pool's socket, presented as a socket via the type table.
+    touch($fs.'/run/php/rateguru-second.sock');
+    chmod($fs.'/run/php/rateguru-second.sock', 0o660);
+    file_put_contents($fs.'/type-table.txt', $fs."/run/php/rateguru-second.sock|TYPE|socket\n", FILE_APPEND);
+    bsvcOwnerTableAdd($scratch, $fs.'/run/php/rateguru-second.sock', 'www-data', 'www-data');
+}
+
+it('--apply on a real two-active-target host performs exactly one validated nginx reload', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        // Both targets stale: workers carry neither code group. A per-target
+        // reload would produce two; the aggregated phase must produce one.
+        $env = bsvcFixture($scratch, [
+            'profile' => 'compliant',
+            'nginxWorkers' => ['4101' => ['33']],
+            'nginxFreshWorkerGids' => '33 5010 5020',
+        ]);
+        [$script] = bsvcMultiTargetRepo($scratch);
+        bsvcAddSecondTargetHostState($scratch);
+
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+        $process = proc_open(['bash', $script, '--apply'], $descriptors, $pipes, null, $env);
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $exit = proc_close($process);
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('PASS     nginx-workers:rateguru-staging-code');
+        expect($output)->toContain('2 active target(s): staging-main staging-second');
+
+        // Exactly one nginx reload for the whole apply, not one per target.
+        $reloads = array_values(array_filter(
+            bsvcSystemctlMutations($scratch),
+            fn (string $line): bool => $line === 'systemctl reload nginx',
+        ));
+        expect($reloads)->toHaveCount(1, "expected exactly one nginx reload:\n".implode("\n", bsvcSystemctlMutations($scratch)));
+
+        // Never a restart for this condition.
+        expect(implode("\n", bsvcSystemctlMutations($scratch)))->not->toContain('restart nginx');
+
+        // Both targets' code groups were verified after the single reload.
+        expect($output)->toContain('nginx-workers:rateguru-staging-code every running worker carries');
+        expect($output)->toContain('nginx-workers:rateguru-second-code every running worker carries');
+        expect($output)->toContain('SLICE 5.4 CONTRACT: SATISFIED');
+
+        // The planned target got no service configuration at all.
+        expect($output)->not->toContain('nginx-workers:tits-guru');
+        expect(file_exists($scratch.'/fs/etc/nginx/sites-available/rateguru-production'))->toBeFalse();
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('--apply on a converged two-active-target host reloads nginx zero times', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        // Workers already carry both code groups and both sites are already
+        // installed by the first apply.
+        $env = bsvcFixture($scratch, [
+            'profile' => 'compliant',
+            'nginxWorkers' => ['4101' => ['33', '5010', '5020']],
+            'nginxFreshWorkerGids' => '33 5010 5020',
+        ]);
+        [$script] = bsvcMultiTargetRepo($scratch);
+        bsvcAddSecondTargetHostState($scratch);
+
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+        $first = proc_open(['bash', $script, '--apply'], $descriptors, $pipes, null, $env);
+        $firstOutput = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        expect(proc_close($first))->toBe(0, $firstOutput);
+
+        foreach (glob($scratch.'/log/*') ?: [] as $log) {
+            file_put_contents($log, '');
+        }
+
+        $second = proc_open(['bash', $script, '--apply'], $descriptors, $pipes, null, $env);
+        $secondOutput = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        expect(proc_close($second))->toBe(0, $secondOutput);
+
+        expect($secondOutput)->toContain('workers already carry every active code group — no reload needed');
+        expect(bsvcSystemctlMutations($scratch))->toBe([], 'a converged multi-target host must be mutation-free');
     } finally {
         bsvcCleanup($scratch);
     }

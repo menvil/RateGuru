@@ -184,12 +184,20 @@ This slice therefore inspects the two states separately:
   configuration, then bounded-waits for replacement workers carrying every
   required GID and **fails closed** if they never appear.
 
-Reload happens for exactly two reasons, and at most once: the committed
-configuration changed (the existing rule), or the running workers are stale.
-When neither holds there is no reload at all, so a second
+Nginx convergence is deliberately split in two phases, because site files
+are per-target but nginx is one host-wide service. Every active target's site
+file and `sites-enabled` symlink is installed first; then the service is
+validated (`nginx -t`), reloaded or not, and verified **exactly once for the
+whole apply**. Validating and reloading per target would mean N reloads on an
+N-target host.
+
+That single reload happens for exactly two reasons: the committed
+configuration of *any* active target changed, or *any* active target's
+workers are stale. When neither holds there is no reload at all, so a second
 `install-bootstrap-services --apply` — and a second `bootstrap-host --apply`
-— stays mutation-free. The check is per active target code group, so a host
-serving several active targets requires www-data to carry every one of them.
+— stays mutation-free. The verification afterwards covers every active
+target's code group, so a host serving several active targets requires
+www-data to carry every one of them.
 
 ## External prerequisites — never generated, copied or read
 

@@ -1834,46 +1834,78 @@ verify_php_fpm_socket_after_activation() {
     action "socket:${socket} present (socket, ${actual_owner}:${actual_group}, mode ${actual_mode})"
 }
 
-converge_nginx() {
+# Nginx convergence is split in two on purpose. Site files are per-target,
+# but nginx itself is one host-wide service: validating and reloading it once
+# per active target would mean N validated reloads on an N-target host, and
+# would contradict the "at most one reload" contract this slice documents.
+# So every active target's files are installed first, then the service is
+# validated, reloaded (or not) and verified exactly once for the whole apply.
+
+# NGINX_FILES_CHANGED accumulates across the per-target file phase; it is
+# reset once, before that phase begins.
+NGINX_FILES_CHANGED=false
+
+converge_nginx_files() {
     local target_id="$1"
-    local changed=false
 
     install_managed_file_if_needed "$(src_nginx_site "${target_id}")" "$(dst_nginx_site "${target_id}")"
-    [[ "${FILE_CHANGED}" == true ]] && changed=true
+    [[ "${FILE_CHANGED}" == true ]] && NGINX_FILES_CHANGED=true
 
     ensure_enabled_link "${target_id}"
-    [[ "${FILE_CHANGED}" == true ]] && changed=true
+    [[ "${FILE_CHANGED}" == true ]] && NGINX_FILES_CHANGED=true
 
-    # nginx -t validates the complete installed configuration including the
-    # candidate; a failure aborts before any reload, and the trap restores
-    # the previous file/symlink, after which the restored configuration is
-    # re-validated before any rollback reload.
+    return 0
+}
+
+# nginx_stale_worker_reasons — one line per active target whose code group is
+# missing from at least one running worker. Empty output means every worker
+# already carries every required GID.
+nginx_stale_worker_reasons() {
+    local target_id group reason
+
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        group="${TGT_CODE_GROUP[${target_id}]}"
+        reason="$(nginx_workers_missing_group "${group}")"
+
+        [[ -n "${reason}" ]] && printf '%s: %s\n' "${group}" "${reason}"
+    done
+
+    return 0
+}
+
+# converge_nginx_service — the single host-wide phase: one nginx -t, at most
+# one reload for the entire apply, then one verification pass covering every
+# active target's code group.
+converge_nginx_service() {
+    # nginx -t validates the complete installed configuration including every
+    # candidate site; a failure aborts before any reload, and the trap
+    # restores the previous files/symlinks, after which the restored
+    # configuration is re-validated before any rollback reload.
     nginx_config_test \
-        || fail "nginx -t failed with the candidate site installed — restoring the previous configuration (no reload was performed)"
-
-    local group="${TGT_CODE_GROUP[${target_id}]}"
+        || fail "nginx -t failed with the candidate site(s) installed — restoring the previous configuration (no reload was performed)"
 
     if service_active nginx; then
-        # Two independent reasons to reload, and never more than one reload:
-        # the committed configuration changed (the existing rule), or the
-        # running workers predate this target's code-group membership and
-        # therefore cannot read the release tree. Neither condition holding
-        # means no reload at all — that is what keeps a second --apply on a
-        # converged host mutation-free.
-        local stale_reason=""
-        stale_reason="$(nginx_workers_missing_group "${group}")"
+        # Exactly two reasons to reload, evaluated once for the whole apply:
+        # committed configuration changed, or at least one active target's
+        # workers are stale. Neither holding means no reload at all — that is
+        # what keeps a second --apply on a converged host mutation-free.
+        local stale_reasons
+        stale_reasons="$(nginx_stale_worker_reasons)"
 
-        if [[ "${changed}" == true ]]; then
+        if [[ "${NGINX_FILES_CHANGED}" == true ]]; then
             reload_service nginx
-        elif [[ -n "${stale_reason}" ]]; then
-            # nginx_config_test above already validated the complete
-            # installed configuration, so this reload is never applied to a
-            # config the parser rejected. Reload, never restart: workers are
-            # replaced gracefully and in-flight requests are not dropped.
-            action "service:nginx workers are stale for ${group} (${stale_reason}) — reloading so replacements pick up the group"
+        elif [[ -n "${stale_reasons}" ]]; then
+            # nginx_config_test above already validated the installed
+            # configuration, so this reload is never applied to a config the
+            # parser rejected. Reload, never restart: workers are replaced
+            # gracefully and in-flight requests are not dropped.
+            action "service:nginx workers are stale — reloading once so replacements pick up every required code group"
+            while IFS= read -r stale_reason; do
+                [[ -n "${stale_reason}" ]] && action "  stale: ${stale_reason}"
+            done <<<"${stale_reasons}"
             reload_service nginx
         else
-            action "Nginx site already byte-identical and enabled, and workers already carry ${group} — no reload needed"
+            action "Nginx sites already byte-identical and enabled, and workers already carry every active code group — no reload needed"
         fi
 
         ensure_service_enabled_active nginx
@@ -1887,14 +1919,18 @@ converge_nginx() {
         ensure_service_enabled_active nginx
     fi
 
-    verify_nginx_worker_groups_after_activation "${group}" "${TGT_ROOT[${target_id}]}"
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        verify_nginx_worker_groups_after_activation \
+            "${TGT_CODE_GROUP[${target_id}]}" "${TGT_ROOT[${target_id}]}"
+    done
 }
 
-# verify_nginx_worker_groups_after_activation GROUP — fail closed unless the
-# workers now genuinely carry GROUP. Bounded, because a reload replaces
-# workers asynchronously: the old ones finish in flight while the new ones
-# spawn, so the expected state appears shortly after the reload returns
-# rather than instantly.
+# verify_nginx_worker_groups_after_activation GROUP TARGET_ROOT — fail closed
+# unless the workers now genuinely carry GROUP. Bounded, because a reload
+# replaces workers asynchronously: the old ones finish in flight while the
+# new ones spawn, so the expected state appears shortly after the reload
+# returns rather than instantly.
 verify_nginx_worker_groups_after_activation() {
     local group="$1" target_root="$2" attempt reason
 
@@ -2168,10 +2204,14 @@ perform_apply() {
         converge_php_fpm "${target_id}"
     done
 
-    # 10. Active-target Nginx (validated before reload/start).
+    # 10. Active-target Nginx. Site files per target, then ONE validated
+    # nginx -t / reload / worker-group verification for the whole apply —
+    # never one reload per target.
+    NGINX_FILES_CHANGED=false
     for target_id in "${ACTIVE_TARGETS[@]}"; do
-        converge_nginx "${target_id}"
+        converge_nginx_files "${target_id}"
     done
+    converge_nginx_service
 
     # 11. Supervisor (base service first, then the validated program config;
     # activation deferred on PRE_DEPLOY).
