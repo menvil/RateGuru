@@ -104,7 +104,7 @@ function bootstrapRuntimeRequiredPackages(): array
         'acl', 'bash', 'ca-certificates', 'certbot', 'coreutils', 'curl',
         'diffutils', 'findutils', 'gnupg', 'grep', 'gzip', 'hostname',
         'iproute2', 'jq', 'libc-bin', 'mawk', 'nginx', 'openssh-server',
-        'passwd', 'redis-server', 'rsync', 'sed', 'sudo',
+        'passwd', 'procps', 'redis-server', 'rsync', 'sed', 'sudo',
         'supervisor', 'tar', 'unzip', 'util-linux',
     ];
 
@@ -1284,7 +1284,7 @@ it('is idempotent: a second --apply performs no apt call, no key fetch and no fi
         expect($exit)->toBe(0, "second apply must converge trivially:\n{$output}");
         expect($output)->toContain('repo:php already configured by this installer — nothing to do');
         expect($output)->toContain('repo:pgdg already configured by this installer — nothing to do');
-        expect($output)->toContain('packages: all 41 required packages already installed');
+        expect($output)->toContain('packages: all 42 required packages already installed');
         expect($output)->toContain('rclone v'.bootstrapRuntimeFixtureRcloneVersion([]).' already installed');
 
         expect((string) file_get_contents($scratch.'/log/apt.log'))->toBe('', 'second apply ran apt-get');

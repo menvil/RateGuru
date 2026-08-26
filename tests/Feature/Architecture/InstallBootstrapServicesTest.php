@@ -196,6 +196,21 @@ function bsvcWriteStubs(string $scratch): void
     bsvcWriteStub($scratch.'/bin/systemctl', <<<'STUB'
         #!/bin/bash
         printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/systemctl.log"
+        # A real reload replaces workers, so the replacements are created
+        # with whatever supplementary groups the account now has. Unless the
+        # reload-keeps-workers-stale toggle models a host where that failed.
+        respawn_nginx_workers() {
+            [[ -f "${STUB_FS}/nginx-fresh-worker-gids.txt" ]] || return 0
+            if [[ -e "${STUB_TOGGLES}/nginx-reload-keeps-stale-workers" ]]; then return 0; fi
+            gids="$(PATH="${STUB_REAL_PATH}" cat "${STUB_FS}/nginx-fresh-worker-gids.txt")"
+            PATH="${STUB_REAL_PATH}" rm -rf "${STUB_FS}/proc"
+            : > "${STUB_FS}/nginx-worker-pids.txt"
+            for pid in 9001 9002; do
+                PATH="${STUB_REAL_PATH}" mkdir -p "${STUB_FS}/proc/${pid}"
+                printf 'Name:\tnginx\nGroups:\t%s \n' "${gids}" > "${STUB_FS}/proc/${pid}/status"
+                printf '%s\n' "${pid}" >> "${STUB_FS}/nginx-worker-pids.txt"
+            done
+        }
         cmd=""; unit=""
         for arg in "$@"; do
             case "${arg}" in
@@ -212,11 +227,23 @@ function bsvcWriteStubs(string $scratch): void
             start)
                 [[ -e "${STUB_TOGGLES}/${unit}-start-fail" ]] && exit 1
                 touch "${STUB_SVC_STATE}/${unit}.active"
+                if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
                 ;;
             stop)    rm -f "${STUB_SVC_STATE}/${unit}.active" ;;
-            reload|restart) [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] ;;
+            reload|restart)
+                [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] || exit 1
+                if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                ;;
             *) exit 0 ;;
         esac
+        STUB);
+
+    // pgrep: the PIDs of the simulated running www-data nginx workers.
+    bsvcWriteStub($scratch.'/bin/pgrep', <<<'STUB'
+        #!/bin/bash
+        printf 'pgrep %s\n' "$*" >> "${STUB_LOG}/pgrep.log"
+        [[ -s "${STUB_FS}/nginx-worker-pids.txt" ]] || exit 1
+        PATH="${STUB_REAL_PATH}" cat "${STUB_FS}/nginx-worker-pids.txt"
         STUB);
 
     // nginx / sshd / php-fpm: config tests whose verdict a toggle controls.
@@ -381,6 +408,31 @@ function bsvcFixture(string $scratch, array $options = []): array
     }
 
     // Fixture passwd: the slice 5.3 accounts exist.
+    // Group database: the code group's GID is what an Nginx worker must
+    // carry in its supplementary groups.
+    file_put_contents($fs.'/etc-group', implode("\n", [
+        'root:x:0:',
+        'www-data:x:33:',
+        'rateguru-staging:x:5001:',
+        'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging,www-data',
+    ])."\n");
+
+    // Simulated running Nginx workers. `nginxWorkers` maps PID => list of
+    // supplementary GIDs, so a test can model workers that predate the
+    // code-group membership (the clean-VPS state) as easily as current ones.
+    $workers = $options['nginxWorkers'] ?? ['4101' => ['33', '5010'], '4102' => ['33', '5010']];
+
+    foreach ($workers as $pid => $gids) {
+        @mkdir($fs.'/proc/'.$pid, 0o755, true);
+        file_put_contents(
+            $fs.'/proc/'.$pid.'/status',
+            "Name:\tnginx\nUid:\t33\t33\t33\t33\nGroups:\t".implode(' ', $gids)." \n",
+        );
+    }
+
+    file_put_contents($fs.'/nginx-worker-pids.txt', implode("\n", array_keys($workers))."\n");
+    file_put_contents($fs.'/nginx-fresh-worker-gids.txt', ($options['nginxFreshWorkerGids'] ?? '33 5010')."\n");
+
     file_put_contents($fs.'/etc-passwd', implode("\n", [
         'root:x:0:0:root:/root:/bin/bash',
         'rateguru-staging:x:5001:5001::/home/www/rateguru/staging:/usr/sbin/nologin',
@@ -467,6 +519,9 @@ function bsvcFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_EUID' => $options['euid'] ?? '0',
         'RATEGURU_BOOTSTRAPSVC_FS_ROOT' => $fs,
         'RATEGURU_BOOTSTRAPSVC_PASSWD_FILE' => $fs.'/etc-passwd',
+        'RATEGURU_BOOTSTRAPSVC_GROUP_FILE' => $fs.'/etc-group',
+        'RATEGURU_BOOTSTRAPSVC_PGREP_BIN' => $scratch.'/bin/pgrep',
+        'RATEGURU_BOOTSTRAPSVC_NGINX_WORKER_WAIT_ATTEMPTS' => '2',
         'RATEGURU_BOOTSTRAPSVC_RUNTIME_INSTALLER_BIN' => $scratch.'/bin/runtime-installer',
         'RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTALLER_BIN' => $scratch.'/bin/hostlayout-installer',
         'RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN' => $scratch.'/bin/operations-installer',
@@ -493,6 +548,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         'STUB_TYPE_TABLE' => $fs.'/type-table.txt',
         'STUB_SVC_STATE' => $scratch.'/svc',
         'STUB_TOGGLES' => $scratch.'/toggles',
+        'STUB_FS' => $fs,
     ];
 }
 
@@ -1398,4 +1454,190 @@ it('documents the ownership boundaries and the PRE_DEPLOY/DEPLOYED distinction i
     // The known first-deploy queue-activation gap is documented as a
     // 5.5/5.6 integration fix, not silently ignored.
     expect($runbook)->toContain('5.5/5.6');
+});
+
+// =============================================================================
+// Nginx worker supplementary groups (Phase 5.6 clean-VPS blocker #2).
+//
+// Adding www-data to a code group in /etc/group does not change the
+// supplementary groups of Nginx workers that are already running. A host can
+// therefore have a perfectly correct account database and still 404 every
+// request, because the live workers predate the membership. Only a reload
+// (never a restart) replaces them.
+// =============================================================================
+
+it('does not pass when the account is a code-group member but the running workers are stale', function () {
+    foreach (['--check', '--verify'] as $mode) {
+        $scratch = bsvcScratchDir();
+
+        try {
+            // Workers carry only www-data's own GID — exactly the clean-VPS
+            // state after 5.3 appended the membership but before any reload.
+            $env = bsvcFixture($scratch, [
+                'profile' => 'compliant',
+                'nginxWorkers' => ['4101' => ['33'], '4102' => ['33']],
+            ]);
+
+            $before = bsvcTreeSnapshot($scratch.'/fs');
+            [$exit, $output] = bsvcRun([$mode], $env);
+
+            expect($exit)->toBe(1, "{$mode} must not pass with stale workers:\n{$output}");
+            expect($output)->toContain('DRIFT    nginx-workers:rateguru-staging-code');
+            expect($output)->toContain('running workers predate the rateguru-staging-code membership');
+
+            // Read-only means read-only: no reload, no restart, no mutation.
+            expect(bsvcSystemctlMutations($scratch))->toBe([], "{$mode} must not touch any service");
+            expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before, "{$mode} mutated the fixture");
+        } finally {
+            bsvcCleanup($scratch);
+        }
+    }
+});
+
+it('--apply reloads nginx once for stale workers and then verifies the replacements carry the group', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, [
+            'profile' => 'compliant',
+            'nginxWorkers' => ['4101' => ['33'], '4102' => ['33']],
+        ]);
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('service:nginx workers are stale for rateguru-staging-code');
+        expect($output)->toContain('nginx-workers:rateguru-staging-code every running worker carries the code-group GID');
+        expect($output)->toContain('SLICE 5.4 CONTRACT: SATISFIED');
+
+        // Reload, never restart — and exactly once.
+        $mutations = bsvcSystemctlMutations($scratch);
+        expect($mutations)->toBe(['systemctl reload nginx']);
+
+        // The configuration was validated before the reload.
+        expect(bsvcLog($scratch, 'nginx.log'))->toContain('nginx -t');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('--apply performs no nginx reload when the running workers already carry the group', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        // The default compliant fixture already has current workers.
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('workers already carry rateguru-staging-code — no reload needed');
+        expect(bsvcSystemctlMutations($scratch))->toBe([], 'a converged host must not be reloaded');
+
+        // And a second apply stays mutation-free too.
+        foreach (glob($scratch.'/log/*') ?: [] as $log) {
+            file_put_contents($log, '');
+        }
+
+        [$exit2, $out2] = bsvcRun(['--apply'], $env);
+        expect($exit2)->toBe(0, $out2);
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('fails closed when a reload does not produce workers carrying the required group', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, [
+            'profile' => 'compliant',
+            'nginxWorkers' => ['4101' => ['33']],
+        ]);
+        // The reload happens but the replacements are still stale — the
+        // installer must not declare the contract satisfied.
+        touch($scratch.'/toggles/nginx-reload-keeps-stale-workers');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('nginx workers still do not carry the rateguru-staging-code GID after activation');
+        expect($output)->toContain('cannot read /home/www/rateguru/staging/current/public');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('handles multiple active target code groups generically', function () {
+    // www-data may legitimately need membership in several code groups at
+    // once. A worker carrying only one of them is stale for the other.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, [
+            'profile' => 'compliant',
+            // 5010 is staging-main's code group; 5020 models a second
+            // active target's. The worker has only the second.
+            'nginxWorkers' => ['4101' => ['33', '5020']],
+        ]);
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('DRIFT    nginx-workers:rateguru-staging-code');
+        // The report names the GID it actually looked for, so a
+        // multi-target host says which group is missing where.
+        expect($output)->toContain('worker(s) without gid 5010');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+
+    // And a worker carrying every required GID passes.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, [
+            'profile' => 'compliant',
+            'nginxWorkers' => ['4101' => ['33', '5010', '5020']],
+        ]);
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('PASS     nginx-workers:rateguru-staging-code');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('reports stale workers rather than crashing when nginx is stopped or workers are unreadable', function () {
+    // nginx stopped: the runtime state genuinely cannot be inspected.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        unlink($scratch.'/svc/nginx.active');
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  nginx-workers:rateguru-staging-code — nginx is not running');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+
+    // No workers at all.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant', 'nginxWorkers' => []]);
+
+        [$exit, $output] = bsvcRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('no www-data nginx worker process found to inspect');
+    } finally {
+        bsvcCleanup($scratch);
+    }
 });

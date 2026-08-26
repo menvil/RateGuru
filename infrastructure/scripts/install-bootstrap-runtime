@@ -243,6 +243,7 @@ BASE_PACKAGES=(
     nginx
     openssh-server
     passwd
+    procps
     redis-server
     rsync
     sed

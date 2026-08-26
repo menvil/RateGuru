@@ -154,6 +154,12 @@ SSH_SERVICE="ssh"
 
 MAIL_SERVICES=(staging-mailpit.service staging-mailtrap-local.service)
 
+# The account Nginx workers run as. It must be a member of every active
+# target's code group so workers can traverse and read the immutable
+# release tree — see the worker-group section below.
+NGINX_WORKER_USER="www-data"
+
+
 BACKUP_ROOT="/var/backups/rateguru-bootstrap-services"
 
 # --- Test override gate -------------------------------------------------------
@@ -179,6 +185,7 @@ EFFECTIVE_UID="$(gated_default RATEGURU_BOOTSTRAPSVC_EUID "${EUID}")"
 SOURCE_REGISTRY="$(gated_default RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY "${SOURCE_REGISTRY_DEFAULT}")"
 TARGETS_CLI="$(gated_default RATEGURU_TARGETS_CLI "${SCRIPT_DIR}/targets")"
 PASSWD_FILE="$(gated_default RATEGURU_BOOTSTRAPSVC_PASSWD_FILE /etc/passwd)"
+GROUP_FILE="$(gated_default RATEGURU_BOOTSTRAPSVC_GROUP_FILE /etc/group)"
 
 # Fixture filesystem prefix: '' in production. Every stat/install/chown/
 # chmod/symlink below operates on physical(LOGICAL) = FS_ROOT + LOGICAL.
@@ -198,6 +205,7 @@ SYSTEMCTL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN systemctl)"
 NGINX_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_NGINX_BIN nginx)"
 SSHD_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SSHD_BIN /usr/sbin/sshd)"
 SUPERVISORCTL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SUPERVISORCTL_BIN supervisorctl)"
+PGREP_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_PGREP_BIN pgrep)"
 STAT_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_STAT_BIN stat)"
 INSTALL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_INSTALL_BIN install)"
 CHOWN_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_CHOWN_BIN chown)"
@@ -209,6 +217,9 @@ PHP_FPM_TEST_BIN_OVERRIDE="$(gated_default RATEGURU_BOOTSTRAPSVC_PHP_FPM_BIN '')
 
 # Runtime wait tuning (seconds/attempts), shrunk by tests only.
 SOCKET_WAIT_ATTEMPTS="$(gated_default RATEGURU_BOOTSTRAPSVC_SOCKET_WAIT_ATTEMPTS 10)"
+# Bounded wait for replacement Nginx workers to appear carrying the
+# required supplementary groups after a reload.
+NGINX_WORKER_WAIT_ATTEMPTS="$(gated_default RATEGURU_BOOTSTRAPSVC_NGINX_WORKER_WAIT_ATTEMPTS 10)"
 QUEUE_WAIT_ATTEMPTS="$(gated_default RATEGURU_BOOTSTRAPSVC_QUEUE_WAIT_ATTEMPTS 10)"
 STABILITY_WAIT_SECONDS="$(gated_default RATEGURU_BOOTSTRAPSVC_STABILITY_WAIT 3)"
 RETRY_DELAY_SECONDS="$(gated_default RATEGURU_BOOTSTRAPSVC_RETRY_DELAY 1)"
@@ -332,6 +343,82 @@ require_real_directory() {
     [[ -d "${phys}" ]] || fail "path:${logical} is missing or not a directory (${why})"
 }
 
+# --- Nginx worker supplementary groups (Phase 5.6 clean-VPS blocker #2) -------
+#
+# Adding www-data to a target's code group in /etc/group does NOT change the
+# supplementary groups of Nginx worker processes that are already running:
+# credentials are established when a process is created. So a host can have a
+# perfectly correct account database and still serve HTTP 404 for every
+# request, because the live workers predate the membership. The two states
+# must therefore be inspected separately — `id www-data` answers the account
+# question, /proc/<pid>/status answers the runtime one — and only a reload
+# (never a restart) fixes the second.
+#
+# Everything here is read-only. Remediation lives in converge_nginx.
+
+# group_gid GROUP — numeric GID from the group database, empty when absent.
+group_gid() {
+    local group="$1"
+
+    [[ -r "${GROUP_FILE}" ]] || return 1
+
+    awk -F: -v g="${group}" '$1 == g { print $3; found = 1; exit } END { exit !found }' "${GROUP_FILE}"
+}
+
+# nginx_worker_pids — PIDs of the www-data Nginx workers. The master runs as
+# root and is deliberately excluded: it is the workers that open files in the
+# release tree.
+nginx_worker_pids() {
+    "${PGREP_BIN}" -u "${NGINX_WORKER_USER}" -x nginx 2>/dev/null || true
+}
+
+# process_supplementary_gids PID — the GIDs from /proc/<pid>/status's Groups
+# line, one per line. Read through physical() so a fixture root can supply a
+# simulated /proc.
+process_supplementary_gids() {
+    local status_file
+    status_file="$(physical "/proc/$1/status")"
+
+    [[ -r "${status_file}" ]] || return 1
+
+    awk '$1 == "Groups:" { for (i = 2; i <= NF; i++) print $i; found = 1 } END { exit !found }' "${status_file}"
+}
+
+# nginx_workers_missing_group GROUP — prints a human-readable reason when at
+# least one running worker lacks GROUP's GID (or when the state cannot be
+# established at all), and prints nothing when every worker carries it.
+# Never mutates, never reloads.
+nginx_workers_missing_group() {
+    local group="$1" gid pids pid gids stale=()
+
+    if ! gid="$(group_gid "${group}")" || [[ -z "${gid}" ]]; then
+        printf 'group %s does not exist in %s\n' "${group}" "${GROUP_FILE}"
+        return 0
+    fi
+
+    pids="$(nginx_worker_pids)"
+
+    if [[ -z "${pids}" ]]; then
+        printf 'no %s nginx worker process found to inspect\n' "${NGINX_WORKER_USER}"
+        return 0
+    fi
+
+    while IFS= read -r pid; do
+        [[ -n "${pid}" ]] || continue
+
+        if ! gids="$(process_supplementary_gids "${pid}")"; then
+            stale+=("pid ${pid} (supplementary groups unreadable)")
+            continue
+        fi
+
+        grep -Fxq "${gid}" <<<"${gids}" || stale+=("pid ${pid}")
+    done <<<"${pids}"
+
+    (( ${#stale[@]} == 0 )) && return 0
+
+    printf 'worker(s) without gid %s (%s): %s\n' "${gid}" "${group}" "${stale[*]}"
+}
+
 passwd_user_exists() {
     local user="$1"
 
@@ -344,7 +431,7 @@ passwd_user_exists() {
 
 ACTIVE_TARGETS=()
 PLANNED_TARGETS=()
-declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
+declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER TGT_CODE_GROUP
 declare -A TGT_NGINX_SITE TGT_FPM_POOL TGT_FPM_SOCKET TGT_SUPERVISOR_PROGRAM
 declare -A TGT_SCHEDULER TGT_STATE
 
@@ -419,6 +506,7 @@ load_source_contract() {
         TGT_RUNTIME_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_user' "${SOURCE_REGISTRY}")"
         TGT_RUNTIME_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_group' "${SOURCE_REGISTRY}")"
         TGT_DEPLOY_USER[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].deploy_user' "${SOURCE_REGISTRY}")"
+        TGT_CODE_GROUP[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].code_group' "${SOURCE_REGISTRY}")"
         TGT_NGINX_SITE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.site_name' "${SOURCE_REGISTRY}")"
         TGT_FPM_POOL[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.pool' "${SOURCE_REGISTRY}")"
         TGT_FPM_SOCKET[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.socket' "${SOURCE_REGISTRY}")"
@@ -1198,8 +1286,41 @@ report_services() {
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         report_php_fpm_socket "${target_id}"
+        report_nginx_worker_groups "${target_id}"
         report_queue_program "${target_id}"
     done
+}
+
+# report_nginx_worker_groups TARGET_ID — the RUNTIME half of the code-group
+# contract. Account membership (www-data in the code group) is slice 5.3's
+# contract and is gated by its own --verify; this asserts that the Nginx
+# workers actually running right now carry that group, because supplementary
+# groups are fixed at process creation and a live worker that predates the
+# membership still cannot read the release tree.
+#
+# Strictly read-only: nothing here reloads, restarts or otherwise touches a
+# service. Stale workers are DRIFT — safely remediable by --apply through a
+# validated reload — never CONFLICT.
+report_nginx_worker_groups() {
+    local target_id="$1"
+    local group="${TGT_CODE_GROUP[${target_id}]}"
+
+    if ! service_active nginx; then
+        item MISSING "nginx-workers:${group}" "nginx is not running — worker supplementary groups cannot be inspected" \
+            "enable/start nginx after its configuration is validated, then re-check"
+        return 0
+    fi
+
+    local reason
+    reason="$(nginx_workers_missing_group "${group}")"
+
+    if [[ -z "${reason}" ]]; then
+        item PASS "nginx-workers:${group}" "every running ${NGINX_WORKER_USER} nginx worker carries the ${group} GID (can traverse and read ${TGT_ROOT[${target_id}]}/current/public)"
+        return 0
+    fi
+
+    item DRIFT "nginx-workers:${group}" "${reason} — running workers predate the ${group} membership, so Nginx cannot read the immutable release tree (every request would 404 with a permission-denied stat)" \
+        "reload nginx (never restart) after nginx -t passes, so replacement workers pick up the group"
 }
 
 report_service_state() {
@@ -1730,21 +1851,67 @@ converge_nginx() {
     nginx_config_test \
         || fail "nginx -t failed with the candidate site installed — restoring the previous configuration (no reload was performed)"
 
+    local group="${TGT_CODE_GROUP[${target_id}]}"
+
     if service_active nginx; then
+        # Two independent reasons to reload, and never more than one reload:
+        # the committed configuration changed (the existing rule), or the
+        # running workers predate this target's code-group membership and
+        # therefore cannot read the release tree. Neither condition holding
+        # means no reload at all — that is what keeps a second --apply on a
+        # converged host mutation-free.
+        local stale_reason=""
+        stale_reason="$(nginx_workers_missing_group "${group}")"
+
         if [[ "${changed}" == true ]]; then
             reload_service nginx
+        elif [[ -n "${stale_reason}" ]]; then
+            # nginx_config_test above already validated the complete
+            # installed configuration, so this reload is never applied to a
+            # config the parser rejected. Reload, never restart: workers are
+            # replaced gracefully and in-flight requests are not dropped.
+            action "service:nginx workers are stale for ${group} (${stale_reason}) — reloading so replacements pick up the group"
+            reload_service nginx
         else
-            action "Nginx site already byte-identical and enabled — no reload needed"
+            action "Nginx site already byte-identical and enabled, and workers already carry ${group} — no reload needed"
         fi
+
         ensure_service_enabled_active nginx
     else
         # A clean host: enable and start only after the configuration
         # validated. Unrelated sites (including the distro default) are
         # never removed or disabled — a real conflict surfaces via nginx -t
         # or the start itself and is reported, not resolved by inventing
-        # cleanup policy here.
+        # cleanup policy here. A freshly started master spawns workers that
+        # already carry the current group set.
         ensure_service_enabled_active nginx
     fi
+
+    verify_nginx_worker_groups_after_activation "${group}" "${TGT_ROOT[${target_id}]}"
+}
+
+# verify_nginx_worker_groups_after_activation GROUP — fail closed unless the
+# workers now genuinely carry GROUP. Bounded, because a reload replaces
+# workers asynchronously: the old ones finish in flight while the new ones
+# spawn, so the expected state appears shortly after the reload returns
+# rather than instantly.
+verify_nginx_worker_groups_after_activation() {
+    local group="$1" target_root="$2" attempt reason
+
+    for ((attempt = 1; attempt <= NGINX_WORKER_WAIT_ATTEMPTS; attempt++)); do
+        reason="$(nginx_workers_missing_group "${group}")"
+
+        [[ -z "${reason}" ]] && break
+
+        sleep "${RETRY_DELAY_SECONDS}"
+    done
+
+    reason="$(nginx_workers_missing_group "${group}")"
+
+    [[ -z "${reason}" ]] \
+        || fail "nginx workers still do not carry the ${group} GID after activation: ${reason} — Nginx cannot read ${target_root}/current/public, so the target cannot serve its release"
+
+    action "nginx-workers:${group} every running worker carries the code-group GID"
 }
 
 converge_supervisor() {

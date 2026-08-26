@@ -38,15 +38,31 @@
 #   deploy user (deploy-rateguru-staging)  owns incoming artifacts and
 #       creates immutable releases (releases/locks/deployments are
 #       deploy_user:code_group, setgid 2750);
-#   code group (rateguru-staging-code)     lets the runtime user read
-#       immutable release code normalized to 0750/0640 without owning it;
+#   code group (rateguru-staging-code)     the read-only immutable-code
+#       group. It has exactly two required members, and both of them read
+#       release code normalized to 0750/0640 without owning it:
+#         1. the target runtime user — PHP-FPM and the queue worker
+#            execute the application as it;
+#         2. www-data — Nginx workers must traverse the release tree and
+#            stat/read public/index.php themselves, before FastCGI is ever
+#            involved, because the vhost serves
+#            `root <target>/current/public` with
+#            `try_files $uri $uri/ /index.php?$query_string`. Without this
+#            membership a clean host serves HTTP 404 for every request and
+#            the error log shows `stat() ... failed (13: Permission
+#            denied)` — the Phase 5.6 clean-VPS acceptance failed on
+#            exactly that, after the first deployment had already switched
+#            current;
 #   runtime user (rateguru-staging)        runs Laravel/PHP-FPM/queue
 #       processes and owns the shared mutable state (shared and
 #       shared/storage are runtime_user:runtime_group, setgid 2770);
-#   www-data                               is NOT added to any runtime
-#       group and no runtime account joins www-data — public storage
-#       traversal remains the narrow POSIX ACL that
-#       install-public-storage-access grants in slice 5.4;
+#   www-data                               joins each active target's CODE
+#       group (immutable code, read-only) and nothing else. It is never
+#       added to a runtime_group, so it gains no access to shared mutable
+#       state, and no runtime account ever joins www-data. Public mutable
+#       storage traversal is a separate, independent boundary: the narrow
+#       POSIX ACL (user:www-data:--x) that install-public-storage-access
+#       grants in slice 5.4 on shared and shared/storage;
 #   root                                   owns the target namespace root
 #       (/home/www/rateguru/<target> is root:root 0755) and the host
 #       operational/configuration roots.
@@ -133,6 +149,11 @@ HOME_ROOT="/home"
 # operator review — this installer never rewrites it.
 RUNTIME_USER_SHELL="/usr/sbin/nologin"
 DEPLOY_USER_SHELL="/bin/bash"
+
+# The Nginx/PHP-FPM service account. It is a required member of every active
+# target's CODE group (read-only immutable release code) and never of a
+# runtime_group — see the identity model in this file's header.
+WWW_DATA_USER="www-data"
 
 # --- Test override gate -------------------------------------------------------
 
@@ -581,24 +602,44 @@ report_users() {
     done
 }
 
+# required_code_group_memberships — the authoritative set of
+# "<user>|<group>|<why>" relations this slice owns, one line per relation,
+# for every active target. Both readers of immutable release code are
+# required members of the code group; www-data is never added to a
+# runtime_group. Emitting the set from one place keeps --check, --apply and
+# --verify from ever disagreeing about what the contract is, and keeps it
+# generic for additional active targets (www-data may legitimately need
+# membership in several code groups at once).
+required_code_group_memberships() {
+    local target_id group
+
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        group="${TGT_CODE_GROUP[${target_id}]}"
+
+        printf '%s|%s|%s\n' "${TGT_RUNTIME_USER[${target_id}]}" "${group}" \
+            "PHP-FPM and the queue worker execute releases owned ${TGT_DEPLOY_USER[${target_id}]}:${group} mode 0750/0640"
+        printf '%s|%s|%s\n' "${WWW_DATA_USER}" "${group}" \
+            "Nginx workers must traverse and stat/read the immutable public tree (${TGT_ROOT[${target_id}]}/current/public) themselves, before FastCGI is involved"
+    done
+}
+
 report_memberships() {
     section "MEMBERSHIP"
 
-    local target_id user group
-    for target_id in "${ACTIVE_TARGETS[@]}"; do
-        user="${TGT_RUNTIME_USER[${target_id}]}"
-        group="${TGT_CODE_GROUP[${target_id}]}"
+    local user group why
+    while IFS='|' read -r user group why; do
+        [[ -n "${user}" ]] || continue
 
         if ! passwd_entry "${user}" >/dev/null || ! group_entry "${group}" >/dev/null; then
             item MISSING "membership:${user}:${group}" "user or group absent — relation cannot exist yet" \
                 "create the accounts, then usermod --append --groups ${group} ${user}"
         elif user_in_group "${user}" "${group}"; then
-            item PASS "membership:${user}:${group}" "${user} is a member of ${group} (PHP-FPM must read releases owned ${TGT_DEPLOY_USER[${target_id}]}:${group} mode 0750/0640)"
+            item PASS "membership:${user}:${group}" "${user} is a member of ${group} (${why})"
         else
-            item MISSING "membership:${user}:${group}" "${user} is not a member of ${group}" \
+            item MISSING "membership:${user}:${group}" "${user} is not a member of ${group} (${why})" \
                 "usermod --append --groups ${group} ${user} (append-only; unrelated memberships are never removed)"
         fi
-    done
+    done < <(required_code_group_memberships)
 }
 
 # report_directory PATH OWNER GROUP MODE POLICY LABEL
@@ -939,23 +980,25 @@ converge_users() {
 }
 
 converge_memberships() {
-    local target_id user group
-    for target_id in "${ACTIVE_TARGETS[@]}"; do
-        user="${TGT_RUNTIME_USER[${target_id}]}"
-        group="${TGT_CODE_GROUP[${target_id}]}"
+    local user group why
+    while IFS='|' read -r user group why; do
+        [[ -n "${user}" ]] || continue
 
         if user_in_group "${user}" "${group}"; then
             continue
         fi
 
-        action "membership:${user}:${group} appending supplementary membership (unrelated memberships are never removed)"
+        action "membership:${user}:${group} appending supplementary membership (${why}; unrelated memberships are never removed)"
 
+        # --append is what keeps this non-destructive: www-data in
+        # particular carries unrelated system memberships on a real host,
+        # and a plain --groups would silently drop every one of them.
         "${USERMOD_BIN}" --append --groups "${group}" "${user}" \
             || fail "membership:${user}:${group}: usermod failed"
 
         user_in_group "${user}" "${group}" \
             || fail "membership:${user}:${group}: appended but not visible in ${GROUP_FILE}"
-    done
+    done < <(required_code_group_memberships)
 }
 
 # --- Apply: filesystem convergence --------------------------------------------

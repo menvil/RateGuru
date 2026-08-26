@@ -155,6 +155,42 @@ remove the program: it does not own the operator's supervisor
 registration. The mechanism is exercised end to end by the 5.6 clean-VPS
 acceptance.
 
+## Nginx worker supplementary groups (the runtime half of the code group)
+
+Slice 5.3 makes `www-data` a member of every active target's **code group**
+so Nginx can traverse and read the immutable release tree
+(`deploy_user:code_group`, `0750`/`0640`). That is an account-database fact.
+
+**Supplementary groups are fixed when a process is created.** Adding the
+membership therefore does nothing for Nginx workers that are already
+running: a host can have a completely correct `/etc/group` and still answer
+every request with HTTP 404, with `stat() ... failed (13: Permission
+denied)` in the error log. The Phase 5.6 clean-VPS acceptance hit exactly
+this, and it is also what a *partially* bootstrapped host looks like when
+5.3 is re-run against long-lived Nginx workers.
+
+This slice therefore inspects the two states separately:
+
+| Question | Answered by | Owner |
+|---|---|---|
+| Is www-data a member of the code group? | the group database | slice 5.3 (`install-bootstrap-host-layout --verify`) |
+| Do the *running* workers carry that GID? | `/proc/<pid>/status` of each www-data worker | this slice |
+
+- **`--check` / `--verify`** report the runtime state read-only. Stale
+  workers are `DRIFT` (safely remediable), never `CONFLICT`. **No service is
+  reloaded, restarted or otherwise touched in either mode.**
+- **`--apply`** reloads Nginx — **never restarts it** — when workers are
+  stale, always after `nginx -t` has validated the complete installed
+  configuration, then bounded-waits for replacement workers carrying every
+  required GID and **fails closed** if they never appear.
+
+Reload happens for exactly two reasons, and at most once: the committed
+configuration changed (the existing rule), or the running workers are stale.
+When neither holds there is no reload at all, so a second
+`install-bootstrap-services --apply` — and a second `bootstrap-host --apply`
+— stays mutation-free. The check is per active target code group, so a host
+serving several active targets requires www-data to carry every one of them.
+
 ## External prerequisites — never generated, copied or read
 
 The committed vhosts being activated reference external secret material.
