@@ -2209,3 +2209,132 @@ it('gates the supervisor wait tuning behind the shared test-override flag', func
 // vacuous loop, matching the precedent already set elsewhere in this file's
 // own history for scripts that graduate out of "still legacy-only".
 // =============================================================================
+
+// =============================================================================
+// The first-deploy permission contract (Phase 5.6 clean-VPS blocker #2).
+//
+// A clean VPS bootstrapped through 5.2/5.3/5.4 reached PRE_DEPLOY READY, the
+// first deployment switched current, and then all 10 health checks returned
+// HTTP 404. The Nginx error log showed the real cause:
+//
+//   stat() ".../current/public/index.php" failed (13: Permission denied)
+//
+// The release modes were correct. The identity model was not: www-data was
+// in its own group only, so Nginx workers could not traverse the 0750 tree.
+// Both halves of that contract are asserted together here, because either
+// half alone is what made the failure so hard to see.
+// =============================================================================
+
+it('produces a release tree exactly two identities must be able to read, and requires both of them', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $result = deployOpsRunFullDeployment($scratch);
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        $root = $result['fixture']['root'];
+        $releaseRoot = $root.'/releases/'.$result['releaseId'];
+
+        // --- half one: what deploy actually writes -----------------------
+        clearstatcache();
+
+        expect(substr(sprintf('%o', fileperms($releaseRoot)), -4))
+            ->toBe('0750', 'release directory must stay group-readable/traversable only');
+        expect(substr(sprintf('%o', fileperms($releaseRoot.'/public')), -4))
+            ->toBe('0750', 'public directory must stay group-traversable only');
+        expect(substr(sprintf('%o', fileperms($releaseRoot.'/public/index.php')), -4))
+            ->toBe('0640', 'index.php must stay group-readable only — never world-readable');
+
+        // Owned by the deploy identity, grouped to the code group. In this
+        // fixture both map to the test account/group (see
+        // deployOpsParityRegistry), which is what makes the chown assertions
+        // runnable without root.
+        $stat = stat($releaseRoot);
+        expect($stat['uid'])->toBe(getmyuid(), 'releases are owned by the deploy user');
+        expect($stat['gid'])->toBe(getmygid(), 'releases are grouped to the code group');
+
+        // Nothing was widened to world access to make serving work.
+        foreach ([$releaseRoot, $releaseRoot.'/public', $releaseRoot.'/public/index.php'] as $path) {
+            expect(fileperms($path) & 0o007)->toBe(0, "world access must never be granted: {$path}");
+        }
+
+        // --- half two: who must be able to read it -----------------------
+        // Because the tree is 0750/0640 and owned by the deploy user, every
+        // consumer reaches it through the code group — and there are exactly
+        // two: PHP-FPM/queue as the runtime user, and Nginx as www-data.
+        $hostLayout = File::get(base_path('infrastructure/scripts/install-bootstrap-host-layout'));
+
+        expect($hostLayout)->toContain('required_code_group_memberships');
+        expect($hostLayout)->toContain('${WWW_DATA_USER}');
+        expect($hostLayout)->toContain('WWW_DATA_USER="www-data"');
+
+        // www-data reads immutable code only — it never joins a runtime
+        // group, which would hand it the shared mutable state as well.
+        expect($hostLayout)->not->toMatch('/--groups\s+"\$\{TGT_RUNTIME_GROUP/');
+
+        // The preflight asserts the same two relations, so the installer and
+        // the read-only inspection can never disagree about them.
+        $preflight = File::get(base_path('infrastructure/scripts/bootstrap-host-preflight'));
+        expect($preflight)->toContain('report_membership "www-data" "${TGT_CODE_GROUP[${target_id}]}"');
+
+        // And the shared mutable boundary stays independent: a narrow ACL,
+        // never a group membership and never a chmod.
+        expect($preflight)->toContain('user:www-data:--x');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('keeps the post-switch health check fatal, so a release Nginx cannot serve still fails the deployment', function () {
+    // The clean-VPS deployment correctly failed and rolled back. That is the
+    // behaviour to preserve: a 404 after the current switch is never an
+    // accepted PRE_DEPLOY state.
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $first = deployOpsRunFullDeployment($scratch);
+        expect($first['exit'])->toBe(0, $first['output']);
+
+        $root = $first['fixture']['root'];
+        $originalCurrent = realpath($root.'/current');
+
+        $confPath = deployOpsDeploymentConfForFixture($scratch);
+        [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $first['fixture']);
+        deployOpsInstallCoreStubs($scratch);
+        $failingLog = $scratch.'/failing-hc-permissions.log';
+        touch($failingLog);
+        $verifyLog = $scratch.'/vc-permissions.log';
+        touch($verifyLog);
+
+        $releaseId = 'v3.0.0-20260301-000000-abc'.random_int(1000, 9999);
+
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            "parse_deploy_args --target parity-target --release {$releaseId} --artifact {$first['fixture']['artifact']}\nresolve_target\nperform_deploy",
+            deployOpsBaseEnv($scratch, [
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_HEALTH_CHECK_BIN' => deployOpsHealthCheckStub($scratch, $failingLog, fail: true),
+                'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => deployOpsVerifyRequiredClisStub($scratch, $verifyLog),
+            ]),
+        );
+
+        expect($exit)->not->toBe(0, 'an unservable release must fail the deployment');
+        expect($output)->toContain('deployment health check failed');
+
+        // Rolled back to the previous release, failure recorded, no success.
+        expect(realpath($root.'/current'))->toBe($originalCurrent);
+        expect(is_dir($root.'/releases/'.$releaseId))->toBeFalse();
+
+        $history = deployOpsHistory($root);
+        $finished = end($history);
+        expect($finished['status'])->toBe('failed-health-check');
+
+        foreach ($history as $entry) {
+            expect($entry['release'] === $releaseId && $entry['status'] === 'success')->toBeFalse();
+        }
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});

@@ -99,7 +99,7 @@ function bootstrapPreflightAllTools(): array
         'date', 'id', 'rm', 'mv', 'cp', 'ls', 'cat', 'chmod', 'chown', 'ln',
         'od', 'du', 'df', 'sleep', 'timeout', 'uname', 'find', 'grep', 'sed', 'awk',
         'cmp', 'diff', 'unzip', 'flock', 'namei', 'runuser', 'hostname', 'useradd',
-        'getent', 'visudo', 'ss', 'ip', 'setfacl', 'getfacl',
+        'getent', 'visudo', 'ss', 'ip', 'setfacl', 'getfacl', 'pgrep',
         // runtime/service (rclone is probed as a managed external runtime
         // binary, never as an Ubuntu package requirement)
         'nginx', 'systemctl', 'pg_dump', 'pg_restore', 'psql', 'createdb',
@@ -223,7 +223,7 @@ function bootstrapPreflightCompliantGroup(): string
         'postgres:x:118:',
         'rateguru-staging:x:1001:',
         'deploy-rateguru-staging:x:1002:',
-        'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging',
+        'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging,www-data',
         'staging-mailpit:x:990:',
         'staging-mailtrap-local:x:991:',
     ])."\n";
@@ -1051,7 +1051,7 @@ it('reports a runtime user missing from the code group as a MISSING membership',
 
     try {
         $group = str_replace(
-            'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging',
+            'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging,www-data',
             'rateguru-staging-code:x:1010:deploy-rateguru-staging',
             bootstrapPreflightCompliantGroup(),
         );
@@ -1747,6 +1747,90 @@ it('requires the slice 5.4 service-support log directory with the exact runtime 
         expect($exit)->toBe(1);
         expect($output)->toContain('MISSING  path:/home/www/rateguru/staging/shared/storage/logs');
         expect($output)->toContain('service-support log directory for staging-main (slice 5.4 contract');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// www-data as a code-group reader (Phase 5.6 clean-VPS blocker #2).
+// =============================================================================
+
+it('reports a missing www-data code-group membership, the exact clean-VPS 404 cause', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        // The clean-VPS identity state: www-data has only its own group,
+        // while the runtime user is already a code-group member. Nginx then
+        // cannot traverse the 0750 release tree and every request 404s with
+        // "stat() ... failed (13: Permission denied)".
+        $group = str_replace(
+            'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging,www-data',
+            'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging',
+            bootstrapPreflightCompliantGroup(),
+        );
+        expect($group)->not->toBe(bootstrapPreflightCompliantGroup(), 'fixture drift did not apply');
+
+        $env = bootstrapPreflightFixture($scratch, ['group' => $group]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1, 'a host Nginx cannot serve from must not report ready');
+        expect($output)->toContain('MISSING  membership:www-data:rateguru-staging-code — www-data is not a member');
+        // The runtime relation is unaffected and still passes.
+        expect($output)->toContain('PASS     membership:rateguru-staging:rateguru-staging-code');
+
+        // The reason names the real mechanism, not a vague permission note.
+        preg_match('/^.*membership:www-data:rateguru-staging-code.*$/m', $output, $line);
+        expect($line[0])->toContain('try_files');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('passes both code-group memberships on a compliant host and keeps the ACL boundary independent', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('PASS     membership:rateguru-staging:rateguru-staging-code');
+        expect($output)->toContain('PASS     membership:www-data:rateguru-staging-code');
+
+        // The two boundaries stay distinct: immutable code by group
+        // membership, shared mutable storage by the narrow ACL.
+        expect($output)->toContain('PASS     acl:public-storage:staging-main — user:www-data:--x present on shared and shared/storage');
+
+        // www-data is a code-group reader, never a runtime-group member.
+        expect($output)->not->toContain('membership:www-data:rateguru-staging —');
+        preg_match('/^.*user:www-data —.*$/m', $output, $userLine);
+        expect($userLine[0])->toContain('CODE group');
+        expect($userLine[0])->toContain('never a runtime group');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('keeps the public-storage ACL assertion independent of code-group membership', function () {
+    // Removing the ACL must not disturb the membership verdicts, and
+    // removing the membership must not disturb the ACL verdict — they are
+    // separate boundaries with separate owners.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, [
+            'aclTable' => [
+                '/home/www/rateguru/staging/shared|granted',
+                '/home/www/rateguru/staging/shared/storage|present',
+            ],
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  acl:public-storage:staging-main');
+        // Memberships are unaffected.
+        expect($output)->toContain('PASS     membership:www-data:rateguru-staging-code');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }

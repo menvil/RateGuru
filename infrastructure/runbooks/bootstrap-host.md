@@ -310,9 +310,15 @@ values are never invented.
   to a RateGuru target.
 - **USERS/GROUPS** — root, www-data, postgres, the per-target runtime and
   deploy accounts from the source registry, the mail-capture accounts, the
-  runtime/code groups, and the one repo-required membership relation: the
-  runtime user must be in the code group (releases are
-  `deploy_user:code_group` mode `0750`/`0640`, and PHP-FPM must read them).
+  runtime/code groups, and the two repo-required membership relations —
+  both readers of immutable release code, which is owned
+  `deploy_user:code_group` mode `0750`/`0640` and therefore reachable only
+  through that group: the **runtime user** (PHP-FPM and the queue worker
+  execute the application) and **www-data** (Nginx workers traverse the
+  release tree and stat/read `public/index.php` themselves, before FastCGI
+  is involved, because the vhost serves `root <target>/current/public` with
+  `try_files`). A host missing the second relation answers every request
+  with 404 and logs `stat() ... failed (13: Permission denied)`.
   The managed per-target accounts additionally carry the slice 5.3 identity
   metadata contract, asserted in tested parity with
   `install-bootstrap-host-layout`: the runtime account must hold the
@@ -416,8 +422,10 @@ The contract reproduces what the real staging VPS runs, inspected directly:
 - **PostgreSQL 18** from PGDG (`apt.postgresql.org jammy-pgdg`) — the
   staging packages identify as `18.x-1.pgdg22.04+1`.
 - **Nginx, Redis, Supervisor** and every base utility (including `unzip`,
-  which extracts the pinned rclone release archive) from the Ubuntu 22.04
-  distribution repository.
+  which extracts the pinned rclone release archive, and `procps`, whose
+  `pgrep` slice 5.4 uses to find the running Nginx workers whose
+  supplementary groups it verifies) from the Ubuntu 22.04 distribution
+  repository.
 - **rclone as a managed external runtime binary** — not an Ubuntu package;
   see the dedicated section below.
 
@@ -656,12 +664,25 @@ incoming directory are ever created for it.
   public key is external secret material provisioned in Phase 5.4. No sudo
   is granted here (restricted sudoers stays with
   `install-target-perimeter`).
-- **code group** (`rateguru-staging-code`) — permits the runtime user to
-  read immutable release code. Releases are owned
-  `deploy_user:code_group` with files normalized `0750`/`0640`, while
-  PHP-FPM executes Laravel as the runtime user — so the runtime user's
-  supplementary membership in the code group is mandatory and is appended
-  (never replacing unrelated memberships).
+- **code group** (`rateguru-staging-code`) — the read-only immutable-code
+  group. Releases are owned `deploy_user:code_group` with files normalized
+  `0750`/`0640`, so nothing outside that group can read them, and it has
+  exactly **two required members**, both appended (never replacing
+  unrelated memberships):
+  1. the **runtime user** — PHP-FPM and the queue worker execute Laravel as
+     it;
+  2. **www-data** — Nginx workers serve `root <target>/current/public` and
+     evaluate `try_files $uri $uri/ /index.php?$query_string`, so they must
+     traverse the release tree and stat/read `public/index.php` themselves,
+     before FastCGI is involved. Without this the host answers every
+     request with 404 and logs `stat() ... failed (13: Permission denied)`.
+
+  This is the whole of www-data's target-group access: immutable code,
+  read-only. It never joins a runtime group, so shared mutable state stays
+  out of reach, and public storage traversal remains the separate narrow
+  ACL. Note that adding the membership does not affect Nginx workers that
+  are already running — see the reload contract in
+  [`bootstrap-services.md`](bootstrap-services.md).
 - **runtime user** (`rateguru-staging`) — runs Laravel/PHP-FPM/queue
   processes and owns the shared mutable application state. Created as a
   system account with no password login. Its primary group and the
@@ -671,9 +692,24 @@ incoming directory are ever created for it.
   not operationally significant to PHP-FPM/queue execution the way the
   deploy home is critical to SSH, so incidental home metadata never fails
   a healthy host. A compliant existing account is left untouched.
-- **www-data** — is **not** added to any runtime group and no runtime
-  account joins www-data; public storage traversal remains the narrow
-  POSIX ACL `install-public-storage-access` grants in slice 5.4.
+- **www-data** — joins each active target's **code group** and nothing
+  else. That is read-only access to immutable release code, which Nginx
+  workers genuinely need: they serve `root <target>/current/public` and
+  evaluate `try_files $uri $uri/ /index.php?$query_string` themselves, so
+  they must traverse and stat the 0750/0640 release tree before FastCGI is
+  ever reached. It is **not** added to any runtime group, and no runtime
+  account joins www-data — shared mutable state stays out of reach. Public
+  mutable storage traversal remains a separate, independent boundary: the
+  narrow POSIX ACL (`user:www-data:--x`)
+  `install-public-storage-access` grants in slice 5.4 on `shared` and
+  `shared/storage`. The two boundaries are never conflated, and neither is
+  ever widened to solve the other.
+
+  Because supplementary groups are fixed when a process is created, adding
+  this membership does **not** affect Nginx workers that are already
+  running. Slice 5.4 therefore verifies the live workers separately and
+  reloads Nginx (never restarts it) when they are stale — see
+  [`bootstrap-services.md`](bootstrap-services.md).
 - **root** — owns the target namespace root and the host operational and
   configuration roots.
 

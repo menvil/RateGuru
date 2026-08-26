@@ -739,6 +739,7 @@ REQUIRED_BASE_TOOLS=(
     unzip:unzip
     flock:util-linux
     namei:util-linux
+    pgrep:procps
     runuser:util-linux
     hostname:hostname
     useradd:passwd
@@ -1063,7 +1064,7 @@ report_users_groups() {
     section "USERS/GROUPS"
 
     report_user root "superuser; owns all installed operational files"
-    report_user www-data "Nginx/PHP-FPM socket owner; storage access is ACL-based, not membership-based"
+    report_user www-data "Nginx/PHP-FPM service account; reads immutable release code via each active target's CODE group, never a runtime group; shared mutable storage stays a separate narrow ACL"
     report_user postgres "PostgreSQL service account; backup runs pg_dump via runuser -u postgres"
 
     # Managed per-target identities carry the full slice 5.3 metadata
@@ -1096,6 +1097,19 @@ report_users_groups() {
         # runtime user must be a member of the code group to read releases.
         report_membership "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_CODE_GROUP[${target_id}]}" \
             "PHP-FPM must read releases owned ${TGT_DEPLOY_USER[${target_id}]}:${TGT_CODE_GROUP[${target_id}]} mode 0750/0640"
+
+        # The second required code-group reader. Nginx serves
+        # root <target>/current/public with try_files, so its www-data
+        # workers must traverse the release tree and stat/read
+        # public/index.php themselves, before FastCGI is involved. Without
+        # this a clean host answers every request with 404 and logs
+        # "stat() ... failed (13: Permission denied)" — the Phase 5.6
+        # clean-VPS acceptance failed on exactly that. This is immutable
+        # CODE access only: www-data never joins a runtime group, and
+        # shared mutable storage stays the separate narrow ACL asserted by
+        # acl:public-storage below.
+        report_membership "www-data" "${TGT_CODE_GROUP[${target_id}]}" \
+            "Nginx workers must traverse and read ${TGT_ROOT[${target_id}]}/current/public (releases normalized 0750/0640) to serve assets and evaluate try_files/index.php"
     done
 }
 

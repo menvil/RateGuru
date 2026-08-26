@@ -133,7 +133,7 @@ function hostLayoutCompliantGroup(): string
     return hostLayoutCleanGroup().implode("\n", [
         'rateguru-staging:x:5001:',
         'deploy-rateguru-staging:x:5002:',
-        'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging',
+        'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging,www-data',
     ])."\n";
 }
 
@@ -701,7 +701,7 @@ it('reports each missing identity aspect independently', function () {
     $scratch = hostLayoutScratchDir();
 
     try {
-        $group = str_replace("rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging\n", '', hostLayoutCompliantGroup());
+        $group = str_replace("rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging,www-data\n", '', hostLayoutCompliantGroup());
         $env = hostLayoutFixture($scratch, ['group' => $group]);
         [$exit, $output] = hostLayoutRun(['--check'], $env);
 
@@ -718,8 +718,8 @@ it('reports each missing identity aspect independently', function () {
 
     try {
         $group = str_replace(
-            'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging',
-            'rateguru-staging-code:x:5010:deploy-rateguru-staging',
+            'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging,www-data',
+            'rateguru-staging-code:x:5010:deploy-rateguru-staging,www-data',
             hostLayoutCompliantGroup(),
         );
         $env = hostLayoutFixture($scratch, ['group' => $group]);
@@ -1115,8 +1115,8 @@ it('appends only the missing code-group membership on an otherwise compliant hos
 
     try {
         $group = str_replace(
-            'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging',
-            'rateguru-staging-code:x:5010:deploy-rateguru-staging',
+            'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging,www-data',
+            'rateguru-staging-code:x:5010:deploy-rateguru-staging,www-data',
             hostLayoutCompliantGroup(),
         );
         $env = hostLayoutFixture($scratch, ['group' => $group]);
@@ -1127,7 +1127,7 @@ it('appends only the missing code-group membership on an otherwise compliant hos
         expect(hostLayoutLog($scratch, 'identity.log'))
             ->toBe("usermod --append --groups rateguru-staging-code rateguru-staging\n");
         expect(file_get_contents($scratch.'/fs/etc-group'))
-            ->toContain('rateguru-staging-code:x:5010:deploy-rateguru-staging,rateguru-staging');
+            ->toContain('rateguru-staging-code:x:5010:deploy-rateguru-staging,www-data,rateguru-staging');
     } finally {
         hostLayoutCleanup($scratch);
     }
@@ -1646,5 +1646,157 @@ it('keeps the roadmap structure: Phase 5 current with 5.5 implemented, Phases 6-
     // Nothing future is marked completed.
     foreach ([6, 7, 8, 9, 10] as $phase) {
         expect($roadmap)->not->toMatch('/^##\s*'.$phase.'\.\s[^\n]*completed/m');
+    }
+});
+
+// =============================================================================
+// www-data as a code-group reader (Phase 5.6 clean-VPS blocker #2).
+//
+// Nginx serves `root <target>/current/public` with
+// `try_files $uri $uri/ /index.php?$query_string`, so its www-data workers
+// must traverse the immutable release tree and stat/read public/index.php
+// themselves, before FastCGI is involved. Releases are normalized
+// deploy_user:code_group 0750/0640, so that requires code-group membership.
+// A clean VPS had www-data in its own group only, and every health check
+// returned 404 with `stat() ... failed (13: Permission denied)`.
+// =============================================================================
+
+it('appends both required code-group readers on a clean host: the runtime user and www-data', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        // Clean host: the code group does not exist yet, so neither
+        // membership can exist either.
+        $env = hostLayoutFixture($scratch, [
+            'passwd' => hostLayoutCleanPasswd(),
+            'group' => hostLayoutCleanGroup(),
+        ]);
+
+        [$checkExit, $checkOutput] = hostLayoutRun(['--check'], $env);
+        expect($checkExit)->toBe(1);
+        expect($checkOutput)->toContain('MISSING  membership:rateguru-staging:rateguru-staging-code');
+        expect($checkOutput)->toContain('MISSING  membership:www-data:rateguru-staging-code');
+        // On a truly clean host the group does not exist yet, so the
+        // remediation is the create-then-append form; the append-only
+        // wording appears once the accounts exist (covered below).
+        expect($checkOutput)->toContain('create the accounts, then usermod --append --groups rateguru-staging-code www-data');
+
+        [$exit, $output] = hostLayoutRun(['--apply'], $env);
+        expect($exit)->toBe(0, $output);
+
+        $identity = hostLayoutLog($scratch, 'identity.log');
+        expect($identity)->toContain('usermod --append --groups rateguru-staging-code rateguru-staging');
+        expect($identity)->toContain('usermod --append --groups rateguru-staging-code www-data');
+
+        $group = (string) file_get_contents($scratch.'/fs/etc-group');
+        expect($group)->toMatch('/^rateguru-staging-code:x:\d+:.*\brateguru-staging\b/m');
+        expect($group)->toMatch('/^rateguru-staging-code:x:\d+:.*\bwww-data\b/m');
+
+        // And the host now verifies.
+        [$verifyExit, $verifyOutput] = hostLayoutRun(['--verify'], $env);
+        expect($verifyExit)->toBe(0, $verifyOutput);
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('appends www-data without disturbing its unrelated supplementary memberships', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        // www-data legitimately carries unrelated system memberships on a
+        // real host; a plain --groups would silently drop every one.
+        $group = str_replace(
+            'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging,www-data',
+            "rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging\n"
+                .'unrelated-one:x:6001:www-data,someone-else'."\n"
+                .'unrelated-two:x:6002:www-data',
+            hostLayoutCompliantGroup(),
+        );
+
+        $env = hostLayoutFixture($scratch, ['group' => $group]);
+
+        [$exit, $output] = hostLayoutRun(['--apply'], $env);
+        expect($exit)->toBe(0, $output);
+
+        // Exactly one append, and it is --append.
+        expect(hostLayoutLog($scratch, 'identity.log'))
+            ->toBe("usermod --append --groups rateguru-staging-code www-data\n");
+
+        $after = (string) file_get_contents($scratch.'/fs/etc-group');
+        expect($after)->toContain('unrelated-one:x:6001:www-data,someone-else');
+        expect($after)->toContain('unrelated-two:x:6002:www-data');
+        expect($after)->toMatch('/^rateguru-staging-code:x:5010:.*\bwww-data\b/m');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('--verify fails when the runtime user is in the code group but www-data is not', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        // Exactly the mature-vs-clean-host difference that caused the
+        // blocker: runtime membership present, www-data absent.
+        $group = str_replace(
+            'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging,www-data',
+            'rateguru-staging-code:x:5010:rateguru-staging,deploy-rateguru-staging',
+            hostLayoutCompliantGroup(),
+        );
+
+        $env = hostLayoutFixture($scratch, ['group' => $group]);
+        [$exit, $output] = hostLayoutRun(['--verify'], $env);
+
+        expect($exit)->toBe(1, 'a host Nginx cannot serve from must not verify');
+        expect($output)->toContain('PASS     membership:rateguru-staging:rateguru-staging-code');
+        expect($output)->toContain('MISSING  membership:www-data:rateguru-staging-code');
+        expect($output)->toContain('SLICE 5.3 CONTRACT: NOT SATISFIED');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('--verify passes when both code-group readers are present', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch);
+        [$exit, $output] = hostLayoutRun(['--verify'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('PASS     membership:rateguru-staging:rateguru-staging-code');
+        expect($output)->toContain('PASS     membership:www-data:rateguru-staging-code');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('never adds www-data to a runtime group, and never provisions a planned target code group', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch, [
+            'passwd' => hostLayoutCleanPasswd(),
+            'group' => hostLayoutCleanGroup(),
+        ]);
+
+        [$exit, $output] = hostLayoutRun(['--apply'], $env);
+        expect($exit)->toBe(0, $output);
+
+        $identity = hostLayoutLog($scratch, 'identity.log');
+
+        // The security boundary: www-data reads immutable code, never shared
+        // mutable state. Shared/shared-storage access stays the narrow ACL
+        // install-public-storage-access owns.
+        expect($identity)->not->toContain('--groups rateguru-staging www-data');
+        expect(file_get_contents($scratch.'/fs/etc-group'))
+            ->toMatch('/^rateguru-staging:x:\d+:\s*$/m');
+
+        // tits-guru is lifecycle=planned: no group, no membership, nothing.
+        expect($identity)->not->toContain('tits-guru');
+        expect($output)->not->toContain('membership:www-data:tits-guru');
+        expect(file_get_contents($scratch.'/fs/etc-group'))->not->toContain('tits-guru');
+    } finally {
+        hostLayoutCleanup($scratch);
     }
 });
