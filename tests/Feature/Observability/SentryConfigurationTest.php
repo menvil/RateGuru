@@ -17,15 +17,115 @@ it('leaves tracing off unless a target opts in, and keeps the rate configurable'
     // ever built there. The value itself is never hardcoded in PHP.
     expect(config('sentry.traces_sample_rate'))->toBeNull();
 
+    // Every one of these stays driven by the environment rather than a literal
+    // in PHP — read through the blank-safe helpers, never a bare env() whose
+    // `=== null` check would mistake an empty value for a configured one.
     expect(File::get(base_path('config/sentry.php')))
-        ->toContain("env('SENTRY_TRACES_SAMPLE_RATE')")
-        ->toContain("env('SENTRY_ENVIRONMENT')")
-        ->toContain("env('SENTRY_LARAVEL_DSN', env('SENTRY_DSN'))");
+        ->toContain("\$sentryFloat('SENTRY_TRACES_SAMPLE_RATE', null)")
+        ->toContain("\$sentryString('SENTRY_ENVIRONMENT')")
+        ->toContain("\$sentryString('SENTRY_LARAVEL_DSN', env('SENTRY_DSN'))");
 });
 
 it('keeps profiling disabled', function () {
     expect(config('sentry.profiles_sample_rate'))->toBe(0.0);
 });
+
+it('treats a key present with an empty value as not configured', function (string $key, string $configKey, mixed $expected) {
+    // .env.example and both environment templates ship these keys blank —
+    // that is the repository's convention for "not configured for this
+    // target", and CI builds its .env straight from .env.example. env()
+    // returns '' for a blank key, not null, so a naive `=== null` check
+    // silently turns SENTRY_TRACES_SAMPLE_RATE= into 0.0 — and a non-null
+    // rate makes the SDK build and discard a transaction on every request.
+    $_ENV[$key] = '';
+    $_SERVER[$key] = '';
+    putenv("{$key}=");
+
+    try {
+        $config = require base_path('config/sentry.php');
+    } finally {
+        unset($_ENV[$key], $_SERVER[$key]);
+        putenv($key);
+    }
+
+    expect(data_get($config, $configKey))->toBe($expected);
+})->with([
+    ['SENTRY_TRACES_SAMPLE_RATE', 'traces_sample_rate', null],
+    ['SENTRY_ENVIRONMENT', 'environment', null],
+    ['SENTRY_LARAVEL_DSN', 'dsn', null],
+    // A blank rate must fall back to the intended default, not to 0.0/null.
+    ['SENTRY_SAMPLE_RATE', 'sample_rate', 1.0],
+    ['SENTRY_PROFILES_SAMPLE_RATE', 'profiles_sample_rate', 0.0],
+]);
+
+it('still honours an explicitly configured rate, including a deliberate zero', function (string $key, string $configKey, string $raw, float $expected) {
+    $_ENV[$key] = $raw;
+    $_SERVER[$key] = $raw;
+    putenv("{$key}={$raw}");
+
+    try {
+        $config = require base_path('config/sentry.php');
+    } finally {
+        unset($_ENV[$key], $_SERVER[$key]);
+        putenv($key);
+    }
+
+    expect(data_get($config, $configKey))->toBe($expected);
+})->with([
+    ['SENTRY_TRACES_SAMPLE_RATE', 'traces_sample_rate', '1.0', 1.0],
+    ['SENTRY_TRACES_SAMPLE_RATE', 'traces_sample_rate', '0.10', 0.10],
+    // An explicit 0 is a real, different instruction from a blank value.
+    ['SENTRY_TRACES_SAMPLE_RATE', 'traces_sample_rate', '0', 0.0],
+    ['SENTRY_SAMPLE_RATE', 'sample_rate', '0.5', 0.5],
+]);
+
+it('produces the intended configuration from the committed environment templates', function (string $template, ?string $expectedEnvironment, ?float $expectedTraces) {
+    // The end-to-end version of the two tests above: parse a real committed
+    // template exactly as an operator would install it, and assert what the
+    // application actually ends up configured with.
+    $applied = [];
+
+    foreach (preg_split('/\R/', File::get(base_path($template))) ?: [] as $line) {
+        if (! str_contains($line, '=') || str_starts_with(trim($line), '#')) {
+            continue;
+        }
+
+        [$key, $value] = explode('=', $line, 2);
+
+        if (! str_starts_with($key, 'SENTRY_')) {
+            continue;
+        }
+
+        $applied[] = $key;
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
+        putenv("{$key}={$value}");
+    }
+
+    expect($applied)->not->toBeEmpty("{$template} must configure Sentry");
+
+    try {
+        $config = require base_path('config/sentry.php');
+    } finally {
+        foreach ($applied as $key) {
+            unset($_ENV[$key], $_SERVER[$key]);
+            putenv($key);
+        }
+    }
+
+    expect($config['environment'])->toBe($expectedEnvironment)
+        ->and($config['traces_sample_rate'])->toBe($expectedTraces)
+        ->and($config['sample_rate'])->toBe(1.0)
+        ->and($config['profiles_sample_rate'])->toBe(0.0)
+        ->and($config['send_default_pii'])->toBeFalse()
+        ->and($config['enable_logs'])->toBeFalse()
+        ->and($config['enable_metrics'])->toBeFalse()
+        // The template ships an empty DSN; a real one is pasted in by hand.
+        ->and($config['dsn'])->toBeNull();
+})->with([
+    ['infrastructure/templates/environment/staging.env.example', 'staging', 1.0],
+    ['infrastructure/templates/environment/production.env.example', 'production', 0.10],
+]);
 
 it('keeps Sentry structured logs disabled so Sentry never becomes the log store', function () {
     expect(config('sentry.enable_logs'))->toBeFalse();

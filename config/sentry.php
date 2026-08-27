@@ -2,6 +2,40 @@
 
 use App\Support\Deployment\DeploymentMetadata;
 
+/*
+ * A key present with an empty value is this repository's convention for "not
+ * configured for this target" — it is what .env.example and both environment
+ * templates ship. `env()` returns '' for those, not null, so every option
+ * below normalizes blank to unset itself rather than relying on the vendor's
+ * `=== null` checks.
+ *
+ * This is not cosmetic. A blank SENTRY_TRACES_SAMPLE_RATE would otherwise
+ * become (float) '' = 0.0, and a non-null rate makes Options::isTracingEnabled()
+ * true: the SDK would start, populate and then discard a transaction on every
+ * single request — the exact overhead "tracing off unless a target opts in" is
+ * meant to avoid. Local variables are not part of the returned array, so none
+ * of this interferes with `artisan config:cache`.
+ */
+$sentryFloat = static function (string $key, ?float $default): ?float {
+    $value = env($key);
+
+    if ($value === null || $value === '') {
+        return $default;
+    }
+
+    return (float) $value;
+};
+
+$sentryString = static function (string $key, mixed $fallback = null): ?string {
+    $value = env($key, $fallback);
+
+    if (! is_string($value) || $value === '') {
+        return null;
+    }
+
+    return $value;
+};
+
 /**
  * Sentry Laravel SDK configuration file.
  *
@@ -15,7 +49,7 @@ use App\Support\Deployment\DeploymentMetadata;
 return [
 
     // @see https://docs.sentry.io/concepts/key-terms/dsn-explainer/
-    'dsn' => env('SENTRY_LARAVEL_DSN', env('SENTRY_DSN')),
+    'dsn' => $sentryString('SENTRY_LARAVEL_DSN', env('SENTRY_DSN')),
 
     // @see https://spotlightjs.com/
     // 'spotlight' => env('SENTRY_SPOTLIGHT', false),
@@ -38,7 +72,7 @@ return [
     // Which brand/target inside that class is serving the request is a separate
     // `deployment_target` tag (see App\Providers\ObservabilityServiceProvider),
     // never a per-brand environment such as `production-tits-guru`.
-    'environment' => env('SENTRY_ENVIRONMENT'),
+    'environment' => $sentryString('SENTRY_ENVIRONMENT'),
 
     // Override the organization ID used for trace continuation checks.
     'org_id' => env('SENTRY_ORG_ID') === null ? null : (int) env('SENTRY_ORG_ID'),
@@ -47,7 +81,7 @@ return [
     //
     // RateGuru: backend errors are never probabilistically dropped. The 1.0
     // default is the vendor default and the value every target runs.
-    'sample_rate' => env('SENTRY_SAMPLE_RATE') === null ? 1.0 : (float) env('SENTRY_SAMPLE_RATE'),
+    'sample_rate' => $sentryFloat('SENTRY_SAMPLE_RATE', 1.0),
 
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#traces_sample_rate
     //
@@ -55,13 +89,13 @@ return [
     // runs never build transactions. staging-main runs 1.0 while its traffic is
     // low; production targets start at 0.10. Traffic assumptions belong in the
     // per-target .env, never in this file.
-    'traces_sample_rate' => env('SENTRY_TRACES_SAMPLE_RATE') === null ? null : (float) env('SENTRY_TRACES_SAMPLE_RATE'),
+    'traces_sample_rate' => $sentryFloat('SENTRY_TRACES_SAMPLE_RATE', null),
 
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#profiles_sample_rate
     //
     // RateGuru: profiling stays off in this phase — the default is an explicit
     // 0.0 rather than the vendor's null so the intent is unambiguous.
-    'profiles_sample_rate' => env('SENTRY_PROFILES_SAMPLE_RATE') === null ? 0.0 : (float) env('SENTRY_PROFILES_SAMPLE_RATE'),
+    'profiles_sample_rate' => $sentryFloat('SENTRY_PROFILES_SAMPLE_RATE', 0.0),
 
     // Only continue incoming traces when the organization IDs are compatible with this SDK instance.
     'strict_trace_continuation' => env('SENTRY_STRICT_TRACE_CONTINUATION', false),
