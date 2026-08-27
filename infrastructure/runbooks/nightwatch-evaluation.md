@@ -56,6 +56,25 @@ Nightwatch's servers directly, and the agent is never reachable from off-box.
 | Installer | `infrastructure/scripts/install-nightwatch-agent` |
 | Token location | `/home/www/rateguru/staging/shared/.env`, `NIGHTWATCH_TOKEN` |
 
+### One address, read once
+
+`NIGHTWATCH_INGEST_URI` is the only place the endpoint is written. The
+application sends events there, and the agent binds there — Nightwatch's
+`nightwatch:agent` takes its `--listen-on` default from
+`config('nightwatch.ingest.uri')`, which is that same variable. So the
+committed Supervisor program deliberately passes **no** `--listen-on`: pinning
+a port in the program file is the one way the two could ever disagree, with the
+installer validating one address and the agent binding another.
+
+(The upstream advice to pass `--listen-on` explicitly is for deployments where
+the agent does not share the application's configuration — a Docker sidecar
+given only environment variables. RateGuru's agent runs `artisan` from
+`current`, so it reads exactly the config the application does.)
+
+The one way they *can* diverge is the ordinary immutable-release one: a release
+whose config cache was built before the `.env` change still holds the old
+address. That is the same reason a `.env` change needs a deployment, below.
+
 ### Why a standalone installer
 
 `install-bootstrap-services` (Phase 5.4) describes what a RateGuru host must
@@ -493,10 +512,17 @@ The same requests produce query events. Verify:
 - [ ] **no binding values** — search the query text for
       `NW_PRIVATE_SENTINEL_123`; it must not be there.
 
-For a second sentinel that is unambiguously a value, not a route segment:
+For a second sentinel that is unambiguously a value, not a route segment. The
+address is **assembled inside Tinker rather than typed on the command line**:
+Nightwatch records the Artisan invocation string, and a sentinel passed as an
+argument would appear in the Command record — where finding it would look
+exactly like the query leak this check exists to rule out.
 
 ```bash
-sudo -u rateguru-staging bash -c 'cd /home/www/rateguru/staging/current && php8.5 artisan tinker --execute="\App\Models\User::where(\"email\", \"nightwatch-secret@example.invalid\")->first();"'
+sudo -u rateguru-staging bash -c 'cd /home/www/rateguru/staging/current && php8.5 artisan tinker --execute="
+  \$sentinel = \"nightwatch-\" . \"secret@example.invalid\";
+  \App\Models\User::where(\"email\", \$sentinel)->first();
+"'
 ```
 
 Neither `nightwatch-secret@example.invalid` nor `NW_PRIVATE_SENTINEL_123` may
@@ -679,9 +705,10 @@ measure() {
       --resolve rateguru.staging.myprojects.pp.ua:443:127.0.0.1 "$url"
   done | sort -n | awk '
     { v[NR] = $1 }
+    function rank(p,   r) { r = int(NR * p); return (r < NR * p) ? r + 1 : (r < 1 ? 1 : r) }
     END {
       printf "n=%d p50=%.4f p95=%.4f max=%.4f\n",
-        NR, v[int(NR*0.50)+0], v[int(NR*0.95)+0], v[NR]
+        NR, v[rank(0.50)], v[rank(0.95)], v[NR]
     }'
 }
 

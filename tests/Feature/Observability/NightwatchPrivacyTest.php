@@ -135,13 +135,13 @@ it('replaces the concrete path with the route pattern when the route names a sec
     'password reset' => [
         'https://rateguru.test/reset-password/9f1c8a7b6d5e4f3a?email=someone%40example.invalid',
         '/reset-password/{token}',
-        'https://rateguru.test/reset-password/{token}?email',
+        'https://rateguru.test/reset-password/{token}',
     ],
     // The user ID, a hash of the email, and a live HMAC signature.
     'email verification' => [
         'https://rateguru.test/verify-email/42/6b3f?expires=1900000000&signature=deadbeef',
         '/verify-email/{id}/{hash}',
-        'https://rateguru.test/verify-email/{id}/{hash}?expires&signature',
+        'https://rateguru.test/verify-email/{id}/{hash}',
     ],
 ]);
 
@@ -154,10 +154,41 @@ it('keeps a concrete path that names nothing secret', function () {
     expect($record->url)->toBe('https://rateguru.test/posts/1234');
 });
 
+it('does not send a username back in the path after suppressing it on the user', function () {
+    // /u/{username} is a public page, so this is not a secret — but the handle
+    // identifies a person, RateGuru tombstones it on account deletion, and
+    // Nightwatch::user() is already withholding it. Sending it in the URL
+    // would make that suppression theatre.
+    $record = nightwatchRequestRecord('https://rateguru.test/u/sentinel-handle', '/u/{username}');
+
+    nightwatchPrivacy()->redactRequest($record);
+
+    expect($record->url)->toBe('https://rateguru.test/u/{username}');
+    expect($record->url)->not->toContain('sentinel-handle');
+});
+
+it('forwards only the query parameter names RateGuru itself defines', function (string $query, string $expected) {
+    $record = nightwatchRequestRecord('https://rateguru.test/'.$query, '/');
+
+    nightwatchPrivacy()->redactRequest($record);
+
+    expect($record->url)->toBe('https://rateguru.test/'.$expected);
+})->with([
+    // The feed filters, which are the whole point of keeping names at all.
+    'feed filters' => ['?search=x&sort=top&tag=y&feed=following', '?feed&search&sort&tag'],
+    // An array filter is one name, not one per index.
+    'array filter' => ['?category[0]=1&category[1]=2', '?category'],
+    // A name is attacker-controlled text: an allowlist, not a shape check, is
+    // what stops `?<whatever-a-bot-put-here>` being forwarded.
+    'bot-supplied name' => ['?utm_source=phish&sentinel_handle=1', ''],
+    // Framework markers the route pattern already implies.
+    'signed URL markers' => ['?expires=1&signature=deadbeef', ''],
+]);
+
 it('keeps the port and survives a URL it cannot parse', function () {
     $record = nightwatchRequestRecord('http://rateguru.test:8080/u/someone?tab=posts', '/u/{username}');
     nightwatchPrivacy()->redactRequest($record);
-    expect($record->url)->toBe('http://rateguru.test:8080/u/someone?tab');
+    expect($record->url)->toBe('http://rateguru.test:8080/u/{username}?tab');
 
     $broken = nightwatchRequestRecord('http:///', '');
     nightwatchPrivacy()->redactRequest($broken);
@@ -183,6 +214,17 @@ it('strips the whole query string from an outgoing request URL', function () {
 
     // Scheme, host and path are what an import failure is diagnosed from.
     expect($record->url)->toBe('https://cdn.example.invalid/a/b.jpg');
+});
+
+it('strips a fragment from an outgoing request URL as well', function () {
+    // UrlImportValidator drops the fragment from what RateGuru fetches, but a
+    // redirect Location is not bound by that, and #access_token=... is a real
+    // shape on the public internet.
+    $record = new OutgoingRequest('GET', 'https://example.invalid/cb#access_token=deadbeef&scope=all', 1, 0, 0, 200);
+
+    nightwatchPrivacy()->redactOutgoingRequest($record);
+
+    expect($record->url)->toBe('https://example.invalid/cb');
 });
 
 it('leaves an outgoing URL with no query string alone', function () {
@@ -240,27 +282,44 @@ it('rejects any cache key it does not recognise', function (string $key) {
 
 // --- commands ---------------------------------------------------------------
 
-it('removes personal data from an Artisan invocation', function () {
+it('removes personal data from an Artisan invocation, in either option form', function (string $command) {
     // rateguru:admin:create is the one RateGuru command that takes PII as
     // arguments, and it is exactly the one an operator runs by hand on a live
-    // server. The invocation stays visible; the values do not.
+    // server. Symfony Console accepts `--email=x` and `--email x` alike, so
+    // both have to be covered — and Nightwatch builds this string by joining
+    // the raw argv tokens with spaces, so a quoted "Ada Lovelace" arrives
+    // looking like two tokens and must still be consumed whole.
     $record = new Command(
         class: 'App\\Console\\Commands\\CreateAdminUserCommand',
         name: 'rateguru:admin:create',
-        command: 'artisan rateguru:admin:create --email=someone@example.invalid --username=someone --name=Sentinel',
+        command: $command,
         exitCode: 0,
         duration: 1000,
     );
 
     nightwatchPrivacy()->redactCommand($record);
 
-    expect($record->command)
-        ->toContain('rateguru:admin:create')
-        ->toContain('--email=[redacted]')
-        ->toContain('--username=[redacted]')
-        ->toContain('--name=[redacted]')
-        ->not->toContain('someone@example.invalid')
-        ->not->toContain('Sentinel');
+    // The invocation stays visible; the values do not.
+    expect($record->command)->toContain('rateguru:admin:create');
+
+    foreach (['someone@example.invalid', 'sentinel-handle', 'Ada', 'Lovelace'] as $leaked) {
+        expect($record->command)->not->toContain($leaked);
+    }
+
+    expect(substr_count($record->command, '[redacted]'))->toBe(3);
+})->with([
+    'equals form' => 'artisan rateguru:admin:create --email=someone@example.invalid --username=sentinel-handle --name=Ada',
+    'space form' => 'artisan rateguru:admin:create --email someone@example.invalid --username sentinel-handle --name Ada',
+    'mixed forms' => 'artisan rateguru:admin:create --email someone@example.invalid --username=sentinel-handle --name Ada',
+    'multi-word value' => 'artisan rateguru:admin:create --email someone@example.invalid --username sentinel-handle --name Ada Lovelace',
+]);
+
+it('does not mistake a longer option name for one it redacts', function () {
+    $record = new Command('C', 'x:y', 'artisan x:y --emails=3 --namespace=app', 0, 5);
+
+    nightwatchPrivacy()->redactCommand($record);
+
+    expect($record->command)->toBe('artisan x:y --emails=3 --namespace=app');
 });
 
 it('leaves a command with no personal arguments untouched', function () {
@@ -334,15 +393,32 @@ it('registers every redaction callback in the one provider that owns them', func
 it('builds no vendor-agnostic observability abstraction', function () {
     // Two concrete products are being compared and one is expected to be
     // removed; permanent architecture is not built around a trial.
-    foreach ([
-        'ObservabilityProviderInterface',
-        'APMManager',
-        'TelemetryAdapter',
-        'MonitoringBus',
-        'VendorAgnosticTracer',
-    ] as $forbidden) {
-        expect(glob(app_path("**/*{$forbidden}*.php")) ?: [])->toBe([]);
+    // Walked, not globbed: PHP's glob() has no `**`, so a pattern like
+    // app/**/*APMManager*.php silently matches nothing and the guard would
+    // pass no matter what was added.
+    $found = [];
+
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path()));
+
+    foreach ($files as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        foreach ([
+            'ObservabilityProviderInterface',
+            'APMManager',
+            'TelemetryAdapter',
+            'MonitoringBus',
+            'VendorAgnosticTracer',
+        ] as $forbidden) {
+            if (str_contains($file->getFilename(), $forbidden)) {
+                $found[] = $file->getFilename();
+            }
+        }
     }
+
+    expect($found)->toBe([]);
 
     // The privacy class talks to Nightwatch's records directly, and knows
     // nothing about Sentry.

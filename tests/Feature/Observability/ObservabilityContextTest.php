@@ -66,7 +66,7 @@ it('carries the deployment identity and the request ID across the queue boundary
 
     Queue::connection('database')->push(new GenerateMediaVariantsJob(1));
 
-    $row = DB::table('jobs')->first();
+    $row = DB::table('jobs')->orderByDesc('id')->first();
     expect($row)->not->toBeNull();
 
     $payload = json_decode($row->payload, true, flags: JSON_THROW_ON_ERROR);

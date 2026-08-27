@@ -320,6 +320,15 @@ it('ships a Supervisor program derived from the registry, never from a hard-code
     }
 });
 
+it('pins no listen address in the Supervisor program, so it cannot contradict the .env', function () {
+    // artisan nightwatch:agent takes its --listen-on default from
+    // config('nightwatch.ingest.uri'), which is NIGHTWATCH_INGEST_URI — the
+    // same value the application sends to and the installer validates. Pinning
+    // a port in the program file is the one way those could ever disagree,
+    // with the installer checking one address and the agent binding another.
+    expect(File::get(nightwatchProgramFile()))->not->toContain('--listen-on');
+});
+
 it('keeps the environment token out of the Supervisor program entirely', function () {
     // A program file is root:root 0644 and is echoed verbatim by supervisorctl.
     // The token belongs in the target's shared .env, which is not world
@@ -504,6 +513,46 @@ it('fails when the ingest listener is not loopback-only', function (string $list
         exec('rm -rf '.escapeshellarg($scratch));
     }
 })->with(['0.0.0.0:2407', '[::]:2407', '203.0.113.9:2407']);
+
+it('follows the configured ingest port rather than assuming the package default', function () {
+    // The port is not hardcoded anywhere in the installer: the application,
+    // the agent and this verification all read the same NIGHTWATCH_INGEST_URI.
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch, ['listener' => '127.0.0.1:2408']);
+        nightwatchDeployedTarget($scratch, ['NIGHTWATCH_INGEST_URI' => '127.0.0.1:2408']);
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('ingest 127.0.0.1:2408 is loopback');
+        expect($output)->toContain('loopback-only on port 2408');
+
+        // And it really asked the kernel about that port, not 2407.
+        expect(nightwatchStubLog($scratch, 'ss'))->toContain('-H -l -n -t');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('fails when the agent listens somewhere other than the configured port', function () {
+    // The failure a hardcoded 2407 would hide: configuration moved, the agent
+    // did not.
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch, ['listener' => '127.0.0.1:2407']);
+        nightwatchDeployedTarget($scratch, ['NIGHTWATCH_INGEST_URI' => '127.0.0.1:2408']);
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('nothing is listening on port 2408');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
 
 it('refuses to install when the ingest URI itself is not loopback', function () {
     $scratch = nightwatchScratch();

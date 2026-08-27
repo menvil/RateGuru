@@ -45,17 +45,49 @@ final class NightwatchPrivacy
      * path — so `/reset-password/{token}` is what Nightwatch sees, which is
      * the part with diagnostic value anyway.
      *
+     * `username` is here for a different reason. It is not a secret — `/u/…`
+     * is a public page — but it identifies a person, RateGuru treats it that
+     * way everywhere else (account deletion tombstones it, `LogContext::base()`
+     * deliberately omits it), and `Nightwatch::user()` is already suppressing
+     * it. Sending the same handle back in the URL would make that suppression
+     * theatre.
+     *
      * @var list<string>
      */
-    private const SENSITIVE_ROUTE_PARAMETERS = ['token', 'hash', 'signature', 'email'];
+    private const SENSITIVE_ROUTE_PARAMETERS = ['token', 'hash', 'signature', 'email', 'username'];
 
     /**
-     * Query-string parameter names that may be transmitted (without their
-     * values). RateGuru's own vocabulary is a closed set — the feed filters,
-     * the profile tab and the framework's own markers — so anything outside
-     * this shape is a bot, a scanner or a third party, and is dropped whole.
+     * Query-string parameter names that may be transmitted, without their
+     * values.
+     *
+     * A real closed allowlist, not a shape check. RateGuru's own query
+     * vocabulary is this short — the feed filters, the profile tab and
+     * pagination — and a parameter name is still attacker-controlled text, so
+     * matching "looks like an identifier" would happily forward
+     * `?<whatever-a-bot-put-here>`. Anything not named here is dropped whole,
+     * including the framework's own `expires`/`signature`/`email` markers,
+     * whose presence the route pattern already implies.
+     *
+     * @var list<string>
      */
-    private const SAFE_QUERY_PARAMETER_NAME = '/^[A-Za-z0-9_.\-]{1,40}(\[[A-Za-z0-9_.\-]{0,40}\])?$/';
+    private const ALLOWED_QUERY_PARAMETERS = [
+        // App\Livewire\Feed\FeedPage
+        'search', 'tag', 'category', 'ratings', 'sort', 'feed',
+        // App\Livewire\Profile\ProfilePage
+        'tab',
+        // Laravel pagination
+        'page',
+    ];
+
+    /**
+     * Artisan options whose value is personal data.
+     *
+     * `rateguru:admin:create` is the one RateGuru command that takes any, and
+     * it is exactly the one an operator runs by hand on a live server.
+     *
+     * @var list<string>
+     */
+    private const REDACTED_COMMAND_OPTIONS = ['email', 'username', 'name'];
 
     /**
      * Cache keys RateGuru is willing to transmit, as an allowlist.
@@ -125,7 +157,7 @@ final class NightwatchPrivacy
     }
 
     /**
-     * Removes the query string from an outgoing request URL.
+     * Removes everything after the path from an outgoing request URL.
      *
      * Unlike an incoming URL, nothing here is RateGuru's vocabulary: the only
      * outbound requests RateGuru makes are to user-pasted import URLs and the
@@ -133,10 +165,14 @@ final class NightwatchPrivacy
      * values are arbitrary third-party strings — presigned-URL credentials,
      * share tokens, tracking identifiers. The scheme, host and path are what
      * an import failure is diagnosed from, and they are kept in full.
+     *
+     * The fragment goes too. `UrlImportValidator` strips it from what RateGuru
+     * fetches, but a redirect `Location` or any other client is not bound by
+     * that, and `#access_token=…` is a real shape on the public internet.
      */
     public function redactOutgoingRequest(OutgoingRequest $record): void
     {
-        $record->url = $this->withoutQuery($record->url);
+        $record->url = $this->withoutQueryOrFragment($record->url);
     }
 
     /**
@@ -158,18 +194,26 @@ final class NightwatchPrivacy
     /**
      * Removes the values of Artisan options known to carry personal data.
      *
-     * `rateguru:admin:create --email= --username= --name=` is the only such
-     * command RateGuru owns, and it is exactly the one an operator runs by
-     * hand on a live server. Nightwatch records the invocation string, so the
-     * values are removed rather than the command being suppressed — knowing
-     * that an admin account was created, and how long it took, is the useful
-     * part.
+     * Nightwatch records the invocation string, so the values are removed
+     * rather than the command being suppressed — knowing that an admin account
+     * was created, and how long it took, is the useful part.
+     *
+     * Both option forms are covered, because Symfony Console accepts both and
+     * an operator typing the command by hand is as likely to write
+     * `--email someone@example.com` as `--email=someone@example.com`. The
+     * value is consumed up to the next `--option` or the end of the string
+     * rather than to the next space: Nightwatch builds this string by joining
+     * the raw argv tokens with spaces, so a quoted multi-word value like
+     * `--name "Ada Lovelace"` arrives indistinguishable from two tokens, and
+     * stopping at the first space would leak the second word.
      */
     public function redactCommand(Command $record): void
     {
+        $options = implode('|', self::REDACTED_COMMAND_OPTIONS);
+
         $record->command = (string) preg_replace(
-            '/(--(?:email|username|name)=)(\S+)/i',
-            '$1'.self::REDACTED,
+            '/(--(?:'.$options.'))([=\s])(?:(?!\s--).)*/i',
+            '$1$2'.self::REDACTED,
             $record->command,
         );
     }
@@ -200,14 +244,13 @@ final class NightwatchPrivacy
     }
 
     /**
-     * scheme://host[:port] + path, with the query reduced to its parameter
-     * names.
+     * scheme://host[:port] + path, with the query reduced to the allowlisted
+     * parameter names.
      *
-     * Names without values are kept because they are RateGuru's own closed
-     * vocabulary and they carry the one thing the evaluation needs from a feed
-     * URL — which filters were in play — while `?search=<free text typed by a
-     * user, frequently another user's name>` is exactly what must not leave
-     * the server.
+     * Names without values are kept because they carry the one thing the
+     * evaluation needs from a feed URL — which filters were in play — while
+     * `?search=<free text typed by a user, frequently another user's name>` is
+     * exactly what must not leave the server.
      */
     public function sanitizeIncomingUrl(string $url, string $routePath): string
     {
@@ -236,11 +279,11 @@ final class NightwatchPrivacy
         return $origin.$path.($names === '' ? '' : '?'.$names);
     }
 
-    private function withoutQuery(string $url): string
+    private function withoutQueryOrFragment(string $url): string
     {
-        $position = strpos($url, '?');
+        $cut = strcspn($url, '?#');
 
-        return $position === false ? $url : substr($url, 0, $position);
+        return substr($url, 0, $cut);
     }
 
     private function routeNamesASensitiveParameter(string $routePath): bool
@@ -277,11 +320,14 @@ final class NightwatchPrivacy
 
             $name = urldecode(strstr($pair, '=', true) ?: $pair);
 
-            // A parameter name outside RateGuru's own shape is a scanner or a
-            // third-party redirect, never one of our filters — and a name is
-            // still attacker-controlled text, so it is dropped rather than
-            // trusted.
-            if (preg_match(self::SAFE_QUERY_PARAMETER_NAME, $name) !== 1) {
+            // `category[0]=…` is the same filter as `category=…`; the index
+            // carries nothing and would multiply the name.
+            $name = (string) preg_replace('/\[.*$/', '', $name);
+
+            // Not on the allowlist: a scanner, a third-party redirect or a
+            // framework marker the route pattern already implies. Dropped
+            // whole — the name itself is attacker-controlled text.
+            if (! in_array($name, self::ALLOWED_QUERY_PARAMETERS, true)) {
                 continue;
             }
 

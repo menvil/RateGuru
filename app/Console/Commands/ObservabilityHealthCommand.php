@@ -254,6 +254,12 @@ final class ObservabilityHealthCommand extends Command
 
         if (preg_match('/^\[(?<host>[^\]]+)\](?::\d+)?$/', $uri, $matches) === 1) {
             $host = $matches['host'];
+        } elseif (substr_count($uri, ':') > 1) {
+            // A bare IPv6 address: more than one colon and no brackets, so
+            // there is no port to split off and the whole value is the host.
+            // Splitting here would turn `::1` into an empty host and warn that
+            // loopback is not loopback.
+            $host = $uri;
         } elseif (str_contains($uri, ':')) {
             $host = (string) strstr($uri, ':', true);
         }

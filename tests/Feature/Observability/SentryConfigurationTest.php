@@ -248,8 +248,12 @@ it('survives config caching with real release metadata', function () {
 });
 
 it('exposes the deployment target as configuration, never as a hardcoded target ID', function () {
+    // One list, used for both halves: a target the source scan below forgot
+    // would be exactly the one a hardcoded reference could hide in.
+    $targets = ['staging-main', 'tits-guru', 'food-guru', 'animals-guru'];
+
     // Every active and planned target must work without a code change.
-    foreach (['staging-main', 'tits-guru', 'food-guru', 'animals-guru'] as $target) {
+    foreach ($targets as $target) {
         config()->set('deployment.target', $target);
         expect(config('deployment.target'))->toBe($target);
     }
@@ -264,7 +268,7 @@ it('exposes the deployment target as configuration, never as a hardcoded target 
     ] as $path) {
         $code = phpSourceWithoutComments($path);
 
-        foreach (['staging-main', 'tits-guru', 'food-guru'] as $target) {
+        foreach ($targets as $target) {
             expect(str_contains($code, $target))
                 ->toBeFalse("{$path} must not special-case the target {$target}");
         }

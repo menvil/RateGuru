@@ -3,8 +3,11 @@
 Phase 54 — Version 1.1
 
 The observability foundation works without any SaaS vendor. Of the vendors
-below, **only Sentry is installed**; every other one is **not required**, is not
-present, and nothing in the codebase is shaped around it.
+below, **Sentry and Nightwatch are installed** — Sentry on every configured
+target, Nightwatch only on `staging-main` and only for the Phase 6B
+side-by-side evaluation, which Phase 6C will resolve. Every other vendor is
+**not required**, is not present, and nothing in the codebase is shaped around
+it.
 
 ---
 

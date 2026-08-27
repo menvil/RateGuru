@@ -61,9 +61,12 @@ it('gives the real staging paths and program names this repository uses', functi
         ->toContain('/etc/supervisor/conf.d/rateguru-staging-nightwatch.conf')
         ->toContain($target['application_root'].'/shared/storage/logs/nightwatch-agent.log');
 
-    // The installer it tells the operator to run actually exists and ships.
+    // The installer it tells the operator to run actually exists, and is
+    // runnable — a committed file that lost its executable bit is precisely
+    // the failure InfrastructureScriptExecutableModesTest exists for.
     expect($runbook)->toContain('infrastructure/scripts/install-nightwatch-agent');
     expect(is_file(base_path('infrastructure/scripts/install-nightwatch-agent')))->toBeTrue();
+    expect(is_executable(base_path('infrastructure/scripts/install-nightwatch-agent')))->toBeTrue();
 });
 
 it('names only environment variables the installed package actually supports', function () {
@@ -74,7 +77,10 @@ it('names only environment variables the installed package actually supports', f
     // ignored on a live server.
     expect(preg_match_all('/\bNIGHTWATCH_[A-Z_]+\b/', $runbook, $matches))->toBeGreaterThan(0);
 
-    $config = File::get(base_path('config/nightwatch.php'));
+    // Comments stripped: config/nightwatch.php names NIGHTWATCH_DEPLOY in
+    // prose, to say it is deliberately *not* read. Matching against the raw
+    // file would accept a runbook that told an operator to set it.
+    $config = phpSourceWithoutComments('config/nightwatch.php');
 
     foreach (array_unique($matches[0]) as $variable) {
         expect(str_contains($config, $variable))
