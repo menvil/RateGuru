@@ -3,6 +3,11 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
+use Illuminate\Foundation\Http\Kernel as HttpKernel;
+use Sentry\Laravel\Http\FlushEventsMiddleware;
+use Sentry\Laravel\Http\SetRequestMiddleware;
+use Sentry\Laravel\Tracing\Middleware as TracingMiddleware;
 
 final class ObservabilityHealthCommand extends Command
 {
@@ -107,6 +112,45 @@ final class ObservabilityHealthCommand extends Command
         $this->line('  SQL bindings (breadcrumbs): '.$this->onOff(config('sentry.breadcrumbs.sql_bindings')));
         $this->line('  SQL bindings (tracing): '.$this->onOff(config('sentry.tracing.sql_bindings')));
         $this->line('  Ignored transactions: '.implode(', ', (array) config('sentry.ignore_transactions', [])));
+
+        $this->checkTracingMiddleware();
+    }
+
+    /**
+     * Whether the SDK actually attached its HTTP instrumentation.
+     *
+     * Sample rates say what a target *intends*; this says what the running
+     * application will actually do. Both official Sentry providers register
+     * their middleware in `boot()`, and only when a DSN is already configured
+     * — so a target can report a trace sample rate of 1 and still produce no
+     * transactions at all. That gap is invisible from configuration alone, and
+     * is exactly the question to answer first when traces are missing.
+     */
+    private function checkTracingMiddleware(): void
+    {
+        $kernel = $this->laravel->bound(HttpKernelContract::class)
+            ? $this->laravel->make(HttpKernelContract::class)
+            : null;
+
+        if (! $kernel instanceof HttpKernel) {
+            $this->line('  HTTP tracing middleware: (unavailable — no HTTP kernel)');
+
+            return;
+        }
+
+        foreach ([
+            'HTTP tracing middleware' => TracingMiddleware::class,
+            'Request context middleware' => SetRequestMiddleware::class,
+            'Event flush middleware' => FlushEventsMiddleware::class,
+        ] as $label => $middleware) {
+            $registered = $kernel->hasMiddleware($middleware);
+
+            $this->line("  {$label}: ".($registered ? 'registered' : 'NOT REGISTERED'));
+        }
+
+        if (filled(config('sentry.traces_sample_rate')) && ! $kernel->hasMiddleware(TracingMiddleware::class)) {
+            $this->warn('  A trace sample rate is configured but the tracing middleware is not registered — no HTTP transactions will be produced.');
+        }
     }
 
     private function checkExternalVendors(): void
