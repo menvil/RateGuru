@@ -39,6 +39,16 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # Only needed for the local observability action below. Rollback business
+      # logic stays entirely server-side; nothing from this checkout is
+      # deployed, and it is taken from develop rather than any release ref.
+      - name: Checkout observability action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Validate inputs
         shell: bash
         env:
@@ -139,12 +149,84 @@ jobs:
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
             "${remote_command[@]@Q}"
 
+      # Reached only when the previous step succeeded, which — because the
+      # server-side wrapper restores the old release and fails when its health
+      # check fails — means the target is serving a healthy release again. The
+      # release ID is read back off the server rather than derived from the
+      # workflow inputs, so `mode=previous` reports the real immutable release
+      # the target landed on instead of guessing.
+      - name: Resolve the release now serving the target
+        id: active
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "${DEPLOY_ROOT}" ]]; then
+            echo "DEPLOY_ROOT is not configured; cannot resolve the active release." >&2
+            echo "release_id=" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          printf -v current_command \
+            'basename "$(readlink -f %q)"' \
+            "${DEPLOY_ROOT%/}/current"
+
+          active_release="$(
+            ssh \
+              -p "${DEPLOY_PORT}" \
+              -i "${RATEGURU_SSH_KEY_PATH}" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o ConnectTimeout=15 \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+              "${DEPLOY_USER}@${DEPLOY_HOST}" \
+              "${current_command}"
+          )"
+
+          # The rollback itself already succeeded and the target is healthy.
+          # If what came back is not a canonical release ID — an absent
+          # `current`, a truncated read — record nothing rather than failing
+          # this job for an observability reason.
+          release_regex='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+          if [[ ! "${active_release}" =~ ${release_regex} ]]; then
+            echo "Active release is not a canonical release ID: ${active_release}" >&2
+            echo "Rollback succeeded; skipping Sentry deployment marker." >&2
+            echo "release_id=" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          echo "release_id=${active_release}" >> "${GITHUB_OUTPUT}"
+          echo "Target is now serving ${active_release}"
+
+      # A rollback is a deployment of an existing release, so it records a new
+      # deploy marker against that same immutable release — never a synthetic
+      # "rollback" release, and never a re-association of its commits.
+      - name: Record Sentry deployment marker for the restored release
+        if: ${{ steps.active.outputs.release_id != '' }}
+        uses: ./.github/actions/sentry-release
+        with:
+          sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          sentry-org: ${{ vars.SENTRY_ORG }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+          environment: staging
+
+          release-id: ${{ steps.active.outputs.release_id }}
+
       - name: Write summary
         if: always()
         shell: bash
         env:
           MODE: ${{ inputs.mode }}
           RELEASE_ID: ${{ inputs.release-id }}
+          ACTIVE_RELEASE: ${{ steps.active.outputs.release_id }}
           JOB_STATUS: ${{ job.status }}
         run: |
           set -Eeuo pipefail
@@ -153,5 +235,6 @@ jobs:
             echo "Target: staging-main"
             echo "Mode: ${MODE}"
             echo "Requested release: ${RELEASE_ID:-previous}"
+            echo "Active release: ${ACTIVE_RELEASE:-unknown}"
             echo "Result: ${JOB_STATUS}"
           } >> "${GITHUB_STEP_SUMMARY}"

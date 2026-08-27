@@ -608,7 +608,24 @@ slices 1–2, which installed nothing — so it completes on merge.
 Wire the existing observability foundation (DomainLogger, exception context)
 to Sentry for staging and production, with release tagging and PII redaction.
 The phase overall proves: **we can see and diagnose failures before
-production**. Slices, in order:
+production**.
+
+Slices 6.1–6.5 are **implemented; awaiting real-staging acceptance** — the
+code, configuration, workflows and runbook landed together, but none of the
+acceptance criteria below have been met yet, because they all require a real
+staging deployment with a real DSN and a configured GitHub Environment. The
+phase stays planned until that happens. What landed:
+`sentry/sentry-laravel` with the canonical release identity read from the
+artifact's own `release.json` (never Git, never a second version string),
+`environment` as the environment class with `deployment_target` as a separate
+tag, one capture path through `Integration::handles()` covering HTTP, Artisan
+and queue failures, `send_default_pii=false` with the internal user ID added
+back deliberately, SQL bindings hardcoded off, profiling/structured
+logs/metrics off, `/up` excluded from performance transactions, and a shared
+`.github/actions/sentry-release` composite action that records the deployment
+marker only after the existing health checks pass and can never fail a healthy
+deployment. Slice 6.6 (alerts) is manual Sentry-UI work documented in
+`runbooks/sentry-observability.md`, not code. Slices, in order:
 
 1. **6.1 Sentry SDK, environments and release identity.** Connect Laravel to
    Sentry while preserving current application behavior, and establish the

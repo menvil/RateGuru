@@ -315,6 +315,21 @@ jobs:
             echo "- Artifact will be promoted without rebuilding."
           } >> "${GITHUB_STEP_SUMMARY}"
 
+      # Runs inside the staging job, after the deployment action has already
+      # completed its health check and active-release verification, so the
+      # marker can only appear for a genuinely successful staging deployment.
+      - name: Record Sentry release and staging deployment marker
+        uses: ./.github/actions/sentry-release
+        with:
+          sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          sentry-org: ${{ vars.SENTRY_ORG }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+          environment: staging
+
+          release-id: ${{ needs.validate.outputs.release-id }}
+          commit: ${{ needs.validate.outputs.source-sha }}
+
   deploy-production:
     name: Deploy approved release to production
     needs:
@@ -382,3 +397,18 @@ jobs:
             echo "- Release: \`${RELEASE_ID}\`"
             echo "- Artifact was verified on staging before promotion."
           } >> "${GITHUB_STEP_SUMMARY}"
+
+      # The environment stays `production` for every production target. Which
+      # brand was deployed is carried by the deployment_target tag on the
+      # events themselves, not by inventing production-<brand> environments.
+      - name: Record Sentry production deployment marker
+        uses: ./.github/actions/sentry-release
+        with:
+          sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          sentry-org: ${{ vars.SENTRY_ORG }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+          environment: production
+
+          release-id: ${{ needs.validate.outputs.release-id }}
+          commit: ${{ needs.validate.outputs.source-sha }}

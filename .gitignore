@@ -102,3 +102,8 @@ Homestead.yaml
 /infrastructure/config/**/*.before-*
 /infrastructure/config/**/*.backup-*
 /infrastructure/config/**/*.bak
+
+# Build-pipeline release metadata. Written into the artifact package root by
+# deploy-staging.yml / release.yml and read by config/deployment.php; it is
+# per-release and must never be committed from a working copy.
+/release.json

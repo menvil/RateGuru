@@ -1,0 +1,174 @@
+name: Record RateGuru release in Sentry
+description: >-
+  Register an already-deployed, already-health-checked RateGuru release with
+  Sentry and mark it deployed to one environment. Observability only: this
+  never decides whether a deployment succeeded, and its own failure never
+  fails the deployment.
+
+inputs:
+  sentry-auth-token:
+    required: false
+    description: >-
+      Sentry API token, supplied from GitHub Environment secrets only. It never
+      exists on a VPS, and it is passed through the environment rather than a
+      command line so it cannot leak through a process list.
+
+  sentry-org:
+    required: false
+    description: Sentry organization slug
+
+  sentry-project:
+    required: false
+    description: Sentry project slug
+
+  environment:
+    required: true
+    description: >-
+      Sentry environment class — staging or production. Never a target ID:
+      which brand is deployed is a tag on the events, not an environment.
+
+  release-id:
+    required: true
+    description: >-
+      The canonical immutable RateGuru release ID that is now live. Exactly the
+      value the build pipeline produced and the SDK reports as event.release —
+      this action never computes a release identifier of its own.
+
+  commit:
+    required: false
+    default: ""
+    description: >-
+      Full Git SHA the release artifact was built from, associated with the
+      release in Sentry. Leave empty for a rollback: that release already
+      exists with its own commits and must not be mutated.
+
+outputs:
+  recorded:
+    description: "true when Sentry accepted the release and deploy marker"
+    value: ${{ steps.record.outputs.recorded }}
+
+runs:
+  using: composite
+
+  steps:
+    # Fail closed on a malformed release ID before any network call, using the
+    # same expression the deploy action validates against, so a Sentry release
+    # can never be created under an ID no RateGuru deployment could produce.
+    - name: Validate observability inputs
+      id: preflight
+      shell: bash
+      env:
+        RELEASE_ID: ${{ inputs.release-id }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        COMMIT: ${{ inputs.commit }}
+        SENTRY_ORG: ${{ inputs.sentry-org }}
+        SENTRY_PROJECT: ${{ inputs.sentry-project }}
+        SENTRY_AUTH_TOKEN_PRESENT: ${{ inputs.sentry-auth-token != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        release_regex='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+        [[ "${RELEASE_ID}" =~ ${release_regex} ]] || {
+          echo "Invalid release ID: ${RELEASE_ID}" >&2
+          exit 1
+        }
+
+        case "${ENVIRONMENT}" in
+          staging|production)
+            ;;
+          *)
+            echo "environment must be staging or production (got: ${ENVIRONMENT})" >&2
+            exit 1
+            ;;
+        esac
+
+        if [[ -n "${COMMIT}" ]]; then
+          [[ "${COMMIT}" =~ ^[0-9a-f]{7,40}$ ]] || {
+            echo "Invalid commit SHA: ${COMMIT}" >&2
+            exit 1
+          }
+
+          echo "set_commits=manual" >> "${GITHUB_OUTPUT}"
+        else
+          echo "set_commits=skip" >> "${GITHUB_OUTPUT}"
+        fi
+
+        # Sentry credentials are optional on purpose: a target whose GitHub
+        # Environment has not been given them yet still deploys normally, it
+        # just records nothing. Missing credentials are reported, not fatal.
+        if [[ "${SENTRY_AUTH_TOKEN_PRESENT}" == "true" ]] \
+          && [[ -n "${SENTRY_ORG}" ]] \
+          && [[ -n "${SENTRY_PROJECT}" ]]
+        then
+          echo "configured=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "configured=false" >> "${GITHUB_OUTPUT}"
+          echo "Sentry credentials are not configured for this environment; skipping release registration."
+        fi
+
+    # continue-on-error is the whole point of this step. The application is
+    # already deployed, already serving and already health-checked by the time
+    # we get here; sentry.io being unreachable is an observability gap, never a
+    # reason to fail a healthy deployment or trigger a rollback.
+    - name: Create Sentry release and deployment marker
+      id: sentry
+      if: ${{ steps.preflight.outputs.configured == 'true' }}
+      continue-on-error: true
+      uses: getsentry/action-release@ff07929a6537bac57790c3451cf4d364aca38528 # v3.7.0
+      env:
+        SENTRY_AUTH_TOKEN: ${{ inputs.sentry-auth-token }}
+        SENTRY_ORG: ${{ inputs.sentry-org }}
+        SENTRY_PROJECT: ${{ inputs.sentry-project }}
+      with:
+        release: ${{ inputs.release-id }}
+        # Supplying `environment` is what turns this from "a release exists"
+        # into "this release is deployed here", which is the marker Phase 6
+        # actually needs.
+        environment: ${{ inputs.environment }}
+        set_commits: ${{ steps.preflight.outputs.set_commits }}
+        repo: ${{ github.repository }}
+        commit: ${{ inputs.commit }}
+        # Commit association depends on the Sentry <-> GitHub repository
+        # integration being configured in the Sentry organization. Without it,
+        # the release is still created and still marked deployed — the events
+        # themselves always carry the commit as a tag regardless.
+        ignore_missing: true
+        ignore_empty: true
+        disable_telemetry: true
+
+    - name: Report observability outcome
+      id: record
+      shell: bash
+      env:
+        CONFIGURED: ${{ steps.preflight.outputs.configured }}
+        OUTCOME: ${{ steps.sentry.outcome }}
+        RELEASE_ID: ${{ inputs.release-id }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ "${CONFIGURED}" != "true" ]]; then
+          recorded="false"
+          summary="Deployment succeeded. Sentry release registration skipped: no credentials configured for the ${ENVIRONMENT} environment."
+        elif [[ "${OUTCOME}" == "success" ]]; then
+          recorded="true"
+          summary="Deployment succeeded. Sentry release \`${RELEASE_ID}\` marked deployed to \`${ENVIRONMENT}\`."
+        else
+          recorded="false"
+          summary="Deployment succeeded, observability registration FAILED. Sentry does not know about release \`${RELEASE_ID}\` in \`${ENVIRONMENT}\`; the running application is unaffected and must not be rolled back for this."
+        fi
+
+        echo "recorded=${recorded}" >> "${GITHUB_OUTPUT}"
+
+        {
+          echo "## Sentry release correlation"
+          echo
+          echo "- Release: \`${RELEASE_ID}\`"
+          echo "- Environment: \`${ENVIRONMENT}\`"
+          echo "- Recorded: \`${recorded}\`"
+          echo
+          echo "${summary}"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+        echo "${summary}"
