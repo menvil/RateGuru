@@ -1,0 +1,790 @@
+#!/usr/bin/env bash
+#
+# install-nightwatch-agent — install, verify or remove the Supervisor-managed
+# Laravel Nightwatch agent for one deployment target.
+#
+# Phase 6B is a time-boxed side-by-side evaluation of Nightwatch against the
+# already-accepted Sentry integration, and this script is deliberately shaped
+# by that:
+#
+#   * It is a standalone installer, not a step inside
+#     install-bootstrap-services. The Phase 5.4 service contract describes what
+#     a RateGuru host must have to serve traffic; a trial APM agent is not part
+#     of that, and wiring it in would make every host --verify fail on a host
+#     that simply has not opted in. Ownership boundary: 5.4 owns the queue
+#     worker, PHP-FPM, Nginx and cron; this owns exactly one Supervisor program
+#     and nothing else.
+#
+#   * --remove exists as a first-class mode, because Phase 6C may reject
+#     Nightwatch and "undo it" must not be a paragraph of manual supervisorctl
+#     in a runbook.
+#
+#   * Which targets may run an agent is a closed allowlist in
+#     infrastructure/scripts/common (target_nightwatch_program). staging-main
+#     is the only entry, so "staging only" is structural: no production target
+#     can be activated by editing a .env, a registry file or an argument to
+#     this script, because no production target has a program to install.
+#
+# The agent is a local sidecar. The application writes events to it over
+# loopback and it forwards them to Nightwatch; it is never a network service,
+# and this script refuses to install or verify one whose bind address is not
+# loopback.
+#
+# Modes (all require root — Supervisor's control socket, /etc/supervisor and
+# the target's shared .env are all root-only, and verification runs artisan as
+# the target's runtime user via runuser):
+#   --check   Report what is currently installed and whether the preconditions
+#             for --apply hold. Strictly read-only, makes NO changes.
+#   --apply   Install the committed Supervisor program transactionally, apply
+#             it to the running supervisord and require the agent to become
+#             stably RUNNING, listening on loopback only, and reachable by
+#             `artisan nightwatch:status`.
+#   --verify  Re-run every verification against what is installed now. Makes
+#             NO changes.
+#   --remove  Stop the agent, uninstall its Supervisor program and confirm the
+#             ingest port is no longer listening. Leaves the Composer package,
+#             config/nightwatch.php and the target's .env untouched — this
+#             stops telemetry, it does not un-evaluate Nightwatch.
+#
+# Every path is derived from the target registry via
+# infrastructure/scripts/common — never from a command-line argument.
+#
+# See infrastructure/runbooks/nightwatch-evaluation.md.
+
+set -Eeuo pipefail
+umask 022
+
+# --- Fixed identities and locations (not overridable) -----------------------
+
+SELF_PATH="${BASH_SOURCE[0]}"
+
+DST_SUPERVISOR_DIR="/etc/supervisor/conf.d"
+
+# Supervisor program files are non-secret host configuration, and the agent's
+# token is deliberately not among their contents — it stays in the target's
+# shared .env, which the runtime user reads through Laravel's own config.
+SERVICE_FILE_OWNER="root"
+SERVICE_FILE_GROUP="root"
+SERVICE_FILE_MODE="0644"
+
+SERVICE_LOG_SUBPATH="shared/storage/logs"
+
+BACKUP_ROOT="/var/backups/rateguru-nightwatch-agent"
+
+# The package default, and the value config/nightwatch.php falls back to when
+# the target's .env names none. Repeated here rather than read from PHP so
+# that --check works on a host whose release cannot boot.
+DEFAULT_INGEST_URI="127.0.0.1:2407"
+
+# Tools this script invokes by bare name, and which therefore have to be on
+# PATH. The overridable ones (supervisorctl, ss, runuser, install, stat, chown,
+# chmod) are checked separately below, through the value actually resolved —
+# checking the default name instead would reject a correctly configured run and
+# accept a misconfigured one.
+REQUIRED_TOOLS=(cat cmp grep awk tail readlink mktemp date rm mv mkdir cp sleep tr basename dirname)
+
+# --- Test seams -------------------------------------------------------------
+#
+# Identical gated shape to every other RateGuru installer: an override is
+# honored only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, so a stray
+# environment variable surviving in a real root shell can never redirect this
+# script at an operator- or attacker-controlled binary or path. Production
+# never sets either variable.
+
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+SUPERVISORCTL_BIN="$(gated_default RATEGURU_NIGHTWATCH_SUPERVISORCTL_BIN supervisorctl)"
+SS_BIN="$(gated_default RATEGURU_NIGHTWATCH_SS_BIN ss)"
+RUNUSER_BIN="$(gated_default RATEGURU_NIGHTWATCH_RUNUSER_BIN runuser)"
+INSTALL_BIN="$(gated_default RATEGURU_NIGHTWATCH_INSTALL_BIN install)"
+STAT_BIN="$(gated_default RATEGURU_NIGHTWATCH_STAT_BIN stat)"
+CHOWN_BIN="$(gated_default RATEGURU_NIGHTWATCH_CHOWN_BIN chown)"
+CHMOD_BIN="$(gated_default RATEGURU_NIGHTWATCH_CHMOD_BIN chmod)"
+EFFECTIVE_EUID="$(gated_default RATEGURU_NIGHTWATCH_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_NIGHTWATCH_FS_ROOT '')"
+REPO_ROOT_OVERRIDE="$(gated_default RATEGURU_NIGHTWATCH_REPO_ROOT '')"
+WAIT_ATTEMPTS="$(gated_default RATEGURU_NIGHTWATCH_WAIT_ATTEMPTS 10)"
+RETRY_DELAY_SECONDS="$(gated_default RATEGURU_NIGHTWATCH_RETRY_DELAY 1)"
+STABILITY_WAIT_SECONDS="$(gated_default RATEGURU_NIGHTWATCH_STABILITY_WAIT 3)"
+
+# physical PATH — the real filesystem location of a logical path. FS_ROOT is
+# empty in production, so this is the identity function there; tests point it
+# at a scratch tree so /etc/supervisor/conf.d can be exercised for real
+# without touching the host.
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+resolve_repo_root() {
+    if [[ -n "${REPO_ROOT_OVERRIDE}" ]]; then
+        printf '%s\n' "${REPO_ROOT_OVERRIDE}"
+
+        return 0
+    fi
+
+    # The file is canonicalized before its directory, so a symlinked entry
+    # point resolves to the real checkout rather than to the symlink's parent.
+    local self_real script_dir
+    self_real="$(readlink -f "${SELF_PATH}")" \
+        || fail "cannot resolve the real path of ${SELF_PATH}"
+    script_dir="$(dirname "${self_real}")"
+
+    [[ "${script_dir}" == */infrastructure/scripts ]] \
+        || fail "install-nightwatch-agent must run from a RateGuru checkout (resolved ${script_dir})"
+
+    printf '%s\n' "${script_dir%/infrastructure/scripts}"
+}
+
+# --- Argument parsing -------------------------------------------------------
+
+MODE=""
+MODE_SEEN=false
+TARGET_ID=""
+TARGET_SEEN=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-nightwatch-agent --check   --target TARGET
+  install-nightwatch-agent --apply   --target TARGET
+  install-nightwatch-agent --verify  --target TARGET
+  install-nightwatch-agent --remove  --target TARGET
+  install-nightwatch-agent --help
+
+  All modes require root.
+
+  --check   Report the installed state and whether --apply's preconditions
+            hold. Read-only, makes no changes.
+  --apply   Install and start the target's Nightwatch agent under Supervisor.
+            Transactional: the previous program file is restored if any
+            post-change verification fails.
+  --verify  Re-verify what is installed now. Read-only, makes no changes.
+  --remove  Stop the agent and uninstall its Supervisor program. The Composer
+            package, config/nightwatch.php and the target .env are untouched.
+USAGE
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify|--remove)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "only one mode may be given (already have --${MODE})"
+                fi
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "--target given more than once"
+                fi
+
+                [[ $# -ge 2 ]] || { usage >&2; fail "--target requires a value"; }
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${MODE_SEEN}" == true ]] || { usage >&2; fail "exactly one of --check, --apply, --verify or --remove is required"; }
+    [[ "${TARGET_SEEN}" == true ]] || { usage >&2; fail "--target is required"; }
+    [[ -n "${TARGET_ID}" ]] || { usage >&2; fail "--target requires a non-empty value"; }
+}
+
+require_root_mode() {
+    if [[ "${EFFECTIVE_EUID}" -ne 0 ]]; then
+        fail "this command must be executed as root"
+    fi
+}
+
+check_required_tools() {
+    local tool
+    for tool in "${REQUIRED_TOOLS[@]}"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+
+    local resolved
+    for resolved in \
+        "${SUPERVISORCTL_BIN}" "${SS_BIN}" "${RUNUSER_BIN}" \
+        "${INSTALL_BIN}" "${STAT_BIN}" "${CHOWN_BIN}" "${CHMOD_BIN}"
+    do
+        command -v "${resolved}" >/dev/null 2>&1 || fail "required tool not found: ${resolved}"
+    done
+}
+
+# --- Target contract --------------------------------------------------------
+
+REPO_ROOT=""
+NIGHTWATCH_PROGRAM=""
+TARGET_ROOT=""
+RUNTIME_USER=""
+RUNTIME_GROUP=""
+SRC_CONF=""
+DST_CONF=""
+LOG_DIR=""
+SHARED_ENV=""
+CURRENT_LINK=""
+INGEST_URI=""
+INGEST_PORT=""
+
+resolve_target() {
+    require_active_target "${TARGET_ID}"
+
+    if ! NIGHTWATCH_PROGRAM="$(target_nightwatch_program "${TARGET_ID}")"; then
+        fail "target ${TARGET_ID} does not run a Nightwatch agent — Phase 6B is a staging-only evaluation and the allowlist in infrastructure/scripts/common names staging-main alone"
+    fi
+
+    REPO_ROOT="$(resolve_repo_root)"
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+    RUNTIME_GROUP="$(target_runtime_group "${TARGET_ID}")"
+
+    SRC_CONF="${REPO_ROOT}/infrastructure/config/supervisor/${NIGHTWATCH_PROGRAM}.conf"
+    DST_CONF="${DST_SUPERVISOR_DIR}/${NIGHTWATCH_PROGRAM}.conf"
+    LOG_DIR="${TARGET_ROOT}/${SERVICE_LOG_SUBPATH}"
+    SHARED_ENV="${TARGET_ROOT}/shared/.env"
+    CURRENT_LINK="${TARGET_ROOT}/current"
+
+    log "target ${TARGET_ID}: program=${NIGHTWATCH_PROGRAM} root=${TARGET_ROOT} runtime_user=${RUNTIME_USER}"
+}
+
+# --- Committed-source validation (registry/config drift) --------------------
+
+validate_source_conf() {
+    local src_phys="${SRC_CONF}"
+
+    [[ -e "${src_phys}" ]] || fail "committed Supervisor config is missing: ${SRC_CONF}"
+    [[ ! -L "${src_phys}" ]] || fail "committed Supervisor config must not be a symlink: ${SRC_CONF}"
+    [[ -f "${src_phys}" ]] || fail "committed Supervisor config is not a regular file: ${SRC_CONF}"
+    [[ -r "${src_phys}" ]] || fail "committed Supervisor config is not readable: ${SRC_CONF}"
+
+    grep -Fxq "[program:${NIGHTWATCH_PROGRAM}]" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not declare [program:${NIGHTWATCH_PROGRAM}] — registry/config drift"
+    grep -Eq "^directory *= *${TARGET_ROOT}/current$" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not run in ${TARGET_ROOT}/current — the agent must follow the deployment symlink, never a pinned release"
+    grep -Eq "^user *= *${RUNTIME_USER}$" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not run as ${RUNTIME_USER} — registry/config drift"
+    grep -Eq "^command *=.*artisan nightwatch:agent" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not run the official 'artisan nightwatch:agent' command"
+    grep -Eq "^autorestart *= *true$" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not set autorestart=true"
+    grep -Fq "${LOG_DIR}/" "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} does not log under ${LOG_DIR}"
+
+    # The environment token is a runtime secret and belongs in the target's
+    # shared .env, which is not world-readable. A Supervisor program file is
+    # root:root 0644 and is quoted verbatim in `supervisorctl` output, so a
+    # token here would be a credential in host configuration.
+    ! grep -qi 'NIGHTWATCH_TOKEN' "${src_phys}" \
+        || fail "committed Supervisor config ${SRC_CONF} references NIGHTWATCH_TOKEN — the environment token must never appear in Supervisor configuration"
+
+    log "committed Supervisor config validated against the registry: ${SRC_CONF}"
+}
+
+# --- Target .env contract ---------------------------------------------------
+#
+# Values are inspected, never echoed. `env_value` prints the raw value for the
+# two keys whose value is not a secret (ENABLED, INGEST_URI); the token is only
+# ever tested for presence.
+
+env_value() {
+    local key="$1" env_phys line value
+    env_phys="$(physical "${SHARED_ENV}")"
+
+    [[ -f "${env_phys}" ]] || return 1
+
+    line="$(grep -E "^[[:space:]]*${key}=" "${env_phys}" | tail -n 1)" || return 1
+    [[ -n "${line}" ]] || return 1
+
+    value="${line#*=}"
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+
+    [[ -n "${value}" ]] || return 1
+
+    printf '%s\n' "${value}"
+}
+
+resolve_ingest_uri() {
+    INGEST_URI="$(env_value NIGHTWATCH_INGEST_URI || printf '%s\n' "${DEFAULT_INGEST_URI}")"
+    INGEST_PORT="${INGEST_URI##*:}"
+
+    [[ "${INGEST_PORT}" =~ ^[0-9]+$ ]] \
+        || fail "NIGHTWATCH_INGEST_URI in ${SHARED_ENV} does not end in a port: ${INGEST_URI}"
+}
+
+# address_is_loopback ADDRESS — ADDRESS is host:port, [host]:port, or *:port.
+address_is_loopback() {
+    local address="$1" host
+
+    if [[ "${address}" =~ ^\[(.+)\]:[0-9]+$ ]]; then
+        host="${BASH_REMATCH[1]}"
+    else
+        host="${address%:*}"
+    fi
+
+    case "${host}" in
+        localhost|::1) return 0 ;;
+        127.*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+validate_env_contract() {
+    local env_phys
+    env_phys="$(physical "${SHARED_ENV}")"
+
+    [[ -f "${env_phys}" ]] || fail "the target's shared environment file is missing: ${SHARED_ENV}"
+
+    local enabled
+    enabled="$(env_value NIGHTWATCH_ENABLED || true)"
+
+    [[ "${enabled}" == "true" ]] \
+        || fail "NIGHTWATCH_ENABLED is not 'true' in ${SHARED_ENV} — the agent would run while the application transmits nothing, and 'artisan nightwatch:status' would report Nightwatch as disabled"
+
+    env_value NIGHTWATCH_TOKEN >/dev/null \
+        || fail "NIGHTWATCH_TOKEN is missing or empty in ${SHARED_ENV} — obtain the staging-main environment token from the Nightwatch dashboard (see the runbook). The value is never printed by this script."
+
+    resolve_ingest_uri
+
+    address_is_loopback "${INGEST_URI}" \
+        || fail "NIGHTWATCH_INGEST_URI in ${SHARED_ENV} is not a loopback address (${INGEST_URI}) — the agent would accept ingest connections from off-box"
+
+    log "target environment contract satisfied: NIGHTWATCH_ENABLED=true, a token is present (value not printed), ingest ${INGEST_URI} is loopback"
+}
+
+validate_deployed() {
+    local current_phys
+    current_phys="$(physical "${CURRENT_LINK}")"
+
+    [[ -L "${current_phys}" ]] \
+        || fail "${CURRENT_LINK} is not a deployment symlink — deploy the target before installing its Nightwatch agent (the agent's working directory follows current)"
+    [[ -d "${current_phys}" ]] \
+        || fail "${CURRENT_LINK} does not resolve to a release directory"
+
+    [[ -d "$(physical "${LOG_DIR}")" ]] \
+        || fail "the service log directory is missing: ${LOG_DIR} — it is owned by install-bootstrap-services (Phase 5.4), not by this script"
+}
+
+# --- Supervisor ------------------------------------------------------------
+
+supervisor_reread_validation() {
+    local output
+    output="$("${SUPERVISORCTL_BIN}" reread 2>&1)" || return 1
+    ! grep -q 'ERROR' <<<"${output}"
+}
+
+agent_program_running() {
+    local output
+
+    output="$("${SUPERVISORCTL_BIN}" status "${NIGHTWATCH_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+agent_program_known() {
+    "${SUPERVISORCTL_BIN}" status "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1
+}
+
+wait_for_agent_running() {
+    local attempt
+
+    for ((attempt = 1; attempt <= WAIT_ATTEMPTS; attempt++)); do
+        if agent_program_running; then
+            return 0
+        fi
+
+        sleep "${RETRY_DELAY_SECONDS}"
+    done
+
+    agent_program_running
+}
+
+# --- Listener ---------------------------------------------------------------
+
+ingest_listener_addresses() {
+    "${SS_BIN}" -H -l -n -t 2>/dev/null | awk -v port="${INGEST_PORT}" '
+        { addr = $4; n = split(addr, parts, ":") }
+        n > 0 && parts[n] == port { print addr }
+    '
+}
+
+verify_listener_loopback_only() {
+    local addresses address found=false
+
+    addresses="$(ingest_listener_addresses)"
+
+    [[ -n "${addresses}" ]] \
+        || fail "nothing is listening on port ${INGEST_PORT} — the Nightwatch agent is not accepting ingest connections"
+
+    while IFS= read -r address; do
+        [[ -n "${address}" ]] || continue
+        found=true
+
+        address_is_loopback "${address}" \
+            || fail "the Nightwatch ingest port is publicly reachable: a listener is bound to ${address}. Bind it to loopback (NIGHTWATCH_INGEST_URI) before continuing."
+    done <<<"${addresses}"
+
+    [[ "${found}" == true ]] || fail "could not read any listener address for port ${INGEST_PORT}"
+
+    log "ingest listener is loopback-only on port ${INGEST_PORT}: $(tr '\n' ' ' <<<"${addresses}")"
+}
+
+verify_listener_absent() {
+    local addresses
+    addresses="$(ingest_listener_addresses)"
+
+    [[ -z "${addresses}" ]] \
+        || fail "port ${INGEST_PORT} is still listening after removal: $(tr '\n' ' ' <<<"${addresses}")"
+
+    log "ingest port ${INGEST_PORT} is no longer listening"
+}
+
+# --- Application-side agent health -----------------------------------------
+#
+# The official command, run as the runtime user from the deployed release —
+# never a RateGuru reimplementation of it. It pings the LOCAL agent, so it
+# answers "is our integration working", not "is Nightwatch's cloud up": a
+# RateGuru release is never rolled back on its result, but an install that
+# cannot reach its own agent is a broken install and fails here.
+
+verify_agent_status() {
+    local current_phys
+    current_phys="$(physical "${CURRENT_LINK}")"
+
+    if ! (cd "${current_phys}" && "${RUNUSER_BIN}" -u "${RUNTIME_USER}" -- "${PHP_BIN}" artisan nightwatch:status >/dev/null 2>&1); then
+        fail "'artisan nightwatch:status' failed as ${RUNTIME_USER} — the application cannot reach its local agent. Run it by hand from ${CURRENT_LINK} for the exact message."
+    fi
+
+    log "artisan nightwatch:status: the agent is running and accepting connections"
+}
+
+# --- Transactional file install ---------------------------------------------
+
+TXN_BACKUP_FILE=""
+TXN_HAD_PREVIOUS=false
+TXN_ARMED=false
+MAIN_BASHPID=""
+
+on_apply_error() {
+    local code=$?
+    trap - ERR EXIT
+
+    # set -E propagates this trap into $(...) subshells; only the main process
+    # ever performs the real rollback, exactly as the other installers do.
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    if [[ "${TXN_ARMED}" != true ]]; then
+        exit "${code}"
+    fi
+
+    log "apply failed (status ${code}) — restoring the previous Supervisor configuration"
+
+    local dst_phys
+    dst_phys="$(physical "${DST_CONF}")"
+
+    if [[ "${TXN_HAD_PREVIOUS}" == true ]]; then
+        if "${INSTALL_BIN}" -m "${SERVICE_FILE_MODE}" -- "${TXN_BACKUP_FILE}" "${dst_phys}"; then
+            "${CHOWN_BIN}" -- "${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP}" "${dst_phys}" || true
+            log "rollback: restored ${DST_CONF} from ${TXN_BACKUP_FILE}"
+        else
+            printf 'ROLLBACK ERROR: could not restore %s from %s\n' "${DST_CONF}" "${TXN_BACKUP_FILE}" >&2
+        fi
+    else
+        rm -f -- "${dst_phys}" \
+            && log "rollback: removed ${DST_CONF} (there was no previous file)" \
+            || printf 'ROLLBACK ERROR: could not remove %s\n' "${DST_CONF}" >&2
+    fi
+
+    # The running supervisord must never be left pointing at a program file
+    # that has just been rolled back — but only re-apply a configuration the
+    # parser accepts.
+    if supervisor_reread_validation; then
+        "${SUPERVISORCTL_BIN}" update "${NIGHTWATCH_PROGRAM}" >/dev/null 2>&1 \
+            && log "rollback: supervisor program ${NIGHTWATCH_PROGRAM} re-applied from the restored configuration" \
+            || printf 'ROLLBACK ERROR: supervisorctl update %s with the restored configuration failed\n' "${NIGHTWATCH_PROGRAM}" >&2
+    else
+        printf 'ROLLBACK ERROR: the restored Supervisor configuration does not parse; %s was left as-is\n' "${NIGHTWATCH_PROGRAM}" >&2
+    fi
+
+    exit "${code}"
+}
+
+backup_existing_conf() {
+    local dst_phys backup_dir
+    dst_phys="$(physical "${DST_CONF}")"
+    backup_dir="$(physical "${BACKUP_ROOT}")/$(date -u '+%Y%m%dT%H%M%SZ')-${NIGHTWATCH_PROGRAM}"
+
+    mkdir -p -- "${backup_dir}" || fail "cannot create the backup directory: ${backup_dir}"
+    "${CHMOD_BIN}" '=0700' "${backup_dir}" || fail "cannot pin mode on the backup directory: ${backup_dir}"
+
+    if [[ -f "${dst_phys}" ]]; then
+        TXN_BACKUP_FILE="${backup_dir}/$(basename "${DST_CONF}")"
+        cp -- "${dst_phys}" "${TXN_BACKUP_FILE}" || fail "cannot back up ${DST_CONF}"
+        TXN_HAD_PREVIOUS=true
+        log "backed up ${DST_CONF} to ${TXN_BACKUP_FILE}"
+    else
+        TXN_HAD_PREVIOUS=false
+        log "no existing ${DST_CONF} to back up"
+    fi
+}
+
+install_conf() {
+    local src_phys="${SRC_CONF}" dst_phys tmp
+    dst_phys="$(physical "${DST_CONF}")"
+
+    [[ ! -L "${dst_phys}" ]] || fail "refusing to install over an existing symlink: ${DST_CONF}"
+    if [[ -e "${dst_phys}" ]] && [[ ! -f "${dst_phys}" ]]; then
+        fail "refusing to install over an existing non-regular-file destination: ${DST_CONF}"
+    fi
+
+    [[ -d "$(dirname "${dst_phys}")" ]] \
+        || fail "${DST_SUPERVISOR_DIR} does not exist — install Supervisor first (Phase 5.2/5.4)"
+
+    tmp="$(mktemp "${dst_phys}.XXXXXX")" || fail "cannot stage ${DST_CONF}"
+
+    if ! "${INSTALL_BIN}" -m "${SERVICE_FILE_MODE}" -- "${src_phys}" "${tmp}"; then
+        rm -f -- "${tmp}"
+        fail "failed to stage ${DST_CONF}"
+    fi
+
+    if ! mv -f -- "${tmp}" "${dst_phys}"; then
+        rm -f -- "${tmp}"
+        fail "failed to rename the staged file into place: ${DST_CONF}"
+    fi
+
+    "${CHOWN_BIN}" -- "${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP}" "${dst_phys}" \
+        || fail "cannot set ownership on ${DST_CONF}"
+    # The GNU '=MODE' operator, never a plain numeric chmod: a plain numeric
+    # chmod preserves setgid, which is exactly the class of bug the rest of
+    # the RateGuru installers pin against.
+    "${CHMOD_BIN}" "=${SERVICE_FILE_MODE}" "${dst_phys}" \
+        || fail "cannot pin mode ${SERVICE_FILE_MODE} on ${DST_CONF}"
+
+    log "installed ${DST_CONF} (${SERVICE_FILE_OWNER}:${SERVICE_FILE_GROUP} ${SERVICE_FILE_MODE})"
+}
+
+verify_installed_conf() {
+    local src_phys="${SRC_CONF}" dst_phys owner group mode
+    dst_phys="$(physical "${DST_CONF}")"
+
+    [[ -e "${dst_phys}" ]] || fail "${DST_CONF} is not installed"
+    [[ ! -L "${dst_phys}" ]] || fail "${DST_CONF} is a symlink"
+    [[ -f "${dst_phys}" ]] || fail "${DST_CONF} is not a regular file"
+
+    cmp -s "${src_phys}" "${dst_phys}" \
+        || fail "${DST_CONF} differs from the committed ${SRC_CONF} — re-run --apply"
+
+    owner="$("${STAT_BIN}" -c '%U' "${dst_phys}")"
+    group="$("${STAT_BIN}" -c '%G' "${dst_phys}")"
+    mode="$("${STAT_BIN}" -c '%a' "${dst_phys}")"
+
+    [[ "${owner}" == "${SERVICE_FILE_OWNER}" ]] || fail "${DST_CONF} is owned by ${owner}, expected ${SERVICE_FILE_OWNER}"
+    [[ "${group}" == "${SERVICE_FILE_GROUP}" ]] || fail "${DST_CONF} has group ${group}, expected ${SERVICE_FILE_GROUP}"
+    [[ "$((8#${mode}))" -eq "$((8#${SERVICE_FILE_MODE}))" ]] || fail "${DST_CONF} has mode ${mode}, expected ${SERVICE_FILE_MODE}"
+
+    log "installed Supervisor program is byte-identical to the committed source, ${owner}:${group} ${mode}"
+}
+
+# --- Modes ------------------------------------------------------------------
+
+run_check() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_source_conf
+
+    log "--- current state ---"
+
+    local dst_phys
+    dst_phys="$(physical "${DST_CONF}")"
+
+    if [[ -f "${dst_phys}" ]]; then
+        if cmp -s "${SRC_CONF}" "${dst_phys}"; then
+            log "Supervisor program: installed and byte-identical to the committed source"
+        else
+            log "Supervisor program: installed but DIFFERS from the committed source — --apply will replace it"
+        fi
+    else
+        log "Supervisor program: not installed — --apply will install it"
+    fi
+
+    if agent_program_known; then
+        if agent_program_running; then
+            log "agent process: RUNNING"
+        else
+            log "agent process: known to supervisord but NOT RUNNING"
+        fi
+    else
+        log "agent process: not registered with supervisord"
+    fi
+
+    if [[ -L "$(physical "${CURRENT_LINK}")" ]]; then
+        log "deployment state: DEPLOYED (${CURRENT_LINK} resolves)"
+    else
+        log "deployment state: PRE_DEPLOY — deploy the target before --apply"
+    fi
+
+    resolve_ingest_uri
+    log "expected ingest endpoint: ${INGEST_URI}"
+
+    local addresses
+    addresses="$(ingest_listener_addresses)"
+    if [[ -n "${addresses}" ]]; then
+        log "listeners on port ${INGEST_PORT}: $(tr '\n' ' ' <<<"${addresses}")"
+    else
+        log "listeners on port ${INGEST_PORT}: none"
+    fi
+
+    log "PASS: --check complete (no changes made)"
+}
+
+run_apply() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_source_conf
+    validate_deployed
+    validate_env_contract
+
+    MAIN_BASHPID="${BASHPID}"
+
+    backup_existing_conf
+
+    TXN_ARMED=true
+    trap on_apply_error ERR EXIT
+
+    install_conf
+
+    supervisor_reread_validation \
+        || fail "supervisorctl reread reported a configuration error with the candidate installed"
+
+    "${SUPERVISORCTL_BIN}" update "${NIGHTWATCH_PROGRAM}" >/dev/null 2>&1 \
+        || fail "supervisorctl update ${NIGHTWATCH_PROGRAM} failed"
+
+    if ! agent_program_running; then
+        "${SUPERVISORCTL_BIN}" start "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1 || true
+    fi
+
+    wait_for_agent_running \
+        || fail "the Nightwatch agent ${NIGHTWATCH_PROGRAM} did not reach RUNNING"
+
+    sleep "${STABILITY_WAIT_SECONDS}"
+
+    agent_program_running \
+        || fail "the Nightwatch agent ${NIGHTWATCH_PROGRAM} did not remain stably RUNNING"
+
+    verify_listener_loopback_only
+    verify_agent_status
+
+    trap - ERR EXIT
+    TXN_ARMED=false
+
+    log "PASS: Nightwatch agent ${NIGHTWATCH_PROGRAM} installed and RUNNING for ${TARGET_ID}"
+}
+
+run_verify() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    validate_source_conf
+    validate_deployed
+    validate_env_contract
+    verify_installed_conf
+
+    agent_program_running \
+        || fail "the Nightwatch agent ${NIGHTWATCH_PROGRAM} is not RUNNING under supervisor"
+
+    verify_listener_loopback_only
+    verify_agent_status
+
+    log "PASS: Nightwatch agent verified for ${TARGET_ID}"
+}
+
+run_remove() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    resolve_ingest_uri
+
+    log "stopping ${NIGHTWATCH_PROGRAM}"
+    "${SUPERVISORCTL_BIN}" stop "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1 || true
+
+    local dst_phys
+    dst_phys="$(physical "${DST_CONF}")"
+
+    if [[ -f "${dst_phys}" ]]; then
+        rm -f -- "${dst_phys}" || fail "cannot remove ${DST_CONF}"
+        log "removed ${DST_CONF}"
+    else
+        log "${DST_CONF} was already absent"
+    fi
+
+    supervisor_reread_validation \
+        || fail "supervisorctl reread reported a configuration error after removing ${DST_CONF} — resolve it before continuing"
+
+    "${SUPERVISORCTL_BIN}" update >/dev/null 2>&1 \
+        || fail "supervisorctl update failed after removing ${DST_CONF}"
+
+    ! agent_program_known \
+        || fail "${NIGHTWATCH_PROGRAM} is still registered with supervisord after removal"
+
+    verify_listener_absent
+
+    log "PASS: Nightwatch agent removed for ${TARGET_ID}. The Composer package, config/nightwatch.php and ${SHARED_ENV} are untouched; set NIGHTWATCH_ENABLED=false and redeploy to stop the application from producing events."
+}
+
+main() {
+    parse_args "$@"
+
+    case "${MODE}" in
+        check) run_check ;;
+        apply) run_apply ;;
+        verify) run_verify ;;
+        remove) run_remove ;;
+    esac
+}
+
+# Source-guard: lets tests source this file and call individual functions
+# without main() auto-running — the same pattern deploy and
+# install-bootstrap-services use.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

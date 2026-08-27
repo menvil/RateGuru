@@ -177,7 +177,15 @@ it('never consults Git to discover the release', function () {
 it('keeps the whole application free of a runtime Git dependency for release identity', function () {
     // The rule is wider than one class: nothing that resolves the deployed
     // release may reach for Git, in app code or in the config that feeds it.
-    foreach (['config/deployment.php', 'config/sentry.php', 'app/Providers/ObservabilityServiceProvider.php'] as $path) {
+    foreach ([
+        'config/deployment.php',
+        'config/sentry.php',
+        // Phase 6B: Nightwatch's own `deploy` field is the canonical release
+        // too, read the same way. A second vendor must not become a second
+        // reason to shell out to Git.
+        'config/nightwatch.php',
+        'app/Providers/ObservabilityServiceProvider.php',
+    ] as $path) {
         $code = phpSourceWithoutComments($path);
 
         foreach (['exec', 'shell_exec', 'proc_open', 'passthru', 'popen', 'system'] as $forbidden) {

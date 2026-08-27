@@ -16,9 +16,11 @@ use App\Support\Import\ResolvedImportTarget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
 use Sentry\EventType as SentryEventType;
@@ -274,6 +276,83 @@ function fakeSentryTransport(array $config = []): RecordingSentryTransport
     app(SentryHubInterface::class)->bindClient($builder->getClient());
 
     return $transport;
+}
+
+/**
+ * Captures the records Nightwatch is about to transmit, and stops it.
+ *
+ * `IngestingEvents` is the package's own public event, dispatched through
+ * `Event::until()` with the exact serialized payloads immediately before they
+ * are written to the agent socket — and a listener returning `false` halts
+ * that write. So this both reads what would really be sent (not a
+ * reconstruction of it) and guarantees a test never opens a socket, needs an
+ * agent, or consumes account quota.
+ *
+ * Shared by every Nightwatch ingest test (see the block comment above the
+ * image-marker helpers for why a helper used by more than one test file has to
+ * live here rather than in any single one of them).
+ */
+final class RecordingNightwatchIngest
+{
+    /** @var list<array<string, mixed>> */
+    public array $records = [];
+
+    public function __invoke(NightwatchIngestingEvents $event): bool
+    {
+        foreach ($event->records as $record) {
+            $this->records[] = $record;
+        }
+
+        return false;
+    }
+
+    /**
+     * The records exactly as they would go on the wire.
+     *
+     * Nightwatch defers some fields (the user ID, for one) behind a
+     * JsonSerializable LazyValue that only resolves during encoding, so the
+     * raw array is not yet what would be sent. Round-tripping through
+     * json_encode reproduces `Payload::json`'s own step and is therefore the
+     * only faithful thing to assert against.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function wire(): array
+    {
+        return json_decode($this->encoded(), true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function ofType(string $type): array
+    {
+        return array_values(array_filter(
+            $this->wire(),
+            static fn (array $record): bool => ($record['t'] ?? null) === $type,
+        ));
+    }
+
+    /** The whole capture as one string, for "this value appears nowhere" assertions. */
+    public function encoded(): string
+    {
+        return (string) json_encode(
+            $this->records,
+            JSON_INVALID_UTF8_SUBSTITUTE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        );
+    }
+}
+
+/**
+ * Registers the recorder above and returns it. Nightwatch flushes its buffer
+ * on `Nightwatch::digest()`, which is the public way to make a test's events
+ * arrive at a deterministic point.
+ */
+function captureNightwatchIngest(): RecordingNightwatchIngest
+{
+    $recorder = new RecordingNightwatchIngest;
+
+    Event::listen(NightwatchIngestingEvents::class, $recorder);
+
+    return $recorder;
 }
 
 /**

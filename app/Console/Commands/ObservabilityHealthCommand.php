@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
+use Laravel\Nightwatch\Facades\Nightwatch as NightwatchFacade;
 use Sentry\Laravel\Http\FlushEventsMiddleware;
 use Sentry\Laravel\Http\SetRequestMiddleware;
 use Sentry\Laravel\Tracing\Middleware as TracingMiddleware;
@@ -26,6 +27,7 @@ final class ObservabilityHealthCommand extends Command
         $this->checkLogChannel();
         $this->checkDeploymentIdentity();
         $this->checkSentry();
+        $this->checkNightwatch();
         $this->checkExternalVendors();
 
         $this->line('');
@@ -153,6 +155,120 @@ final class ObservabilityHealthCommand extends Command
         }
     }
 
+    /**
+     * Static RateGuru-side Nightwatch configuration, and nothing else.
+     *
+     * Deliberately not a second `nightwatch:status`: that command is the
+     * authoritative answer to "can this application reach its local agent",
+     * it already exists, and duplicating it here would create two answers to
+     * one question. This answers the different question — what this release
+     * would send, and to where, if the agent is up.
+     *
+     * The environment token is a credential and is never printed, in any form
+     * or any prefix — only whether one is present at all.
+     */
+    private function checkNightwatch(): void
+    {
+        $this->line('');
+        $this->line('Nightwatch:');
+
+        $installed = class_exists(NightwatchFacade::class);
+
+        $this->line('  Installed: '.($installed ? 'yes' : 'no'));
+
+        if (! $installed) {
+            return;
+        }
+
+        $this->line('  Enabled: '.(config('nightwatch.enabled') ? 'yes' : 'no'));
+        $this->line('  Token configured: '.(filled(config('nightwatch.token')) ? 'yes' : 'no'));
+        $this->line('  Deploy: '.$this->orUnknown(config('nightwatch.deployment')));
+        $this->line('  Server: '.$this->orUnknown(config('nightwatch.server')));
+        $this->line('  Request sample rate: '.$this->rate(config('nightwatch.sampling.requests')));
+        $this->line('  Command sample rate: '.$this->rate(config('nightwatch.sampling.commands')));
+        $this->line('  Exception sample rate: '.$this->rate(config('nightwatch.sampling.exceptions')));
+        $this->line('  Scheduled task sample rate: '.$this->rate(config('nightwatch.sampling.scheduled_tasks')));
+        $this->line('  Request payload capture: '.$this->onOff(config('nightwatch.capture_request_payload')));
+        $this->line('  Exception source code capture: '.$this->onOff(config('nightwatch.capture_exception_source_code')));
+        $this->line('  Redacted headers: '.implode(', ', (array) config('nightwatch.redact_headers', [])));
+
+        foreach ([
+            'Queries' => 'ignore_queries',
+            'Cache events' => 'ignore_cache_events',
+            'Outgoing HTTP' => 'ignore_outgoing_requests',
+            'Mail' => 'ignore_mail',
+            'Notifications' => 'ignore_notifications',
+        ] as $label => $key) {
+            $this->line("  {$label}: ".(config("nightwatch.filtering.{$key}") ? 'ignored' : 'captured'));
+        }
+
+        $this->checkNightwatchLogChannel();
+        $this->checkNightwatchIngest();
+    }
+
+    /**
+     * Whether Laravel log records are being shipped to Nightwatch.
+     *
+     * The package registers a `nightwatch` log channel whether or not anyone
+     * uses it, so the only thing that decides this is the log stack — which is
+     * per-target `.env`, not code. Phase 6B leaves it out deliberately, so a
+     * target that has added it is a finding, not a detail.
+     */
+    private function checkNightwatchLogChannel(): void
+    {
+        $stack = (array) config('logging.channels.stack.channels', []);
+        $inStack = config('logging.default') === 'nightwatch' || in_array('nightwatch', $stack, true);
+
+        $this->line('  Log ingestion: '.($inStack ? 'ENABLED' : 'disabled (channel not in the log stack)'));
+        $this->line('  Log level (if enabled): '.$this->orUnknown(config('nightwatch.filtering.log_level')));
+
+        if ($inStack) {
+            $this->warn('  Laravel log records are being shipped to Nightwatch — Phase 6B deliberately leaves this off; see infrastructure/runbooks/nightwatch-evaluation.md.');
+        }
+    }
+
+    /**
+     * Where the agent is expected to listen, and whether that address is
+     * routable.
+     *
+     * One value serves both directions: the application sends events to it and
+     * `artisan nightwatch:agent` binds to it. A non-loopback value therefore
+     * means the ingest listener is reachable from off-box, which is never
+     * correct for RateGuru — the agent is a local sidecar, not a service.
+     */
+    private function checkNightwatchIngest(): void
+    {
+        $uri = (string) config('nightwatch.ingest.uri');
+        $loopback = $this->isLoopbackIngestUri($uri);
+
+        $this->line("  Ingest URI: {$uri} (".($loopback ? 'loopback' : 'NOT LOOPBACK').')');
+
+        if (! $loopback) {
+            $this->warn('  The Nightwatch ingest address is not a loopback address — the agent would accept connections from off-box. Fix NIGHTWATCH_INGEST_URI before enabling the agent.');
+        }
+    }
+
+    private function isLoopbackIngestUri(string $uri): bool
+    {
+        $host = $uri;
+
+        if (preg_match('/^\[(?<host>[^\]]+)\](?::\d+)?$/', $uri, $matches) === 1) {
+            $host = $matches['host'];
+        } elseif (substr_count($uri, ':') > 1) {
+            // A bare IPv6 address: more than one colon and no brackets, so
+            // there is no port to split off and the whole value is the host.
+            // Splitting here would turn `::1` into an empty host and warn that
+            // loopback is not loopback.
+            $host = $uri;
+        } elseif (str_contains($uri, ':')) {
+            $host = (string) strstr($uri, ':', true);
+        }
+
+        return $host === 'localhost'
+            || $host === '::1'
+            || preg_match('/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/', $host) === 1;
+    }
+
     private function checkExternalVendors(): void
     {
         $this->line('');
@@ -160,9 +276,6 @@ final class ObservabilityHealthCommand extends Command
 
         $datadog = config('observability.external_vendors.datadog_agent_host') ? 'configured' : 'not configured (optional)';
         $this->line("  Datadog: {$datadog}");
-
-        $nightwatch = config('observability.external_vendors.nightwatch_token') ? 'configured' : 'not configured (optional)';
-        $this->line("  Nightwatch: {$nightwatch}");
     }
 
     private function orUnknown(mixed $value): string

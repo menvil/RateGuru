@@ -534,6 +534,32 @@ target_nginx_site_name()          { _target_property "${1-}" '.nginx.site_name' 
 # into "target X is missing a valid .public_hostnames[0] (expected string)".
 target_primary_public_hostname()  { _target_property "${1-}" '.public_hostnames[0]' string; }
 
+# Phase 6B: the Supervisor program running this target's Laravel Nightwatch
+# agent, or a non-zero return when the target does not run one.
+#
+# Deliberately a closed allowlist here rather than a registry field. Nightwatch
+# is a time-boxed evaluation that Phase 6C may reject outright, and a required
+# registry field would make every target — including the planned production
+# ones — carry a key for a product that may not survive, ripple through
+# targets' REQUIRED_STRINGS and every registry fixture the test suite embeds,
+# and have to be unwound again. An allowlist keeps the whole decision in one
+# case statement: staging-main runs an agent, nothing else can, and deleting
+# the entry disables the integration everywhere at once.
+#
+# It is also the mechanism that makes "staging only" structural rather than
+# procedural: no production target can be activated by editing a .env or a
+# registry file, because no production target has a program to activate.
+#
+# Callers must treat a non-zero return as "no agent for this target" and carry
+# on — never as an error. Used by deploy (agent transition after the current
+# switch) and by install-nightwatch-agent (which target may be installed).
+target_nightwatch_program() {
+    case "${1-}" in
+        staging-main) printf 'rateguru-staging-nightwatch\n' ;;
+        *) return 1 ;;
+    esac
+}
+
 # Phase 4 slice 2: the single gate operational commands use before acting on a
 # target. target_lifecycle already validates the target ID, validates the
 # whole registry, and confirms the target exists (failing "unknown target: …"

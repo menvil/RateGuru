@@ -194,6 +194,10 @@ resolve_target() {
     PUBLIC_HOSTNAME="$(target_primary_public_hostname "${TARGET_ID}")"
     INCOMING_ROOT="$(readlink -f "$(target_incoming_artifacts "${TARGET_ID}")")"
     SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
+    # Phase 6B: empty for every target that does not run a Nightwatch agent,
+    # which is every target but staging-main. A non-zero return from the
+    # allowlist is "no agent here", never an error, so it must not trip set -e.
+    NIGHTWATCH_PROGRAM="$(target_nightwatch_program "${TARGET_ID}" || true)"
     LABEL="${TARGET_ID}"
     HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
 }
@@ -377,6 +381,92 @@ perform_queue_transition() {
         fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget after the queue restart signal"
     fi
 }
+
+# --- target Nightwatch agent (Phase 6B evaluation) ---------------------------
+#
+# The Nightwatch agent is a long-running Supervisor process whose
+# `directory=` is the target's `current` symlink. Supervisor resolves that
+# symlink when it spawns the process, so a running agent keeps the release it
+# was started in until it is restarted — after a deployment it would go on
+# working out of the previous release directory, which `cleanup` eventually
+# deletes. Restarting it here is what makes the agent follow `current`.
+#
+# Fail-open, deliberately, and in exactly the same spirit as the Sentry
+# deployment marker: this is observability, and a healthy RateGuru release is
+# never rolled back because a third-party monitoring agent had a bad minute.
+# The failure that *does* need to be loud — a Supervisor program that is
+# misconfigured or cannot start at all — is surfaced by
+# install-nightwatch-agent --apply/--verify, which is where the integration is
+# installed and where a human is already looking.
+#
+# Only the target's own program is ever touched: no global reread, no global
+# update, no restart of anything else.
+
+# --- nightwatch agent transition (begin) ---
+nightwatch_program_known() {
+    supervisorctl status "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1
+}
+
+nightwatch_program_running() {
+    local output
+
+    output="$(supervisorctl status "${NIGHTWATCH_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+wait_for_nightwatch_program_running() {
+    local attempt
+
+    for ((attempt = 1; attempt <= QUEUE_WAIT_ATTEMPTS; attempt++)); do
+        if nightwatch_program_running; then
+            return 0
+        fi
+
+        sleep "${QUEUE_RETRY_DELAY_SECONDS}"
+    done
+
+    nightwatch_program_running
+}
+
+perform_nightwatch_transition() {
+    # Not an evaluation target: nothing installed, nothing to say.
+    if [[ -z "${NIGHTWATCH_PROGRAM}" ]]; then
+        return 0
+    fi
+
+    if ! nightwatch_program_known; then
+        log "nightwatch agent ${NIGHTWATCH_PROGRAM} is not registered with supervisor — nothing to transition (install it with install-nightwatch-agent --apply)"
+
+        return 0
+    fi
+
+    # Stopped is an operator decision — someone disabled the evaluation, or
+    # --remove is half-done. A deployment is not the place to overrule it.
+    if ! nightwatch_program_running; then
+        log "nightwatch agent ${NIGHTWATCH_PROGRAM} is registered but not running — left as it is"
+
+        return 0
+    fi
+
+    log "restarting nightwatch agent ${NIGHTWATCH_PROGRAM} so it follows the new current"
+
+    if ! supervisorctl restart "${NIGHTWATCH_PROGRAM}:*" >/dev/null 2>&1; then
+        log "WARNING: could not restart the nightwatch agent ${NIGHTWATCH_PROGRAM} — the deployment stands; the agent may still be running from the previous release. Run install-nightwatch-agent --verify --target ${TARGET_ID}."
+
+        return 0
+    fi
+
+    if ! wait_for_nightwatch_program_running; then
+        log "WARNING: the nightwatch agent ${NIGHTWATCH_PROGRAM} did not return to RUNNING within the wait budget — the deployment stands; observability may be degraded. Run install-nightwatch-agent --verify --target ${TARGET_ID}."
+
+        return 0
+    fi
+
+    log "nightwatch agent ${NIGHTWATCH_PROGRAM} RUNNING against the new release"
+}
+# --- nightwatch agent transition (end) ---
 
 # --- deployment recovery (unchanged internals; process-global trap, not
 # function-scoped, so moving the call site that arms it into perform_deploy
@@ -893,6 +983,12 @@ perform_deploy() {
     # check and before the success record: both must hold before the
     # deployment may be called successful.
     perform_queue_transition
+
+    # Phase 6B: the Nightwatch agent follows the queue worker, and only ever
+    # warns. A running observability sidecar that could not be restarted is
+    # worth saying out loud; it is not worth undoing a release that has
+    # already passed its health check.
+    perform_nightwatch_transition
 
     if [[ "${ORIGINAL_CURRENT_PRESENT}" == true ]] \
         && [[ -d "${ORIGINAL_CURRENT_PATH}" ]]
