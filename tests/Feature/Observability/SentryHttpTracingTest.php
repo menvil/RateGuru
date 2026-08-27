@@ -30,20 +30,22 @@ use Tests\TestCase;
  * one, these fail.
  */
 beforeAll(function (): void {
-    // PHPUnit runs this before the first setUp(), which is the only point at
-    // which the environment can still influence how the application boots.
-    TestCase::$bootEnvironment = [
+    // PHPUnit runs this before the first setUp(), so it is in place before any
+    // application in this file is built. Configuration rather than environment
+    // variables: Laravel re-applies .env on every refresh and would reset any
+    // key it defines — and .env.example, which CI copies, defines all of these.
+    TestCase::$bootConfiguration = [
         // RFC 2606 .invalid host: never resolved, never contacted — every test
         // below swaps in an in-memory transport before anything is sent.
-        'SENTRY_LARAVEL_DSN' => 'https://bootrecorder@sentry.invalid/1',
-        'SENTRY_ENVIRONMENT' => 'staging',
-        'SENTRY_TRACES_SAMPLE_RATE' => '1.0',
-        'APP_DEPLOYMENT_TARGET' => 'staging-main',
+        'sentry.dsn' => 'https://bootrecorder@sentry.invalid/1',
+        'sentry.environment' => 'staging',
+        'sentry.traces_sample_rate' => 1.0,
+        'deployment.target' => 'staging-main',
     ];
 });
 
 afterAll(function (): void {
-    TestCase::$bootEnvironment = [];
+    TestCase::$bootConfiguration = [];
 });
 
 /** @return list<Event> */
