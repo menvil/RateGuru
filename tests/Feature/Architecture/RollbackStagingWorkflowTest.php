@@ -85,9 +85,15 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
         ->toContain('-o UserKnownHostsFile=');
 
     // Every run script takes workflow inputs through env, never through
-    // direct `${{ }}` interpolation into the script body.
-    foreach ($steps as $step) {
-        expect(data_get($step, 'run'))->not->toContain('${{');
+    // direct `${{ }}` interpolation into the script body. Steps that are a
+    // `uses:` have no script to interpolate into and are skipped explicitly,
+    // rather than silently passing through a null.
+    $runSteps = $steps->filter(fn (array $step): bool => isset($step['run']));
+
+    expect($runSteps)->not->toBeEmpty();
+
+    foreach ($runSteps as $step) {
+        expect($step['run'])->not->toContain('${{');
     }
 
     // The step summary reports what happened — on failed runs too — with
@@ -113,12 +119,19 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
         ->not->toContain('--environment')
         ->not->toContain('tits-guru');
 
-    // Only the existing staging deployment vars/secrets are referenced —
-    // this workflow introduces no new repository variable or secret.
+    // The complete, closed set of repository variables and secrets this
+    // workflow may reference. Adding one has to be a deliberate edit here.
+    //
+    // DEPLOY_ROOT is the same staging-environment variable deploy-staging.yml
+    // already consumes; the rollback needs it to read back which release the
+    // target actually landed on. The three SENTRY_* entries are Phase 6
+    // observability, and their split is the secret model: the auth token is a
+    // credential and is a secret, the org and project slugs are coordinates
+    // and are variables — matching how DEPLOY_* is already split here.
     preg_match_all('/\$\{\{\s*vars\.([A-Z_]+)\s*\}\}/', $source, $varMatches);
     preg_match_all('/\$\{\{\s*secrets\.([A-Z_]+)\s*\}\}/', $source, $secretMatches);
     expect(array_values(array_unique($varMatches[1])))
-        ->toEqualCanonicalizing(['DEPLOY_HOST', 'DEPLOY_PORT', 'DEPLOY_USER'])
+        ->toEqualCanonicalizing(['DEPLOY_HOST', 'DEPLOY_PORT', 'DEPLOY_USER', 'DEPLOY_ROOT', 'SENTRY_ORG', 'SENTRY_PROJECT'])
         ->and(array_values(array_unique($secretMatches[1])))
-        ->toEqualCanonicalizing(['DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS']);
+        ->toEqualCanonicalizing(['DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS', 'SENTRY_AUTH_TOKEN']);
 });

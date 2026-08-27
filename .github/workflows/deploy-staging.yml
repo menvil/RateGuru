@@ -300,3 +300,44 @@ jobs:
           checksum-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}.sha256
 
           run-migrations: ${{ needs.resolve.outputs.run_migrations }}
+
+  # Deliberately a separate job that `needs: deploy`, so it can only start once
+  # the deploy job finished successfully — which means the artifact was
+  # extracted, current was switched, PHP-FPM reloaded, the HTTP health check
+  # passed, the queue worker transitioned and the active release was verified
+  # against release.json. A failed RateGuru deployment therefore never produces
+  # a Sentry deploy marker, and this job never influences whether the
+  # deployment itself is considered successful.
+  observability:
+    name: Record release in Sentry
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - deploy
+    environment: staging
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout observability action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Same rule as the deploy job: this is deployment tooling, so it comes
+          # from the trusted develop branch and never from the arbitrary
+          # application ref that was just deployed.
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Record Sentry release and deployment marker
+        uses: ./.github/actions/sentry-release
+        with:
+          sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          sentry-org: ${{ vars.SENTRY_ORG }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+          environment: staging
+
+          release-id: ${{ needs.build.outputs.release-id }}

@@ -32,6 +32,10 @@ infrastructure, and moves out once a second project exists.
   vs DEPLOYED aware, external secrets never generated) — see
   [`runbooks/bootstrap-services.md`](runbooks/bootstrap-services.md);
 - deployment and rollback scripts;
+- backend observability: Sentry error/performance monitoring correlated to the
+  canonical release ID, the deployment target and the Git commit, with the
+  deployment marker recorded only after the existing health checks pass — see
+  [`runbooks/sentry-observability.md`](runbooks/sentry-observability.md);
 - local and offsite backup scripts;
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
