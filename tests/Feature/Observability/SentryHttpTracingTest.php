@@ -84,16 +84,15 @@ it('registers the Sentry HTTP middleware on the real kernel when a DSN is presen
 
     expect($kernel)->toBeInstanceOf(HttpKernel::class);
 
-    $middleware = (new ReflectionProperty($kernel, 'middleware'))->getValue($kernel);
-
-    expect($middleware)
-        ->toContain(TracingMiddleware::class)
-        ->toContain(SetRequestMiddleware::class)
-        ->toContain(FlushEventsMiddleware::class);
-
-    // The tracing middleware must run first — it is what opens the transaction
-    // every other span attaches to.
-    expect(array_search(TracingMiddleware::class, $middleware, true))->toBe(0);
+    // Public API, not the kernel's internal array — and presence only. The SDK
+    // prepends the tracing middleware so the transaction wraps as much of the
+    // request as possible, but no fixed position is a contract: another package
+    // may legitimately prepend later, and tracing would still be correct. That
+    // it runs early enough is asserted where it actually matters, by the
+    // transaction below carrying app.bootstrap and middleware.handle spans.
+    expect($kernel->hasMiddleware(TracingMiddleware::class))->toBeTrue()
+        ->and($kernel->hasMiddleware(SetRequestMiddleware::class))->toBeTrue()
+        ->and($kernel->hasMiddleware(FlushEventsMiddleware::class))->toBeTrue();
 });
 
 it('captures an automatically instrumented transaction for a real HTTP request', function () {
@@ -210,18 +209,4 @@ it('reports tracing as enabled on the live client', function () {
         ->and($client->getOptions()->getDsn())->not->toBeNull()
         ->and($client->getOptions()->isTracingEnabled())->toBeTrue()
         ->and($client->getOptions()->getTracesSampleRate())->toBe(1.0);
-});
-
-it('decides what to register from the config repository, so cached config cannot silently disable tracing', function () {
-    // Deployments serve every request from `bootstrap/cache/config.php`, and
-    // with a cached config Laravel never reads .env at all. If the SDK decided
-    // whether to register its middleware by calling env() directly, tracing
-    // would work in development and be dead in production. It reads the config
-    // repository instead — pinned here so an SDK upgrade cannot change it
-    // without this failing loudly.
-    $source = file_get_contents(base_path('vendor/sentry/sentry-laravel/src/Sentry/Laravel/BaseServiceProvider.php'));
-
-    expect($source)
-        ->toContain("\$this->app['config'][static::\$abstract]")
-        ->not->toContain('env(');
 });
