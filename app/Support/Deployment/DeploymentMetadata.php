@@ -54,8 +54,16 @@ final class DeploymentMetadata
 
     public static function fromFile(string $path): self
     {
-        if (! is_file($path) || ! is_readable($path)) {
+        // Absent and unreadable are different diagnoses, and conflating them
+        // hides the one that needs fixing: no release.json is the normal state
+        // of a working copy, while a release.json a deployed release cannot
+        // read is a broken deploy an operator has to act on.
+        if (! is_file($path)) {
             return new self(null, null, self::STATE_MISSING);
+        }
+
+        if (! is_readable($path)) {
+            return new self(null, null, self::STATE_MALFORMED);
         }
 
         $raw = file_get_contents($path);

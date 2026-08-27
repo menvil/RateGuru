@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\User;
 use App\Providers\ObservabilityServiceProvider;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -93,6 +94,20 @@ it('leaves an authentication failure out of Sentry', function () {
     $transport = fakeSentryTransport();
 
     $this->get('/profile')->assertRedirect('/login');
+
+    expect($transport->errorEvents())->toBe([]);
+});
+
+it('leaves an authorization failure out of Sentry', function () {
+    // A signed-in user who fails a real Gate — a genuine 403 out of the
+    // application's own authorization, not a stub. bootstrap/app.php and
+    // config/sentry.php both claim authorization failures never reach Sentry;
+    // this is what actually holds them to it.
+    $transport = fakeSentryTransport();
+
+    $this->actingAs(User::factory()->create())
+        ->get('/admin/media-diagnostics')
+        ->assertForbidden();
 
     expect($transport->errorEvents())->toBe([]);
 });

@@ -176,7 +176,12 @@ jobs:
             'basename "$(readlink -f %q)"' \
             "${DEPLOY_ROOT%/}/current"
 
-          active_release="$(
+          # This is a second, independent SSH connection made purely to read a
+          # value back. Under `set -e` a failed assignment would abort the step
+          # and fail the job — reporting an already-successful, already-health-
+          # checked rollback as a failed run. Catch it and carry on to the
+          # summary with no release ID instead.
+          if ! active_release="$(
             ssh \
               -p "${DEPLOY_PORT}" \
               -i "${RATEGURU_SSH_KEY_PATH}" \
@@ -187,7 +192,12 @@ jobs:
               -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
               "${DEPLOY_USER}@${DEPLOY_HOST}" \
               "${current_command}"
-          )"
+          )"; then
+            echo "Could not read the active release back from the target." >&2
+            echo "Rollback succeeded; skipping Sentry deployment marker." >&2
+            echo "release_id=" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
 
           # The rollback itself already succeeded and the target is healthy.
           # If what came back is not a canonical release ID — an absent

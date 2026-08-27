@@ -251,7 +251,12 @@ it('marks a rollback as a new deployment of the same immutable release', functio
         ->toContain('release_id=${active_release}')
         // A rollback that succeeded must never be failed by observability, so
         // anything that is not a canonical release ID records nothing instead.
-        ->toContain('skipping Sentry deployment marker');
+        ->toContain('skipping Sentry deployment marker')
+        // Same rule for the read-back connection itself: this is a second SSH
+        // session made only to fetch a value, and under `set -e` an unguarded
+        // assignment would abort the step and fail an already-healthy rollback.
+        ->toContain('if ! active_release="$(')
+        ->toContain('Could not read the active release back from the target.');
 
     $marker = $steps->get('Record Sentry deployment marker for the restored release');
 

@@ -118,6 +118,31 @@ it('rejects a plausible-looking stand-in that is not the canonical release ID', 
     ['a bare timestamp', '20260826-120211'],
 ]);
 
+it('reports an existing but unreadable file as malformed, not as missing', function () {
+    // The two are different diagnoses: absent is the normal state of a working
+    // copy, unreadable inside a deployed release is a broken deploy someone has
+    // to fix. Reporting the second as "missing" would hide it.
+    $root = deploymentMetadataFixture('{"release": "v1.2.3-20260101-000000-abc1234", "source_sha": "abc1234"}');
+    $path = $root.'/release.json';
+
+    chmod($path, 0o000);
+
+    // Running as root defeats the permission bit entirely, so only assert what
+    // the environment can actually demonstrate.
+    if (is_readable($path)) {
+        chmod($path, 0o644);
+        $this->markTestSkipped('cannot make a file unreadable for the current user');
+    }
+
+    $metadata = DeploymentMetadata::fromFile($path);
+
+    chmod($path, 0o644);
+
+    expect($metadata->state())->toBe(DeploymentMetadata::STATE_MALFORMED)
+        ->and($metadata->release())->toBeNull()
+        ->and($metadata->commit())->toBeNull();
+});
+
 it('keeps a valid release when only the commit is unusable, and still flags the file', function () {
     $root = deploymentMetadataFixture(json_encode([
         'release' => 'v0.0.0-20260826-120211-ca7d1c7',
