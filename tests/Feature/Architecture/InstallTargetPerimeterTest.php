@@ -125,7 +125,7 @@ SH;
 }
 
 /**
- * Creates a fully current, byte-identical-to-committed-source fifteen-file
+ * Creates a fully current, byte-identical-to-committed-source sixteen-file
  * operations bundle under $scratch/ops/home/www/rateguru/..., matching
  * exactly what install-target-operations installs for real — modes 0640
  * (registry, deployment.conf), 0644 (common), 0755 (every CLI). This is what
@@ -171,6 +171,7 @@ function installPerimeterWriteOperationsBundle(string $scratch): array
         'DST_OPS_OFFSITE_RETENTION' => 'offsite-retention',
         'DST_OPS_OFFSITE_RESTORE_TEST' => 'offsite-restore-test',
         'DST_OPS_BACKUP_CYCLE' => 'backup-cycle',
+        'DST_OPS_VERIFY_REQUIRED_CLIS' => 'verify-required-clis',
     ];
 
     $vars = [
@@ -223,6 +224,7 @@ function installPerimeterBaseVars(string $scratch, ?string $wrapperStub = null):
         'SRC_OFFSITE_RETENTION' => base_path('infrastructure/scripts/offsite-retention'),
         'SRC_OFFSITE_RESTORE_TEST' => base_path('infrastructure/scripts/offsite-restore-test'),
         'SRC_BACKUP_CYCLE' => base_path('infrastructure/scripts/backup-cycle'),
+        'SRC_VERIFY_REQUIRED_CLIS' => base_path('infrastructure/scripts/verify-required-clis'),
         'DST_WRAPPER_DEPLOY' => $scratch.'/dest/usr/local/sbin/rateguru-deploy',
         'DST_WRAPPER_ROLLBACK' => $scratch.'/dest/usr/local/sbin/rateguru-rollback',
         'DST_WRAPPER_CLEANUP' => $scratch.'/dest/usr/local/sbin/rateguru-cleanup',
@@ -721,7 +723,7 @@ it('source, staged, and installed validation all call the one shared static cont
 // =============================================================================
 // Installed operations bundle staleness guard
 //
-// install-target-perimeter must confirm the real installed fifteen-file
+// install-target-perimeter must confirm the real installed sixteen-file
 // operations bundle (install-target-operations' own responsibility) is
 // present and current — for --check, --apply's own preflight, and
 // --verify alike — before ever creating a staging directory, a backup
@@ -735,7 +737,7 @@ it('check passes when the installed operations bundle is fully current', functio
         [$exit, $output] = installPerimeterRunHarness($scratch, installPerimeterBaseVars($scratch), 'run_check');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('installed target operations bundle (fifteen files) matches this repository\'s committed sources');
+        expect($output)->toContain('installed target operations bundle (sixteen files) matches this repository\'s committed sources');
     } finally {
         installPerimeterCleanup($scratch);
     }

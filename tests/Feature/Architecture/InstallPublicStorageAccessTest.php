@@ -1315,3 +1315,129 @@ function psaStatSummary(string $path): array
 
     return [$stat['uid'], $stat['gid'], $stat['mode'] & 0o7777];
 }
+
+// =============================================================================
+// Phase 5.4: PRE_DEPLOY vs DEPLOYED split. The ACL itself must be grantable
+// and verifiable before any application release exists (slice 5.3 already
+// creates shared and shared/storage on a clean host); the application/HTTP
+// proofs (storage/app/public, the current/public/storage link, the canary,
+// the existing-upload regression) are deferred until a release is deployed —
+// never faked, never weakened on a deployed host.
+// =============================================================================
+
+/**
+ * Reduces a full scratch target to the genuine pre-deploy shape slice 5.3
+ * leaves behind: shared and shared/storage exist; storage/app, its public
+ * descendant and the whole current tree do not.
+ *
+ * @param  array{root: string, app: string}  $target
+ */
+function psaMakePreDeploy(array $target): void
+{
+    exec('rm -rf '.escapeshellarg($target['app']).' '.escapeshellarg($target['root'].'/current'));
+}
+
+it('grants and verifies the ACL on a PRE_DEPLOY target, deferring every application/HTTP-level proof', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+        psaMakePreDeploy($target);
+
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_apply', psaBaseEnv($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('target state: PRE_DEPLOY')
+            ->toContain('structural validation (pre-deploy)')
+            ->toContain('target test-target health check: DEFERRED (pre-deploy: no current release exists yet)')
+            ->toContain('ACL applied')
+            ->toContain('www-data execute-only traversal: OK')
+            ->toContain('www-data directory listing: correctly denied')
+            ->toContain('ACL precision: OK')
+            ->toContain('public-storage canary and existing-upload regression: DEFERRED')
+            ->toContain('tits-guru: still correctly rejected')
+            ->toContain('apply complete');
+
+        // Deferred means deferred — the HTTP proofs are never reported as
+        // having passed, and no canary was ever created anywhere.
+        expect($output)->not->toContain('internal HTTP public-media test: OK');
+        expect($output)->not->toContain('direct www-data read of canary: OK');
+
+        // The exact narrow ACL landed on both directories.
+        expect(file_get_contents($target['shared'].'.simstate'))->toBe("www-data:--x\n");
+        expect(file_get_contents($target['storage'].'.simstate'))->toBe("www-data:--x\n");
+
+        // Nothing application-shaped was fabricated to satisfy the checks.
+        expect(file_exists($target['root'].'/current'))->toBeFalse('pre-deploy apply must never fabricate current');
+        expect(file_exists($target['app']))->toBeFalse('pre-deploy apply must never fabricate storage/app');
+    } finally {
+        psaCleanup($scratch);
+    }
+});
+
+it('verify passes structurally on a PRE_DEPLOY target after apply, with the HTTP proofs deferred', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+        psaMakePreDeploy($target);
+
+        [$applyExit, $applyOutput] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_apply', psaBaseEnv($scratch));
+        expect($applyExit)->toBe(0, $applyOutput);
+
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_verify', psaBaseEnv($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('target state: PRE_DEPLOY')
+            ->toContain('www-data execute-only traversal: OK')
+            ->toContain('ACL precision: OK')
+            ->toContain('public-storage canary and existing-upload regression: DEFERRED')
+            ->toContain('PASS: public storage access verified for test-target');
+
+        expect($output)->not->toContain('internal HTTP public-media test: OK');
+    } finally {
+        psaCleanup($scratch);
+    }
+});
+
+it('a broken (dangling) current never enters the pre-deploy path: it fails inside the deployed-state validation', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        $target = psaBuildTarget($scratch);
+
+        // current exists but its public/storage link dangles: remove the
+        // real public storage tree the link resolves to.
+        exec('rm -rf '.escapeshellarg($target['app']));
+
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_apply', psaBaseEnv($scratch));
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('target state: DEPLOYED');
+        expect($output)->not->toContain('target state: PRE_DEPLOY');
+        expect($output)->not->toContain('ACL applied');
+    } finally {
+        psaCleanup($scratch);
+    }
+});
+
+it('keeps the full HTTP-level verification on a DEPLOYED target — the pre-deploy split never weakens it', function () {
+    $scratch = psaScratchDir();
+
+    try {
+        psaBuildTarget($scratch);
+
+        [$exit, $output] = psaRunHarness($scratch, ['TARGET_ID' => 'test-target'], 'perform_apply', psaBaseEnv($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('target state: DEPLOYED')
+            ->toContain('direct www-data read of canary: OK')
+            ->toContain('internal HTTP public-media test: OK');
+        expect($output)->not->toContain('DEFERRED');
+    } finally {
+        psaCleanup($scratch);
+    }
+});

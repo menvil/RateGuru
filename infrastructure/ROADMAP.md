@@ -12,10 +12,10 @@ not reorganize unrelated infrastructure.
 | 4 | Multi-target production model | ✅ completed |
 | 5 | Infrastructure installer and clean-VPS bootstrap | 🚧 current |
 | 6 | Sentry observability activation | ⏳ planned |
-| 7 | Recovery and release rehearsal | ⏳ planned |
-| 8 | tits.guru production launch | ⏳ planned |
-| 9 | Additional production targets | ⏳ planned |
-| 10 | Optional Nightwatch / PostHog / advanced dashboards | ⏳ planned |
+| 7 | Disaster recovery and release rehearsal | ⏳ planned |
+| 8 | First production launch and target-provisioning proof | ⏳ planned |
+| 9 | Repeatable production target onboarding | ⏳ planned |
+| 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
 ## 1. VPS / deployment / backup foundation — completed
 
@@ -374,34 +374,302 @@ slices 1–2, which installed nothing — so it completes on merge.
    truth; an installed runtime registry is reported for parity/drift and
    never modified. There is deliberately no `--apply` in this slice. See
    `runbooks/bootstrap-host.md`.
-2. **5.2 Base packages and runtime — planned.** Install the required base
-   and runtime packages (the preflight's canonical tool inventory: jq,
-   curl, acl, rclone, PostgreSQL client, Nginx, PHP-FPM, Redis,
-   Supervisor, …) on the supported baseline, transactionally and
-   idempotently.
-3. **5.3 Users, groups and filesystem — planned.** Create the service and
-   deploy accounts, group memberships, and the runtime directory tree
-   (ownership and modes exactly as the preflight contract states).
-4. **5.4 Services and configuration — planned.** Install committed service
-   configuration (Nginx vhosts, PHP-FPM pools, Supervisor programs, cron),
-   run the existing installers (target operations, perimeter, public
-   storage ACLs, mail capture), and enable/start services.
-5. **5.5 Bootstrap orchestrator — planned.** One command that sequences
-   5.2–5.4 on a clean host, fail-fast, re-runnable, ending with a passing
-   `bootstrap-host-preflight --check`.
+2. **5.2 Base packages and runtime — completed.**
+   `infrastructure/scripts/install-bootstrap-runtime` reproducibly installs
+   the base/runtime package layer on the exact supported baseline
+   (`--check` read-only validation with intended actions, root-only
+   `--apply`, read-only `--verify` gate; the real clean-VPS `--apply` run
+   is re-proven end to end by the 5.6 acceptance). The contract reproduces
+   the directly-inspected staging VPS: Ubuntu 22.04/x86_64 exactly (pins
+   kept in tested parity with the preflight; any other family, release or
+   architecture fails closed before mutation), PHP 8.5 CLI+FPM and
+   extensions from the Ondřej Surý PPA, PostgreSQL 18 from PGDG, and
+   Nginx/Redis/Supervisor plus the whole Phase 5.1 canonical tool
+   inventory from the Ubuntu jammy distribution repository. Exact patch
+   versions deliberately float with security updates — the contract is PHP
+   series 8.5 and PostgreSQL major 18, verified through `php8.5 -m`/`-v`
+   and the PostgreSQL client versions, not just dpkg state. The two
+   RateGuru-owned repositories are deb822 `.sources` files with dedicated
+   `/etc/apt/keyrings` keyrings, HTTPS-only key fetch validated against
+   pinned fingerprints, staged-and-renamed atomically, failing closed
+   before any package installation; `apt-key` is never used, pre-existing
+   operator-configured sources for the same repositories are recognized
+   and left untouched, and unrelated host repositories (NodeSource,
+   ClickHouse, Datadog/Vector) are never inspected, managed or required
+   absent. Because a minimal host has neither curl nor gnupg, `--apply`
+   installs the bootstrap repository tooling (ca-certificates, curl,
+   gnupg) from the existing Ubuntu sources before any external repository
+   work, and `--check`/`--verify` validate installer-owned repository
+   files authoritatively and read-only (byte-exact sources, keyring
+   holding exactly the pinned key). apt runs noninteractively, updates
+   only when needed (at most twice on a first clean-host apply), never
+   upgrades, never removes; a second `--apply` performs no apt call and
+   rewrites no file. Node.js/npm/Composer are intentionally absent (GitHub
+   Actions builds the immutable artifact — the host never builds), SQLite
+   is not installed, and no RateGuru users, directories, databases, roles,
+   service configuration or TLS are touched (slices 5.3/5.4). See
+   `runbooks/bootstrap-host.md`.
+   *Corrective acceptance fix (5.2.1):* the real staging deployment
+   falsified the assumption that rclone is an Ubuntu apt package — the
+   host runs a standalone, dpkg-unowned `/usr/bin/rclone` far newer than
+   the jammy candidate. rclone is therefore managed as a verified, pinned
+   external runtime binary: the pin lives in
+   `infrastructure/config/external-runtimes/versions.env` alongside the
+   committed release-signing public key, `--check`/`--verify` report it in
+   their own EXTERNAL RUNTIME section (never as a package), and `--apply`
+   converges drift through a signature- and checksum-verified atomic
+   replacement of the exact pinned release — never apt, never
+   `rclone selfupdate`, never touching `/root/.config/rclone/rclone.conf`.
+   `unzip` joined the base package contract to extract the release
+   archive.
+3. **5.3 Users, groups and filesystem — completed.**
+   `infrastructure/scripts/install-bootstrap-host-layout` provisions the
+   identity and filesystem layer required before service/configuration
+   installation (root-only `--check` read-only validation with intended
+   actions, root-only `--apply` that validates the entire plan before the
+   first mutation, read-only `--verify` gate). The repository registry is
+   the source of truth (validated through the standalone `targets` CLI —
+   the runtime registry does not exist yet and is never read), and only
+   `lifecycle=active` targets are provisioned: `tits-guru` stays planned
+   and causes zero user, group or filesystem mutation. The identity model:
+   the deploy user owns incoming artifacts and release creation
+   (`releases`/`locks`/`deployments` are `deploy_user:code_group` setgid
+   `2750`); the code group lets the runtime user read immutable release
+   code (mandatory supplementary membership — releases are normalized
+   `0750`/`0640` while PHP-FPM executes as the runtime user); the runtime
+   user owns shared mutable state (`shared` and `shared/storage` are
+   `runtime_user:runtime_group` setgid `2770`); `www-data` is never added
+   to runtime groups (public storage traversal stays the narrow POSIX ACL
+   from `install-public-storage-access` in 5.4); root owns the target
+   namespace root (`root:root 0755`) and the host operational roots
+   (`/home/www/rateguru` + `config`/`bin` `0755`, `backups`/`run` `0700`,
+   `/var/log/rateguru` `0750`) — so a deploy identity can create immutable
+   releases without ever controlling the target namespace itself. The
+   package-created 5.2 accounts (root, www-data, postgres) are validated,
+   never created; the mail-capture accounts stay owned by
+   `install-mail-capture`. The deploy home gets a structural `.ssh`
+   (`0700`) but never an `authorized_keys` (5.4 secret material), no
+   sudoers, and `current`/`previous` stay deployment-owned (never
+   fabricated, rewritten or followed). The managed-identity metadata is a
+   hard contract for existing accounts too: the deploy account must hold
+   its exact canonical home (`/home/<deploy_user>` — the same directory
+   the installer manages) and `/bin/bash` (the GitHub Actions SSH flow
+   must be able to log in), and the runtime account must hold the
+   non-login `/usr/sbin/nologin` service shell; the runtime account's
+   historic home is deliberately not contract. Incompatible existing
+   metadata is CONFLICT and fails `--apply` closed before any mutation —
+   an existing SSH identity is never automatically usermod'ed.
+   *Corrective acceptance fix:* the first real staging `--apply` surfaced
+   a GNU chmod semantic — on directories a plain numeric mode preserves
+   existing set[ug]id bits, so remediating the `2750` target root with
+   `chmod 0755` left `2755` and the closing `--verify` correctly failed.
+   Exact-mode convergence (reconciliation, creation, and the `nw`
+   remediation) now uses explicit operator-numeric replacement
+   (`chmod =MODE`), regression-tested against the real pre-apply staging
+   state (`deploy:code 2750` → exactly `root:root 0755`).
+   Reconciliation is strictly
+   per-directory-entry — no recursive chown/chmod, no `rm -rf`, no
+   `userdel`/`groupdel`, no UID/GID renumbering; wrong-type paths and
+   incompatible existing accounts fail closed before any mutation, and a
+   second `--apply` on a compliant host performs zero mutation. The known
+   real staging drift (the top-level `/home/www/rateguru/staging` owned
+   `deploy-rateguru-staging:rateguru-staging-code` instead of root) is the
+   one existing-host remediation this slice carries: `--apply` chowns
+   exactly that directory entry to `root:root 0755`, leaving
+   `releases`/`shared`/`current` and all application data untouched.
+   `bootstrap-host-preflight` now asserts the 5.3 structural contract
+   authoritatively (per-target owners, groups and setgid modes, deploy
+   home/`.ssh`, `shared/storage`, `/var/log/rateguru`), so slices 5.1 and
+   5.3 cannot disagree. See `runbooks/bootstrap-host.md`.
+
+   **Accepted on the real staging VPS:** `install-bootstrap-host-layout
+   --check` found only the known target-root drift; the first real
+   `--apply` exposed the GNU chmod directory special-bit behaviour (a plain
+   numeric mode preserves set[ug]id bits on directories), the corrective
+   exact-mode (`chmod =MODE`) fix was merged and deployed, and the
+   corrected `--apply` converged `/home/www/rateguru/staging` to exactly
+   `root:root 0755`; `install-bootstrap-host-layout --verify` passed; a
+   second `--apply` was idempotent (zero mutation); the `current`/
+   `previous` release links remained unchanged; staging health remained
+   healthy throughout; and planned `tits-guru` remained completely
+   unprovisioned.
+4. **5.4 Services and configuration — completed.**
+   `infrastructure/scripts/install-bootstrap-services`
+   reproducibly turns the prepared 5.2/5.3 host into the configured
+   RateGuru service host required for deployment (root-only `--check`
+   read-only validation with intended actions, root-only `--apply` that
+   validates the entire plan before the first mutation, root-only
+   read-only `--verify` gate). It coordinates the existing installers as
+   authoritative owners — `install-target-operations` (runtime registry,
+   `deployment.conf`, the operational bundle), `install-target-perimeter`
+   (wrappers/sudoers/backup cron), `install-public-storage-access` (the
+   narrow www-data ACL, active targets only) and `install-mail-capture`
+   (the shared-host mail capture, verified through `verify-mail-capture`)
+   — invoking each child's own `--apply` only when its own authoritative
+   `--verify` does not already pass, and directly owns only the service
+   files that had committed sources but no dedicated installer: the
+   active-target Nginx site plus its `sites-enabled` symlink, the PHP-FPM
+   pool, the Supervisor queue program, the scheduler cron, the host-global
+   SSH deploy restriction (all `root:root 0644`, installed
+   transactionally), and the exact service-support log directory the
+   committed PHP-FPM/Supervisor configs write into
+   (`TARGET_ROOT/shared/storage/logs`, runtime-owned setgid `2770`).
+   Every configuration family is validated by its authoritative parser
+   before any reload (`nginx -t`, `sshd -t`, the PHP 8.5 FPM config test,
+   `supervisorctl reread`), a failed candidate is restored before any
+   daemon could see it, and base services (nginx, php8.5-fpm, postgresql,
+   redis-server, supervisor) are enabled/started without ever touching
+   databases, roles, `pg_hba.conf` or Redis auth. The prerequisite gate is
+   the authoritative `install-bootstrap-runtime --verify` plus
+   `install-bootstrap-host-layout --verify` — deliberately not the full
+   preflight, which expects things 5.4 itself creates. The slice
+   introduces the explicit PRE_DEPLOY/DEPLOYED distinction: a clean host
+   legitimately has no `current` release, so infrastructure bootstrap
+   readiness and application runtime readiness are separate states —
+   application-runtime probes (queue activation, HTTP health, the
+   public-storage HTTP canary) are DEFERRED with explicit log lines on a
+   PRE_DEPLOY host, never faked with fabricated releases, while every
+   present-but-broken `current` shape stays a hard failure;
+   `install-target-operations` and `install-public-storage-access` gained
+   the same state split without weakening any check on a deployed host.
+   External secret material (TLS certificates/keys, the Basic Auth
+   htpasswd, `shared/.env`, `authorized_keys`, `rclone.conf`) is never
+   generated, copied or read — a committed vhost being activated whose
+   external files are missing fails closed with `EXTERNAL PREREQUISITE
+   MISSING` naming only category and path. Planned `tits-guru` receives
+   zero service configuration (its committed production config sources are
+   ignored), and a second `--apply` on a compliant host performs zero
+   meaningful mutation: no file rewrite, no reload/restart, no repeated
+   child mutation. The integration gap the slice documented — `deploy` did
+   not yet activate a Supervisor program the PRE_DEPLOY bootstrap deferred —
+   was closed by slice 5.5's first-deploy activation. See
+   `runbooks/bootstrap-services.md`.
+
+   **Accepted on the real staging VPS:** `install-bootstrap-services
+   --check` reported the contract already satisfied (PASS: 41, MISSING: 0,
+   DRIFT: 0, WARN: 0, CONFLICT: 0, DEFERRED: 0 — `SLICE 5.4 CONTRACT:
+   SATISFIED`); `--apply`, `--verify` and a second `--apply` all succeeded,
+   with the second apply idempotent (zero meaningful mutation) and staging
+   healthy throughout. Every child contract passed — target operations,
+   perimeter, public-storage ACL, mail capture — and Nginx, PHP-FPM,
+   PostgreSQL, Redis, Supervisor and the two staging mail-capture services
+   remained active with the deployed `rateguru-staging-queue` worker
+   RUNNING.
+5. **5.5 Bootstrap orchestrator — implemented; awaiting real-staging
+   acceptance (a mutating host slice is never marked completed on CI
+   alone).** `infrastructure/scripts/bootstrap-host` is the one canonical
+   host-bootstrap entry point: clean/prepared Ubuntu host → 5.2 runtime →
+   5.3 identities/filesystem → 5.4 services/configuration → final bootstrap
+   preflight, executed from the bootstrap repository checkout (children are
+   resolved as canonical siblings — never through an application deployment
+   or the installed operational bundle, which do not exist on a clean
+   host). It owns orchestration only — ordering, per-slice status,
+   fail-fast, readiness aggregation — while every child installer stays
+   authoritative for its own contract; there is no `--force`/`--skip`
+   escape hatch, no application deploy, no database/role provisioning, no
+   secret creation, and planned `tits-guru` remains untouched. `--check` is
+   dependency-aware and strictly read-only (an unsatisfied earlier slice
+   marks later slices BLOCKED rather than misjudging them); `--apply` is
+   convergent, not one transaction: per slice, an already-passing
+   authoritative `--verify` is SKIPped, otherwise the child's own `--apply`
+   runs and its `--verify` must pass before the next slice — a failure
+   (e.g. a missing external prerequisite 5.4 fails closed on) stops the run
+   without rolling back safely converged earlier slices, and re-running
+   resumes at the failing slice. SIGINT is never trapped or reinterpreted;
+   child/signal exit statuses propagate verbatim. The slice also unified
+   the PRE_DEPLOY/DEPLOYED/BROKEN target-state model across
+   `bootstrap-host-preflight`, `install-bootstrap-services` and `deploy`:
+   the preflight now classifies each active target's `current` exactly like
+   slice 5.4 (an absent `current` and the deploy-time external material —
+   `shared/.env`, database credentials, `authorized_keys`, `rclone.conf` —
+   are DEFERRED "required before first deploy" on a PRE_DEPLOY host, with a
+   `HOST BOOTSTRAP READY` / `APPLICATION READY: DEFERRED` summary and exit
+   0 when only legitimate deferrals remain; every broken `current` shape
+   stays CONFLICT, and the strict `HOST READY` contract on a DEPLOYED host
+   is unchanged — 5.4-hard TLS/Basic Auth material stays MISSING in every
+   state). And it closed the documented 5.4 first-deploy gap: `deploy` now
+   ensures the registry-declared Supervisor queue program is RUNNING after
+   the atomic `current` switch and HTTP health check — an already-RUNNING
+   worker is never touched (zero supervisor churn on normal deployments),
+   an inactive one is activated via `supervisorctl reread`/`update` (plus
+   `start` when needed) scoped to exactly the target program group, and
+   activation failure fails the deployment with recovery stopping a
+   worker this deploy activated so nothing keeps running against a
+   removed `current`. Real staging acceptance still required: on the
+   compliant staging host `bootstrap-host --apply` must skip all three
+   slices, mutate nothing, and end with a passing preflight — twice. See
+   `runbooks/bootstrap-host.md`.
 6. **5.6 Clean-VPS acceptance — planned.** Bootstrap a brand-new empty VPS
    end to end from the committed infrastructure and accept it for real —
    the prerequisite for the Phase 7 clean-server recovery rehearsal.
 
 ## 6. Sentry observability activation — planned
 
-Wire the existing observability foundation (DomainLogger, exception context) to
-Sentry for staging and production, with release tagging and PII redaction.
+Wire the existing observability foundation (DomainLogger, exception context)
+to Sentry for staging and production, with release tagging and PII redaction.
+The phase overall proves: **we can see and diagnose failures before
+production**.
 
-## 7. Recovery and release rehearsal — planned
+Slices 6.1–6.5 are **implemented; awaiting real-staging acceptance** — the
+code, configuration, workflows and runbook landed together, but none of the
+acceptance criteria below have been met yet, because they all require a real
+staging deployment with a real DSN and a configured GitHub Environment. The
+phase stays planned until that happens. What landed:
+`sentry/sentry-laravel` with the canonical release identity read from the
+artifact's own `release.json` (never Git, never a second version string),
+`environment` as the environment class with `deployment_target` as a separate
+tag, one capture path through `Integration::handles()` covering HTTP, Artisan
+and queue failures, `send_default_pii=false` with the internal user ID added
+back deliberately, SQL bindings hardcoded off, profiling/structured
+logs/metrics off, `/up` excluded from performance transactions, and a shared
+`.github/actions/sentry-release` composite action that records the deployment
+marker only after the existing health checks pass and can never fail a healthy
+deployment. Slice 6.6 (alerts) is manual Sentry-UI work documented in
+`runbooks/sentry-observability.md`, not code. Slices, in order:
 
-Rehearse recovery end to end. This phase explicitly distinguishes four distinct
-activities that must never be conflated:
+1. **6.1 Sentry SDK, environments and release identity.** Connect Laravel to
+   Sentry while preserving current application behavior, and establish the
+   canonical Sentry identity/context: target ID, environment class, release
+   ID, source SHA, and application/version identity. Staging and production
+   must be distinguishable. *Acceptance:* a controlled staging exception is
+   attributed in Sentry to the exact target, environment class, deployed
+   release and source SHA — answering "can an exception be attributed to
+   exactly what code and target was running?".
+2. **6.2 Exceptions and application/domain context.** Connect application
+   exception reporting and the existing DomainLogger/domain context to
+   Sentry: correlation/request identity, target, release, domain operation,
+   and authenticated-vs-anonymous state where safe. Expected
+   validation/domain errors must not become high-severity incidents, and no
+   PII may leak. *Acceptance:* representative Laravel/domain failures carry
+   enough context to diagnose the actual operation that failed.
+3. **6.3 Queue, Artisan and scheduler observability.** HTTP monitoring alone
+   is insufficient — background failures can remain invisible. Instrument
+   queue jobs, Artisan commands and scheduler executions; every event
+   carries target, release and job/command identity. *Acceptance:* a
+   controlled failed queue job plus a failed command/scheduled run appear
+   correctly in Sentry.
+4. **6.4 Performance and tracing.** Add controlled performance visibility
+   only after error reporting works reliably: HTTP requests, database-heavy
+   requests, queue jobs, outbound HTTP calls. Maximal trace collection is
+   never enabled by default. *Acceptance:* useful traces exist on staging
+   without unacceptable overhead or noise.
+5. **6.5 PII, sampling and noise policy.** Make the Sentry configuration
+   safe enough for production: request-body policy, headers/cookies policy,
+   PII redaction, sampling, expected-error filtering, bot/noise
+   suppression. *Acceptance:* synthetic sensitive values intentionally
+   submitted during testing never appear in Sentry, and expected
+   operational noise does not dominate incident signal.
+6. **6.6 Alerts and staging acceptance.** Convert telemetry into actionable
+   operations: alerts for new serious exceptions, error-rate spikes,
+   queue/job failures, and meaningful performance regressions where
+   justified. *Acceptance:* controlled staging failures verify the
+   notification path end to end.
+
+## 7. Disaster recovery and release rehearsal — planned
+
+Rehearse recovery end to end. The phase overall proves: **we can lose the
+whole server and recover correctly**. It explicitly distinguishes four
+distinct activities that must never be conflated:
 
 1. **Backup creation** — producing a verified local + offsite backup artifact
    (database dump, storage, environment, server-configuration snapshot,
@@ -419,16 +687,204 @@ activities that must never be conflated:
    RPO/RTO targets, DNS/TLS cutover, and a communications checklist. *The real
    event, not a drill.*
 
-## 8. tits.guru production launch — planned
+Slices, in order:
 
-First production target go-live on `tits.guru`: production environment, TLS,
-backups, monitoring, and the disaster-recovery procedure from Phase 7.
+1. **7.1 Durable immutable release artifact archive.** GitHub artifact
+   retention is finite, and the data backup only tells us what data existed
+   — total VPS loss also requires the exact application artifact that was
+   running. Create a durable offsite archive of immutable releases
+   (conceptually `rateguru/artifacts/<release-id>/` holding
+   `artifact.tar.gz`, `artifact.sha256`, `release.json`; likely storage
+   Backblaze B2). The full application artifact is NOT copied into every
+   daily data backup. *Acceptance:* an old release can be retrieved and
+   checksum-verified without depending on GitHub artifact retention.
+2. **7.2 Backup ↔ exact release mapping.** A data backup must
+   deterministically identify the exact application release that belongs to
+   it. Strengthen backup metadata: target, release ID, source SHA, artifact
+   reference, artifact checksum, backup time/schema/version metadata.
+   *Acceptance:* starting from a backup manifest, recovery identifies the
+   exact deployable artifact without guessing or rebuilding from source.
+3. **7.3 Clean-server recovery rehearsal.** Prove recovery from total VPS
+   loss: new Ubuntu VPS → Phase 5 bootstrap → retrieve the exact immutable
+   artifact → recover secrets/environment → restore database → restore
+   storage → deploy the exact release → start the target → health check.
+   Explicitly distinct from the current restore-test: restore-test answers
+   "can this backup technically be restored?"; 7.3 answers "can the entire
+   host disappear and the application be reconstructed?".
+4. **7.4 Application-level restore verification.** A successful pg_restore
+   is not enough. Verify actual recovered application behavior: Laravel
+   boots, DB queries work, migration state is coherent, storage/media
+   works, queues work, the scheduler works, representative smoke tests
+   pass. *Acceptance:* the recovered application behaves like a valid
+   running target, not merely a restored PostgreSQL database.
+5. **7.5 Full timed DR drill, RPO/RTO and runbook.** Turn recovery
+   technology into an operational procedure: rehearse full host loss,
+   backup selection, release selection, provisioning, restore, DNS/TLS
+   implications, verification and fallback; measure real recovery
+   duration; define RPO and RTO; produce the final disaster-recovery
+   runbook.
 
-## 9. Additional production targets — planned
+## 8. First production launch and target-provisioning proof — planned
 
-Onboard further production targets on the multi-target model from Phase 4.
+First production target go-live on `tits.guru`, launched through a generic,
+rehearsed provisioning procedure rather than hand-built commands. The phase
+overall proves: **we can launch the first production site using a rehearsed
+procedure**. Slices, in order:
 
-## 10. Optional Nightwatch / PostHog / advanced dashboards — planned
+1. **8.1 Generic target provisioner.** A target described in
+   `deployment-targets.json` must be provisionable reproducibly rather than
+   through one-off manual commands. Build a generic target provisioning
+   mechanism that will eventually create/configure target identities,
+   filesystem, database and role, environment placement, PHP-FPM pool,
+   Nginx vhost, Supervisor worker, scheduler, backup namespace, perimeter
+   integration and health identity. Lifecycle gating remains mandatory: a
+   `planned` target existing in the registry must NOT become publicly
+   active just because provisioning tools exist. *Acceptance:* a temporary
+   test target can be provisioned without hand-writing target-specific
+   server commands.
+2. **8.2 Disposable multi-site rehearsal.** Before real production, prove
+   the architecture can create multiple independent new brand targets from
+   scratch — on a separate disposable rehearsal VPS, never by destroying
+   the long-lived staging host. Conceptual temporary targets (`tits-test`,
+   `food-test`, `animals-test`) on isolated rehearsal DNS names (e.g.
+   `tits.rehearsal.<technical-domain>`), each independently owning its
+   application root, `.env`, database/role, FPM pool/socket, queue,
+   scheduler, release history, storage, backup namespace and health
+   identity. Exercise deploy, rollback, backup, restore and target
+   isolation. After acceptance: destroy the rehearsal targets/VPS, then
+   recreate them again from committed infrastructure. Use a separate B2
+   rehearsal namespace — the real staging backup namespace is NEVER
+   deleted to make this test clean. *Proves:* we know how to create new
+   sites from scratch, not merely maintain staging.
+3. **8.3 Provision real tits-guru target.** Create the first real
+   production target using the generic mechanism already proven in
+   8.1/8.2 — `tits-guru` must not become a hand-built exception. Provision
+   production infrastructure while keeping public activation controlled.
+4. **8.4 Production secrets, database, TLS, mail and backups.** Supply the
+   production-only external material and services: production `.env`, DB
+   credentials, deploy key, TLS, production backup credentials/policy,
+   production mail delivery, inbound replies/bounces where applicable, and
+   SPF/DKIM/DMARC domain authentication. No production secrets in Git.
+   *Acceptance:* the target is internally functional, observable and backed
+   up before public traffic is enabled.
+5. **8.5 Production GitHub release/deploy flow.** Prove the real immutable
+   production deployment path: a production GitHub Environment, a
+   reviewed/tagged immutable artifact, and the same exact artifact carried
+   through deployment. Application code is never rebuilt on the server.
+   Test production rollback mechanics before public launch where safely
+   possible.
+6. **8.6 Exact production dress rehearsal.** Perform the production
+   procedure one final time without exposing the real public service, on
+   production-like configuration and isolated rehearsal DNS/traffic:
+   provision → secrets → deploy → TLS → health → Sentry → backup →
+   restore/recovery check → rollback. No infrastructure operation performed
+   during the eventual real launch should be happening for the first time.
+7. **8.7 tits.guru GO LIVE.** The actual first public production
+   activation. Only final state changes remain: lifecycle activation where
+   required, public DNS/routing, TLS/public health verification, monitoring
+   confirmation. Immediately verify health, smoke tests, backup,
+   queues/scheduler, Sentry, and mail where applicable.
+
+## 9. Repeatable production target onboarding — planned
+
+Turn the first production launch into a routine, repeatable procedure on the
+multi-target model from Phase 4. The phase overall proves: **adding another
+production site is routine**. Slices, in order:
+
+1. **9.1 Formal target onboarding template.** Turn the successful first
+   production launch into a formal reusable contract: a new site
+   specification explicitly defines target ID, domains,
+   branding/application configuration, environment, DB identity, backup
+   retention, mail identity, monitoring identity, and the secrets
+   required. *Acceptance:* a complete target specification can be reviewed
+   before any server mutation.
+2. **9.2 Second real production brand.** The second real production site
+   proves the system is actually generic rather than merely generalized
+   around tits.guru. Provision using the standard workflow, with no
+   target-specific infrastructure exceptions.
+3. **9.3 Independent deploy / rollback / backup proof.** Prove real target
+   isolation: deploy target A → target B unchanged; rollback target B →
+   target A unchanged; backup/retention in isolated namespaces; health is
+   target-specific. *Acceptance:* operational changes to one production
+   target do not mutate another.
+4. **9.4 Third-target repeatability.** The second target may still expose
+   assumptions and receive one-off fixes; the third target proves
+   onboarding is routine. Measure the remaining manual host steps — the
+   desired result is approximately zero manual server customization.
+5. **9.5 Reconsider shared infrastructure extraction.** Only after 2+ real
+   production brands/projects exist, reconsider moving shared
+   infrastructure out of RateGuru, evaluated using actual duplication.
+   Possible future forms: a separate infrastructure repository, a shared
+   tooling/package, or a subtree/submodule/synchronization model.
+   Infrastructure is NOT extracted merely because this roadmap slice
+   exists.
+
+## 10. Advanced observability and product analytics — planned / optional
 
 Optional analytics and advanced operational dashboards, evaluated after the
-core production and recovery phases are stable.
+core production and recovery phases are stable. The phase overall proves:
+**we can efficiently operate and understand a mature multi-target
+platform**. Slices, in order:
+
+1. **10.1 Nightwatch evaluation.** After Sentry and production are stable,
+   determine whether Laravel-native Nightwatch provides additional value
+   rather than duplicating Sentry. Evaluate first; never install
+   automatically.
+2. **10.2 PostHog product analytics.** Separate product/user behavior
+   analytics from operational error monitoring: Sentry answers "why did
+   the application fail?", PostHog answers "how is the product being
+   used?". Define the privacy/event/retention policy before any
+   instrumentation.
+3. **10.3 Internal infrastructure/admin dashboard.** Expose reliable
+   operational state inside the RateGuru admin UI: server/target identity,
+   current release, source SHA/tag, last deploy, last backup, last
+   restore-test, last offsite backup, queue state, scheduler heartbeat,
+   runtime versions, observability state. Prefer structured
+   machine-readable operational state over parsing human logs.
+4. **10.4 Aggregate host / target health.** Once multiple targets exist,
+   provide an operational overview (conceptually: `staging-main` healthy,
+   `tits-guru` healthy, `food-guru` degraded, `animals-guru` healthy).
+   The aggregate dashboard does NOT replace per-target health/readiness
+   gates — deployment remains target-specific.
+5. **10.5 SLI/SLO and alert tuning.** After real production behavior is
+   known, formalize meaningful service objectives — availability, latency,
+   error rate, queue delay, backup freshness, restore-test freshness — and
+   tune thresholds using real data rather than guessed pre-production
+   values.
+
+## Three distinct rehearsal gates
+
+The roadmap deliberately contains three different infrastructure exams. They
+test different failure domains and must never be collapsed into one generic
+rehearsal:
+
+- **Phase 5.6 — "Can we build a completely empty server?"** Proves host
+  bootstrap and reproducibility: a brand-new VPS becomes a working host
+  purely from committed infrastructure.
+- **Phase 7.5 — "Can we recover after complete server/data loss?"** Proves
+  disaster recovery: the host and its data disappear, and the application
+  is reconstructed from offsite backups plus the archived exact release
+  artifact, within measured RPO/RTO.
+- **Phase 8.2 + 8.6 — "Can we repeatedly create new sites and execute the
+  exact production launch procedure without first-time surprises?"** Proves
+  target onboarding and production readiness: multiple independent targets
+  from scratch, then a full production dress rehearsal so the real launch
+  contains no first-time operations.
+
+## Disposable rehearsal policy
+
+The long-lived staging VPS is NOT destroyed merely to test clean bootstrap
+or new-site provisioning. Destructive rehearsals use a disposable rehearsal
+VPS instead, because:
+
+- staging retains realistic accumulated state;
+- staging retains useful deployment/release history;
+- staging remains available during destructive testing;
+- a genuinely empty machine is a stronger bootstrap test;
+- a rehearsal host can be destroyed and recreated repeatedly.
+
+Rehearsal resources must be isolated from real ones in every namespace:
+target IDs, DNS names, databases, secrets, and the backup namespace. The
+real staging B2 backup namespace is never reused or deleted for rehearsal.
+Disposable rehearsal resources may be completely destroyed after
+acceptance.

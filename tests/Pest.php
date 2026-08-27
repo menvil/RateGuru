@@ -16,8 +16,17 @@ use App\Support\Import\ResolvedImportTarget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Sentry\ClientBuilder as SentryClientBuilder;
+use Sentry\Event as SentryEvent;
+use Sentry\EventType as SentryEventType;
+use Sentry\Laravel\Integration as SentryLaravelIntegration;
+use Sentry\State\HubInterface as SentryHubInterface;
+use Sentry\Transport\Result as SentryTransportResult;
+use Sentry\Transport\ResultStatus as SentryResultStatus;
+use Sentry\Transport\TransportInterface as SentryTransportInterface;
 use Tests\TestCase;
 
 /*
@@ -197,6 +206,90 @@ function releaseCliFixture(array $cliNames): string
     chmod($root.'/infrastructure/scripts/common', 0o644);
 
     return $root;
+}
+
+/**
+ * An in-memory Sentry transport: every event the SDK decides to send lands in
+ * $events instead of on the network. Shared by every Sentry test file (see the
+ * block comment above the image-marker helpers for why a helper used by more
+ * than one test file has to live here rather than in any single one of them).
+ */
+final class RecordingSentryTransport implements SentryTransportInterface
+{
+    /** @var list<SentryEvent> */
+    public array $events = [];
+
+    public function send(SentryEvent $event): SentryTransportResult
+    {
+        $this->events[] = $event;
+
+        return new SentryTransportResult(SentryResultStatus::success(), $event);
+    }
+
+    public function close(?int $timeout = null): SentryTransportResult
+    {
+        return new SentryTransportResult(SentryResultStatus::success());
+    }
+
+    /** @return list<SentryEvent> */
+    public function errorEvents(): array
+    {
+        return array_values(array_filter(
+            $this->events,
+            static fn (SentryEvent $event): bool => $event->getType() === SentryEventType::event(),
+        ));
+    }
+}
+
+/**
+ * Rebuilds the Sentry client the application is already using, from the
+ * application's own config/sentry.php, with only the transport replaced — so
+ * tests exercise our real options (release, environment, sampling, PII, SQL
+ * bindings) and our real scope, and never open a socket to sentry.io.
+ *
+ * The hub instance itself is kept and only re-bound to the new client, so the
+ * scope App\Providers\ObservabilityServiceProvider configured at boot (the
+ * deployment_target/commit tags) survives.
+ *
+ * @param  array<string, mixed>  $config  config overrides applied before the client is built
+ */
+function fakeSentryTransport(array $config = []): RecordingSentryTransport
+{
+    config(array_merge(['sentry.dsn' => 'https://recorder@sentry.invalid/1'], $config));
+
+    $transport = new RecordingSentryTransport;
+
+    /** @var SentryClientBuilder $builder */
+    $builder = app(SentryClientBuilder::class);
+    $builder->setTransport($transport);
+
+    // The PHP SDK's default integrations install process-global error and
+    // exception handlers. The Laravel service provider strips exactly those in
+    // production; here we build without them entirely and add back only the
+    // Laravel integration that shapes events, so a test client can never take
+    // over PHPUnit's own handlers.
+    $builder->getOptions()->setDefaultIntegrations(false);
+    $builder->getOptions()->setIntegrations([new SentryLaravelIntegration]);
+
+    app(SentryHubInterface::class)->bindClient($builder->getClient());
+
+    return $transport;
+}
+
+/**
+ * The executable source of a PHP file with every comment removed — shared by
+ * the observability guards that assert a file never shells out to Git and
+ * never special-cases a deployment target. Those files document both rules at
+ * length, and prose about a rule must never be mistaken for a breach of it.
+ * (See the block comment above the image-marker helpers for why a helper used
+ * by more than one test file has to live here.)
+ */
+function phpSourceWithoutComments(string $relativePath): string
+{
+    return collect(token_get_all(File::get(base_path($relativePath))))
+        ->reject(fn (array|string $token): bool => is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true))
+        ->map(fn (array|string $token): string => is_array($token) ? $token[1] : $token)
+        ->implode('');
 }
 
 /**

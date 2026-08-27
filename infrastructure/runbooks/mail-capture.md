@@ -329,6 +329,31 @@ Production mail settings are intentionally left unchanged.
 
 ## Verification
 
+Two explicitly separated modes.
+
+**Read-only** — structural/liveness verification with **zero mutation**: no
+SMTP submission, no message creation or deletion, no service state change.
+This is what automated bootstrap verification uses
+(`install-bootstrap-services --check/--verify/--apply`, and therefore
+`bootstrap-host --check/--verify`), which is what keeps their read-only
+contract genuine:
+
+```bash
+infrastructure/scripts/verify-mail-capture --read-only
+```
+
+**End-to-end acceptance** — the full, **mutating** acceptance run. It sends
+real mail, deletes the synthetic messages it creates, and stops and starts
+`staging-mailtrap-local.service`. It is a deliberate operator command, never
+ordinary bootstrap verification, and requires root:
+
+```bash
+sudo infrastructure/scripts/verify-mail-capture --e2e
+```
+
+A bare invocation remains equivalent to `--e2e`, so existing operational
+usage is unchanged:
+
 ```bash
 sudo infrastructure/scripts/verify-mail-capture
 ```
@@ -378,7 +403,8 @@ Retention is enforced by the services themselves — no cron job is involved.
    `infrastructure/config/mail-capture/SHA256SUMS`. Never install an unverified
    binary; never use `latest`.
 3. `sudo infrastructure/scripts/install-mail-capture --check` then `--apply`.
-4. `sudo infrastructure/scripts/verify-mail-capture`.
+4. `sudo infrastructure/scripts/verify-mail-capture --e2e` (the full mutating
+   acceptance run — appropriate here, because the binaries just changed).
 
 The installer restarts only the service whose binary/config/unit actually
 changed. Persistent SQLite data survives upgrades.

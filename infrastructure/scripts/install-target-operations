@@ -6,25 +6,35 @@
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry, the thirteen target-only scripts
+#   --apply   Install the target registry, the fourteen operational scripts
 #             (targets, common, health-check, status, cleanup, deploy,
 #             rollback, backup, restore-test, offsite-backup,
-#             offsite-retention, offsite-restore-test, backup-cycle) and the
-#             host-global deployment.conf, verify a staged copy before
-#             touching anything, install transactionally, then verify the
-#             installed result against the real host before committing.
+#             offsite-retention, offsite-restore-test, backup-cycle,
+#             verify-required-clis) and the host-global deployment.conf,
+#             verify a staged copy before touching anything, install
+#             transactionally, then verify the installed result against the
+#             real host before committing.
 #   --verify  Re-run the installed-file and runtime-parity checks against
 #             whatever is currently installed. Makes NO changes, creates NO
 #             backup.
 #
 # What this installs — and does not:
-#   * Fifteen files: the registry, the thirteen scripts — targets, common,
+#   * Sixteen files: the registry, the fourteen scripts — targets, common,
 #     health-check and status (read-only), cleanup, deploy, rollback,
 #     backup, restore-test, offsite-backup, offsite-retention,
-#     offsite-restore-test, backup-cycle — and deployment.conf, the
-#     host-global (non-target-specific) configuration those scripts source.
+#     offsite-restore-test, backup-cycle, verify-required-clis — and
+#     deployment.conf, the host-global (non-target-specific) configuration
+#     those scripts source.
 #     Every perimeter file (cron, systemd timers, GitHub Actions workflows,
 #     sudoers, server wrappers) stays untouched by this installer.
+#   * verify-required-clis is a hard part of the bundle, not an optional
+#     helper: deploy invokes /home/www/rateguru/bin/verify-required-clis by
+#     absolute path on every deployment, before current is ever switched. A
+#     clean host that installed only the rest of the bundle cannot perform
+#     its first deploy at all — the Phase 5.6 clean-VPS acceptance proved
+#     exactly that. Unlike the other scripts it never sources common and is
+#     not target-aware: it is a generic release-tree check taking
+#     --release-root, so it carries no ordering dependency here.
 #   * tits-guru is not provisioned by this or any other script: it has
 #     lifecycle=planned in the registry, and every target-aware command
 #     rejects it before touching the network or the filesystem. Installing
@@ -32,7 +42,7 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these fifteen files in these fifteen
+# this installer's whole job is to put these sixteen files in these sixteen
 # places with these exact permissions, nothing else.
 #
 # This script never sources infrastructure/scripts/common. It installs
@@ -62,6 +72,7 @@ SRC_OFFSITE_BACKUP="${REPO_ROOT}/infrastructure/scripts/offsite-backup"
 SRC_OFFSITE_RETENTION="${REPO_ROOT}/infrastructure/scripts/offsite-retention"
 SRC_OFFSITE_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/offsite-restore-test"
 SRC_BACKUP_CYCLE="${REPO_ROOT}/infrastructure/scripts/backup-cycle"
+SRC_VERIFY_REQUIRED_CLIS="${REPO_ROOT}/infrastructure/scripts/verify-required-clis"
 SRC_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
 
 DST_CONFIG_ROOT="/home/www/rateguru/config"
@@ -81,6 +92,7 @@ DST_OFFSITE_BACKUP="${DST_BIN_ROOT}/offsite-backup"
 DST_OFFSITE_RETENTION="${DST_BIN_ROOT}/offsite-retention"
 DST_OFFSITE_RESTORE_TEST="${DST_BIN_ROOT}/offsite-restore-test"
 DST_BACKUP_CYCLE="${DST_BIN_ROOT}/backup-cycle"
+DST_VERIFY_REQUIRED_CLIS="${DST_BIN_ROOT}/verify-required-clis"
 DST_DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
 
 BACKUP_ROOT="/var/backups/rateguru-target-operations"
@@ -99,7 +111,7 @@ CLI_MODE="0755"
 DEPLOYMENT_CONF_MODE="0640"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the fifteen files it installs. A named constant (not a literal
+# about: the sixteen files it installs. A named constant (not a literal
 # "root"/0 at each call site) so the whole apply/verify flow can be
 # exercised against non-root scratch paths in tests, by reassigning these
 # alongside DST_*/SRC_*/BACKUP_ROOT — production always runs with the values
@@ -110,6 +122,76 @@ INSTALL_OWNER_ID=0
 INSTALL_GROUP_ID=0
 
 REQUIRED_TOOLS=(bash jq curl install stat cmp diff awk mv cp mktemp readlink tail env find sort cut sed rm flock)
+
+# --- Deployment-state classification (Phase 5.4) -----------------------------
+#
+# A genuinely clean pre-deploy host legitimately has no `current` symlink for
+# the staging target: infrastructure bootstrap readiness and application
+# runtime readiness are distinct states, and this installer must be able to
+# install the operational bundle before the first application deployment
+# without inventing a fake release to satisfy runtime probes.
+#
+#   PRE_DEPLOY  `current` is truly absent. The bundle installs and every
+#               static/config check still runs (source validation, installed
+#               parity, syntax, lifecycle rejection, cleanup --dry-run), but
+#               application-health probes that require current/public
+#               (health-check, the status healthy assertion) are DEFERRED —
+#               logged explicitly, never reported as PASS.
+#   DEPLOYED    `current` resolves to a valid immutable release directly
+#               under releases/ — the full existing runtime verification is
+#               preserved unchanged.
+#   BROKEN      a present-but-broken current (dangling, outside releases/,
+#               not a symlink, resolving to a non-directory) is a hard
+#               failure in every mode — never silently treated as
+#               PRE_DEPLOY, never repaired here.
+#
+# STAGING_TARGET_ROOT is reassignable by tests exactly like the SRC_/DST_
+# constants above; empty means "derive application_root from SRC_REGISTRY at
+# classification time" (production).
+STAGING_TARGET_ID="staging-main"
+STAGING_TARGET_ROOT=""
+TARGET_DEPLOYMENT_STATE=""
+
+classify_staging_deployment_state() {
+    local root="${STAGING_TARGET_ROOT}"
+
+    if [[ -z "${root}" ]]; then
+        root="$(jq -r --arg id "${STAGING_TARGET_ID}" '.targets[$id].application_root' "${SRC_REGISTRY}")"
+    fi
+
+    [[ -n "${root}" ]] && [[ "${root}" != null ]] \
+        || fail "cannot derive the ${STAGING_TARGET_ID} application root from ${SRC_REGISTRY}"
+
+    local current="${root}/current"
+    local releases="${root}/releases"
+
+    if [[ ! -e "${current}" ]] && [[ ! -L "${current}" ]]; then
+        TARGET_DEPLOYMENT_STATE=PRE_DEPLOY
+        log "target state: PRE_DEPLOY — ${current} is absent (no application release deployed yet); application-health probes are deferred, never faked"
+        return 0
+    fi
+
+    [[ -L "${current}" ]] \
+        || fail "target state: ${current} exists but is not a symlink — broken deployment-owned state is never treated as PRE_DEPLOY; resolve it manually"
+
+    local resolved resolved_releases
+    resolved="$(readlink -f "${current}" 2>/dev/null || true)"
+    [[ -n "${resolved}" ]] && [[ -e "${resolved}" ]] \
+        || fail "target state: ${current} is a dangling symlink — broken deployment-owned state is never treated as PRE_DEPLOY; resolve it manually"
+
+    resolved_releases="$(readlink -f "${releases}" 2>/dev/null || true)"
+    [[ -n "${resolved_releases}" ]] \
+        || fail "target state: ${releases} is missing while ${current} exists — resolve the broken release state manually"
+
+    [[ "$(dirname "${resolved}")" == "${resolved_releases}" ]] \
+        || fail "target state: ${current} resolves outside the releases directory (${resolved}) — resolve the broken release state manually"
+
+    [[ -d "${resolved}" ]] \
+        || fail "target state: ${current} resolves to a non-directory release (${resolved}) — resolve the broken release state manually"
+
+    TARGET_DEPLOYMENT_STATE=DEPLOYED
+    log "target state: DEPLOYED — ${current} resolves to a valid immutable release; full runtime verification applies"
+}
 
 # --- Logging ------------------------------------------------------------
 
@@ -196,13 +278,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_DEPLOYMENT_CONF}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all fifteen source files are present regular files"
+    log "all sixteen source files are present regular files"
 }
 
 # Catches the exact regression that made this installer unusable after a bad
@@ -216,18 +298,18 @@ validate_source_files() {
 # validate_source_files already requires it to be a readable regular file.
 validate_source_executable_modes() {
     local path
-    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}"; do
+    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
         [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
     done
-    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test and backup-cycle are all executable"
+    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle and verify-required-clis are all executable"
 }
 
 validate_source_syntax() {
     local path
-    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}"; do
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
-    log "bash -n passed for all thirteen source shell scripts"
+    log "bash -n passed for all fourteen source shell scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -303,6 +385,7 @@ verify_staged_candidates() {
     local staged_offsite_retention="${stage_dir}/offsite-retention"
     local staged_offsite_restore_test="${stage_dir}/offsite-restore-test"
     local staged_backup_cycle="${stage_dir}/backup-cycle"
+    local staged_verify_required_clis="${stage_dir}/verify-required-clis"
     local staged_deployment_conf="${stage_dir}/deployment.conf"
 
     log "verifying staged candidates before installation"
@@ -342,13 +425,37 @@ verify_staged_candidates() {
     done
     log "  staged usage: every script shows --target only, none mention --environment"
 
-    "${override_env[@]}" bash "${staged_health_check}" --target staging-main >/dev/null 2>&1 \
-        || fail "staged health-check --target staging-main failed"
-    log "  staged health-check --target staging-main: OK"
+    # verify-required-clis is deliberately outside the loop above: it is the
+    # one bundle script that is not target-aware. It never sources common and
+    # takes --release-root instead of --target, so asserting "--target only"
+    # against it would be asserting the wrong contract. Its own usage is
+    # checked for the flag it actually has.
+    local staged_verify_clis_usage
+    staged_verify_clis_usage="$("${override_env[@]}" bash "${staged_verify_required_clis}" --help 2>&1)" \
+        || fail "staged verify-required-clis --help failed"
+    grep -q -- '--release-root' <<<"${staged_verify_clis_usage}" \
+        || fail "staged verify-required-clis usage does not document --release-root: ${staged_verify_clis_usage}"
+    if grep -q -- '--environment' <<<"${staged_verify_clis_usage}"; then
+        fail "staged verify-required-clis usage mentions the removed --environment selector"
+    fi
+    log "  staged verify-required-clis --help: OK (--release-root, no --environment)"
 
-    "${override_env[@]}" bash "${staged_status}" --target staging-main >/dev/null 2>&1 \
-        || fail "staged status --target staging-main failed"
-    log "  staged status --target staging-main: OK"
+    # Application-health probes require a deployed release behind
+    # current/public: on a PRE_DEPLOY host they are deferred — logged, never
+    # reported as OK — instead of failing against an application that does
+    # not exist yet. Every static/lifecycle check below still runs.
+    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+        log "  staged health-check --target staging-main: DEFERRED (pre-deploy: no current release exists yet)"
+        log "  staged status --target staging-main: DEFERRED (pre-deploy: status asserts application health, which requires a deployed release)"
+    else
+        "${override_env[@]}" bash "${staged_health_check}" --target staging-main >/dev/null 2>&1 \
+            || fail "staged health-check --target staging-main failed"
+        log "  staged health-check --target staging-main: OK"
+
+        "${override_env[@]}" bash "${staged_status}" --target staging-main >/dev/null 2>&1 \
+            || fail "staged status --target staging-main failed"
+        log "  staged status --target staging-main: OK"
+    fi
 
     # cleanup is exercised in --dry-run only here — dry-run is genuinely
     # side-effect free (no lock, no write, no delete; see cleanup's own
@@ -712,8 +819,9 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_OFFSITE_RETENTION}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_RETENTION}"
     verify_installed_regular_file "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_RESTORE_TEST}"
     verify_installed_regular_file "${DST_BACKUP_CYCLE}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_BACKUP_CYCLE}"
+    verify_installed_regular_file "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_VERIFY_REQUIRED_CLIS}"
     verify_installed_regular_file "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${DEPLOYMENT_CONF_MODE}" "${SRC_DEPLOYMENT_CONF}"
-    log "  ownership, mode and content: OK for all fifteen files"
+    log "  ownership, mode and content: OK for all sixteen files"
 
     # common is a sourced library, never a CLI — verify_installed_regular_file
     # already proved its mode is exactly COMMON_MODE (0644), which has no
@@ -725,10 +833,10 @@ verify_installed_files() {
     log "  common is not executable: OK"
 
     local path
-    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}"; do
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_VERIFY_REQUIRED_CLIS}"; do
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
-    log "  bash -n: OK for all thirteen installed scripts"
+    log "  bash -n: OK for all fourteen installed scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -754,12 +862,28 @@ verify_installed_files() {
 }
 
 verify_target_health() {
+    # PRE_DEPLOY (see classify_staging_deployment_state): the application
+    # health probe requires a deployed release behind current/public —
+    # deferred with an explicit log line, never reported as OK, never
+    # satisfied by fabricating a release. The default when the variable is
+    # unset (extracted-block harnesses) is the strict DEPLOYED behaviour.
+    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+        log "health-check --target staging-main: DEFERRED (pre-deploy: no current release exists yet)"
+        return 0
+    fi
+
     no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null \
         || fail "installed health-check --target staging-main failed"
     log "health-check --target staging-main: OK"
 }
 
 verify_status() {
+    # status itself works without a deployed release (absent current prints
+    # "not configured" and the embedded health probe reports unhealthy
+    # without failing the script), so the invocation, the header checks and
+    # the section-shape validation always run in both states — only the
+    # final 'Status: healthy' assertion requires a deployed application and
+    # is deferred on a PRE_DEPLOY host (see verify_target_health).
     local status_output
     status_output="$(no_overrides_env "${DST_STATUS}" --target staging-main)" \
         || fail "installed status --target staging-main failed"
@@ -778,6 +902,11 @@ verify_status() {
     # missing section — not a downstream symptom like a missing
     # Status: healthy line.
     assert_status_sections_present "${status_output}" "status"
+
+    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+        log "status healthy assertion: DEFERRED (pre-deploy: 'Status: healthy' requires a deployed release; the no-release 'Status: unhealthy' output is the expected shape)"
+        return 0
+    fi
 
     grep -Fxq 'Status: healthy' <<<"${status_output}" \
         || fail "status output does not report 'Status: healthy'"
@@ -997,6 +1126,19 @@ verify_backup_cycle_planned_target_rejected() {
     log "backup-cycle --target tits-guru: correctly rejected (lifecycle=planned)"
 }
 
+# deploy invokes the installed verify-required-clis by absolute path on every
+# deployment, before current is ever switched, so "it is installed and it
+# runs" is a deployment prerequisite rather than a nicety. There is no
+# planned-target counterpart: this script is not target-aware.
+verify_required_clis_help() {
+    local usage_output
+    usage_output="$(no_overrides_env "${DST_VERIFY_REQUIRED_CLIS}" --help 2>&1)" \
+        || fail "installed verify-required-clis --help failed"
+    grep -q -- '--release-root' <<<"${usage_output}" \
+        || fail "installed verify-required-clis usage does not document --release-root: ${usage_output}"
+    log "verify-required-clis --help: OK"
+}
+
 # Thin wrapper used by apply's post-install check, which wants one pass/fail
 # outcome rather than the phase-by-phase banners --verify prints — see
 # run_verify below, which calls the same functions individually.
@@ -1023,6 +1165,7 @@ verify_runtime_parity() {
     verify_offsite_restore_test_planned_target_rejected
     verify_backup_cycle_help
     verify_backup_cycle_planned_target_rejected
+    verify_required_clis_help
     log "runtime parity verification passed"
 }
 
@@ -1050,13 +1193,14 @@ run_check() {
     log "  ${DST_OFFSITE_RETENTION}"
     log "  ${DST_OFFSITE_RESTORE_TEST}"
     log "  ${DST_BACKUP_CYCLE}"
+    log "  ${DST_VERIFY_REQUIRED_CLIS}"
     log "  ${DST_DEPLOYMENT_CONF}"
 
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The two directories every one of the fifteen destinations lives under. This
-# installer owns exactly fifteen *files* — it never creates, chowns or chmods
+# The two directories every one of the sixteen destinations lives under. This
+# installer owns exactly sixteen *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -1089,6 +1233,15 @@ validate_destination_directories() {
 }
 
 verify_preflight_target_health() {
+    # PRE_DEPLOY: there is no installed application to be healthy yet — the
+    # preflight health gate is deferred (logged, never faked). A BROKEN
+    # current already failed classify_staging_deployment_state before this
+    # runs, so this deferral can never mask a broken deployment.
+    if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+        log "currently installed staging-main health check: DEFERRED (pre-deploy: no current release exists yet)"
+        return 0
+    fi
+
     no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null \
         || fail "currently installed staging-main health check failed — refusing to install anything (${DST_HEALTH_CHECK} --target staging-main)"
     log "currently installed staging-main health check: OK"
@@ -1125,7 +1278,9 @@ on_apply_error() {
     if [[ "${APPLY_COMMITTED}" == false ]] && [[ -n "${BACKUP_DIR}" ]]; then
         if rollback_installed_files; then
             log "rollback complete: previous files restored"
-            if no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null 2>&1; then
+            if [[ "${TARGET_DEPLOYMENT_STATE:-}" == PRE_DEPLOY ]]; then
+                log "post-rollback staging-main health check: DEFERRED (pre-deploy: no current release exists yet)"
+            elif no_overrides_env "${DST_HEALTH_CHECK}" --target staging-main >/dev/null 2>&1; then
                 log "confirmed: staging-main health check still succeeds after rollback"
             else
                 log "ERROR: staging-main health check FAILED even after rollback — manual intervention required"
@@ -1167,6 +1322,7 @@ perform_apply() {
     log "mode: apply"
 
     run_source_validation
+    classify_staging_deployment_state
     validate_destination_directories
     verify_preflight_target_health
 
@@ -1191,6 +1347,7 @@ perform_apply() {
     install -m 0700 "${SRC_OFFSITE_RETENTION}" "${STAGE_DIR}/offsite-retention"
     install -m 0700 "${SRC_OFFSITE_RESTORE_TEST}" "${STAGE_DIR}/offsite-restore-test"
     install -m 0700 "${SRC_BACKUP_CYCLE}" "${STAGE_DIR}/backup-cycle"
+    install -m 0700 "${SRC_VERIFY_REQUIRED_CLIS}" "${STAGE_DIR}/verify-required-clis"
     install -m 0700 "${SRC_DEPLOYMENT_CONF}" "${STAGE_DIR}/deployment.conf"
 
     verify_staged_candidates "${STAGE_DIR}"
@@ -1221,6 +1378,7 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/offsite-retention" "${DST_OFFSITE_RETENTION}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/offsite-restore-test" "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/backup-cycle" "${DST_BACKUP_CYCLE}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/verify-required-clis" "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/deployment.conf" "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${DEPLOYMENT_CONF_MODE}"
 
     log "files installed; verifying before committing"
@@ -1234,7 +1392,7 @@ perform_apply() {
 
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
-    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_VERIFY_REQUIRED_CLIS}"
     log "  deployment.conf: ${DST_DEPLOYMENT_CONF}"
     log "  backups      : ${BACKUP_DIR}"
     log "Run 'install-target-operations --verify' at any time to re-check the installed result."
@@ -1271,6 +1429,9 @@ perform_verify() {
 
     log "--- source validation ---"
     run_source_validation
+
+    log "--- target deployment state ---"
+    classify_staging_deployment_state
 
     log "--- installed-file validation ---"
     verify_installed_files
@@ -1337,6 +1498,9 @@ perform_verify() {
 
     log "--- backup-cycle planned-target rejection ---"
     verify_backup_cycle_planned_target_rejected
+
+    log "--- verify-required-clis help ---"
+    verify_required_clis_help
 
     trap - ERR EXIT
     log "--- final result ---"

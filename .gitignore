@@ -84,6 +84,9 @@ Homestead.yaml
 # Mailpit settings; contain no credentials).
 !/infrastructure/config/mail-capture/versions.env
 !/infrastructure/config/mail-capture/mailpit.env
+# Non-secret, committed external-runtime contract (pinned rclone release
+# version, install contract and release-signing fingerprint; no credentials).
+!/infrastructure/config/external-runtimes/versions.env
 /infrastructure/**/rclone.conf
 /infrastructure/**/*htpasswd*
 /infrastructure/**/authorized_keys
@@ -99,3 +102,8 @@ Homestead.yaml
 /infrastructure/config/**/*.before-*
 /infrastructure/config/**/*.backup-*
 /infrastructure/config/**/*.bak
+
+# Build-pipeline release metadata. Written into the artifact package root by
+# deploy-staging.yml / release.yml and read by config/deployment.php; it is
+# per-release and must never be committed from a working copy.
+/release.json

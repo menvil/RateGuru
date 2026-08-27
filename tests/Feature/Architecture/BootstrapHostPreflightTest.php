@@ -98,9 +98,10 @@ function bootstrapPreflightAllTools(): array
         'readlink', 'mktemp', 'sort', 'cut', 'env', 'tr', 'head', 'tail',
         'date', 'id', 'rm', 'mv', 'cp', 'ls', 'cat', 'chmod', 'chown', 'ln',
         'od', 'du', 'df', 'sleep', 'timeout', 'uname', 'find', 'grep', 'sed', 'awk',
-        'cmp', 'diff', 'flock', 'namei', 'runuser', 'hostname', 'useradd',
-        'getent', 'visudo', 'ss', 'ip', 'setfacl', 'getfacl',
-        // runtime/service
+        'cmp', 'diff', 'unzip', 'flock', 'namei', 'runuser', 'hostname', 'useradd',
+        'getent', 'visudo', 'ss', 'ip', 'setfacl', 'getfacl', 'pgrep',
+        // runtime/service (rclone is probed as a managed external runtime
+        // binary, never as an Ubuntu package requirement)
         'nginx', 'systemctl', 'pg_dump', 'pg_restore', 'psql', 'createdb',
         'dropdb', 'rclone', 'php8.5',
         // optional development/validation
@@ -108,6 +109,24 @@ function bootstrapPreflightAllTools(): array
         // HOST section probes
         'apt-get', 'dpkg',
     ];
+}
+
+/**
+ * The pinned rclone version from the committed external-runtimes contract —
+ * the same file the preflight itself consumes, so the pin is never
+ * duplicated as a test literal.
+ */
+function bootstrapPreflightRclonePin(): string
+{
+    preg_match(
+        '/^RCLONE_VERSION=(.+)$/m',
+        File::get(base_path('infrastructure/config/external-runtimes/versions.env')),
+        $match,
+    );
+
+    expect($match[1] ?? null)->not->toBeNull('the committed external-runtimes contract no longer pins RCLONE_VERSION');
+
+    return $match[1];
 }
 
 /**
@@ -127,14 +146,25 @@ function bootstrapPreflightCompliantStatTable(): array
         '/home/www/rateguru/config/deployment-targets.json|regular file|root|root|640',
         '/home/www/rateguru/config/deployment.conf|regular file|root|root|640',
         '/home/www/rateguru/bin/common|regular file|root|root|644',
+        // Per-target rows mirror the slice 5.3 structural contract that
+        // install-bootstrap-host-layout converges and the preflight now
+        // asserts authoritatively (setgid 2750/2770 modes included).
         '/home/www/rateguru/staging|directory|root|root|755',
-        '/home/www/rateguru/staging/releases|directory|root|root|755',
-        '/home/www/rateguru/staging/shared|directory|root|root|750',
+        '/home/www/rateguru/staging/releases|directory|deploy-rateguru-staging|rateguru-staging-code|2750',
+        '/home/www/rateguru/staging/shared|directory|rateguru-staging|rateguru-staging|2770',
+        '/home/www/rateguru/staging/shared/storage|directory|rateguru-staging|rateguru-staging|2770',
+        '/home/www/rateguru/staging/shared/storage/logs|directory|rateguru-staging|rateguru-staging|2770',
         '/home/www/rateguru/staging/current|symbolic link|root|root|777',
-        '/home/www/rateguru/staging/locks|directory|root|root|755',
-        '/home/www/rateguru/staging/deployments|directory|root|root|755',
-        '/home/deploy-rateguru-staging/incoming|directory|deploy-rateguru-staging|deploy-rateguru-staging|755',
-        '/var/log/rateguru|directory|root|root|755',
+        // The immutable release the compliant current resolves to — the
+        // slice 5.5 target-state classification (PRE_DEPLOY/DEPLOYED/BROKEN)
+        // stats the resolved path to prove the DEPLOYED shape.
+        '/home/www/rateguru/staging/releases/20260101120000|directory|deploy-rateguru-staging|rateguru-staging-code|750',
+        '/home/www/rateguru/staging/locks|directory|deploy-rateguru-staging|rateguru-staging-code|2750',
+        '/home/www/rateguru/staging/deployments|directory|deploy-rateguru-staging|rateguru-staging-code|2750',
+        '/home/deploy-rateguru-staging|directory|deploy-rateguru-staging|deploy-rateguru-staging|750',
+        '/home/deploy-rateguru-staging/.ssh|directory|deploy-rateguru-staging|deploy-rateguru-staging|700',
+        '/home/deploy-rateguru-staging/incoming|directory|deploy-rateguru-staging|deploy-rateguru-staging|750',
+        '/var/log/rateguru|directory|root|root|750',
         '/usr/local/sbin/rateguru-deploy|regular file|root|root|755',
         '/usr/local/sbin/rateguru-rollback|regular file|root|root|755',
         '/usr/local/sbin/rateguru-cleanup|regular file|root|root|755',
@@ -164,7 +194,7 @@ function bootstrapPreflightCompliantStatTable(): array
     foreach ([
         'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback',
         'backup', 'restore-test', 'offsite-backup', 'offsite-retention',
-        'offsite-restore-test', 'backup-cycle',
+        'offsite-restore-test', 'backup-cycle', 'verify-required-clis',
     ] as $cli) {
         $rows[] = "/home/www/rateguru/bin/{$cli}|regular file|root|root|755";
     }
@@ -193,7 +223,7 @@ function bootstrapPreflightCompliantGroup(): string
         'postgres:x:118:',
         'rateguru-staging:x:1001:',
         'deploy-rateguru-staging:x:1002:',
-        'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging',
+        'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging,www-data',
         'staging-mailpit:x:990:',
         'staging-mailtrap-local:x:991:',
     ])."\n";
@@ -411,6 +441,62 @@ SH);
         ? "printf '185.125.190.36 archive.ubuntu.com\\n'\nexit 0"
         : 'exit 2';
     bootstrapPreflightWriteStub($scratch.'/bin/getent', "#!/usr/bin/env bash\n{$dnsBody}\n");
+
+    // getfacl: consults the acl-table — "DIR|granted" prints an ACL holding
+    // the exact user:www-data:--x entry, "DIR|present" prints one without
+    // it, and an unlisted directory fails like getfacl on an absent or
+    // unreadable path.
+    $aclTablePath = $scratch.'/acl-table.txt';
+    bootstrapPreflightWriteStub($scratch.'/bin/getfacl', <<<SH
+#!/usr/bin/env bash
+dir="\${!#}"
+state="\$(awk -F'|' -v d="\${dir}" '\$1 == d { print \$2; exit }' '{$aclTablePath}' 2>/dev/null)"
+case "\${state}" in
+    granted)
+        printf '# file: %s\\n# owner: sim\\n# group: sim\\nuser::rwx\\nuser:www-data:--x\\ngroup::rwx\\nmask::rwx\\nother::---\\n' "\${dir#/}"
+        ;;
+    present)
+        printf '# file: %s\\n# owner: sim\\n# group: sim\\nuser::rwx\\ngroup::rwx\\nother::---\\n' "\${dir#/}"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+SH);
+
+    $aclRows = $options['aclTable'] ?? [
+        '/home/www/rateguru/staging/shared|granted',
+        '/home/www/rateguru/staging/shared/storage|granted',
+    ];
+    file_put_contents($aclTablePath, implode("\n", $aclRows)."\n");
+
+    bootstrapPreflightWriteReadlinkStub($scratch, $options);
+}
+
+/**
+ * readlink: consults the readlink-table (path|resolved) for `-f` symlink
+ * resolution — the slice 5.5 target-state classification resolves `current`
+ * and `releases` through it. An unlisted path fails like GNU readlink -f on
+ * an unresolvable path, which is how the "releases directory is missing
+ * while current exists" branch is reachable.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapPreflightWriteReadlinkStub(string $scratch, array $options): void
+{
+    $readlinkTablePath = $scratch.'/readlink-table.txt';
+
+    bootstrapPreflightWriteStub($scratch.'/bin/readlink', <<<SH
+#!/usr/bin/env bash
+path="\${!#}"
+awk -F'|' -v p="\${path}" '\$1 == p { print \$2; found = 1; exit } END { exit !found }' '{$readlinkTablePath}'
+SH);
+
+    $readlinkRows = $options['readlinkTable'] ?? [
+        '/home/www/rateguru/staging/current|/home/www/rateguru/staging/releases/20260101120000',
+        '/home/www/rateguru/staging/releases|/home/www/rateguru/staging/releases',
+    ];
+    file_put_contents($readlinkTablePath, implode("\n", $readlinkRows)."\n");
 }
 
 /**
@@ -476,6 +562,8 @@ function bootstrapPreflightFixture(string $scratch, array $options = []): array
         'RATEGURU_PREFLIGHT_IP_BIN' => $scratch.'/bin/ip',
         'RATEGURU_PREFLIGHT_GETENT_BIN' => $scratch.'/bin/getent',
         'RATEGURU_PREFLIGHT_STAT_BIN' => $scratch.'/bin/stat',
+        'RATEGURU_PREFLIGHT_GETFACL_BIN' => $scratch.'/bin/getfacl',
+        'RATEGURU_PREFLIGHT_READLINK_BIN' => $scratch.'/bin/readlink',
         'RATEGURU_PREFLIGHT_HOSTNAME' => 'preflight-fixture-host',
         'RATEGURU_PREFLIGHT_KERNEL' => '6.8.0-fixture',
         'RATEGURU_PREFLIGHT_ARCH' => 'x86_64',
@@ -639,6 +727,15 @@ it('recognizes the existing installation as present rather than conflicting', fu
         ] as $needle) {
             expect($output)->toContain($needle);
         }
+
+        // rclone is recognized as the managed external runtime binary the
+        // slice 5.2 contract pins — dpkg package ownership is deliberately
+        // not required (the real staging binary is standalone).
+        expect($output)->toContain(sprintf(
+            'PASS     tool:rclone — managed external runtime binary present (pinned v%s; dpkg ownership not required)',
+            bootstrapPreflightRclonePin(),
+        ));
+        expect($output)->not->toContain('tool:rclone — runtime/service tool present (package: rclone)');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }
@@ -656,7 +753,12 @@ it('fails --check on a clean host while still printing every section and the sum
         [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
 
         expect($exit)->toBe(1);
-        expect($output)->toContain('HOST READY: NO');
+
+        // A truly clean host has no current release anywhere, so the
+        // PRE_DEPLOY summary shape applies: host bootstrap readiness is
+        // judged separately from first-deploy readiness.
+        expect($output)->toContain('HOST BOOTSTRAP READY: NO');
+        expect($output)->toContain('APPLICATION READY: DEFERRED — no release has been deployed (PRE_DEPLOY)');
 
         foreach (['HOST', 'TOOLS', 'SERVICES', 'USERS/GROUPS', 'FILESYSTEM', 'NETWORK', 'SECRETS REQUIRED LATER', 'SUMMARY'] as $sectionHeader) {
             expect($output)->toContain("\n{$sectionHeader}\n");
@@ -670,7 +772,16 @@ it('fails --check on a clean host while still printing every section and the sum
             'MISSING  group:rateguru-staging-code',
             'MISSING  path:/home/www/rateguru — absent',
             'MISSING  registry:runtime — absent',
-            'MISSING  secret:laravel-env:staging-main',
+            // Deploy-time external material is DEFERRED on a PRE_DEPLOY
+            // host — required before first deploy, never a host-bootstrap
+            // blocker — while the 5.4-hard TLS/Basic Auth material stays
+            // MISSING.
+            'DEFERRED secret:laravel-env:staging-main',
+            'DEFERRED secret:github-deploy-key:staging-main',
+            'DEFERRED secret:rclone-credentials',
+            'MISSING  secret:tls:staging-main',
+            'MISSING  secret:basic-auth',
+            'DEFERRED path:/home/www/rateguru/staging/current',
             'PASS     os-release — ID=ubuntu VERSION_ID=22.04',
         ] as $needle) {
             expect($output)->toContain($needle);
@@ -688,8 +799,10 @@ it('keeps --report usable on a clean host: exit 0 plus intended bootstrap action
         [$exit, $output] = bootstrapPreflightRun(['--report'], $env);
 
         expect($exit)->toBe(0, "--report is inventory, never a gate:\n{$output}");
-        expect($output)->toContain('HOST READY: NO');
-        expect($output)->toContain('-> bootstrap: install rclone (slice 5.2)');
+        expect($output)->toContain('HOST BOOTSTRAP READY: NO');
+        expect($output)->toContain(
+            '-> bootstrap: install verified rclone v'.bootstrapPreflightRclonePin().' via install-bootstrap-runtime --apply (slice 5.2)',
+        );
         expect($output)->toContain('-> bootstrap: create via slice 5.3 (never by preflight)');
     } finally {
         bootstrapPreflightCleanup($scratch);
@@ -938,7 +1051,7 @@ it('reports a runtime user missing from the code group as a MISSING membership',
 
     try {
         $group = str_replace(
-            'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging',
+            'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging,www-data',
             'rateguru-staging-code:x:1010:deploy-rateguru-staging',
             bootstrapPreflightCompliantGroup(),
         );
@@ -948,6 +1061,68 @@ it('reports a runtime user missing from the code group as a MISSING membership',
 
         expect($exit)->toBe(1);
         expect($output)->toContain('MISSING  membership:rateguru-staging:rateguru-staging-code — rateguru-staging is not a member');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('asserts the slice 5.3 identity contract for managed target accounts: deploy home/shell and runtime shell', function () {
+    foreach ([
+        // [compliant passwd line, drifted passwd line, expected CONFLICT detail]
+        [
+            'deploy-rateguru-staging:x:1002:1002::/home/deploy-rateguru-staging:/bin/bash',
+            'deploy-rateguru-staging:x:1002:1002::/root:/bin/bash',
+            'CONFLICT user:deploy-rateguru-staging — home is /root, required /home/deploy-rateguru-staging',
+        ],
+        [
+            'deploy-rateguru-staging:x:1002:1002::/home/deploy-rateguru-staging:/bin/bash',
+            'deploy-rateguru-staging:x:1002:1002::/home/deploy-rateguru-staging:/usr/sbin/nologin',
+            'CONFLICT user:deploy-rateguru-staging — shell is /usr/sbin/nologin, required /bin/bash',
+        ],
+        [
+            'rateguru-staging:x:1001:1001::/home/www/rateguru/staging:/usr/sbin/nologin',
+            'rateguru-staging:x:1001:1001::/home/www/rateguru/staging:/bin/bash',
+            'CONFLICT user:rateguru-staging — shell is /bin/bash, required /usr/sbin/nologin',
+        ],
+    ] as [$compliantLine, $driftedLine, $expectedConflict]) {
+        $scratch = bootstrapPreflightScratchDir();
+
+        try {
+            $passwd = str_replace($compliantLine, $driftedLine, bootstrapPreflightCompliantPasswd());
+            expect($passwd)->not->toBe(bootstrapPreflightCompliantPasswd(), 'fixture drift line did not apply');
+
+            $env = bootstrapPreflightFixture($scratch, ['passwd' => $passwd]);
+            [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+            expect($exit)->toBe(1, "an incompatible managed identity must fail --check:\n{$output}");
+            expect($output)->toContain($expectedConflict);
+
+            // --report annotates the conflict with the operator-review path
+            // (never an automatic rewrite).
+            [, $reportOutput] = bootstrapPreflightRun(['--report'], $env);
+            expect($reportOutput)->toContain('operator review required');
+            expect($reportOutput)->toContain("never rewrites an existing account's home/shell");
+        } finally {
+            bootstrapPreflightCleanup($scratch);
+        }
+    }
+
+    // A divergent historic runtime home alone stays PASS: the deploy home
+    // is critical to SSH, the runtime home is deliberately not contract.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $passwd = str_replace(
+            'rateguru-staging:x:1001:1001::/home/www/rateguru/staging:/usr/sbin/nologin',
+            'rateguru-staging:x:1001:1001::/var/lib/rateguru-staging:/usr/sbin/nologin',
+            bootstrapPreflightCompliantPasswd(),
+        );
+
+        $env = bootstrapPreflightFixture($scratch, ['passwd' => $passwd]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(0, "a divergent runtime home alone must not fail --check:\n{$output}");
+        expect($output)->toContain('PASS     user:rateguru-staging — exists');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }
@@ -981,7 +1156,7 @@ it('flags wrong ownership, wrong mode, and a symlink where a directory is requir
     }
 });
 
-it('flags a regular directory where the current symlink belongs as CONFLICT', function () {
+it('flags a regular directory where the current symlink belongs as CONFLICT, in the shared 5.4 vocabulary', function () {
     $scratch = bootstrapPreflightScratchDir();
 
     try {
@@ -993,7 +1168,267 @@ it('flags a regular directory where the current symlink belongs as CONFLICT', fu
         [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
 
         expect($exit)->toBe(1);
-        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/current — is a directory, expected symbolic link');
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/current — current exists but is not a symlink');
+        expect($output)->not->toContain('DEFERRED path:/home/www/rateguru/staging/current');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('classifies every broken current shape as CONFLICT — never DEFERRED — in parity with install-bootstrap-services', function () {
+    // Dangling: current is a symlink whose resolution does not exist (the
+    // resolved path has no stat row).
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, [
+            'statTable' => array_values(array_filter(
+                bootstrapPreflightCompliantStatTable(),
+                fn (string $row): bool => ! str_starts_with($row, '/home/www/rateguru/staging/releases/20260101120000|'),
+            )),
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/current — current is a dangling symlink');
+        expect($output)->not->toContain('DEFERRED path:/home/www/rateguru/staging/current');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+
+    // Outside releases: current resolves to a directory that exists but is
+    // not directly under releases/.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = bootstrapPreflightCompliantStatTable();
+        $statTable[] = '/home/www/rateguru/staging/rogue-release|directory|root|root|755';
+
+        $env = bootstrapPreflightFixture($scratch, [
+            'statTable' => $statTable,
+            'readlinkTable' => [
+                '/home/www/rateguru/staging/current|/home/www/rateguru/staging/rogue-release',
+                '/home/www/rateguru/staging/releases|/home/www/rateguru/staging/releases',
+            ],
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/current — current resolves outside the releases directory');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+
+    // Non-directory resolution: current points at a regular file inside
+    // releases/.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_map(
+            fn (string $row): string => str_starts_with($row, '/home/www/rateguru/staging/releases/20260101120000|')
+                ? '/home/www/rateguru/staging/releases/20260101120000|regular file|root|root|644'
+                : $row,
+            bootstrapPreflightCompliantStatTable(),
+        );
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/current — current resolves to a non-directory release');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+
+    // Releases unresolvable while current exists: current itself resolves,
+    // but the releases directory it must live under does not, so the
+    // containment comparison can never be made.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, [
+            'readlinkTable' => [
+                '/home/www/rateguru/staging/current|/home/www/rateguru/staging/releases/20260101120000',
+            ],
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/current — releases directory is missing while current exists');
+        expect($output)->not->toContain('DEFERRED path:/home/www/rateguru/staging/current');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('never infers PRE_DEPLOY from an unreadable current: a non-root probe is WARN and keeps the strict summary shape', function () {
+    // A failing stat cannot distinguish "absent" from "unreadable" without
+    // root. Inferring PRE_DEPLOY from a permission error would soften
+    // current and the deploy-time secrets to DEFERRED and flip the whole
+    // summary on a host that may well be DEPLOYED — the same caveat
+    // report_secret already applies to secret material.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_values(array_filter(
+            bootstrapPreflightCompliantStatTable(),
+            fn (string $row): bool => ! str_starts_with($row, '/home/www/rateguru/staging/current|'),
+        ));
+
+        $env = bootstrapPreflightFixture($scratch, [
+            'statTable' => $statTable,
+            'euid' => '1000',
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($output)->toContain('WARN     path:/home/www/rateguru/staging/current — absent or unverifiable without root');
+        expect($output)->not->toContain('DEFERRED path:/home/www/rateguru/staging/current');
+
+        // The strict deployed-host summary shape is kept — the pre-deploy
+        // split is never entered on a guess.
+        expect($output)->not->toContain('HOST BOOTSTRAP READY');
+        expect($output)->not->toContain('APPLICATION READY');
+        expect($output)->toMatch('/^HOST READY: (YES|NO)$/m');
+
+        // Deploy-time secret material is not softened either.
+        expect($output)->not->toContain('DEFERRED secret:laravel-env:staging-main');
+
+        // Root on the same fixture is the authoritative verdict: PRE_DEPLOY.
+        $rootEnv = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [, $rootOutput] = bootstrapPreflightRun(['--check'], $rootEnv);
+
+        expect($rootOutput)->toContain('DEFERRED path:/home/www/rateguru/staging/current');
+        expect($rootOutput)->toContain('HOST BOOTSTRAP READY');
+        expect($exit)->toBeIn([0, 1]);
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('asserts the slice 5.3 structural contract authoritatively for active-target directories', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        // Drift every 5.3-contract aspect the old preflight left unasserted:
+        // releases ownership, shared mode, incoming mode, a group-writable
+        // deploy home — plus a missing shared/storage row.
+        $statTable = array_values(array_filter(array_map(fn (string $row): ?string => match (true) {
+            str_starts_with($row, '/home/www/rateguru/staging/releases|') => '/home/www/rateguru/staging/releases|directory|root|root|2750',
+            str_starts_with($row, '/home/www/rateguru/staging/shared|') => '/home/www/rateguru/staging/shared|directory|rateguru-staging|rateguru-staging|770',
+            str_starts_with($row, '/home/www/rateguru/staging/shared/storage|') => null,
+            str_starts_with($row, '/home/deploy-rateguru-staging/incoming|') => '/home/deploy-rateguru-staging/incoming|directory|deploy-rateguru-staging|deploy-rateguru-staging|755',
+            str_starts_with($row, '/home/deploy-rateguru-staging|') => '/home/deploy-rateguru-staging|directory|deploy-rateguru-staging|deploy-rateguru-staging|775',
+            default => $row,
+        }, bootstrapPreflightCompliantStatTable())));
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/releases — owned by root:root, expected owner deploy-rateguru-staging');
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/shared — mode 770, expected 2770');
+        expect($output)->toContain('MISSING  path:/home/www/rateguru/staging/shared/storage — absent');
+        expect($output)->toContain('CONFLICT path:/home/deploy-rateguru-staging/incoming — mode 755, expected 750');
+        expect($output)->toContain('CONFLICT path:/home/deploy-rateguru-staging — mode 775 is group- or other-writable');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('treats an absent current as legitimate PRE_DEPLOY state: DEFERRED, deployment-owned, exit 0 on a bootstrapped host', function () {
+    // The slice 5.5 PRE_DEPLOY contract: a host whose 5.2-5.4 bootstrap is
+    // complete but which has never received a release is a legitimate,
+    // correctly bootstrapped host. The absent current and the deploy-time
+    // external material are DEFERRED — never MISSING — and --check exits 0.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_values(array_filter(
+            bootstrapPreflightCompliantStatTable(),
+            fn (string $row): bool => ! str_starts_with($row, '/home/www/rateguru/staging/current|')
+                && ! str_starts_with($row, '/home/www/rateguru/staging/shared/.env|')
+                && ! str_starts_with($row, '/home/deploy-rateguru-staging/.ssh/authorized_keys|')
+                && ! str_starts_with($row, '/root/.config/rclone/rclone.conf|'),
+        ));
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        // Target state: PRE_DEPLOY. current is DEFERRED, never MISSING, and
+        // no fake release/current is ever suggested or fabricated.
+        expect($output)->toContain('DEFERRED path:/home/www/rateguru/staging/current — absent — first immutable deployment has not happened yet');
+        expect($output)->not->toContain('MISSING  path:/home/www/rateguru/staging/current');
+
+        preg_match('/^.*path:\/home\/www\/rateguru\/staging\/current.*$/m', $output, $line);
+        expect($line[0])->toContain('deployment-owned');
+
+        // Application-only secret readiness is DEFERRED — REQUIRED BEFORE
+        // FIRST DEPLOY — while the 5.4-hard TLS/Basic Auth material (present
+        // in this fixture) stays PASS.
+        expect($output)->toContain('DEFERRED secret:laravel-env:staging-main');
+        expect($output)->toContain('DEFERRED secret:database-credentials:staging-main');
+        expect($output)->toContain('DEFERRED secret:github-deploy-key:staging-main');
+        expect($output)->toContain('DEFERRED secret:rclone-credentials');
+        expect($output)->toContain('REQUIRED BEFORE FIRST DEPLOY');
+
+        // The split summary: host bootstrap is complete, the application is
+        // legitimately not deployed yet, and the gate passes.
+        expect($output)->toContain('MISSING: 0');
+        expect($output)->toContain('CONFLICT: 0');
+        expect($output)->toMatch('/^DEFERRED: [1-9]\d*$/m');
+        expect($output)->toContain('HOST BOOTSTRAP READY: YES');
+        expect($output)->toContain('APPLICATION READY: DEFERRED — no release has been deployed (PRE_DEPLOY)');
+        expect($exit)->toBe(0, "a correctly bootstrapped PRE_DEPLOY host must pass --check:\n{$output}");
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('keeps the 5.4-hard external material a MISSING blocker even on a PRE_DEPLOY host', function () {
+    // TLS and Basic Auth are prerequisites install-bootstrap-services needs
+    // to activate committed host configuration — a PRE_DEPLOY host without
+    // them is NOT a completely bootstrapped host, and the pre-deploy
+    // softening never downgrades them.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_values(array_filter(
+            bootstrapPreflightCompliantStatTable(),
+            fn (string $row): bool => ! str_starts_with($row, '/home/www/rateguru/staging/current|')
+                && ! str_starts_with($row, '/etc/nginx/rateguru-staging.htpasswd|')
+                && ! str_starts_with($row, '/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem|'),
+        ));
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  secret:basic-auth');
+        expect($output)->toContain('MISSING  secret:tls:staging-main');
+        expect($output)->toContain('HOST BOOTSTRAP READY: NO');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('keeps the strict deployed-host secret contract: absent material on a DEPLOYED host stays MISSING', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        // DEPLOYED (current present and valid) with shared/.env absent: the
+        // pre-deploy softening must not apply.
+        $statTable = array_values(array_filter(
+            bootstrapPreflightCompliantStatTable(),
+            fn (string $row): bool => ! str_starts_with($row, '/home/www/rateguru/staging/shared/.env|'),
+        ));
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  secret:laravel-env:staging-main — absent');
+        expect($output)->not->toContain('DEFERRED secret:laravel-env:staging-main');
+        expect($output)->toContain('HOST READY: NO');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }
@@ -1135,7 +1570,7 @@ function bootstrapPreflightAssertSummaryMatchesItems(array $env): string
 {
     [, $output] = bootstrapPreflightRun(['--check'], $env);
 
-    foreach (['PASS', 'MISSING', 'WARN', 'CONFLICT'] as $status) {
+    foreach (['PASS', 'MISSING', 'WARN', 'CONFLICT', 'DEFERRED'] as $status) {
         preg_match("/^{$status}: (\\d+)$/m", $output, $summary);
         // A single space suffices as separator: CONFLICT fills the whole
         // fixed-width %-8s field, so only one space follows it.
@@ -1191,6 +1626,211 @@ it('ignores every RATEGURU_PREFLIGHT_* override unless test overrides are explic
         // /etc/os-release.)
         expect($output)->not->toContain('sentinel-bookworm');
         expect($output)->not->toContain('preflight-fixture-host');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Slice 5.4 parity: the preflight asserts the same service-file modes and
+// public-storage ACL contract install-bootstrap-services installs, so the
+// two can never disagree.
+// =============================================================================
+
+it('asserts the slice 5.4 service-file modes: a drifted installed mode is CONFLICT, not PASS', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_map(
+            fn (string $row): string => str_replace(
+                '/etc/nginx/sites-available/rateguru-staging|regular file|root|root|644',
+                '/etc/nginx/sites-available/rateguru-staging|regular file|root|root|600',
+                $row,
+            ),
+            bootstrapPreflightCompliantStatTable(),
+        );
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/etc/nginx/sites-available/rateguru-staging — mode 600, expected 644');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('reports the public-storage ACL contract: PASS when granted, MISSING when the www-data entry is absent, WARN without root', function () {
+    // Absent entry on shared/storage: MISSING, pointing at the owning
+    // installer — never a chmod or group-membership suggestion.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, [
+            'aclTable' => [
+                '/home/www/rateguru/staging/shared|granted',
+                '/home/www/rateguru/staging/shared/storage|present',
+            ],
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  acl:public-storage:staging-main — user:www-data:--x is absent on /home/www/rateguru/staging/shared/storage');
+
+        // The intended action (printed by --report) names the owning
+        // installer — never a chmod or group-membership suggestion.
+        [, $reportOutput] = bootstrapPreflightRun(['--report'], $env);
+        expect($reportOutput)->toContain('install-public-storage-access --apply --target staging-main');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+
+    // Unreadable directories without root: WARN, never a verdict.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, ['aclTable' => [], 'euid' => '1000']);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($output)->toContain('WARN     acl:public-storage:staging-main — cannot read the target directories without root');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+
+    // The compliant fixture (default acl table) is PASS — proven by the
+    // existing fully-compliant test; assert the exact item here too.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch);
+        [, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($output)->toContain('PASS     acl:public-storage:staging-main — user:www-data:--x present on shared and shared/storage');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+
+    // getfacl unavailable (not on the tool PATH, no gated override): WARN
+    // that ACLs cannot be enumerated — never an invented verdict.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, [
+            'tools' => array_values(array_filter(
+                bootstrapPreflightAllTools(),
+                fn (string $tool): bool => $tool !== 'getfacl',
+            )),
+        ]);
+        unset($env['RATEGURU_PREFLIGHT_GETFACL_BIN']);
+
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('WARN     acl:public-storage:staging-main — cannot enumerate ACLs (getfacl unavailable)');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('requires the slice 5.4 service-support log directory with the exact runtime ownership and setgid mode', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $statTable = array_values(array_filter(
+            bootstrapPreflightCompliantStatTable(),
+            fn (string $row): bool => ! str_starts_with($row, '/home/www/rateguru/staging/shared/storage/logs|'),
+        ));
+
+        $env = bootstrapPreflightFixture($scratch, ['statTable' => $statTable]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  path:/home/www/rateguru/staging/shared/storage/logs');
+        expect($output)->toContain('service-support log directory for staging-main (slice 5.4 contract');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// www-data as a code-group reader (Phase 5.6 clean-VPS blocker #2).
+// =============================================================================
+
+it('reports a missing www-data code-group membership, the exact clean-VPS 404 cause', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        // The clean-VPS identity state: www-data has only its own group,
+        // while the runtime user is already a code-group member. Nginx then
+        // cannot traverse the 0750 release tree and every request 404s with
+        // "stat() ... failed (13: Permission denied)".
+        $group = str_replace(
+            'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging,www-data',
+            'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging',
+            bootstrapPreflightCompliantGroup(),
+        );
+        expect($group)->not->toBe(bootstrapPreflightCompliantGroup(), 'fixture drift did not apply');
+
+        $env = bootstrapPreflightFixture($scratch, ['group' => $group]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1, 'a host Nginx cannot serve from must not report ready');
+        expect($output)->toContain('MISSING  membership:www-data:rateguru-staging-code — www-data is not a member');
+        // The runtime relation is unaffected and still passes.
+        expect($output)->toContain('PASS     membership:rateguru-staging:rateguru-staging-code');
+
+        // The reason names the real mechanism, not a vague permission note.
+        preg_match('/^.*membership:www-data:rateguru-staging-code.*$/m', $output, $line);
+        expect($line[0])->toContain('try_files');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('passes both code-group memberships on a compliant host and keeps the ACL boundary independent', function () {
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('PASS     membership:rateguru-staging:rateguru-staging-code');
+        expect($output)->toContain('PASS     membership:www-data:rateguru-staging-code');
+
+        // The two boundaries stay distinct: immutable code by group
+        // membership, shared mutable storage by the narrow ACL.
+        expect($output)->toContain('PASS     acl:public-storage:staging-main — user:www-data:--x present on shared and shared/storage');
+
+        // www-data is a code-group reader, never a runtime-group member.
+        expect($output)->not->toContain('membership:www-data:rateguru-staging —');
+        preg_match('/^.*user:www-data —.*$/m', $output, $userLine);
+        expect($userLine[0])->toContain('CODE group');
+        expect($userLine[0])->toContain('never a runtime group');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
+it('keeps the public-storage ACL assertion independent of code-group membership', function () {
+    // Removing the ACL must not disturb the membership verdicts, and
+    // removing the membership must not disturb the ACL verdict — they are
+    // separate boundaries with separate owners.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch, [
+            'aclTable' => [
+                '/home/www/rateguru/staging/shared|granted',
+                '/home/www/rateguru/staging/shared/storage|present',
+            ],
+        ]);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('MISSING  acl:public-storage:staging-main');
+        // Memberships are unaffected.
+        expect($output)->toContain('PASS     membership:www-data:rateguru-staging-code');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }

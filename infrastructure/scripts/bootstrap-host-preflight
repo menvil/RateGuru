@@ -48,6 +48,32 @@
 # rclone.conf, htpasswd, TLS keys) is detected by stat only. Their content
 # is never read, never validated, never printed.
 #
+# PRE_DEPLOY vs DEPLOYED (Phase 5.5): this preflight applies the exact
+# target-state model Phase 5.4 established for install-bootstrap-services —
+# never a second slightly-different interpretation. For each ACTIVE target:
+#   PRE_DEPLOY  TARGET_ROOT/current is truly absent — legitimate before the
+#               first application release. `current` and the deploy-time
+#               external material (shared/.env, database credentials inside
+#               it, the deploy authorized_keys, rclone.conf) are DEFERRED —
+#               "required before first deploy" — never MISSING, and never
+#               fabricated. HOST BOOTSTRAP READINESS is judged separately
+#               from FIRST-DEPLOY/OPERATIONAL SECRET READINESS.
+#   DEPLOYED    current resolves to a valid immutable release directly under
+#               releases/ — the full strict deployed-host contract applies,
+#               unchanged from before this distinction existed.
+#   BROKEN      current exists but is dangling, not a symlink, outside
+#               releases/, or resolves to a non-directory — CONFLICT in
+#               every mode; DEFERRED never hides a broken present current.
+#   UNVERIFIABLE  current cannot be stat'ed and we are not root, so absence
+#               is indistinguishable from a permission error — WARN, and
+#               never treated as pre-deploy, so a non-root run keeps the
+#               strict summary shape instead of softening on a guess. Only
+#               a root probe may conclude PRE_DEPLOY.
+# External material Phase 5.4 itself requires to activate committed host
+# configuration (TLS certificates/keys, the Basic Auth htpasswd) remains a
+# hard host-bootstrap prerequisite — MISSING when absent, never softened —
+# because install-bootstrap-services fails closed without it.
+#
 # Test overrides: every RATEGURU_PREFLIGHT_* override below is honored only
 # alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate common,
 # backup and every prior slice use — so a stray variable in a real shell can
@@ -64,6 +90,11 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
 SOURCE_REGISTRY="${REPO_ROOT}/infrastructure/config/deployment-targets.json"
 SOURCE_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
 
+# The committed external-runtimes contract (slice 5.2): rclone is a
+# RateGuru-managed external runtime binary pinned here — never an Ubuntu
+# package dependency, so this preflight never requires dpkg ownership of it.
+EXTERNAL_RUNTIMES_CONTRACT="${REPO_ROOT}/infrastructure/config/external-runtimes/versions.env"
+
 RUNTIME_CONFIG_ROOT="/home/www/rateguru/config"
 RUNTIME_BIN_ROOT="/home/www/rateguru/bin"
 RUNTIME_REGISTRY_DEFAULT="${RUNTIME_CONFIG_ROOT}/deployment-targets.json"
@@ -79,6 +110,16 @@ SUPPORTED_OS_VERSION_ID="22.04"
 
 DISK_MIN_AVAILABLE_MIB=5120
 MEMORY_MIN_TOTAL_MIB=1024
+
+# Slice 5.3 managed-identity contract, kept in exact-token parity with
+# install-bootstrap-host-layout (architecture tests compare the two
+# scripts): the runtime account must hold the non-login service shell, and
+# the deploy account must hold /bin/bash plus the exact canonical
+# /home/<deploy_user> home the GitHub Actions SSH deployment flow and the
+# managed .ssh/incoming directories depend on. Preflight only reports —
+# remediation is an operator decision via slice 5.3, never automatic.
+RUNTIME_USER_SHELL="/usr/sbin/nologin"
+DEPLOY_USER_SHELL="/bin/bash"
 
 # --- Test override gate -----------------------------------------------------
 
@@ -115,6 +156,8 @@ DF_BIN="$(gated_default RATEGURU_PREFLIGHT_DF_BIN '')"
 IP_BIN="$(gated_default RATEGURU_PREFLIGHT_IP_BIN '')"
 GETENT_BIN="$(gated_default RATEGURU_PREFLIGHT_GETENT_BIN '')"
 STAT_BIN="$(gated_default RATEGURU_PREFLIGHT_STAT_BIN stat)"
+GETFACL_BIN="$(gated_default RATEGURU_PREFLIGHT_GETFACL_BIN '')"
+READLINK_BIN="$(gated_default RATEGURU_PREFLIGHT_READLINK_BIN readlink)"
 
 # Direct value overrides for report-only host facts.
 HOSTNAME_VALUE="$(gated_default RATEGURU_PREFLIGHT_HOSTNAME "$(hostname 2>/dev/null || printf 'unknown')")"
@@ -140,6 +183,7 @@ COUNT_PASS=0
 COUNT_MISSING=0
 COUNT_WARN=0
 COUNT_CONFLICT=0
+COUNT_DEFERRED=0
 
 section() {
     printf '\n%s\n' "$1"
@@ -147,7 +191,11 @@ section() {
 
 # item STATUS NAME DETAIL [ACTION]
 #
-# One report line. STATUS is PASS/MISSING/WARN/CONFLICT. ACTION is the
+# One report line. STATUS is PASS/MISSING/WARN/CONFLICT/DEFERRED — DEFERRED
+# is the Phase 5.4 vocabulary applied here: a legitimately-pre-deploy item
+# (the absent current symlink, deploy-time external secret material) that is
+# required before the first deployment but never blocks the host-bootstrap
+# contract, and is never used to hide a genuine conflict. ACTION is the
 # intended bootstrap action, printed only by --report and only for non-PASS
 # items. Output is deterministic: no timestamps, no ordering surprises.
 item() {
@@ -158,6 +206,7 @@ item() {
         MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
         WARN)     COUNT_WARN=$((COUNT_WARN + 1)) ;;
         CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
+        DEFERRED) COUNT_DEFERRED=$((COUNT_DEFERRED + 1)) ;;
         *)        fail "internal: unknown item status: ${status}" ;;
     esac
 
@@ -250,7 +299,8 @@ meminfo_kib() {
 ACTIVE_TARGETS=()
 declare -A TGT_ROOT TGT_RUNTIME_USER TGT_RUNTIME_GROUP TGT_DEPLOY_USER
 declare -A TGT_CODE_GROUP TGT_INCOMING TGT_FPM_SOCKET TGT_FPM_POOL
-declare -A TGT_DB_ROLE TGT_NGINX_SITE TGT_PUBLIC_HOSTNAME
+declare -A TGT_DB_ROLE TGT_NGINX_SITE TGT_PUBLIC_HOSTNAME TGT_SUPERVISOR_PROGRAM
+declare -A TGT_STATE TGT_STATE_REASON
 SOURCE_REGISTRY_OK=false
 JQ_AVAILABLE=true
 
@@ -289,6 +339,7 @@ load_source_contract() {
             TGT_FPM_POOL[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].php_fpm.pool' "${SOURCE_REGISTRY}")"
             TGT_DB_ROLE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].database.application_role' "${SOURCE_REGISTRY}")"
             TGT_NGINX_SITE[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].nginx.site_name' "${SOURCE_REGISTRY}")"
+            TGT_SUPERVISOR_PROGRAM[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].supervisor.program' "${SOURCE_REGISTRY}")"
             TGT_PUBLIC_HOSTNAME[${target_id}]="$(jq -r --arg id "${target_id}" '.targets[$id].public_hostnames[0]' "${SOURCE_REGISTRY}")"
         done < <(jq -r '.targets | to_entries[] | select(.value.lifecycle == "active") | .key' "${SOURCE_REGISTRY}" | sort)
     fi
@@ -326,6 +377,104 @@ template_value() {
     esac
 
     printf '%s\n' "${value}"
+}
+
+# --- Target deployment state (the Phase 5.4 shared model) --------------------
+
+# classify_target_state TARGET_ID — sets TGT_STATE[id] to PRE_DEPLOY,
+# DEPLOYED, BROKEN or UNVERIFIABLE (with the reason in
+# TGT_STATE_REASON[id]), in exact semantic parity with
+# install-bootstrap-services' classify_target_state: a truly absent
+# `current` is the only legitimate PRE_DEPLOY signal, and every
+# present-but-broken shape is BROKEN — never silently downgraded.
+# Strictly read-only: one readlink resolution plus stat probes; current is
+# never fabricated, rewritten or followed for any operation.
+#
+# UNVERIFIABLE exists because a failing stat cannot distinguish "absent"
+# from "unreadable" without root — the identical caveat report_secret
+# already applies to secret material. Inferring PRE_DEPLOY from a
+# permission error would let a non-root run on a genuinely DEPLOYED host
+# soften `current` and the deploy-time secrets to DEFERRED and flip the
+# whole summary to the pre-deploy shape. Root sees absence definitively, so
+# only a root probe may conclude PRE_DEPLOY.
+classify_target_state() {
+    local target_id="$1"
+    local root="${TGT_ROOT[${target_id}]}"
+    local current="${root}/current"
+    local probe current_type resolved resolved_releases resolved_type
+
+    TGT_STATE[${target_id}]=BROKEN
+    TGT_STATE_REASON[${target_id}]=""
+
+    if ! probe="$(stat_probe "${current}")"; then
+        if [[ "${EFFECTIVE_UID}" == "0" ]]; then
+            TGT_STATE[${target_id}]=PRE_DEPLOY
+        else
+            TGT_STATE[${target_id}]=UNVERIFIABLE
+            TGT_STATE_REASON[${target_id}]='absent or unverifiable without root — absence cannot be distinguished from a permission error'
+        fi
+
+        return 0
+    fi
+
+    current_type="${probe%%|*}"
+
+    if [[ "${current_type}" != "symbolic link" ]]; then
+        TGT_STATE_REASON[${target_id}]='current exists but is not a symlink (deployment-owned path in a broken shape)'
+        return 0
+    fi
+
+    if ! resolved="$("${READLINK_BIN}" -f -- "${current}" 2>/dev/null)" \
+        || [[ -z "${resolved}" ]] \
+        || ! stat_probe "${resolved}" >/dev/null
+    then
+        TGT_STATE_REASON[${target_id}]='current is a dangling symlink'
+        return 0
+    fi
+
+    if ! resolved_releases="$("${READLINK_BIN}" -f -- "${root}/releases" 2>/dev/null)" \
+        || [[ -z "${resolved_releases}" ]]
+    then
+        TGT_STATE_REASON[${target_id}]='releases directory is missing while current exists'
+        return 0
+    fi
+
+    if [[ "$(dirname -- "${resolved}")" != "${resolved_releases}" ]]; then
+        TGT_STATE_REASON[${target_id}]="current resolves outside the releases directory (${resolved})"
+        return 0
+    fi
+
+    resolved_type="$(stat_probe "${resolved}")"
+    resolved_type="${resolved_type%%|*}"
+
+    if [[ "${resolved_type}" != directory ]]; then
+        TGT_STATE_REASON[${target_id}]='current resolves to a non-directory release'
+        return 0
+    fi
+
+    TGT_STATE[${target_id}]=DEPLOYED
+}
+
+classify_target_states() {
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        classify_target_state "${target_id}"
+    done
+}
+
+# host_pre_deploy — true only when there is at least one active target and
+# every one of them is PRE_DEPLOY. A BROKEN target anywhere means the
+# pre-deploy softening never applies (its CONFLICT still fails the report);
+# a DEPLOYED target keeps the strict deployed-host summary contract; and an
+# UNVERIFIABLE target is never treated as pre-deploy, so a non-root run
+# falls back to the strict shape rather than softening on a guess.
+host_pre_deploy() {
+    (( ${#ACTIVE_TARGETS[@]} > 0 )) || return 1
+
+    local target_id
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        [[ "${TGT_STATE[${target_id}]:-}" == PRE_DEPLOY ]] || return 1
+    done
 }
 
 # --- HOST -------------------------------------------------------------------
@@ -545,8 +694,9 @@ report_host_dns() {
 # REQUIRED_TOOLS arrays and *_BIN defaults in deploy, rollback, cleanup,
 # backup, restore-test, offsite-backup/retention/restore-test, backup-cycle,
 # install-target-operations, install-target-perimeter, install-mail-capture,
-# install-public-storage-access, verify-mail-capture, status, health-check
-# and common. Format: "tool:package".
+# install-public-storage-access, verify-mail-capture, status, health-check,
+# common, and install-bootstrap-runtime (unzip extracts the pinned rclone
+# release archive). Format: "tool:package".
 REQUIRED_BASE_TOOLS=(
     bash:bash
     jq:jq
@@ -586,8 +736,10 @@ REQUIRED_BASE_TOOLS=(
     awk:mawk
     cmp:diffutils
     diff:diffutils
+    unzip:unzip
     flock:util-linux
     namei:util-linux
+    pgrep:procps
     runuser:util-linux
     hostname:hostname
     useradd:passwd
@@ -600,7 +752,9 @@ REQUIRED_BASE_TOOLS=(
 )
 
 # Filled by report_tools: php CLI name derived from the deployment.conf
-# template (e.g. php8.5), plus the fixed service binaries.
+# template (e.g. php8.5), plus the fixed service binaries. rclone is
+# deliberately not listed here: it is a managed external runtime binary
+# (see report_tools), never an Ubuntu package requirement.
 RUNTIME_SERVICE_TOOLS=(
     nginx:nginx
     systemctl:systemd
@@ -609,7 +763,6 @@ RUNTIME_SERVICE_TOOLS=(
     psql:postgresql-client
     createdb:postgresql-client
     dropdb:postgresql-client
-    rclone:rclone
 )
 
 OPTIONAL_DEV_TOOLS=(
@@ -618,6 +771,20 @@ OPTIONAL_DEV_TOOLS=(
     wget:wget
     journalctl:systemd
 )
+
+# external_runtime_value KEY — the value of the first KEY=VALUE line in the
+# committed external-runtimes contract. Plain text extraction — the contract
+# is never sourced, never eval'd (the same discipline template_value applies
+# to the deployment.conf template).
+external_runtime_value() {
+    local key="$1"
+
+    [[ -r "${EXTERNAL_RUNTIMES_CONTRACT}" ]] || return 1
+
+    awk -v prefix="${key}=" \
+        'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' \
+        "${EXTERNAL_RUNTIMES_CONTRACT}"
+}
 
 report_tools() {
     section "TOOLS"
@@ -655,6 +822,22 @@ report_tools() {
                 "install ${package} (slice 5.2)"
         fi
     done
+
+    # rclone: required, but as a RateGuru-managed external runtime binary
+    # pinned by the committed external-runtimes contract. Presence is the
+    # preflight contract — Ubuntu/dpkg package ownership is deliberately
+    # never required, and absence is remediated by the slice 5.2 installer's
+    # verified-download path, never by apt.
+    local rclone_pin
+    rclone_pin="$(external_runtime_value RCLONE_VERSION || true)"
+    rclone_pin="${rclone_pin:-unknown}"
+
+    if tool_available rclone; then
+        item PASS "tool:rclone" "managed external runtime binary present (pinned v${rclone_pin}; dpkg ownership not required)"
+    else
+        item MISSING "tool:rclone" "managed external runtime binary not found (pinned v${rclone_pin})" \
+            "install verified rclone v${rclone_pin} via install-bootstrap-runtime --apply (slice 5.2)"
+    fi
 
     for entry in "${OPTIONAL_DEV_TOOLS[@]}"; do
         tool="${entry%%:*}"
@@ -792,6 +975,54 @@ report_user() {
     item PASS "user:${user}" "exists (uid=${uid} gid=${gid} primary-group=${primary_group}; ${label})"
 }
 
+# report_target_user USER EXPECTED_GROUP EXPECTED_HOME EXPECTED_SHELL LABEL
+#
+# The slice 5.3 managed-identity contract, asserted authoritatively with
+# the identical classification install-bootstrap-host-layout --verify
+# applies: primary group, canonical shell, and — where EXPECTED_HOME is
+# not "-" — the exact canonical home (the deploy identity; the runtime
+# account's historic home is deliberately not contract). Drift is
+# CONFLICT; preflight never mutates accounts, and no numeric UID/GID is
+# ever asserted.
+report_target_user() {
+    local user="$1" expected_group="$2" expected_home="$3" expected_shell="$4" label="$5"
+    local entry uid gid primary_group home shell drift=""
+
+    if ! entry="$(passwd_entry "${user}")"; then
+        item MISSING "user:${user}" "missing (${label})" \
+            "create via slice 5.3 (never by preflight)"
+
+        return 0
+    fi
+
+    uid="$(cut -d: -f3 <<<"${entry}")"
+    gid="$(cut -d: -f4 <<<"${entry}")"
+    primary_group="$(group_name_for_gid "${gid}" || printf 'gid=%s' "${gid}")"
+    home="$(cut -d: -f6 <<<"${entry}")"
+    shell="$(cut -d: -f7 <<<"${entry}")"
+
+    if [[ "${primary_group}" != "${expected_group}" ]]; then
+        drift="primary group is ${primary_group}, required ${expected_group}"
+    fi
+
+    if [[ "${expected_home}" != "-" ]] && [[ "${home}" != "${expected_home}" ]]; then
+        drift="${drift:+${drift}; }home is ${home:-empty}, required ${expected_home}"
+    fi
+
+    if [[ "${shell}" != "${expected_shell}" ]]; then
+        drift="${drift:+${drift}; }shell is ${shell:-empty}, required ${expected_shell}"
+    fi
+
+    if [[ -n "${drift}" ]]; then
+        item CONFLICT "user:${user}" "${drift} (${label})" \
+            "incompatible existing account — operator review required; slice 5.3 never rewrites an existing account's home/shell"
+
+        return 0
+    fi
+
+    item PASS "user:${user}" "exists (uid=${uid} primary-group=${primary_group} shell=${shell}; ${label})"
+}
+
 report_group() {
     local group="$1" label="$2"
     local entry
@@ -833,13 +1064,21 @@ report_users_groups() {
     section "USERS/GROUPS"
 
     report_user root "superuser; owns all installed operational files"
-    report_user www-data "Nginx/PHP-FPM socket owner; storage access is ACL-based, not membership-based"
+    report_user www-data "Nginx/PHP-FPM service account; reads immutable release code via each active target's CODE group, never a runtime group; shared mutable storage stays a separate narrow ACL"
     report_user postgres "PostgreSQL service account; backup runs pg_dump via runuser -u postgres"
 
+    # Managed per-target identities carry the full slice 5.3 metadata
+    # contract (primary group, canonical shell, and the deploy identity's
+    # exact canonical home) — package-created and shared-host accounts
+    # above/below keep the presence-only report_user probe.
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
-        report_user "${TGT_RUNTIME_USER[${target_id}]}" "runtime user for target ${target_id}"
-        report_user "${TGT_DEPLOY_USER[${target_id}]}" "deploy user for target ${target_id}"
+        report_target_user "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" \
+            - "${RUNTIME_USER_SHELL}" \
+            "runtime user for target ${target_id}; historic home is not contract"
+        report_target_user "${TGT_DEPLOY_USER[${target_id}]}" "${TGT_DEPLOY_USER[${target_id}]}" \
+            "/home/${TGT_DEPLOY_USER[${target_id}]}" "${DEPLOY_USER_SHELL}" \
+            "deploy user for target ${target_id}: GitHub Actions SSH deployment account"
     done
 
     # Shared staging mail capture accounts — shared-host-service, not
@@ -858,6 +1097,19 @@ report_users_groups() {
         # runtime user must be a member of the code group to read releases.
         report_membership "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_CODE_GROUP[${target_id}]}" \
             "PHP-FPM must read releases owned ${TGT_DEPLOY_USER[${target_id}]}:${TGT_CODE_GROUP[${target_id}]} mode 0750/0640"
+
+        # The second required code-group reader. Nginx serves
+        # root <target>/current/public with try_files, so its www-data
+        # workers must traverse the release tree and stat/read
+        # public/index.php themselves, before FastCGI is involved. Without
+        # this a clean host answers every request with 404 and logs
+        # "stat() ... failed (13: Permission denied)" — the Phase 5.6
+        # clean-VPS acceptance failed on exactly that. This is immutable
+        # CODE access only: www-data never joins a runtime group, and
+        # shared mutable storage stays the separate narrow ACL asserted by
+        # acl:public-storage below.
+        report_membership "www-data" "${TGT_CODE_GROUP[${target_id}]}" \
+            "Nginx workers must traverse and read ${TGT_ROOT[${target_id}]}/current/public (releases normalized 0750/0640) to serve assets and evaluate try_files/index.php"
     done
 }
 
@@ -932,6 +1184,84 @@ report_path() {
     item PASS "path:${path}" "${detail}"
 }
 
+# report_target_current TARGET_ID — the deployment-owned current symlink
+# through the Phase 5.4 target-state model: PRE_DEPLOY absence is DEFERRED
+# (legitimate before the first immutable deployment — never MISSING, never
+# fabricated), a DEPLOYED current resolving to a valid immutable release is
+# PASS, and every broken present shape is CONFLICT — DEFERRED never hides a
+# broken present current.
+report_target_current() {
+    local target_id="$1"
+    local current="${TGT_ROOT[${target_id}]}/current"
+
+    case "${TGT_STATE[${target_id}]:-BROKEN}" in
+        PRE_DEPLOY)
+            item DEFERRED "path:${current}" "absent — first immutable deployment has not happened yet (PRE_DEPLOY for ${target_id}; deployment-owned, never fabricated by any bootstrap slice)" \
+                "created by the first real deploy — never by preflight or any bootstrap installer"
+            ;;
+        UNVERIFIABLE)
+            item WARN "path:${current}" "${TGT_STATE_REASON[${target_id}]} (${target_id})" \
+                "re-run as root for the authoritative deployment-state verdict"
+            ;;
+        DEPLOYED)
+            item PASS "path:${current}" "symbolic link resolving to a valid immutable release under releases/ (DEPLOYED; deployment-owned)"
+            ;;
+        *)
+            item CONFLICT "path:${current}" "${TGT_STATE_REASON[${target_id}]:-current is in a broken shape}" \
+                "resolve the broken release state manually — never treated as PRE_DEPLOY, never repaired by preflight"
+            ;;
+    esac
+}
+
+# report_public_storage_acl — the slice 5.4 public-storage access contract:
+# install-public-storage-access grants www-data execute-only traversal
+# (user:www-data:--x) on each active target's shared and shared/storage —
+# never a chmod, never a group membership. The preflight asserts the same
+# contract read-only via getfacl; when getfacl is unavailable or the
+# directories cannot be read (non-root run), the item degrades to WARN
+# rather than inventing a verdict.
+report_public_storage_acl() {
+    local getfacl_bin
+    getfacl_bin="$(resolve_probe_bin "${GETFACL_BIN}" getfacl)"
+
+    local target_id dir acl_output missing
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        if [[ -z "${getfacl_bin}" ]]; then
+            item WARN "acl:public-storage:${target_id}" "cannot enumerate ACLs (getfacl unavailable)" \
+                "install the acl package (slice 5.2) and re-run"
+            continue
+        fi
+
+        missing=""
+        for dir in "${TGT_ROOT[${target_id}]}/shared" "${TGT_ROOT[${target_id}]}/shared/storage"; do
+            if ! acl_output="$("${getfacl_bin}" -p "${dir}" 2>/dev/null)"; then
+                missing="unreadable"
+                break
+            fi
+
+            if ! grep -Fxq "user:www-data:--x" <<<"${acl_output}"; then
+                missing="${dir}"
+                break
+            fi
+        done
+
+        if [[ -z "${missing}" ]]; then
+            item PASS "acl:public-storage:${target_id}" "user:www-data:--x present on shared and shared/storage (slice 5.4 contract; installed by install-public-storage-access)"
+        elif [[ "${missing}" == unreadable ]]; then
+            if [[ "${EFFECTIVE_UID}" == "0" ]]; then
+                item MISSING "acl:public-storage:${target_id}" "shared/shared-storage directories cannot be read — ACL not verifiable (directories may be absent on a clean host)" \
+                    "created by slice 5.3; ACL granted by install-public-storage-access --apply --target ${target_id} (slice 5.4)"
+            else
+                item WARN "acl:public-storage:${target_id}" "cannot read the target directories without root — ACL not verifiable" \
+                    "re-run as root for the authoritative ACL check"
+            fi
+        else
+            item MISSING "acl:public-storage:${target_id}" "user:www-data:--x is absent on ${missing}" \
+                "install-public-storage-access --apply --target ${target_id} (slice 5.4) — never chmod, never group membership"
+        fi
+    done
+}
+
 report_filesystem() {
     section "FILESYSTEM"
 
@@ -943,13 +1273,19 @@ report_filesystem() {
     report_path backups /home/www/rateguru/backups directory root root 700 "local backup base (contents never scanned)"
     report_path run /home/www/rateguru/run directory root root 700 "operational lock directory"
 
-    # The fifteen files install-target-operations manages.
+    # The sixteen files install-target-operations manages.
     report_path runtime-registry "${RUNTIME_REGISTRY_DEFAULT}" "regular file" root root nw "runtime target registry"
     report_path deployment-conf "${RUNTIME_DEPLOYMENT_CONF_DEFAULT}" "regular file" root root nw "host-global deployment.conf"
 
     local cli
+    # verify-required-clis belongs here for the same reason as every other
+    # entry: deploy invokes it by absolute path from this directory before
+    # switching current, so a host missing it cannot perform its first
+    # deployment. Omitting it is what let a clean host report READY and then
+    # fail the Phase 5.6 acceptance deploy.
     for cli in targets health-check status cleanup deploy rollback backup \
-        restore-test offsite-backup offsite-retention offsite-restore-test backup-cycle
+        restore-test offsite-backup offsite-retention offsite-restore-test backup-cycle \
+        verify-required-clis
     do
         report_path "bin-${cli}" "${RUNTIME_BIN_ROOT}/${cli}" "regular file" root root 755 "installed operational CLI"
     done
@@ -957,21 +1293,33 @@ report_filesystem() {
     report_path bin-common "${RUNTIME_BIN_ROOT}/common" "regular file" root root 644 "sourced library — never executable"
 
     # Per-target runtime tree, derived from the SOURCE registry — never from
-    # an assumed /home/www/rateguru/current.
-    local target_id target_root
+    # an assumed /home/www/rateguru/current. Owners, groups and modes are
+    # the slice 5.3 structural contract (install-bootstrap-host-layout is
+    # the installer that converges them), asserted here authoritatively so
+    # preflight and slice 5.3 can never disagree. current stays
+    # deployment-owned: reported absent until a real deployment creates it,
+    # never fabricated by any bootstrap slice. No exact numeric UID/GID is
+    # ever part of the contract — names are.
+    local target_id target_root deploy_user deploy_home
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         target_root="${TGT_ROOT[${target_id}]}"
+        deploy_user="${TGT_DEPLOY_USER[${target_id}]}"
+        deploy_home="/home/${deploy_user}"
 
-        report_path "target-root" "${target_root}" directory root root 755 "application root for target ${target_id}"
-        report_path "releases" "${target_root}/releases" directory - - - "immutable release history for ${target_id} (contents never scanned)"
-        report_path "shared" "${target_root}/shared" directory - - - "shared state for ${target_id}"
-        report_path "current" "${target_root}/current" "symbolic link" - - - "atomic current-release switch for ${target_id}"
-        report_path "locks" "${target_root}/locks" directory - - - "deployment lock directory for ${target_id}"
-        report_path "deployments" "${target_root}/deployments" directory - - - "deployment history for ${target_id}"
-        report_path "incoming" "${TGT_INCOMING[${target_id}]}" directory "${TGT_DEPLOY_USER[${target_id}]}" - - "incoming artifacts for ${target_id}"
+        report_path "target-root" "${target_root}" directory root root 755 "application root for target ${target_id} (slice 5.3 contract)"
+        report_path "releases" "${target_root}/releases" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "immutable release history for ${target_id} (contents never scanned; slice 5.3 contract)"
+        report_path "shared" "${target_root}/shared" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "shared state for ${target_id} (slice 5.3 contract)"
+        report_path "shared-storage" "${target_root}/shared/storage" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "structural shared-storage root for ${target_id} (slice 5.3 contract)"
+        report_path "shared-storage-logs" "${target_root}/shared/storage/logs" directory "${TGT_RUNTIME_USER[${target_id}]}" "${TGT_RUNTIME_GROUP[${target_id}]}" 2770 "service-support log directory for ${target_id} (slice 5.4 contract: the committed PHP-FPM/Supervisor configs log here)"
+        report_target_current "${target_id}"
+        report_path "locks" "${target_root}/locks" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "deployment lock directory for ${target_id} (slice 5.3 contract)"
+        report_path "deployments" "${target_root}/deployments" directory "${deploy_user}" "${TGT_CODE_GROUP[${target_id}]}" 2750 "deployment history for ${target_id} (slice 5.3 contract)"
+        report_path "deploy-home" "${deploy_home}" directory "${deploy_user}" "${deploy_user}" nw "deploy user home for ${target_id} (slice 5.3 contract: never group/other-writable)"
+        report_path "deploy-ssh" "${deploy_home}/.ssh" directory "${deploy_user}" "${deploy_user}" 700 "structural SSH directory for ${target_id} (slice 5.3 contract; authorized_keys stays secret material)"
+        report_path "incoming" "${TGT_INCOMING[${target_id}]}" directory "${deploy_user}" "${deploy_user}" 750 "incoming artifacts for ${target_id} (slice 5.3 contract)"
     done
 
-    report_path logs /var/log/rateguru directory root root - "operational log directory (cron output)"
+    report_path logs /var/log/rateguru directory root root 750 "operational log directory (cron output; slice 5.3 contract)"
 
     # Perimeter files (install-target-perimeter's contract).
     local wrapper
@@ -982,14 +1330,16 @@ report_filesystem() {
     report_path sudoers /etc/sudoers.d/rateguru-deploy "regular file" root root 440 "deploy sudoers grant"
     report_path cron-backups /etc/cron.d/rateguru-backups "regular file" root root 644 "backup-cycle cron"
     report_path cron-scheduler /etc/cron.d/rateguru-staging-scheduler "regular file" root root 644 "Laravel scheduler cron"
-    report_path sshd-conf /etc/ssh/sshd_config.d/70-rateguru-deploy.conf "regular file" root root - "deploy-user SSH restrictions"
+    report_path sshd-conf /etc/ssh/sshd_config.d/70-rateguru-deploy.conf "regular file" root root 644 "deploy-user SSH restrictions (slice 5.4 contract)"
 
-    # Service configuration installed from committed sources (presence and
-    # type; modes for these are not pinned by any installer).
+    # Service configuration installed from committed sources by
+    # install-bootstrap-services (slice 5.4), which pins every one of these
+    # files root:root 0644 — the preflight asserts the identical contract so
+    # the two can never disagree.
     local target_site
     for target_id in "${ACTIVE_TARGETS[@]}"; do
         target_site="${TGT_NGINX_SITE[${target_id}]}"
-        report_path "nginx-site" "/etc/nginx/sites-available/${target_site}" "regular file" root root - "Nginx vhost for ${target_id}"
+        report_path "nginx-site" "/etc/nginx/sites-available/${target_site}" "regular file" root root 644 "Nginx vhost for ${target_id} (slice 5.4 contract)"
         report_path "nginx-site-enabled" "/etc/nginx/sites-enabled/${target_site}" "symbolic link" - - - "enabled Nginx vhost for ${target_id}"
     done
 
@@ -999,11 +1349,15 @@ report_filesystem() {
         php_version="${php_version%-fpm}"
 
         for target_id in "${ACTIVE_TARGETS[@]}"; do
-            report_path "php-fpm-pool" "/etc/php/${php_version}/fpm/pool.d/${TGT_FPM_POOL[${target_id}]}.conf" "regular file" root root - "PHP-FPM pool for ${target_id}"
+            report_path "php-fpm-pool" "/etc/php/${php_version}/fpm/pool.d/${TGT_FPM_POOL[${target_id}]}.conf" "regular file" root root 644 "PHP-FPM pool for ${target_id} (slice 5.4 contract)"
         done
     fi
 
-    report_path supervisor-conf /etc/supervisor/conf.d/rateguru-staging-queue.conf "regular file" root root - "Supervisor queue worker"
+    for target_id in "${ACTIVE_TARGETS[@]}"; do
+        report_path "supervisor-conf" "/etc/supervisor/conf.d/${TGT_SUPERVISOR_PROGRAM[${target_id}]}.conf" "regular file" root root 644 "Supervisor queue worker for ${target_id} (slice 5.4 contract)"
+    done
+
+    report_public_storage_acl
 
     # Shared staging mail capture (shared-host-service).
     report_path mailpit-unit /etc/systemd/system/staging-mailpit.service "regular file" root root - "shared-host-service unit"
@@ -1188,7 +1542,11 @@ report_network() {
 # read, validated, or printed; this section only says whether later
 # bootstrap slices will need external/manual secret material. When the path
 # cannot be stat'ed and we are not root, absence cannot be distinguished
-# from a permission error, so the item degrades to WARN.
+# from a permission error, so the item degrades to WARN. This strict probe
+# stays the shape for HOST BOOTSTRAP material — external files Phase 5.4
+# itself requires to activate committed host configuration (TLS
+# certificates, the Basic Auth htpasswd) — which is a hard prerequisite in
+# every target state.
 report_secret() {
     local name="$1" path="$2" label="$3"
 
@@ -1203,31 +1561,70 @@ report_secret() {
     fi
 }
 
+# report_deploy_secret NAME PATH LABEL STATE — the FIRST-DEPLOY/OPERATIONAL
+# variant of report_secret, for deliberately-external material no Phase
+# 5.2–5.5 slice creates and no host-bootstrap step needs (shared/.env with
+# its database credentials, the deploy authorized_keys, rclone.conf). On a
+# PRE_DEPLOY target its absence is DEFERRED — REQUIRED BEFORE FIRST DEPLOY —
+# because host bootstrap is legitimately complete without it; on a DEPLOYED
+# (or broken) target the strict deployed-host semantics apply unchanged.
+report_deploy_secret() {
+    local name="$1" path="$2" label="$3" state="$4"
+
+    if stat_probe "${path}" >/dev/null; then
+        item PASS "secret:${name}" "present at ${path} (${label}; content never read or validated)"
+    elif [[ "${state}" == PRE_DEPLOY ]]; then
+        item DEFERRED "secret:${name}" "absent: ${path} (${label}) — REQUIRED BEFORE FIRST DEPLOY; deliberately external, not part of the host-bootstrap contract" \
+            "provide manually before the first deployment — never generated or read by preflight"
+    elif [[ "${EFFECTIVE_UID}" == "0" ]]; then
+        item MISSING "secret:${name}" "absent: ${path} (${label})" \
+            "provide manually — never generated or read by preflight"
+    else
+        item WARN "secret:${name}" "absent or unverifiable without root: ${path} (${label})" \
+            "re-run as root, or provide manually"
+    fi
+}
+
 report_secrets() {
     section "SECRETS REQUIRED LATER"
 
-    local target_id
+    local target_id target_state host_state
+    host_state=DEPLOYED
+    host_pre_deploy && host_state=PRE_DEPLOY
+
     for target_id in "${ACTIVE_TARGETS[@]}"; do
-        report_secret "laravel-env:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
-            "Laravel environment for ${target_id}"
-        report_secret "database-credentials:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
-            "credentials for PostgreSQL role ${TGT_DB_ROLE[${target_id}]} live inside shared/.env"
-        report_secret "github-deploy-key:${target_id}" "/home/${TGT_DEPLOY_USER[${target_id}]}/.ssh/authorized_keys" \
-            "GitHub Actions deploy public key for ${TGT_DEPLOY_USER[${target_id}]}"
+        target_state="${TGT_STATE[${target_id}]:-BROKEN}"
+
+        report_deploy_secret "laravel-env:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
+            "Laravel environment for ${target_id}" "${target_state}"
+        report_deploy_secret "database-credentials:${target_id}" "${TGT_ROOT[${target_id}]}/shared/.env" \
+            "credentials for PostgreSQL role ${TGT_DB_ROLE[${target_id}]} live inside shared/.env" "${target_state}"
+        report_deploy_secret "github-deploy-key:${target_id}" "/home/${TGT_DEPLOY_USER[${target_id}]}/.ssh/authorized_keys" \
+            "GitHub Actions deploy public key for ${TGT_DEPLOY_USER[${target_id}]}" "${target_state}"
         report_secret "tls:${target_id}" "/etc/letsencrypt/live/${TGT_PUBLIC_HOSTNAME[${target_id}]}/fullchain.pem" \
-            "TLS certificate for ${TGT_PUBLIC_HOSTNAME[${target_id}]} (DNS/ACME credentials are manual if automation needs them)"
+            "TLS certificate for ${TGT_PUBLIC_HOSTNAME[${target_id}]} (hard slice 5.4 prerequisite; DNS/ACME credentials are manual if automation needs them)"
     done
 
-    report_secret "rclone-credentials" "/root/.config/rclone/rclone.conf" \
-        "Backblaze B2 credentials for offsite backups"
+    report_deploy_secret "rclone-credentials" "/root/.config/rclone/rclone.conf" \
+        "Backblaze B2 credentials for offsite backups" "${host_state}"
     report_secret "basic-auth" "/etc/nginx/rateguru-staging.htpasswd" \
-        "Basic Auth hashes for staging and mail-capture vhosts"
+        "Basic Auth hashes for staging and mail-capture vhosts (hard slice 5.4 prerequisite)"
     report_secret "tls-mail-capture" "/etc/letsencrypt/live/staging-mail-capture/fullchain.pem" \
-        "TLS certificate for the shared mail-capture vhosts"
+        "TLS certificate for the shared mail-capture vhosts (hard slice 5.4 prerequisite)"
 }
 
 # --- SUMMARY ----------------------------------------------------------------
 
+# report_summary — the readiness aggregation. WARN and DEFERRED never block;
+# MISSING and CONFLICT always do. Two summary shapes, one shared gate:
+#   DEPLOYED (or no target contract): the existing strict `HOST READY`
+#   verdict, byte-compatible with what today's staging host produces.
+#   PRE_DEPLOY (every active target legitimately pre-deploy): host bootstrap
+#   readiness is judged separately from application/first-deploy readiness —
+#   `HOST BOOTSTRAP READY` uses the same MISSING/CONFLICT gate, and
+#   `APPLICATION READY: DEFERRED` states plainly that no release has been
+#   deployed. A BROKEN current keeps its CONFLICT, so it can never ride the
+#   pre-deploy shape into a passing report.
 report_summary() {
     section "SUMMARY"
 
@@ -1236,7 +1633,20 @@ report_summary() {
     printf 'MISSING: %d\n' "${COUNT_MISSING}"
     printf 'WARN: %d\n' "${COUNT_WARN}"
     printf 'CONFLICT: %d\n' "${COUNT_CONFLICT}"
+    printf 'DEFERRED: %d\n' "${COUNT_DEFERRED}"
     printf '\n'
+
+    if host_pre_deploy; then
+        if host_ready; then
+            printf 'HOST BOOTSTRAP READY: YES\n'
+        else
+            printf 'HOST BOOTSTRAP READY: NO\n'
+        fi
+
+        printf 'APPLICATION READY: DEFERRED — no release has been deployed (PRE_DEPLOY)\n'
+
+        return 0
+    fi
 
     if host_ready; then
         printf 'HOST READY: YES\n'
@@ -1285,6 +1695,7 @@ main() {
     parse_args "$@"
 
     load_source_contract
+    classify_target_states
 
     printf 'RateGuru bootstrap host preflight (%s mode, read-only)\n' "${MODE}"
     printf 'Supported baseline: %s %s\n' "${SUPPORTED_OS_ID}" "${SUPPORTED_OS_VERSION_ID}"

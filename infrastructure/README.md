@@ -10,9 +10,32 @@ infrastructure, and moves out once a second project exists.
 
 ## Contents
 
-- clean-VPS bootstrap preflight (read-only host contract inspection) — see
+- host bootstrap: `infrastructure/scripts/bootstrap-host` — the one
+  canonical entry point that sequences the bootstrap slices (runtime →
+  identities/filesystem → services/configuration → final preflight) on a
+  clean or existing host, run by root from the repository checkout — see
   [`runbooks/bootstrap-host.md`](runbooks/bootstrap-host.md);
+- clean-VPS bootstrap preflight (read-only host contract inspection), the
+  base/runtime package installer (Ubuntu 22.04 baseline, PHP 8.5, PostgreSQL
+  18; Node.js/Composer intentionally absent — GitHub Actions builds the
+  immutable artifact; rclone managed as a verified, pinned external runtime
+  binary rather than an Ubuntu package), and the users/groups/filesystem
+  bootstrap installer (`install-bootstrap-host-layout` — per-target deploy/
+  runtime identities, code-group membership, and the root-owned namespace
+  plus setgid release/shared trees, active targets only) — see
+  [`runbooks/bootstrap-host.md`](runbooks/bootstrap-host.md);
+- the services/configuration bootstrap installer
+  (`install-bootstrap-services` — coordinates the target operations,
+  perimeter, public-storage-ACL and mail-capture installers as
+  authoritative owners, and directly owns the active-target Nginx/PHP-FPM/
+  Supervisor/cron files plus the host-global SSH restriction; PRE_DEPLOY
+  vs DEPLOYED aware, external secrets never generated) — see
+  [`runbooks/bootstrap-services.md`](runbooks/bootstrap-services.md);
 - deployment and rollback scripts;
+- backend observability: Sentry error/performance monitoring correlated to the
+  canonical release ID, the deployment target and the Git commit, with the
+  deployment marker recorded only after the existing health checks pass — see
+  [`runbooks/sentry-observability.md`](runbooks/sentry-observability.md);
 - local and offsite backup scripts;
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
@@ -23,17 +46,30 @@ infrastructure, and moves out once a second project exists.
 - sudoers and SSH restrictions;
 - environment variable templates;
 - operational runbooks;
-- the phased [`ROADMAP.md`](ROADMAP.md).
+- the phased [`ROADMAP.md`](ROADMAP.md) — Phase 5 (clean-VPS bootstrap) is
+  current; Phases 6–10 (Sentry observability, disaster recovery and release
+  rehearsal, first production launch, repeatable target onboarding, advanced
+  observability/analytics) are planned there as concrete slices, including
+  the three distinct rehearsal gates and the disposable-rehearsal policy.
 
 ## Committed non-secret config exception
 
 `infrastructure/**/*.env` is gitignored by default so secret env files are
-never committed. Two mail-capture files are explicitly re-included because they
-are non-secret:
+never committed. Three files are explicitly re-included because they are
+non-secret:
 
 - `config/mail-capture/versions.env` — pinned upstream release versions only;
 - `config/mail-capture/mailpit.env` — loopback-only bind addresses, retention,
-  and the loopback relay target.
+  and the loopback relay target;
+- `config/external-runtimes/versions.env` — the pinned rclone release, its
+  install contract and the official release-signing key fingerprint (the
+  matching public key is committed next to it as
+  `config/external-runtimes/rclone-release-signing-key.asc`).
+
+Ubuntu packages are OS/runtime dependencies; rclone is a verified, pinned
+external runtime binary managed by `install-bootstrap-runtime`. Exact external
+versions are intentionally pinned and only ever move through an explicit
+repository change.
 
 ## Secrets are not stored here
 

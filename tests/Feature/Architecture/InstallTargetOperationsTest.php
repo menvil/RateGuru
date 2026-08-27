@@ -847,7 +847,18 @@ function installOpsBaseVars(
         chgrp($dir, (int) $groupId);
     }
 
+    // A DEPLOYED scratch target: current resolves to a valid immutable
+    // release directly under releases/. STAGING_TARGET_ROOT is reassigned
+    // exactly like the SRC_/DST_ constants, so the deployment-state
+    // classification probes this scratch tree instead of the real
+    // /home/www/rateguru/staging — keeping every apply/verify test in the
+    // full-runtime (DEPLOYED) behaviour it always exercised. The dedicated
+    // PRE_DEPLOY/broken-state tests below build their own variations.
+    @mkdir($scratch.'/target/releases/20240101120000', 0o755, true);
+    @symlink($scratch.'/target/releases/20240101120000', $scratch.'/target/current');
+
     return [
+        'STAGING_TARGET_ROOT' => $scratch.'/target',
         'SRC_SELF' => base_path('infrastructure/scripts/install-target-operations'),
         'SRC_REGISTRY' => base_path('infrastructure/config/deployment-targets.json'),
         'SRC_TARGETS' => base_path('infrastructure/scripts/targets'),
@@ -863,6 +874,7 @@ function installOpsBaseVars(
         'SRC_OFFSITE_RETENTION' => $scratch.'/src/offsite-retention',
         'SRC_OFFSITE_RESTORE_TEST' => $scratch.'/src/offsite-restore-test',
         'SRC_BACKUP_CYCLE' => $scratch.'/src/backup-cycle',
+        'SRC_VERIFY_REQUIRED_CLIS' => base_path('infrastructure/scripts/verify-required-clis'),
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
         'DST_CONFIG_ROOT' => $scratch.'/dst-config',
         'DST_BIN_ROOT' => $scratch.'/dst-bin',
@@ -880,6 +892,7 @@ function installOpsBaseVars(
         'DST_OFFSITE_RETENTION' => $scratch.'/dst-bin/offsite-retention',
         'DST_OFFSITE_RESTORE_TEST' => $scratch.'/dst-bin/offsite-restore-test',
         'DST_BACKUP_CYCLE' => $scratch.'/dst-bin/backup-cycle',
+        'DST_VERIFY_REQUIRED_CLIS' => $scratch.'/dst-bin/verify-required-clis',
         'DST_DEPLOYMENT_CONF' => $scratch.'/dst-config/deployment.conf',
         'BACKUP_ROOT' => $scratch.'/backups',
         'REGISTRY_MODE' => '0640',
@@ -924,7 +937,7 @@ it('passes bash -n syntax check on the installer', function () {
 it('keeps every destination a fixed, hardcoded constant — never env- or CLI-overridable', function () {
     $source = installOpsSource();
 
-    // DST_CONFIG_ROOT/DST_BIN_ROOT are plain literals; the fifteen destination
+    // DST_CONFIG_ROOT/DST_BIN_ROOT are plain literals; the sixteen destination
     // paths compose from those two (e.g. "${DST_CONFIG_ROOT}/..."), which is
     // fine — it's still built entirely from fixed constants. What must never
     // appear is a fallback to an environment variable (":-"/":+") or a read
@@ -970,7 +983,7 @@ it('never sources common or deployment.conf itself', function () {
     }
 });
 
-it('documents exactly the fifteen files it owns, and what it does not touch, in the runbook', function () {
+it('documents exactly the sixteen files it owns, and what it does not touch, in the runbook', function () {
     $runbook = File::get(base_path('infrastructure/runbooks/install-target-operations.md'));
 
     expect($runbook)
@@ -1072,9 +1085,9 @@ it('--check succeeds read-only against the real repository, with no root require
 
     expect($exit)->toBe(0, $output);
     expect($output)
-        ->toContain('all fifteen source files are present regular files')
-        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test and backup-cycle are all executable')
-        ->toContain('bash -n passed for all thirteen source shell scripts')
+        ->toContain('all sixteen source files are present regular files')
+        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle and verify-required-clis are all executable')
+        ->toContain('bash -n passed for all fourteen source shell scripts')
         ->toContain('source registry is valid JSON')
         ->toContain('required host tools present')
         ->toContain('check passed');
@@ -1090,12 +1103,12 @@ it('--check succeeds read-only against the real repository, with no root require
 // =============================================================================
 
 /**
- * @return array<string, string> SRC_* overrides: thirteen executable dummy
+ * @return array<string, string> SRC_* overrides: fourteen executable dummy
  *                               CLI files plus one non-executable common.
  */
 function installOpsExecutableModeVars(string $scratch): array
 {
-    foreach (['self', 'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback', 'backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test', 'backup-cycle'] as $name) {
+    foreach (['self', 'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback', 'backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test', 'backup-cycle', 'verify-required-clis'] as $name) {
         installOpsWriteExecutable("{$scratch}/{$name}", "#!/usr/bin/env bash\nexit 0\n");
     }
 
@@ -1117,12 +1130,13 @@ function installOpsExecutableModeVars(string $scratch): array
         'SRC_OFFSITE_RETENTION' => "{$scratch}/offsite-retention",
         'SRC_OFFSITE_RESTORE_TEST' => "{$scratch}/offsite-restore-test",
         'SRC_BACKUP_CYCLE' => "{$scratch}/backup-cycle",
+        'SRC_VERIFY_REQUIRED_CLIS' => "{$scratch}/verify-required-clis",
         'SRC_COMMON' => $commonPath,
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
     ];
 }
 
-it('validate_source_executable_modes passes when self, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test and backup-cycle are all executable', function () {
+it('validate_source_executable_modes passes when every managed CLI, including verify-required-clis, is executable', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -1131,7 +1145,7 @@ it('validate_source_executable_modes passes when self, targets, health-check, st
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_executable_modes');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test and backup-cycle are all executable');
+        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle and verify-required-clis are all executable');
     } finally {
         installOpsCleanup($scratch);
     }
@@ -1153,7 +1167,7 @@ it('validate_source_executable_modes does not require common to be executable', 
 });
 
 it('validate_source_executable_modes fails, naming the specific file, for each required CLI', function () {
-    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS', 'SRC_CLEANUP', 'SRC_DEPLOY', 'SRC_ROLLBACK', 'SRC_BACKUP', 'SRC_RESTORE_TEST', 'SRC_OFFSITE_BACKUP', 'SRC_OFFSITE_RETENTION', 'SRC_OFFSITE_RESTORE_TEST', 'SRC_BACKUP_CYCLE'] as $key) {
+    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS', 'SRC_CLEANUP', 'SRC_DEPLOY', 'SRC_ROLLBACK', 'SRC_BACKUP', 'SRC_RESTORE_TEST', 'SRC_OFFSITE_BACKUP', 'SRC_OFFSITE_RETENTION', 'SRC_OFFSITE_RESTORE_TEST', 'SRC_BACKUP_CYCLE', 'SRC_VERIFY_REQUIRED_CLIS'] as $key) {
         $scratch = installOpsScratchDir();
 
         try {
@@ -2303,7 +2317,7 @@ it('verify_backup_cycle_planned_target_rejected fails when the rejection happens
 // the candidates, the real registry/targets/common otherwise.
 // =============================================================================
 
-it('a successful apply installs all fifteen files with correct ownership, mode and content, and creates a timestamped backup', function () {
+it('a successful apply installs all sixteen files with correct ownership, mode and content, and creates a timestamped backup', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -2335,6 +2349,7 @@ it('a successful apply installs all fifteen files with correct ownership, mode a
             ['DST_OFFSITE_RETENTION', 'SRC_OFFSITE_RETENTION', '0755'],
             ['DST_OFFSITE_RESTORE_TEST', 'SRC_OFFSITE_RESTORE_TEST', '0755'],
             ['DST_BACKUP_CYCLE', 'SRC_BACKUP_CYCLE', '0755'],
+            ['DST_VERIFY_REQUIRED_CLIS', 'SRC_VERIFY_REQUIRED_CLIS', '0755'],
             ['DST_DEPLOYMENT_CONF', 'SRC_DEPLOYMENT_CONF', '0640'],
         ] as [$dstKey, $srcKey, $mode]) {
             $dst = $vars[$dstKey];
@@ -3247,5 +3262,465 @@ it('removes the temporary file and leaves the destination untouched when the ren
         expect($leftovers)->toBeEmpty('no temporary file should remain after a failed rename');
     } finally {
         installOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Phase 5.4: PRE_DEPLOY vs DEPLOYED vs BROKEN deployment-state classification.
+// A genuinely clean pre-deploy host has no `current` symlink — the bundle
+// must still install, with application-health probes deferred (never faked,
+// never reported as OK); a valid current keeps the full runtime
+// verification; every present-but-broken current shape fails closed before
+// any destination file is touched.
+// =============================================================================
+
+it('installs the bundle on a PRE_DEPLOY host, deferring every application-health probe instead of faking or failing it', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        // A health-check that fails for staging-main from EVERY path (the
+        // repository candidate, the staged mktemp copy and the installed
+        // copy alike) plus an unhealthy status stub — the proof that
+        // pre-deploy genuinely defers the health probes is that this apply
+        // still succeeds without ever needing them to pass, while status
+        // itself (headers, section shape) still runs and is validated.
+        $alwaysFailStagingHealthCheck = <<<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+target=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --target) target="$2"; shift 2 ;;
+        --help) printf 'Usage: health-check --target TARGET_ID\n'; exit 0 ;;
+        *) shift ;;
+    esac
+done
+
+if [[ "$target" == "tits-guru" ]]; then
+    printf 'ERROR: target tits-guru has lifecycle=planned, not active\n' >&2
+    exit 1
+fi
+
+printf 'forced staging failure (test)\n' >&2
+exit 1
+SH;
+
+        $vars = installOpsBaseVars(
+            $scratch,
+            $alwaysFailStagingHealthCheck,
+            installOpsStatusStub(healthy: false),
+        );
+
+        // PRE_DEPLOY: current truly absent.
+        unlink($scratch.'/target/current');
+
+        // The currently-installed health check fails too — pre-deploy must
+        // defer the preflight health gate as well.
+        installOpsWriteExecutable($vars['DST_HEALTH_CHECK'], $alwaysFailStagingHealthCheck);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('target state: PRE_DEPLOY');
+        expect($output)->toContain('currently installed staging-main health check: DEFERRED (pre-deploy: no current release exists yet)');
+        expect($output)->toContain('staged health-check --target staging-main: DEFERRED');
+        expect($output)->toContain('staged status --target staging-main: DEFERRED');
+        expect($output)->toContain('health-check --target staging-main: DEFERRED (pre-deploy: no current release exists yet)');
+        expect($output)->toContain('apply complete');
+
+        // status ran for real (headers and section shape validated against
+        // the no-release 'Status: unhealthy' output) — only the healthy
+        // assertion is deferred.
+        expect($output)->toContain('status --target staging-main: OK');
+        expect($output)->toContain('status header: OK');
+        expect($output)->toContain('status healthy assertion: DEFERRED');
+
+        // Deferred means deferred — never reported as the passing probe.
+        expect($output)->not->toContain('health-check --target staging-main: OK');
+        expect($output)->not->toContain('status reports Status: healthy');
+
+        // Every static and lifecycle check still ran.
+        expect($output)->toContain('staged cleanup --target staging-main --dry-run: OK');
+        expect($output)->toContain('health-check --target tits-guru: correctly rejected (lifecycle=planned)');
+        expect($output)->toContain('cleanup --target staging-main --dry-run: OK');
+
+        // No fake current/release was fabricated to satisfy anything.
+        expect(file_exists($scratch.'/target/current'))->toBeFalse('pre-deploy apply must never fabricate a current symlink');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('--verify passes on a PRE_DEPLOY host with the application probes deferred, and still runs every static check', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$applyExit, $applyOutput] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0, $applyOutput);
+
+        // Flip the host to PRE_DEPLOY after installation. The installed
+        // bundle stays byte-identical (verify checks parity), so the proof
+        // of deferral is the explicit DEFERRED log lines plus the absence
+        // of any passing health/status probe line.
+        unlink($scratch.'/target/current');
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_verify');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('target state: PRE_DEPLOY');
+        expect($output)->toContain('health-check --target staging-main: DEFERRED (pre-deploy: no current release exists yet)');
+        expect($output)->not->toContain('health-check --target staging-main: OK');
+        expect($output)->not->toContain('status reports Status: healthy');
+        expect($output)->toContain('status --target staging-main: OK');
+        expect($output)->toContain('status healthy assertion: DEFERRED');
+        expect($output)->toContain('cleanup --target staging-main --dry-run: OK');
+        expect($output)->toContain('PASS: installed files and runtime behaviour verified');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('keeps the full runtime verification on a DEPLOYED host: a valid current means health and status probes actually run', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('target state: DEPLOYED');
+        expect($output)->toContain('health-check --target staging-main: OK');
+        expect($output)->toContain('status reports Status: healthy');
+        expect($output)->not->toContain('DEFERRED');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('fails closed before any destination is touched for every broken current shape: dangling, outside releases, wrong type, non-directory release', function () {
+    $cases = [
+        'dangling' => [
+            'build' => function (string $scratch): void {
+                unlink($scratch.'/target/current');
+                symlink($scratch.'/target/releases/never-deployed', $scratch.'/target/current');
+            },
+            'message' => 'dangling symlink',
+        ],
+        'outside releases' => [
+            'build' => function (string $scratch): void {
+                unlink($scratch.'/target/current');
+                @mkdir($scratch.'/target/rogue-release', 0o755, true);
+                symlink($scratch.'/target/rogue-release', $scratch.'/target/current');
+            },
+            'message' => 'resolves outside the releases directory',
+        ],
+        'wrong type' => [
+            'build' => function (string $scratch): void {
+                unlink($scratch.'/target/current');
+                mkdir($scratch.'/target/current', 0o755);
+            },
+            'message' => 'exists but is not a symlink',
+        ],
+        'non-directory release' => [
+            'build' => function (string $scratch): void {
+                unlink($scratch.'/target/current');
+                file_put_contents($scratch.'/target/releases/not-a-dir', 'file, not a release');
+                symlink($scratch.'/target/releases/not-a-dir', $scratch.'/target/current');
+            },
+            'message' => 'resolves to a non-directory release',
+        ],
+    ];
+
+    foreach ($cases as $label => $case) {
+        $scratch = installOpsScratchDir();
+
+        try {
+            $vars = installOpsBaseVars($scratch);
+            installOpsPlaceHealthyHealthCheck($vars);
+            ($case['build'])($scratch);
+
+            [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+            expect($exit)->not->toBe(0, "broken current ({$label}) must fail apply:\n{$output}");
+            expect($output)->toContain($case['message']);
+            expect($output)->not->toContain('target state: PRE_DEPLOY');
+
+            // Fails during plan validation: no destination file was created.
+            expect(file_exists($vars['DST_REGISTRY']))->toBeFalse("broken current ({$label}) must not install anything");
+            expect(file_exists($vars['DST_TARGETS']))->toBeFalse("broken current ({$label}) must not install anything");
+        } finally {
+            installOpsCleanup($scratch);
+        }
+    }
+});
+
+// =============================================================================
+// verify-required-clis as a first-class managed CLI.
+//
+// Regression coverage for the Phase 5.6 clean-VPS blocker: deploy invokes
+// /home/www/rateguru/bin/verify-required-clis by absolute path on every
+// deployment, before current is ever switched, but this installer used to
+// omit the helper entirely. An older server worked only because the file
+// happened to exist historically; a host built strictly from the declared
+// bootstrap contract could not perform its first deploy at all.
+// =============================================================================
+
+it('installs verify-required-clis on a clean host, root-owned 0755 and byte-identical to the committed source', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        // A genuinely clean bin directory: nothing pre-existing can mask a
+        // missing install step.
+        expect(file_exists($vars['DST_VERIFY_REQUIRED_CLIS']))->toBeFalse('fixture setup: destination must start absent');
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('apply complete');
+
+        $dst = $vars['DST_VERIFY_REQUIRED_CLIS'];
+        expect(file_exists($dst))->toBeTrue('verify-required-clis must be installed by a clean-host apply');
+        expect(is_link($dst))->toBeFalse();
+        expect(file_get_contents($dst))->toBe(file_get_contents($vars['SRC_VERIFY_REQUIRED_CLIS']));
+        expect(substr(sprintf('%o', fileperms($dst)), -4))->toBe('0755');
+        expect(is_executable($dst))->toBeTrue();
+
+        // It appears in the installed-scripts summary the operator reads.
+        expect($output)->toContain($dst);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('--check fails when the committed verify-required-clis source is absent or non-executable', function () {
+    // Absent.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $vars['SRC_VERIFY_REQUIRED_CLIS'] = $scratch.'/src/does-not-exist';
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'run_source_validation');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("missing required source file: {$vars['SRC_VERIFY_REQUIRED_CLIS']}");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+
+    // Present but not executable.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $copy = $scratch.'/src/verify-required-clis';
+        copy(base_path('infrastructure/scripts/verify-required-clis'), $copy);
+        chmod($copy, 0o644);
+        $vars['SRC_VERIFY_REQUIRED_CLIS'] = $copy;
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'run_source_validation');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("required source CLI is not executable: {$copy}");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('--verify rejects a bundle whose verify-required-clis is missing, drifted or wrongly moded', function () {
+    // Missing entirely — the exact clean-VPS state that broke the first deploy.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$applyExit, $applyOutput] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0, $applyOutput);
+
+        unlink($vars['DST_VERIFY_REQUIRED_CLIS']);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'verify_installed_files');
+
+        expect($exit)->not->toBe(0, 'a bundle without verify-required-clis must not verify');
+        expect($output)->toContain($vars['DST_VERIFY_REQUIRED_CLIS']);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+
+    // Content drift.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$applyExit, $applyOutput] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0, $applyOutput);
+
+        file_put_contents($vars['DST_VERIFY_REQUIRED_CLIS'], "#!/usr/bin/env bash\n# drifted\nexit 0\n");
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'verify_installed_files');
+
+        expect($exit)->not->toBe(0, 'drifted verify-required-clis content must not verify');
+        expect($output)->toContain($vars['DST_VERIFY_REQUIRED_CLIS']);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+
+    // Wrong mode.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$applyExit, $applyOutput] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        expect($applyExit)->toBe(0, $applyOutput);
+
+        chmod($vars['DST_VERIFY_REQUIRED_CLIS'], 0o644);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'verify_installed_files');
+
+        expect($exit)->not->toBe(0, 'a non-executable verify-required-clis must not verify');
+        expect($output)->toContain($vars['DST_VERIFY_REQUIRED_CLIS']);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('rolls verify-required-clis back to its exact prior state when a later apply step fails', function () {
+    // deployment.conf is the only file installed after verify-required-clis,
+    // so planting an unsafe (symlink) destination there fails the apply at
+    // exactly the point where the helper has already been written — the real
+    // transactional path, not a simulated one.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        $previous = "#!/usr/bin/env bash\n# PREVIOUS INSTALLED HELPER\nexit 0\n";
+        installOpsWriteExecutable($vars['DST_VERIFY_REQUIRED_CLIS'], $previous);
+
+        symlink($scratch.'/elsewhere.conf', $vars['DST_DEPLOYMENT_CONF']);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain('refusing to install over an existing symlink');
+
+        clearstatcache(true, $vars['DST_VERIFY_REQUIRED_CLIS']);
+        expect(file_get_contents($vars['DST_VERIFY_REQUIRED_CLIS']))
+            ->toBe($previous, 'rollback must restore the exact previous helper');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+
+    // And when it did not exist before, rollback must remove it again rather
+    // than leaving a half-installed bundle behind.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        expect(file_exists($vars['DST_VERIFY_REQUIRED_CLIS']))->toBeFalse('fixture setup: must start absent');
+
+        symlink($scratch.'/elsewhere.conf', $vars['DST_DEPLOYMENT_CONF']);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0, $output);
+        expect(file_exists($vars['DST_VERIFY_REQUIRED_CLIS']))
+            ->toBeFalse('rollback must remove a helper this run created');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('leaves the installed deploy able to reach the installed verify-required-clis helper', function () {
+    // The blocker itself: deploy resolves the helper by absolute path from
+    // the installed bundle, so after an apply that path must exist and be
+    // executable. Proven by executing the installed helper exactly the way
+    // deploy would, rather than by re-asserting a string.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+        expect($exit)->toBe(0, $output);
+
+        // deploy's own hardcoded default is the installed path — it must not
+        // have been changed to read the helper out of the release tree.
+        expect(File::get(base_path('infrastructure/scripts/deploy')))
+            ->toContain('VERIFY_REQUIRED_CLIS_BIN_DEFAULT="/home/www/rateguru/bin/verify-required-clis"');
+
+        // The installed helper runs and enforces its contract: a release tree
+        // whose required CLI lost its executable bit is rejected.
+        $releaseRoot = $scratch.'/fake-release';
+        mkdir($releaseRoot.'/infrastructure/scripts', 0o755, true);
+        mkdir($releaseRoot.'/infrastructure/config', 0o755, true);
+        file_put_contents($releaseRoot.'/infrastructure/config/required-clis.txt', "targets\n");
+        file_put_contents($releaseRoot.'/infrastructure/scripts/targets', "#!/usr/bin/env bash\nexit 0\n");
+        chmod($releaseRoot.'/infrastructure/scripts/targets', 0o644);
+        file_put_contents($releaseRoot.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
+        chmod($releaseRoot.'/infrastructure/scripts/common', 0o644);
+
+        exec(escapeshellarg($vars['DST_VERIFY_REQUIRED_CLIS']).' --release-root '.escapeshellarg($releaseRoot).' 2>&1', $out, $code);
+        expect($code)->not->toBe(0, 'the installed helper must fail closed on a non-executable required CLI');
+
+        // And accepts a well-formed release tree.
+        chmod($releaseRoot.'/infrastructure/scripts/targets', 0o755);
+        $out = [];
+        exec(escapeshellarg($vars['DST_VERIFY_REQUIRED_CLIS']).' --release-root '.escapeshellarg($releaseRoot).' 2>&1', $out, $okCode);
+        expect($okCode)->toBe(0, implode("\n", $out));
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('keeps the target-only lifecycle contract and introduces no legacy selector alongside the new CLI', function () {
+    $installer = File::get(base_path('infrastructure/scripts/install-target-operations'));
+
+    // staging-main stays the active target; tits-guru stays planned and
+    // rejected — the new CLI changes nothing about lifecycle handling.
+    expect($installer)
+        ->toContain('staging-main')
+        ->toContain('tits-guru')
+        ->toContain('lifecycle=planned');
+
+    // verify-required-clis is deliberately NOT target-aware, so it must not
+    // have been wired into the planned-target rejection checks.
+    expect($installer)->not->toContain('verify_required_clis_planned_target_rejected');
+
+    // The installer mentions --environment only to REJECT it, so the
+    // meaningful assertion is that no accepting case branch exists — not
+    // that the string is absent.
+    expect($installer)->not->toMatch('/^\s*--environment\)/m');
+    expect($installer)->toContain('still mentions --environment');
+
+    // The new CLI has no legacy selector at all, and no legacy per-environment
+    // wrapper is reintroduced anywhere in the bundle.
+    expect(File::get(base_path('infrastructure/scripts/verify-required-clis')))
+        ->not->toContain('--environment');
+
+    foreach ([
+        'infrastructure/scripts/install-target-operations',
+        'infrastructure/scripts/verify-required-clis',
+    ] as $path) {
+        expect(File::get(base_path($path)))
+            ->not->toContain('rateguru-staging-deploy')
+            ->not->toContain('rateguru-production-deploy');
     }
 });
