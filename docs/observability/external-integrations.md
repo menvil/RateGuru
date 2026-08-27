@@ -66,18 +66,33 @@ DD_TRACE_AGENT_PORT=8126
 
 ## Laravel Nightwatch
 
-**When to install:** When you want Laravel-native monitoring with request tracing, slow query detection, and error grouping.
+**Status: installed since Phase 6B, and disabled everywhere except staging-main.**
 
-**Requirements:** Nightwatch subscription and token.
+Laravel-native monitoring with request tracing, query timelines, job visibility
+and error grouping, installed alongside Sentry as a time-boxed side-by-side
+evaluation. Phase 6C decides whether RateGuru keeps Sentry only, Nightwatch
+only, or both — this phase deliberately does not.
+
+**Requirements:** a Nightwatch environment token, plus a long-running local
+agent process. The agent is Supervisor-managed and runs on `staging-main`
+alone.
 
 **Environment:**
 ```env
-NIGHTWATCH_TOKEN=xxx
+NIGHTWATCH_ENABLED=false
+NIGHTWATCH_TOKEN=
 ```
 
-**What Nightwatch instruments:** Requests, queries, jobs, exceptions — automatically, using the existing Laravel tap points.
+`NIGHTWATCH_ENABLED` defaults to `false` in `config/nightwatch.php` (the vendor
+default is `true`), and `phpunit.xml` pins it to `false` on top of that, so
+neither a developer checkout nor CI can transmit.
 
-**Not required** for Phase 54 completion or local development.
+**Not required** for local development: with Nightwatch disabled the package
+registers nothing, needs no token, and the application behaves identically.
+
+**See:** `infrastructure/runbooks/nightwatch-evaluation.md` for the account
+setup, the privacy posture, the agent installer, the acceptance matrix and the
+removal procedure.
 
 ---
 
@@ -107,8 +122,11 @@ The foundation Phase 54 built, and how Sentry now uses it:
 
 ## Deliberately not installed
 
-Datadog, Nightwatch, PostHog, Prometheus, Grafana, OpenTelemetry collectors and
-Elastic APM are **not** installed, and there is no provider abstraction waiting
-for them. There is one monitoring provider — Sentry — used directly through its
-official SDK. Adding a second vendor later is a decision to be made then, on the
-evidence, not a shape to build for now.
+Datadog, PostHog, Prometheus, Grafana, OpenTelemetry collectors and Elastic APM
+are **not** installed, and there is no provider abstraction waiting for them.
+
+There are now two monitoring providers — Sentry and, for the Phase 6B
+evaluation, Nightwatch — and each is used directly through its own official
+SDK. There is deliberately still no `ObservabilityProviderInterface`, no
+`APMManager` and no vendor-agnostic tracer: one of the two is expected to be
+removed in Phase 6C, and permanent architecture is not built around a trial.

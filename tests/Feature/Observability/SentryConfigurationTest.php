@@ -257,8 +257,10 @@ it('exposes the deployment target as configuration, never as a hardcoded target 
     foreach ([
         'config/deployment.php',
         'config/sentry.php',
+        'config/nightwatch.php',
         'app/Providers/ObservabilityServiceProvider.php',
         'app/Support/Deployment/DeploymentMetadata.php',
+        'app/Support/Observability/NightwatchPrivacy.php',
     ] as $path) {
         $code = phpSourceWithoutComments($path);
 

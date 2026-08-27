@@ -829,7 +829,12 @@ platform**. Slices, in order:
 1. **10.1 Nightwatch evaluation.** After Sentry and production are stable,
    determine whether Laravel-native Nightwatch provides additional value
    rather than duplicating Sentry. Evaluate first; never install
-   automatically.
+   automatically. **Brought forward and in progress as Phase 6B**: the
+   package is installed, disabled by default, and runs a Supervisor-managed
+   agent on staging-main alone, side by side with an unchanged Sentry — see
+   [`runbooks/nightwatch-evaluation.md`](runbooks/nightwatch-evaluation.md).
+   Phase 6C decides between Sentry only, Nightwatch only, or both; production
+   activation belongs after that decision, never before it.
 2. **10.2 PostHog product analytics.** Separate product/user behavior
    analytics from operational error monitoring: Sentry answers "why did
    the application fail?", PostHog answers "how is the product being

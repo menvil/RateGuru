@@ -9,6 +9,7 @@ install-bootstrap-host-layout
 install-bootstrap-runtime
 install-bootstrap-services
 install-mail-capture
+install-nightwatch-agent
 install-public-storage-access
 install-target-operations
 install-target-perimeter

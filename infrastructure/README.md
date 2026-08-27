@@ -36,6 +36,11 @@ infrastructure, and moves out once a second project exists.
   canonical release ID, the deployment target and the Git commit, with the
   deployment marker recorded only after the existing health checks pass — see
   [`runbooks/sentry-observability.md`](runbooks/sentry-observability.md);
+- the Phase 6B Laravel Nightwatch evaluation: a Supervisor-managed local agent
+  on staging-main only, installed and removed by
+  `scripts/install-nightwatch-agent`, running side by side with Sentry so the
+  two can be compared on real traffic before either is chosen — see
+  [`runbooks/nightwatch-evaluation.md`](runbooks/nightwatch-evaluation.md);
 - local and offsite backup scripts;
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);

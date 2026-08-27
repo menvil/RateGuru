@@ -117,8 +117,17 @@ dashboard, not here.
 
 Frontend JavaScript, Session Replay, browser performance, source maps, full log
 storage, host CPU/RAM/disk, PostgreSQL infrastructure metrics, backup health,
-mail delivery, Nightwatch, Datadog, PostHog. None of these are installed, and
-none are stubbed behind an abstraction.
+mail delivery, Datadog, PostHog. None of these are installed, and none are
+stubbed behind an abstraction.
+
+Laravel Nightwatch is the one exception, and only since Phase 6B: it is
+installed alongside Sentry, on staging-main only, as a time-boxed side-by-side
+evaluation — not as a replacement, not behind a shared abstraction, and with no
+change to anything on this page. Sentry's configuration, sampling, privacy
+policy, release identity and deployment markers are frozen for the duration of
+that comparison, precisely so the difference between the two products is
+attributable to the products. See
+[nightwatch-evaluation.md](nightwatch-evaluation.md).
 
 Local logging is unchanged and remains authoritative: `storage/logs`, the
 operational logs, the deployment history and the backup logs all stay exactly
