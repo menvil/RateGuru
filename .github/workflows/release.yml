@@ -328,7 +328,6 @@ jobs:
           environment: staging
 
           release-id: ${{ needs.validate.outputs.release-id }}
-          commit: ${{ needs.validate.outputs.source-sha }}
 
   deploy-production:
     name: Deploy approved release to production
@@ -411,4 +410,3 @@ jobs:
           environment: production
 
           release-id: ${{ needs.validate.outputs.release-id }}
-          commit: ${{ needs.validate.outputs.source-sha }}

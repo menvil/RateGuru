@@ -60,6 +60,44 @@ it('pins the official Sentry release action by immutable commit SHA, like every 
     }
 });
 
+it('never lets commit association stand between a deployment and its marker', function () {
+    // getsentry/action-release runs `releases new` -> `set-commits` ->
+    // `deploys new` -> `finalize` in that fixed order, so a failing set-commits
+    // aborts the run *before* the deployment marker exists. Associating commits
+    // needs the Sentry <-> GitHub repository integration; until that is
+    // configured the call cannot succeed, and continue-on-error would turn the
+    // failure into a green deployment with no correlation at all.
+    $steps = collect(data_get(sentryReleaseAction(), 'runs.steps'))->keyBy('name');
+    $sentryStep = $steps->get('Create Sentry release and deployment marker');
+
+    expect(data_get($sentryStep, 'with.set_commits'))->toBe('skip');
+
+    // `manual` without a resolved repo/commit, or `auto`, would both reintroduce
+    // the same ordering hazard — neither may appear by accident.
+    expect(data_get($sentryStep, 'with'))
+        ->not->toHaveKey('repo')
+        ->not->toHaveKey('commit')
+        ->not->toHaveKey('previous_commit');
+
+    // The environment is what actually produces the deploy marker.
+    expect(data_get($sentryStep, 'with.environment'))->toBe('${{ inputs.environment }}');
+
+    // No call site may pass a commit either, now that the input is gone.
+    foreach (sentryReleaseCallSites() as $label => $site) {
+        expect(data_get($site['step'], 'with'))
+            ->not->toHaveKey('commit', "{$label} must not pass a commit");
+    }
+});
+
+it('still correlates the commit on the events themselves', function () {
+    // Dropping release-level association costs nothing that matters, because
+    // the per-event commit tag comes from the artifact's own release.json and
+    // depends on nothing outside it. If that ever stopped being true, skipping
+    // set_commits would become a real loss.
+    expect(phpSourceWithoutComments('app/Providers/ObservabilityServiceProvider.php'))
+        ->toContain("'commit' => config('deployment.commit')");
+});
+
 it('never fails a healthy deployment when Sentry is unavailable', function () {
     $steps = collect(data_get(sentryReleaseAction(), 'runs.steps'))->keyBy('name');
 
@@ -167,15 +205,11 @@ it('records the canonical release the pipeline built, never a recomputed one', f
     $callSites = sentryReleaseCallSites();
 
     expect(data_get($callSites['deploy-staging.yml:observability']['step'], 'with.release-id'))
-        ->toBe('${{ needs.build.outputs.release-id }}')
-        ->and(data_get($callSites['deploy-staging.yml:observability']['step'], 'with.commit'))
-        ->toBe('${{ needs.build.outputs.source-sha }}');
+        ->toBe('${{ needs.build.outputs.release-id }}');
 
     foreach (['release.yml:deploy-staging', 'release.yml:deploy-production'] as $site) {
         expect(data_get($callSites[$site]['step'], 'with.release-id'))
-            ->toBe('${{ needs.validate.outputs.release-id }}')
-            ->and(data_get($callSites[$site]['step'], 'with.commit'))
-            ->toBe('${{ needs.validate.outputs.source-sha }}');
+            ->toBe('${{ needs.validate.outputs.release-id }}');
     }
 
     // No workflow may build a second release identifier for Sentry's benefit.
@@ -263,10 +297,7 @@ it('marks a rollback as a new deployment of the same immutable release', functio
     expect(data_get($marker, 'with.release-id'))->toBe('${{ steps.active.outputs.release_id }}')
         ->and(data_get($marker, 'if'))->toBe("\${{ steps.active.outputs.release_id != '' }}");
 
-    // No commit is passed: the old release already carries its own commits and
-    // must not be mutated, and no synthetic "rollback" release is ever created.
-    expect(data_get($marker, 'with'))->not->toHaveKey('commit');
-
+    // No synthetic "rollback" release is ever created.
     expect(File::get(base_path('.github/workflows/rollback-staging.yml')))
         ->not->toContain('release-id: rollback')
         ->not->toContain('rollback-');

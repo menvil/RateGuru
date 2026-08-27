@@ -34,14 +34,6 @@ inputs:
       value the build pipeline produced and the SDK reports as event.release —
       this action never computes a release identifier of its own.
 
-  commit:
-    required: false
-    default: ""
-    description: >-
-      Full Git SHA the release artifact was built from, associated with the
-      release in Sentry. Leave empty for a rollback: that release already
-      exists with its own commits and must not be mutated.
-
 outputs:
   recorded:
     description: "true when Sentry accepted the release and deploy marker"
@@ -60,7 +52,6 @@ runs:
       env:
         RELEASE_ID: ${{ inputs.release-id }}
         ENVIRONMENT: ${{ inputs.environment }}
-        COMMIT: ${{ inputs.commit }}
         SENTRY_ORG: ${{ inputs.sentry-org }}
         SENTRY_PROJECT: ${{ inputs.sentry-project }}
         SENTRY_AUTH_TOKEN_PRESENT: ${{ inputs.sentry-auth-token != '' }}
@@ -82,17 +73,6 @@ runs:
             exit 1
             ;;
         esac
-
-        if [[ -n "${COMMIT}" ]]; then
-          [[ "${COMMIT}" =~ ^[0-9a-f]{7,40}$ ]] || {
-            echo "Invalid commit SHA: ${COMMIT}" >&2
-            exit 1
-          }
-
-          echo "set_commits=manual" >> "${GITHUB_OUTPUT}"
-        else
-          echo "set_commits=skip" >> "${GITHUB_OUTPUT}"
-        fi
 
         # Sentry credentials are optional on purpose: a target whose GitHub
         # Environment has not been given them yet still deploys normally, it
@@ -126,15 +106,26 @@ runs:
         # into "this release is deployed here", which is the marker Phase 6
         # actually needs.
         environment: ${{ inputs.environment }}
-        set_commits: ${{ steps.preflight.outputs.set_commits }}
-        repo: ${{ github.repository }}
-        commit: ${{ inputs.commit }}
-        # Commit association depends on the Sentry <-> GitHub repository
-        # integration being configured in the Sentry organization. Without it,
-        # the release is still created and still marked deployed — the events
-        # themselves always carry the commit as a tag regardless.
-        ignore_missing: true
-        ignore_empty: true
+        # Deliberately `skip`, and this is load-bearing rather than a default.
+        #
+        # The action runs `releases new` -> `set-commits` -> `deploys new` ->
+        # `finalize` in that fixed order, so a failing set-commits aborts the
+        # run *before* the deployment marker is ever created. Associating
+        # commits requires the Sentry <-> GitHub repository integration to be
+        # configured in the Sentry organization; until it is, sentry-cli cannot
+        # resolve the repository and the whole call fails. Combined with the
+        # continue-on-error below — which exists so a Sentry outage cannot fail
+        # a healthy deployment — that would leave every deployment green while
+        # silently producing no release correlation at all: precisely the one
+        # thing this action exists to deliver.
+        #
+        # Nothing is lost that matters today: every event already carries the
+        # commit as a tag, straight from the artifact's release.json, and that
+        # correlation depends on nothing outside the artifact. Turning this to
+        # `manual` (with repo/commit, and previous_commit for a real range) is
+        # a deliberate follow-up once the integration exists and can be
+        # verified against the real API.
+        set_commits: skip
         disable_telemetry: true
 
     - name: Report observability outcome

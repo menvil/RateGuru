@@ -341,4 +341,3 @@ jobs:
           environment: staging
 
           release-id: ${{ needs.build.outputs.release-id }}
-          commit: ${{ needs.build.outputs.source-sha }}

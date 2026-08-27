@@ -256,14 +256,41 @@ lags for that event. This is an accepted, documented limitation.
 
 ### Commit association
 
-Every **event** carries the commit as a tag unconditionally — that correlation
-never depends on anything outside the artifact.
+Every **event** carries the commit as a tag unconditionally, straight from the
+artifact's own `release.json`. That correlation depends on nothing outside the
+artifact and is what answers "which code was running?".
 
-The **release-level** commit association (Sentry's "suspect commits" UI)
-additionally requires the Sentry ↔ GitHub repository integration to be
-configured in the Sentry organization. Without it the release is still created
-and still marked deployed; only the suspect-commit UI is unavailable. The
-workflow passes `ignore_missing`/`ignore_empty` so this degrades quietly.
+**Release-level** commit association — Sentry's "suspect commits" UI — is
+deliberately **off** (`set_commits: skip`), and this is a load-bearing choice
+rather than an oversight.
+
+`getsentry/action-release` performs its steps in a fixed order:
+
+```text
+releases new  →  set-commits  →  deploys new  →  finalize
+                     ↑                ↑
+              fails here …      … and this never runs
+```
+
+Associating commits requires the Sentry ↔ GitHub repository integration to be
+configured in the Sentry organization; without it sentry-cli cannot resolve the
+repository and the call fails. Because a failing `set-commits` aborts the run
+before `deploys new`, and because the step is `continue-on-error` so a Sentry
+outage can never fail a healthy deployment, attempting it today would produce
+green deployments with **no release marker at all** — silently losing the one
+thing this integration exists to deliver. `ignore_missing` does not help: it
+covers a missing previous-release commit, not an unknown repository.
+
+To turn it on later, once the integration exists:
+
+1. configure the Sentry ↔ GitHub integration and add this repository to it;
+2. set `set_commits: manual` in `.github/actions/sentry-release/action.yml`,
+   passing `repo`, `commit`, and `previous_commit` for a real range;
+3. verify against the real API on staging **before** relying on it — the
+   architecture tests can only check the YAML, never the API call itself.
+
+Until then the runbook and the code agree: no release-level association is
+attempted.
 
 ---
 
@@ -450,7 +477,9 @@ After the next successful staging deployment, in Sentry `Releases`:
 - the release exists under the exact canonical release ID;
 - it is marked deployed to `staging`;
 - the deploy timestamp is *after* the deployment succeeded, not before;
-- the commit association matches (when the GitHub integration is configured).
+- the release page lists **no** associated commits — that is expected while
+  `set_commits: skip` stands. Open any event from that release instead and
+  confirm its `commit` tag matches the artifact's `source_sha`.
 
 Compare against the target's deployment history — the same release ID must
 appear in both, with no manual mapping.
