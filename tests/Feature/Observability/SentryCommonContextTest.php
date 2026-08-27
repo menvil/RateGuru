@@ -158,7 +158,9 @@ it('adds no high-cardinality or sensitive tag', function () {
 
 it('configures the Sentry scope in exactly one place', function () {
     // Scattered configureScope() calls are how common context rots. There is
-    // one owner, and application code never captures to Sentry by hand.
+    // one owner, and no application file anywhere may capture to Sentry or
+    // touch the scope by hand — not even the one that is allowed to read SDK
+    // state for diagnostics.
     $offenders = [];
 
     foreach (File::allFiles(app_path()) as $file) {
@@ -168,7 +170,7 @@ it('configures the Sentry scope in exactly one place', function () {
 
         $contents = $file->getContents();
 
-        foreach (['configureScope', 'captureException', 'captureMessage', 'Sentry\\'] as $needle) {
+        foreach (['configureScope', 'captureException', 'captureMessage', 'SentrySdk'] as $needle) {
             if (str_contains($contents, $needle)) {
                 $offenders[] = str_replace(base_path().'/', '', $file->getPathname()).": {$needle}";
             }
@@ -176,6 +178,25 @@ it('configures the Sentry scope in exactly one place', function () {
     }
 
     expect($offenders)->toBe([]);
+});
+
+it('lets only the provider and the read-only health command reference the SDK at all', function () {
+    // A closed list, so a new Sentry touchpoint has to be a deliberate edit
+    // here. ObservabilityHealthCommand is allowed because it only *reads*
+    // whether the SDK registered its middleware — the assertion above already
+    // proves it never captures or mutates the scope.
+    $referencing = [];
+
+    foreach (File::allFiles(app_path()) as $file) {
+        if (str_contains($file->getContents(), 'Sentry\\')) {
+            $referencing[] = str_replace(base_path().'/', '', $file->getPathname());
+        }
+    }
+
+    expect($referencing)->toEqualCanonicalizing([
+        'app/Providers/ObservabilityServiceProvider.php',
+        'app/Console/Commands/ObservabilityHealthCommand.php',
+    ]);
 });
 
 it('does not break the application when Sentry is not configured at all', function () {

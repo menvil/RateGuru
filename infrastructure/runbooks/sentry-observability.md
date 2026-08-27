@@ -470,6 +470,54 @@ Livewire interaction, a database-backed page — then check Sentry Performance:
 - **no SQL bindings anywhere**;
 - no `/up` transactions at all.
 
+#### If no transactions appear
+
+A configured trace sample rate is **not** sufficient on its own. Both official
+Sentry providers register their instrumentation in `boot()`, and only when a
+DSN is already present in the configuration at that moment. A target can
+therefore report `Traces sample rate: 1` and still produce nothing at all.
+
+`rateguru:observability:health` answers that directly:
+
+```text
+HTTP tracing middleware: registered
+Request context middleware: registered
+Event flush middleware: registered
+```
+
+Work the decision tree from there — the two branches have completely different
+causes and there is no point guessing between them:
+
+**`NOT REGISTERED`** — the application is not instrumented. The DSN was not in
+the configuration when the providers booted. Check that `SENTRY_DSN` really is
+in the target's `shared/.env`, and remember that deployments serve from
+`bootstrap/cache/config.php`: editing `.env` changes nothing until a redeploy
+regenerates that cache. Confirm with `artisan about` (`Enabled: YES`).
+
+**`registered`** — the application *is* producing transactions, and the loss is
+downstream of it. That is not an application defect and no code change will fix
+it. Look at, in order:
+
+1. **Sentry-side quota or plan.** Transactions are billed separately from
+   errors; an org without performance quota accepts errors and rejects
+   transactions. Check `Settings → Subscription → Usage` for dropped or
+   rate-limited transaction events.
+2. **The filters in the Sentry UI.** `Explore → Traces` defaults can hide
+   results — confirm the environment filter is `staging` and widen the time
+   range.
+3. **Transport results.** Temporarily set `logger` in `config/sentry.php` to
+   `Sentry\Logger\DebugFileLogger::class`, redeploy, make a request and read
+   `storage/logs/sentry.log`. It records what Sentry answered for each envelope
+   (`success`, `rate_limit`, `invalid`). Revert it afterwards — it is a
+   diagnostic, not a setting to leave on.
+
+What is already proven and does **not** need re-investigating: package
+discovery, provider boot, middleware registration, transaction creation,
+sampling, span collection, cached-configuration behaviour and the
+production-artifact build all work. They are covered by
+`tests/Feature/Observability/SentryHttpTracingTest.php`, which drives real
+requests through the HTTP kernel and fails if any of them regress.
+
 ### F. Deployment marker
 
 After the next successful staging deployment, in Sentry `Releases`:

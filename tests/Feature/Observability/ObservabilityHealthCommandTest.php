@@ -85,6 +85,29 @@ it('reports the Sentry posture an operator needs to verify after a deploy', func
         ->toContain('Ignored transactions: /up');
 });
 
+it('reports whether the SDK actually attached its HTTP instrumentation', function () {
+    // Sample rates describe intent; this describes what the running
+    // application will really do. Without a DSN at boot the Sentry providers
+    // register no middleware, so a target can report "Traces sample rate: 1"
+    // and still emit no transactions at all — the exact gap that made a
+    // missing-traces report impossible to diagnose from configuration alone.
+    $output = observabilityHealthOutput();
+
+    expect($output)
+        ->toContain('HTTP tracing middleware:')
+        ->toContain('Request context middleware:')
+        ->toContain('Event flush middleware:');
+});
+
+it('warns when a trace sample rate is configured but nothing will trace', function () {
+    config(['sentry.traces_sample_rate' => 1.0]);
+
+    // The suite boots without a DSN, so the providers registered no middleware.
+    expect(observabilityHealthOutput())
+        ->toContain('NOT REGISTERED')
+        ->toContain('no HTTP transactions will be produced');
+});
+
 it('never prints the DSN, in whole or in part', function () {
     // This command is meant to be run by an operator on a live target, so it
     // must be safe to paste its output anywhere.
