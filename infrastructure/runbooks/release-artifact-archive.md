@@ -227,6 +227,52 @@ A partial archive fails.
 
 ---
 
+## Bucket setup
+
+The bucket is created once, by hand, before the first archive. It is **not**
+created by CI, by rclone or by any script in this repository — nothing here
+holds bucket-management permissions, deliberately.
+
+| Property | Value |
+|---|---|
+| Name | `rateguru-release-artifacts` |
+| Type | **Private** |
+| Object Lock | not required by Phase 7.1 |
+| Lifecycle | **Keep all versions of the file** |
+| Encryption | operator's choice; the archive contract does not depend on it |
+
+**The name is part of the reviewed infrastructure contract.** Backblaze B2
+bucket names are **globally unique across all Backblaze accounts**, so
+`rateguru-release-artifacts` may already be taken by an unrelated account.
+
+Before anything else, verify or create that exact bucket:
+
+```bash
+b2 account authorize                     # master key, once, for setup only
+b2 bucket list | grep rateguru-release-artifacts
+# if absent:
+b2 bucket create rateguru-release-artifacts allPrivate
+```
+
+**If the canonical name is unavailable, stop.** Do not silently pick
+`rateguru-release-artifacts-2` or any other undocumented alternative: the name
+appears in this runbook, in the roadmap, in `release-artifact-common`'s
+`RELEASE_ARTIFACT_BUCKET_DEFAULT` and in the workflow's `B2_ARTIFACT_BUCKET`
+variable. Changing it is a reviewed repository change first, and a bucket
+creation second — otherwise the durable archive lives somewhere the committed
+contract does not describe, which is precisely the ambiguity a recovery path
+cannot afford.
+
+**Lifecycle must never expire release artifacts.** Use *Keep all versions of
+the file*. Do not configure a lifecycle rule that hides or deletes files after
+N days: Phase 7.1 implements no retention on purpose, and a lifecycle rule
+would silently become one — deleting the exact artifact that a recovery, long
+after the fact, depends on. Retention is designed separately, once
+recovery-point references exist (Phase 7.2 onward).
+
+This bucket stays separate from `rateguru-database-backups`. Neither bucket's
+retention policy may ever be able to affect the other's contents.
+
 ## Credential model
 
 | Name | Kind | Value |
@@ -234,6 +280,66 @@ A partial archive fails.
 | `B2_ARTIFACT_KEY_ID` | repository **secret** | Backblaze application key ID |
 | `B2_ARTIFACT_APPLICATION_KEY` | repository **secret** | Backblaze application key |
 | `B2_ARTIFACT_BUCKET` | repository **variable** | `rateguru-release-artifacts` |
+
+### Creating the least-privilege application key
+
+The CI key is **bucket-restricted and capability-restricted**. Create it with
+the B2 CLI rather than the web UI: the UI offers coarse presets, while
+`b2 key create` takes the exact capability list.
+
+```bash
+b2 key create \
+    --bucket rateguru-release-artifacts \
+    rateguru-ci-release-artifacts \
+    listBuckets,listFiles,readFiles,writeFiles
+```
+
+The command prints `applicationKeyId` then `applicationKey`, once. They go
+straight into the two GitHub repository secrets and nowhere else — not into a
+file in this repository, not onto a VPS, not into any `.env`.
+
+**Every capability, and the operation that needs it.** Each one is here
+because a command this PR actually runs requires it:
+
+| Capability | Required by |
+|---|---|
+| `listBuckets` | resolving the bucket name to its ID on every `rclone` call |
+| `listFiles` | `rclone lsf` (bucket probe, release listing), `rclone check`, and `--immutable`/`--checksum` comparison |
+| `readFiles` | `rclone cat` (the archive's read-back proof) and `rclone copy` during retrieval |
+| `writeFiles` | `rclone copy` during archiving |
+
+**Deliberately excluded, and why:**
+
+| Excluded | Reason |
+|---|---|
+| `deleteFiles` | Nothing in Phase 7.1 deletes an archived object. Without this capability, a bug, a bad flag or a compromised runner *cannot* destroy an archived release. |
+| `listAllBucketNames` | The key is restricted to one bucket whose name is already configured, so enumerating other bucket names is never needed. Not granted for convenience. |
+| `writeBuckets`, `deleteBuckets` | The bucket is created once by hand; CI never manages buckets. |
+| `readBuckets` | Not exercised by any command here. |
+| `shareFiles` | No authorized download URLs are ever generated. |
+| `listKeys`, `writeKeys`, `deleteKeys` | CI never manages credentials. |
+| retention, legal-hold, encryption and notification capabilities | Not used by any operation in this slice. |
+
+**Prove the capability set before wiring it into GitHub.** This is the only
+way to confirm the list against the real API rather than assume it, and it
+costs one command. Authorize with the *new* key and run a read-only probe:
+
+```bash
+b2 account authorize <applicationKeyId> <applicationKey>
+
+rclone --config /path/to/rclone.conf lsf rateguru-artifacts-b2:rateguru-release-artifacts
+```
+
+It must exit `0` (an empty listing is the expected result for a fresh
+bucket). If it fails with a `401` while resolving the bucket, the capability
+set is wrong for this rclone version — rclone has a documented history of
+bucket-restricted B2 keys needing broader listing rights. **Treat that as a
+reviewed change to this contract**: record the exact failure, update this
+runbook and the capability list together, and re-create the key. Do not widen
+the key quietly, and never add `deleteFiles` while debugging.
+
+Rotating the key is the same procedure plus deleting the old key with a
+master key; nothing in the repository changes.
 
 The B2 application key must be **restricted to the release-artifact bucket**.
 It is not the database-backup key, not the VPS root rclone configuration, not
@@ -398,7 +504,18 @@ Explicitly out of scope for Phase 7.1, and implemented nowhere in it:
 Run these after merging and configuring the secrets. They prove the real
 staging pipeline, not a simulation.
 
-### 1. Configure GitHub
+### 1. Create the bucket and the key
+
+Follow *Bucket setup* and *Creating the least-privilege application key*
+above, in that order:
+
+1. verify or create the private `rateguru-release-artifacts` bucket, with a
+   *Keep all versions* lifecycle — and stop if the canonical name is taken;
+2. create the key with exactly
+   `listBuckets,listFiles,readFiles,writeFiles`, restricted to that bucket;
+3. prove it with the read-only `rclone lsf` probe before going further.
+
+### 2. Configure GitHub
 
 Repository → Settings → Secrets and variables → Actions:
 
@@ -406,11 +523,7 @@ Repository → Settings → Secrets and variables → Actions:
 - secret `B2_ARTIFACT_APPLICATION_KEY`
 - variable `B2_ARTIFACT_BUCKET` = `rateguru-release-artifacts`
 
-The Backblaze application key must be restricted to the
-`rateguru-release-artifacts` bucket, with permission to list, read and write
-objects. It needs no delete permission and should not be given one.
-
-### 2. Archive a real staging release
+### 3. Archive a real staging release
 
 Run **Deploy to staging** (`workflow_dispatch`, `ref: develop`).
 
@@ -424,7 +537,7 @@ Expect, in order:
 
 Record the release ID from the summary.
 
-### 3. Confirm the object store contains exactly three files
+### 4. Confirm the object store contains exactly three files
 
 ```bash
 rclone --config /path/to/rclone.conf lsf \
@@ -441,7 +554,7 @@ release.json
 
 and no `staging-main` or any other target segment anywhere in the path.
 
-### 4. Retrieve it and verify it
+### 5. Retrieve it and verify it
 
 ```bash
 infrastructure/scripts/fetch-release-artifact \
@@ -454,7 +567,7 @@ infrastructure/scripts/fetch-release-artifact \
 
 Expect exit code `0` and a final line reporting the verified artifact path.
 
-### 5. Prove the retrieved release is the deployed release
+### 6. Prove the retrieved release is the deployed release
 
 The sidecar records the artifact's bare filename, so `sha256sum -c` resolves
 it against the current directory — run these from inside the retrieval
@@ -475,7 +588,7 @@ serving:
 ssh <deploy-user>@<staging-host> 'cat /home/www/rateguru/staging/current/release.json' | jq -r '.release, .source_sha'
 ```
 
-### 6. Prove idempotency and immutability
+### 7. Prove idempotency and immutability
 
 Re-run **Deploy to staging** for the *same* commit only if you want a new
 release ID; to test idempotency directly, re-run the archive script by hand

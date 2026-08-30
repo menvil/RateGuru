@@ -252,6 +252,53 @@ function releaseArchiveArchive(string $release, string $sourceDir, string $confi
 }
 
 /**
+ * Runs the real shipped fetch-release-artifact by sourcing it and calling
+ * perform_fetch, with one of its own functions wrapped so a failure can be
+ * injected at an exact point in the flow. The source guard at the bottom of
+ * the script is what makes this possible: sourcing defines everything and
+ * runs nothing.
+ *
+ * This is how the narrow windows that cannot be produced from the outside —
+ * a canonical name appearing *during* the download, or the report directory
+ * becoming unwritable *after* publication — get deterministic coverage,
+ * while still executing the real publish_release / unpublish_release /
+ * write_report code rather than a description of them.
+ *
+ * @param  list<string>  $flags
+ * @return array{0: int, 1: string}
+ */
+function releaseArchiveFetchInjecting(string $scratch, array $flags, string $wrapped, string $injected): array
+{
+    $harness = $scratch.'/harness-'.uniqid('', true).'.sh';
+
+    file_put_contents($harness, implode("\n", [
+        'set -Eeuo pipefail',
+        'source '.escapeshellarg(releaseArchiveScript('fetch-release-artifact')),
+        'parse_fetch_args '.implode(' ', array_map('escapeshellarg', $flags)),
+        'original="$(declare -f '.$wrapped.')"',
+        'eval "${original/#'.$wrapped.'/real_'.$wrapped.'}"',
+        $wrapped.'() {',
+        '    real_'.$wrapped,
+        '    '.$injected,
+        '}',
+        'perform_fetch',
+        '',
+    ]));
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(['bash', $harness], $descriptors, $pipes);
+
+    expect($process)->not->toBeFalse('could not start the fetch harness');
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    $exit = proc_close($process);
+
+    return [$exit, $output];
+}
+
+/**
  * @param  list<string>  $extra
  * @return array{0: int, 1: string}
  */
@@ -1015,6 +1062,159 @@ it('can retry into the same destination after a failed retrieval', function () {
         ]);
         expect(hash_file('sha256', $destination.'/'.$package['artifact']))->toBe($package['sha256']);
     } finally {
+        releaseArchiveCleanup($scratch);
+    }
+});
+
+it('rolls back a partial publication, keeps unrelated files, and lets the very next attempt succeed', function () {
+    // The narrowest remaining window: a canonical name appears during the
+    // download, so the *second* publication link fails after the first
+    // already succeeded. POSIX cannot publish three files into a shared
+    // directory atomically, so what has to hold is that nothing from this
+    // invocation survives a failed publication.
+    $scratch = releaseArchiveScratch();
+
+    try {
+        $package = releaseArchivePackage($scratch);
+        $config = releaseArchiveRcloneConfig($scratch);
+        $destination = $scratch.'/recovered';
+
+        [$archiveExit] = releaseArchiveArchive($package['release'], $package['dir'], $config);
+        expect($archiveExit)->toBe(0);
+
+        mkdir($destination, 0o755, true);
+        file_put_contents($destination.'/operator-notes.txt', "keep me\n");
+        mkdir($destination.'/unrelated-subdir');
+
+        [$exit, $output] = releaseArchiveFetchInjecting(
+            $scratch,
+            [
+                '--release', $package['release'],
+                '--destination', $destination,
+                '--rclone-config', $config,
+                '--rclone-bin', releaseArchiveRcloneBin(),
+            ],
+            'download_release',
+            ': > "${DESTINATION%/}/'.$package['artifact'].'.sha256"',
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('nothing from this retrieval was left behind');
+
+        // A. No canonical file this invocation published survives — the
+        // artifact was linked before the sidecar failed, and was unlinked
+        // again.
+        expect(File::exists($destination.'/'.$package['artifact']))->toBeFalse();
+        expect(File::exists($destination.'/release.json'))->toBeFalse();
+
+        // D. Everything that was already in the destination is untouched,
+        // including the colliding file, which this invocation did not create
+        // and therefore must not remove.
+        expect(File::get($destination.'/operator-notes.txt'))->toBe("keep me\n");
+        expect(File::isDirectory($destination.'/unrelated-subdir'))->toBeTrue();
+        expect(File::exists($destination.'/'.$package['artifact'].'.sha256'))->toBeTrue();
+
+        // No staging directory is left behind either.
+        $leftovers = array_values(array_filter(
+            array_diff(scandir($destination), ['.', '..']),
+            fn (string $entry): bool => str_starts_with($entry, '.fetch-release-artifact'),
+        ));
+        expect($leftovers)->toBe([]);
+
+        // B. The operator clears the one colliding name and runs the exact
+        // same command again; it succeeds without any other cleanup.
+        unlink($destination.'/'.$package['artifact'].'.sha256');
+
+        [$retryExit, $retryOutput] = releaseArchiveFetch($package['release'], $destination, $config);
+
+        expect($retryExit)->toBe(0, "the retry after a failed publication was refused:\n{$retryOutput}");
+        expect(hash_file('sha256', $destination.'/'.$package['artifact']))->toBe($package['sha256']);
+        expect(File::get($destination.'/operator-notes.txt'))->toBe("keep me\n");
+    } finally {
+        releaseArchiveCleanup($scratch);
+    }
+});
+
+it('rejects an unusable report path before anything is downloaded or published', function () {
+    $scratch = releaseArchiveScratch();
+
+    try {
+        $package = releaseArchivePackage($scratch);
+        $config = releaseArchiveRcloneConfig($scratch);
+        $destination = $scratch.'/recovered';
+
+        [$archiveExit] = releaseArchiveArchive($package['release'], $package['dir'], $config);
+        expect($archiveExit)->toBe(0);
+
+        [$exit, $output] = releaseArchiveFetch(
+            $package['release'],
+            $destination,
+            $config,
+            ['--report', $scratch.'/no-such-directory/report.json'],
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--report directory does not exist');
+
+        // The pre-flight is what keeps a report problem from ever surfacing
+        // after publication: nothing was downloaded, and the destination was
+        // not even created.
+        expect(File::isDirectory($destination))->toBeFalse();
+    } finally {
+        releaseArchiveCleanup($scratch);
+    }
+});
+
+it('never fails a verified retrieval because the report could not be written', function () {
+    // C. The one state this must never produce is "command failed, package
+    // is already published". If a report write somehow fails after
+    // publication, the exit status still describes the retrieval — which
+    // succeeded — and the warning names the package that is on disk.
+    $scratch = releaseArchiveScratch();
+    $reportDir = $scratch.'/report-dir';
+
+    try {
+        $package = releaseArchivePackage($scratch);
+        $config = releaseArchiveRcloneConfig($scratch);
+        $destination = $scratch.'/recovered';
+
+        [$archiveExit] = releaseArchiveArchive($package['release'], $package['dir'], $config);
+        expect($archiveExit)->toBe(0);
+
+        mkdir($reportDir, 0o755, true);
+
+        [$exit, $output] = releaseArchiveFetchInjecting(
+            $scratch,
+            [
+                '--release', $package['release'],
+                '--destination', $destination,
+                '--rclone-config', $config,
+                '--rclone-bin', releaseArchiveRcloneBin(),
+                '--report', $reportDir.'/report.json',
+            ],
+            'publish_release',
+            'chmod 0500 '.escapeshellarg($reportDir),
+        );
+
+        chmod($reportDir, 0o755);
+
+        expect($exit)->toBe(0, "a verified retrieval was failed by a report problem:\n{$output}");
+        expect($output)
+            ->toContain('WARNING:')
+            ->toContain('the report could not be written')
+            ->toContain('the retrieval itself succeeded');
+
+        // The package really is published and verified.
+        expect(hash_file('sha256', $destination.'/'.$package['artifact']))->toBe($package['sha256']);
+        expect(File::exists($destination.'/'.$package['artifact'].'.sha256'))->toBeTrue();
+        expect(File::exists($destination.'/release.json'))->toBeTrue();
+
+        // And no half-written report was left where a good one could be
+        // mistaken for it.
+        expect(File::exists($reportDir.'/report.json'))->toBeFalse();
+        expect(array_values(array_diff(scandir($reportDir), ['.', '..'])))->toBe([]);
+    } finally {
+        @chmod($reportDir, 0o755);
         releaseArchiveCleanup($scratch);
     }
 });

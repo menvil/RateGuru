@@ -316,9 +316,50 @@ verify_remote_release() {
         || ra_fail "remote release.json differs from the local one"
 }
 
+# require_writable_report_path — proven before the release package is even
+# validated, so an unusable --report path fails this run while nothing has
+# been uploaded yet.
+#
+# Unlike fetch-release-artifact, a failure in write_report below stays fatal
+# here, and deliberately so: the composite action reads this report to build
+# its step summary and to emit the job outputs, so a missing report has to
+# fail the archive job rather than pass a deployment with no record. That is
+# also safe — the archive is immutable and idempotent, so re-running it is a
+# no-op that verifies the already-durable release and passes.
+require_writable_report_path() {
+    local report_dir
+
+    [[ -n "${REPORT_PATH}" ]] || return 0
+
+    report_dir="$(dirname -- "${REPORT_PATH}")"
+
+    [[ -d "${report_dir}" ]] || ra_fail "--report directory does not exist: ${report_dir}"
+    [[ -w "${report_dir}" ]] || ra_fail "--report directory is not writable: ${report_dir}"
+
+    if [[ -e "${REPORT_PATH}" ]]; then
+        [[ -f "${REPORT_PATH}" ]] || ra_fail "--report path is not a regular file: ${REPORT_PATH}"
+        [[ -w "${REPORT_PATH}" ]] || ra_fail "--report path is not writable: ${REPORT_PATH}"
+    fi
+}
+
+# The report is staged and renamed into place, so a failure can never leave a
+# truncated document where a previous good one was.
 write_report() {
     [[ -n "${REPORT_PATH}" ]] || return 0
 
+    local staged_report
+
+    staged_report="$(mktemp "${REPORT_PATH}.XXXXXX")" \
+        || ra_fail "cannot stage the archive report next to ${REPORT_PATH}"
+
+    if ! render_report > "${staged_report}" || ! mv -f -- "${staged_report}" "${REPORT_PATH}"; then
+        rm -f -- "${staged_report}"
+
+        ra_fail "cannot write the archive report to ${REPORT_PATH}"
+    fi
+}
+
+render_report() {
     jq \
         --null-input \
         --arg project "${RELEASE_ARTIFACT_PROJECT}" \
@@ -342,8 +383,7 @@ write_report() {
             upload: $upload,
             verify: $verify,
             result: $result
-        }' \
-        > "${REPORT_PATH}"
+        }'
 }
 
 perform_archive() {
@@ -355,6 +395,7 @@ perform_archive() {
     ra_log "Remote path: ${BUCKET}/$(ra_remote_prefix "${RELEASE_ID}")/"
 
     ra_require_rclone "${RCLONE_BIN}" "${RCLONE_CONFIG}"
+    require_writable_report_path
 
     # Everything local is proven before a single byte leaves this machine: a
     # malformed or ambiguous artifact is never archived.

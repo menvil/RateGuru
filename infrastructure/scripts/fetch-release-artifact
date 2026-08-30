@@ -155,7 +155,7 @@ rclone_run() {
 # block the retry that fixes the problem.
 #
 # The staging directory lives inside the destination so publishing is a
-# same-filesystem rename rather than a second copy of a large artifact.
+# same-filesystem hard link rather than a second copy of a large artifact.
 
 STAGE_DIR=""
 
@@ -225,25 +225,124 @@ download_release() {
         --stats 10s
 }
 
-# publish_release — runs only after the staged package has passed the full
-# local contract. Same-directory renames, so each file appears at its
-# canonical path complete or not at all.
+# publish_release — the final boundary, and the only moment at which the
+# canonical filenames appear in the destination. Runs only after the staged
+# package has passed the full local contract.
+#
+# Each file is published with `ln`, not `mv -f`, for two reasons:
+#
+#   - `ln` refuses outright when the target name already exists, so a
+#     canonical file that appeared during the download is never overwritten.
+#     That is one atomic operation, not a test-then-move with a window
+#     between the two.
+#   - a hard link leaves this invocation's own copy in the staging
+#     directory, so undoing a publication is a plain unlink of a name we
+#     created moments earlier, with the bytes never at risk.
+#
+# POSIX cannot publish three files into a shared directory as one atomic
+# step, so if any link fails, the links already made are removed again. A
+# failed retrieval therefore never leaves a partial canonical package behind,
+# and an immediate retry into the same destination succeeds.
 publish_release() {
     local entry
 
     while IFS= read -r entry; do
         [[ -n "${entry}" ]] || continue
 
-        mv -f -- "${STAGE_DIR}/${entry}" "${DESTINATION%/}/${entry}" \
-            || ra_fail "cannot publish ${entry} into ${DESTINATION} — the destination may now be incomplete"
+        if ! ln -- "${STAGE_DIR}/${entry}" "${DESTINATION%/}/${entry}" 2>/dev/null; then
+            unpublish_release
+
+            ra_fail "cannot publish ${entry} into ${DESTINATION} — nothing from this retrieval was left behind, so the same command can simply be run again"
+        fi
     done < <(ra_expected_remote_entries "${RELEASE_ID}")
 
     cleanup_stage_dir
 }
 
+# unpublish_release — rolls back a partial publication.
+#
+# A destination name is removed only when it is literally this invocation's
+# own staged file: `-ef` compares device and inode, which is true exactly for
+# the hard links publish_release just created. A file that was already in the
+# destination, or that something else replaced in between, fails that test
+# and is left alone. Unrelated destination contents are never touched.
+unpublish_release() {
+    local entry published_path staged_path
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        published_path="${DESTINATION%/}/${entry}"
+        staged_path="${STAGE_DIR}/${entry}"
+
+        [[ -e "${published_path}" ]] || continue
+        [[ -e "${staged_path}" ]] || continue
+        [[ "${published_path}" -ef "${staged_path}" ]] || continue
+
+        rm -f -- "${published_path}"
+    done < <(ra_expected_remote_entries "${RELEASE_ID}")
+}
+
+# require_writable_report_path — proven before anything is downloaded and
+# long before anything is published, so an unusable --report path fails the
+# command while the destination is still untouched. Without this, the only
+# place a report problem could surface is after publication, which is exactly
+# the "command failed, package is already published" ambiguity this script
+# must never produce.
+require_writable_report_path() {
+    local report_dir
+
+    [[ -n "${REPORT_PATH}" ]] || return 0
+
+    report_dir="$(dirname -- "${REPORT_PATH}")"
+
+    [[ -d "${report_dir}" ]] || ra_fail "--report directory does not exist: ${report_dir}"
+    [[ -w "${report_dir}" ]] || ra_fail "--report directory is not writable: ${report_dir}"
+
+    if [[ -e "${REPORT_PATH}" ]]; then
+        [[ -f "${REPORT_PATH}" ]] || ra_fail "--report path is not a regular file: ${REPORT_PATH}"
+        [[ -w "${REPORT_PATH}" ]] || ra_fail "--report path is not writable: ${REPORT_PATH}"
+    fi
+}
+
+# write_report — runs after publication, and deliberately cannot fail the
+# retrieval.
+#
+# By the time this runs the package is published and verified on disk. A
+# non-zero exit here would tell an operator — or a future recovery
+# orchestrator — to discard a good, fully verified recovery package because a
+# side-channel file could not be written. The exit status describes the
+# retrieval, and the retrieval succeeded; a report problem is reported
+# loudly instead, naming the package that is on disk.
+#
+# require_writable_report_path above makes this path essentially unreachable.
+# The report is staged and renamed into place so a failure can never replace
+# a previous good report with a truncated one.
 write_report() {
     [[ -n "${REPORT_PATH}" ]] || return 0
 
+    local staged_report
+
+    if ! staged_report="$(mktemp "${REPORT_PATH}.XXXXXX" 2>/dev/null)"; then
+        report_write_failed
+
+        return 0
+    fi
+
+    if ! render_report > "${staged_report}" || ! mv -f -- "${staged_report}" "${REPORT_PATH}"; then
+        rm -f -- "${staged_report}"
+        report_write_failed
+
+        return 0
+    fi
+}
+
+report_write_failed() {
+    ra_log "WARNING: ${RELEASE_ID} was retrieved and verified, but the report could not be written to ${REPORT_PATH}"
+    ra_log "WARNING: the verified package is on disk at ${DESTINATION%/}/${ARTIFACT_NAME} — the retrieval itself succeeded"
+}
+
+render_report() {
     jq \
         --null-input \
         --arg project "${RELEASE_ARTIFACT_PROJECT}" \
@@ -267,8 +366,7 @@ write_report() {
             sha256: $sha256,
             verify: $verify,
             result: $result
-        }' \
-        > "${REPORT_PATH}"
+        }'
 }
 
 perform_fetch() {
@@ -280,6 +378,7 @@ perform_fetch() {
     ra_log "Remote path: ${BUCKET}/$(ra_remote_prefix "${RELEASE_ID}")/"
 
     ra_require_rclone "${RCLONE_BIN}" "${RCLONE_CONFIG}"
+    require_writable_report_path
 
     prepare_destination
     require_complete_remote_archive

@@ -99,6 +99,73 @@ it('documents the credential model with the exact GitHub names the workflow read
     expect(File::get(base_path('.gitignore')))->toContain('rclone.conf');
 });
 
+it('specifies a least-privilege B2 key by exact capability, and excludes the rest', function () {
+    $runbook = releaseArchiveRunbook();
+
+    // The exact creation command, with the exact capability list — not a
+    // prose description an operator has to translate into UI checkboxes.
+    expect($runbook)
+        ->toContain('b2 key create \\')
+        ->toContain('--bucket rateguru-release-artifacts')
+        ->toContain('listBuckets,listFiles,readFiles,writeFiles');
+
+    // Every granted capability is justified by an operation this slice runs,
+    // and every one of those operations really is in the scripts.
+    $scripts = File::get(base_path('infrastructure/scripts/archive-release-artifact'))
+        .File::get(base_path('infrastructure/scripts/fetch-release-artifact'));
+
+    expect($scripts)
+        ->toContain('rclone_run lsf')      // listBuckets + listFiles
+        ->toContain('rclone_run copy')     // writeFiles / readFiles
+        ->toContain('rclone_run cat');     // readFiles
+
+    // Deliberate exclusions, each named in the runbook.
+    foreach ([
+        'deleteFiles',
+        'listAllBucketNames',
+        'writeBuckets',
+        'deleteBuckets',
+        'writeKeys',
+        'deleteKeys',
+    ] as $excluded) {
+        expect($runbook)->toContain($excluded);
+    }
+
+    // None of the excluded capabilities may appear in the granted list.
+    expect(preg_match('/listBuckets,listFiles,readFiles,writeFiles/', $runbook))->toBe(1);
+    expect($runbook)->not->toContain('listBuckets,listFiles,readFiles,writeFiles,deleteFiles');
+    expect($runbook)->not->toContain('--all-capabilities');
+
+    // The capability set is proven against the real API before it is wired
+    // into GitHub, rather than assumed.
+    expect($runbook)
+        ->toContain('Prove the capability set before wiring it into GitHub')
+        ->toContain('b2 account authorize')
+        ->toContain('reviewed change to this contract')
+        ->toContain('never add `deleteFiles` while debugging');
+});
+
+it('states the bucket contract: private, exactly named, and never expiring releases', function () {
+    $runbook = releaseArchiveRunbook();
+
+    expect($runbook)
+        ->toContain('## Bucket setup')
+        ->toContain('**Private**')
+        ->toContain('globally unique across all Backblaze accounts')
+        ->toContain('b2 bucket create rateguru-release-artifacts allPrivate')
+        ->toContain('**If the canonical name is unavailable, stop.**')
+        ->toContain('Keep all versions')
+        ->toContain('Lifecycle must never expire release artifacts');
+
+    // The bucket name the runbook tells the operator to create is the one the
+    // code actually defaults to, so the two cannot drift.
+    expect(File::get(base_path('infrastructure/scripts/release-artifact-common')))
+        ->toContain('RELEASE_ARTIFACT_BUCKET_DEFAULT="rateguru-release-artifacts"');
+
+    // And it is still explicitly separate from the backup bucket.
+    expect($runbook)->toContain('separate from `rateguru-database-backups`');
+});
+
 it('describes the pipeline ordering the workflow actually enforces', function () {
     $runbook = releaseArchiveRunbook();
     $workflow = Yaml::parse(File::get(base_path('.github/workflows/deploy-staging.yml')));
