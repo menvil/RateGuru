@@ -10,8 +10,8 @@ not reorganize unrelated infrastructure.
 | 2 | Versioned infrastructure baseline | ✅ completed |
 | 3 | Staging mail capture | ✅ completed |
 | 4 | Multi-target production model | ✅ completed |
-| 5 | Infrastructure installer and clean-VPS bootstrap | 🚧 current |
-| 6 | Sentry observability activation | ⏳ planned |
+| 5 | Infrastructure installer and clean-VPS bootstrap | ✅ completed |
+| 6 | Sentry observability activation | 🚧 current |
 | 7 | Disaster recovery and release rehearsal | ⏳ planned |
 | 8 | First production launch and target-provisioning proof | ⏳ planned |
 | 9 | Repeatable production target onboarding | ⏳ planned |
@@ -341,7 +341,7 @@ remain readable.
 
 Next phase: Phase 5 — Infrastructure installer and clean-VPS bootstrap.
 
-## 5. Infrastructure installer and clean-VPS bootstrap — current
+## 5. Infrastructure installer and clean-VPS bootstrap — completed
 
 One-shot bootstrap of a clean VPS from committed infrastructure: base packages,
 users, Nginx/PHP-FPM/Redis, deploy accounts, and the mail-capture slice.
@@ -434,13 +434,17 @@ slices 1–2, which installed nothing — so it completes on merge.
    and causes zero user, group or filesystem mutation. The identity model:
    the deploy user owns incoming artifacts and release creation
    (`releases`/`locks`/`deployments` are `deploy_user:code_group` setgid
-   `2750`); the code group lets the runtime user read immutable release
-   code (mandatory supplementary membership — releases are normalized
-   `0750`/`0640` while PHP-FPM executes as the runtime user); the runtime
+   `2750`); the code group has exactly two required
+   members, because releases are normalized `0750`/`0640` and both
+   identities must read them: the runtime user (PHP-FPM and the queue
+   worker execute Laravel as it) and `www-data` (Nginx workers evaluate
+   `try_files` against `current/public` themselves, before FastCGI is
+   involved — see slice 5.6's Defect B); the runtime
    user owns shared mutable state (`shared` and `shared/storage` are
    `runtime_user:runtime_group` setgid `2770`); `www-data` is never added
-   to runtime groups (public storage traversal stays the narrow POSIX ACL
-   from `install-public-storage-access` in 5.4); root owns the target
+   to runtime groups, so shared mutable state stays out of reach and
+   public storage traversal stays the narrow POSIX ACL from
+   `install-public-storage-access` in 5.4; root owns the target
    namespace root (`root:root 0755`) and the host operational roots
    (`/home/www/rateguru` + `config`/`bin` `0755`, `backups`/`run` `0700`,
    `/var/log/rateguru` `0750`) — so a deploy identity can create immutable
@@ -555,9 +559,8 @@ slices 1–2, which installed nothing — so it completes on merge.
    PostgreSQL, Redis, Supervisor and the two staging mail-capture services
    remained active with the deployed `rateguru-staging-queue` worker
    RUNNING.
-5. **5.5 Bootstrap orchestrator — implemented; awaiting real-staging
-   acceptance (a mutating host slice is never marked completed on CI
-   alone).** `infrastructure/scripts/bootstrap-host` is the one canonical
+5. **5.5 Bootstrap orchestrator — completed.**
+   `infrastructure/scripts/bootstrap-host` is the one canonical
    host-bootstrap entry point: clean/prepared Ubuntu host → 5.2 runtime →
    5.3 identities/filesystem → 5.4 services/configuration → final bootstrap
    preflight, executed from the bootstrap repository checkout (children are
@@ -595,26 +598,125 @@ slices 1–2, which installed nothing — so it completes on merge.
    `start` when needed) scoped to exactly the target program group, and
    activation failure fails the deployment with recovery stopping a
    worker this deploy activated so nothing keeps running against a
-   removed `current`. Real staging acceptance still required: on the
-   compliant staging host `bootstrap-host --apply` must skip all three
-   slices, mutate nothing, and end with a passing preflight — twice. See
-   `runbooks/bootstrap-host.md`.
-6. **5.6 Clean-VPS acceptance — planned.** Bootstrap a brand-new empty VPS
-   end to end from the committed infrastructure and accept it for real —
-   the prerequisite for the Phase 7 clean-server recovery rehearsal.
+   removed `current`. See `runbooks/bootstrap-host.md`.
 
-## 6. Sentry observability activation — planned
+   **Accepted on the real staging VPS:** the host was already largely
+   compliant, so this acceptance exercised the orchestrator's convergent
+   path rather than a build. `bootstrap-host` detected operational-bundle
+   drift left by the deployment changes that had landed since the bundle
+   was last installed; `bootstrap-host --apply` converged only that slice —
+   5.2 and 5.3 were SKIPped on their own passing `--verify`, 5.4 applied
+   and then verified. The final `bootstrap-host-preflight` passed, and so
+   did `bootstrap-host --verify`. A second `bootstrap-host --apply` was
+   idempotent: every slice SKIPped on an already-passing authoritative
+   `--verify`, nothing was mutated. Staging remained healthy throughout.
+6. **5.6 Clean-VPS acceptance — completed.** The rehearsal the whole phase
+   existed for: a brand-new empty VPS bootstrapped end to end from the
+   committed infrastructure, and accepted for real.
+
+   **Accepted on a real clean VPS.** A disposable Ubuntu 22.04 x86_64 host
+   with nothing on it — no RateGuru directories or accounts, and no PHP,
+   PostgreSQL, Nginx, Redis, Supervisor or rclone. The progression, in
+   order:
+
+   - the initial `bootstrap-host-preflight` correctly reported a clean,
+     unready host rather than mistaking emptiness for compliance;
+   - `bootstrap-host --check` produced exactly the dependency-aware answer
+     it should: 5.2 NEEDS_APPLY, 5.3 BLOCKED, 5.4 BLOCKED — an unsatisfied
+     earlier slice marks later ones BLOCKED instead of misjudging them;
+   - the first `bootstrap-host --apply` installed 5.2 and 5.3 from scratch;
+   - 5.4 then failed **closed, before any mutation**, because the
+     deliberately external TLS and Basic Auth material was absent — the
+     external-prerequisite contract behaving exactly as designed, not a
+     defect;
+   - after those external prerequisites were provided, re-running bootstrap
+     **resumed at 5.4** rather than rebuilding the already-converged 5.2
+     and 5.3;
+   - PRE_DEPLOY was accepted as a legitimate terminal state: no `current`
+     or `previous` release was fabricated to make a check pass;
+   - the first real immutable application deployment was then exercised on
+     that host, including the first-deploy Supervisor queue activation;
+   - application health, PHP-FPM, PostgreSQL, Redis, Nginx, the Supervisor
+     queue worker and the scheduler path were all exercised;
+   - `rollback` worked against real immutable release history;
+   - local backup and `restore-test` worked; Backblaze B2 offsite upload
+     and `offsite-restore-test` worked; the full target-aware
+     `backup-cycle` worked;
+   - final bootstrap verification and a repeat `--apply` were idempotent.
+
+   **Two real bootstrap defects were found here and nowhere else.** Both
+   were historical-state dependencies: the staging host had satisfied them
+   years ago by accident of history, so no amount of CI or
+   already-compliant-host testing could surface them. Exposing exactly this
+   class of bug is why 5.6 existed.
+
+   - **Defect A — an unmanaged trusted helper.** `deploy` depended on the
+     installed `/home/www/rateguru/bin/verify-required-clis`, but
+     `install-target-operations` did not manage or install that helper, so
+     a freshly bootstrapped host did not have it. Fixed in **PR #1124**,
+     which made `verify-required-clis` a first-class root-owned managed
+     operational CLI with the same transactional install/verify/rollback
+     coverage as the rest of the bundle.
+   - **Defect B — an identity the clean host never had.** Immutable
+     releases are `deploy_user:code_group` `0750`/`0640`, and Nginx runs as
+     `www-data`; clean bootstrap had never made `www-data` a member of the
+     active target's code group. Nginx workers evaluate
+     `try_files $uri $uri/ /index.php?$query_string` against
+     `current/public` themselves, before FastCGI is involved, so the host
+     answered every request with HTTP 404 while the error log showed
+     `Permission denied` stat'ing `current/public` and `public/index.php`.
+     Fixed in **PR #1125**, which made `www-data` → active-target
+     `code_group` an explicit bootstrap identity contract, and — because
+     supplementary groups are fixed at process creation — ensured
+     already-running Nginx workers converge to the new state without
+     resorting to unconditional reloads.
+
+   **The security model was preserved, not widened.** `deploy_user` owns
+   immutable releases; `runtime_user` reads immutable code through
+   `code_group`; `www-data` reads and traverses immutable *public* code
+   through `code_group` and nothing else — it is **not** in
+   `runtime_group`, so shared mutable storage stays out of reach, and
+   `www-data`'s access to shared storage remains the separate narrow POSIX
+   ACL from `install-public-storage-access`. Releases stay `0750`
+   directories and `0640` files. No world-readable workaround was
+   introduced.
+
+   **What this does and does not prove.** Phase 5 proves that *a brand-new
+   supported VPS can be reproducibly bootstrapped and made into a working
+   RateGuru application host*. It does not prove disaster recovery, and
+   nothing in Phase 7 is closed by it — the B2 offsite `restore-test` that
+   passed here verifies that a backup is restorable, which is a different
+   question from reconstructing a lost application. Phase 7 remains
+   responsible for the durable release archive, the backup ↔ release
+   mapping, rebuilding after server/data loss, restoring application state
+   on a clean server from durable/offsite material, application-level
+   verification after recovery, and the timed recovery drill. See the
+   "Three distinct rehearsal gates" section below.
+
+Phase 5 is therefore complete with these guarantees: a supported clean VPS
+can be turned into a working RateGuru application host from committed
+infrastructure alone, through one canonical entry point, with every slice
+independently verifiable and idempotent; external secret material is never
+generated, only required; a host that cannot be made safe fails closed
+before mutating anything; PRE_DEPLOY is a first-class state rather than
+something to fabricate around; and the first deployment, rollback, backup,
+offsite backup and restore-test all work on a host that was empty the day
+before.
+
+Next phase: Phase 6 — Sentry observability activation.
+
+## 6. Sentry observability activation — current
 
 Wire the existing observability foundation (DomainLogger, exception context)
 to Sentry for staging and production, with release tagging and PII redaction.
 The phase overall proves: **we can see and diagnose failures before
 production**.
 
-Slices 6.1–6.5 are **implemented; awaiting real-staging acceptance** — the
-code, configuration, workflows and runbook landed together, but none of the
-acceptance criteria below have been met yet, because they all require a real
-staging deployment with a real DSN and a configured GitHub Environment. The
-phase stays planned until that happens. What landed:
+This phase became **current** when Phase 5 closed. Slices 6.1–6.5 landed
+together — code, configuration, workflows and runbook — and each records its
+own acceptance state as it is met; the criteria below all require a real
+staging deployment with a real DSN and a configured GitHub Environment, so
+none of them can be met by CI alone. What landed:
 `sentry/sentry-laravel` with the canonical release identity read from the
 artifact's own `release.json` (never Git, never a second version string),
 `environment` as the environment class with `deployment_target` as a separate
@@ -865,11 +967,14 @@ rehearsal:
 
 - **Phase 5.6 — "Can we build a completely empty server?"** Proves host
   bootstrap and reproducibility: a brand-new VPS becomes a working host
-  purely from committed infrastructure.
+  purely from committed infrastructure. **Passed** — see slice 5.6.
 - **Phase 7.5 — "Can we recover after complete server/data loss?"** Proves
   disaster recovery: the host and its data disappear, and the application
   is reconstructed from offsite backups plus the archived exact release
-  artifact, within measured RPO/RTO.
+  artifact, within measured RPO/RTO. **Still outstanding.** 5.6 exercised
+  an offsite `restore-test` — proof that a backup is restorable — which is
+  a different question from reconstructing a lost application, and closes
+  nothing here.
 - **Phase 8.2 + 8.6 — "Can we repeatedly create new sites and execute the
   exact production launch procedure without first-time surprises?"** Proves
   target onboarding and production readiness: multiple independent targets

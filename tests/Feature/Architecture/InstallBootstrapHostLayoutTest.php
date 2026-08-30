@@ -1608,21 +1608,23 @@ it('keeps the structural directory contract in parity with bootstrap-host-prefli
 // Roadmap structure (stable facts only — never prose)
 // =============================================================================
 
-it('keeps the roadmap structure: Phase 5 current with 5.5 implemented, Phases 6-10 planned with their slices and rehearsal gates', function () {
+it('keeps the roadmap structure: Phase 5 completed, Phase 6 current, Phases 7-10 planned with their slices and rehearsal gates', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
-    // Phase 5 is the single current phase; 5.3 and 5.4 are completed after
-    // their real staging acceptances; 5.5 is implemented but stays a
-    // mutating slice awaiting real-staging acceptance.
-    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
-    expect($roadmap)->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*🚧 current\s*\|$/m');
+    // Phase 5 closed once every mutating slice had been accepted on a real
+    // host — 5.3 and 5.4 on staging, 5.5 on staging, 5.6 on a clean VPS.
+    expect($roadmap)->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*✅ completed\s*\|$/m');
     expect($roadmap)->toContain('5.3 Users, groups and filesystem — completed');
     expect($roadmap)->toContain('5.4 Services and configuration — completed');
-    expect($roadmap)->toContain('5.5 Bootstrap orchestrator — implemented; awaiting real-staging');
-    expect($roadmap)->toContain('5.6 Clean-VPS acceptance — planned');
+    expect($roadmap)->toContain('5.5 Bootstrap orchestrator — completed');
+    expect($roadmap)->toContain('5.6 Clean-VPS acceptance — completed');
 
-    // Phases 6-10 stay planned in the summary table.
-    foreach ([6, 7, 8, 9, 10] as $phase) {
+    // Phase 6 took over as the single current phase.
+    expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    expect($roadmap)->toMatch('/^\|\s*6\s*\|[^|]+\|\s*🚧 current\s*\|$/m');
+
+    // Phases 7-10 stay planned in the summary table.
+    foreach ([7, 8, 9, 10] as $phase) {
         expect($roadmap)->toMatch(
             '/^\|\s*'.$phase.'\s*\|[^|]+\|\s*⏳ planned[^|]*\|$/m',
             "phase {$phase} is no longer a planned row in the summary table",

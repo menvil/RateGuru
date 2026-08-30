@@ -962,14 +962,42 @@ it('documents the canonical operator flow in the runbook and README', function (
         ->toContain('infrastructure/scripts/bootstrap-host');
 });
 
-it('records 5.4 completed after real-staging acceptance and 5.5 implemented awaiting acceptance', function () {
+it('records every Phase 5 slice completed after its own real acceptance', function () {
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
     expect($roadmap)->toContain('5.4 Services and configuration — completed');
-    expect($roadmap)->toContain('5.5 Bootstrap orchestrator — implemented; awaiting real-staging');
-    expect($roadmap)->toContain('5.6 Clean-VPS acceptance — planned');
-    expect($roadmap)->not->toContain('5.5 Bootstrap orchestrator — completed');
+    expect($roadmap)->toContain('5.5 Bootstrap orchestrator — completed');
+    expect($roadmap)->toContain('5.6 Clean-VPS acceptance — completed');
 
-    // Phase 5 stays the single current phase.
+    // A mutating host slice is only ever marked completed after acceptance on
+    // a real host, so each of the two must carry its own evidence.
+    expect($roadmap)
+        ->toContain('**Accepted on the real staging VPS:** the host was already largely')
+        ->toContain('**Accepted on a real clean VPS.**');
+
+    // No stale "awaiting acceptance" wording survives anywhere.
+    expect($roadmap)->not->toContain('5.5 Bootstrap orchestrator — implemented');
+
+    // Phase 5 closed and handed over; there is still exactly one current phase.
     expect(substr_count($roadmap, '🚧 current'))->toBe(1);
+    expect($roadmap)
+        ->toMatch('/^\|\s*5\s*\|\s*Infrastructure installer and clean-VPS bootstrap\s*\|\s*✅ completed\s*\|$/m')
+        ->toContain('## 5. Infrastructure installer and clean-VPS bootstrap — completed');
+});
+
+it('keeps the Phase 5 and Phase 7 rehearsal gates distinct', function () {
+    // The offsite restore-test that passed in 5.6 proves a backup is
+    // restorable. It does not prove the application can be reconstructed
+    // after server/data loss, and must never be read as closing Phase 7.
+    $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
+
+    expect($roadmap)
+        ->toContain('Three distinct rehearsal gates')
+        ->toContain('**Still outstanding.**')
+        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
+
+    // The two defects clean-host bootstrap found, and the MRs that fixed them.
+    expect($roadmap)
+        ->toContain('PR #1124')
+        ->toContain('PR #1125');
 });

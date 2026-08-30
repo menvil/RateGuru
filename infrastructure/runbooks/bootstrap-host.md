@@ -40,6 +40,20 @@ after 5.4 installs the operational bundle). It is deliberately **not**
 installed into the operational bundle and the deploy user gets no sudo
 path to it: only root/operator runs it, from the checkout.
 
+### Real staging acceptance — passed
+
+The staging host was already largely compliant, so this acceptance
+exercised the convergent path rather than a build: `bootstrap-host`
+detected operational-bundle drift left by deployment changes that had
+landed since the bundle was last installed, and `bootstrap-host --apply`
+converged only that slice — 5.2 and 5.3 SKIPped on their own passing
+`--verify`, 5.4 applied and then verified. The final
+`bootstrap-host-preflight` passed, `bootstrap-host --verify` passed, and a
+second `bootstrap-host --apply` was fully idempotent: every slice SKIPped,
+nothing mutated. Staging stayed healthy throughout.
+
+The clean-host half of the proof is slice 5.6, below.
+
 ### Usage
 
 All modes require root.
@@ -830,13 +844,67 @@ boundaries (coordinator vs. the child installers it invokes), the
 PRE_DEPLOY/DEPLOYED distinction, the external-prerequisite contract and
 the real staging acceptance sequence.
 
-## What the remaining slice does (and these do not)
+## Slice 5.6: the clean-VPS acceptance — passed
 
-| Slice | Scope |
+Slice 5.5 built the machinery; 5.6 proved it in reality, on a disposable
+Ubuntu 22.04 x86_64 VPS that started with nothing: no RateGuru directories
+or accounts, and no PHP, PostgreSQL, Nginx, Redis, Supervisor or rclone.
+
+| Step | Result |
 |---|---|
-| 5.6 | real clean-VPS acceptance: obtain the bootstrap source on a disposable Ubuntu 22.04 VPS → `bootstrap-host --check` → supply the documented external prerequisites → `bootstrap-host --apply` → `bootstrap-host --verify` → first immutable deploy (with the first-deploy Supervisor activation) → health/queue/scheduler/backup/rollback → idempotent repeat → `bootstrap-host-preflight` |
+| `bootstrap-host-preflight` on the untouched host | correctly reported a clean, unready host |
+| `bootstrap-host --check` | 5.2 NEEDS_APPLY, 5.3 BLOCKED, 5.4 BLOCKED — dependency-aware, nothing misjudged |
+| first `bootstrap-host --apply` | 5.2 and 5.3 installed from scratch; 5.4 failed **closed before mutating** on the absent external TLS/Basic Auth material |
+| external prerequisites supplied, bootstrap re-run | **resumed at 5.4** — the converged 5.2/5.3 were not rebuilt |
+| PRE_DEPLOY | accepted as a terminal state; no `current`/`previous` was fabricated to satisfy a check |
+| first real immutable deploy | worked, including the first-deploy Supervisor queue activation |
+| health, PHP-FPM, PostgreSQL, Redis, Nginx, queue worker, scheduler path | all exercised |
+| `rollback` | worked against real immutable release history |
+| local backup + `restore-test`, B2 offsite upload + `offsite-restore-test`, full `backup-cycle` | all worked |
+| final verification and repeat `--apply` | idempotent |
 
-Slice 5.5 built the machinery; 5.6 proves it in reality. The canonical
-entry point for bringing up a host is now `bootstrap-host` (see its section
-at the top), with the manual external prerequisites documented in
-`bootstrap-services.md`.
+The canonical entry point for bringing up a host is `bootstrap-host` (see
+its section at the top), with the manual external prerequisites documented
+in [`bootstrap-services.md`](bootstrap-services.md).
+
+### The two defects only a clean host could find
+
+Both were **historical-state dependencies**: the staging host had satisfied
+them long ago by accident of history, so neither CI nor a re-run against an
+already-compliant host could ever have surfaced them. Finding this class of
+bug is the entire reason 5.6 existed as a separate gate.
+
+- **An unmanaged trusted helper (fixed in PR #1124).** `deploy` depended on
+  the installed `/home/www/rateguru/bin/verify-required-clis`, but
+  `install-target-operations` did not manage or install it — so a freshly
+  bootstrapped host simply did not have it. It is now a first-class
+  root-owned managed operational CLI, with the same transactional
+  install/verify/rollback coverage as every other file in the bundle.
+- **An identity the clean host never had (fixed in PR #1125).** Immutable
+  releases are `deploy_user:code_group` `0750`/`0640` and Nginx runs as
+  `www-data`, but clean bootstrap had never added `www-data` to the active
+  target's code group. Nginx evaluates `try_files` against `current/public`
+  itself, before FastCGI is involved, so the host answered every request
+  with HTTP 404 while its error log showed `Permission denied` stat'ing
+  `current/public` and `public/index.php`. `www-data` → active-target
+  `code_group` is now an explicit bootstrap identity contract, and because
+  supplementary groups are fixed at process creation, already-running Nginx
+  workers are converged to the new state without unconditional reloads —
+  see [`bootstrap-services.md`](bootstrap-services.md).
+
+Neither fix widened the security model: `www-data` gained read-only access
+to immutable *code* and nothing else. It is still not in any runtime group,
+shared mutable storage is still reached only through the separate narrow
+POSIX ACL, releases remain `0750`/`0640`, and no world-readable workaround
+was introduced.
+
+### What this does not prove
+
+Phase 5 proves that a brand-new supported VPS can be reproducibly
+bootstrapped into a working RateGuru application host. It does **not**
+prove disaster recovery. The offsite `restore-test` that passed here shows
+a backup is restorable — a different question from reconstructing a lost
+application — and closes nothing in Phase 7, which still owns the durable
+release archive, the backup ↔ release mapping, rebuilding after server/data
+loss, restoring application state on a clean server, application-level
+verification after recovery, and the timed drill.
