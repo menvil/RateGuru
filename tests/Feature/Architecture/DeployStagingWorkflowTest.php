@@ -30,7 +30,10 @@ it('deploys manually selected refs to staging', function () {
         ->and(data_get($workflow, 'concurrency.group'))->toBe('rateguru-staging-deployment')
         ->and(data_get($workflow, 'concurrency.cancel-in-progress'))->toBeFalse()
         ->and(data_get($workflow, 'jobs.build.needs'))->toBe('resolve')
-        ->and(data_get($workflow, 'jobs.deploy.needs'))->toBe(['resolve', 'build'])
+        ->and(data_get($workflow, 'jobs.archive.needs'))->toBe('build')
+        // Phase 7.1: the durable archive is a hard precondition for
+        // deployment — see ReleaseArtifactArchiveWorkflowTest.php.
+        ->and(data_get($workflow, 'jobs.deploy.needs'))->toBe(['resolve', 'build', 'archive'])
         ->and(data_get($workflow, 'jobs.deploy.environment'))->toBe('staging');
 
     expect(data_get($resolveSteps->get('Resolve exact source revision'), 'env.DISPATCH_REF'))

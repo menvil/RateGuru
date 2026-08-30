@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+#
+# fetch-release-artifact — retrieve one durably archived RateGuru release
+# artifact and prove it is the exact release it claims to be (Phase 7.1).
+#
+# The canonical counterpart of archive-release-artifact: given a release ID
+# and a destination directory it downloads only
+#
+#     <bucket>/rateguru/artifacts/<release-id>/
+#
+# and re-runs the full local contract against what arrived — the three
+# canonical files, the SHA-256 sidecar, release.json's project/release/commit
+# identity, and the release.json frozen inside the tarball. Any mismatch,
+# missing file or incomplete archive exits non-zero.
+#
+# This is a retrieval primitive, not a deployment: it never contacts a
+# RateGuru host, never extracts the application, never switches a release and
+# never touches a target. Its output is a verified artifact package on disk,
+# which is exactly what clean-host recovery will later consume.
+#
+# Like archive-release-artifact it is deliberately self-contained: a recovery
+# host has no /home/www/rateguru/bin/common, no target registry and no
+# deployment configuration at the moment this has to work.
+
+set -Eeuo pipefail
+umask 077
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=infrastructure/scripts/release-artifact-common
+source "${SCRIPT_DIR}/release-artifact-common"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  fetch-release-artifact --release RELEASE_ID --destination DIR \
+      --rclone-config PATH [--bucket BUCKET] [--remote NAME] \
+      [--rclone-bin PATH] [--report PATH]
+
+  --release RELEASE_ID   Canonical immutable release ID
+                         (vX.Y.Z-YYYYMMDD-HHMMSS-shortsha).
+  --destination DIR      Directory the verified package is written into.
+                         Created when absent; must not already hold any of
+                         the three canonical files.
+  --rclone-config PATH   rclone configuration declaring the remote.
+  --bucket BUCKET        Release-artifact bucket
+                         (default: rateguru-release-artifacts).
+  --remote NAME          rclone remote name
+                         (default: rateguru-artifacts-b2).
+  --rclone-bin PATH      rclone binary (default: /usr/bin/rclone).
+  --report PATH          Write a JSON result document to PATH.
+USAGE
+}
+
+RELEASE_ID=""
+DESTINATION=""
+RCLONE_CONFIG=""
+BUCKET="${RELEASE_ARTIFACT_BUCKET_DEFAULT}"
+REMOTE="${RELEASE_ARTIFACT_REMOTE_DEFAULT}"
+RCLONE_BIN="${RELEASE_ARTIFACT_RCLONE_BIN_DEFAULT}"
+REPORT_PATH=""
+
+parse_fetch_args() {
+    local release_seen=false destination_seen=false config_seen=false
+    local bucket_seen=false remote_seen=false bin_seen=false report_seen=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --release)
+                [[ "${release_seen}" != true ]] || ra_fail "--release given more than once"
+                ra_require_flag_value "--release" "$#" "${2-}"
+                RELEASE_ID="$2"
+                release_seen=true
+                shift 2
+                ;;
+            --destination)
+                [[ "${destination_seen}" != true ]] || ra_fail "--destination given more than once"
+                ra_require_flag_value "--destination" "$#" "${2-}"
+                DESTINATION="$2"
+                destination_seen=true
+                shift 2
+                ;;
+            --rclone-config)
+                [[ "${config_seen}" != true ]] || ra_fail "--rclone-config given more than once"
+                ra_require_flag_value "--rclone-config" "$#" "${2-}"
+                RCLONE_CONFIG="$2"
+                config_seen=true
+                shift 2
+                ;;
+            --bucket)
+                [[ "${bucket_seen}" != true ]] || ra_fail "--bucket given more than once"
+                ra_require_flag_value "--bucket" "$#" "${2-}"
+                BUCKET="$2"
+                bucket_seen=true
+                shift 2
+                ;;
+            --remote)
+                [[ "${remote_seen}" != true ]] || ra_fail "--remote given more than once"
+                ra_require_flag_value "--remote" "$#" "${2-}"
+                REMOTE="$2"
+                remote_seen=true
+                shift 2
+                ;;
+            --rclone-bin)
+                [[ "${bin_seen}" != true ]] || ra_fail "--rclone-bin given more than once"
+                ra_require_flag_value "--rclone-bin" "$#" "${2-}"
+                RCLONE_BIN="$2"
+                bin_seen=true
+                shift 2
+                ;;
+            --report)
+                [[ "${report_seen}" != true ]] || ra_fail "--report given more than once"
+                ra_require_flag_value "--report" "$#" "${2-}"
+                REPORT_PATH="$2"
+                report_seen=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                ra_fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${release_seen}" == true ]] || { usage >&2; ra_fail "--release is required"; }
+    [[ "${destination_seen}" == true ]] || { usage >&2; ra_fail "--destination is required"; }
+    [[ "${config_seen}" == true ]] || { usage >&2; ra_fail "--rclone-config is required"; }
+
+    ra_validate_release_id "${RELEASE_ID}"
+    ra_validate_bucket "${BUCKET}"
+    ra_validate_remote_name "${REMOTE}"
+}
+
+rclone_run() {
+    "${RCLONE_BIN}" --config "${RCLONE_CONFIG}" "$@"
+}
+
+# prepare_destination — a retrieval must be unambiguous: whatever this script
+# reports as verified has to be what it just downloaded, never a leftover
+# file that happened to already be sitting there.
+prepare_destination() {
+    local entry
+
+    mkdir -p "${DESTINATION}" || ra_fail "cannot create destination directory: ${DESTINATION}"
+
+    [[ -w "${DESTINATION}" ]] || ra_fail "destination directory is not writable: ${DESTINATION}"
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        [[ ! -e "${DESTINATION}/${entry}" ]] \
+            || ra_fail "destination already contains ${entry} — retrieve into a clean directory"
+    done < <(ra_expected_remote_entries "${RELEASE_ID}")
+}
+
+# require_complete_remote_archive — the remote release directory must be
+# exactly the three canonical objects. A partial archive is rejected here,
+# before anything is downloaded, so an incomplete recovery can never be
+# mistaken for a successful one.
+require_complete_remote_archive() {
+    local listing expected_entries
+
+    ra_log "Checking release-artifact bucket access"
+
+    rclone_run lsf "${REMOTE}:${BUCKET}" >/dev/null \
+        || ra_fail "cannot access release-artifact bucket ${BUCKET} through remote ${REMOTE}"
+
+    listing="$(rclone_run lsf "${REMOTE_DIR}" 2>/dev/null || true)"
+
+    [[ -n "${listing}" ]] \
+        || ra_fail "release ${RELEASE_ID} is not archived in ${BUCKET}/$(ra_remote_prefix "${RELEASE_ID}")/"
+
+    listing="$(ra_normalize_listing <<<"${listing}")"
+    expected_entries="$(ra_expected_remote_entries "${RELEASE_ID}" | LC_ALL=C sort)"
+
+    [[ "${listing}" == "${expected_entries}" ]] \
+        || ra_fail "archived release ${RELEASE_ID} is incomplete or contains unexpected objects"
+}
+
+download_release() {
+    ra_log "Retrieving ${RELEASE_ID} from ${BUCKET}/$(ra_remote_prefix "${RELEASE_ID}")/"
+
+    rclone_run copy "${REMOTE_DIR}" "${DESTINATION}" \
+        --checksum \
+        --stats-one-line \
+        --stats 10s
+}
+
+write_report() {
+    [[ -n "${REPORT_PATH}" ]] || return 0
+
+    jq \
+        --null-input \
+        --arg project "${RELEASE_ARTIFACT_PROJECT}" \
+        --arg release "${RELEASE_ID}" \
+        --arg source_sha "${RA_SOURCE_SHA}" \
+        --arg bucket "${BUCKET}" \
+        --arg remote_path "$(ra_remote_prefix "${RELEASE_ID}")/" \
+        --arg artifact "${ARTIFACT_NAME}" \
+        --arg artifact_path "${DESTINATION%/}/${ARTIFACT_NAME}" \
+        --arg sha256 "${RA_ARTIFACT_SHA256}" \
+        --arg verify "pass" \
+        --arg result "pass" \
+        '{
+            project: $project,
+            release: $release,
+            source_sha: $source_sha,
+            bucket: $bucket,
+            remote_path: $remote_path,
+            artifact: $artifact,
+            artifact_path: $artifact_path,
+            sha256: $sha256,
+            verify: $verify,
+            result: $result
+        }' \
+        > "${REPORT_PATH}"
+}
+
+perform_fetch() {
+    ARTIFACT_NAME="$(ra_artifact_name "${RELEASE_ID}")"
+    REMOTE_DIR="$(ra_remote_dir "${REMOTE}" "${BUCKET}" "${RELEASE_ID}")"
+
+    ra_log "Release:     ${RELEASE_ID}"
+    ra_log "Artifact:    ${ARTIFACT_NAME}"
+    ra_log "Remote path: ${BUCKET}/$(ra_remote_prefix "${RELEASE_ID}")/"
+
+    ra_require_rclone "${RCLONE_BIN}" "${RCLONE_CONFIG}"
+
+    prepare_destination
+    require_complete_remote_archive
+    download_release
+
+    ra_log "Validating the retrieved release package"
+    ra_verify_local_package "${DESTINATION}" "${RELEASE_ID}"
+
+    write_report
+
+    ra_log "Verified ${ARTIFACT_NAME} (sha256 ${RA_ARTIFACT_SHA256}, source_sha ${RA_SOURCE_SHA})"
+    ra_log ""
+    ra_log "Release ${RELEASE_ID} retrieved and verified at ${DESTINATION%/}/${ARTIFACT_NAME}"
+}
+
+main() {
+    parse_fetch_args "$@"
+    perform_fetch
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

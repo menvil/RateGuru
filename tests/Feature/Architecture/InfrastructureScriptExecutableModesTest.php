@@ -61,13 +61,22 @@ function infrastructureScriptGitModes(): array
     return $modes;
 }
 
-it('keeps every infrastructure CLI script executable and common non-executable in the Git index', function () {
+it('keeps every infrastructure CLI script executable and every sourced library non-executable in the Git index', function () {
     $cliAllowlist = array_map(
         fn (string $name): string => "infrastructure/scripts/{$name}",
         requiredCliManifestNames(),
     );
 
-    $sourcedLibrary = 'infrastructure/scripts/common';
+    // Files that are sourced, never executed directly. `common` is the
+    // operational library every target-aware script sources;
+    // `release-artifact-common` is the Phase 7.1 durable-archive contract,
+    // deliberately independent of it because both of its consumers must run
+    // where /home/www/rateguru/bin/common does not exist (a build runner
+    // before deployment, and a clean recovery host).
+    $sourcedLibraries = [
+        'infrastructure/scripts/common',
+        'infrastructure/scripts/release-artifact-common',
+    ];
 
     $modes = infrastructureScriptGitModes();
 
@@ -76,14 +85,17 @@ it('keeps every infrastructure CLI script executable and common non-executable i
         expect($modes[$path])->toBe('100755', "{$path} must be Git mode 100755 (executable) — is {$modes[$path]}");
     }
 
-    expect(array_key_exists($sourcedLibrary, $modes))->toBeTrue("sourced library is missing from the repository: {$sourcedLibrary}");
-    expect($modes[$sourcedLibrary])
-        ->toBe('100644', "{$sourcedLibrary} is a sourced library, never executed directly, and must be Git mode 100644 — is {$modes[$sourcedLibrary]}");
+    foreach ($sourcedLibraries as $sourcedLibrary) {
+        expect(array_key_exists($sourcedLibrary, $modes))->toBeTrue("sourced library is missing from the repository: {$sourcedLibrary}");
+        expect($modes[$sourcedLibrary])
+            ->toBe('100644', "{$sourcedLibrary} is a sourced library, never executed directly, and must be Git mode 100644 — is {$modes[$sourcedLibrary]}");
+    }
 
     // No expected CLI is missing from the allowlist, and nothing untracked
     // slipped in unclassified: the flat files directly under
-    // infrastructure/scripts/ are exactly the allowlist plus common.
-    $expectedPaths = [...$cliAllowlist, $sourcedLibrary];
+    // infrastructure/scripts/ are exactly the allowlist plus the sourced
+    // libraries.
+    $expectedPaths = [...$cliAllowlist, ...$sourcedLibraries];
     sort($expectedPaths);
     $actualPaths = array_keys($modes);
     sort($actualPaths);

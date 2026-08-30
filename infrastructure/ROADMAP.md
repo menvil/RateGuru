@@ -12,7 +12,7 @@ not reorganize unrelated infrastructure.
 | 4 | Multi-target production model | ✅ completed |
 | 5 | Infrastructure installer and clean-VPS bootstrap | ✅ completed |
 | 6 | Sentry observability activation | 🚧 current |
-| 7 | Disaster recovery and release rehearsal | ⏳ planned |
+| 7 | Disaster recovery and release rehearsal | ⏳ planned (7.1 implemented) |
 | 8 | First production launch and target-provisioning proof | ⏳ planned |
 | 9 | Repeatable production target onboarding | ⏳ planned |
 | 10 | Advanced observability and product analytics | ⏳ planned / optional |
@@ -767,7 +767,7 @@ deployment. Slice 6.6 (alerts) is manual Sentry-UI work documented in
    justified. *Acceptance:* controlled staging failures verify the
    notification path end to end.
 
-## 7. Disaster recovery and release rehearsal — planned
+## 7. Disaster recovery and release rehearsal — planned (7.1 implemented)
 
 Rehearse recovery end to end. The phase overall proves: **we can lose the
 whole server and recover correctly**. It explicitly distinguishes four
@@ -779,7 +779,7 @@ distinct activities that must never be conflated:
 2. **Restore-test** — restoring the latest backup into a throwaway/scratch
    database and asserting integrity (e.g. migrations table row count). *Proves
    the backup is restorable.* Runs on the existing server; does not rebuild the
-   host.
+   host. It is deliberately never turned into a live restore operation.
 3. **Clean-server recovery rehearsal** — provisioning a brand-new empty VPS from
    committed infrastructure (Phase 5 bootstrap), then restoring a backup onto
    it and bringing the app up. *Proves we can rebuild the whole host from
@@ -789,42 +789,137 @@ distinct activities that must never be conflated:
    RPO/RTO targets, DNS/TLS cutover, and a communications checklist. *The real
    event, not a drill.*
 
+**Slice 7.1 is implemented; the phase itself is not yet the current one.**
+Phase 6 remains the single current phase until its manual Sentry alert
+configuration and staging acceptance (slice 6.6) and the Phase 6B Nightwatch
+evaluation close — neither is code, and neither is blocked by 7.1. 7.1 landed
+ahead of that sequence because release-artifact durability is a standing
+exposure on every deployment, not a rehearsal step: GitHub artifact retention
+is three days, and until the archive existed, a VPS lost on day four took the
+only copy of the running build with it.
+
+**Rollback already exists and is not Phase 7 work.**
+`.github/workflows/rollback-staging.yml` and
+`infrastructure/scripts/rollback` were delivered in Phases 1–4 and work
+today. No slice below reimplements, redesigns or replaces rollback: rolling
+back to a previously deployed release on a live host is a different problem
+from reconstructing a lost one, and the two must never be conflated.
+
 Slices, in order:
 
-1. **7.1 Durable immutable release artifact archive.** GitHub artifact
-   retention is finite, and the data backup only tells us what data existed
-   — total VPS loss also requires the exact application artifact that was
-   running. Create a durable offsite archive of immutable releases
-   (conceptually `rateguru/artifacts/<release-id>/` holding
-   `artifact.tar.gz`, `artifact.sha256`, `release.json`; likely storage
-   Backblaze B2). The full application artifact is NOT copied into every
-   daily data backup. *Acceptance:* an old release can be retrieved and
-   checksum-verified without depending on GitHub artifact retention.
-2. **7.2 Backup ↔ exact release mapping.** A data backup must
-   deterministically identify the exact application release that belongs to
-   it. Strengthen backup metadata: target, release ID, source SHA, artifact
-   reference, artifact checksum, backup time/schema/version metadata.
-   *Acceptance:* starting from a backup manifest, recovery identifies the
-   exact deployable artifact without guessing or rebuilding from source.
-3. **7.3 Clean-server recovery rehearsal.** Prove recovery from total VPS
-   loss: new Ubuntu VPS → Phase 5 bootstrap → retrieve the exact immutable
-   artifact → recover secrets/environment → restore database → restore
-   storage → deploy the exact release → start the target → health check.
-   Explicitly distinct from the current restore-test: restore-test answers
-   "can this backup technically be restored?"; 7.3 answers "can the entire
-   host disappear and the application be reconstructed?".
-4. **7.4 Application-level restore verification.** A successful pg_restore
+1. **7.1 Durable immutable release artifact archive — implemented.** GitHub
+   artifact retention is finite (3 days), and the data backup only tells us
+   what data existed — total VPS loss also requires the exact application
+   artifact that was running. Every release that is allowed to become active
+   is now durably archived to Backblaze B2 at
+   `rateguru-release-artifacts/rateguru/artifacts/<release-id>/`, holding the
+   exact tarball, its SHA-256 sidecar and its own `release.json`. What
+   landed: `infrastructure/scripts/archive-release-artifact` and
+   `infrastructure/scripts/fetch-release-artifact` over a shared,
+   self-contained `release-artifact-common` contract (neither sources
+   `bin/common`, because their consumers are a build runner before any
+   deployment and, later, a clean recovery host);
+   `infrastructure/scripts/fetch-verified-rclone`, which installs the pinned,
+   signature-verified rclone from the existing committed external-runtime
+   contract without root; a `.github/actions/archive-release-artifact`
+   composite action that is transport only; and an `archive` job wired
+   between `build` and `deploy` in `deploy-staging.yml`.
+
+   Design decisions, all deliberate:
+
+   - **A separate bucket.** Release artifacts never live inside the
+     `rateguru-database-backups` namespace, so backup retention and
+     release-artifact retention can never affect each other.
+   - **Archived from CI, before deployment.** The storage that protects us
+     from host loss must not require the host being protected in order to
+     create the durable archive, so the artifact is never uploaded to B2
+     through the staging VPS.
+   - **A hard precondition.** `deploy` `needs` `archive`; a failed archive
+     means the deployment never starts. Nothing on that path is
+     `continue-on-error` — unlike the Sentry marker, which is observability
+     and may never fail a healthy deployment.
+   - **Project-scoped, never target-scoped.** No `staging-main` or
+     `tits-guru` segment exists in the archive path: the same immutable
+     application artifact is a project artifact. `rateguru` is a fixed,
+     trusted constant and never operator input, so no flag can archive a
+     RateGuru artifact under another project's namespace — while leaving room
+     for a future `cataloghub/artifacts/…` without collisions.
+   - **One release.json.** The build copies the document it already froze
+     into the tarball out beside it; both the archive and the retrieval
+     require the two to be byte-identical, so recovery never reads metadata
+     the artifact itself does not carry.
+   - **Immutable semantics.** Absent → upload; identical → idempotent no-op;
+     a strict subset with every present object identical → upload only what
+     is missing; anything differing, or an unexpected object under the
+     release ID → hard fail. No delete, no replace, no mutation, and **no
+     retention or garbage collection at all** in this slice.
+   - **GitHub's artifact stays.** It remains 3-day CI transport and
+     debugging material; its retention is never raised as a substitute for
+     B2.
+
+   Credentials are the repository secrets `B2_ARTIFACT_KEY_ID` /
+   `B2_ARTIFACT_APPLICATION_KEY` and the repository variable
+   `B2_ARTIFACT_BUCKET`, with the B2 application key restricted to the
+   release-artifact bucket. They are deliberately repository-level rather
+   than bound to the `staging` GitHub Environment, never reach a VPS, and are
+   written only into a `0600` temporary rclone configuration inside
+   `RUNNER_TEMP` that is removed under `always()`. See
+   `runbooks/release-artifact-archive.md`.
+
+   *Acceptance:* an old release can be retrieved and checksum-verified
+   without depending on GitHub artifact retention. **Pending on the real
+   staging pipeline** — it requires the repository secrets/variable and one
+   real staging deployment, so CI alone cannot meet it. The exact operator
+   steps are in the runbook.
+2. **7.2 Backup ↔ exact release / recovery-point mapping.** A data backup
+   must deterministically identify the exact application release that
+   belongs to it. Strengthen backup metadata: target, release ID, source
+   SHA, artifact reference, artifact checksum, backup time/schema/version
+   metadata, and the durable archive path from 7.1. *Acceptance:* starting
+   from a backup manifest, recovery identifies the exact deployable artifact
+   without guessing or rebuilding from source.
+3. **7.3 Restore Target Data on an existing host.** The server remains
+   alive; only its data is restored. Pre-restore safety backup;
+   DB-only / storage-only / DB+storage modes; maintenance mode; queue and
+   scheduler safety; verified backup selection; application verification
+   afterwards. Explicitly distinct from the existing restore-test, which
+   restores into a throwaway scratch database and stays that way.
+   *Acceptance:* a target's data is restored in place, verified, and the
+   application is healthy again, with a safety backup available throughout.
+4. **7.4 GitHub Restore Target Data operator workflow.** Turn 7.3 into an
+   operator-facing workflow: plan before mutation, staging execution,
+   production approval gating later, and a structured result report.
+   *Acceptance:* a staging data restore runs end to end from a workflow
+   dispatch, with the plan visible before anything mutates.
+5. **7.5 Repair Target.** The host remains alive, but a target's runtime,
+   perimeter or release state is broken or drifted. Reconstruct that target
+   — identities, filesystem, perimeter, services, current release — without
+   rebuilding the whole VPS. *Acceptance:* a deliberately damaged staging
+   target is repaired in place and verifies clean.
+6. **7.6 Clean-host recovery orchestration / clean-host drill.** Prove
+   recovery from total VPS loss: new Ubuntu VPS → Phase 5 bootstrap →
+   retrieve the exact immutable artifact through 7.1's
+   `fetch-release-artifact` → recover secrets/environment → restore database
+   → restore storage → deploy the exact release → start the target → health
+   check. Explicitly distinct from restore-test: restore-test answers "can
+   this backup technically be restored?"; 7.6 answers "can the entire host
+   disappear and the application be reconstructed?".
+7. **7.7 Application-level recovery verification.** A successful pg_restore
    is not enough. Verify actual recovered application behavior: Laravel
-   boots, DB queries work, migration state is coherent, storage/media
-   works, queues work, the scheduler works, representative smoke tests
-   pass. *Acceptance:* the recovered application behaves like a valid
-   running target, not merely a restored PostgreSQL database.
-5. **7.5 Full timed DR drill, RPO/RTO and runbook.** Turn recovery
-   technology into an operational procedure: rehearse full host loss,
-   backup selection, release selection, provisioning, restore, DNS/TLS
-   implications, verification and fallback; measure real recovery
-   duration; define RPO and RTO; produce the final disaster-recovery
-   runbook.
+   boots, DB queries work, migration state is coherent, storage/media works,
+   queues work, the scheduler works, representative smoke tests pass.
+   *Acceptance:* the recovered application behaves like a valid running
+   target, not merely a restored PostgreSQL database.
+8. **7.8 GitHub Recover Host workflow / disposable-host rehearsal.** Turn
+   7.6 into a repeatable operator workflow driven against a disposable
+   rehearsal host, under the disposable-rehearsal policy below.
+   *Acceptance:* a disposable host is recovered end to end from a workflow
+   dispatch, without hand-run commands.
+9. **7.9 Full timed DR drill, RPO/RTO and final production recovery
+   runbook.** Rehearse full host loss with backup selection, release
+   selection, provisioning, restore, DNS/TLS implications, verification and
+   fallback; measure real recovery duration; define RPO and RTO; produce the
+   final disaster-recovery runbook.
 
 ## 8. First production launch and target-provisioning proof — planned
 
@@ -968,13 +1063,15 @@ rehearsal:
 - **Phase 5.6 — "Can we build a completely empty server?"** Proves host
   bootstrap and reproducibility: a brand-new VPS becomes a working host
   purely from committed infrastructure. **Passed** — see slice 5.6.
-- **Phase 7.5 — "Can we recover after complete server/data loss?"** Proves
-  disaster recovery: the host and its data disappear, and the application
-  is reconstructed from offsite backups plus the archived exact release
-  artifact, within measured RPO/RTO. **Still outstanding.** 5.6 exercised
-  an offsite `restore-test` — proof that a backup is restorable — which is
-  a different question from reconstructing a lost application, and closes
-  nothing here.
+- **Phase 7.6 + 7.9 — "Can we recover after complete server/data loss?"**
+  Proves disaster recovery: the host and its data disappear, and the
+  application is reconstructed from offsite backups plus the archived exact
+  release artifact, within measured RPO/RTO. **Still outstanding.** 5.6
+  exercised an offsite `restore-test` — proof that a backup is restorable —
+  which is a different question from reconstructing a lost application, and
+  closes nothing here. Slice 7.1 landed the durable release-artifact archive
+  and its verified retrieval primitive, which is the material 7.6 consumes;
+  it closes no rehearsal gate on its own.
 - **Phase 8.2 + 8.6 — "Can we repeatedly create new sites and execute the
   exact production launch procedure without first-time surprises?"** Proves
   target onboarding and production readiness: multiple independent targets

@@ -1633,7 +1633,7 @@ it('keeps the roadmap structure: Phase 5 completed, Phase 6 current, Phases 7-10
 
     // Every architecturally decided future slice identifier exists. Only
     // the identifiers are pinned — the prose is deliberately free to evolve.
-    foreach ([6 => 6, 7 => 5, 8 => 7, 9 => 5, 10 => 5] as $phase => $sliceCount) {
+    foreach ([6 => 6, 7 => 9, 8 => 7, 9 => 5, 10 => 5] as $phase => $sliceCount) {
         for ($slice = 1; $slice <= $sliceCount; $slice++) {
             expect(str_contains($roadmap, "**{$phase}.{$slice} "))
                 ->toBeTrue("roadmap lost the {$phase}.{$slice} slice identifier");

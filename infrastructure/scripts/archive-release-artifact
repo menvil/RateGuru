@@ -1,0 +1,398 @@
+#!/usr/bin/env bash
+#
+# archive-release-artifact — durably archive one immutable RateGuru release
+# artifact to the release-artifact object store (Phase 7.1).
+#
+# GitHub Actions artifact retention is finite; total VPS loss also destroys
+# the only other copy of the exact bytes that were running. This script is the
+# durable third copy: it takes the artifact/checksum/release.json a build just
+# produced, validates them exhaustively, and uploads them — unchanged and
+# immutably — to
+#
+#     <bucket>/rateguru/artifacts/<release-id>/
+#
+# The archive is a HARD PRECONDITION for deployment: a release must never
+# become current if its exact artifact has not first been durably archived, so
+# every failure path here is fail-closed and non-zero.
+#
+# Deliberately independent of the application host. It runs on the trusted
+# build runner, before any deployment, and never sources
+# /home/www/rateguru/bin/common, reads a target registry or resolves a
+# deployment target — the storage that protects us from host loss must not
+# require the host being protected in order to create the archive. For the
+# same reason no deployment target ever appears in the remote path: the
+# immutable application artifact is a PROJECT artifact.
+#
+# Idempotent and safe to retry:
+#
+#   - remote release directory absent      -> upload, verify, PASS
+#   - present and byte-identical           -> no upload, verify, PASS
+#   - present but incomplete (a strict
+#     subset, every present object
+#     identical)                           -> upload the missing objects only,
+#                                             verify, PASS
+#   - present and anything differs, or an
+#     unexpected object exists under the
+#     release ID                           -> HARD FAIL
+#
+# Nothing here ever deletes, replaces, renames or mutates an archived object.
+
+set -Eeuo pipefail
+umask 077
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=infrastructure/scripts/release-artifact-common
+source "${SCRIPT_DIR}/release-artifact-common"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  archive-release-artifact --release RELEASE_ID --source-dir DIR \
+      --rclone-config PATH [--bucket BUCKET] [--remote NAME] \
+      [--rclone-bin PATH] [--report PATH]
+
+  --release RELEASE_ID   Canonical immutable release ID
+                         (vX.Y.Z-YYYYMMDD-HHMMSS-shortsha).
+  --source-dir DIR       Directory holding rateguru-<release>.tar.gz, its
+                         .sha256 sidecar and release.json.
+  --rclone-config PATH   rclone configuration declaring the remote. Never
+                         created, read back or deleted by this script.
+  --bucket BUCKET        Release-artifact bucket
+                         (default: rateguru-release-artifacts).
+  --remote NAME          rclone remote name
+                         (default: rateguru-artifacts-b2).
+  --rclone-bin PATH      rclone binary (default: /usr/bin/rclone).
+  --report PATH          Write a JSON result document to PATH.
+USAGE
+}
+
+# Everything below, down to the source guard at the bottom of this file, is
+# constants and function definitions only — nothing runs until main is called.
+
+RELEASE_ID=""
+SOURCE_DIR=""
+RCLONE_CONFIG=""
+BUCKET="${RELEASE_ARTIFACT_BUCKET_DEFAULT}"
+REMOTE="${RELEASE_ARTIFACT_REMOTE_DEFAULT}"
+RCLONE_BIN="${RELEASE_ARTIFACT_RCLONE_BIN_DEFAULT}"
+REPORT_PATH=""
+
+parse_archive_args() {
+    local release_seen=false source_seen=false config_seen=false
+    local bucket_seen=false remote_seen=false bin_seen=false report_seen=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --release)
+                [[ "${release_seen}" != true ]] || ra_fail "--release given more than once"
+                ra_require_flag_value "--release" "$#" "${2-}"
+                RELEASE_ID="$2"
+                release_seen=true
+                shift 2
+                ;;
+            --source-dir)
+                [[ "${source_seen}" != true ]] || ra_fail "--source-dir given more than once"
+                ra_require_flag_value "--source-dir" "$#" "${2-}"
+                SOURCE_DIR="$2"
+                source_seen=true
+                shift 2
+                ;;
+            --rclone-config)
+                [[ "${config_seen}" != true ]] || ra_fail "--rclone-config given more than once"
+                ra_require_flag_value "--rclone-config" "$#" "${2-}"
+                RCLONE_CONFIG="$2"
+                config_seen=true
+                shift 2
+                ;;
+            --bucket)
+                [[ "${bucket_seen}" != true ]] || ra_fail "--bucket given more than once"
+                ra_require_flag_value "--bucket" "$#" "${2-}"
+                BUCKET="$2"
+                bucket_seen=true
+                shift 2
+                ;;
+            --remote)
+                [[ "${remote_seen}" != true ]] || ra_fail "--remote given more than once"
+                ra_require_flag_value "--remote" "$#" "${2-}"
+                REMOTE="$2"
+                remote_seen=true
+                shift 2
+                ;;
+            --rclone-bin)
+                [[ "${bin_seen}" != true ]] || ra_fail "--rclone-bin given more than once"
+                ra_require_flag_value "--rclone-bin" "$#" "${2-}"
+                RCLONE_BIN="$2"
+                bin_seen=true
+                shift 2
+                ;;
+            --report)
+                [[ "${report_seen}" != true ]] || ra_fail "--report given more than once"
+                ra_require_flag_value "--report" "$#" "${2-}"
+                REPORT_PATH="$2"
+                report_seen=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                ra_fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${release_seen}" == true ]] || { usage >&2; ra_fail "--release is required"; }
+    [[ "${source_seen}" == true ]] || { usage >&2; ra_fail "--source-dir is required"; }
+    [[ "${config_seen}" == true ]] || { usage >&2; ra_fail "--rclone-config is required"; }
+
+    ra_validate_release_id "${RELEASE_ID}"
+    ra_validate_bucket "${BUCKET}"
+    ra_validate_remote_name "${REMOTE}"
+}
+
+# --- scratch workspace -------------------------------------------------------
+#
+# The upload source is a private staging directory holding exactly the three
+# canonical files, never the caller's directory: rclone then physically cannot
+# push anything else into the release namespace, whatever else happens to be
+# sitting next to the artifact.
+
+WORKDIR=""
+
+cleanup_workdir() {
+    # ERR/EXIT traps are inherited into $(...) subshells, so only the process
+    # that created the workspace may ever remove it.
+    [[ "${BASHPID:-$$}" == "$$" ]] || return 0
+    [[ -n "${WORKDIR}" ]] || return 0
+
+    rm -rf -- "${WORKDIR}"
+    WORKDIR=""
+}
+
+prepare_workspace() {
+    WORKDIR="$(mktemp -d)" || ra_fail "cannot create a work directory"
+    trap cleanup_workdir EXIT
+
+    STAGE_DIR="${WORKDIR}/stage"
+    CHECK_DIR="${WORKDIR}/check"
+
+    mkdir -p "${STAGE_DIR}" "${CHECK_DIR}"
+
+    # -p keeps the build's own timestamps, so a resumed upload compares
+    # identical objects rather than "same bytes, newer file".
+    cp -p \
+        "${SOURCE_DIR}/${ARTIFACT_NAME}" \
+        "${SOURCE_DIR}/${ARTIFACT_NAME}.sha256" \
+        "${SOURCE_DIR}/release.json" \
+        "${STAGE_DIR}/"
+}
+
+# --- rclone ------------------------------------------------------------------
+
+rclone_run() {
+    "${RCLONE_BIN}" --config "${RCLONE_CONFIG}" "$@"
+}
+
+# probe_remote — proves the credentials work and the bucket is reachable
+# before anything is validated against it, so "release not archived yet" can
+# never be confused with "cannot talk to the object store".
+probe_remote() {
+    ra_log "Checking release-artifact bucket access"
+
+    rclone_run lsf "${REMOTE}:${BUCKET}" >/dev/null \
+        || ra_fail "cannot access release-artifact bucket ${BUCKET} through remote ${REMOTE}"
+}
+
+# classify_remote_release — decides between upload / resume / no-op / hard
+# fail, and is the only place an existing archived release is ever judged.
+#
+# Sets ARCHIVE_ACTION to one of: upload, resume, none.
+classify_remote_release() {
+    local listing entry expected_entries
+
+    # A missing release directory lists empty on an object store and errors on
+    # a filesystem-backed remote; both mean "nothing archived yet", and the
+    # bucket probe above already proved the remote itself is usable.
+    listing="$(rclone_run lsf "${REMOTE_DIR}" 2>/dev/null || true)"
+
+    if [[ -z "${listing}" ]]; then
+        ARCHIVE_ACTION="upload"
+
+        ra_log "No archive exists for ${RELEASE_ID} yet"
+
+        return 0
+    fi
+
+    expected_entries="$(ra_expected_remote_entries "${RELEASE_ID}")"
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        entry="${entry%/}"
+
+        grep -qxF "${entry}" <<<"${expected_entries}" \
+            || ra_fail "an unexpected object already exists under release ${RELEASE_ID}: ${entry}"
+    done <<<"${listing}"
+
+    ra_log "An archive already exists for ${RELEASE_ID} — comparing it with this release"
+
+    # rclone's own comparison, with every outcome captured separately so the
+    # difference between "incomplete" and "conflicting" is decided here rather
+    # than inferred from an exit status.
+    rclone_run check "${STAGE_DIR}" "${REMOTE_DIR}" \
+        --checksum \
+        --differ "${CHECK_DIR}/differ" \
+        --missing-on-src "${CHECK_DIR}/missing-on-src" \
+        --missing-on-dst "${CHECK_DIR}/missing-on-dst" \
+        --error "${CHECK_DIR}/error" \
+        --match "${CHECK_DIR}/match" \
+        >/dev/null 2>&1 || true
+
+    if [[ -s "${CHECK_DIR}/differ" ]] \
+        || [[ -s "${CHECK_DIR}/missing-on-src" ]] \
+        || [[ -s "${CHECK_DIR}/error" ]]
+    then
+        ra_fail "release ${RELEASE_ID} is already archived with different content — refusing to overwrite an immutable release"
+    fi
+
+    if [[ -s "${CHECK_DIR}/missing-on-dst" ]]; then
+        ARCHIVE_ACTION="resume"
+
+        ra_log "The existing archive is incomplete; every object already there is identical"
+
+        return 0
+    fi
+
+    ARCHIVE_ACTION="none"
+
+    ra_log "The existing archive is already identical to this release"
+}
+
+upload_release() {
+    ra_log "Uploading immutable release artifact"
+
+    rclone_run copy "${STAGE_DIR}" "${REMOTE_DIR}" \
+        --immutable \
+        --check-first \
+        --checksum \
+        --stats-one-line \
+        --stats 10s
+}
+
+# verify_remote_release — a successful upload is not acceptance. Every path
+# (fresh upload, resumed upload, idempotent no-op) proves the remote archive
+# against the local release afterwards, by reading it back.
+verify_remote_release() {
+    local listing expected_entries remote_digest
+
+    ra_log "Verifying the remote archive against the local release"
+
+    rclone_run check "${STAGE_DIR}" "${REMOTE_DIR}" --checksum --checkers 4 \
+        || ra_fail "remote archive does not match the local release"
+
+    listing="$(rclone_run lsf "${REMOTE_DIR}" | ra_normalize_listing)"
+    expected_entries="$(ra_expected_remote_entries "${RELEASE_ID}" | LC_ALL=C sort)"
+
+    [[ "${listing}" == "${expected_entries}" ]] \
+        || ra_fail "remote archive for ${RELEASE_ID} is not the expected three-file release directory"
+
+    # Read-back proof, independent of rclone's own comparison: the archived
+    # bytes are streamed out of the remote and hashed here.
+    remote_digest="$(rclone_run cat "${REMOTE_DIR}/${ARTIFACT_NAME}" | sha256sum | awk '{ print $1 }')"
+
+    [[ "${remote_digest}" == "${RA_ARTIFACT_SHA256}" ]] \
+        || ra_fail "remote artifact digest ${remote_digest} does not match ${RA_ARTIFACT_SHA256}"
+
+    rclone_run cat "${REMOTE_DIR}/${ARTIFACT_NAME}.sha256" > "${CHECK_DIR}/remote.sha256"
+    rclone_run cat "${REMOTE_DIR}/release.json" > "${CHECK_DIR}/remote-release.json"
+
+    cmp -s "${CHECK_DIR}/remote.sha256" "${STAGE_DIR}/${ARTIFACT_NAME}.sha256" \
+        || ra_fail "remote checksum sidecar differs from the local one"
+
+    cmp -s "${CHECK_DIR}/remote-release.json" "${STAGE_DIR}/release.json" \
+        || ra_fail "remote release.json differs from the local one"
+}
+
+write_report() {
+    [[ -n "${REPORT_PATH}" ]] || return 0
+
+    jq \
+        --null-input \
+        --arg project "${RELEASE_ARTIFACT_PROJECT}" \
+        --arg release "${RELEASE_ID}" \
+        --arg source_sha "${RA_SOURCE_SHA}" \
+        --arg bucket "${BUCKET}" \
+        --arg remote_path "$(ra_remote_prefix "${RELEASE_ID}")/" \
+        --arg artifact "${ARTIFACT_NAME}" \
+        --arg sha256 "${RA_ARTIFACT_SHA256}" \
+        --arg upload "${ARCHIVE_ACTION}" \
+        --arg verify "pass" \
+        --arg result "pass" \
+        '{
+            project: $project,
+            release: $release,
+            source_sha: $source_sha,
+            bucket: $bucket,
+            remote_path: $remote_path,
+            artifact: $artifact,
+            sha256: $sha256,
+            upload: $upload,
+            verify: $verify,
+            result: $result
+        }' \
+        > "${REPORT_PATH}"
+}
+
+perform_archive() {
+    ARTIFACT_NAME="$(ra_artifact_name "${RELEASE_ID}")"
+    REMOTE_DIR="$(ra_remote_dir "${REMOTE}" "${BUCKET}" "${RELEASE_ID}")"
+
+    ra_log "Release:     ${RELEASE_ID}"
+    ra_log "Artifact:    ${ARTIFACT_NAME}"
+    ra_log "Remote path: ${BUCKET}/$(ra_remote_prefix "${RELEASE_ID}")/"
+
+    ra_require_rclone "${RCLONE_BIN}" "${RCLONE_CONFIG}"
+
+    # Everything local is proven before a single byte leaves this machine: a
+    # malformed or ambiguous artifact is never archived.
+    ra_log "Validating the local release package"
+    ra_verify_local_package "${SOURCE_DIR}" "${RELEASE_ID}"
+    ra_log "Local release package verified (sha256 ${RA_ARTIFACT_SHA256})"
+
+    prepare_workspace
+    probe_remote
+    classify_remote_release
+
+    case "${ARCHIVE_ACTION}" in
+        upload|resume)
+            upload_release
+            ;;
+        none)
+            ra_log "Nothing to upload — the release is already durably archived"
+            ;;
+        *)
+            ra_fail "internal: unknown archive action: ${ARCHIVE_ACTION}"
+            ;;
+    esac
+
+    verify_remote_release
+    write_report
+
+    ra_log ""
+    ra_log "Release ${RELEASE_ID} is durably archived and verified."
+}
+
+main() {
+    parse_archive_args "$@"
+    perform_archive
+}
+
+# A real invocation always has BASH_SOURCE[0] == $0, so main runs immediately
+# here. Tests source this file instead — BASH_SOURCE[0] != $0 in that case, so
+# main never auto-runs — then call individual functions directly.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

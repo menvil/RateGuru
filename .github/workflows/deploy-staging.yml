@@ -233,6 +233,13 @@ jobs:
               > "${artifact_name}.sha256"
           )
 
+          # The exact release metadata already frozen inside the tarball,
+          # copied out beside it. The durable archive therefore carries the
+          # artifact's own release.json without unpacking or regenerating
+          # anything: there is one release.json document for the tarball, the
+          # archive and the deployment, never two that could diverge.
+          cp "${package_root}/release.json" "${output_root}/release.json"
+
           {
             echo "source_sha=${source_sha}"
             echo "release_id=${release_id}"
@@ -250,9 +257,52 @@ jobs:
           path: |
             ${{ runner.temp }}/rateguru-output/${{ steps.release.outputs.artifact_name }}
             ${{ runner.temp }}/rateguru-output/${{ steps.release.outputs.artifact_name }}.sha256
+            ${{ runner.temp }}/rateguru-output/release.json
           if-no-files-found: error
           compression-level: 0
+          # CI transport and short-term debugging only. This is deliberately
+          # NOT the durable copy and its retention is never raised as a
+          # substitute for one: the archive job below is what survives.
           retention-days: 3
+
+  # The durable archive is a hard precondition for deployment, which is the
+  # only reason this is a separate job that deploy `needs`. It runs on the
+  # trusted runner, on the exact bytes the build just produced, before the
+  # staging host is involved at all: the storage that protects us from host
+  # loss must not require the host being protected in order to be written.
+  # If this job fails, no deployment starts and no release becomes current.
+  archive:
+    name: Archive immutable release artifact durably
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout archive tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Same rule as the deploy job: archive tooling comes from the
+          # trusted develop branch, never from the arbitrary application ref
+          # being built.
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download immutable release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.build.outputs.workflow-artifact-name }}
+          path: ${{ runner.temp }}/rateguru-archive-source
+
+      - name: Archive release artifact to durable storage
+        uses: ./.github/actions/archive-release-artifact
+        with:
+          release-id: ${{ needs.build.outputs.release-id }}
+          source-dir: ${{ runner.temp }}/rateguru-archive-source
+
+          b2-key-id: ${{ secrets.B2_ARTIFACT_KEY_ID }}
+          b2-application-key: ${{ secrets.B2_ARTIFACT_APPLICATION_KEY }}
+          b2-bucket: ${{ vars.B2_ARTIFACT_BUCKET }}
 
   deploy:
     name: Deploy Laravel application to staging
@@ -260,6 +310,7 @@ jobs:
     needs:
       - resolve
       - build
+      - archive
     environment: staging
     timeout-minutes: 10
 

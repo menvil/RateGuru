@@ -1,9 +1,12 @@
+archive-release-artifact
 backup
 backup-cycle
 bootstrap-host
 bootstrap-host-preflight
 cleanup
 deploy
+fetch-release-artifact
+fetch-verified-rclone
 health-check
 install-bootstrap-host-layout
 install-bootstrap-runtime

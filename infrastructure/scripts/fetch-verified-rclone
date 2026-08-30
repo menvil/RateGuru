@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+#
+# fetch-verified-rclone — install the pinned, signature-verified rclone
+# release into an arbitrary directory, without root and without touching the
+# managed /usr/bin/rclone runtime.
+#
+# The GitHub Actions runner that archives a release artifact needs rclone
+# before any RateGuru host is involved, and it must be the exact pinned
+# binary this repository already trusts — never `curl | bash`, never an
+# unversioned runner-preinstalled copy, never `rclone selfupdate`.
+#
+# The pin is not duplicated here: version, platform and the official
+# release-signing key fingerprint all come from the single committed contract
+# at infrastructure/config/external-runtimes/versions.env, the same file
+# install-bootstrap-runtime and bootstrap-host-preflight read. Moving the
+# version stays one reviewed repository change in one place.
+#
+# Verification is identical in substance to install-bootstrap-runtime's
+# managed-runtime convergence: the committed public key is trusted only after
+# it dearmors to a keyring holding exactly the pinned fingerprint, the
+# clearsigned SHA256SUMS is verified against that keyring alone, the release
+# archive's SHA-256 must match the verified payload, and the extracted binary
+# must report exactly the pinned version before it is installed. Every failure
+# is fail-closed and non-zero.
+#
+# Deliberately self-contained: it sources nothing and writes only into the
+# directory it is given.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# The official rclone release download origin. A constant, exactly as in
+# install-bootstrap-runtime: the origin is part of the trust decision and is
+# never taken from the environment in production.
+DOWNLOAD_BASE_URL_DEFAULT="https://downloads.rclone.org"
+
+CONTRACT_FILE_DEFAULT="${SCRIPT_DIR}/../config/external-runtimes/versions.env"
+SIGNING_KEY_FILE_DEFAULT="${SCRIPT_DIR}/../config/external-runtimes/rclone-release-signing-key.asc"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  fetch-verified-rclone --into DIR [--contract FILE] [--signing-key FILE]
+      [--download-base-url URL] [--curl-bin PATH] [--gpg-bin PATH]
+      [--unzip-bin PATH]
+
+  --into DIR              Directory the verified rclone binary is installed
+                          into (created when absent). The binary is written
+                          as DIR/rclone, mode 0755.
+  --contract FILE         Pinned external-runtime contract
+                          (default: infrastructure/config/external-runtimes/versions.env).
+  --signing-key FILE      Committed rclone release-signing public key
+                          (default: alongside the contract).
+  --download-base-url URL Release origin. https:// or file:// only
+                          (default: https://downloads.rclone.org).
+  --curl-bin PATH         curl binary (default: curl).
+  --gpg-bin PATH          gpg binary (default: gpg).
+  --unzip-bin PATH        unzip binary (default: unzip).
+USAGE
+}
+
+fail() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+log() {
+    printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
+require_flag_value() {
+    local flag="$1" argc="$2" value="${3-}"
+
+    [[ "${argc}" -ge 2 ]] || fail "${flag} requires a value"
+    [[ -n "${value}" ]] || fail "${flag} requires a non-empty value"
+    [[ "${value}" != -* ]] || fail "${flag} requires a value, got: ${value}"
+}
+
+INTO=""
+CONTRACT_FILE="${CONTRACT_FILE_DEFAULT}"
+SIGNING_KEY_FILE="${SIGNING_KEY_FILE_DEFAULT}"
+DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL_DEFAULT}"
+CURL_BIN="curl"
+GPG_BIN="gpg"
+UNZIP_BIN="unzip"
+
+parse_args() {
+    local into_seen=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --into)
+                [[ "${into_seen}" != true ]] || fail "--into given more than once"
+                require_flag_value "--into" "$#" "${2-}"
+                INTO="$2"
+                into_seen=true
+                shift 2
+                ;;
+            --contract)
+                require_flag_value "--contract" "$#" "${2-}"
+                CONTRACT_FILE="$2"
+                shift 2
+                ;;
+            --signing-key)
+                require_flag_value "--signing-key" "$#" "${2-}"
+                SIGNING_KEY_FILE="$2"
+                shift 2
+                ;;
+            --download-base-url)
+                require_flag_value "--download-base-url" "$#" "${2-}"
+                DOWNLOAD_BASE_URL="$2"
+                shift 2
+                ;;
+            --curl-bin)
+                require_flag_value "--curl-bin" "$#" "${2-}"
+                CURL_BIN="$2"
+                shift 2
+                ;;
+            --gpg-bin)
+                require_flag_value "--gpg-bin" "$#" "${2-}"
+                GPG_BIN="$2"
+                shift 2
+                ;;
+            --unzip-bin)
+                require_flag_value "--unzip-bin" "$#" "${2-}"
+                UNZIP_BIN="$2"
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${into_seen}" == true ]] || { usage >&2; fail "--into is required"; }
+
+    case "${DOWNLOAD_BASE_URL}" in
+        https://*|file://*)
+            ;;
+        *)
+            fail "--download-base-url must be an https:// or file:// URL: ${DOWNLOAD_BASE_URL}"
+            ;;
+    esac
+}
+
+# contract_value KEY — the value of the first KEY=VALUE line in the committed
+# contract. Plain text extraction in one awk pass: the contract is never
+# sourced and never eval'd.
+contract_value() {
+    local key="$1"
+
+    [[ -r "${CONTRACT_FILE}" ]] || return 1
+
+    awk -v prefix="${key}=" \
+        'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' \
+        "${CONTRACT_FILE}"
+}
+
+read_contract() {
+    [[ -r "${CONTRACT_FILE}" ]] \
+        || fail "external-runtimes contract not readable: ${CONTRACT_FILE}"
+
+    RCLONE_VERSION="$(contract_value RCLONE_VERSION || true)"
+    RCLONE_PLATFORM="$(contract_value RCLONE_PLATFORM || true)"
+    RCLONE_KEY_FINGERPRINT="$(contract_value RCLONE_RELEASE_SIGNING_FINGERPRINT || true)"
+
+    # A truncated or hand-mangled contract must fail closed, never install
+    # "whatever was parseable".
+    [[ "${RCLONE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+        || fail "contract carries no usable RCLONE_VERSION: ${CONTRACT_FILE}"
+    [[ "${RCLONE_PLATFORM}" =~ ^[a-z0-9][a-z0-9-]*$ ]] \
+        || fail "contract carries no usable RCLONE_PLATFORM: ${CONTRACT_FILE}"
+    [[ "${RCLONE_KEY_FINGERPRINT}" =~ ^[0-9A-F]{40}$ ]] \
+        || fail "contract carries no usable RCLONE_RELEASE_SIGNING_FINGERPRINT: ${CONTRACT_FILE}"
+
+    [[ -r "${SIGNING_KEY_FILE}" ]] \
+        || fail "committed release-signing key not readable: ${SIGNING_KEY_FILE}"
+}
+
+WORKDIR=""
+
+cleanup_workdir() {
+    # ERR/EXIT traps are inherited into $(...) subshells, so only the process
+    # that created the workspace may ever remove it.
+    [[ "${BASHPID:-$$}" == "$$" ]] || return 0
+    [[ -n "${WORKDIR}" ]] || return 0
+
+    rm -rf -- "${WORKDIR}"
+    WORKDIR=""
+}
+
+fetch_file() {
+    local url="$1" dst="$2" proto="=https"
+
+    [[ "${url}" == https://* ]] || proto="=file"
+
+    "${CURL_BIN}" --fail --silent --show-error --location \
+        --proto "${proto}" --max-time 300 \
+        --output "${dst}" -- "${url}" \
+        || fail "cannot download ${url}"
+}
+
+verify_signing_key() {
+    local keyring="$1"
+
+    install -d -m 0700 -- "${WORKDIR}/gnupg" || fail "cannot create a private gpg home"
+
+    GNUPGHOME="${WORKDIR}/gnupg" "${GPG_BIN}" --batch --yes --dearmor \
+        --output "${keyring}" "${SIGNING_KEY_FILE}" 2>/dev/null \
+        || fail "committed release-signing key is not a valid OpenPGP key"
+
+    # Trusted only through the pin: exactly one primary key, whose fingerprint
+    # equals the committed fingerprint.
+    GNUPGHOME="${WORKDIR}/gnupg" "${GPG_BIN}" --batch --show-keys --with-colons "${keyring}" 2>/dev/null \
+        | awk -F: -v pin="${RCLONE_KEY_FINGERPRINT}" '
+            $1 == "pub" { pubs++; expect_fpr = 1; next }
+            $1 == "fpr" && expect_fpr { primary = $10; expect_fpr = 0 }
+            END { exit !(pubs == 1 && primary == pin) }
+        ' \
+        || fail "committed release-signing key does not match the pinned fingerprint ${RCLONE_KEY_FINGERPRINT} — refusing to trust it"
+}
+
+install_verified_rclone() {
+    local artifact release_url keyring expected_sha actual_sha candidate candidate_version staged
+
+    mkdir -p "${INTO}" || fail "cannot create destination directory: ${INTO}"
+    [[ -w "${INTO}" ]] || fail "destination directory is not writable: ${INTO}"
+
+    WORKDIR="$(mktemp -d)" || fail "cannot create a work directory"
+    trap cleanup_workdir EXIT
+
+    artifact="rclone-v${RCLONE_VERSION}-${RCLONE_PLATFORM}.zip"
+    release_url="${DOWNLOAD_BASE_URL%/}/v${RCLONE_VERSION}"
+    keyring="${WORKDIR}/signing-key.gpg"
+
+    log "Downloading ${artifact} and SHA256SUMS from ${release_url}"
+
+    fetch_file "${release_url}/${artifact}" "${WORKDIR}/${artifact}"
+    fetch_file "${release_url}/SHA256SUMS" "${WORKDIR}/SHA256SUMS"
+
+    verify_signing_key "${keyring}"
+
+    # SHA256SUMS is clearsigned; --decrypt verifies it against the
+    # pin-validated keyring and only that keyring, then emits the signed
+    # payload. A signature by any other key fails closed.
+    GNUPGHOME="${WORKDIR}/gnupg" "${GPG_BIN}" --batch \
+        --no-default-keyring --keyring "${keyring}" \
+        --output "${WORKDIR}/SHA256SUMS.verified" --decrypt "${WORKDIR}/SHA256SUMS" 2>/dev/null \
+        || fail "SHA256SUMS signature verification failed against the pinned release-signing key"
+
+    expected_sha="$(awk -v name="${artifact}" '$2 == name { print $1; exit }' "${WORKDIR}/SHA256SUMS.verified")"
+
+    [[ "${expected_sha}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "verified SHA256SUMS carries no usable digest for ${artifact}"
+
+    actual_sha="$(sha256sum "${WORKDIR}/${artifact}" | awk '{ print $1 }')"
+
+    [[ "${actual_sha}" == "${expected_sha}" ]] \
+        || fail "checksum mismatch for ${artifact}: expected ${expected_sha}, got ${actual_sha}"
+
+    log "Signature and checksum verified — extracting"
+
+    "${UNZIP_BIN}" -q "${WORKDIR}/${artifact}" -d "${WORKDIR}/extract" \
+        || fail "cannot extract ${artifact}"
+
+    candidate="${WORKDIR}/extract/rclone-v${RCLONE_VERSION}-${RCLONE_PLATFORM}/rclone"
+
+    [[ -f "${candidate}" ]] || fail "${artifact} does not contain the rclone binary"
+
+    # No `--` separator: BSD chmod rejects it, and the path is always inside
+    # this run's own work directory.
+    chmod 0755 "${candidate}" || fail "cannot mark the extracted binary executable"
+
+    candidate_version="$("${candidate}" --version 2>/dev/null | head -n 1 | awk '$1 == "rclone" { print $2 }' || true)"
+
+    [[ "${candidate_version}" == "v${RCLONE_VERSION}" ]] \
+        || fail "extracted binary reports ${candidate_version:-no version}, expected v${RCLONE_VERSION}"
+
+    # Atomic installation: a complete candidate is staged in the destination
+    # directory and renamed into place.
+    staged="$(mktemp "${INTO%/}/rclone.XXXXXX")" || fail "cannot stage the verified binary"
+
+    if ! install -m 0755 -- "${candidate}" "${staged}"; then
+        rm -f -- "${staged}"
+        fail "cannot stage the verified binary"
+    fi
+
+    if ! mv -f -- "${staged}" "${INTO%/}/rclone"; then
+        rm -f -- "${staged}"
+        fail "cannot install ${INTO%/}/rclone"
+    fi
+
+    cleanup_workdir
+
+    log "rclone v${RCLONE_VERSION} (${RCLONE_PLATFORM}) installed at ${INTO%/}/rclone"
+
+    printf '%s\n' "${INTO%/}/rclone"
+}
+
+main() {
+    parse_args "$@"
+    read_contract
+    install_verified_rclone
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

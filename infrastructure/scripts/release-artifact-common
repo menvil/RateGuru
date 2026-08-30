@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+#
+# release-artifact-common — the shared, self-contained release-artifact
+# contract used by archive-release-artifact and fetch-release-artifact
+# (Phase 7.1: durable immutable release artifact archive).
+#
+# Deliberately NOT infrastructure/scripts/common: both consumers must run
+# where /home/www/rateguru/bin/common does not exist — the GitHub Actions
+# runner that archives an artifact before it is ever deployed, and a
+# brand-new recovery host that has no RateGuru target operations installed
+# yet. This library therefore sources nothing, reads no target registry, and
+# resolves no deployment configuration. It is a pure validation library over
+# a release package on disk plus one rclone remote.
+#
+# Sourced, never executed: it defines constants and functions only. Both
+# consumers resolve it as a sibling of their own $BASH_SOURCE, so a checkout,
+# an extracted release tree and an installed bin/ directory all work
+# unchanged.
+#
+# The project namespace is a fixed, trusted constant. It is intentionally
+# NOT an operator input: inside this repository a RateGuru artifact can only
+# ever be archived under `rateguru/`, and no flag can move it into another
+# project's namespace.
+
+# The constants below are read by the scripts that source this file, not
+# here, which is exactly what SC2034 cannot see across a `source` boundary.
+# shellcheck disable=SC2034
+
+RELEASE_ARTIFACT_PROJECT="rateguru"
+
+# Storage identity. The bucket is separate from the database-backup bucket on
+# purpose: backup retention and release-artifact retention must never be able
+# to affect each other.
+RELEASE_ARTIFACT_BUCKET_DEFAULT="rateguru-release-artifacts"
+RELEASE_ARTIFACT_REMOTE_DEFAULT="rateguru-artifacts-b2"
+
+# The managed external rclone runtime's canonical install path — the same
+# contract install-bootstrap-runtime enforces on a host. Never a bare
+# `rclone` resolved through PATH: callers that use a different binary (CI
+# installs a verified, pinned one into a scratch directory) pass it
+# explicitly with --rclone-bin.
+RELEASE_ARTIFACT_RCLONE_BIN_DEFAULT="/usr/bin/rclone"
+
+# The canonical release identity, byte-for-byte the expression the deploy
+# action and the Sentry release action already validate against. A release ID
+# this repository could not have produced is never archived and never
+# retrieved.
+RELEASE_ARTIFACT_RELEASE_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+# Populated by ra_verify_local_package for the caller's report/summary.
+RA_ARTIFACT_SHA256=""
+RA_SOURCE_SHA=""
+
+ra_fail() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+ra_log() {
+    printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
+# --- identity ----------------------------------------------------------------
+
+ra_validate_release_id() {
+    local release="$1"
+
+    [[ -n "${release}" ]] || ra_fail "release ID is required"
+
+    [[ "${release}" =~ ${RELEASE_ARTIFACT_RELEASE_REGEX} ]] \
+        || ra_fail "invalid release ID: ${release}"
+}
+
+ra_artifact_name() {
+    printf '%s-%s.tar.gz\n' "${RELEASE_ARTIFACT_PROJECT}" "$1"
+}
+
+# ra_remote_prefix RELEASE — the project-scoped, target-independent remote
+# path for one release. The deployment target is deliberately absent: the
+# immutable application artifact is a project artifact, and the same bytes
+# are the recovery material for every target that ever ran them.
+ra_remote_prefix() {
+    printf '%s/artifacts/%s\n' "${RELEASE_ARTIFACT_PROJECT}" "$1"
+}
+
+ra_remote_dir() {
+    local remote="$1" bucket="$2" release="$3"
+
+    printf '%s:%s/%s\n' "${remote}" "${bucket}" "$(ra_remote_prefix "${release}")"
+}
+
+ra_validate_bucket() {
+    local bucket="$1"
+
+    [[ -n "${bucket}" ]] || ra_fail "bucket is required"
+
+    [[ "${bucket}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]] \
+        || ra_fail "invalid bucket name: ${bucket}"
+}
+
+ra_validate_remote_name() {
+    local remote="$1"
+
+    [[ -n "${remote}" ]] || ra_fail "rclone remote name is required"
+
+    [[ "${remote}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] \
+        || ra_fail "invalid rclone remote name: ${remote}"
+}
+
+# ra_require_flag_value FLAG ARGC VALUE — the same shape common's
+# require_flag_value enforces: a flag must be followed by a value, and that
+# value must not itself look like another flag.
+ra_require_flag_value() {
+    local flag="$1" argc="$2" value="${3-}"
+
+    [[ "${argc}" -ge 2 ]] || ra_fail "${flag} requires a value"
+    [[ -n "${value}" ]] || ra_fail "${flag} requires a non-empty value"
+    [[ "${value}" != -* ]] || ra_fail "${flag} requires a value, got: ${value}"
+}
+
+# --- release package validation ----------------------------------------------
+
+# ra_verify_checksum_sidecar DIR ARTIFACT_NAME — the sidecar must be exactly
+# one well-formed sha256sum entry naming this artifact, and the artifact's
+# real digest must equal it. A sidecar that describes a *different* file is
+# rejected rather than silently believed.
+ra_verify_checksum_sidecar() {
+    local dir="$1" artifact_name="$2"
+    local sidecar="${dir}/${artifact_name}.sha256"
+    local lines digest name actual
+
+    lines="$(grep -c '' "${sidecar}" || true)"
+
+    [[ "${lines}" == "1" ]] \
+        || ra_fail "checksum sidecar must contain exactly one entry: ${artifact_name}.sha256"
+
+    read -r digest name < "${sidecar}"
+
+    [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] \
+        || ra_fail "checksum sidecar does not carry a SHA-256 digest: ${artifact_name}.sha256"
+
+    # sha256sum writes "<digest>  <name>" in text mode and "<digest> *<name>"
+    # in binary mode; both name the same file.
+    name="${name#\*}"
+
+    [[ "${name}" == "${artifact_name}" ]] \
+        || ra_fail "checksum sidecar describes ${name}, not ${artifact_name}"
+
+    actual="$(sha256sum "${dir}/${artifact_name}" | awk '{ print $1 }')"
+
+    [[ "${actual}" == "${digest}" ]] \
+        || ra_fail "artifact checksum mismatch for ${artifact_name}: sidecar ${digest}, actual ${actual}"
+
+    RA_ARTIFACT_SHA256="${digest}"
+}
+
+# ra_verify_release_metadata FILE RELEASE — release.json must be valid JSON
+# describing exactly this project and this release, with a usable Git commit
+# identity. The release ID's own short-SHA component must be a prefix of
+# source_sha: the build derives one from the other, so a release.json that
+# fails this belongs to a different build.
+ra_verify_release_metadata() {
+    local file="$1" release="$2"
+    local project release_value source_sha short_sha
+
+    jq -e 'type == "object"' "${file}" >/dev/null 2>&1 \
+        || ra_fail "release.json is not a valid JSON object: ${file}"
+
+    project="$(jq -r '.project // empty' "${file}")"
+    release_value="$(jq -r '.release // empty' "${file}")"
+    source_sha="$(jq -r '.source_sha // empty' "${file}")"
+
+    [[ "${project}" == "${RELEASE_ARTIFACT_PROJECT}" ]] \
+        || ra_fail "release.json project is ${project:-<missing>}, expected ${RELEASE_ARTIFACT_PROJECT}"
+
+    [[ "${release_value}" == "${release}" ]] \
+        || ra_fail "release.json release is ${release_value:-<missing>}, expected ${release}"
+
+    [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] \
+        || ra_fail "release.json source_sha is not a Git commit SHA: ${source_sha:-<missing>}"
+
+    short_sha="${release##*-}"
+
+    [[ "${source_sha}" == "${short_sha}"* ]] \
+        || ra_fail "release ID ${release} does not belong to source_sha ${source_sha}"
+
+    RA_SOURCE_SHA="${source_sha}"
+}
+
+# ra_verify_embedded_release_metadata TARBALL EXTERNAL — the release.json
+# archived (and later retrieved) beside the tarball must be byte-identical to
+# the one frozen inside it. This is what makes the sidecar metadata usable
+# during recovery without unpacking or rebuilding anything: there is exactly
+# one release.json document, never two independently generated ones that
+# could disagree.
+ra_verify_embedded_release_metadata() {
+    local tarball="$1" external="$2"
+    local listing member extracted status=0
+
+    # The member list is captured whole rather than piped into a
+    # short-circuiting matcher: an early-exiting reader would SIGPIPE tar and
+    # abort the caller under `set -o pipefail`.
+    listing="$(tar -tzf "${tarball}")" \
+        || ra_fail "artifact is not a readable gzip tar archive: ${tarball}"
+
+    if grep -qx './release.json' <<<"${listing}"; then
+        member='./release.json'
+    elif grep -qx 'release.json' <<<"${listing}"; then
+        member='release.json'
+    else
+        ra_fail "artifact does not contain release.json: ${tarball}"
+    fi
+
+    extracted="$(mktemp)" || ra_fail "cannot create a temporary file"
+
+    tar -xzOf "${tarball}" "${member}" > "${extracted}" \
+        || { rm -f "${extracted}"; ra_fail "cannot read release.json out of ${tarball}"; }
+
+    cmp -s "${extracted}" "${external}" || status=1
+
+    rm -f "${extracted}"
+
+    [[ "${status}" -eq 0 ]] \
+        || ra_fail "release.json inside the artifact differs from the release.json beside it"
+}
+
+# ra_verify_local_package DIR RELEASE — the complete local contract, run
+# before any network upload and again after any retrieval: the three
+# canonical files exist, the artifact matches its sidecar, release.json is
+# valid and describes this project and release, and the embedded release.json
+# matches the external one.
+ra_verify_local_package() {
+    local dir="$1" release="$2"
+    local artifact_name
+
+    [[ -d "${dir}" ]] || ra_fail "release directory not found: ${dir}"
+
+    artifact_name="$(ra_artifact_name "${release}")"
+
+    [[ -f "${dir}/${artifact_name}" ]] \
+        || ra_fail "release package is missing its artifact: ${artifact_name}"
+    [[ -f "${dir}/${artifact_name}.sha256" ]] \
+        || ra_fail "release package is missing its checksum sidecar: ${artifact_name}.sha256"
+    [[ -f "${dir}/release.json" ]] \
+        || ra_fail "release package is missing release.json"
+
+    ra_verify_checksum_sidecar "${dir}" "${artifact_name}"
+    ra_verify_release_metadata "${dir}/release.json" "${release}"
+    ra_verify_embedded_release_metadata "${dir}/${artifact_name}" "${dir}/release.json"
+}
+
+# --- rclone ------------------------------------------------------------------
+
+# ra_require_rclone BIN CONFIG — the binary must be executable and the
+# configuration must be a readable file. Neither is ever created here: the
+# caller owns the credential material and its lifetime.
+ra_require_rclone() {
+    local bin="$1" config="$2"
+
+    [[ -x "${bin}" ]] || ra_fail "rclone binary not found or not executable: ${bin}"
+    [[ -f "${config}" ]] || ra_fail "rclone configuration not found: ${config}"
+    [[ -r "${config}" ]] || ra_fail "rclone configuration is not readable: ${config}"
+}
+
+# ra_normalize_listing — reads an `rclone lsf` listing on stdin and writes it
+# back sorted, with the trailing slash rclone marks directories with removed,
+# so it can be compared as an exact set against ra_expected_remote_entries.
+ra_normalize_listing() {
+    local entry
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        printf '%s\n' "${entry%/}"
+    done | LC_ALL=C sort
+}
+
+# ra_expected_remote_entries RELEASE — the exact, closed set of objects a
+# complete archived release directory holds.
+ra_expected_remote_entries() {
+    local release="$1" artifact_name
+
+    artifact_name="$(ra_artifact_name "${release}")"
+
+    printf '%s\n' \
+        "${artifact_name}" \
+        "${artifact_name}.sha256" \
+        "release.json"
+}

@@ -991,10 +991,17 @@ it('keeps the Phase 5 and Phase 7 rehearsal gates distinct', function () {
     // after server/data loss, and must never be read as closing Phase 7.
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
+    // `⏳ planned[^|]*` rather than an exact `⏳ planned`, matching the
+    // identical guard in InstallBootstrapHostLayoutTest (and the way phase 10
+    // already carries `⏳ planned / optional`). Phase 7 now annotates its row
+    // with the slice that landed — `⏳ planned (7.1 implemented)` — and this
+    // check's purpose is unchanged: phase 7 must not be marked completed or
+    // current on the strength of a clean-host bootstrap.
     expect($roadmap)
         ->toContain('Three distinct rehearsal gates')
         ->toContain('**Still outstanding.**')
-        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
+        ->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned[^|]*\|$/m')
+        ->not->toMatch('/^\|\s*7\s*\|[^|]+\|\s*(✅ completed|🚧 current)\s*\|$/m');
 
     // The two defects clean-host bootstrap found, and the MRs that fixed them.
     expect($roadmap)

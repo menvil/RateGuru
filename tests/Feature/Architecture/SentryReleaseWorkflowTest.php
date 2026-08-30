@@ -316,7 +316,9 @@ it('leaves the deployment workflows themselves otherwise unchanged', function ()
     // must still be exactly what Phase 4 and Phase 5 established.
     $deployStaging = Yaml::parse(File::get(base_path('.github/workflows/deploy-staging.yml')));
 
-    expect(data_get($deployStaging, 'jobs.deploy.needs'))->toBe(['resolve', 'build'])
+    // Phase 7.1 added the durable release-artifact archive as a third
+    // precondition; the deploy job's own shape is otherwise untouched.
+    expect(data_get($deployStaging, 'jobs.deploy.needs'))->toBe(['resolve', 'build', 'archive'])
         ->and(data_get($deployStaging, 'permissions.contents'))->toBe('read')
         ->and(data_get($deployStaging, 'concurrency.group'))->toBe('rateguru-staging-deployment');
 

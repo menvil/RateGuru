@@ -41,6 +41,14 @@ infrastructure, and moves out once a second project exists.
   `scripts/install-nightwatch-agent`, running side by side with Sentry so the
   two can be compared on real traffic before either is chosen — see
   [`runbooks/nightwatch-evaluation.md`](runbooks/nightwatch-evaluation.md);
+- the durable release-artifact archive: every release that is allowed to
+  become active is archived from CI to its own Backblaze B2 bucket at
+  `rateguru/artifacts/<release-id>/` before deployment starts, and can be
+  retrieved and checksum-verified long after the GitHub Actions artifact
+  expired (`scripts/archive-release-artifact`,
+  `scripts/fetch-release-artifact`, and `scripts/fetch-verified-rclone`,
+  which installs the pinned, signature-verified rclone without root) — see
+  [`runbooks/release-artifact-archive.md`](runbooks/release-artifact-archive.md);
 - local and offsite backup scripts;
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
@@ -51,11 +59,13 @@ infrastructure, and moves out once a second project exists.
 - sudoers and SSH restrictions;
 - environment variable templates;
 - operational runbooks;
-- the phased [`ROADMAP.md`](ROADMAP.md) — Phase 5 (clean-VPS bootstrap) is
-  current; Phases 6–10 (Sentry observability, disaster recovery and release
-  rehearsal, first production launch, repeatable target onboarding, advanced
-  observability/analytics) are planned there as concrete slices, including
-  the three distinct rehearsal gates and the disposable-rehearsal policy.
+- the phased [`ROADMAP.md`](ROADMAP.md) — Phases 1–5 are completed; Phase 6
+  (Sentry observability) and Phase 7 (disaster recovery and release
+  rehearsal, whose slice 7.1 durable release-artifact archive has landed) are
+  current; Phases 8–10 (first production launch, repeatable target
+  onboarding, advanced observability/analytics) are planned there as concrete
+  slices, including the three distinct rehearsal gates and the
+  disposable-rehearsal policy.
 
 ## Committed non-secret config exception
 

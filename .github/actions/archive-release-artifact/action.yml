@@ -1,0 +1,207 @@
+name: Archive RateGuru release artifact
+description: >-
+  Durably archive one immutable RateGuru release artifact to the
+  release-artifact object store before it is allowed to be deployed. Transport
+  and orchestration only: every validation, idempotency and verification rule
+  lives in infrastructure/scripts/archive-release-artifact, so the same
+  contract holds wherever it runs.
+
+inputs:
+  release-id:
+    required: true
+    description: >-
+      The canonical immutable release ID the build produced. Exactly the value
+      that names the artifact and appears in its release.json — this action
+      never computes a release identifier of its own.
+
+  source-dir:
+    required: true
+    description: >-
+      Directory holding the exact build output: rateguru-<release>.tar.gz, its
+      .sha256 sidecar and release.json. Nothing here is rebuilt, repacked or
+      regenerated.
+
+  b2-key-id:
+    required: true
+    description: >-
+      Backblaze B2 application key ID, restricted to the release-artifact
+      bucket. Supplied from repository secrets and passed through the
+      environment only, never a command line.
+
+  b2-application-key:
+    required: true
+    description: Backblaze B2 application key matching b2-key-id.
+
+  b2-bucket:
+    required: true
+    description: >-
+      Release-artifact bucket name. Deliberately separate from the
+      database-backup bucket so backup retention and release-artifact
+      retention can never affect each other.
+
+outputs:
+  archived:
+    description: "true when the release is durably archived and verified"
+    value: ${{ steps.archive.outputs.archived }}
+
+  remote-path:
+    description: "Project-scoped remote path the release was archived under"
+    value: ${{ steps.archive.outputs.remote_path }}
+
+runs:
+  using: composite
+
+  steps:
+    # Fail closed before any tooling is installed or any network call is made.
+    # Archiving is a hard precondition for deployment, so a missing credential
+    # is an error here rather than a skipped step: a release must never become
+    # current if its exact artifact was not first durably archived.
+    - name: Validate archive inputs
+      shell: bash
+      env:
+        RELEASE_ID: ${{ inputs.release-id }}
+        SOURCE_DIR: ${{ inputs.source-dir }}
+        B2_BUCKET: ${{ inputs.b2-bucket }}
+        B2_KEY_ID_PRESENT: ${{ inputs.b2-key-id != '' }}
+        B2_APPLICATION_KEY_PRESENT: ${{ inputs.b2-application-key != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        release_regex='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+        [[ "${RELEASE_ID}" =~ ${release_regex} ]] || {
+          echo "Invalid release ID: ${RELEASE_ID}" >&2
+          exit 1
+        }
+
+        [[ "${B2_BUCKET}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]] || {
+          echo "B2_ARTIFACT_BUCKET is not configured with a valid bucket name" >&2
+          exit 1
+        }
+
+        if [[ "${B2_KEY_ID_PRESENT}" != "true" ]] || [[ "${B2_APPLICATION_KEY_PRESENT}" != "true" ]]; then
+          echo "B2_ARTIFACT_KEY_ID and B2_ARTIFACT_APPLICATION_KEY must both be configured; refusing to deploy an unarchived release" >&2
+          exit 1
+        fi
+
+        test -d "${SOURCE_DIR}"
+        test -f "${SOURCE_DIR}/rateguru-${RELEASE_ID}.tar.gz"
+        test -f "${SOURCE_DIR}/rateguru-${RELEASE_ID}.tar.gz.sha256"
+        test -f "${SOURCE_DIR}/release.json"
+
+    # The pinned, signature-verified rclone this repository already trusts —
+    # never `curl | bash`, never an unversioned runner-preinstalled binary.
+    # The version, platform and signing-key fingerprint all come from the one
+    # committed contract in infrastructure/config/external-runtimes/.
+    - name: Install pinned rclone
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+
+        infrastructure/scripts/fetch-verified-rclone \
+          --into "${RUNNER_TEMP}/rateguru-rclone"
+
+    # Written with 0600 into RUNNER_TEMP, from the environment, never echoed,
+    # and removed under always() below. The credential exists only for the
+    # lifetime of this job and never reaches a VPS, a repository file or a log.
+    - name: Configure release-artifact storage credentials
+      shell: bash
+      env:
+        B2_KEY_ID: ${{ inputs.b2-key-id }}
+        B2_APPLICATION_KEY: ${{ inputs.b2-application-key }}
+      run: |
+        set -Eeuo pipefail
+
+        config_path="${RUNNER_TEMP}/rateguru_artifact_rclone.conf"
+
+        install -m 0600 /dev/null "${config_path}"
+
+        printf '[%s]\ntype = b2\naccount = %s\nkey = %s\n' \
+          "rateguru-artifacts-b2" \
+          "${B2_KEY_ID}" \
+          "${B2_APPLICATION_KEY}" \
+          > "${config_path}"
+
+        echo "RATEGURU_ARTIFACT_RCLONE_CONFIG=${config_path}" >> "${GITHUB_ENV}"
+
+    - name: Archive release artifact durably
+      id: archive
+      shell: bash
+      env:
+        RELEASE_ID: ${{ inputs.release-id }}
+        SOURCE_DIR: ${{ inputs.source-dir }}
+        B2_BUCKET: ${{ inputs.b2-bucket }}
+      run: |
+        set -Eeuo pipefail
+
+        report_path="${RUNNER_TEMP}/rateguru-release-archive.json"
+
+        infrastructure/scripts/archive-release-artifact \
+          --release "${RELEASE_ID}" \
+          --source-dir "${SOURCE_DIR}" \
+          --rclone-config "${RATEGURU_ARTIFACT_RCLONE_CONFIG}" \
+          --bucket "${B2_BUCKET}" \
+          --remote "rateguru-artifacts-b2" \
+          --rclone-bin "${RUNNER_TEMP}/rateguru-rclone/rclone" \
+          --report "${report_path}"
+
+        {
+          echo "archived=true"
+          echo "remote_path=$(jq -r '.remote_path' "${report_path}")"
+          echo "report_path=${report_path}"
+        } >> "${GITHUB_OUTPUT}"
+
+    # always(), so a failed archive is reported as loudly as a successful one.
+    # Every value comes from the release itself or the job status; no input
+    # carrying credential material is ever referenced here.
+    - name: Write archive summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        RELEASE_ID: ${{ inputs.release-id }}
+        B2_BUCKET: ${{ inputs.b2-bucket }}
+        REPORT_PATH: ${{ steps.archive.outputs.report_path }}
+        ARCHIVE_OUTCOME: ${{ steps.archive.outcome }}
+      run: |
+        set -Eeuo pipefail
+
+        project="rateguru"
+        source_sha="unknown"
+        remote_path="${project}/artifacts/${RELEASE_ID}/"
+        checksum="unknown"
+        upload="FAIL"
+        verify="FAIL"
+        result="FAIL"
+
+        if [[ "${ARCHIVE_OUTCOME}" == "success" ]] && [[ -f "${REPORT_PATH:-}" ]]; then
+          project="$(jq -r '.project' "${REPORT_PATH}")"
+          source_sha="$(jq -r '.source_sha' "${REPORT_PATH}")"
+          remote_path="$(jq -r '.remote_path' "${REPORT_PATH}")"
+          checksum="$(jq -r '.sha256' "${REPORT_PATH}")"
+          upload="PASS"
+          verify="PASS"
+          result="PASS"
+        fi
+
+        {
+          echo "## RateGuru Release Archive"
+          echo
+          echo '```'
+          printf 'Project:        %s\n' "${project}"
+          printf 'Release:        %s\n' "${RELEASE_ID}"
+          printf 'Source SHA:     %s\n' "${source_sha}"
+          printf 'Bucket:         %s\n' "${B2_BUCKET}"
+          printf 'Remote path:    %s\n' "${remote_path}"
+          printf 'Checksum:       %s\n' "${checksum}"
+          echo
+          printf 'Archive upload: %s\n' "${upload}"
+          printf 'Remote verify:  %s\n' "${verify}"
+          printf 'Result:         %s\n' "${result}"
+          echo '```'
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Remove temporary storage credentials
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f "${RATEGURU_ARTIFACT_RCLONE_CONFIG:-}"
