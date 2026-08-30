@@ -361,6 +361,39 @@ it('uses the project, never the deployment target, as the archive namespace', fu
     }
 });
 
+it('uploads only the three canonical files, whatever else sits beside the artifact', function () {
+    $scratch = releaseArchiveScratch();
+
+    try {
+        $package = releaseArchivePackage($scratch);
+        $config = releaseArchiveRcloneConfig($scratch);
+
+        // A build log, a stray debug note, an operator's scratch file — none
+        // of it may ever be pushed into the release namespace. The upload
+        // source is a private staging directory holding exactly three files,
+        // never the caller's directory.
+        file_put_contents($package['dir'].'/stray-debug-notes.txt', "SECRET-LEFTOVER\n");
+        mkdir($package['dir'].'/nested');
+        file_put_contents($package['dir'].'/nested/also-not-mine.txt', "nope\n");
+
+        [$exit, $output] = releaseArchiveArchive($package['release'], $package['dir'], $config);
+
+        expect($exit)->toBe(0, "archiving failed:\n{$output}");
+
+        $remoteDir = releaseArchiveRemoteDir($scratch, $package['release']);
+        $entries = array_values(array_diff(scandir($remoteDir), ['.', '..']));
+        sort($entries);
+
+        expect($entries)->toBe([
+            $package['artifact'],
+            $package['artifact'].'.sha256',
+            'release.json',
+        ]);
+    } finally {
+        releaseArchiveCleanup($scratch);
+    }
+});
+
 it('is idempotent when the identical release is already archived', function () {
     $scratch = releaseArchiveScratch();
 
