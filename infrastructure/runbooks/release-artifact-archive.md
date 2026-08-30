@@ -338,6 +338,13 @@ It:
 The destination must not already hold any of the three canonical files:
 whatever the script reports as verified has to be what it just downloaded.
 
+Everything is downloaded and validated in a private staging directory inside
+the destination, and the canonical filenames only appear once the package has
+passed. **A failed retrieval therefore leaves the destination exactly as it
+found it and is safe to retry into the same directory** — there is nothing to
+clean up by hand, and unverified bytes are never left where they could be
+mistaken for a good package.
+
 Its output is a verified artifact package on disk — nothing more. **It does
 not deploy the retrieved release.** Clean-host recovery (Phase 7.6) will
 consume this primitive; that is a later slice.
@@ -449,10 +456,16 @@ Expect exit code `0` and a final line reporting the verified artifact path.
 
 ### 5. Prove the retrieved release is the deployed release
 
+The sidecar records the artifact's bare filename, so `sha256sum -c` resolves
+it against the current directory — run these from inside the retrieval
+directory, not from wherever you happen to be:
+
 ```bash
-jq -r '.release, .source_sha' /tmp/rateguru-recovery/release.json
-sha256sum -c /tmp/rateguru-recovery/rateguru-<release-id>.tar.gz.sha256
-tar -xzOf /tmp/rateguru-recovery/rateguru-<release-id>.tar.gz ./release.json | jq -r .release
+cd /tmp/rateguru-recovery
+
+jq -r '.release, .source_sha' release.json
+sha256sum -c rateguru-<release-id>.tar.gz.sha256
+tar -xzOf rateguru-<release-id>.tar.gz ./release.json | jq -r .release
 ```
 
 All three must agree with each other and with the release the staging host is

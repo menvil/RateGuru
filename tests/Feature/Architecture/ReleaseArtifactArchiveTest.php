@@ -942,7 +942,7 @@ it('refuses to retrieve an incomplete archive', function () {
     }
 });
 
-it('fails when a retrieved artifact does not match its archived checksum', function () {
+it('fails when a retrieved artifact does not match its archived checksum, and leaves the destination untouched', function () {
     $scratch = releaseArchiveScratch();
 
     try {
@@ -956,10 +956,64 @@ it('fails when a retrieved artifact does not match its archived checksum', funct
         $remoteDir = releaseArchiveRemoteDir($scratch, $package['release']);
         file_put_contents($remoteDir.'/'.$package['artifact'], 'rotted', FILE_APPEND);
 
-        [$exit, $output] = releaseArchiveFetch($package['release'], $scratch.'/recovered', $config);
+        $destination = $scratch.'/recovered';
+
+        [$exit, $output] = releaseArchiveFetch($package['release'], $destination, $config);
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('artifact checksum mismatch');
+
+        // Unverified bytes must never be left sitting under the canonical
+        // filenames, where an operator could mistake them for a good package.
+        expect(array_values(array_diff(scandir($destination), ['.', '..'])))->toBe([]);
+    } finally {
+        releaseArchiveCleanup($scratch);
+    }
+});
+
+it('can retry into the same destination after a failed retrieval', function () {
+    // The situation this primitive exists for is recovery, where the retry
+    // follows fixing whatever went wrong. A failed attempt that stranded
+    // unverified files under the canonical names would trip the
+    // "retrieve into a clean directory" guard and block exactly that retry.
+    $scratch = releaseArchiveScratch();
+
+    try {
+        $package = releaseArchivePackage($scratch);
+        $config = releaseArchiveRcloneConfig($scratch);
+        $remoteDir = releaseArchiveRemoteDir($scratch, $package['release']);
+        $destination = $scratch.'/recovered';
+
+        [$archiveExit] = releaseArchiveArchive($package['release'], $package['dir'], $config);
+        expect($archiveExit)->toBe(0);
+
+        $good = file_get_contents($remoteDir.'/'.$package['artifact']);
+        file_put_contents($remoteDir.'/'.$package['artifact'], 'rotted', FILE_APPEND);
+
+        [$firstExit] = releaseArchiveFetch($package['release'], $destination, $config);
+        expect($firstExit)->not->toBe(0);
+
+        // Nothing at all is left behind — not the canonical files, and not a
+        // staging directory either.
+        expect(array_values(array_diff(scandir($destination), ['.', '..'])))->toBe([]);
+
+        // The cause is fixed in storage; the same command now succeeds
+        // without the operator having to clean anything up by hand.
+        file_put_contents($remoteDir.'/'.$package['artifact'], $good);
+
+        [$retryExit, $retryOutput] = releaseArchiveFetch($package['release'], $destination, $config);
+
+        expect($retryExit)->toBe(0, "the retry after a failed retrieval was refused:\n{$retryOutput}");
+
+        $entries = array_values(array_diff(scandir($destination), ['.', '..']));
+        sort($entries);
+
+        expect($entries)->toBe([
+            $package['artifact'],
+            $package['artifact'].'.sha256',
+            'release.json',
+        ]);
+        expect(hash_file('sha256', $destination.'/'.$package['artifact']))->toBe($package['sha256']);
     } finally {
         releaseArchiveCleanup($scratch);
     }

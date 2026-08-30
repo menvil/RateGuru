@@ -13,6 +13,12 @@
 # identity, and the release.json frozen inside the tarball. Any mismatch,
 # missing file or incomplete archive exits non-zero.
 #
+# All of that happens in a private staging directory; the canonical filenames
+# only ever appear in the destination once the package has passed. A failed
+# retrieval therefore leaves the destination untouched and is safe to retry
+# into the same directory — which matters most in exactly the situation this
+# exists for, where the retry follows fixing whatever went wrong.
+#
 # This is a retrieval primitive, not a deployment: it never contacts a
 # RateGuru host, never extracts the application, never switches a release and
 # never touches a target. Its output is a verified artifact package on disk,
@@ -139,6 +145,30 @@ rclone_run() {
     "${RCLONE_BIN}" --config "${RCLONE_CONFIG}" "$@"
 }
 
+# --- staging workspace -------------------------------------------------------
+#
+# Nothing is ever downloaded straight into the destination. A retrieval either
+# publishes a fully verified package or leaves the destination exactly as it
+# found it: a failed attempt must never strand unverified bytes under the
+# canonical filenames, both because an operator could mistake them for a good
+# package and because the "retrieve into a clean directory" guard would then
+# block the retry that fixes the problem.
+#
+# The staging directory lives inside the destination so publishing is a
+# same-filesystem rename rather than a second copy of a large artifact.
+
+STAGE_DIR=""
+
+cleanup_stage_dir() {
+    # ERR/EXIT traps are inherited into $(...) subshells, so only the process
+    # that created the workspace may ever remove it.
+    [[ "${BASHPID:-$$}" == "$$" ]] || return 0
+    [[ -n "${STAGE_DIR}" ]] || return 0
+
+    rm -rf -- "${STAGE_DIR}"
+    STAGE_DIR=""
+}
+
 # prepare_destination — a retrieval must be unambiguous: whatever this script
 # reports as verified has to be what it just downloaded, never a leftover
 # file that happened to already be sitting there.
@@ -155,6 +185,11 @@ prepare_destination() {
         [[ ! -e "${DESTINATION}/${entry}" ]] \
             || ra_fail "destination already contains ${entry} — retrieve into a clean directory"
     done < <(ra_expected_remote_entries "${RELEASE_ID}")
+
+    STAGE_DIR="$(mktemp -d "${DESTINATION%/}/.fetch-release-artifact.XXXXXX")" \
+        || ra_fail "cannot create a staging directory inside ${DESTINATION}"
+
+    trap cleanup_stage_dir EXIT
 }
 
 # require_complete_remote_archive — the remote release directory must be
@@ -184,10 +219,26 @@ require_complete_remote_archive() {
 download_release() {
     ra_log "Retrieving ${RELEASE_ID} from ${BUCKET}/$(ra_remote_prefix "${RELEASE_ID}")/"
 
-    rclone_run copy "${REMOTE_DIR}" "${DESTINATION}" \
+    rclone_run copy "${REMOTE_DIR}" "${STAGE_DIR}" \
         --checksum \
         --stats-one-line \
         --stats 10s
+}
+
+# publish_release — runs only after the staged package has passed the full
+# local contract. Same-directory renames, so each file appears at its
+# canonical path complete or not at all.
+publish_release() {
+    local entry
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        mv -f -- "${STAGE_DIR}/${entry}" "${DESTINATION%/}/${entry}" \
+            || ra_fail "cannot publish ${entry} into ${DESTINATION} — the destination may now be incomplete"
+    done < <(ra_expected_remote_entries "${RELEASE_ID}")
+
+    cleanup_stage_dir
 }
 
 write_report() {
@@ -235,8 +286,9 @@ perform_fetch() {
     download_release
 
     ra_log "Validating the retrieved release package"
-    ra_verify_local_package "${DESTINATION}" "${RELEASE_ID}"
+    ra_verify_local_package "${STAGE_DIR}" "${RELEASE_ID}"
 
+    publish_release
     write_report
 
     ra_log "Verified ${ARTIFACT_NAME} (sha256 ${RA_ARTIFACT_SHA256}, source_sha ${RA_SOURCE_SHA})"

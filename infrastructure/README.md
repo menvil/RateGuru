@@ -42,9 +42,11 @@ infrastructure, and moves out once a second project exists.
   two can be compared on real traffic before either is chosen — see
   [`runbooks/nightwatch-evaluation.md`](runbooks/nightwatch-evaluation.md);
 - the durable release-artifact archive: every release that is allowed to
-  become active is archived from CI to its own Backblaze B2 bucket at
-  `rateguru/artifacts/<release-id>/` before deployment starts, and can be
-  retrieved and checksum-verified long after the GitHub Actions artifact
+  become active is archived from CI, before deployment starts, into the one
+  dedicated `rateguru-release-artifacts` Backblaze B2 bucket — separate from
+  the database-backup bucket, with each release under its own
+  `rateguru/artifacts/<release-id>/` prefix — and can be retrieved and
+  checksum-verified long after the GitHub Actions artifact
   expired (`scripts/archive-release-artifact`,
   `scripts/fetch-release-artifact`, and `scripts/fetch-verified-rclone`,
   which installs the pinned, signature-verified rclone without root) — see
@@ -60,12 +62,12 @@ infrastructure, and moves out once a second project exists.
 - environment variable templates;
 - operational runbooks;
 - the phased [`ROADMAP.md`](ROADMAP.md) — Phases 1–5 are completed; Phase 6
-  (Sentry observability) and Phase 7 (disaster recovery and release
-  rehearsal, whose slice 7.1 durable release-artifact archive has landed) are
-  current; Phases 8–10 (first production launch, repeatable target
-  onboarding, advanced observability/analytics) are planned there as concrete
-  slices, including the three distinct rehearsal gates and the
-  disposable-rehearsal policy.
+  (Sentry observability) is the single current phase; Phase 7 (disaster
+  recovery and release rehearsal) is planned, with its slice 7.1 durable
+  release-artifact archive already implemented ahead of the rest; Phases 8–10
+  (first production launch, repeatable target onboarding, advanced
+  observability/analytics) are planned there as concrete slices, including
+  the three distinct rehearsal gates and the disposable-rehearsal policy.
 
 ## Committed non-secret config exception
 
