@@ -100,21 +100,36 @@ jobs:
       workflow-artifact-name: ${{ steps.build.outputs.workflow-artifact-name }}
 
     steps:
-      - name: Checkout requested ref
+      # Two checkouts, deliberately. The build tooling is operational code and
+      # always comes from develop; the application is whatever the operator
+      # asked for. Keeping them apart is what lets a ref older than this
+      # workflow's own build action still be built and deployed — the selected
+      # application source is never required to contain the deployment tooling.
+      - name: Checkout trusted build tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.resolve.outputs.checkout_ref }}
+          ref: develop
           fetch-depth: 1
           persist-credentials: false
 
-      # The one shared build implementation. This job holds no deployment
-      # secret and no GitHub Environment, so the arbitrary ref it builds can
-      # never reach the privileged deployment tooling below, which is checked
-      # out separately from develop.
+      - name: Checkout requested application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+          path: application
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The one shared build implementation, loaded from the tooling checkout
+      # above and pointed at the application checkout beside it. This job holds
+      # no deployment secret and no GitHub Environment, so the arbitrary ref it
+      # builds can never reach the privileged deployment tooling below.
       - name: Build immutable release artifact
         id: build
         uses: ./.github/actions/build-rateguru
         with:
+          source-root: ${{ github.workspace }}/application
+
           source-ref: ${{ needs.resolve.outputs.source_ref }}
           release-version: ${{ needs.resolve.outputs.release_version }}
 

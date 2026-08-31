@@ -839,6 +839,18 @@ Slices, in order:
      `release.json`, the tarball, its SHA-256 sidecar and the artifact
      upload. `deploy-staging.yml` and `release.yml` no longer carry a line
      of that pipeline between them.
+   - **Build tooling and application source are two trees.** The action
+     takes an explicit `source-root` and runs every application-sensitive
+     command there — `git rev-parse HEAD`, Composer, npm, the existence
+     checks, rsync's source and the application's own
+     `verify-required-clis`. Staging checks the trusted build tooling out
+     from `develop` at the workspace root and the operator's ref beside it
+     under `application/`, so a staging ref older than the build action —
+     or carrying no deployment tooling at all — still builds and deploys.
+     `release.json.source_ref` remains the selected ref and
+     `release.json.source_sha` its exact resolved commit. Production needs
+     no second checkout: the validated tag commit is both trees, so a
+     release stays fully described by its own tag.
    - **Policy stayed with its owner.** `deploy-staging.yml` keeps manual
      dispatch, the requested ref (default `develop`), staging source and
      version resolution, the `run-migrations` choice and 3-day artifact
@@ -859,12 +871,21 @@ Slices, in order:
      deployment transport and no per-environment fork of it.
    - **One GitHub rollback.** `.github/actions/rollback-rateguru` owns input
      validation, SSH material, the invocation of the generic target-aware
-     wrapper, the active-release read-back and the run summary.
-     `rollback-staging.yml` and the new `rollback-production.yml` are thin
-     operator workflows whose target (`staging-main` / `tits-guru`),
-     environment and concurrency domain are structural, not selectable. All
-     rollback business logic stays server-side, so `tits-guru` remaining
-     `lifecycle=planned` still fails closed on the server.
+     wrapper, the active-release read-back, the Sentry deployment marker and
+     the run summary. `rollback-staging.yml` and the new
+     `rollback-production.yml` are a checkout and one action call each, with
+     target (`staging-main` / `tits-guru`), environment and concurrency
+     domain structural rather than selectable. All rollback business logic
+     stays server-side, so `tits-guru` remaining `lifecycle=planned` still
+     fails closed on the server, and the marker stays fail-open — an
+     unreachable Sentry never turns a healthy rollback into a failed run.
+   - **Every mutation of a target serializes.** Each GitHub operation sits
+     in its target's concurrency group; `release.yml` keeps the
+     workflow-level `rateguru-production-release` group and its
+     `deploy-staging` job additionally joins `rateguru-staging-deployment`,
+     closing a gap where a manual staging deploy or rollback could overlap a
+     release's staging verification. Orchestration only — the server-side
+     deployment lock is untouched and remains what protects integrity.
    - **Dead code removed.** The `workflow_run` source path in
      `deploy-staging.yml` — unreachable since the workflow became
      `workflow_dispatch`-only — is gone. Staging deployment stays manual;

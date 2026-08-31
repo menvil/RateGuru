@@ -40,6 +40,8 @@ function buildRateGuruStep(string $name): array
 function runBuildInputValidation(array $overrides = []): array
 {
     $env = array_merge([
+        // The repository itself is a perfectly ordinary application checkout.
+        'SOURCE_ROOT' => base_path(),
         'SOURCE_REF' => 'develop',
         'RELEASE_VERSION' => 'v0.0.0',
         'WORKFLOW_ARTIFACT_PREFIX' => 'rateguru-release',
@@ -84,7 +86,7 @@ it('defines a hardened reusable RateGuru build action', function () {
         'Upload immutable release artifact',
     ]);
 
-    foreach (['source-ref', 'release-version', 'workflow-artifact-prefix', 'artifact-retention-days'] as $required) {
+    foreach (['source-root', 'source-ref', 'release-version', 'workflow-artifact-prefix', 'artifact-retention-days'] as $required) {
         expect(data_get($action, "inputs.{$required}.required"))
             ->toBeTrue("{$required} must be a required input");
     }
@@ -291,6 +293,11 @@ it('rejects every malformed policy input before a dependency is installed', func
         'metadata that is not JSON at all' => [['RELEASE_METADATA' => 'staging'], 'release-metadata must be a JSON object'],
         'metadata redefining the release ID' => [['RELEASE_METADATA' => '{"release": "v9.9.9-forged"}'], 'must not redefine core release.json fields: release'],
         'metadata redefining the source commit' => [['RELEASE_METADATA' => '{"source_sha": "0000000"}'], 'must not redefine core release.json fields: source_sha'],
+        'an empty source root' => [['SOURCE_ROOT' => ''], 'source-root must not be empty'],
+        'a source root that does not exist' => [['SOURCE_ROOT' => '/nonexistent/rateguru-source'], 'source-root is not a directory'],
+        // Without a checkout there is no commit to record, and the build would
+        // silently fall back to whatever tree the runner happened to be in.
+        'a source root that is not a checkout' => [['SOURCE_ROOT' => sys_get_temp_dir()], 'source-root is not a Git checkout'],
     ];
 
     foreach ($rejections as $case => [$overrides, $message]) {
@@ -387,4 +394,182 @@ it('runs strict Composer validation only when the caller asks for it', function 
         ->toBe("\${{ inputs.validate-composer == 'true' }}")
         ->and(data_get(buildRateGuruStep('Validate Composer definition'), 'run'))
         ->toBe('composer validate --strict');
+});
+
+it('builds the application checkout it is pointed at, never the tooling checkout it was loaded from', function () {
+    $action = buildRateGuruAction();
+    $steps = collect(data_get($action, 'runs.steps'))->keyBy('name');
+
+    // Every command that touches the application runs inside source-root.
+    // Anything missing from this list would silently operate on the trusted
+    // tooling checkout at $GITHUB_WORKSPACE instead.
+    foreach ([
+        'Validate Composer definition',
+        'Install production PHP dependencies',
+        'Build frontend assets',
+        'Build release archive',
+    ] as $applicationStep) {
+        expect(data_get($steps->get($applicationStep), 'working-directory'))
+            ->toBe('${{ inputs.source-root }}', "{$applicationStep} must run inside the application checkout");
+    }
+
+    // Steps that install a toolchain are runner-global and correctly have no
+    // working directory — but the npm cache key must still be keyed on the
+    // application's own lockfile, not on the tooling checkout's.
+    expect(data_get($steps->get('Setup Node'), 'with.cache-dependency-path'))
+        ->toBe('${{ inputs.source-root }}/package-lock.json');
+
+    expect(data_get($steps->get('Setup PHP'), 'working-directory'))->toBeNull()
+        ->and(data_get($steps->get('Setup Node'), 'working-directory'))->toBeNull();
+
+    // Because the archive step runs there, `git rev-parse HEAD`, the four
+    // existence checks, rsync's source and the infrastructure CLI verifier are
+    // all plain relative paths resolving against the application.
+    $run = data_get($steps->get('Build release archive'), 'run');
+
+    expect($run)
+        ->toContain('source_sha="$(git rev-parse HEAD)"')
+        ->toContain('infrastructure/scripts/verify-required-clis --release-root "${package_root}"')
+        // rsync's source is the plain relative "./" — the working directory,
+        // which is the application checkout, and never an absolute path
+        // pointing back at the tooling workspace.
+        ->toContain("  ./ \\\n  \"\${package_root}/\"");
+
+    // The action never reaches back into the tooling checkout for application
+    // content — no absolute workspace paths, no copying itself into the tree.
+    expect($run)
+        ->not->toContain('GITHUB_WORKSPACE')
+        ->not->toContain('GITHUB_ACTION_PATH');
+});
+
+it('builds an application tree that contains none of the deployment tooling, end to end', function () {
+    // The regression this closes: extracting the build pipeline into an action
+    // made the action itself come from the ref being deployed, so any staging
+    // ref older than the action could no longer be built. Proven here by
+    // running the real, extracted build script against an application tree
+    // that has no .github/ at all — no workflows, no actions, nothing.
+    foreach (['git', 'rsync', 'tar', 'jq', 'sha256sum'] as $tool) {
+        if (trim((string) shell_exec('command -v '.escapeshellarg($tool))) === '') {
+            test()->markTestSkipped("{$tool} is not available on this machine.");
+        }
+    }
+
+    $scratch = sys_get_temp_dir().'/rateguru-build-source-'.uniqid('', true);
+    $source = $scratch.'/application';
+    $runnerTemp = $scratch.'/runner-temp';
+
+    try {
+        // A minimal but honest application checkout: everything the build
+        // contract requires, the real CLI verifier and its manifest, one
+        // application-only marker file — and deliberately no .github/.
+        mkdir($source.'/public/build', 0o755, true);
+        mkdir($source.'/vendor', 0o755, true);
+        mkdir($source.'/app', 0o755, true);
+        mkdir($source.'/infrastructure/scripts', 0o755, true);
+        mkdir($source.'/infrastructure/config', 0o755, true);
+        mkdir($runnerTemp, 0o755, true);
+
+        file_put_contents($source.'/artisan', "#!/usr/bin/env php\n");
+        file_put_contents($source.'/public/index.php', "<?php\n");
+        file_put_contents($source.'/public/build/manifest.json', '{}');
+        file_put_contents($source.'/vendor/autoload.php', "<?php\n");
+        file_put_contents($source.'/app/OldBranchMarker.php', "<?php // only in the application checkout\n");
+
+        copy(base_path('infrastructure/config/required-clis.txt'), $source.'/infrastructure/config/required-clis.txt');
+        copy(base_path('infrastructure/scripts/verify-required-clis'), $source.'/infrastructure/scripts/verify-required-clis');
+        chmod($source.'/infrastructure/scripts/verify-required-clis', 0o755);
+
+        foreach (requiredCliManifestNames() as $cli) {
+            if (! file_exists($source.'/infrastructure/scripts/'.$cli)) {
+                file_put_contents($source.'/infrastructure/scripts/'.$cli, "#!/usr/bin/env bash\n");
+            }
+
+            chmod($source.'/infrastructure/scripts/'.$cli, 0o755);
+        }
+
+        file_put_contents($source.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
+        chmod($source.'/infrastructure/scripts/common', 0o644);
+
+        expect(is_dir($source.'/.github'))->toBeFalse('the fixture must not carry any deployment tooling');
+
+        $git = 'git -C '.escapeshellarg($source).' -c user.email=build@rateguru.test -c user.name=Build ';
+        exec($git.'init -q -b main 2>&1');
+        exec($git.'add -A 2>&1');
+        exec($git.'commit -q -m "old application revision" 2>&1');
+
+        $sourceSha = trim((string) shell_exec($git.'rev-parse HEAD'));
+        expect($sourceSha)->toMatch('/^[0-9a-f]{40}$/');
+
+        // The real archive step, extracted from the action and run exactly as
+        // the action runs it: inside source-root.
+        $script = 'set -Eeuo pipefail'."\n"
+            .'cd '.escapeshellarg($source)."\n"
+            .data_get(buildRateGuruStep('Build release archive'), 'run');
+
+        $githubOutput = $scratch.'/github-output';
+        touch($githubOutput);
+
+        $env = [
+            'RUNNER_TEMP='.escapeshellarg($runnerTemp),
+            'GITHUB_OUTPUT='.escapeshellarg($githubOutput),
+            'GITHUB_RUN_ID=4242',
+            'GITHUB_RUN_NUMBER=7',
+            'SOURCE_REF='.escapeshellarg('feature/an-old-branch'),
+            'RELEASE_VERSION=v0.0.0',
+            'WORKFLOW_ARTIFACT_PREFIX=rateguru-release',
+            'RELEASE_METADATA='.escapeshellarg('{"environment": "staging"}'),
+            'EXPECTED_SOURCE_SHA=',
+        ];
+
+        $output = [];
+        $exit = 0;
+        exec('env '.implode(' ', $env).' bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
+
+        expect($exit)->toBe(0, "the build refused an application tree with no deployment tooling:\n".implode("\n", $output));
+
+        $outputs = [];
+        foreach (preg_split('/\R/', (string) file_get_contents($githubOutput)) ?: [] as $line) {
+            if (str_contains($line, '=')) {
+                [$key, $value] = explode('=', $line, 2);
+                $outputs[$key] = $value;
+            }
+        }
+
+        // source_sha is the application commit — not the commit of whatever
+        // tooling checkout the action itself came from.
+        expect($outputs['source_sha'] ?? null)->toBe($sourceSha)
+            ->and($outputs['release_id'] ?? '')->toMatch('/^v0\.0\.0-[0-9]{8}-[0-9]{6}-'.substr($sourceSha, 0, 7).'$/')
+            ->and($outputs['artifact_name'] ?? '')->toBe('rateguru-'.$outputs['release_id'].'.tar.gz')
+            ->and($outputs['workflow_artifact_name'] ?? '')->toBe('rateguru-release-'.$outputs['release_id']);
+
+        expect(file_exists($outputs['artifact_path']))->toBeTrue()
+            ->and(file_exists($outputs['checksum_path']))->toBeTrue();
+
+        // The checksum sidecar describes the artifact that was actually built.
+        $verify = [];
+        $verifyExit = 0;
+        exec('cd '.escapeshellarg(dirname($outputs['artifact_path'])).' && sha256sum -c '.escapeshellarg(basename($outputs['checksum_path'])).' 2>&1', $verify, $verifyExit);
+        expect($verifyExit)->toBe(0, implode("\n", $verify));
+
+        // The package holds the application's tree, and its release.json
+        // records the ref the operator selected with that tree's own commit.
+        $listing = [];
+        exec('tar -tzf '.escapeshellarg($outputs['artifact_path']), $listing);
+
+        expect($listing)->toContain('./app/OldBranchMarker.php')
+            ->toContain('./release.json')
+            ->and(collect($listing)->filter(fn (string $entry): bool => str_starts_with($entry, './.github'))->all())
+            ->toBe([], 'the artifact must never carry the deployment tooling');
+
+        $metadata = json_decode((string) shell_exec('tar -xzOf '.escapeshellarg($outputs['artifact_path']).' ./release.json'), true, 512, JSON_THROW_ON_ERROR);
+
+        expect($metadata['source_ref'])->toBe('feature/an-old-branch')
+            ->and($metadata['source_sha'])->toBe($sourceSha)
+            ->and($metadata['release'])->toBe($outputs['release_id'])
+            ->and($metadata['project'])->toBe('rateguru')
+            ->and($metadata['environment'])->toBe('staging')
+            ->and($metadata['workflow_run_id'])->toBe('4242');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
 });

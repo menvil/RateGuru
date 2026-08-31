@@ -302,3 +302,54 @@ it('leaves every accepted Phase 4 and Phase 5 primitive in place', function () {
 
     expect(File::exists(base_path('infrastructure/config/deployment-targets.json')))->toBeTrue();
 });
+
+it('serializes every mutation of the same target in the GitHub orchestration layer too', function () {
+    // The final operational model promises that two operations mutating the
+    // same target cannot run at once. The server-side deployment lock is the
+    // thing that actually enforces integrity; GitHub concurrency exists so one
+    // workflow does not fail merely because another was already holding it.
+    //
+    // Every place a target is mutated, and the group that must cover it:
+    $mutations = [
+        'deploy-staging.yml:deploy' => ['staging-main', 'rateguru-staging-deployment'],
+        'rollback-staging.yml:rollback' => ['staging-main', 'rateguru-staging-deployment'],
+        'release.yml:deploy-staging' => ['staging-main', 'rateguru-staging-deployment'],
+        'release.yml:deploy-production' => ['tits-guru', 'rateguru-production-release'],
+        'rollback-production.yml:rollback' => ['tits-guru', 'rateguru-production-release'],
+    ];
+
+    $found = [];
+
+    foreach (phase71Workflows() as $name => $workflow) {
+        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
+            $target = collect(data_get($job, 'steps', []))
+                ->map(fn (array $step): mixed => data_get($step, 'with.deployment-target'))
+                ->first(fn (mixed $value): bool => is_string($value) && $value !== '');
+
+            if ($target === null) {
+                continue;
+            }
+
+            // A job-level group wins where present; otherwise the workflow's.
+            $concurrency = data_get($job, 'concurrency') ?? data_get($workflow, 'concurrency');
+
+            $found["{$name}:{$jobName}"] = [$target, data_get($concurrency, 'group')];
+
+            expect(data_get($concurrency, 'cancel-in-progress'))
+                ->toBeFalse("{$name}:{$jobName} must never cancel a deployment in flight");
+        }
+    }
+
+    expect($found)->toEqual($mutations);
+
+    // Both rollback workflows sit in the same domain as the workflow that
+    // deploys their target, so a rollback and a deploy cannot interleave.
+    $groups = collect(phase71Workflows())->map(fn (array $workflow): mixed => data_get($workflow, 'concurrency.group'));
+
+    expect($groups['rollback-staging.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['rollback-production.yml'])->toBe($groups['release.yml'])
+        ->and($groups['release.yml'])->toBe('rateguru-production-release');
+
+    // ...and GitHub concurrency never replaced the server-side lock.
+    expect(File::get(base_path('infrastructure/scripts/common')))->toContain('flock');
+});

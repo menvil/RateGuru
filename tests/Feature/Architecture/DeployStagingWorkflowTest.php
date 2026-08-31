@@ -47,9 +47,9 @@ it('deploys manually selected refs to staging', function () {
         ->and(data_get($this->resolveSteps->get('Resolve exact source revision'), 'run'))
         ->not->toContain('${{');
 
-    expect(data_get($this->buildSteps->get('Checkout requested ref'), 'uses'))
+    expect(data_get($this->buildSteps->get('Checkout requested application source'), 'uses'))
         ->toMatch('/^actions\/checkout@[0-9a-f]{40}$/')
-        ->and(data_get($this->buildSteps->get('Checkout requested ref'), 'with.ref'))
+        ->and(data_get($this->buildSteps->get('Checkout requested application source'), 'with.ref'))
         ->toBe('${{ needs.resolve.outputs.checkout_ref }}')
         ->and(data_get($this->deploySteps->get('Checkout deployment action'), 'with.ref'))
         ->toBe('develop')
@@ -62,7 +62,9 @@ it('deploys manually selected refs to staging', function () {
         ->and($this->deploySteps->has('Verify social preview as external crawler'))
         ->toBeFalse();
 
-    expect(data_get($this->buildSteps->get('Checkout requested ref'), 'with.persist-credentials'))
+    expect(data_get($this->buildSteps->get('Checkout requested application source'), 'with.persist-credentials'))
+        ->toBeFalse()
+        ->and(data_get($this->buildSteps->get('Checkout trusted build tooling'), 'with.persist-credentials'))
         ->toBeFalse()
         ->and(data_get($this->deploySteps->get('Checkout deployment action'), 'with.persist-credentials'))
         ->toBeFalse();
@@ -82,7 +84,8 @@ it('builds through the one shared build implementation, passing only staging pol
     expect(data_get($build, 'uses'))->toBe('./.github/actions/build-rateguru')
         ->and(data_get($build, 'id'))->toBe('build');
 
-    expect(data_get($build, 'with.source-ref'))->toBe('${{ needs.resolve.outputs.source_ref }}')
+    expect(data_get($build, 'with.source-root'))->toBe('${{ github.workspace }}/application')
+        ->and(data_get($build, 'with.source-ref'))->toBe('${{ needs.resolve.outputs.source_ref }}')
         ->and(data_get($build, 'with.release-version'))->toBe('${{ needs.resolve.outputs.release_version }}')
         ->and(data_get($build, 'with.workflow-artifact-prefix'))->toBe('rateguru-release')
         // Staging artifacts are consumed by the deploy job in the same run;
@@ -169,4 +172,72 @@ it('never rebuilds the mechanical pipeline that now belongs to the shared build 
         expect(str_contains($this->source, $mechanic))
             ->toBeFalse("deploy-staging.yml re-implements the shared build step: {$mechanic}");
     }
+});
+
+it('takes build tooling from develop and the application from the operator\'s ref, in two separate checkouts', function () {
+    // The regression this closes: with a single checkout, the build action
+    // came from the ref being deployed, so any ref older than the action
+    // could no longer be built at all. Tooling and application are now two
+    // trees, and only the application one is operator-selected.
+    $names = $this->buildSteps->keys()->all();
+
+    expect($names)->toBe([
+        'Checkout trusted build tooling',
+        'Checkout requested application source',
+        'Build immutable release artifact',
+    ]);
+
+    $tooling = $this->buildSteps->get('Checkout trusted build tooling');
+    $application = $this->buildSteps->get('Checkout requested application source');
+
+    // The tooling lands at the workspace root, which is where `uses: ./...`
+    // resolves from — so the build action always comes from develop.
+    expect(data_get($tooling, 'with.ref'))->toBe('develop')
+        ->and(data_get($tooling, 'with.path'))->toBeNull();
+
+    // The application lands beside it, under its own path, and is the only
+    // thing the operator chooses.
+    expect(data_get($application, 'with.ref'))->toBe('${{ needs.resolve.outputs.checkout_ref }}')
+        ->and(data_get($application, 'with.path'))->toBe('application');
+
+    $build = $this->buildSteps->get('Build immutable release artifact');
+
+    expect(data_get($build, 'uses'))->toBe('./.github/actions/build-rateguru')
+        ->and(data_get($build, 'with.source-root'))->toBe('${{ github.workspace }}/application');
+
+    // The action is never copied into, or resolved from, the application tree.
+    expect($this->source)
+        ->not->toContain('./application/.github')
+        ->not->toContain('cp -r')
+        ->not->toContain('build-rateguru/action.yml');
+});
+
+it('imposes no ancestry, tag or recency policy on the staging ref', function () {
+    // Staging deliberately accepts any branch, tag or commit SHA. Production
+    // is the strict one; nothing from its policy may leak in here.
+    expect(data_get($this->workflow, 'on.workflow_dispatch.inputs.ref.type'))->toBe('string')
+        ->and(data_get($this->workflow, 'on.workflow_dispatch.inputs.ref.default'))->toBe('develop')
+        ->and(data_get($this->workflow, 'on.workflow_dispatch.inputs.ref.options'))->toBeNull();
+
+    foreach ([
+        'merge-base',
+        '--is-ancestor',
+        'refs/remotes/origin/main',
+        'tag_regex',
+        'does not point to a commit contained in main',
+        'rev-list',
+        'git log',
+    ] as $productionPolicy) {
+        expect(str_contains($this->source, $productionPolicy))
+            ->toBeFalse("staging must not restrict which ref an operator may deploy: {$productionPolicy}");
+    }
+
+    // The resolve job passes the ref through and derives a version from its
+    // shape — it never rejects a ref for not having one.
+    $run = data_get($this->resolveSteps->get('Resolve exact source revision'), 'run');
+
+    expect($run)
+        ->toContain('checkout_ref="${DISPATCH_REF}"')
+        ->toContain('release_version="v0.0.0"')
+        ->not->toContain('exit 1'."\n".'          fi');
 });

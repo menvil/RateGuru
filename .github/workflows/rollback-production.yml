@@ -54,8 +54,8 @@ jobs:
     steps:
       # Rollback business logic stays entirely server-side; nothing from this
       # checkout is deployed. It is taken from develop rather than any release
-      # ref, because the rollback and observability actions below are
-      # privileged deployment tooling.
+      # ref, because the shared rollback action — and the observability action
+      # it calls — are privileged deployment tooling.
       - name: Checkout rollback and observability actions
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -84,20 +84,11 @@ jobs:
           mode: ${{ inputs.mode }}
           release-id: ${{ inputs.release-id }}
 
-      # A rollback is a deployment of an existing release, so it records a new
-      # deploy marker against that same immutable release — never a synthetic
-      # "rollback" release, and never a re-association of its commits. The
-      # environment stays the class `production` for every production target;
-      # which brand was rolled back is carried by the deployment_target tag on
-      # the events themselves.
-      - name: Record Sentry deployment marker for the restored release
-        if: ${{ steps.rollback.outputs.active-release-id != '' }}
-        uses: ./.github/actions/sentry-release
-        with:
+          # The shared action records the deployment marker for whatever
+          # immutable release the target ended up serving. It is fail-open:
+          # an unreachable Sentry never turns a healthy rollback into a
+          # failed run, and no marker is recorded at all when the release
+          # could not be read back.
           sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
           sentry-org: ${{ vars.SENTRY_ORG }}
           sentry-project: ${{ vars.SENTRY_PROJECT }}
-
-          environment: production
-
-          release-id: ${{ steps.rollback.outputs.active-release-id }}

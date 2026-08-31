@@ -14,7 +14,10 @@ description: Roll a RateGuru deployment target back through the generic, target-
 #
 # Callers own the identity of what is being rolled back: the deployment target
 # and the GitHub Environment are fixed by the calling workflow, never chosen
-# by the operator.
+# by the operator. Everything that follows a successful rollback — reading the
+# restored release back, recording its Sentry deployment marker and writing the
+# run summary — is common to every target and lives here, so the operator
+# workflows carry no duplicated observability block.
 
 inputs:
   deployment-target:
@@ -58,6 +61,21 @@ inputs:
     required: false
     default: ""
     description: Release ID, required when mode=release and forbidden when mode=previous
+
+  sentry-auth-token:
+    required: false
+    default: ""
+    description: Sentry auth token; the deployment marker is skipped when the environment has no Sentry credentials
+
+  sentry-org:
+    required: false
+    default: ""
+    description: Sentry organization slug
+
+  sentry-project:
+    required: false
+    default: ""
+    description: Sentry project slug
 
 outputs:
   active-release-id:
@@ -260,6 +278,24 @@ runs:
 
         echo "release_id=${active_release}" >> "${GITHUB_OUTPUT}"
         echo "Target is now serving ${active_release}"
+
+    # A rollback is a deployment of an existing release, so it records a new
+    # deploy marker against that same immutable release — never a synthetic
+    # "rollback" release, and never a re-association of its commits. Skipped
+    # outright when the release could not be read back, and the shared
+    # observability action is itself continue-on-error, so a Sentry outage can
+    # never turn an already-healthy rollback into a failed run.
+    - name: Record Sentry deployment marker for the restored release
+      if: ${{ steps.active.outputs.release_id != '' }}
+      uses: ./.github/actions/sentry-release
+      with:
+        sentry-auth-token: ${{ inputs.sentry-auth-token }}
+        sentry-org: ${{ inputs.sentry-org }}
+        sentry-project: ${{ inputs.sentry-project }}
+
+        environment: ${{ inputs.environment }}
+
+        release-id: ${{ steps.active.outputs.release_id }}
 
     # Reports what happened on failed runs too. The result comes from the
     # rollback step's own outcome rather than the calling job's status, so it

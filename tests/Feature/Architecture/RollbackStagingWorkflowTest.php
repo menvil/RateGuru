@@ -62,7 +62,17 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
         ->and(data_get($rollback, 'with.deploy-user'))->toBe('${{ vars.DEPLOY_USER }}')
         ->and(data_get($rollback, 'with.deploy-root'))->toBe('${{ vars.DEPLOY_ROOT }}')
         ->and(data_get($rollback, 'with.ssh-private-key'))->toBe('${{ secrets.DEPLOY_SSH_KEY }}')
-        ->and(data_get($rollback, 'with.known-hosts'))->toBe('${{ secrets.DEPLOY_KNOWN_HOSTS }}');
+        ->and(data_get($rollback, 'with.known-hosts'))->toBe('${{ secrets.DEPLOY_KNOWN_HOSTS }}')
+        // Observability coordinates are forwarded, not re-implemented here.
+        ->and(data_get($rollback, 'with.sentry-auth-token'))->toBe('${{ secrets.SENTRY_AUTH_TOKEN }}')
+        ->and(data_get($rollback, 'with.sentry-org'))->toBe('${{ vars.SENTRY_ORG }}')
+        ->and(data_get($rollback, 'with.sentry-project'))->toBe('${{ vars.SENTRY_PROJECT }}');
+
+    // Two steps, both of them `uses:` — a checkout and the shared action.
+    expect($steps->pluck('name')->all())->toBe([
+        'Checkout rollback and observability actions',
+        'Roll back staging-main',
+    ]);
 
     // Deployment tooling is taken from develop, never from a release ref.
     $checkout = $stepsByName->get('Checkout rollback and observability actions');
@@ -103,26 +113,22 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
         ->toEqualCanonicalizing(['DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS', 'SENTRY_AUTH_TOKEN']);
 });
 
-it('marks the restored release as newly deployed, and never invents a rollback release', function () {
+it('delegates the restored-release marker instead of carrying its own copy', function () {
     $source = File::get(base_path('.github/workflows/rollback-staging.yml'));
     $workflow = Yaml::parse($source);
     $steps = collect(data_get($workflow, 'jobs.rollback.steps'));
-    $marker = $steps->keyBy('name')->get('Record Sentry deployment marker for the restored release');
 
-    expect(data_get($marker, 'uses'))->toBe('./.github/actions/sentry-release')
-        ->and(data_get($marker, 'with.environment'))->toBe('staging')
-        ->and(data_get($marker, 'with.release-id'))->toBe('${{ steps.rollback.outputs.active-release-id }}')
-        ->and(data_get($marker, 'if'))->toBe("\${{ steps.rollback.outputs.active-release-id != '' }}");
+    // The marker moved into the shared rollback action, which performed the
+    // read-back it depends on. Nothing here duplicates it.
+    expect($steps->pluck('uses')->all())
+        ->not->toContain('./.github/actions/sentry-release');
 
-    // The release recorded is the immutable one read back off the target, so
-    // no synthetic "rollback" release can ever be created here.
     expect($source)
-        ->not->toMatch('/release-id:\s*[\'"]?rollback/')
-        ->not->toMatch('/release_id\s*=\s*[\'"]?rollback/');
+        ->not->toContain('active-release-id')
+        ->not->toMatch('/release-id:\s*[\'"]?rollback/');
 
-    // The marker can only run after the rollback step it reads its input from.
-    $names = $steps->pluck('name')->all();
-
-    expect(array_search('Roll back staging-main', $names, true))
-        ->toBeLessThan(array_search('Record Sentry deployment marker for the restored release', $names, true));
+    // What it does contribute is the environment class the marker is recorded
+    // against — fixed by this workflow, exactly like the target.
+    expect(data_get($steps->keyBy('name')->get('Roll back staging-main'), 'with.environment'))
+        ->toBe('staging');
 });

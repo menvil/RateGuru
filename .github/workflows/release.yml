@@ -109,10 +109,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      # Production builds one tree: the validated tag commit is both the
+      # application source and the trusted tooling, exactly as it is for the
+      # deployment jobs below. A production release stays fully described by
+      # its own tag rather than by whatever develop happens to hold.
       - name: Build immutable release artifact
         id: build
         uses: ./.github/actions/build-rateguru
         with:
+          source-root: ${{ github.workspace }}
+
           source-ref: ${{ needs.validate.outputs.source-tag }}
           release-version: ${{ needs.validate.outputs.version }}
 
@@ -146,6 +152,16 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 10
+
+    # This job mutates staging-main, so it joins the same domain every other
+    # staging mutation uses — a manual staging deploy or rollback can no
+    # longer overlap a release's staging verification. The workflow-level
+    # rateguru-production-release group above still serializes whole
+    # production releases against production rollbacks. Both are orchestration
+    # on top of, never a replacement for, the server-side deployment lock.
+    concurrency:
+      group: rateguru-staging-deployment
+      cancel-in-progress: false
 
     steps:
       - name: Checkout trusted deployment action

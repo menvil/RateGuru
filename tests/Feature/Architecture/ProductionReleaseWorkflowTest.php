@@ -84,7 +84,8 @@ it('builds through the one shared build implementation, passing only production 
     expect(data_get($build, 'uses'))->toBe('./.github/actions/build-rateguru')
         ->and(data_get($build, 'id'))->toBe('build');
 
-    expect(data_get($build, 'with.source-ref'))->toBe('${{ needs.validate.outputs.source-tag }}')
+    expect(data_get($build, 'with.source-root'))->toBe('${{ github.workspace }}')
+        ->and(data_get($build, 'with.source-ref'))->toBe('${{ needs.validate.outputs.source-tag }}')
         ->and(data_get($build, 'with.release-version'))->toBe('${{ needs.validate.outputs.version }}')
         // The build refuses to produce an artifact from anything but the
         // commit `validate` proved is a semantic tag contained in main.
@@ -147,6 +148,54 @@ it('builds the production artifact exactly once and promotes that same artifact'
             }
         }
     }
+});
+
+it('builds the validated tag commit as one tree, tooling and application alike', function () {
+    // Production has no arbitrary source selector, so it needs no second
+    // checkout: the tag commit `validate` proved is contained in main is both
+    // the application being built and the tooling that builds and deploys it.
+    // A production release therefore stays fully described by its own tag.
+    $checkouts = $this->buildSteps->filter(fn (array $step): bool => str_contains((string) data_get($step, 'uses'), 'actions/checkout@'));
+
+    expect($checkouts->keys()->all())->toBe(['Checkout exact release commit'])
+        ->and(data_get($checkouts->first(), 'with.path'))->toBeNull();
+
+    expect(data_get($this->buildSteps->get('Build immutable release artifact'), 'with.source-root'))
+        ->toBe('${{ github.workspace }}');
+
+    // No operator-facing source selector exists anywhere in the workflow.
+    expect(data_get($this->releaseWorkflow, 'on.workflow_dispatch'))->toBeNull()
+        ->and(array_keys((array) data_get($this->releaseWorkflow, 'on')))->toBe(['push']);
+
+    foreach (['inputs.ref', 'inputs.source', 'inputs.branch', 'inputs.commit'] as $selector) {
+        expect(str_contains($this->releaseWorkflowSource, $selector))
+            ->toBeFalse("production must not gain a source selector: {$selector}");
+    }
+});
+
+it('serializes whole releases against production, and its staging mutation against staging', function () {
+    // The workflow-level group keeps a whole production release serialized
+    // against a production rollback. The job-level group additionally puts the
+    // release's staging deployment in the same domain every other staging
+    // mutation uses, so a manual staging deploy or rollback can no longer
+    // overlap a release's staging verification.
+    expect(data_get($this->releaseWorkflow, 'concurrency'))->toBe([
+        'group' => 'rateguru-production-release',
+        'cancel-in-progress' => false,
+    ]);
+
+    expect(data_get($this->releaseWorkflow, 'jobs.deploy-staging.concurrency'))->toBe([
+        'group' => 'rateguru-staging-deployment',
+        'cancel-in-progress' => false,
+    ]);
+
+    // The production deployment stays covered by the workflow-level group
+    // alone — it must not be pulled into the staging domain.
+    expect(data_get($this->releaseWorkflow, 'jobs.deploy-production.concurrency'))->toBeNull();
+
+    // Orchestration only: the server-side deployment lock is still the thing
+    // that actually protects the target, and nothing here replaces it.
+    expect(File::get(base_path('infrastructure/scripts/common')))->toContain('flock');
 });
 
 it('passes deployment-target: staging-main to the staging job and tits-guru to the production job', function () {

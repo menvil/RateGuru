@@ -41,7 +41,19 @@ it('rolls back production manually, through the same shared implementation', fun
 
     // The two workflows differ only in their fixed identity; everything the
     // operator can influence is passed through identically.
-    foreach (['mode', 'release-id', 'deploy-host', 'deploy-port', 'deploy-user', 'deploy-root', 'ssh-private-key', 'known-hosts'] as $input) {
+    foreach ([
+        'mode',
+        'release-id',
+        'deploy-host',
+        'deploy-port',
+        'deploy-user',
+        'deploy-root',
+        'ssh-private-key',
+        'known-hosts',
+        'sentry-auth-token',
+        'sentry-org',
+        'sentry-project',
+    ] as $input) {
         expect(data_get($rollback, "with.{$input}"))
             ->toBe(data_get($staging, "with.{$input}"), "{$input} diverges between the two rollback workflows");
     }
@@ -137,16 +149,21 @@ it('takes deployment tooling from develop and keeps the same closed secret set',
         ->toEqualCanonicalizing(['DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS', 'SENTRY_AUTH_TOKEN']);
 });
 
-it('records the restored release in the production Sentry environment', function () {
-    $marker = $this->stepsByName->get('Record Sentry deployment marker for the restored release');
+it('delegates the restored-release marker to the same shared implementation', function () {
+    // No marker block of its own: the shared rollback action records it, using
+    // the coordinates this workflow forwards and the environment it fixes.
+    expect($this->steps->pluck('uses')->all())
+        ->not->toContain('./.github/actions/sentry-release');
 
-    expect(data_get($marker, 'uses'))->toBe('./.github/actions/sentry-release')
-        ->and(data_get($marker, 'with.environment'))->toBe('production')
-        ->and(data_get($marker, 'with.release-id'))->toBe('${{ steps.rollback.outputs.active-release-id }}')
-        ->and(data_get($marker, 'if'))->toBe("\${{ steps.rollback.outputs.active-release-id != '' }}");
+    expect($this->steps->pluck('name')->all())->toBe([
+        'Checkout rollback and observability actions',
+        'Roll back tits-guru',
+    ]);
 
-    $names = $this->steps->pluck('name')->all();
+    expect(data_get($this->stepsByName->get('Roll back tits-guru'), 'with.environment'))
+        ->toBe('production');
 
-    expect(array_search('Roll back tits-guru', $names, true))
-        ->toBeLessThan(array_search('Record Sentry deployment marker for the restored release', $names, true));
+    expect($this->source)
+        ->not->toContain('active-release-id')
+        ->not->toMatch('/release-id:\s*[\'"]?rollback/');
 });

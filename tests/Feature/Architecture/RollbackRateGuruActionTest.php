@@ -76,6 +76,7 @@ it('defines a hardened reusable RateGuru rollback action', function () {
         'Configure SSH',
         'Roll back via target-aware wrapper',
         'Resolve the release now serving the target',
+        'Record Sentry deployment marker for the restored release',
         'Write rollback summary',
         'Remove temporary SSH material',
     ]);
@@ -98,12 +99,29 @@ it('defines a hardened reusable RateGuru rollback action', function () {
         ->and(data_get($action, 'inputs.release-id.required'))->toBeFalse()
         ->and(data_get($action, 'inputs.release-id.default'))->toBe('');
 
+    // Observability is secondary to the rollback, so its coordinates are
+    // optional and default to nothing: an environment with no Sentry
+    // credentials rolls back exactly the same way, marker or no marker.
+    foreach (['sentry-auth-token', 'sentry-org', 'sentry-project'] as $observability) {
+        expect(data_get($action, "inputs.{$observability}.required"))
+            ->toBeFalse("{$observability} must never be required to roll a target back")
+            ->and(data_get($action, "inputs.{$observability}.default"))->toBe('');
+    }
+
     // The read-back release is the only thing a caller gets out of a rollback.
     expect(data_get($action, 'outputs.active-release-id.value'))
         ->toBe('${{ steps.active.outputs.release_id }}');
 
     // Every run script takes its inputs through env, never interpolation.
+    // The observability step is a `uses:` and has no script to interpolate
+    // into, so it is skipped explicitly rather than silently passing on null.
     foreach ($steps as $step) {
+        if (is_string(data_get($step, 'uses'))) {
+            expect(data_get($step, 'uses'))->toBe('./.github/actions/sentry-release');
+
+            continue;
+        }
+
         expect(data_get($step, 'shell'))->toBe('bash')
             ->and(data_get($step, 'run'))->not->toContain('${{ inputs.');
     }
@@ -135,6 +153,48 @@ it('is the only GitHub rollback implementation, used by both operator workflows'
             expect(str_contains(File::get($path), $mechanic))
                 ->toBeFalse(basename($path).' re-implements the shared rollback transport: '.$mechanic);
         }
+    }
+});
+
+it('owns the one post-rollback Sentry marker, and lets it fail without failing the rollback', function () {
+    $marker = rollbackRateGuruStep('Record Sentry deployment marker for the restored release');
+
+    // Delegates to the shared observability action — which is itself
+    // continue-on-error — rather than reimplementing a Sentry call.
+    expect(data_get($marker, 'uses'))->toBe('./.github/actions/sentry-release')
+        ->and(data_get($marker, 'if'))->toBe("\${{ steps.active.outputs.release_id != '' }}")
+        ->and(data_get($marker, 'with.release-id'))->toBe('${{ steps.active.outputs.release_id }}')
+        ->and(data_get($marker, 'with.environment'))->toBe('${{ inputs.environment }}')
+        ->and(data_get($marker, 'with.sentry-auth-token'))->toBe('${{ inputs.sentry-auth-token }}')
+        ->and(data_get($marker, 'with.sentry-org'))->toBe('${{ inputs.sentry-org }}')
+        ->and(data_get($marker, 'with.sentry-project'))->toBe('${{ inputs.sentry-project }}');
+
+    $sentryStep = collect(data_get(Yaml::parse(File::get(base_path('.github/actions/sentry-release/action.yml'))), 'runs.steps'))
+        ->keyBy('name')
+        ->get('Create Sentry release and deployment marker');
+
+    expect(data_get($sentryStep, 'continue-on-error'))
+        ->toBeTrue('the shared observability action must stay fail-open');
+
+    // Cleanup still happens even though a step was inserted before it.
+    $names = collect(data_get(rollbackRateGuruAction(), 'runs.steps'))->pluck('name')->all();
+
+    expect(array_search('Record Sentry deployment marker for the restored release', $names, true))
+        ->toBeLessThan(array_search('Remove temporary SSH material', $names, true));
+
+    // Exactly one implementation: neither operator workflow may carry a copy.
+    foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
+        $workflow = Yaml::parse(File::get($path));
+
+        $callsRollback = collect(data_get($workflow, 'jobs.rollback.steps', []))
+            ->contains(fn (array $step): bool => data_get($step, 'uses') === './.github/actions/rollback-rateguru');
+
+        if (! $callsRollback) {
+            continue;
+        }
+
+        expect(collect(data_get($workflow, 'jobs.rollback.steps'))->pluck('uses')->all())
+            ->not->toContain('./.github/actions/sentry-release', basename($path).' duplicates the rollback Sentry marker');
     }
 });
 

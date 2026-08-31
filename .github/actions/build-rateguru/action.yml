@@ -11,15 +11,22 @@ description: Build one immutable RateGuru release package, checksum it and uploa
 # the fail-closed infrastructure CLI mode check, release.json, the tarball,
 # its SHA-256 sidecar and the upload — so that pipeline exists exactly once.
 #
-# Trust boundary: this action runs in the build job, which has no deployment
-# secrets and no GitHub Environment. It is resolved from the same checkout it
-# builds, exactly like `composer install`, `npm run build` and
-# verify-required-clis already are. Privileged deployment tooling is a
-# different boundary and is deliberately checked out from a trusted ref by the
-# deploy/rollback jobs instead — never from an operator-selected application
-# ref.
+# Two trees, never conflated. This action is loaded from the caller's trusted
+# operational-tooling checkout at $GITHUB_WORKSPACE; the application it builds
+# lives at `source-root` and may be any commit the caller resolved, including
+# one far older than this action. Every application-sensitive command below
+# runs with `source-root` as its working directory, so the artifact contains
+# that application's tree and its own helpers — never the tooling checkout's.
+#
+# That separation is what keeps an arbitrary staging ref buildable: the
+# selected application source is not required to contain this action, or any
+# other part of the current deployment tooling, in order to be deployed.
 
 inputs:
+  source-root:
+    required: true
+    description: Directory holding the application checkout to build; every application-sensitive command runs there
+
   source-ref:
     required: true
     description: Already-resolved source ref, recorded verbatim as release.json source_ref
@@ -92,6 +99,7 @@ runs:
     - name: Validate build inputs
       shell: bash
       env:
+        SOURCE_ROOT: ${{ inputs.source-root }}
         SOURCE_REF: ${{ inputs.source-ref }}
         RELEASE_VERSION: ${{ inputs.release-version }}
         WORKFLOW_ARTIFACT_PREFIX: ${{ inputs.workflow-artifact-prefix }}
@@ -105,6 +113,25 @@ runs:
 
         if [[ -z "${SOURCE_REF}" ]]; then
           echo "source-ref must not be empty" >&2
+          exit 1
+        fi
+
+        # Fail here rather than silently building whatever happens to be in
+        # the default working directory — which is the tooling checkout, not
+        # the application. The .git requirement is what makes the source_sha
+        # recorded below the application commit's, never the tooling's.
+        if [[ -z "${SOURCE_ROOT}" ]]; then
+          echo "source-root must not be empty" >&2
+          exit 1
+        fi
+
+        if [[ ! -d "${SOURCE_ROOT}" ]]; then
+          echo "source-root is not a directory: ${SOURCE_ROOT}" >&2
+          exit 1
+        fi
+
+        if [[ ! -d "${SOURCE_ROOT}/.git" ]]; then
+          echo "source-root is not a Git checkout: ${SOURCE_ROOT}" >&2
           exit 1
         fi
 
@@ -190,14 +217,17 @@ runs:
       with:
         node-version: 26
         cache: ${{ inputs.node-cache }}
+        cache-dependency-path: ${{ inputs.source-root }}/package-lock.json
 
     - name: Validate Composer definition
       if: ${{ inputs.validate-composer == 'true' }}
       shell: bash
+      working-directory: ${{ inputs.source-root }}
       run: composer validate --strict
 
     - name: Install production PHP dependencies
       shell: bash
+      working-directory: ${{ inputs.source-root }}
       env:
         APP_ENV: production
       run: |
@@ -210,14 +240,21 @@ runs:
 
     - name: Build frontend assets
       shell: bash
+      working-directory: ${{ inputs.source-root }}
       run: |
         npm ci
         npm run build
 
+    # Runs inside the application checkout, so every relative path below —
+    # `git rev-parse HEAD`, the existence checks, rsync's source and the
+    # infrastructure CLI verifier — resolves against the application being
+    # built and not against the tooling this action came from.
     - name: Build release archive
       id: release
       shell: bash
+      working-directory: ${{ inputs.source-root }}
       env:
+        SOURCE_ROOT: ${{ inputs.source-root }}
         SOURCE_REF: ${{ inputs.source-ref }}
         RELEASE_VERSION: ${{ inputs.release-version }}
         WORKFLOW_ARTIFACT_PREFIX: ${{ inputs.workflow-artifact-prefix }}
@@ -225,6 +262,10 @@ runs:
         EXPECTED_SOURCE_SHA: ${{ inputs.expected-source-sha }}
       run: |
         set -Eeuo pipefail
+
+        # The application checkout, not the tooling one this action was
+        # loaded from. Printed so a run's log shows which tree was packaged.
+        echo "Application source: ${PWD}"
 
         source_sha="$(git rev-parse HEAD)"
 
