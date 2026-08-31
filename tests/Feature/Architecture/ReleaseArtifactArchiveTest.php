@@ -1099,7 +1099,17 @@ it('rolls back a partial publication, keeps unrelated files, and lets the very n
         );
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('nothing from this retrieval was left behind');
+
+        // The diagnostic has to be accurate about what the operator is left
+        // with. It may not promise "just run it again": the conflicting file
+        // is deliberately preserved, so the next run will refuse the
+        // destination until that external conflict is resolved.
+        expect($output)
+            ->toContain('nothing this retrieval created was left behind')
+            ->toContain('nothing already in the destination was touched')
+            ->toContain('Resolve the conflicting '.$package['artifact'].'.sha256')
+            ->toContain('will not remove it')
+            ->not->toContain('can simply be run again');
 
         // A. No canonical file this invocation published survives — the
         // artifact was linked before the sidecar failed, and was unlinked
@@ -1121,8 +1131,16 @@ it('rolls back a partial publication, keeps unrelated files, and lets the very n
         ));
         expect($leftovers)->toBe([]);
 
-        // B. The operator clears the one colliding name and runs the exact
-        // same command again; it succeeds without any other cleanup.
+        // The next run really does refuse the destination while the foreign
+        // file is still there — the diagnostic above is not being pessimistic
+        // for its own sake.
+        [$blockedExit, $blockedOutput] = releaseArchiveFetch($package['release'], $destination, $config);
+
+        expect($blockedExit)->not->toBe(0);
+        expect($blockedOutput)->toContain('retrieve into a clean directory');
+
+        // B. The operator resolves that one external conflict and runs the
+        // exact same command again; it succeeds without any other cleanup.
         unlink($destination.'/'.$package['artifact'].'.sha256');
 
         [$retryExit, $retryOutput] = releaseArchiveFetch($package['release'], $destination, $config);

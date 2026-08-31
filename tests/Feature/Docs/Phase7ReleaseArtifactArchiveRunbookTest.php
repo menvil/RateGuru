@@ -140,9 +140,66 @@ it('specifies a least-privilege B2 key by exact capability, and excludes the res
     // into GitHub, rather than assumed.
     expect($runbook)
         ->toContain('Prove the capability set before wiring it into GitHub')
-        ->toContain('b2 account authorize')
         ->toContain('reviewed change to this contract')
         ->toContain('never add `deleteFiles` while debugging');
+});
+
+it('probes the newly created key through rclone itself, safely', function () {
+    $runbook = releaseArchiveRunbook();
+
+    // The probe has to exercise rclone with the key just created. Authorizing
+    // the b2 CLI proves nothing about rclone, and pointing rclone at an
+    // existing configuration silently tests whatever credential that file
+    // already holds — so the runbook builds a throwaway config instead.
+    expect($runbook)
+        ->toContain('[rateguru-artifacts-b2]')
+        ->toContain('rclone --config "${probe_config}" lsf')
+        ->toContain('rateguru-artifacts-b2:rateguru-release-artifacts')
+        ->toContain('`b2 account authorize` authorizes the B2 CLI only');
+
+    // Secret handling: no-echo prompt, never a command argument, 0600, and
+    // cleaned up afterwards.
+    expect($runbook)
+        ->toContain("read -rs -p 'New B2 applicationKey:")
+        ->toContain('chmod 0600 "${probe_config}"')
+        ->toContain('rm -f "${probe_config}"')
+        ->toContain('unset PROBE_KEY_ID PROBE_APP_KEY probe_config')
+        ->toContain('neither reaches shell history');
+
+    // And it cannot be pointed at a pre-existing credential by accident.
+    expect($runbook)
+        ->toContain('cannot accidentally test an older credential')
+        ->toContain('Never point this probe at `~/.config/rclone/rclone.conf`');
+
+    // No real credential value is ever committed.
+    expect($runbook)->not->toMatch('/account = [0-9a-zA-Z]{12,}/');
+});
+
+it('states the deleteFiles security boundary accurately, without overclaiming', function () {
+    $runbook = releaseArchiveRunbook();
+
+    expect($runbook)->toContain('### What withholding `deleteFiles` actually guarantees');
+
+    // The real guarantee: no permanent deletion of an existing version.
+    expect($runbook)
+        ->toContain('b2_delete_file_version')
+        ->toContain('cannot permanently delete an archived file version')
+        ->toContain('Keep all versions');
+
+    // And the honest limits of it — writeFiles is still powerful, and
+    // --immutable is an application-level guard, not Object Lock.
+    expect($runbook)
+        ->toContain('b2_hide_file')
+        ->toContain('over an existing name')
+        ->toContain('prior version survives')
+        ->toContain('application-level guard')
+        ->toContain('B2 Object Lock');
+
+    // The overclaim this replaced must not come back anywhere.
+    expect($runbook)->not->toContain('cannot* destroy an archived release');
+
+    // Object Lock is described, deliberately not enabled by this slice.
+    expect($runbook)->toContain('Phase 7.1 deliberately');
 });
 
 it('states the bucket contract: private, exactly named, and never expiring releases', function () {

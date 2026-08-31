@@ -312,7 +312,7 @@ because a command this PR actually runs requires it:
 
 | Excluded | Reason |
 |---|---|
-| `deleteFiles` | Nothing in Phase 7.1 deletes an archived object. Without this capability, a bug, a bad flag or a compromised runner *cannot* destroy an archived release. |
+| `deleteFiles` | Nothing in Phase 7.1 deletes an archived object, and this is what permits permanently deleting a file version. See the security boundary below for what its absence does and does not guarantee. |
 | `listAllBucketNames` | The key is restricted to one bucket whose name is already configured, so enumerating other bucket names is never needed. Not granted for convenience. |
 | `writeBuckets`, `deleteBuckets` | The bucket is created once by hand; CI never manages buckets. |
 | `readBuckets` | Not exercised by any command here. |
@@ -321,18 +321,54 @@ because a command this PR actually runs requires it:
 | retention, legal-hold, encryption and notification capabilities | Not used by any operation in this slice. |
 
 **Prove the capability set before wiring it into GitHub.** This is the only
-way to confirm the list against the real API rather than assume it, and it
-costs one command. Authorize with the *new* key and run a read-only probe:
+way to confirm the list against the real API rather than assume it.
+
+It has to be **rclone** that is tested, using **the key just created**.
+`b2 account authorize` authorizes the B2 CLI only; it tells rclone nothing,
+and rclone reads whatever configuration it is pointed at. A probe that
+authorizes with the new key and then runs rclone against an existing
+`rclone.conf` proves nothing about the new key — it silently tests whatever
+credential that file already holds.
+
+So the probe builds a throwaway configuration containing the new key and
+nothing else. Paste the whole block, so the cleanup at the end runs:
 
 ```bash
-b2 account authorize <applicationKeyId> <applicationKey>
+umask 077
 
-rclone --config /path/to/rclone.conf lsf rateguru-artifacts-b2:rateguru-release-artifacts
+probe_config="$(mktemp)"
+chmod 0600 "${probe_config}"
+trap 'rm -f "${probe_config}"' EXIT
+
+# -s keeps the key off the terminal, and `read` takes it from stdin, so
+# neither value is ever a command argument and neither reaches shell history.
+read -r  -p 'New B2 applicationKeyId: ' PROBE_KEY_ID
+read -rs -p 'New B2 applicationKey:   ' PROBE_APP_KEY
+echo
+
+printf '[rateguru-artifacts-b2]\ntype = b2\naccount = %s\nkey = %s\n' \
+    "${PROBE_KEY_ID}" "${PROBE_APP_KEY}" > "${probe_config}"
+
+rclone --config "${probe_config}" lsf \
+    rateguru-artifacts-b2:rateguru-release-artifacts
+probe_status=$?
+
+rm -f "${probe_config}"
+unset PROBE_KEY_ID PROBE_APP_KEY probe_config
+trap - EXIT
+
+echo "probe exit status: ${probe_status}"
 ```
 
-It must exit `0` (an empty listing is the expected result for a fresh
-bucket). If it fails with a `401` while resolving the bucket, the capability
-set is wrong for this rclone version — rclone has a documented history of
+`probe exit status: 0` is the pass condition; an empty listing is the
+expected result for a fresh bucket. Because the configuration is built from
+the values just typed in, this cannot accidentally test an older credential.
+
+Never point this probe at `~/.config/rclone/rclone.conf`, at a VPS
+configuration, or at any file you did not create in this block.
+
+If it fails with a `401` while resolving the bucket, the capability set is
+wrong for this rclone version — rclone has a documented history of
 bucket-restricted B2 keys needing broader listing rights. **Treat that as a
 reviewed change to this contract**: record the exact failure, update this
 runbook and the capability list together, and re-create the key. Do not widen
@@ -340,6 +376,39 @@ the key quietly, and never add `deleteFiles` while debugging.
 
 Rotating the key is the same procedure plus deleting the old key with a
 master key; nothing in the repository changes.
+
+### What withholding `deleteFiles` actually guarantees
+
+Stated precisely, because the difference matters if the runner is ever
+compromised:
+
+**What it does guarantee.** The CI key cannot call `b2_delete_file_version`,
+so it **cannot permanently delete an archived file version**. Combined with
+the bucket's *Keep all versions* lifecycle, every version that was ever
+uploaded remains retrievable.
+
+**What it does not guarantee.** `writeFiles` is still a powerful capability.
+It permits `b2_hide_file` — hiding the current version, so a plain listing or
+download by name stops finding the release — and it permits uploading a *new
+version* over an existing name. Neither destroys the archived bytes: the
+prior version survives and can be listed with `b2 file list-versions` (or
+`rclone lsf --b2-versions`) and downloaded by version ID. But an operator
+looking only at current versions could reasonably conclude a release had
+vanished.
+
+**What `--immutable` is and is not.** `rclone copy --immutable` is an
+application-level guard inside our own archive path: it stops *this tooling*
+from modifying an object that already exists, which is what makes re-running
+the archive safe. It is a property of how we invoke rclone, not a property of
+the bucket, so it constrains nothing that a compromised credential chooses to
+do directly against the B2 API.
+
+**The real defence against that threat is B2 Object Lock**, which enforces
+immutability server-side regardless of the credential. Phase 7.1 deliberately
+does not enable it: Object Lock interacts with retention, and retention is
+designed separately once recovery-point references exist. The boundary today
+is therefore "cannot permanently destroy history", not "cannot interfere with
+the current view".
 
 The B2 application key must be **restricted to the release-artifact bucket**.
 It is not the database-backup key, not the VPS root rclone configuration, not
@@ -446,10 +515,18 @@ whatever the script reports as verified has to be what it just downloaded.
 
 Everything is downloaded and validated in a private staging directory inside
 the destination, and the canonical filenames only appear once the package has
-passed. **A failed retrieval therefore leaves the destination exactly as it
-found it and is safe to retry into the same directory** — there is nothing to
-clean up by hand, and unverified bytes are never left where they could be
-mistaken for a good package.
+passed. **A failed retrieval therefore leaves nothing of its own behind, and
+touches nothing that was already in the destination** — unverified bytes are
+never left where they could be mistaken for a good package.
+
+That is what makes a retry safe, with one honest qualification. If the
+retrieval failed on its own terms — a checksum mismatch, an incomplete
+archive, a storage error — there is nothing to clean up and the same command
+can simply be run again. If it failed because *another process* created one
+of the canonical filenames while the download was in flight, that foreign
+file is deliberately left in place (it is not this tool's to delete), and the
+next run will refuse the destination until you remove or move it. The error
+message says which case you are in.
 
 Its output is a verified artifact package on disk — nothing more. **It does
 not deploy the retrieved release.** Clean-host recovery (Phase 7.6) will

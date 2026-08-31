@@ -15,9 +15,10 @@
 #
 # All of that happens in a private staging directory; the canonical filenames
 # only ever appear in the destination once the package has passed. A failed
-# retrieval therefore leaves the destination untouched and is safe to retry
-# into the same directory — which matters most in exactly the situation this
-# exists for, where the retry follows fixing whatever went wrong.
+# retrieval therefore leaves nothing of its own behind and touches nothing
+# that was already there, so retrying into the same directory is safe once
+# whatever went wrong has been resolved — which matters most in exactly the
+# situation this exists for.
 #
 # This is a retrieval primitive, not a deployment: it never contacts a
 # RateGuru host, never extracts the application, never switches a release and
@@ -148,11 +149,11 @@ rclone_run() {
 # --- staging workspace -------------------------------------------------------
 #
 # Nothing is ever downloaded straight into the destination. A retrieval either
-# publishes a fully verified package or leaves the destination exactly as it
-# found it: a failed attempt must never strand unverified bytes under the
-# canonical filenames, both because an operator could mistake them for a good
-# package and because the "retrieve into a clean directory" guard would then
-# block the retry that fixes the problem.
+# publishes a fully verified package or leaves nothing of its own behind: a
+# failed attempt must never strand unverified bytes under the canonical
+# filenames, both because an operator could mistake them for a good package
+# and because the "retrieve into a clean directory" guard would then block
+# the retry that fixes the problem.
 #
 # The staging directory lives inside the destination so publishing is a
 # same-filesystem hard link rather than a second copy of a large artifact.
@@ -240,9 +241,15 @@ download_release() {
 #     created moments earlier, with the bytes never at risk.
 #
 # POSIX cannot publish three files into a shared directory as one atomic
-# step, so if any link fails, the links already made are removed again. A
-# failed retrieval therefore never leaves a partial canonical package behind,
-# and an immediate retry into the same destination succeeds.
+# step, so if any link fails, the links already made are removed again: a
+# failed retrieval never leaves a partial canonical package behind.
+#
+# Note what that does and does not promise. Nothing *this retrieval created*
+# survives, and nothing that was already in the destination is touched —
+# including whatever canonical name collided, which is deliberately left in
+# place because it is not ours to delete. So the retry is unblocked only once
+# the operator resolves that external conflict; the failure message says so
+# rather than promising the command will simply work again.
 publish_release() {
     local entry
 
@@ -252,7 +259,7 @@ publish_release() {
         if ! ln -- "${STAGE_DIR}/${entry}" "${DESTINATION%/}/${entry}" 2>/dev/null; then
             unpublish_release
 
-            ra_fail "cannot publish ${entry} into ${DESTINATION} — nothing from this retrieval was left behind, so the same command can simply be run again"
+            ra_fail "cannot publish ${entry} into ${DESTINATION} — nothing this retrieval created was left behind, and nothing already in the destination was touched. Resolve the conflicting ${entry} (this retrieval did not create it and will not remove it), then run the same command again."
         fi
     done < <(ra_expected_remote_entries "${RELEASE_ID}")
 
