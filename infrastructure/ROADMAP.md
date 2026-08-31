@@ -687,11 +687,11 @@ slices 1–2, which installed nothing — so it completes on merge.
    nothing in Phase 7 is closed by it — the B2 offsite `restore-test` that
    passed here verifies that a backup is restorable, which is a different
    question from reconstructing a lost application. Phase 7 remains
-   responsible for the durable release archive, the backup ↔ release
-   mapping, rebuilding after server/data loss, restoring application state
-   on a clean server from durable/offsite material, application-level
-   verification after recovery, and the timed recovery drill. See the
-   "Three distinct rehearsal gates" section below.
+   responsible for rebuilding a lost application from the exact
+   `source_sha` its backup's own `release.json` already carries, restoring
+   application state on a clean server from offsite material,
+   application-level verification after recovery, and the timed recovery
+   drill. See the "Three distinct rehearsal gates" section below.
 
 Phase 5 is therefore complete with these guarantees: a supported clean VPS
 can be turned into a working RateGuru application host from committed

@@ -278,13 +278,18 @@ runs:
       run: |
         set -Eeuo pipefail
 
+        # The step summary is rendered as Markdown, so plain consecutive
+        # lines would collapse into one paragraph. Same heading + list shape
+        # the release workflow's own summaries use.
         {
-          echo "Target: ${DEPLOYMENT_TARGET}"
-          echo "Environment: ${ENVIRONMENT}"
-          echo "Mode: ${MODE}"
-          echo "Requested release: ${RELEASE_ID:-previous}"
-          echo "Active release: ${ACTIVE_RELEASE:-unknown}"
-          echo "Result: ${ROLLBACK_OUTCOME:-not attempted}"
+          echo "## Rollback"
+          echo
+          echo "- Target: ${DEPLOYMENT_TARGET}"
+          echo "- Environment: ${ENVIRONMENT}"
+          echo "- Mode: ${MODE}"
+          echo "- Requested release: ${RELEASE_ID:-previous}"
+          echo "- Active release: ${ACTIVE_RELEASE:-unknown}"
+          echo "- Result: ${ROLLBACK_OUTCOME:-not attempted}"
         } >> "${GITHUB_STEP_SUMMARY}"
 
     - name: Remove temporary SSH material
