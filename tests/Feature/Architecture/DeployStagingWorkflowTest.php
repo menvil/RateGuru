@@ -3,140 +3,170 @@
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
-it('deploys manually selected refs to staging', function () {
+/**
+ * The staging deployment workflow after Phase 7.1: manual-only, staging
+ * source/release policy of its own, and nothing else — every mechanical build
+ * step now lives in the shared .github/actions/build-rateguru action
+ * (BuildRateGuruActionTest owns that contract).
+ */
+beforeEach(function () {
     $path = base_path('.github/workflows/deploy-staging.yml');
 
     expect(File::exists($path))->toBeTrue();
 
-    $source = File::get($path);
-    $workflow = Yaml::parse($source);
-    $resolveSteps = collect(data_get($workflow, 'jobs.resolve.steps'))->keyBy('name');
-    $buildSteps = collect(data_get($workflow, 'jobs.build.steps'))->keyBy('name');
-    $deploySteps = collect(data_get($workflow, 'jobs.deploy.steps'))->keyBy('name');
-    $externalActions = $buildSteps
-        ->merge($deploySteps)
+    $this->source = File::get($path);
+    $this->workflow = Yaml::parse($this->source);
+    $this->resolveSteps = collect(data_get($this->workflow, 'jobs.resolve.steps'))->keyBy('name');
+    $this->buildSteps = collect(data_get($this->workflow, 'jobs.build.steps'))->keyBy('name');
+    $this->deploySteps = collect(data_get($this->workflow, 'jobs.deploy.steps'))->keyBy('name');
+});
+
+it('deploys manually selected refs to staging', function () {
+    $externalActions = $this->buildSteps
+        ->merge($this->deploySteps)
         ->pluck('uses')
         ->filter(fn (mixed $uses): bool => is_string($uses) && ! str_starts_with($uses, './'));
 
-    expect($workflow)
+    expect($this->workflow)
         ->toBeArray()
-        ->and(data_get($workflow, 'name'))->toBe('Deploy to staging')
-        ->and(data_get($workflow, 'on.workflow_run'))->toBeNull()
-        ->and(data_get($workflow, 'on.workflow_dispatch.inputs.ref.default'))->toBe('develop')
-        ->and(data_get($workflow, 'on.workflow_dispatch.inputs.ref.required'))->toBeTrue()
-        ->and(data_get($workflow, 'on.workflow_dispatch.inputs.run-migrations.default'))->toBeFalse()
-        ->and(data_get($workflow, 'on.workflow_dispatch.inputs.run-migrations.type'))->toBe('boolean')
-        ->and(data_get($workflow, 'permissions.contents'))->toBe('read')
-        ->and(data_get($workflow, 'concurrency.group'))->toBe('rateguru-staging-deployment')
-        ->and(data_get($workflow, 'concurrency.cancel-in-progress'))->toBeFalse()
-        ->and(data_get($workflow, 'jobs.build.needs'))->toBe('resolve')
-        ->and(data_get($workflow, 'jobs.deploy.needs'))->toBe(['resolve', 'build'])
-        ->and(data_get($workflow, 'jobs.deploy.environment'))->toBe('staging');
+        ->and(data_get($this->workflow, 'name'))->toBe('Deploy to staging')
+        ->and(data_get($this->workflow, 'on.workflow_run'))->toBeNull()
+        ->and(data_get($this->workflow, 'on.workflow_dispatch.inputs.ref.default'))->toBe('develop')
+        ->and(data_get($this->workflow, 'on.workflow_dispatch.inputs.ref.required'))->toBeTrue()
+        ->and(data_get($this->workflow, 'on.workflow_dispatch.inputs.run-migrations.default'))->toBeFalse()
+        ->and(data_get($this->workflow, 'on.workflow_dispatch.inputs.run-migrations.type'))->toBe('boolean')
+        ->and(data_get($this->workflow, 'permissions.contents'))->toBe('read')
+        ->and(data_get($this->workflow, 'concurrency.group'))->toBe('rateguru-staging-deployment')
+        ->and(data_get($this->workflow, 'concurrency.cancel-in-progress'))->toBeFalse()
+        ->and(data_get($this->workflow, 'jobs.build.needs'))->toBe('resolve')
+        ->and(data_get($this->workflow, 'jobs.deploy.needs'))->toBe(['resolve', 'build'])
+        ->and(data_get($this->workflow, 'jobs.deploy.environment'))->toBe('staging');
 
-    expect(data_get($resolveSteps->get('Resolve exact source revision'), 'env.DISPATCH_REF'))
+    expect(data_get($this->resolveSteps->get('Resolve exact source revision'), 'env.DISPATCH_REF'))
         ->toBe('${{ inputs.ref }}')
-        ->and(data_get($resolveSteps->get('Resolve exact source revision'), 'run'))
+        ->and(data_get($this->resolveSteps->get('Resolve exact source revision'), 'run'))
         ->not->toContain('${{');
 
-    expect(data_get($buildSteps->get('Checkout requested ref'), 'uses'))
+    expect(data_get($this->buildSteps->get('Checkout requested ref'), 'uses'))
         ->toMatch('/^actions\/checkout@[0-9a-f]{40}$/')
-        ->and(data_get($buildSteps->get('Checkout requested ref'), 'with.ref'))
+        ->and(data_get($this->buildSteps->get('Checkout requested ref'), 'with.ref'))
         ->toBe('${{ needs.resolve.outputs.checkout_ref }}')
-        ->and(data_get($buildSteps->get('Setup Node'), 'uses'))
-        ->toMatch('/^actions\/setup-node@[0-9a-f]{40}$/')
-        ->and(data_get($buildSteps->get('Upload immutable release artifact'), 'uses'))
-        ->toMatch('/^actions\/upload-artifact@[0-9a-f]{40}$/')
-        ->and(data_get($deploySteps->get('Checkout deployment action'), 'with.ref'))
+        ->and(data_get($this->deploySteps->get('Checkout deployment action'), 'with.ref'))
         ->toBe('develop')
-        ->and(data_get($deploySteps->get('Download immutable release artifact'), 'uses'))
+        ->and(data_get($this->deploySteps->get('Download immutable release artifact'), 'uses'))
         ->toMatch('/^actions\/download-artifact@[0-9a-f]{40}$/')
-        ->and(data_get($deploySteps->get('Deploy to staging'), 'uses'))
+        ->and(data_get($this->deploySteps->get('Deploy to staging'), 'uses'))
         ->toBe('./.github/actions/deploy-rateguru')
-        ->and(data_get($deploySteps->get('Deploy to staging'), 'with.run-migrations'))
+        ->and(data_get($this->deploySteps->get('Deploy to staging'), 'with.run-migrations'))
         ->toBe('${{ needs.resolve.outputs.run_migrations }}')
-        ->and($deploySteps->has('Verify social preview as external crawler'))
+        ->and($this->deploySteps->has('Verify social preview as external crawler'))
         ->toBeFalse();
 
-    expect(data_get($buildSteps->get('Checkout requested ref'), 'with.persist-credentials'))
+    expect(data_get($this->buildSteps->get('Checkout requested ref'), 'with.persist-credentials'))
         ->toBeFalse()
-        ->and(data_get($deploySteps->get('Checkout deployment action'), 'with.persist-credentials'))
+        ->and(data_get($this->deploySteps->get('Checkout deployment action'), 'with.persist-credentials'))
         ->toBeFalse();
 
     foreach ($externalActions as $uses) {
         expect($uses)->toMatch('/^[^@\s]+@[0-9a-f]{40}$/');
     }
 
-    expect(data_get($buildSteps->get('Build release archive'), 'env.SOURCE_REF'))
-        ->toBe('${{ needs.resolve.outputs.source_ref }}')
-        ->and(data_get($buildSteps->get('Build release archive'), 'run'))
-        ->not->toContain('${{')
-        // The executable-bit check must run after rsync stages package_root
-        // and before tar freezes it into the archive — too late once the
-        // release.json write also happens, but this only needs "after rsync,
-        // before tar", so asserting it appears before `tar \` is sufficient.
-        ->toContain('infrastructure/scripts/verify-required-clis')
-        ->toContain('# --- verify infrastructure CLI executable bits (begin) ---');
-
-    $releaseRun = data_get($buildSteps->get('Build release archive'), 'run');
-    expect(mb_strpos($releaseRun, 'rsync \\'))
-        ->toBeLessThan(mb_strpos($releaseRun, '# --- verify infrastructure CLI executable bits (begin) ---'))
-        ->and(mb_strpos($releaseRun, '# --- verify infrastructure CLI executable bits (end) ---'))
-        ->toBeLessThan(mb_strpos($releaseRun, 'tar \\'));
-
-    expect($source)
+    expect($this->source)
         ->not->toMatch('/^  workflow_run:/m')
-        ->toContain('--classmap-authoritative')
-        ->toContain("--exclude='.env.*'")
-        ->toContain("--exclude='database/database.sqlite'")
-        ->toContain('normalized_source_ref="${SOURCE_REF#refs/tags/}"')
-        ->toContain('release_version="${BASH_REMATCH[1]}"')
-        ->toContain('release_id="${release_version}-${timestamp}-${short_sha}"')
-        ->toContain('--arg source_sha "${source_sha}"')
-        ->toContain('sha256sum "${artifact_name}"')
-        // Staging artifacts are consumed by the deploy job in the same run;
-        // they are kept only briefly for manual re-download afterwards.
-        ->toContain('retention-days: 3')
         ->toContain('release-id: ${{ needs.build.outputs.release-id }}');
 });
 
-it('delegates the staging artifact build\'s CLI executable-bit check to the shared verify-required-clis, and fails closed when a CLI is not executable', function () {
-    // Proves the workflow step is exactly a delegating call to the real,
-    // shared infrastructure/scripts/verify-required-clis — the same
-    // algorithm deploy itself uses — never a reimplementation, then runs
-    // that exact extracted line end to end against a scratch package_root.
-    $path = base_path('.github/workflows/deploy-staging.yml');
-    $workflow = Yaml::parse(File::get($path));
-    $run = data_get(collect(data_get($workflow, 'jobs.build.steps'))->keyBy('name')->get('Build release archive'), 'run');
+it('builds through the one shared build implementation, passing only staging policy', function () {
+    $build = $this->buildSteps->get('Build immutable release artifact');
 
-    expect(preg_match(
-        '/# --- verify infrastructure CLI executable bits \(begin\) ---\n(.*?)\n\s*# --- verify infrastructure CLI executable bits \(end\) ---/s',
-        $run,
-        $matches,
-    ))->toBe(1, 'could not locate the executable-bit verification block in deploy-staging.yml');
+    expect(data_get($build, 'uses'))->toBe('./.github/actions/build-rateguru')
+        ->and(data_get($build, 'id'))->toBe('build');
 
-    $delegatingLine = trim($matches[1]);
-    expect($delegatingLine)->toBe('infrastructure/scripts/verify-required-clis --release-root "${package_root}"');
+    expect(data_get($build, 'with.source-ref'))->toBe('${{ needs.resolve.outputs.source_ref }}')
+        ->and(data_get($build, 'with.release-version'))->toBe('${{ needs.resolve.outputs.release_version }}')
+        ->and(data_get($build, 'with.workflow-artifact-prefix'))->toBe('rateguru-release')
+        // Staging artifacts are consumed by the deploy job in the same run;
+        // they are kept only briefly for manual re-download afterwards.
+        ->and(data_get($build, 'with.artifact-retention-days'))->toBe('3')
+        ->and(data_get($build, 'with.node-cache'))->toBe('npm')
+        ->and(data_get($build, 'with.release-metadata'))->toBe('{"environment": "staging"}');
 
-    $root = releaseCliFixture(requiredCliManifestNames());
+    // Staging never claims to be a validated production build.
+    expect(data_get($build, 'with.validate-composer'))->toBeNull()
+        ->and(data_get($build, 'with.expected-source-sha'))->toBeNull();
 
-    try {
-        $script = 'set -Eeuo pipefail'."\n".'cd '.escapeshellarg(base_path())."\n".'package_root='.escapeshellarg($root)."\n".$delegatingLine;
+    // The build job re-exports exactly the identity the deploy job consumes,
+    // and takes all of it from the shared action rather than recomputing it.
+    expect(data_get($this->workflow, 'jobs.build.outputs'))->toBe([
+        'source-sha' => '${{ steps.build.outputs.source-sha }}',
+        'release-id' => '${{ steps.build.outputs.release-id }}',
+        'artifact-name' => '${{ steps.build.outputs.artifact-name }}',
+        'workflow-artifact-name' => '${{ steps.build.outputs.workflow-artifact-name }}',
+    ]);
+});
 
-        $output = [];
-        $exit = 0;
-        exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
-        expect($exit)->toBe(0, "verification rejected a correctly-built package:\n".implode("\n", $output));
-        expect(implode("\n", $output))->toContain('verified: every required infrastructure CLI retains its executable mode after release normalization');
+it('resolves the staging release version itself, because that policy is not the build action\'s', function () {
+    $run = data_get($this->resolveSteps->get('Resolve exact source revision'), 'run');
 
-        // Now regress exactly one file, matching the real incident.
-        chmod($root.'/infrastructure/scripts/targets', 0o640);
+    expect($run)
+        ->toContain('normalized_source_ref="${source_ref#refs/tags/}"')
+        ->toContain('release_version="v0.0.0"')
+        ->toContain('release_version="${BASH_REMATCH[1]}"')
+        ->toContain('echo "release_version=${release_version}"');
 
-        $output = [];
-        $exit = 0;
-        exec('bash -c '.escapeshellarg($script).' 2>&1', $output, $exit);
-        expect($exit)->not->toBe(0);
-        expect(implode("\n", $output))->toContain('required CLI lost executable mode after extraction: targets');
-    } finally {
-        exec('rm -rf '.escapeshellarg($root));
+    expect(data_get($this->workflow, 'jobs.resolve.outputs.release_version'))
+        ->toBe('${{ steps.source.outputs.release_version }}');
+});
+
+it('keeps run-migrations an explicit operator choice, validated before anything is built', function () {
+    $run = data_get($this->resolveSteps->get('Resolve exact source revision'), 'run');
+
+    expect(data_get($this->resolveSteps->get('Resolve exact source revision'), 'env.DISPATCH_RUN_MIGRATIONS'))
+        ->toBe('${{ inputs.run-migrations }}');
+
+    expect($run)
+        ->toContain('case "${DISPATCH_RUN_MIGRATIONS}"')
+        ->toContain('Invalid run-migrations value');
+});
+
+it('has no dead workflow_run auto-deploy path left anywhere', function () {
+    // The workflow has been workflow_dispatch-only for a long time; the
+    // event-name branch that resolved a workflow_run head SHA was unreachable
+    // code pretending staging could deploy itself.
+    expect(array_keys((array) data_get($this->workflow, 'on')))->toBe(['workflow_dispatch']);
+
+    expect($this->source)
+        ->not->toContain('workflow_run')
+        ->not->toContain('EVENT_NAME')
+        ->not->toContain('WORKFLOW_RUN_SHA')
+        ->not->toContain('WORKFLOW_RUN_BRANCH')
+        ->not->toContain('head_sha')
+        ->not->toContain('head_branch');
+
+    // No job may be gated on an event that can never fire.
+    foreach ((array) data_get($this->workflow, 'jobs', []) as $jobName => $job) {
+        expect(data_get($job, 'if'))->toBeNull("{$jobName} still carries a trigger-shaped condition");
+    }
+});
+
+it('never rebuilds the mechanical pipeline that now belongs to the shared build action', function () {
+    // Exactly the duplication Phase 7.1 removed: if any of these reappears
+    // here, deploy-staging.yml has started forking the build again.
+    foreach ([
+        'composer install',
+        'npm ci',
+        'npm run build',
+        'rsync',
+        'sha256sum',
+        'tar \\',
+        '"${package_root}/release.json"',
+        'verify-required-clis',
+        'setup-php',
+        'setup-node',
+        'upload-artifact',
+        'release_id=',
+    ] as $mechanic) {
+        expect(str_contains($this->source, $mechanic))
+            ->toBeFalse("deploy-staging.yml re-implements the shared build step: {$mechanic}");
     }
 });

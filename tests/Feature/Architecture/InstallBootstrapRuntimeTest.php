@@ -2208,14 +2208,16 @@ it('covers every PHP extension the deploy workflow and composer.json require', f
     expect($modulesMatch[1] ?? null)->not->toBeNull();
     $verifiedModules = preg_split('/\s+/', trim($modulesMatch[1]));
 
-    $workflow = File::get(base_path('.github/workflows/deploy-staging.yml'));
-    preg_match('/extensions:\s*(.+)$/m', $workflow, $extensionsMatch);
-    expect($extensionsMatch[1] ?? null)->not->toBeNull('deploy-staging.yml no longer declares setup-php extensions');
+    // The deployment build's PHP toolchain is declared once, in the shared
+    // build action both deployment workflows call.
+    $buildAction = File::get(base_path('.github/actions/build-rateguru/action.yml'));
+    preg_match('/extensions:\s*(.+)$/m', $buildAction, $extensionsMatch);
+    expect($extensionsMatch[1] ?? null)->not->toBeNull('the shared build action no longer declares setup-php extensions');
     $workflowExtensions = array_map('trim', explode(',', $extensionsMatch[1]));
 
     foreach ($workflowExtensions as $extension) {
         expect(in_array($extension, $verifiedModules, true))
-            ->toBeTrue("deploy workflow extension {$extension} is not verified by the installer");
+            ->toBeTrue("deploy build extension {$extension} is not verified by the installer");
     }
 
     $composer = json_decode(File::get(base_path('composer.json')), true);

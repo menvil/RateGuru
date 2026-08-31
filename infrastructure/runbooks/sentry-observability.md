@@ -216,7 +216,8 @@ build artifact (canonical release ID)
 | `deploy-staging.yml` | `observability` (needs `deploy`) | `staging` |
 | `release.yml` | `deploy-staging` (after the deploy step) | `staging` |
 | `release.yml` | `deploy-production` (after the deploy step) | `production` |
-| `rollback-staging.yml` | `rollback` (after the wrapper call) | `staging` |
+| `rollback-staging.yml` | `rollback` (after the shared rollback action) | `staging` |
+| `rollback-production.yml` | `rollback` (after the shared rollback action) | `production` |
 
 A failed RateGuru deployment can therefore never produce a Sentry deployment
 marker: the marker step is unreachable unless the deployment already succeeded.
@@ -239,10 +240,12 @@ observability.
 
 ### Rollback correlation
 
-`rollback-staging.yml` reads back the release the target actually landed on —
+Both rollback workflows call the shared `.github/actions/rollback-rateguru`,
+which reads back the release the target actually landed on —
 `basename "$(readlink -f <root>/current)"` — after the server-side wrapper has
 completed, which it only does once its own health check passed. That immutable
-old release is then recorded as newly deployed to `staging`:
+old release is then recorded as newly deployed to the environment class the
+calling workflow fixes (`staging` or `production`):
 
 ```text
 release B deployed

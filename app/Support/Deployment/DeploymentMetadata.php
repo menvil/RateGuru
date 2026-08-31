@@ -8,9 +8,10 @@ use JsonException;
  * Read-only view of the canonical release metadata baked into every immutable
  * RateGuru artifact.
  *
- * The build pipeline (.github/workflows/deploy-staging.yml and release.yml)
- * writes `release.json` into the package root before the artifact is sealed,
- * and infrastructure/scripts/deploy extracts that artifact untouched. This
+ * The build pipeline (the shared .github/actions/build-rateguru action, used
+ * by deploy-staging.yml and release.yml) writes `release.json` into the
+ * package root before the artifact is sealed, and
+ * infrastructure/scripts/deploy extracts that artifact untouched. This
  * class is the only place the application reads it, so there is exactly one
  * release identity — the same string that appears in the deployment history,
  * in the `current` symlink target, and in the GitHub deployment.

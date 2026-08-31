@@ -175,6 +175,7 @@ it('is called only after a successful, health-checked deployment', function () {
         'release.yml:deploy-staging',
         'release.yml:deploy-production',
         'rollback-staging.yml:rollback',
+        'rollback-production.yml:rollback',
     ]);
 
     $deployStaging = Yaml::parse(File::get(base_path('.github/workflows/deploy-staging.yml')));
@@ -208,8 +209,17 @@ it('records the canonical release the pipeline built, never a recomputed one', f
         ->toBe('${{ needs.build.outputs.release-id }}');
 
     foreach (['release.yml:deploy-staging', 'release.yml:deploy-production'] as $site) {
+        // The one build job's own output — never a second identity recomputed
+        // for Sentry, and never one the validate job derived independently.
         expect(data_get($callSites[$site]['step'], 'with.release-id'))
-            ->toBe('${{ needs.validate.outputs.release-id }}');
+            ->toBe('${{ needs.build.outputs.release-id }}');
+    }
+
+    // A rollback records the release the target was actually read back as
+    // serving, which the shared rollback action returns.
+    foreach (['rollback-staging.yml:rollback', 'rollback-production.yml:rollback'] as $site) {
+        expect(data_get($callSites[$site]['step'], 'with.release-id'))
+            ->toBe('${{ steps.rollback.outputs.active-release-id }}');
     }
 
     // No workflow may build a second release identifier for Sentry's benefit.
@@ -223,11 +233,12 @@ it('uses the environment class for Sentry, never the deployment target', functio
 
     $environments = collect($callSites)->map(fn (array $site): mixed => data_get($site['step'], 'with.environment'));
 
-    expect($environments->all())->toBe([
+    expect($environments->all())->toEqual([
         'deploy-staging.yml:observability' => 'staging',
         'release.yml:deploy-staging' => 'staging',
         'release.yml:deploy-production' => 'production',
         'rollback-staging.yml:rollback' => 'staging',
+        'rollback-production.yml:rollback' => 'production',
     ]);
 
     foreach ($callSites as $label => $site) {
@@ -273,8 +284,11 @@ it('keeps the Sentry auth token in GitHub secrets and out of every server-facing
 });
 
 it('marks a rollback as a new deployment of the same immutable release', function () {
-    $rollback = Yaml::parse(File::get(base_path('.github/workflows/rollback-staging.yml')));
-    $steps = collect(data_get($rollback, 'jobs.rollback.steps'))->keyBy('name');
+    // The read-back, the fail-open rules around it and the release-shape guard
+    // all live in the one shared rollback action now; both operator workflows
+    // consume its output rather than deriving a release of their own.
+    $action = Yaml::parse(File::get(base_path('.github/actions/rollback-rateguru/action.yml')));
+    $steps = collect(data_get($action, 'runs.steps'))->keyBy('name');
 
     // The release is read back off the server after the rollback succeeded, so
     // mode=previous reports what the target actually landed on.
@@ -292,22 +306,31 @@ it('marks a rollback as a new deployment of the same immutable release', functio
         ->toContain('if ! active_release="$(')
         ->toContain('Could not read the active release back from the target.');
 
-    $marker = $steps->get('Record Sentry deployment marker for the restored release');
+    expect(data_get($action, 'outputs.active-release-id.value'))
+        ->toBe('${{ steps.active.outputs.release_id }}');
 
-    expect(data_get($marker, 'with.release-id'))->toBe('${{ steps.active.outputs.release_id }}')
-        ->and(data_get($marker, 'if'))->toBe("\${{ steps.active.outputs.release_id != '' }}");
+    foreach ([
+        '.github/workflows/rollback-staging.yml' => 'Roll back staging-main',
+        '.github/workflows/rollback-production.yml' => 'Roll back tits-guru',
+    ] as $path => $rollbackStep) {
+        $workflow = Yaml::parse(File::get(base_path($path)));
+        $workflowSteps = collect(data_get($workflow, 'jobs.rollback.steps'));
+        $marker = $workflowSteps->keyBy('name')->get('Record Sentry deployment marker for the restored release');
 
-    // No synthetic "rollback" release is ever created.
-    expect(File::get(base_path('.github/workflows/rollback-staging.yml')))
-        ->not->toContain('release-id: rollback')
-        ->not->toContain('rollback-');
+        expect(data_get($marker, 'with.release-id'))->toBe('${{ steps.rollback.outputs.active-release-id }}')
+            ->and(data_get($marker, 'if'))->toBe("\${{ steps.rollback.outputs.active-release-id != '' }}");
 
-    // Rollback ordering: the marker can only run after the wrapper call, which
-    // itself only succeeds once the server-side health check passed.
-    $names = collect(data_get($rollback, 'jobs.rollback.steps'))->pluck('name')->all();
+        // No synthetic "rollback" release is ever created.
+        expect(File::get(base_path($path)))
+            ->not->toMatch('/release-id:\s*[\'"]?rollback/');
 
-    expect(array_search('Roll back via target-aware wrapper', $names, true))
-        ->toBeLessThan(array_search('Record Sentry deployment marker for the restored release', $names, true));
+        // Rollback ordering: the marker can only run after the shared action,
+        // which itself only succeeds once the server-side health check passed.
+        $names = $workflowSteps->pluck('name')->all();
+
+        expect(array_search($rollbackStep, $names, true))
+            ->toBeLessThan(array_search('Record Sentry deployment marker for the restored release', $names, true));
+    }
 });
 
 it('leaves the deployment workflows themselves otherwise unchanged', function () {

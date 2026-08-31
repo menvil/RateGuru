@@ -13,6 +13,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Production source and release policy — the only part of the build that is
+  # production-specific. The mechanical build itself lives in the shared
+  # .github/actions/build-rateguru action.
   validate:
     name: Validate production tag
     runs-on: ubuntu-latest
@@ -22,9 +25,6 @@ jobs:
       source-sha: ${{ steps.release.outputs.source_sha }}
       source-tag: ${{ steps.release.outputs.source_tag }}
       version: ${{ steps.release.outputs.version }}
-      release-id: ${{ steps.release.outputs.release_id }}
-      artifact-name: ${{ steps.release.outputs.artifact_name }}
-      workflow-artifact-name: ${{ steps.release.outputs.workflow_artifact_name }}
 
     steps:
       - name: Checkout production tag
@@ -76,33 +76,30 @@ jobs:
             exit 1
           fi
 
-          short_sha="${source_sha:0:7}"
-          timestamp="$(date -u +%Y%m%d-%H%M%S)"
-
-          release_id="${version}-${timestamp}-${short_sha}"
-          artifact_name="rateguru-${release_id}.tar.gz"
-          workflow_artifact_name="rateguru-production-${release_id}"
-
           {
             echo "source_sha=${source_sha}"
             echo "source_tag=${SOURCE_TAG}"
             echo "version=${version}"
-            echo "release_id=${release_id}"
-            echo "artifact_name=${artifact_name}"
-            echo "workflow_artifact_name=${workflow_artifact_name}"
           } >> "${GITHUB_OUTPUT}"
 
           echo "Production release validated"
           echo "Tag:       ${SOURCE_TAG}"
           echo "Version:   ${version}"
           echo "Commit:    ${source_sha}"
-          echo "Release:   ${release_id}"
 
+  # Build once. Both deployment jobs below consume this job's outputs, so the
+  # tarball verified on staging is byte-for-byte the tarball promoted to
+  # production — there is no second build anywhere in this workflow.
   build:
     name: Build immutable production artifact
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    outputs:
+      release-id: ${{ steps.build.outputs.release-id }}
+      artifact-name: ${{ steps.build.outputs.artifact-name }}
+      workflow-artifact-name: ${{ steps.build.outputs.workflow-artifact-name }}
 
     steps:
       - name: Checkout exact release commit
@@ -112,149 +109,34 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+      - name: Build immutable release artifact
+        id: build
+        uses: ./.github/actions/build-rateguru
         with:
-          php-version: "8.5"
-          extensions: bcmath, curl, gd, intl, mbstring, pcntl, pdo_pgsql, redis, zip
-          coverage: none
+          source-ref: ${{ needs.validate.outputs.source-tag }}
+          release-version: ${{ needs.validate.outputs.version }}
 
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 26
+          # Refuses to build anything but the commit `validate` proved is a
+          # semantic tag contained in main.
+          expected-source-sha: ${{ needs.validate.outputs.source-sha }}
 
-      - name: Validate Composer definition
-        run: composer validate --strict
+          workflow-artifact-prefix: rateguru-production
 
-      - name: Install production PHP dependencies
-        env:
-          APP_ENV: production
-        run: |
-          composer install \
-            --no-dev \
-            --no-interaction \
-            --prefer-dist \
-            --no-progress \
-            --classmap-authoritative
+          # A production artifact outlives its run: it is the thing that was
+          # promoted, and stays downloadable for as long as GitHub allows.
+          artifact-retention-days: "90"
 
-      - name: Build frontend assets
-        run: |
-          npm ci
-          npm run build
+          # Production releases are validated builds, not fast ones: the
+          # dependency definition is checked strictly and nothing is restored
+          # from a cache.
+          validate-composer: "true"
 
-      - name: Build release archive
-        shell: bash
-        env:
-          SOURCE_SHA: ${{ needs.validate.outputs.source-sha }}
-          SOURCE_TAG: ${{ needs.validate.outputs.source-tag }}
-          VERSION: ${{ needs.validate.outputs.version }}
-          RELEASE_ID: ${{ needs.validate.outputs.release-id }}
-          ARTIFACT_NAME: ${{ needs.validate.outputs.artifact-name }}
-        run: |
-          set -Eeuo pipefail
-
-          package_root="${RUNNER_TEMP}/rateguru-production-package"
-          output_root="${RUNNER_TEMP}/rateguru-production-output"
-
-          rm -rf \
-            "${package_root}" \
-            "${output_root}"
-
-          mkdir -p \
-            "${package_root}" \
-            "${output_root}"
-
-          test -f artisan
-          test -f public/index.php
-          test -f vendor/autoload.php
-          test -f public/build/manifest.json
-
-          rsync \
-            --archive \
-            --delete \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='.env' \
-            --exclude='.env.*' \
-            --exclude='node_modules/' \
-            --exclude='storage/' \
-            --exclude='tests/' \
-            --exclude='docs/' \
-            --exclude='coderabbit-review/' \
-            --exclude='tools/' \
-            --exclude='database/database.sqlite' \
-            --exclude='public/hot' \
-            ./ \
-            "${package_root}/"
-
-          # Fail closed if a required infrastructure CLI lost its executable
-          # bit somewhere before this point (a wrong Git blob mode is the only
-          # way that happens — rsync --archive and the tar step below both
-          # preserve whatever mode is already on disk). deploy's own
-          # permission normalization can only preserve an existing executable
-          # bit, never invent one, so a bad artifact here would reach
-          # production unusable exactly the way install-target-operations and
-          # targets were. This must never be "fixed" with a chmod here: that
-          # would hide the wrong repository metadata instead of catching it.
-          # --- verify infrastructure CLI executable bits (begin) ---
-          infrastructure/scripts/verify-required-clis --release-root "${package_root}"
-          # --- verify infrastructure CLI executable bits (end) ---
-
-          jq \
-            --null-input \
-            --arg project "rateguru" \
-            --arg source_ref "${SOURCE_TAG}" \
-            --arg source_tag "${SOURCE_TAG}" \
-            --arg source_sha "${SOURCE_SHA}" \
-            --arg version "${VERSION}" \
-            --arg release "${RELEASE_ID}" \
-            --arg built_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg workflow_run_id "${GITHUB_RUN_ID}" \
-            --arg workflow_run_number "${GITHUB_RUN_NUMBER}" \
-            --argjson targets '["staging-main", "tits-guru"]' \
-            '{
-              project: $project,
-              source_ref: $source_ref,
-              source_tag: $source_tag,
-              source_sha: $source_sha,
-              version: $version,
-              release: $release,
-              targets: $targets,
-              built_at: $built_at,
-              workflow_run_id: $workflow_run_id,
-              workflow_run_number: $workflow_run_number
-            }' \
-            > "${package_root}/release.json"
-
-          tar \
-            -C "${package_root}" \
-            -czf "${output_root}/${ARTIFACT_NAME}" \
-            .
-
-          (
-            cd "${output_root}"
-
-            sha256sum "${ARTIFACT_NAME}" \
-              > "${ARTIFACT_NAME}.sha256"
-          )
-
-          echo "Artifact:"
-          du -h "${output_root}/${ARTIFACT_NAME}"
-
-          echo "Checksum:"
-          cat "${output_root}/${ARTIFACT_NAME}.sha256"
-
-      - name: Upload immutable production artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ${{ needs.validate.outputs.workflow-artifact-name }}
-          path: |
-            ${{ runner.temp }}/rateguru-production-output/${{ needs.validate.outputs.artifact-name }}
-            ${{ runner.temp }}/rateguru-production-output/${{ needs.validate.outputs.artifact-name }}.sha256
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 90
+          release-metadata: >-
+            {
+              "source_tag": ${{ toJSON(needs.validate.outputs.source-tag) }},
+              "version": ${{ toJSON(needs.validate.outputs.version) }},
+              "targets": ["staging-main", "tits-guru"]
+            }
 
   deploy-staging:
     name: Verify release on staging
@@ -276,7 +158,7 @@ jobs:
       - name: Download immutable production artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: ${{ needs.validate.outputs.workflow-artifact-name }}
+          name: ${{ needs.build.outputs.workflow-artifact-name }}
           path: ${{ runner.temp }}/rateguru-production-release
 
       - name: Deploy release artifact to staging
@@ -294,10 +176,10 @@ jobs:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
           known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
-          release-id: ${{ needs.validate.outputs.release-id }}
+          release-id: ${{ needs.build.outputs.release-id }}
 
-          artifact-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.validate.outputs.artifact-name }}
-          checksum-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.validate.outputs.artifact-name }}.sha256
+          artifact-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.build.outputs.artifact-name }}
+          checksum-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.build.outputs.artifact-name }}.sha256
 
           run-migrations: "true"
 
@@ -305,7 +187,7 @@ jobs:
         shell: bash
         env:
           SOURCE_TAG: ${{ needs.validate.outputs.source-tag }}
-          RELEASE_ID: ${{ needs.validate.outputs.release-id }}
+          RELEASE_ID: ${{ needs.build.outputs.release-id }}
         run: |
           {
             echo "## Staging verification passed"
@@ -327,7 +209,7 @@ jobs:
 
           environment: staging
 
-          release-id: ${{ needs.validate.outputs.release-id }}
+          release-id: ${{ needs.build.outputs.release-id }}
 
   deploy-production:
     name: Deploy approved release to production
@@ -350,7 +232,7 @@ jobs:
       - name: Download the same verified artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: ${{ needs.validate.outputs.workflow-artifact-name }}
+          name: ${{ needs.build.outputs.workflow-artifact-name }}
           path: ${{ runner.temp }}/rateguru-production-release
 
       # tits-guru intentionally remains lifecycle=planned and unprovisioned —
@@ -374,10 +256,10 @@ jobs:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
           known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
-          release-id: ${{ needs.validate.outputs.release-id }}
+          release-id: ${{ needs.build.outputs.release-id }}
 
-          artifact-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.validate.outputs.artifact-name }}
-          checksum-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.validate.outputs.artifact-name }}.sha256
+          artifact-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.build.outputs.artifact-name }}
+          checksum-path: ${{ runner.temp }}/rateguru-production-release/${{ needs.build.outputs.artifact-name }}.sha256
 
           run-migrations: "true"
 
@@ -386,7 +268,7 @@ jobs:
         env:
           SOURCE_TAG: ${{ needs.validate.outputs.source-tag }}
           SOURCE_SHA: ${{ needs.validate.outputs.source-sha }}
-          RELEASE_ID: ${{ needs.validate.outputs.release-id }}
+          RELEASE_ID: ${{ needs.build.outputs.release-id }}
         run: |
           {
             echo "## Production deployment completed"
@@ -409,4 +291,4 @@ jobs:
 
           environment: production
 
-          release-id: ${{ needs.validate.outputs.release-id }}
+          release-id: ${{ needs.build.outputs.release-id }}

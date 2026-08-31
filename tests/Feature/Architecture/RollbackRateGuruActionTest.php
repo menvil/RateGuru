@@ -1,0 +1,294 @@
+<?php
+
+use Illuminate\Support\Facades\File;
+use Symfony\Component\Yaml\Yaml;
+
+/**
+ * The one canonical GitHub-side rollback implementation (Phase 7.1, Part D).
+ *
+ * Transport and orchestration only: every rollback safety rule — deployment
+ * lock, target lifecycle, release path validation, the atomic current/previous
+ * switch, PHP-FPM handling, the health check with automatic restore and the
+ * rollback history — stays in infrastructure/scripts/rollback behind the
+ * generic sudo wrapper, and is never mirrored here.
+ */
+function rollbackRateGuruActionPath(): string
+{
+    return base_path('.github/actions/rollback-rateguru/action.yml');
+}
+
+function rollbackRateGuruAction(): array
+{
+    return Yaml::parse(File::get(rollbackRateGuruActionPath()));
+}
+
+function rollbackRateGuruStep(string $name): array
+{
+    $step = collect(data_get(rollbackRateGuruAction(), 'runs.steps'))->keyBy('name')->get($name);
+
+    expect($step)->not->toBeNull("the rollback action has no step named {$name}");
+
+    return $step;
+}
+
+/**
+ * Runs the action's own "Validate rollback inputs" script — the real one,
+ * extracted from the action — against a set of inputs.
+ *
+ * @return array{0: int, 1: string}
+ */
+function runRollbackInputValidation(array $overrides = []): array
+{
+    $env = array_merge([
+        'DEPLOYMENT_TARGET' => 'staging-main',
+        'ENVIRONMENT' => 'staging',
+        'MODE' => 'previous',
+        'RELEASE_ID' => '',
+        'DEPLOY_HOST' => 'staging.example.test',
+        'DEPLOY_PORT' => '22',
+        'DEPLOY_USER' => 'deploy-rateguru-staging',
+    ], $overrides);
+
+    $assignments = collect($env)
+        ->map(fn (string $value, string $name): string => $name.'='.escapeshellarg($value))
+        ->implode(' ');
+
+    $command = 'env '.$assignments.' bash -c '.escapeshellarg(data_get(rollbackRateGuruStep('Validate rollback inputs'), 'run')).' 2>&1';
+
+    $output = [];
+    $exit = 0;
+    exec($command, $output, $exit);
+
+    return [$exit, implode("\n", $output)];
+}
+
+it('defines a hardened reusable RateGuru rollback action', function () {
+    expect(File::exists(rollbackRateGuruActionPath()))->toBeTrue();
+
+    $action = rollbackRateGuruAction();
+    $steps = collect(data_get($action, 'runs.steps'));
+
+    expect(data_get($action, 'name'))->toBe('Roll back RateGuru target')
+        ->and(data_get($action, 'runs.using'))->toBe('composite');
+
+    expect($steps->pluck('name')->all())->toBe([
+        'Validate rollback inputs',
+        'Configure SSH',
+        'Roll back via target-aware wrapper',
+        'Resolve the release now serving the target',
+        'Write rollback summary',
+        'Remove temporary SSH material',
+    ]);
+
+    foreach ([
+        'deployment-target',
+        'environment',
+        'deploy-host',
+        'deploy-user',
+        'deploy-root',
+        'ssh-private-key',
+        'known-hosts',
+        'mode',
+    ] as $required) {
+        expect(data_get($action, "inputs.{$required}.required"))
+            ->toBeTrue("{$required} must be a required input");
+    }
+
+    expect(data_get($action, 'inputs.deploy-port.default'))->toBe('22')
+        ->and(data_get($action, 'inputs.release-id.required'))->toBeFalse()
+        ->and(data_get($action, 'inputs.release-id.default'))->toBe('');
+
+    // The read-back release is the only thing a caller gets out of a rollback.
+    expect(data_get($action, 'outputs.active-release-id.value'))
+        ->toBe('${{ steps.active.outputs.release_id }}');
+
+    // Every run script takes its inputs through env, never interpolation.
+    foreach ($steps as $step) {
+        expect(data_get($step, 'shell'))->toBe('bash')
+            ->and(data_get($step, 'run'))->not->toContain('${{ inputs.');
+    }
+});
+
+it('is the only GitHub rollback implementation, used by both operator workflows', function () {
+    $callSites = [];
+
+    foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
+        $workflow = Yaml::parse(File::get($path));
+
+        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
+            foreach ((array) data_get($job, 'steps', []) as $step) {
+                if (data_get($step, 'uses') === './.github/actions/rollback-rateguru') {
+                    $callSites[] = basename($path).":{$jobName}";
+                }
+            }
+        }
+    }
+
+    expect($callSites)->toEqualCanonicalizing([
+        'rollback-staging.yml:rollback',
+        'rollback-production.yml:rollback',
+    ]);
+
+    // No workflow may keep its own copy of the rollback transport.
+    foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
+        foreach (['rateguru-rollback', 'ssh-keygen', 'readlink -f'] as $mechanic) {
+            expect(str_contains(File::get($path), $mechanic))
+                ->toBeFalse(basename($path).' re-implements the shared rollback transport: '.$mechanic);
+        }
+    }
+});
+
+it('validates every input combination before any SSH material or connection exists', function () {
+    $names = collect(data_get(rollbackRateGuruAction(), 'runs.steps'))->pluck('name')->all();
+
+    expect(array_search('Validate rollback inputs', $names, true))
+        ->toBeLessThan(array_search('Configure SSH', $names, true))
+        ->and(array_search('Configure SSH', $names, true))
+        ->toBeLessThan(array_search('Roll back via target-aware wrapper', $names, true));
+
+    [$exit, $output] = runRollbackInputValidation();
+    expect($exit)->toBe(0, "the validator rejected a correct set of inputs:\n{$output}");
+
+    [$exit] = runRollbackInputValidation(['MODE' => 'release', 'RELEASE_ID' => 'v0.5.0-20260826-120211-ca7d1c7']);
+    expect($exit)->toBe(0, 'an explicit release rollback must be accepted');
+
+    $rejections = [
+        'a release ID in previous mode' => [['RELEASE_ID' => 'v0.5.0-20260826-120211-ca7d1c7'], 'release-id must be empty when mode=previous'],
+        'a missing release ID in release mode' => [['MODE' => 'release'], 'release-id is required when mode=release'],
+        'an unknown mode' => [['MODE' => 'rollforward'], 'Invalid mode: rollforward'],
+        'a flag-shaped target' => [['DEPLOYMENT_TARGET' => '--all'], 'Invalid deployment target'],
+        'a target with a path in it' => [['DEPLOYMENT_TARGET' => 'a/../b'], 'Invalid deployment target'],
+        'an empty target' => [['DEPLOYMENT_TARGET' => ''], 'Invalid deployment target'],
+        'a brand as the environment' => [['ENVIRONMENT' => 'tits-guru'], 'environment must be staging or production'],
+        'an unconfigured host' => [['DEPLOY_HOST' => ''], 'DEPLOY_HOST is not configured for the staging environment'],
+        'an unconfigured port' => [['DEPLOY_PORT' => ''], 'DEPLOY_PORT is not configured for the staging environment'],
+        'an unconfigured user' => [['DEPLOY_USER' => ''], 'DEPLOY_USER is not configured for the staging environment'],
+    ];
+
+    foreach ($rejections as $case => [$overrides, $message]) {
+        [$exit, $output] = runRollbackInputValidation($overrides);
+
+        expect($exit)->not->toBe(0, "the validator accepted {$case}");
+        expect(str_contains($output, $message))
+            ->toBeTrue("wrong diagnostic for {$case}: {$output}");
+    }
+
+    // An unprovisioned production environment names its own environment in the
+    // diagnostic rather than silently falling back to staging's configuration.
+    [$exit, $output] = runRollbackInputValidation([
+        'DEPLOYMENT_TARGET' => 'tits-guru',
+        'ENVIRONMENT' => 'production',
+        'DEPLOY_HOST' => '',
+    ]);
+
+    expect($exit)->not->toBe(0);
+    expect(str_contains($output, 'DEPLOY_HOST is not configured for the production environment'))
+        ->toBeTrue($output);
+});
+
+it('invokes the generic target-aware wrapper as a quoted argv, and nothing else', function () {
+    $rollback = rollbackRateGuruStep('Roll back via target-aware wrapper');
+
+    expect(data_get($rollback, 'id'))->toBe('rollback')
+        ->and(data_get($rollback, 'env.DEPLOYMENT_TARGET'))->toBe('${{ inputs.deployment-target }}')
+        ->and(data_get($rollback, 'env.MODE'))->toBe('${{ inputs.mode }}')
+        ->and(data_get($rollback, 'env.RELEASE_ID'))->toBe('${{ inputs.release-id }}');
+
+    expect(data_get($rollback, 'run'))
+        ->toContain('sudo -n /usr/local/sbin/rateguru-rollback')
+        ->toContain('--target "${DEPLOYMENT_TARGET}"')
+        ->toContain('remote_command+=(--previous)')
+        ->toContain('remote_command+=(--release "${RELEASE_ID}")')
+        ->toContain('"${remote_command[@]@Q}"')
+        ->toContain('-o BatchMode=yes')
+        ->toContain('-o IdentitiesOnly=yes')
+        ->toContain('-o ConnectTimeout=')
+        ->toContain('-o StrictHostKeyChecking=yes')
+        ->toContain('-o UserKnownHostsFile=');
+
+    // Not one piece of server-side business logic is duplicated here.
+    $source = File::get(rollbackRateGuruActionPath());
+
+    foreach ([
+        'flock',
+        'systemctl',
+        'target_lifecycle',
+        'require_active_target',
+        '/releases/',
+        'ln -sfn',
+        'rollback-history',
+    ] as $serverSideConcern) {
+        expect(str_contains($source, $serverSideConcern))
+            ->toBeFalse("rollback business logic leaked into GitHub: {$serverSideConcern}");
+    }
+});
+
+it('never fails an already-healthy rollback for an observability reason', function () {
+    $resolve = rollbackRateGuruStep('Resolve the release now serving the target');
+
+    expect(data_get($resolve, 'id'))->toBe('active')
+        ->and(data_get($resolve, 'run'))
+        ->toContain("'basename \"\$(readlink -f %q)\"'")
+        ->toContain('release_id=${active_release}')
+        ->toContain('skipping Sentry deployment marker')
+        ->toContain('if ! active_release="$(')
+        ->toContain('Could not read the active release back from the target.')
+        ->toContain('DEPLOY_ROOT is not configured; cannot resolve the active release.')
+        ->toContain("release_regex='^v[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}\$'");
+
+    // The read-back can only follow a successful wrapper call.
+    $names = collect(data_get(rollbackRateGuruAction(), 'runs.steps'))->pluck('name')->all();
+
+    expect(array_search('Roll back via target-aware wrapper', $names, true))
+        ->toBeLessThan(array_search('Resolve the release now serving the target', $names, true));
+});
+
+it('always reports the outcome and always removes the SSH material', function () {
+    $summary = rollbackRateGuruStep('Write rollback summary');
+
+    expect(data_get($summary, 'if'))->toBe('${{ always() }}')
+        ->and(data_get($summary, 'env.ROLLBACK_OUTCOME'))->toBe('${{ steps.rollback.outcome }}')
+        ->and(data_get($summary, 'run'))
+        ->toContain('GITHUB_STEP_SUMMARY')
+        ->toContain('Target: ${DEPLOYMENT_TARGET}')
+        ->toContain('Environment: ${ENVIRONMENT}')
+        ->toContain('Mode: ${MODE}')
+        ->toContain('Result: ${ROLLBACK_OUTCOME:-not attempted}');
+
+    $cleanup = rollbackRateGuruStep('Remove temporary SSH material');
+
+    expect(data_get($cleanup, 'if'))->toBe('${{ always() }}')
+        ->and(data_get($cleanup, 'run'))
+        ->toContain('RATEGURU_SSH_KEY_PATH')
+        ->toContain('RATEGURU_KNOWN_HOSTS_PATH');
+});
+
+it('keeps every SSH hardening property the deploy action already has', function () {
+    $source = File::get(rollbackRateGuruActionPath());
+
+    expect(data_get(rollbackRateGuruStep('Configure SSH'), 'env.SSH_PRIVATE_KEY'))
+        ->toBe('${{ inputs.ssh-private-key }}')
+        ->and(data_get(rollbackRateGuruStep('Configure SSH'), 'env.KNOWN_HOSTS'))
+        ->toBe('${{ inputs.known-hosts }}')
+        ->and(data_get(rollbackRateGuruStep('Configure SSH'), 'run'))
+        ->toContain('install -m 0600 /dev/null')
+        ->toContain('ssh-keygen -y');
+
+    expect($source)
+        ->not->toMatch('/\beval\b/')
+        ->not->toContain('bash -c')
+        ->not->toContain('StrictHostKeyChecking=no')
+        ->not->toContain('StrictHostKeyChecking=accept-new')
+        ->not->toContain('root@')
+        ->not->toContain('--environment')
+        // The key is written to a file and never echoed anywhere.
+        ->not->toContain('echo "${SSH_PRIVATE_KEY')
+        ->not->toContain('echo "${KNOWN_HOSTS');
+
+    // No target ID is hard-coded in the shared implementation: the caller
+    // fixes it, so a new target never needs a new rollback implementation.
+    foreach (['staging-main', 'tits-guru'] as $target) {
+        expect(str_contains($source, $target))
+            ->toBeFalse("the shared rollback action must not know about {$target}");
+    }
+});
