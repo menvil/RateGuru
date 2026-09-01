@@ -896,12 +896,108 @@ Slices, in order:
    rollback runs through the shared rollback action. CI proves the structure;
    only a real run proves the pipeline, so this slice is implemented rather
    than accepted.
-2. **7.2 Prepare Host.** Produce a clean, prepared host: Phase 5 bootstrap
-   driven as one orchestrated operation with an explicit
-   plan-before-mutation step and a verifiable "prepared" end state, so
-   recovery never starts by hand-running installers in the right order.
-   *Future work only.* *Acceptance:* an empty VPS reaches a verified
-   prepared state through one operation.
+2. **7.2 Deployment observability + Prepare Host — implemented.** Two
+   related pieces, deliberately kept separate.
+
+   **7.2A — deployment observability.** Nightwatch now gets the same
+   operational timeline Sentry already had, so a change in error rate or
+   latency can be lined up against the exact moment the code a target serves
+   changed. What landed:
+
+   - **One recording implementation.**
+     `.github/actions/record-rateguru-deployment` is the single place a
+     successful deployment state transition is recorded, in both systems. It
+     reuses `.github/actions/sentry-release` rather than duplicating Sentry
+     logic, and `deploy-staging.yml`, both deployment jobs in `release.yml`
+     and `.github/actions/rollback-rateguru` all call it. No workflow calls
+     the Sentry action directly any more.
+   - **The supported Nightwatch mechanism, not an invented one.** The marker
+     is `php artisan nightwatch:deploy` from the installed `laravel/nightwatch`
+     v1.30.0, using exactly its documented arguments. No package upgrade was
+     needed and no HTTP endpoint or CLI flag was invented.
+   - **Produced server-side, inside the trust boundary.** That command is
+     application-side and reads `NIGHTWATCH_TOKEN` from the target's own
+     `shared/.env`, so it runs where the token and the running code already
+     are — `infrastructure/scripts/record-nightwatch-deployment`, reached over
+     the ordinary restricted deploy channel through the generic
+     `rateguru-nightwatch-deployment` sudo wrapper. Arbitrary staging
+     application source is never executed on a runner holding observability
+     credentials, and no new unrestricted root command exists: the primitive
+     takes a closed flag set, can only run `nightwatch:deploy`, and refuses to
+     record a release the server is not already serving.
+   - **Real identity, including after a rollback.** The rollback action reads
+     the restored release AND its `release.json.source_sha` back off the
+     server before recording anything, so `mode=previous` reports what the
+     target actually landed on. A rollback records a new marker against that
+     same existing immutable release — never a synthetic `rollback-<n>`.
+   - **Fail-open throughout.** `DeployCommand` exits 0 even when the API
+     rejects it, so the primitive requires the package's own success line as
+     positive confirmation and reports anything else as "not recorded". Above
+     it the GitHub step is `continue-on-error`. An unreachable Sentry or
+     Nightwatch never turns a healthy deploy or rollback into a failed run.
+   - **Removable in one step.** The primitive, its wrapper and its sudoers
+     drop-in are owned by `install-nightwatch-agent`, not by the sixteen-file
+     operations bundle or the three-wrapper perimeter — so a Phase 6C
+     rejection removes the whole integration with `--remove`, and the accepted
+     Phase 5.4 host contract is untouched.
+
+   **7.2B — Prepare Host.** Phase 5 bootstrap driven as one orchestrated,
+   resumable operation with a verifiable "prepared" end state, so recovery
+   never starts by hand-running installers in the right order. What landed:
+
+   - **One orchestrator.** `infrastructure/scripts/prepare-host` with
+     `--target` and the existing `--check` / `--apply` / `--verify` model. It
+     orchestrates authoritative primitives and duplicates none of them:
+     `install-bootstrap-runtime`, the new
+     `install-target-prerequisites`, `bootstrap-host` (whole and
+     undecomposed), `install-target-prerequisites` again for
+     identity-scoped material, and the new `install-target-database`. No
+     `--force`, no `--skip`, no `--continue-on-error`.
+   - **Convergence, not reinstallation.** Per slice: verify, SKIP if
+     satisfied, otherwise the child's own `--apply` followed by its own
+     verification. A second run on a prepared — and possibly already
+     deployed — host is SKIPs throughout: no secret rotated, no TLS key
+     replaced, no `.env` overwritten, no database recreated, no migration, no
+     restore, and the deployed `current` release left exactly as it was.
+   - **External material delivered, never generated.**
+     `install-target-prerequisites` installs only what is ABSENT. Existing
+     material identical to what was supplied is not even rewritten; existing
+     material that DIFFERS fails closed with a drift diagnostic that discloses
+     nothing about either side. Phase 5's decision to generate no secret
+     material is preserved in full.
+   - **The clean-host database gap closed.**
+     `install-target-database` creates the target's PostgreSQL role and
+     database from credentials already in `shared/.env` — read by a
+     deliberately limited six-key reader, never sourced or `eval`'d — and
+     never drops, recreates, truncates, migrates, rotates a password or
+     restores. Anything it cannot prove safe fails closed.
+   - **Separate bootstrap credential.** `BOOTSTRAP_SSH_KEY` /
+     `BOOTSTRAP_KNOWN_HOSTS` / `BOOTSTRAP_USER`, distinct from the restricted
+     deploy credential, which is never used for preparation and never falls
+     back to. Strict `known_hosts`, `BatchMode`, `IdentitiesOnly`; no TOFU and
+     no password fallback.
+   - **Trusted bootstrap bundle.** `.github/actions/prepare-rateguru-host`
+     packages `infrastructure/` from `develop`, uploads it and the operator's
+     material into a root-only directory, invokes the server primitive, and
+     removes everything local and remote on success and on failure. GitHub
+     transports; the repository owns where each file belongs, so no canonical
+     destination appears in a workflow.
+   - **Operator-facing workflows with nothing to choose.** `Prepare staging
+     host` and `Prepare production host` are `workflow_dispatch`-only with no
+     inputs at all: no target dropdown, no environment selector, no
+     application ref. Both join their target's existing concurrency domain, so
+     preparation can never race a deploy, a rollback or a release.
+   - **Production stays unprovisioned.** `tits-guru` remains
+     `lifecycle=planned`; the production workflow is pinned to that real
+     target ID and fails closed on the server's lifecycle gate, before any
+     target-specific mutation. It exists now to prove production will use the
+     same mechanism once Phase 8 activates the target.
+
+   See [`runbooks/prepare-host.md`](runbooks/prepare-host.md). *Acceptance:*
+   an empty VPS reaches a verified prepared state through one operation. CI
+   proves the structure; only a real clean-host run proves the pipeline, and
+   that rehearsal belongs to the disposable-host policy below — so this slice
+   is implemented rather than accepted.
 3. **7.3 Restore Target Data.** The host is alive; only its data is
    restored. Pre-restore safety backup, DB-only / storage-only / DB+storage
    modes, maintenance mode, queue and scheduler safety, verified backup

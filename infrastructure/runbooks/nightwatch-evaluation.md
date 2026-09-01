@@ -55,6 +55,106 @@ Nightwatch's servers directly, and the agent is never reachable from off-box.
 | Ingest endpoint | `127.0.0.1:2407` |
 | Installer | `infrastructure/scripts/install-nightwatch-agent` |
 | Token location | `/home/www/rateguru/staging/shared/.env`, `NIGHTWATCH_TOKEN` |
+| Deployment marker primitive | `/home/www/rateguru/bin/record-nightwatch-deployment` |
+| Deployment marker wrapper | `/usr/local/sbin/rateguru-nightwatch-deployment`, `root:root 0755` |
+| Deployment marker sudoers grant | `/etc/sudoers.d/rateguru-nightwatch-deployment`, `root:root 0440` |
+
+## Deployment markers (Phase 7.2A)
+
+Nightwatch gets the same operational timeline Sentry already has: a marker for
+every successful deployment state transition, so a change in error rate or
+latency can be lined up against the exact moment the code the target serves
+changed.
+
+```text
+deploy or rollback succeeds
+  → active release verified against release.json
+  → .github/actions/record-rateguru-deployment
+        ├── Sentry deployment marker      (via .github/actions/sentry-release)
+        └── Nightwatch deployment marker  (over SSH, server-side)
+```
+
+### The supported mechanism, not an invented one
+
+The marker is produced by the package's own command,
+`php artisan nightwatch:deploy` (`laravel/nightwatch` v1.30.0,
+`src/Console/DeployCommand.php`), using exactly its documented interface:
+
+```text
+nightwatch:deploy {deploy?} --ref= --name= --url= --timestamp=
+```
+
+- `deploy` — the canonical immutable release ID. Deliberately the same value
+  `config('nightwatch.deployment')` already resolves to for every request the
+  application serves (it reads `release.json` through
+  `App\Support\Deployment\DeploymentMetadata`), so events and markers land on
+  one key.
+- `--ref` — that release's `release.json.source_sha`.
+- `--name` — `"<target-id> <release-id>"`.
+- `--url` — the GitHub run that produced the transition.
+
+No HTTP endpoint is called directly and no CLI flag is invented. The package
+version was not upgraded for this: v1.30.0 already provides what is needed.
+
+### Why it runs on the server
+
+`nightwatch:deploy` is application-side: it reads `NIGHTWATCH_TOKEN` out of the
+target's own `shared/.env` through Laravel's config. Running it on a GitHub
+runner would mean either shipping that token into CI or booting arbitrary
+staging application source with observability credentials attached — staging
+deploys any branch an operator names, so both are new trust-boundary holes.
+
+Instead the marker is produced where the token and the running code already
+are: `infrastructure/scripts/record-nightwatch-deployment`, invoked over the
+ordinary restricted deploy SSH channel through the generic target-aware
+`rateguru-nightwatch-deployment` sudo wrapper.
+
+That primitive is deliberately not a "run artisan on the server" facility:
+
+- the argument set is closed — `--target`, `--release`, `--source-sha` and an
+  optional `--run-url`, each format-validated before anything executes;
+- the only artisan command it can run is `nightwatch:deploy`, spelled as a
+  literal;
+- the invocation is a fixed argv array, never a shell string;
+- the release the caller names must **already** be the release the target is
+  serving, and its `release.json` must already carry the named commit. This
+  command records history; it never creates it.
+
+That last rule is what makes it correct for `rollback --previous`, where GitHub
+genuinely does not know in advance which immutable release the target will land
+on. The rollback action reads the release and its commit back off the server
+first, and a rollback records a **new marker against that same existing
+immutable release** — never a synthetic `rollback-<n>` identity.
+
+### Fail-open
+
+`DeployCommand` always exits 0, even when the API rejects the deployment, so
+the primitive requires the package's own success line as positive confirmation
+and reports anything else as "not recorded" rather than a fabricated success.
+Above it, the GitHub step is `continue-on-error: true`.
+
+A healthy release is never rolled back because Nightwatch was unreachable, and
+a host that has not installed the marker primitive at all simply records
+nothing.
+
+### Installing the marker primitive
+
+It is installed by `install-nightwatch-agent`, alongside the agent — not by
+`install-target-operations` or `install-target-perimeter`. Nightwatch is still
+a time-boxed Phase 6B/6C evaluation: keeping the whole integration in one
+installer means `--remove` takes all of it away in one step, and no host is
+ever *required* to carry any of it. The accepted Phase 5.4 host contract is
+untouched.
+
+```bash
+sudo infrastructure/scripts/install-nightwatch-agent --apply --target staging-main
+```
+
+The sudo grant lives in its own drop-in, `/etc/sudoers.d/rateguru-nightwatch-deployment`,
+separate from the operational grant `install-target-perimeter` owns. It is
+strictly narrower than that grant: the wrapper it names can only ask the
+application to re-assert which immutable release the target is already serving.
+It cannot deploy, switch, migrate or run any other artisan command.
 
 ### One address, read once
 
@@ -786,8 +886,10 @@ port is closed:
 sudo infrastructure/scripts/install-nightwatch-agent --remove --target staging-main
 ```
 
-`--remove` leaves the Composer package, `config/nightwatch.php` and the target's
-`.env` untouched. It stops telemetry infrastructure; it does not un-evaluate
+`--remove` also removes the deployment-marker primitive, its sudo wrapper and
+its sudoers grant — the grant can never outlive the integration it exists for.
+It leaves the Composer package, `config/nightwatch.php` and the target's `.env`
+untouched. It stops telemetry infrastructure; it does not un-evaluate
 Nightwatch.
 
 Do **not** uninstall the Composer package to stop telemetry. With

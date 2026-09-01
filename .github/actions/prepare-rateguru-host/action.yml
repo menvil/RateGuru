@@ -1,0 +1,597 @@
+name: Prepare RateGuru host
+description: >-
+  Turn a clean supported VPS into infrastructure ready to host one RateGuru
+  target, by transporting trusted bootstrap tooling and operator-supplied
+  external material to it and running the server-side prepare-host primitive.
+
+# Transport and invocation only.
+#
+# infrastructure/scripts/prepare-host owns every decision this operation makes:
+# the target lifecycle gate, the slice order, the convergence model, where each
+# piece of external material belongs, what may be overwritten (nothing), and
+# what "prepared" means. None of that is reimplemented, mirrored or
+# second-guessed in YAML. This action packages the trusted tooling, delivers
+# secrets safely, runs two commands and cleans up after itself.
+#
+# WHAT IT IS NOT. It never deploys an application: there is deliberately no
+# `ref`, `branch`, `tag`, `source_sha` or `run-migrations` input, no artifact is
+# built or uploaded, and no application source is ever involved. Preparing
+# infrastructure and deploying code are different operations with different
+# blast radii, and this one cannot perform the other.
+#
+# CREDENTIAL SEPARATION. This uses the privileged BOOTSTRAP credential, not the
+# restricted deploy credential. Ordinary deployment keeps using DEPLOY_SSH_KEY
+# and the narrow rateguru-deploy / rateguru-rollback sudo wrappers, which
+# cannot bootstrap a host; host preparation needs root, so it gets its own key
+# with its own lifecycle, used only by this operation. Neither credential is
+# ever a substitute for the other.
+#
+# TRUSTED TOOLING. The bundle is built from whatever the calling workflow
+# checked out, and every caller checks out `develop`. Preparation tooling is
+# operational code that must not depend on — or be selectable by — an
+# application ref.
+
+inputs:
+  deployment-target:
+    required: true
+    description: >-
+      Deployment target ID from the RateGuru target registry. A structural
+      property of the calling workflow, never operator input.
+
+  environment:
+    required: true
+    description: Environment class this preparation runs in (staging or production)
+
+  bootstrap-host:
+    required: true
+    description: >-
+      SSH hostname or IP of the physical host currently serving the target.
+      Deliberately the same DEPLOY_HOST binding ordinary deployment uses: the
+      GitHub Environment is where a logical target is bound to a physical host,
+      and one target has one host at a time.
+
+  bootstrap-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  bootstrap-user:
+    required: true
+    description: >-
+      Privileged bootstrap/recovery user. Must be root, or hold passwordless
+      non-interactive sudo; verified before anything is uploaded.
+
+  bootstrap-ssh-key:
+    required: true
+    description: Privileged bootstrap SSH private key, separate from the deployment key
+
+  bootstrap-known-hosts:
+    required: true
+    description: >-
+      Verified known_hosts entry for the bootstrap host. Strict host key
+      checking is non-negotiable here: there is no TOFU, no relaxed host-key
+      policy and no password fallback anywhere in this action.
+
+  # --- External material -------------------------------------------------
+  #
+  # Every one is optional. An absent input is simply not uploaded, and the
+  # server-side installer then either preserves what the host already has or
+  # reports the prerequisite as missing — it never invents one. Supplying
+  # material that differs from what the host already holds is a hard failure
+  # on the server, never a silent rotation.
+  #
+  # Input names are LOGICAL names. Nothing here knows or names a canonical
+  # destination path: which file each of these becomes is resolved on the
+  # server, from the target registry and this repository's own committed Nginx
+  # vhosts.
+
+  laravel-env:
+    required: false
+    default: ""
+    description: Target Laravel environment file (APP_KEY, database and service credentials)
+
+  deploy-authorized-keys:
+    required: false
+    default: ""
+    description: authorized_keys content for the target's restricted deploy user
+
+  rclone-config:
+    required: false
+    default: ""
+    description: rclone configuration for offsite backups
+
+  basic-auth:
+    required: false
+    default: ""
+    description: Basic Auth htpasswd hashes for the target's Nginx vhosts
+
+  tls-certificate:
+    required: false
+    default: ""
+    description: TLS certificate chain for the target's public hostname
+
+  tls-private-key:
+    required: false
+    default: ""
+    description: TLS private key for the target's public hostname
+
+  tls-dhparams:
+    required: false
+    default: ""
+    description: Shared TLS DH parameters
+
+  nginx-tls-options:
+    required: false
+    default: ""
+    description: Shared Nginx TLS options snippet
+
+  mail-tls-certificate:
+    required: false
+    default: ""
+    description: TLS certificate chain for the shared mail-capture vhosts
+
+  mail-tls-private-key:
+    required: false
+    default: ""
+    description: TLS private key for the shared mail-capture vhosts
+
+outputs:
+  prepared:
+    description: "true when prepare-host --verify confirmed the target is prepared"
+    value: ${{ steps.verify.outputs.prepared }}
+
+runs:
+  using: composite
+
+  steps:
+    # Fixed caller inputs only. Everything checked here is a structural
+    # property of the calling workflow, so a violation is a bug in this
+    # repository rather than an environmental condition — it fails closed.
+    - name: Validate fixed caller inputs
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        BOOTSTRAP_KEY_PRESENT: ${{ inputs.bootstrap-ssh-key != '' }}
+        BOOTSTRAP_KNOWN_HOSTS_PRESENT: ${{ inputs.bootstrap-known-hosts != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        # Rejects empty, uppercase, slash, whitespace, shell metacharacters and
+        # a flag-shaped value (a leading "-") in one closed character class.
+        # The same expression the deploy, rollback and observability actions
+        # validate a target with.
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        case "${ENVIRONMENT}" in
+          staging|production)
+            ;;
+          *)
+            echo "environment must be staging or production (got: ${ENVIRONMENT})" >&2
+            exit 1
+            ;;
+        esac
+
+        [[ "${BOOTSTRAP_PORT}" =~ ^[0-9]{1,5}$ ]] || {
+          echo "Invalid bootstrap port: ${BOOTSTRAP_PORT}" >&2
+          exit 1
+        }
+
+        for required_var in BOOTSTRAP_HOST BOOTSTRAP_USER; do
+          if [[ -z "${!required_var}" ]]; then
+            echo "${required_var} is not configured for the ${ENVIRONMENT} environment" >&2
+            exit 1
+          fi
+        done
+
+        if [[ "${BOOTSTRAP_KEY_PRESENT}" != "true" ]] \
+          || [[ "${BOOTSTRAP_KNOWN_HOSTS_PRESENT}" != "true" ]]
+        then
+          echo "The ${ENVIRONMENT} environment has no bootstrap SSH credential." >&2
+          echo "Host preparation deliberately refuses to fall back to the deployment key: that key is restricted to the deploy wrappers and cannot bootstrap a host." >&2
+          exit 1
+        fi
+
+    - name: Configure bootstrap SSH
+      shell: bash
+      env:
+        BOOTSTRAP_SSH_KEY: ${{ inputs.bootstrap-ssh-key }}
+        BOOTSTRAP_KNOWN_HOSTS: ${{ inputs.bootstrap-known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_bootstrap_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_bootstrap_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${BOOTSTRAP_SSH_KEY}" > "${key_path}"
+        printf '%s\n' "${BOOTSTRAP_KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_BOOTSTRAP_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    # Establishes the privileged path once, so every later step uses the same
+    # prefix and no step has to guess. Root gets an empty prefix; a sudoer gets
+    # `sudo -n`, which fails immediately rather than waiting on a password
+    # prompt that would hang a non-interactive run.
+    - name: Verify privileged access on the host
+      id: access
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        remote_uid="$(ssh_bootstrap 'id -u')"
+
+        if [[ "${remote_uid}" == "0" ]]; then
+          privileged_prefix=""
+          echo "Bootstrap user ${BOOTSTRAP_USER} is root."
+        elif ssh_bootstrap 'sudo -n true' >/dev/null 2>&1; then
+          privileged_prefix="sudo -n"
+          echo "Bootstrap user ${BOOTSTRAP_USER} holds passwordless non-interactive sudo."
+        else
+          echo "Bootstrap user ${BOOTSTRAP_USER} is neither root nor a passwordless sudoer." >&2
+          echo "Host preparation requires root; nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        echo "RATEGURU_PRIVILEGED_PREFIX=${privileged_prefix}" >> "${GITHUB_ENV}"
+
+    # Only infrastructure/ — every bootstrap and preparation script resolves
+    # every file it needs beneath that one directory, and nothing else in this
+    # repository has any business on a host being prepared. The application is
+    # emphatically not part of the bundle.
+    - name: Package trusted bootstrap bundle
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+
+        bundle_path="${RUNNER_TEMP}/rateguru-bootstrap-bundle.tar.gz"
+
+        test -d "${GITHUB_WORKSPACE}/infrastructure/scripts"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/prepare-host"
+
+        tar \
+          --create \
+          --gzip \
+          --file "${bundle_path}" \
+          --directory "${GITHUB_WORKSPACE}" \
+          infrastructure
+
+        chmod 0600 "${bundle_path}"
+
+        echo "RATEGURU_BUNDLE_PATH=${bundle_path}" >> "${GITHUB_ENV}"
+        echo "Bundle contents: $(tar -tzf "${bundle_path}" | wc -l) files from infrastructure/"
+
+    # Secrets reach the filesystem through the environment and a shell
+    # redirection — never as a command-line argument, never echoed, never
+    # written to a step summary or an output. The directory is created 0700 and
+    # each file 0600 before anything is written into it.
+    #
+    # Trailing newlines are normalized to exactly one. GitHub secrets do not
+    # record whether the operator's file ended with a newline, and a file that
+    # differs from the host's copy by a trailing byte would otherwise be
+    # reported as a conflict forever.
+    - name: Stage external material
+      id: material
+      shell: bash
+      env:
+        MATERIAL_LARAVEL_ENV: ${{ inputs.laravel-env }}
+        MATERIAL_DEPLOY_AUTHORIZED_KEYS: ${{ inputs.deploy-authorized-keys }}
+        MATERIAL_RCLONE_CONFIG: ${{ inputs.rclone-config }}
+        MATERIAL_BASIC_AUTH: ${{ inputs.basic-auth }}
+        MATERIAL_TLS_CERTIFICATE: ${{ inputs.tls-certificate }}
+        MATERIAL_TLS_PRIVATE_KEY: ${{ inputs.tls-private-key }}
+        MATERIAL_TLS_DHPARAMS: ${{ inputs.tls-dhparams }}
+        MATERIAL_NGINX_TLS_OPTIONS: ${{ inputs.nginx-tls-options }}
+        MATERIAL_MAIL_TLS_CERTIFICATE: ${{ inputs.mail-tls-certificate }}
+        MATERIAL_MAIL_TLS_PRIVATE_KEY: ${{ inputs.mail-tls-private-key }}
+      run: |
+        set -Eeuo pipefail
+
+        umask 077
+
+        material_dir="${RUNNER_TEMP}/rateguru-prepare-material"
+
+        rm -rf "${material_dir}"
+        install -d -m 0700 "${material_dir}"
+
+        supplied=0
+
+        # stage NAME ENV_VAR_NAME — writes one logical material file when the
+        # environment carries a value for it. The value is only ever referenced
+        # indirectly and redirected; it never appears in argv.
+        stage() {
+          local name="$1" var_name="$2" value="${!2-}"
+
+          if [[ -z "${value}" ]]; then
+            echo "not supplied: ${name}"
+            return 0
+          fi
+
+          while [[ "${value}" == *$'\n' ]]; do
+            value="${value%$'\n'}"
+          done
+
+          install -m 0600 /dev/null "${material_dir}/${name}"
+          printf '%s\n' "${value}" > "${material_dir}/${name}"
+
+          supplied=$((supplied + 1))
+          echo "supplied: ${name}"
+        }
+
+        stage laravel-env            MATERIAL_LARAVEL_ENV
+        stage deploy-authorized-keys MATERIAL_DEPLOY_AUTHORIZED_KEYS
+        stage rclone-config          MATERIAL_RCLONE_CONFIG
+        stage basic-auth             MATERIAL_BASIC_AUTH
+        stage tls-certificate        MATERIAL_TLS_CERTIFICATE
+        stage tls-private-key        MATERIAL_TLS_PRIVATE_KEY
+        stage tls-dhparams           MATERIAL_TLS_DHPARAMS
+        stage nginx-tls-options      MATERIAL_NGINX_TLS_OPTIONS
+        stage mail-tls-certificate   MATERIAL_MAIL_TLS_CERTIFICATE
+        stage mail-tls-private-key   MATERIAL_MAIL_TLS_PRIVATE_KEY
+
+        echo "RATEGURU_MATERIAL_DIR=${material_dir}" >> "${GITHUB_ENV}"
+        echo "Staged ${supplied} of 10 logical prerequisites (names only; no content is ever reported)."
+
+    # The remote layout, and the one place a path is chosen:
+    #
+    #   ~/.rateguru-prepare-<run>   0700, owned by the bootstrap user — scp can
+    #                               only ever write as that user, so material
+    #                               lands here first;
+    #   /root/rateguru-prepare-<run> 0700 root:root — where it is moved before
+    #                               anything reads it, and the only directory
+    #                               the server-side installer will accept.
+    #
+    # The run ID and attempt make the name unique without any randomness, so a
+    # retry never collides with its own earlier attempt.
+    - name: Upload bootstrap bundle and material
+      id: upload
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -Eeuo pipefail
+
+        run_tag="${RUN_ID}-${RUN_ATTEMPT}"
+        staging_dir=".rateguru-prepare-${run_tag}"
+        remote_root="/root/rateguru-prepare-${run_tag}"
+
+        {
+          echo "RATEGURU_REMOTE_STAGING_DIR=${staging_dir}"
+          echo "RATEGURU_REMOTE_ROOT=${remote_root}"
+        } >> "${GITHUB_ENV}"
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        printf -v prepare_staging \
+          'umask 077 && rm -rf %q && mkdir -p %q/material' \
+          "${staging_dir}" "${staging_dir}"
+
+        ssh_bootstrap "${prepare_staging}"
+
+        scp \
+          -P "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${RATEGURU_BUNDLE_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/bundle.tar.gz"
+
+        # Only when at least one prerequisite was supplied; scp of an empty
+        # directory would fail, and an empty material directory is a perfectly
+        # normal re-run of an already prepared host.
+        if [[ -n "$(ls -A "${RATEGURU_MATERIAL_DIR}")" ]]; then
+          scp \
+            -P "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${RATEGURU_MATERIAL_DIR}"/* \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/material/"
+        fi
+
+        # Move everything into the root-only directory and extract the bundle
+        # there. Ownership and modes are pinned before the material is readable
+        # by anything but root, and the staging copy is removed immediately.
+        printf -v install_remote \
+          'set -Eeuo pipefail; umask 077; %s install -d -m 0700 -o root -g root %q && %s tar -xzpf %q/bundle.tar.gz -C %q && %s cp -a %q/material %q/material && %s chown -R root:root %q && %s chmod -R go-rwx %q/material && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX}" "${remote_root}" \
+          "${staging_dir}"
+
+        ssh_bootstrap "bash -c ${install_remote@Q}"
+
+        echo "Bundle and material installed under ${remote_root} (root-only)."
+
+    - name: Prepare the host
+      id: prepare
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        # A fixed argv built as a Bash array and quoted element-wise, never an
+        # interpolated shell string. prepare-host itself accepts only a closed
+        # flag set and no free-text command of any kind.
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/prepare-host"
+          --apply
+          --target "${DEPLOYMENT_TARGET}"
+          --material-dir "${RATEGURU_REMOTE_ROOT}/material"
+        )
+
+        ssh \
+          -p "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+          "${remote_command[@]@Q}"
+
+    # A second, independent invocation rather than a claim inherited from the
+    # apply above: "prepared" means the read-only verification passes on the
+    # host as it stands now.
+    - name: Verify the prepared host
+      id: verify
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -Eeuo pipefail
+
+        # --verify is deliberately given no --material-dir: a prepared host is
+        # judged by what is installed on it, never by what was uploaded
+        # alongside this run.
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/prepare-host"
+          --verify
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        verification_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}"
+        )"
+
+        printf '%s\n' "${verification_output}"
+
+        echo "prepared=true" >> "${GITHUB_OUTPUT}"
+
+        # Only the per-slice SUMMARY block reaches the run summary. It contains
+        # slice names and verdicts and nothing else — no material, no paths
+        # into secrets, no content of any kind.
+        {
+          echo "## Host prepared"
+          echo
+          echo "- Target: \`${DEPLOYMENT_TARGET}\`"
+          echo "- Environment: \`${ENVIRONMENT}\`"
+          echo
+          echo '```text'
+          awk '/^SUMMARY$/ { collecting = 1 } collecting { print }' <<<"${verification_output}"
+          echo '```'
+          echo
+          echo "The target is infrastructure-ready. No application release was deployed, no migration was run and no data was restored — that is the correct end state of preparation."
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    # Runs on failure too. Uploaded material must never outlive the run that
+    # uploaded it, whatever happened in between.
+    - name: Remove remote bootstrap material
+      if: ${{ always() }}
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${RATEGURU_REMOTE_ROOT:-}" ]]; then
+          echo "Nothing was uploaded; no remote cleanup required."
+          exit 0
+        fi
+
+        printf -v cleanup_command \
+          '%s rm -rf %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${RATEGURU_REMOTE_ROOT}" "${RATEGURU_REMOTE_STAGING_DIR:-/nonexistent}"
+
+        # Cleanup failure is reported loudly but never masks the real outcome
+        # of the run; the operator needs to see which failure came first.
+        if ssh \
+          -p "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+          "bash -c ${cleanup_command@Q}"
+        then
+          echo "Removed ${RATEGURU_REMOTE_ROOT} and the upload staging directory."
+        else
+          echo "WARNING: could not remove ${RATEGURU_REMOTE_ROOT} from the host. Remove it manually." >&2
+        fi
+
+    - name: Remove temporary local material
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -rf "${RATEGURU_MATERIAL_DIR:-}"
+        rm -f \
+          "${RATEGURU_BUNDLE_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}"

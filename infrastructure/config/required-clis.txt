@@ -11,11 +11,15 @@ install-bootstrap-services
 install-mail-capture
 install-nightwatch-agent
 install-public-storage-access
+install-target-database
 install-target-operations
 install-target-perimeter
+install-target-prerequisites
 offsite-backup
 offsite-restore-test
 offsite-retention
+prepare-host
+record-nightwatch-deployment
 restore-test
 rollback
 status

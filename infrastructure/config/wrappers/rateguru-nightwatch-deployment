@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+#
+# rateguru-nightwatch-deployment — generic, target-aware sudo wrapper installed
+# at /usr/local/sbin/rateguru-nightwatch-deployment. Accepts only --target
+# TARGET_ID, authorizes the caller against the target's own registered deploy
+# user, and execs the real deployment-marker binary with a completely scrubbed
+# environment.
+#
+# See infrastructure/config/wrappers/rateguru-deploy for the full rationale
+# behind every design decision below — this file mirrors it exactly, with only
+# the wrapper name and underlying binary differing.
+#
+# The privilege this grants is deliberately the narrowest of the four: the
+# underlying record-nightwatch-deployment can only ever run
+# `artisan nightwatch:deploy` for a release the target is ALREADY serving. It
+# cannot deploy, switch a release, migrate, or run any other artisan command,
+# so a compromised deploy key gains no new ability to change what the server
+# runs — only to re-assert, to Nightwatch, what it is already running.
+#
+# Installed by install-nightwatch-agent, not install-target-perimeter: the
+# whole Nightwatch integration stays in one reversible place while it is still
+# a Phase 6B/6C evaluation, and no host is required to carry this wrapper.
+
+set -Eeuo pipefail
+
+WRAPPER_NAME="rateguru-nightwatch-deployment"
+
+# Literal root-first contract: see the identical, fully-commented gate in
+# infrastructure/config/wrappers/rateguru-deploy. Rejects a real (never
+# sourced) non-root invocation before RATEGURU_ALLOW_TEST_OVERRIDES is even
+# consulted or common is sourced. require_root still runs inside main() as
+# defense in depth.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]] && [[ "${EUID}" -ne 0 ]]; then
+    printf 'ERROR: this command must be executed as root\n' >&2
+    exit 1
+fi
+
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+RECORD_BIN_DEFAULT="/home/www/rateguru/bin/record-nightwatch-deployment"
+RECORD_BIN="${RECORD_BIN_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_RECORD_NIGHTWATCH_DEPLOYMENT_BIN:-}" ]]; then
+        RECORD_BIN="${RATEGURU_RECORD_NIGHTWATCH_DEPLOYMENT_BIN}"
+    fi
+fi
+
+PRODUCTION_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+print_wrapper_usage() {
+    cat <<USAGE
+Usage:
+  ${WRAPPER_NAME} --target TARGET_ID [operation arguments...]
+
+Every other argument is passed through, unexamined and in order, to the
+underlying deployment-marker operation (e.g. --release, --source-sha,
+--run-url), which validates each of them against a closed format.
+USAGE
+}
+
+parse_wrapper_args() {
+    TARGET_ID=""
+    TARGET_SEEN=false
+    OPERATION_ARGS=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                if [[ $# -lt 2 ]]; then
+                    fail "--target requires a value"
+                fi
+
+                if [[ -z "$2" ]]; then
+                    fail "--target requires a non-empty value"
+                fi
+
+                case "$2" in
+                    -*)
+                        fail "--target requires a value, not another option: $2"
+                        ;;
+                esac
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --target=*)
+                fail "--target must be given as '--target VALUE', not '--target=VALUE'"
+                ;;
+            --help|-h)
+                print_wrapper_usage
+                exit 0
+                ;;
+            -[!-]*)
+                fail "unknown ${WRAPPER_NAME} flag: $1"
+                ;;
+            *)
+                OPERATION_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [[ "${TARGET_SEEN}" != true ]]; then
+        fail "--target is required"
+    fi
+}
+
+authorize_caller() {
+    local caller="${SUDO_USER:-}"
+
+    if [[ -z "${caller}" ]] || [[ "${caller}" == root ]]; then
+        return 0
+    fi
+
+    local registered_deploy_user
+    registered_deploy_user="$(target_deploy_user "${TARGET_ID}")"
+
+    if [[ "${caller}" != "${registered_deploy_user}" ]]; then
+        fail "deploy user ${caller} is not authorized for target ${TARGET_ID}"
+    fi
+}
+
+exec_underlying() {
+    exec env -i \
+        PATH="${PRODUCTION_PATH}" \
+        HOME=/root \
+        USER=root \
+        LOGNAME=root \
+        "${RECORD_BIN}" \
+        --target "${TARGET_ID}" \
+        "${OPERATION_ARGS[@]}"
+}
+
+main() {
+    require_root
+    parse_wrapper_args "$@"
+    authorize_caller
+    require_active_target "${TARGET_ID}"
+    exec_underlying
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

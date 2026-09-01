@@ -65,6 +65,57 @@ function sentryReleaseCallSites(): array
     return $callSites;
 }
 
+/**
+ * Phase 7.2A inserted one indirection: workflows no longer call the Sentry
+ * action directly, they call .github/actions/record-rateguru-deployment, which
+ * records the same transition in Sentry AND in Nightwatch. This returns the
+ * call sites of that shared recording action, in the same shape.
+ *
+ * @return array<string, array{source: string, scope: string, step: array}>
+ */
+function deploymentRecordingCallSites(): array
+{
+    $callSites = [];
+
+    foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
+        $workflow = Yaml::parse(File::get($path));
+
+        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
+            foreach ((array) data_get($job, 'steps', []) as $step) {
+                if (data_get($step, 'uses') !== './.github/actions/record-rateguru-deployment') {
+                    continue;
+                }
+
+                $callSites[basename($path).":{$jobName}"] = [
+                    'source' => basename($path),
+                    'scope' => $jobName,
+                    'step' => $step,
+                ];
+            }
+        }
+    }
+
+    foreach (glob(base_path('.github/actions/*/action.yml')) ?: [] as $path) {
+        $action = Yaml::parse(File::get($path));
+
+        foreach ((array) data_get($action, 'runs.steps', []) as $step) {
+            if (data_get($step, 'uses') !== './.github/actions/record-rateguru-deployment') {
+                continue;
+            }
+
+            $name = basename(dirname($path));
+
+            $callSites["{$name}/action.yml:runs"] = [
+                'source' => "{$name}/action.yml",
+                'scope' => 'runs',
+                'step' => $step,
+            ];
+        }
+    }
+
+    return $callSites;
+}
+
 it('pins the official Sentry release action by immutable commit SHA, like every other third-party action', function () {
     $steps = collect(data_get(sentryReleaseAction(), 'runs.steps'))->keyBy('name');
 
@@ -194,7 +245,14 @@ it('takes no untrusted expression into a shell, and no secret onto a command lin
 });
 
 it('is called only after a successful, health-checked deployment', function () {
-    $callSites = sentryReleaseCallSites();
+    // Since Phase 7.2A the Sentry action has exactly one caller: the shared
+    // recording action that produces every observability marker for a
+    // deployment state transition. Nothing else may call it directly.
+    expect(array_keys(sentryReleaseCallSites()))->toBe([
+        'record-rateguru-deployment/action.yml:runs',
+    ]);
+
+    $callSites = deploymentRecordingCallSites();
 
     expect(array_keys($callSites))->toEqualCanonicalizing([
         'deploy-staging.yml:observability',
@@ -219,10 +277,10 @@ it('is called only after a successful, health-checked deployment', function () {
     foreach (['deploy-staging' => 'staging', 'deploy-production' => 'production'] as $job => $environment) {
         $steps = collect(data_get($release, "jobs.{$job}.steps"));
         $deployIndex = $steps->search(fn (array $step): bool => data_get($step, 'uses') === './.github/actions/deploy-rateguru');
-        $sentryIndex = $steps->search(fn (array $step): bool => data_get($step, 'uses') === './.github/actions/sentry-release');
+        $recordIndex = $steps->search(fn (array $step): bool => data_get($step, 'uses') === './.github/actions/record-rateguru-deployment');
 
         expect($deployIndex)->not->toBeFalse("{$job} must still deploy through the deploy action")
-            ->and($sentryIndex)->toBeGreaterThan($deployIndex, "the Sentry marker in {$job} must come after the deployment");
+            ->and($recordIndex)->toBeGreaterThan($deployIndex, "the deployment marker in {$job} must come after the deployment");
 
         expect(data_get($release, "jobs.{$job}.environment"))->toBe($environment);
     }
@@ -236,7 +294,7 @@ it('is called only after a successful, health-checked deployment', function () {
     expect(array_search('Roll back via target-aware wrapper', $names, true))
         ->toBeLessThan(array_search('Resolve the release now serving the target', $names, true))
         ->and(array_search('Resolve the release now serving the target', $names, true))
-        ->toBeLessThan(array_search('Record Sentry deployment marker for the restored release', $names, true));
+        ->toBeLessThan(array_search('Record the restored release in Sentry and Nightwatch', $names, true));
 });
 
 it('records the canonical release the pipeline built, never a recomputed one', function () {
@@ -269,7 +327,12 @@ it('records the canonical release the pipeline built, never a recomputed one', f
 });
 
 it('uses the environment class for Sentry, never the deployment target', function () {
-    $callSites = sentryReleaseCallSites();
+    // The Sentry action's one caller forwards the environment class it was
+    // given; the class itself is fixed at the four call sites below.
+    expect(data_get(sentryReleaseCallSites()['record-rateguru-deployment/action.yml:runs']['step'], 'with.environment'))
+        ->toBe('${{ inputs.environment }}');
+
+    $callSites = deploymentRecordingCallSites();
 
     $environments = collect($callSites)->map(fn (array $site): mixed => data_get($site['step'], 'with.environment'));
 
@@ -313,7 +376,7 @@ it('uses the environment class for Sentry, never the deployment target', functio
 });
 
 it('keeps the Sentry auth token in GitHub secrets and out of every server-facing surface', function () {
-    $callSites = sentryReleaseCallSites();
+    $callSites = array_merge(sentryReleaseCallSites(), deploymentRecordingCallSites());
 
     foreach ($callSites as $label => $site) {
         // A composite action has no secrets context of its own, so it forwards
@@ -389,7 +452,7 @@ it('marks a rollback as a new deployment of the same immutable release', functio
         ->toContain('release_id=${active_release}')
         // A rollback that succeeded must never be failed by observability, so
         // anything that is not a canonical release ID records nothing instead.
-        ->toContain('skipping Sentry deployment marker')
+        ->toContain('skipping the deployment markers')
         // Same rule for the read-back connection itself: this is a second SSH
         // session made only to fetch a value, and under `set -e` an unguarded
         // assignment would abort the step and fail an already-healthy rollback.
@@ -397,11 +460,11 @@ it('marks a rollback as a new deployment of the same immutable release', functio
         ->toContain('Could not read the active release back from the target.');
 
     // Nothing is recorded when the release could not be resolved.
-    $marker = $steps->get('Record Sentry deployment marker for the restored release');
+    $marker = $steps->get('Record the restored release in Sentry and Nightwatch');
 
-    expect(data_get($marker, 'uses'))->toBe('./.github/actions/sentry-release')
+    expect(data_get($marker, 'uses'))->toBe('./.github/actions/record-rateguru-deployment')
         ->and(data_get($marker, 'with.release-id'))->toBe('${{ steps.active.outputs.release_id }}')
-        ->and(data_get($marker, 'if'))->toBe("\${{ steps.active.outputs.release_id != '' }}");
+        ->and(data_get($marker, 'if'))->toBe("\${{ steps.active.outputs.release_id != '' && steps.active.outputs.source_sha != '' }}");
 
     // No synthetic "rollback" release is ever created, anywhere.
     foreach ([

@@ -76,7 +76,10 @@ it('defines a hardened reusable RateGuru rollback action', function () {
         'Configure SSH',
         'Roll back via target-aware wrapper',
         'Resolve the release now serving the target',
-        'Record Sentry deployment marker for the restored release',
+        // Phase 7.2A: one step records the restored release in every
+        // observability system, through the shared action, rather than a
+        // Sentry-only step here.
+        'Record the restored release in Sentry and Nightwatch',
         'Write rollback summary',
         'Remove temporary SSH material',
     ]);
@@ -108,16 +111,20 @@ it('defines a hardened reusable RateGuru rollback action', function () {
             ->and(data_get($action, "inputs.{$observability}.default"))->toBe('');
     }
 
-    // The read-back release is the only thing a caller gets out of a rollback.
+    // The read-back release and its commit are the only things a caller gets
+    // out of a rollback — both resolved from the server, never from the
+    // request.
     expect(data_get($action, 'outputs.active-release-id.value'))
         ->toBe('${{ steps.active.outputs.release_id }}');
+    expect(data_get($action, 'outputs.active-source-sha.value'))
+        ->toBe('${{ steps.active.outputs.source_sha }}');
 
     // Every run script takes its inputs through env, never interpolation.
     // The observability step is a `uses:` and has no script to interpolate
     // into, so it is skipped explicitly rather than silently passing on null.
     foreach ($steps as $step) {
         if (is_string(data_get($step, 'uses'))) {
-            expect(data_get($step, 'uses'))->toBe('./.github/actions/sentry-release');
+            expect(data_get($step, 'uses'))->toBe('./.github/actions/record-rateguru-deployment');
 
             continue;
         }
@@ -147,23 +154,34 @@ it('is the only GitHub rollback implementation, used by both operator workflows'
         'rollback-production.yml:rollback',
     ]);
 
-    // No workflow may keep its own copy of the rollback transport.
+    // No workflow may keep its own copy of the rollback transport. Comment
+    // lines are excluded: other workflows legitimately explain, in prose, that
+    // the credential they use is NOT the one the rollback wrappers accept.
     foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
+        $executable = implode("\n", array_filter(
+            explode("\n", File::get($path)),
+            static fn (string $line): bool => ! str_starts_with(ltrim($line), '#'),
+        ));
+
         foreach (['rateguru-rollback', 'ssh-keygen', 'readlink -f'] as $mechanic) {
-            expect(str_contains(File::get($path), $mechanic))
+            expect(str_contains($executable, $mechanic))
                 ->toBeFalse(basename($path).' re-implements the shared rollback transport: '.$mechanic);
         }
     }
 });
 
-it('owns the one post-rollback Sentry marker, and lets it fail without failing the rollback', function () {
-    $marker = rollbackRateGuruStep('Record Sentry deployment marker for the restored release');
+it('owns the one post-rollback deployment marker, and lets it fail without failing the rollback', function () {
+    $marker = rollbackRateGuruStep('Record the restored release in Sentry and Nightwatch');
 
-    // Delegates to the shared observability action — which is itself
-    // continue-on-error — rather than reimplementing a Sentry call.
-    expect(data_get($marker, 'uses'))->toBe('./.github/actions/sentry-release')
-        ->and(data_get($marker, 'if'))->toBe("\${{ steps.active.outputs.release_id != '' }}")
+    // Delegates to the shared recording action — which reuses the Sentry
+    // action and is fail-open throughout — rather than reimplementing either
+    // observability call. Both identities must have been resolved from the
+    // server first.
+    expect(data_get($marker, 'uses'))->toBe('./.github/actions/record-rateguru-deployment')
+        ->and(data_get($marker, 'if'))->toBe("\${{ steps.active.outputs.release_id != '' && steps.active.outputs.source_sha != '' }}")
         ->and(data_get($marker, 'with.release-id'))->toBe('${{ steps.active.outputs.release_id }}')
+        ->and(data_get($marker, 'with.source-sha'))->toBe('${{ steps.active.outputs.source_sha }}')
+        ->and(data_get($marker, 'with.deployment-target'))->toBe('${{ inputs.deployment-target }}')
         ->and(data_get($marker, 'with.environment'))->toBe('${{ inputs.environment }}')
         ->and(data_get($marker, 'with.sentry-auth-token'))->toBe('${{ inputs.sentry-auth-token }}')
         ->and(data_get($marker, 'with.sentry-org'))->toBe('${{ inputs.sentry-org }}')
@@ -179,7 +197,7 @@ it('owns the one post-rollback Sentry marker, and lets it fail without failing t
     // Cleanup still happens even though a step was inserted before it.
     $names = collect(data_get(rollbackRateGuruAction(), 'runs.steps'))->pluck('name')->all();
 
-    expect(array_search('Record Sentry deployment marker for the restored release', $names, true))
+    expect(array_search('Record the restored release in Sentry and Nightwatch', $names, true))
         ->toBeLessThan(array_search('Remove temporary SSH material', $names, true));
 
     // Exactly one implementation: neither operator workflow may carry a copy.
@@ -194,7 +212,8 @@ it('owns the one post-rollback Sentry marker, and lets it fail without failing t
         }
 
         expect(collect(data_get($workflow, 'jobs.rollback.steps'))->pluck('uses')->all())
-            ->not->toContain('./.github/actions/sentry-release', basename($path).' duplicates the rollback Sentry marker');
+            ->not->toContain('./.github/actions/sentry-release')
+            ->not->toContain('./.github/actions/record-rateguru-deployment');
     }
 });
 
@@ -290,9 +309,14 @@ it('never fails an already-healthy rollback for an observability reason', functi
         ->and(data_get($resolve, 'run'))
         ->toContain("'basename \"\$(readlink -f %q)\"'")
         ->toContain('release_id=${active_release}')
-        ->toContain('skipping Sentry deployment marker')
+        // Phase 7.2A: the commit is resolved alongside the release, from that
+        // release's own release.json, because a rollback request carries none.
+        ->toContain('source_sha=${active_sha}')
+        ->toContain("jq -r '.source_sha // empty'")
+        ->toContain('skipping the deployment markers')
         ->toContain('if ! active_release="$(')
         ->toContain('Could not read the active release back from the target.')
+        ->toContain('Could not read release.json back from the target.')
         ->toContain('DEPLOY_ROOT is not configured; cannot resolve the active release.')
         ->toContain("release_regex='^v[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}\$'");
 

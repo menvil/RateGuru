@@ -31,6 +31,15 @@ infrastructure, and moves out once a second project exists.
   Supervisor/cron files plus the host-global SSH restriction; PRE_DEPLOY
   vs DEPLOYED aware, external secrets never generated) — see
   [`runbooks/bootstrap-services.md`](runbooks/bootstrap-services.md);
+- host preparation: `infrastructure/scripts/prepare-host` — one resumable
+  operation that turns a clean supported VPS into infrastructure ready to
+  host one target, orchestrating `bootstrap-host` together with the external
+  material installer (`install-target-prerequisites`, which delivers
+  operator-supplied secrets and never generates or overwrites any) and the
+  target database installer (`install-target-database`, which never drops,
+  recreates, migrates or rotates anything). It deploys no application, and a
+  prepared target legitimately has no release — see
+  [`runbooks/prepare-host.md`](runbooks/prepare-host.md);
 - deployment and rollback scripts;
 - backend observability: Sentry error/performance monitoring correlated to the
   canonical release ID, the deployment target and the Git commit, with the
@@ -39,7 +48,10 @@ infrastructure, and moves out once a second project exists.
 - the Phase 6B Laravel Nightwatch evaluation: a Supervisor-managed local agent
   on staging-main only, installed and removed by
   `scripts/install-nightwatch-agent`, running side by side with Sentry so the
-  two can be compared on real traffic before either is chosen — see
+  two can be compared on real traffic before either is chosen; the same
+  installer owns the narrow server-side deployment-marker primitive
+  (`scripts/record-nightwatch-deployment`) that gives Nightwatch the same
+  deploy/rollback timeline Sentry has — see
   [`runbooks/nightwatch-evaluation.md`](runbooks/nightwatch-evaluation.md);
 - local and offsite backup scripts;
 - shared staging mail capture (Mailpit + Mailtrap Local) — see

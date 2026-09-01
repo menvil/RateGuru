@@ -1,0 +1,330 @@
+name: Record RateGuru deployment
+description: >-
+  Record one successful, already-verified RateGuru deployment state transition
+  in every observability system: a Sentry deployment marker and a Laravel
+  Nightwatch deployment marker. Observability only — this never decides whether
+  a deployment succeeded, and no failure inside it may fail the deployment.
+
+# The single place a successful deployment state transition is reported, for
+# every target and for both operations that produce one.
+#
+# A deploy and a rollback are the same event to observability: an immutable
+# release became the release this target serves, at this moment. Recording it
+# therefore lives here once rather than three times — deploy-staging.yml's
+# observability job, release.yml's two deployment jobs and
+# rollback-rateguru's post-rollback step all call this action with the release
+# the server was verified to be serving.
+#
+# A rollback never invents a release. It records a NEW deployment marker
+# against the SAME existing immutable release ID the target landed on, because
+# that is what actually happened; a synthetic "rollback-<n>" release would
+# decorrelate every event the marker exists to explain.
+#
+# FAIL-OPEN IS THE CONTRACT. By the time this action runs, the artifact is
+# extracted, `current` is switched, PHP-FPM is reloaded, the health check has
+# passed and the active release has been verified. Sentry being unreachable, a
+# Nightwatch outage, or a host that has not opted into Nightwatch at all are
+# observability gaps — never a reason to fail a healthy deployment, and never a
+# reason to roll one back. Every remote interaction below is
+# continue-on-error, and the summary states plainly what was and was not
+# recorded.
+#
+# Input validation is the one deliberate exception. A malformed release ID or
+# environment can only come from a mistake in this repository's own workflows,
+# never from the network or the host, so it fails closed rather than silently
+# recording nothing.
+
+inputs:
+  deployment-target:
+    required: true
+    description: Deployment target ID from the RateGuru target registry
+
+  environment:
+    required: true
+    description: >-
+      Sentry environment class — staging or production. Never a target ID:
+      which brand is deployed is a tag on the events, not an environment.
+
+  release-id:
+    required: true
+    description: >-
+      The canonical immutable RateGuru release ID the target was VERIFIED to be
+      serving after the operation. Never a requested release, never a computed
+      one.
+
+  source-sha:
+    required: true
+    description: >-
+      The commit that release's own release.json records. Checked against the
+      server's copy before any Nightwatch marker is produced.
+
+  sentry-auth-token:
+    required: false
+    default: ""
+    description: >-
+      Sentry API token, supplied from GitHub Environment secrets only. Passed
+      through the environment rather than a command line so it cannot leak
+      through a process list.
+
+  sentry-org:
+    required: false
+    default: ""
+    description: Sentry organization slug
+
+  sentry-project:
+    required: false
+    default: ""
+    description: Sentry project slug
+
+  deploy-host:
+    required: false
+    default: ""
+    description: SSH server hostname or IP for the Nightwatch marker; empty disables it
+
+  deploy-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  deploy-user:
+    required: false
+    default: ""
+    description: >-
+      The restricted deployment user. Deliberately the ordinary deploy
+      credential, never the privileged bootstrap one: recording a marker is a
+      routine post-deployment step, not host administration.
+
+  ssh-private-key:
+    required: false
+    default: ""
+    description: Deployment SSH private key
+
+  known-hosts:
+    required: false
+    default: ""
+    description: Verified SSH known_hosts entry
+
+outputs:
+  sentry-recorded:
+    description: "true when Sentry accepted the release and deploy marker"
+    value: ${{ steps.sentry.outputs.recorded }}
+
+  nightwatch-recorded:
+    description: "true when the server confirmed the Nightwatch deployment marker"
+    value: ${{ steps.report.outputs.recorded }}
+
+runs:
+  using: composite
+
+  steps:
+    # Fails closed, before any network call. Everything checked here is
+    # produced by this repository's own workflows, so a violation is a bug in
+    # them rather than an environmental condition — the one thing in this
+    # action that is not fail-open.
+    - name: Validate deployment identity
+      id: preflight
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        RELEASE_ID: ${{ inputs.release-id }}
+        SOURCE_SHA: ${{ inputs.source-sha }}
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+        SSH_KEY_PRESENT: ${{ inputs.ssh-private-key != '' }}
+        KNOWN_HOSTS_PRESENT: ${{ inputs.known-hosts != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        # Rejects empty, uppercase, slash, whitespace, shell metacharacters
+        # and a flag-shaped value (a leading "-") in one closed character
+        # class. Exactly the expression the deploy and rollback actions
+        # validate a target with.
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        release_regex='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+        [[ "${RELEASE_ID}" =~ ${release_regex} ]] || {
+          echo "Invalid release ID: ${RELEASE_ID}" >&2
+          exit 1
+        }
+
+        [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{7,40}$ ]] || {
+          echo "Invalid source SHA: ${SOURCE_SHA}" >&2
+          exit 1
+        }
+
+        case "${ENVIRONMENT}" in
+          staging|production)
+            ;;
+          *)
+            echo "environment must be staging or production (got: ${ENVIRONMENT})" >&2
+            exit 1
+            ;;
+        esac
+
+        # An environment that has not been given the deployment SSH material
+        # still deploys normally; it just records no Nightwatch marker. Missing
+        # configuration is reported, never fatal — the same rule the Sentry
+        # action applies to its own credentials.
+        if [[ -n "${DEPLOY_HOST}" ]] \
+          && [[ -n "${DEPLOY_USER}" ]] \
+          && [[ "${SSH_KEY_PRESENT}" == "true" ]] \
+          && [[ "${KNOWN_HOSTS_PRESENT}" == "true" ]]
+        then
+          echo "nightwatch_configured=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "nightwatch_configured=false" >> "${GITHUB_OUTPUT}"
+          echo "No deployment SSH material for the ${ENVIRONMENT} environment; skipping the Nightwatch deployment marker."
+        fi
+
+    # Reuses the existing Sentry implementation rather than duplicating it.
+    # That action is itself continue-on-error internally and skips cleanly when
+    # the environment carries no Sentry credentials.
+    - name: Record Sentry release and deployment marker
+      id: sentry
+      uses: ./.github/actions/sentry-release
+      with:
+        sentry-auth-token: ${{ inputs.sentry-auth-token }}
+        sentry-org: ${{ inputs.sentry-org }}
+        sentry-project: ${{ inputs.sentry-project }}
+
+        environment: ${{ inputs.environment }}
+
+        release-id: ${{ inputs.release-id }}
+
+    # Distinct variable and file names from the deploy and rollback actions on
+    # purpose: this action is called from inside jobs that already have their
+    # own SSH material in GITHUB_ENV, and reusing their names would make the
+    # caller's own cleanup step delete this action's file instead of its own.
+    - name: Configure observability SSH
+      if: ${{ steps.preflight.outputs.nightwatch_configured == 'true' }}
+      shell: bash
+      env:
+        SSH_PRIVATE_KEY: ${{ inputs.ssh-private-key }}
+        KNOWN_HOSTS: ${{ inputs.known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_observability_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_observability_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${SSH_PRIVATE_KEY}" > "${key_path}"
+        printf '%s\n' "${KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_OBSERVABILITY_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_OBSERVABILITY_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    # The Nightwatch deployment primitive is application-side: `artisan
+    # nightwatch:deploy` reads NIGHTWATCH_TOKEN out of the target's own
+    # shared/.env. Rather than bring that token — or arbitrary staging
+    # application source — onto a GitHub runner, the marker is produced on the
+    # server, by the runtime user, inside the release that is actually
+    # serving.
+    #
+    # The remote command is a fixed argv built as a Bash array and quoted
+    # element-wise, never an interpolated shell string, and it invokes the
+    # generic target-aware wrapper — which accepts a closed flag set, resolves
+    # the target through the registry, enforces lifecycle, authorizes the
+    # calling deploy user against that target, scrubs the environment and
+    # execs one specific binary. There is no path here to an arbitrary remote
+    # command.
+    #
+    # continue-on-error is the whole point: the deployment already succeeded.
+    - name: Record Nightwatch deployment marker
+      id: nightwatch
+      if: ${{ steps.preflight.outputs.nightwatch_configured == 'true' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        RELEASE_ID: ${{ inputs.release-id }}
+        SOURCE_SHA: ${{ inputs.source-sha }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -Eeuo pipefail
+
+        remote_command=(
+          sudo -n /usr/local/sbin/rateguru-nightwatch-deployment
+          --target "${DEPLOYMENT_TARGET}"
+          --release "${RELEASE_ID}"
+          --source-sha "${SOURCE_SHA}"
+          --run-url "${RUN_URL}"
+        )
+
+        ssh \
+          -p "${DEPLOY_PORT}" \
+          -i "${RATEGURU_OBSERVABILITY_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_OBSERVABILITY_KNOWN_HOSTS_PATH}" \
+          "${DEPLOY_USER}@${DEPLOY_HOST}" \
+          "${remote_command[@]@Q}"
+
+    - name: Report observability outcome
+      id: report
+      if: ${{ always() }}
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        RELEASE_ID: ${{ inputs.release-id }}
+        SOURCE_SHA: ${{ inputs.source-sha }}
+        CONFIGURED: ${{ steps.preflight.outputs.nightwatch_configured }}
+        OUTCOME: ${{ steps.nightwatch.outcome }}
+        SENTRY_RECORDED: ${{ steps.sentry.outputs.recorded }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ "${CONFIGURED}" != "true" ]]; then
+          recorded="false"
+          nightwatch_summary="Nightwatch deployment marker skipped: the ${ENVIRONMENT} environment has no deployment SSH material."
+        elif [[ "${OUTCOME}" == "success" ]]; then
+          recorded="true"
+          nightwatch_summary="Nightwatch recorded a deployment of \`${RELEASE_ID}\` on \`${DEPLOYMENT_TARGET}\`."
+        else
+          recorded="false"
+          nightwatch_summary="Nightwatch deployment marker FAILED. The deployment itself succeeded and the target is serving \`${RELEASE_ID}\`; this is an observability gap and must not be rolled back for."
+        fi
+
+        echo "recorded=${recorded}" >> "${GITHUB_OUTPUT}"
+
+        {
+          echo "## Deployment observability"
+          echo
+          echo "- Target: \`${DEPLOYMENT_TARGET}\`"
+          echo "- Environment: \`${ENVIRONMENT}\`"
+          echo "- Release: \`${RELEASE_ID}\`"
+          echo "- Source commit: \`${SOURCE_SHA}\`"
+          echo "- Sentry recorded: \`${SENTRY_RECORDED:-false}\`"
+          echo "- Nightwatch recorded: \`${recorded}\`"
+          echo
+          echo "${nightwatch_summary}"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+        echo "${nightwatch_summary}"
+
+    - name: Remove temporary observability SSH material
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RATEGURU_OBSERVABILITY_SSH_KEY_PATH:-}" \
+          "${RATEGURU_OBSERVABILITY_KNOWN_HOSTS_PATH:-}"
