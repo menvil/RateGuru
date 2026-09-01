@@ -246,6 +246,11 @@ For `staging-main` that resolves to ten logical prerequisites:
 | `deploy-authorized-keys` | target | the target registry |
 | `rclone-config` | target | host-global root configuration |
 
+Each row also declares the owner, group and mode its destination must have —
+the runtime identity for `.env`, the deploy user for `authorized_keys`,
+`root:www-data` for the htpasswd, and so on. Those are installed on material
+this operation delivers, and verified on material that was already there.
+
 The rules, in full:
 
 | Destination | Supplied material | Result |
@@ -265,16 +270,26 @@ deliberate operation.
 Secrets are compared, never read. A conflict reports only that the two
 differ: no content, no length, no hash, no byte offset.
 
+### Symlinked destinations
+
 A destination may be a **symlink only where an ACME client actually publishes
-one**: one of the four TLS rows (`tls-certificate`, `tls-private-key`,
-`mail-tls-certificate`, `mail-tls-private-key`), at a path under
-`/etc/letsencrypt/live/`, resolving to a regular file inside
-`/etc/letsencrypt/`. That is exactly how certbot publishes
-`live/<host>/{fullchain,privkey}.pem`, and such a link is accepted as present
-and never written through. All three conditions are required — the logical name
-alone would let a link at an allowed path point at anything and still be
-reported as prepared TLS. A link resolving to nothing, to something that is not
-a regular file, or to material outside the ACME tree fails closed.
+one**, and all of the following must hold together:
+
+- it is one of the four TLS rows (`tls-certificate`, `tls-private-key`,
+  `mail-tls-certificate`, `mail-tls-private-key`);
+- the destination is exactly
+  `/etc/letsencrypt/live/<certificate>/fullchain.pem` or
+  `…/privkey.pem`, with the leaf matching the row;
+- the link resolves to that **same certificate's** numbered archive file,
+  `/etc/letsencrypt/archive/<certificate>/<leaf><version>.pem`.
+
+That is precisely what certbot publishes, and such a link is accepted as
+present and never written through. Every condition is load-bearing: the logical
+name alone, or a loose "points somewhere inside `/etc/letsencrypt`" test, would
+let a link at an allowed path be repointed at another certificate's key — or at
+any other file in the tree — and preparation would bless the substitution as
+correct state. A link resolving to nothing, to something that is not a regular
+file, or anywhere other than its own archive file fails closed.
 
 Everywhere else a link is refused outright, and that is a security property
 rather than tidiness: a target's `shared/` directory is writable by the
@@ -282,12 +297,24 @@ application's own runtime user, so accepting a link there would let a
 compromised runtime replace `.env` with a pointer at attacker-controlled
 material and have preparation bless it as present and correct.
 
-Verification checks presence, and one metadata property: a **secret-class
-prerequisite readable by every user on the host** fails. Exact modes are the
-operator's business — this material predates preparation, and ACME tooling has
-its own conventions — but a world-readable `.env`, TLS private key, htpasswd or
-`rclone.conf` is an exposure rather than a style difference, and nothing else on
-the host will say so. The fix is `chmod o-r` on the named file.
+### Ownership and mode
+
+Verification enforces the **owner, group and mode the prerequisite table
+declares**, exactly — not merely presence, and not merely the absence of
+world-read.
+
+Presence alone is not readiness. A `shared/.env` that drifted to `root:root
+0600` is perfectly protected from outsiders and completely unreadable by the
+PHP-FPM and queue workers that have to read it; an htpasswd that lost its
+`www-data` group breaks Nginx the same way; an `authorized_keys` or
+`rclone.conf` with the wrong owner is simply ignored. Each of those is a target
+verification would otherwise call prepared and that would then fail on its first
+real use, so each is a failure here, with the exact `chown`/`chmod` to run in
+the message.
+
+`stat` dereferences, so for the ACME material that legitimately is a link the
+file behind it is checked — which is what any reader actually opens, and whose
+modes certbot already sets to what this table declares.
 
 Supplied material has its trailing newlines normalized to exactly one, since
 GitHub secrets do not record whether the operator's file ended with one.

@@ -32,9 +32,10 @@ function itpCleanup(string $dir): void
 
 /**
  * @param  list<string>  $arguments
+ * @param  array<string, string>  $environment
  * @return array{0: int, 1: string}
  */
-function itpRun(string $scratch, array $arguments): array
+function itpRun(string $scratch, array $arguments, array $environment = []): array
 {
     $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
     $process = proc_open(
@@ -42,17 +43,17 @@ function itpRun(string $scratch, array $arguments): array
         $descriptors,
         $pipes,
         null,
-        [
+        array_merge([
             'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
             'HOME' => getenv('HOME') ?: '/tmp',
             'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
             'RATEGURU_TARGETPREREQ_EUID' => '0',
             'RATEGURU_TARGETPREREQ_FS_ROOT' => $scratch,
             // The scratch tree has no rateguru-staging or www-data account, so
-            // ownership is the one thing that cannot be exercised here; modes,
-            // destinations and every safety rule are all real.
+            // ownership comparison is off by default; the test that exercises
+            // it turns it on and relies on a row declared root:root.
             'RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'false',
-        ],
+        ], $environment),
     );
 
     expect($process)->not->toBeFalse();
@@ -69,6 +70,50 @@ function itpSupply(string $scratch, array $names, string $content = 'material-co
     foreach ($names as $name) {
         file_put_contents($scratch.'/root/material/'.$name, $content."-{$name}\n");
         chmod($scratch.'/root/material/'.$name, 0o600);
+    }
+}
+
+/**
+ * A genuine certbot layout for one certificate: numbered files in `archive/`
+ * and the two stable links in `live/`, with certbot's own modes.
+ */
+function itpCertbotCertificate(string $scratch, string $certificate): void
+{
+    mkdir($scratch.'/etc/letsencrypt/archive/'.$certificate, 0o755, true);
+    mkdir($scratch.'/etc/letsencrypt/live/'.$certificate, 0o755, true);
+
+    foreach (['fullchain' => 0o644, 'privkey' => 0o600] as $leaf => $mode) {
+        $archived = $scratch.'/etc/letsencrypt/archive/'.$certificate.'/'.$leaf.'1.pem';
+
+        file_put_contents($archived, "certbot-{$leaf}\n");
+        chmod($archived, $mode);
+
+        symlink(
+            '../../archive/'.$certificate.'/'.$leaf.'1.pem',
+            $scratch.'/etc/letsencrypt/live/'.$certificate.'/'.$leaf.'.pem',
+        );
+    }
+}
+
+/**
+ * Every host-scope destination present with the mode the table declares, so a
+ * test can make exactly one of them wrong and see that one reported.
+ */
+function itpValidHostScope(string $scratch): void
+{
+    itpCertbotCertificate($scratch, 'rateguru.staging.myprojects.pp.ua');
+    itpCertbotCertificate($scratch, 'staging-mail-capture');
+
+    mkdir($scratch.'/etc/nginx', 0o755, true);
+    file_put_contents($scratch.'/etc/nginx/rateguru-staging.htpasswd', "hashes\n");
+    chmod($scratch.'/etc/nginx/rateguru-staging.htpasswd', 0o640);
+
+    foreach ([
+        '/etc/letsencrypt/options-ssl-nginx.conf',
+        '/etc/letsencrypt/ssl-dhparams.pem',
+    ] as $shared) {
+        file_put_contents($scratch.$shared, "shared\n");
+        chmod($scratch.$shared, 0o644);
     }
 }
 
@@ -401,49 +446,18 @@ it('generates nothing when material is absent', function () {
     }
 });
 
-it('accepts an ACME-managed symlink at a TLS destination and never replaces it', function () {
+it('accepts a real certbot layout and never replaces it', function () {
     $scratch = itpScratchDir();
 
     try {
-        // Exactly what certbot leaves behind: live/<host>/*.pem are links into
-        // its own archive. Rejecting them would make every host with real
-        // certbot-managed TLS fail verification forever.
-        mkdir($scratch.'/etc/letsencrypt/archive/rateguru.staging.myprojects.pp.ua', 0o755, true);
-        mkdir($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua', 0o755, true);
-        mkdir($scratch.'/etc/nginx', 0o755, true);
-
-        foreach (['fullchain' => 0o644, 'privkey' => 0o600] as $name => $mode) {
-            $archived = $scratch.'/etc/letsencrypt/archive/rateguru.staging.myprojects.pp.ua/'.$name.'1.pem';
-            file_put_contents($archived, "certbot-{$name}
-");
-            chmod($archived, $mode);
-            symlink($archived, $scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/'.$name.'.pem');
-        }
-
-        file_put_contents($scratch.'/etc/nginx/rateguru-staging.htpasswd', 'hashes
-');
-        chmod($scratch.'/etc/nginx/rateguru-staging.htpasswd', 0o640);
-
-        foreach ([
-            '/etc/letsencrypt/options-ssl-nginx.conf',
-            '/etc/letsencrypt/ssl-dhparams.pem',
-        ] as $shared) {
-            file_put_contents($scratch.$shared, 'shared
-');
-        }
-
-        mkdir($scratch.'/etc/letsencrypt/live/staging-mail-capture', 0o755, true);
-        file_put_contents($scratch.'/etc/letsencrypt/live/staging-mail-capture/fullchain.pem', 'mail-cert
-');
-        file_put_contents($scratch.'/etc/letsencrypt/live/staging-mail-capture/privkey.pem', 'mail-key
-');
-        chmod($scratch.'/etc/letsencrypt/live/staging-mail-capture/privkey.pem', 0o600);
+        itpValidHostScope($scratch);
 
         [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'host']);
 
         expect($exit)->toBe(0, $output);
 
-        // And a re-run with material still refuses to write through the link.
+        // And a re-run with differing material still refuses to write through
+        // the link.
         itpSupply($scratch, ITP_HOST_MATERIAL);
 
         [$exit] = itpRun($scratch, [
@@ -454,8 +468,65 @@ it('accepts an ACME-managed symlink at a TLS destination and never replaces it',
         expect($exit)->toBe(1, 'differing material must still fail closed');
         expect(is_link($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem'))->toBeTrue();
         expect(File::get($scratch.'/etc/letsencrypt/archive/rateguru.staging.myprojects.pp.ua/privkey1.pem'))
-            ->toBe('certbot-privkey
-');
+            ->toBe("certbot-privkey\n");
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('refuses a TLS link repointed at another certificate or at a non-archive file', function () {
+    foreach ([
+        'another certificate' => '../../archive/other-certificate/privkey1.pem',
+        'a non-archive file in the tree' => '../../ssl-dhparams.pem',
+        'somewhere outside the tree entirely' => '/attacker-key.pem',
+    ] as $case => $linkTarget) {
+        $scratch = itpScratchDir();
+
+        try {
+            itpValidHostScope($scratch);
+
+            mkdir($scratch.'/etc/letsencrypt/archive/other-certificate', 0o755, true);
+            file_put_contents($scratch.'/etc/letsencrypt/archive/other-certificate/privkey1.pem', "other\n");
+            chmod($scratch.'/etc/letsencrypt/archive/other-certificate/privkey1.pem', 0o600);
+            file_put_contents($scratch.'/attacker-key.pem', "attacker\n");
+            chmod($scratch.'/attacker-key.pem', 0o600);
+
+            // "It is a TLS row, and it points at some regular file" is not
+            // enough: the link has to resolve to its OWN certificate's
+            // numbered archive file, or a substituted key would be blessed as
+            // correct state.
+            $key = $scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem';
+            unlink($key);
+            symlink($linkTarget, $key);
+
+            [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'host']);
+
+            expect($exit)->toBe(1, "a key repointed at {$case} must be refused");
+            expect($output)->toContain('does not resolve to its own /etc/letsencrypt/archive/<certificate>/ file');
+        } finally {
+            itpCleanup($scratch);
+        }
+    }
+});
+
+it('refuses a TLS link at a destination certbot would never publish', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpValidHostScope($scratch);
+
+        // The four TLS logical names may only be links at
+        // live/<certificate>/{fullchain,privkey}.pem. The shared dhparams file
+        // is a TLS row certbot does not publish as a link at all.
+        file_put_contents($scratch.'/etc/letsencrypt/real-dhparams.pem', "dh\n");
+        chmod($scratch.'/etc/letsencrypt/real-dhparams.pem', 0o644);
+        unlink($scratch.'/etc/letsencrypt/ssl-dhparams.pem');
+        symlink($scratch.'/etc/letsencrypt/real-dhparams.pem', $scratch.'/etc/letsencrypt/ssl-dhparams.pem');
+
+        [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'host']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('only ACME-published certificate/key material');
     } finally {
         itpCleanup($scratch);
     }
@@ -478,11 +549,11 @@ it('refuses a symlinked destination for anything but ACME-published TLS material
         [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target']);
 
         expect($exit)->toBe(1);
-        expect($output)->toContain('only ACME-published TLS material under /etc/letsencrypt/live/ may be');
+        expect($output)->toContain('only ACME-published certificate/key material');
 
         [$exit, $output] = itpRun($scratch, ['--check', '--target', 'staging-main', '--scope', 'target']);
         expect($exit)->toBe(1);
-        expect($output)->toContain('only ACME-published TLS material under /etc/letsencrypt/live/ may be');
+        expect($output)->toContain('only ACME-published certificate/key material');
 
         // Refused, never followed and never replaced.
         expect(is_link($scratch.'/home/www/rateguru/staging/shared/.env'))->toBeTrue();
@@ -492,37 +563,7 @@ it('refuses a symlinked destination for anything but ACME-published TLS material
     }
 });
 
-it('refuses a TLS link that points outside the ACME tree', function () {
-    $scratch = itpScratchDir();
-
-    try {
-        // Everything in scope present and valid...
-        itpSupply($scratch, ITP_HOST_MATERIAL);
-        itpRun($scratch, [
-            '--apply', '--target', 'staging-main', '--scope', 'host',
-            '--material-dir', '/root/material',
-        ]);
-
-        // ...except one key replaced by a link to material outside the ACME
-        // tree. An allowlisted logical name at an allowed path is not enough
-        // on its own.
-        $key = $scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem';
-        unlink($key);
-        file_put_contents($scratch.'/attacker-key', "-----BEGIN PRIVATE KEY-----\n");
-        chmod($scratch.'/attacker-key', 0o600);
-        symlink($scratch.'/attacker-key', $key);
-
-        [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'host']);
-
-        expect($exit)->toBe(1);
-        expect($output)->toContain('pointing outside /etc/letsencrypt/');
-        expect(is_link($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem'))->toBeTrue();
-    } finally {
-        itpCleanup($scratch);
-    }
-});
-
-it('fails verification when a secret prerequisite is readable by every user on the host', function () {
+it('enforces the declared mode, not merely the absence of world-read', function () {
     $scratch = itpScratchDir();
 
     try {
@@ -534,21 +575,63 @@ it('fails verification when a secret prerequisite is readable by every user on t
             '--material-dir', '/root/material',
         ]);
 
-        // Exact modes are the operator's business, but a .env readable by every
-        // account on the box is an exposure, and nothing else on this host will
-        // say so.
-        chmod($scratch.'/home/www/rateguru/staging/shared/.env', 0o644);
+        $env = $scratch.'/home/www/rateguru/staging/shared/.env';
+
+        // Wider than declared: an exposure.
+        chmod($env, 0o644);
 
         [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target']);
 
         expect($exit)->toBe(1);
-        expect($output)->toContain('readable by every user on the host');
-        expect($output)->toContain('chmod o-r');
+        expect($output)->toContain('has mode 644, expected 0640');
+        expect($output)->toContain('chmod 0640 /home/www/rateguru/staging/shared/.env');
 
-        chmod($scratch.'/home/www/rateguru/staging/shared/.env', 0o640);
+        // Narrower than declared is a failure too, and this is the case a
+        // world-read check misses entirely: the secret is perfectly protected
+        // and the runtime group can no longer read it, so PHP-FPM and the
+        // queue worker fail on their first real use.
+        chmod($env, 0o600);
+
+        [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('has mode 600, expected 0640');
+
+        chmod($env, 0o640);
 
         [$exit] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target']);
         expect($exit)->toBe(0);
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('enforces the declared owner and group, which is what makes the file readable at all', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpCreateTargetDirectories($scratch);
+        itpSupply($scratch, ITP_TARGET_MATERIAL);
+
+        itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'target',
+            '--material-dir', '/root/material',
+        ]);
+
+        // In a scratch tree every file belongs to whoever ran the suite, so
+        // turning ownership comparison on is enough to exercise the mismatch
+        // path against the real declared owner — here the runtime identity the
+        // application actually reads .env as.
+        [$exit, $output] = itpRun(
+            $scratch,
+            ['--verify', '--target', 'staging-main', '--scope', 'target'],
+            ['RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'true'],
+        );
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('expected rateguru-staging:rateguru-staging');
+        expect($output)->toContain('the declared owner is the account that has to read it');
+        expect($output)->toContain('chown rateguru-staging:rateguru-staging');
     } finally {
         itpCleanup($scratch);
     }
@@ -599,7 +682,7 @@ it('refuses a symlinked htpasswd, where no link is allowed at all', function () 
         ]);
 
         expect($exit)->toBe(1);
-        expect($output)->toContain('only ACME-published TLS material under /etc/letsencrypt/live/ may be');
+        expect($output)->toContain('only ACME-published certificate/key material');
         expect(File::get($scratch.'/decoy'))->toBe("decoy\n");
     } finally {
         itpCleanup($scratch);

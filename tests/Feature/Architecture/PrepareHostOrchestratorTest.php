@@ -47,6 +47,27 @@ function prepScratchDir(): string
     return $dir;
 }
 
+/**
+ * A registry fixture for the lifecycle gate.
+ *
+ * Copied from the committed registry so it satisfies the same schema the real
+ * `targets` CLI validates, then written into the scratch tree. The tests below
+ * are about what prepare-host DOES with a lifecycle, so they must not depend on
+ * — or be broken by — an edit to the real registry; the separate test at the
+ * end of this file is what pins the real registry's own lifecycle values, and
+ * keeps the fixture from quietly diverging from reality.
+ */
+function prepRegistryFixture(string $scratch): string
+{
+    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
+
+    $path = $scratch.'/deployment-targets.json';
+
+    file_put_contents($path, json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+    return $path;
+}
+
 function prepCleanup(string $dir): void
 {
     exec('rm -rf '.escapeshellarg($dir));
@@ -207,17 +228,15 @@ function prepFixture(string $scratch, array $options = []): array
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_PREPAREHOST_EUID' => $options['euid'] ?? '0',
-        // The lifecycle gate is exercised against the REAL committed registry
-        // through the REAL targets CLI, on purpose: staging-main being active
-        // and tits-guru being planned is the contract these tests exist to
-        // pin, and a fixture registry would only prove the fixture. Both are
-        // named explicitly so the dependency is visible rather than
-        // accidental — and so a test run cannot silently pick up an installed
-        // runtime registry instead.
+        // The real `targets` CLI — it is the authoritative reader and the thing
+        // whose behaviour matters — pointed at a registry fixture inside the
+        // scratch tree. Both are named explicitly, so a run can never pick up
+        // an installed runtime registry, and an edit to the committed one
+        // cannot silently change what these tests mean.
         'RATEGURU_PREPAREHOST_TARGETS_CLI_BIN' => $options['targets_cli']
             ?? base_path('infrastructure/scripts/targets'),
         'RATEGURU_PREPAREHOST_SOURCE_REGISTRY' => $options['registry']
-            ?? base_path('infrastructure/config/deployment-targets.json'),
+            ?? prepRegistryFixture($scratch),
         'RATEGURU_PREPAREHOST_RUNTIME_INSTALLER_BIN' => $scratch.'/bin/runtime',
         'RATEGURU_PREPAREHOST_PREREQUISITES_INSTALLER_BIN' => $scratch.'/bin/prerequisites',
         'RATEGURU_PREPAREHOST_BOOTSTRAP_HOST_BIN' => $scratch.'/bin/bootstrap',
@@ -808,6 +827,22 @@ it('reports plainly that a prepared target has no application release', function
     } finally {
         prepCleanup($scratch);
     }
+});
+
+it('gates on the same lifecycle values the committed registry actually declares', function () {
+    // The tests above run against a copy of the registry, so this is what keeps
+    // the copy honest: the two target IDs they exercise, and the lifecycles the
+    // real registry gives them.
+    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
+
+    expect($registry['targets']['staging-main']['lifecycle'])->toBe('active');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+
+    // And `active` is the only value prepare-host accepts, however it is
+    // spelled.
+    preg_match_all('/lifecycle[^\n]*?[!=]=\s*"?([a-z]+)"?/', prepSource(), $matches);
+
+    expect(array_values(array_unique($matches[1])))->toBe(['active']);
 });
 
 it('is not installed into the operational bundle or reachable through a deploy sudo wrapper', function () {

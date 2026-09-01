@@ -545,19 +545,53 @@ validate_material_dir() {
 CLASSIFY_STATE=""
 CLASSIFY_REASON=""
 
-# ACME_LIVE_PREFIX — where an ACME client publishes the links, and the only
-# place a linked prerequisite may live or point.
+# Where an ACME client publishes its material. `live/<certificate>/<leaf>.pem`
+# is the stable path a vhost references; the file behind it is a numbered
+# version under `archive/<certificate>/`.
 ACME_LIVE_PREFIX="/etc/letsencrypt/live/"
-ACME_ROOT_PREFIX="/etc/letsencrypt/"
+ACME_ARCHIVE_PREFIX="/etc/letsencrypt/archive/"
+
+# acme_expected_leaf NAME — the certbot filename this logical prerequisite must
+# be, or non-zero when the prerequisite may not be a link at all.
+acme_expected_leaf() {
+    case "$1" in
+        tls-certificate|mail-tls-certificate) printf 'fullchain\n' ;;
+        tls-private-key|mail-tls-private-key) printf 'privkey\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+# acme_certificate_name NAME DESTINATION — the <certificate> component of a
+# destination that is exactly `live/<certificate>/<expected leaf>.pem`, or
+# non-zero when the destination is not certbot-shaped for this prerequisite.
+acme_certificate_name() {
+    local name="$1" destination="$2" leaf certificate
+
+    leaf="$(acme_expected_leaf "${name}")" || return 1
+
+    [[ "${destination}" == "${ACME_LIVE_PREFIX}"*"/${leaf}.pem" ]] || return 1
+
+    certificate="${destination#"${ACME_LIVE_PREFIX}"}"
+    certificate="${certificate%"/${leaf}.pem"}"
+
+    # Exactly one path component, and no traversal: `..`, a slash or an empty
+    # name would each let a "live/<certificate>" prefix match something that is
+    # not a certificate directory at all.
+    [[ "${certificate}" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$ ]] || return 1
+    [[ "${certificate}" != *".."* ]] || return 1
+
+    printf '%s\n' "${certificate}"
+}
 
 # destination_may_be_a_symlink NAME DESTINATION — whether this prerequisite's
 # canonical destination is allowed to be a link.
 #
-# Only the ACME-published certificate and key pairs qualify, and the logical
-# name alone is not enough to decide it: the destination has to be one an ACME
-# client actually publishes. Certbot writes live/<host>/{fullchain,privkey}.pem
-# as links into its own archive, and rejecting those would make every host with
-# real certbot-managed TLS fail verification forever — but that is the entire
+# Only where an ACME client actually publishes one, and the logical name alone
+# does not decide it: the destination itself has to be a certbot path,
+# `live/<certificate>/fullchain.pem` or `live/<certificate>/privkey.pem`, with
+# the leaf matching the prerequisite. Certbot writes those two as links into
+# its own archive, and rejecting them would make every host with real
+# certbot-managed TLS fail verification forever — but that is the entire
 # exception, not a general licence for the four TLS rows.
 #
 # Everything else must be a real file, and that is a security property rather
@@ -566,35 +600,45 @@ ACME_ROOT_PREFIX="/etc/letsencrypt/"
 # replace .env with a pointer at attacker-controlled material and have
 # preparation bless it as present and correct.
 destination_may_be_a_symlink() {
-    local name="$1" destination="$2"
-
-    case "${name}" in
-        tls-certificate|tls-private-key|mail-tls-certificate|mail-tls-private-key)
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-
-    [[ "${destination}" == "${ACME_LIVE_PREFIX}"* ]]
+    acme_certificate_name "$1" "$2" >/dev/null
 }
 
-# acme_link_target_is_managed DESTINATION — the link must also resolve inside
-# the ACME tree. Otherwise a link at an allowed path could still point at
-# arbitrary material and be reported as prepared TLS.
-acme_link_target_is_managed() {
-    local resolved acme_root
+# acme_link_is_managed NAME DESTINATION — the link must resolve to the file
+# certbot would have put behind it: `archive/<the same certificate>/<the same
+# leaf><version>.pem`.
+#
+# "Points somewhere inside /etc/letsencrypt" is not enough. Without tying the
+# archive directory to the certificate the live path names, and the filename to
+# the leaf, a link at an allowed path could be repointed at another
+# certificate's key — or at any other file in the tree — and preparation would
+# bless the substitution as correct state.
+acme_link_is_managed() {
+    local name="$1" destination="$2"
+    local leaf certificate resolved expected_prefix suffix version
 
-    # Both sides are canonicalized before comparison. A prefix test between a
-    # resolved path and an unresolved one would be decided by whatever
-    # symlinks happen to sit above the tree — which is how a scratch root under
-    # /var (a link to /private/var) makes a perfectly managed link look
-    # foreign.
-    resolved="$(readlink -m -- "$(physical "$1")" 2>/dev/null || true)"
-    acme_root="$(readlink -m -- "$(physical "${ACME_ROOT_PREFIX}")" 2>/dev/null || true)"
+    leaf="$(acme_expected_leaf "${name}")" || return 1
+    certificate="$(acme_certificate_name "${name}" "${destination}")" || return 1
 
-    [[ -n "${resolved}" ]] && [[ -n "${acme_root}" ]] \
-        && [[ "${resolved}" == "${acme_root}/"* ]]
+    # Both sides canonicalized before comparison: a prefix test between a
+    # resolved path and an unresolved one is decided by whatever symlinks sit
+    # above the tree.
+    resolved="$(readlink -m -- "$(physical "${destination}")" 2>/dev/null || true)"
+    expected_prefix="$(readlink -m -- "$(physical "${ACME_ARCHIVE_PREFIX}${certificate}")" 2>/dev/null || true)"
+
+    [[ -n "${resolved}" ]] && [[ -n "${expected_prefix}" ]] || return 1
+
+    suffix="${resolved#"${expected_prefix}/"}"
+
+    # An unchanged value means the prefix did not match at all.
+    [[ "${suffix}" != "${resolved}" ]] || return 1
+
+    version="${suffix#"${leaf}"}"
+
+    [[ "${version}" != "${suffix}" ]] || return 1
+
+    version="${version%.pem}"
+
+    [[ "${version}" =~ ^[0-9]+$ ]]
 }
 
 classify_row() {
@@ -611,22 +655,23 @@ classify_row() {
     if [[ -L "${dst}" ]]; then
         if ! destination_may_be_a_symlink "${name}" "${destination}"; then
             CLASSIFY_STATE=CONFLICT
-            CLASSIFY_REASON="canonical destination is a symlink, and only ACME-published TLS material under ${ACME_LIVE_PREFIX} may be: ${destination}"
+            CLASSIFY_REASON="canonical destination is a symlink, and only ACME-published certificate/key material at ${ACME_LIVE_PREFIX}<certificate>/ may be: ${destination}"
             return 0
         fi
 
-        # For the ones that may be: it has to resolve to a regular file, and
-        # that file has to be inside the ACME tree. Nothing here ever writes
-        # through it, because a destination that exists is never installed over.
+        # For the ones that may be: it has to resolve to a regular file, and to
+        # the exact file certbot would have put behind it. Nothing here ever
+        # writes through it, because a destination that exists is never
+        # installed over.
         if [[ ! -f "${dst}" ]]; then
             CLASSIFY_STATE=CONFLICT
             CLASSIFY_REASON="canonical destination is a symlink that does not resolve to a regular file: ${destination}"
             return 0
         fi
 
-        if ! acme_link_target_is_managed "${destination}"; then
+        if ! acme_link_is_managed "${name}" "${destination}"; then
             CLASSIFY_STATE=CONFLICT
-            CLASSIFY_REASON="canonical destination is a symlink pointing outside ${ACME_ROOT_PREFIX}: ${destination}"
+            CLASSIFY_REASON="canonical destination is a symlink that does not resolve to its own ${ACME_ARCHIVE_PREFIX}<certificate>/ file: ${destination}"
             return 0
         fi
     fi
@@ -858,8 +903,48 @@ run_apply() {
     log "PASS: external prerequisites satisfied for ${TARGET_ID} (scope=${SCOPE})"
 }
 
+# verify_row_metadata NAME DESTINATION OWNER GROUP MODE DESCRIPTION — the
+# ownership and mode contract the prerequisite table already declares, enforced
+# rather than merely recorded.
+#
+# Presence alone is not readiness, and "not world-readable" is not either. A
+# shared/.env that drifted to root:root 0600 is perfectly protected from
+# outsiders and completely unreadable by the PHP-FPM and queue workers that
+# have to read it; an htpasswd that lost its www-data group breaks Nginx the
+# same way; an authorized_keys or rclone.conf with the wrong owner is simply
+# ignored. Each of those is a target that verification would otherwise call
+# prepared and that would then fail on its first real use — so the declared
+# owner, group and mode are all checked exactly, with the fix in the message.
+#
+# stat dereferences (-L) on purpose: for the ACME material that legitimately is
+# a link, the file behind it is what any reader will actually open, and
+# certbot's own archive modes are exactly what this table declares.
+verify_row_metadata() {
+    local name="$1" destination="$2" owner="$3" group="$4" mode="$5" description="$6"
+    local dst actual_owner actual_group actual_mode
+
+    dst="$(physical "${destination}")"
+
+    actual_mode="$("${STAT_BIN}" -L -c '%a' "${dst}")"
+
+    (( 8#${actual_mode} == 8#${mode} )) \
+        || fail "external prerequisite ${name} has mode ${actual_mode}, expected ${mode}: ${destination} (${description}) — run: chmod ${mode} ${destination}"
+
+    # Ownership is compared only where the accounts exist to compare against.
+    # Production always does; a scratch tree used to exercise the rest of this
+    # contract does not, and inventing a verdict there would be a test artifact
+    # rather than a check.
+    [[ "${ENFORCE_OWNERSHIP}" == true ]] || return 0
+
+    actual_owner="$("${STAT_BIN}" -L -c '%U' "${dst}")"
+    actual_group="$("${STAT_BIN}" -L -c '%G' "${dst}")"
+
+    [[ "${actual_owner}:${actual_group}" == "${owner}:${group}" ]] \
+        || fail "external prerequisite ${name} is owned by ${actual_owner}:${actual_group}, expected ${owner}:${group}: ${destination} (${description}) — the declared owner is the account that has to read it; run: chown ${owner}:${group} ${destination}"
+}
+
 verify_rows() {
-    local row scope name destination owner group mode secret description dst actual_mode count=0
+    local row scope name destination owner group mode secret description dst count=0
 
     while IFS='|' read -r scope name destination owner group mode secret description; do
         [[ -n "${name}" ]] || continue
@@ -870,10 +955,10 @@ verify_rows() {
         # material that legitimately is one — but only for that material.
         if [[ -L "${dst}" ]]; then
             destination_may_be_a_symlink "${name}" "${destination}" \
-                || fail "external prerequisite ${name} is a symlink, and only ACME-published TLS material under ${ACME_LIVE_PREFIX} may be: ${destination}"
+                || fail "external prerequisite ${name} is a symlink, and only ACME-published certificate/key material at ${ACME_LIVE_PREFIX}<certificate>/ may be: ${destination}"
 
-            acme_link_target_is_managed "${destination}" \
-                || fail "external prerequisite ${name} is a symlink pointing outside ${ACME_ROOT_PREFIX}: ${destination}"
+            acme_link_is_managed "${name}" "${destination}" \
+                || fail "external prerequisite ${name} is a symlink that does not resolve to its own ${ACME_ARCHIVE_PREFIX}<certificate>/ file: ${destination}"
         fi
 
         [[ -e "${dst}" ]] \
@@ -881,26 +966,14 @@ verify_rows() {
         [[ -f "${dst}" ]] \
             || fail "external prerequisite ${name} is not a regular file: ${destination}"
 
-        # The one metadata property worth failing on. Exact modes are the
-        # operator's business — this material predates preparation and is often
-        # published by an ACME client with its own conventions — but a private
-        # key, a .env or an htpasswd readable by every account on the box is an
-        # exposure, not a style difference, and nothing else on this host will
-        # tell them.
-        if [[ "${secret}" == secret ]]; then
-            actual_mode="$("${STAT_BIN}" -L -c '%a' "${dst}")"
-
-            (( (8#${actual_mode} & 8#0004) == 0 )) \
-                || fail "external prerequisite ${name} is readable by every user on the host (mode ${actual_mode}): ${destination} (${description}) — remove other-read (chmod o-r) before the target can be considered prepared"
-        fi
+        verify_row_metadata "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
 
         count=$((count + 1))
     done < <(rows_in_scope)
 
-    # Presence and exposure only, in the spirit of install-bootstrap-services'
-    # own contract for this material: content is never read, never validated
-    # and never printed.
-    log "all ${count} external prerequisites in scope=${SCOPE} are present at their canonical destinations, and no secret among them is world-readable (content never read)"
+    # Presence, ownership and mode — never content, which is not read, not
+    # validated and not printed.
+    log "all ${count} external prerequisites in scope=${SCOPE} are present at their canonical destinations with the declared ownership and mode (content never read)"
 }
 
 run_verify() {
