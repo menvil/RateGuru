@@ -401,13 +401,108 @@ it('generates nothing when material is absent', function () {
     }
 });
 
+it('accepts an ACME-managed symlink at a TLS destination and never replaces it', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        // Exactly what certbot leaves behind: live/<host>/*.pem are links into
+        // its own archive. Rejecting them would make every host with real
+        // certbot-managed TLS fail verification forever.
+        mkdir($scratch.'/etc/letsencrypt/archive/rateguru.staging.myprojects.pp.ua', 0o755, true);
+        mkdir($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua', 0o755, true);
+        mkdir($scratch.'/etc/nginx', 0o755, true);
+
+        foreach (['fullchain' => 0o644, 'privkey' => 0o600] as $name => $mode) {
+            $archived = $scratch.'/etc/letsencrypt/archive/rateguru.staging.myprojects.pp.ua/'.$name.'1.pem';
+            file_put_contents($archived, "certbot-{$name}
+");
+            chmod($archived, $mode);
+            symlink($archived, $scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/'.$name.'.pem');
+        }
+
+        file_put_contents($scratch.'/etc/nginx/rateguru-staging.htpasswd', 'hashes
+');
+        chmod($scratch.'/etc/nginx/rateguru-staging.htpasswd', 0o640);
+
+        foreach ([
+            '/etc/letsencrypt/options-ssl-nginx.conf',
+            '/etc/letsencrypt/ssl-dhparams.pem',
+        ] as $shared) {
+            file_put_contents($scratch.$shared, 'shared
+');
+        }
+
+        mkdir($scratch.'/etc/letsencrypt/live/staging-mail-capture', 0o755, true);
+        file_put_contents($scratch.'/etc/letsencrypt/live/staging-mail-capture/fullchain.pem', 'mail-cert
+');
+        file_put_contents($scratch.'/etc/letsencrypt/live/staging-mail-capture/privkey.pem', 'mail-key
+');
+        chmod($scratch.'/etc/letsencrypt/live/staging-mail-capture/privkey.pem', 0o600);
+
+        [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'host']);
+
+        expect($exit)->toBe(0, $output);
+
+        // And a re-run with material still refuses to write through the link.
+        itpSupply($scratch, ITP_HOST_MATERIAL);
+
+        [$exit] = itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'host',
+            '--material-dir', '/root/material',
+        ]);
+
+        expect($exit)->toBe(1, 'differing material must still fail closed');
+        expect(is_link($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem'))->toBeTrue();
+        expect(File::get($scratch.'/etc/letsencrypt/archive/rateguru.staging.myprojects.pp.ua/privkey1.pem'))
+            ->toBe('certbot-privkey
+');
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('fails verification when a secret prerequisite is readable by every user on the host', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpCreateTargetDirectories($scratch);
+        itpSupply($scratch, ITP_TARGET_MATERIAL);
+
+        itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'target',
+            '--material-dir', '/root/material',
+        ]);
+
+        // Exact modes are the operator's business, but a .env readable by every
+        // account on the box is an exposure, and nothing else on this host will
+        // say so.
+        chmod($scratch.'/home/www/rateguru/staging/shared/.env', 0o644);
+
+        [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('readable by every user on the host');
+        expect($output)->toContain('chmod o-r');
+
+        chmod($scratch.'/home/www/rateguru/staging/shared/.env', 0o640);
+
+        [$exit] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target']);
+        expect($exit)->toBe(0);
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
 it('refuses to follow a symlink at a canonical destination', function () {
     $scratch = itpScratchDir();
 
     try {
         mkdir($scratch.'/etc/nginx', 0o755, true);
-        file_put_contents($scratch.'/decoy', "decoy\n");
-        symlink($scratch.'/decoy', $scratch.'/etc/nginx/rateguru-staging.htpasswd');
+
+        // A link that resolves to a regular file is legitimate (certbot); one
+        // that resolves to nothing, or to a directory, is broken state this
+        // must never write through or paper over.
+        symlink($scratch.'/does-not-exist', $scratch.'/etc/nginx/rateguru-staging.htpasswd');
 
         itpSupply($scratch, ITP_HOST_MATERIAL);
 
@@ -417,8 +512,9 @@ it('refuses to follow a symlink at a canonical destination', function () {
         ]);
 
         expect($exit)->toBe(1);
-        expect($output)->toContain('canonical destination is a symlink');
-        expect(File::get($scratch.'/decoy'))->toBe("decoy\n");
+        expect($output)->toContain('does not resolve to a regular file');
+        expect(is_link($scratch.'/etc/nginx/rateguru-staging.htpasswd'))->toBeTrue();
+        expect(file_exists($scratch.'/does-not-exist'))->toBeFalse();
     } finally {
         itpCleanup($scratch);
     }

@@ -123,6 +123,24 @@ function prepWriteChildStubs(string $scratch): void
                 echo "${key} apply done"
                 exit 0
                 ;;
+            *--check*)
+                # The material-aware mode: satisfied only when the destination
+                # holds what the run supplied. A conflict toggle makes it
+                # refuse even though the material-blind verify would pass.
+                if [[ -e "${STUB_TOGGLES}/${key}-material-conflict" ]]; then
+                    echo "SUMMARY"
+                    echo "conflicts 1"
+                    exit 1
+                fi
+                if [[ -e "${STUB_TOGGLES}/${key}-compliant" ]]; then
+                    echo "SUMMARY"
+                    echo "${key} CONTRACT: SATISFIED"
+                    exit 0
+                fi
+                echo "SUMMARY"
+                echo "${key} CONTRACT: NOT SATISFIED"
+                exit 1
+                ;;
             *)
                 if [[ -e "${STUB_TOGGLES}/${key}-compliant" ]]; then
                     echo "SUMMARY"
@@ -189,6 +207,17 @@ function prepFixture(string $scratch, array $options = []): array
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_PREPAREHOST_EUID' => $options['euid'] ?? '0',
+        // The lifecycle gate is exercised against the REAL committed registry
+        // through the REAL targets CLI, on purpose: staging-main being active
+        // and tits-guru being planned is the contract these tests exist to
+        // pin, and a fixture registry would only prove the fixture. Both are
+        // named explicitly so the dependency is visible rather than
+        // accidental — and so a test run cannot silently pick up an installed
+        // runtime registry instead.
+        'RATEGURU_PREPAREHOST_TARGETS_CLI_BIN' => $options['targets_cli']
+            ?? base_path('infrastructure/scripts/targets'),
+        'RATEGURU_PREPAREHOST_SOURCE_REGISTRY' => $options['registry']
+            ?? base_path('infrastructure/config/deployment-targets.json'),
         'RATEGURU_PREPAREHOST_RUNTIME_INSTALLER_BIN' => $scratch.'/bin/runtime',
         'RATEGURU_PREPAREHOST_PREREQUISITES_INSTALLER_BIN' => $scratch.'/bin/prerequisites',
         'RATEGURU_PREPAREHOST_BOOTSTRAP_HOST_BIN' => $scratch.'/bin/bootstrap',
@@ -488,6 +517,31 @@ it('skips a slice whose own verify already passes instead of reapplying it', fun
     }
 });
 
+it('surfaces conflicting material on a prepared host instead of skipping past it', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepPreparedFixture($scratch);
+
+        // The host is fully prepared and its material-blind verify passes, but
+        // the operator supplied a rotated secret. Preparation must report the
+        // conflict, not quietly succeed.
+        touch($scratch.'/toggles/prerequisites-host-material-conflict');
+        touch($scratch.'/toggles/prerequisites-host-apply-fail');
+
+        [$exit, $output] = prepRun(
+            ['--apply', '--target', 'staging-main', '--material-dir', '/root/material'],
+            $env,
+        );
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('DIFFERS from the supplied material');
+        expect($output)->toContain('resume at slice host-prerequisites');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
 it('is idempotent: a second run on a prepared host mutates nothing at all', function () {
     $scratch = prepScratchDir();
 
@@ -575,6 +629,51 @@ it('propagates an abnormal child status verbatim and never escalates it into an 
 // =============================================================================
 // Read-only modes really are read-only
 // =============================================================================
+
+it('uses the material-aware check as the pre-apply gate for the prerequisite slices', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        // A prerequisite slice's --verify is deliberately material-blind, so
+        // skipping on it would let a re-run whose supplied material CONFLICTS
+        // with the host sail past the one diagnostic that exists to catch it.
+        prepRun(
+            ['--apply', '--target', 'staging-main', '--material-dir', '/root/material'],
+            prepPreparedFixture($scratch),
+        );
+
+        $prerequisiteChecks = array_values(array_filter(
+            prepLog($scratch, 'children'),
+            static fn (string $line): bool => str_starts_with($line, 'prerequisites '),
+        ));
+
+        expect($prerequisiteChecks)->not->toBeEmpty();
+
+        foreach ($prerequisiteChecks as $call) {
+            expect($call)->toContain('--check');
+            expect($call)->toContain('--material-dir /root/material');
+        }
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('falls back to the material-blind verify when no material was supplied', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        prepRun(['--apply', '--target', 'staging-main'], prepPreparedFixture($scratch));
+
+        foreach (prepLog($scratch, 'children') as $call) {
+            if (str_starts_with($call, 'prerequisites ')) {
+                expect($call)->toContain('--verify');
+                expect($call)->not->toContain('--material-dir');
+            }
+        }
+    } finally {
+        prepCleanup($scratch);
+    }
+});
 
 it('never invokes a child apply from --check or --verify', function () {
     $scratch = prepScratchDir();

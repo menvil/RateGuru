@@ -289,7 +289,7 @@ it('never puts a secret on a command line, in a log or in a summary', function (
     expect($source)->toContain('names only; no content is ever reported');
 
     // The run summary carries the verification SUMMARY block and nothing else.
-    expect($source)->toContain("awk '/^SUMMARY\$/ { collecting = 1 } collecting { print }'");
+    expect($source)->toContain('awk \'/^SUMMARY$/ { collecting = 1 } collecting { print }\'');
     expect($source)->not->toMatch('/echo\s+"\$\{MATERIAL_/');
     expect($source)->not->toMatch('/cat\s+"\$\{material_dir\}/');
 });

@@ -73,14 +73,21 @@ sudo infrastructure/scripts/prepare-host --verify --target staging-main
 ## The pipeline, and why the order is what it is
 
 ```text
-lifecycle gate (target must be active)
-  → 5.2 install-bootstrap-runtime                    base packages
+5.2 install-bootstrap-runtime                      base packages
+  → lifecycle gate (target must be active)
   → 7.2 install-target-prerequisites --scope host    Nginx-referenced material
   → 5.x bootstrap-host                               5.2 → 5.3 → 5.4 → preflight
   → 7.2 install-target-prerequisites --scope target  .env, deploy key, rclone
   → 7.2 install-target-database                      PostgreSQL role/database
   → final prepare-host verification
 ```
+
+The gate sits where it does for one reason: reading a JSON registry needs `jq`,
+and a clean Ubuntu image has none. The runtime slice is the only step allowed
+to precede it, and it installs packages from a committed list — no RateGuru
+identity, no target directory, no secret, nothing target-specific. On any host
+that already has `jq` — which is every host that has ever been prepared — the
+gate runs first, before anything at all.
 
 Each step sits at the only point in the sequence where it can succeed:
 
@@ -258,6 +265,18 @@ deliberate operation.
 Secrets are compared, never read. A conflict reports only that the two
 differ: no content, no length, no hash, no byte offset.
 
+A destination that is a **symlink resolving to a regular file** is accepted as
+present and never written through — that is exactly how an ACME client
+publishes `live/<host>/{fullchain,privkey}.pem`. A link resolving to nothing,
+or to something that is not a regular file, is broken state and fails closed.
+
+Verification checks presence, and one metadata property: a **secret-class
+prerequisite readable by every user on the host** fails. Exact modes are the
+operator's business — this material predates preparation, and ACME tooling has
+its own conventions — but a world-readable `.env`, TLS private key, htpasswd or
+`rclone.conf` is an exposure rather than a style difference, and nothing else on
+the host will say so. The fix is `chmod o-r` on the named file.
+
 Supplied material has its trailing newlines normalized to exactly one, since
 GitHub secrets do not record whether the operator's file ended with one.
 
@@ -271,6 +290,10 @@ On a clean host it creates the role (`LOGIN NOSUPERUSER NOCREATEDB
 NOCREATEROLE NOREPLICATION`), creates the database owned by that role, grants
 `CONNECT`, and then proves the target's own credentials can connect. On an
 already-prepared host both objects are SKIPped.
+
+It also refuses a pre-existing role that holds `SUPERUSER`, `CREATEDB`,
+`CREATEROLE`, `REPLICATION` or `BYPASSRLS`: "it can log in" is not "it is safe
+to hand the application", and this installer never alters an existing role.
 
 It never, in any mode:
 

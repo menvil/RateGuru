@@ -180,10 +180,16 @@ runs:
             ;;
         esac
 
-        [[ "${BOOTSTRAP_PORT}" =~ ^[0-9]{1,5}$ ]] || {
-          echo "Invalid bootstrap port: ${BOOTSTRAP_PORT}" >&2
+        # A syntactically numeric port is not enough: 0 and anything above
+        # 65535 would sail through and fail later inside every ssh and scp call
+        # with a far less obvious diagnostic.
+        if [[ ! "${BOOTSTRAP_PORT}" =~ ^[0-9]{1,5}$ ]] \
+          || (( BOOTSTRAP_PORT < 1 )) \
+          || (( BOOTSTRAP_PORT > 65535 ))
+        then
+          echo "Invalid bootstrap port (expected 1-65535): ${BOOTSTRAP_PORT}" >&2
           exit 1
-        }
+        fi
 
         for required_var in BOOTSTRAP_HOST BOOTSTRAP_USER; do
           if [[ -z "${!required_var}" ]]; then

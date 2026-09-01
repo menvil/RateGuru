@@ -247,6 +247,37 @@ slice_bin() {
     esac
 }
 
+# slice_preapply_mode SLICE_ID — which read-only child mode decides whether a
+# slice may be SKIPPED during --apply.
+#
+# For every slice but the two prerequisite ones this is `verify`: the question
+# is simply "does the host already satisfy this contract?".
+#
+# The prerequisite slices are different, and getting this wrong would defeat one
+# of the operation's load-bearing safety rules. Their `--verify` is deliberately
+# material-blind — a prepared host is judged by what is installed on it, not by
+# what was uploaded beside the run — so on a re-run where the operator supplied
+# material that DIFFERS from what the host holds, `--verify` would pass, the
+# slice would be skipped, and the conflict this whole design exists to surface
+# would never be reported. `--check` is the material-aware read-only mode, and
+# it is the correct gate whenever material was supplied: it returns 0 only when
+# there is nothing to install AND nothing in conflict.
+slice_preapply_mode() {
+    local slice_id="$1"
+
+    case "${slice_id}" in
+        host-prerequisites|target-prerequisites)
+            if [[ -n "${MATERIAL_DIR}" ]]; then
+                printf 'check\n'
+
+                return 0
+            fi
+            ;;
+    esac
+
+    printf 'verify\n'
+}
+
 # slice_args SLICE_ID MODE — the child's own argv for one mode.
 #
 # bootstrap-host is host-global and takes no --target: a host is bootstrapped
@@ -564,8 +595,8 @@ run_apply() {
     # every case before the first target-specific slice.
     gate_lifecycle_now_if_possible
 
-    local slice_id label bin apply_status
-    local -a verify_args apply_args
+    local slice_id label bin apply_status precheck_mode
+    local -a precheck_args apply_args verify_args
 
     for slice_id in "${SLICE_IDS[@]}"; do
         label="$(slice_label "${slice_id}")"
@@ -576,13 +607,15 @@ run_apply() {
         # existence for a target that has not passed the lifecycle gate.
         gate_lifecycle_before "${slice_id}"
 
-        mapfile -t verify_args < <(slice_args "${slice_id}" verify)
+        precheck_mode="$(slice_preapply_mode "${slice_id}")"
+
+        mapfile -t precheck_args < <(slice_args "${slice_id}" "${precheck_mode}")
         mapfile -t apply_args < <(slice_args "${slice_id}" apply)
 
         printf '\nSLICE %s — %s\n' "${slice_id}" "${label}"
-        printf '  VERIFY %s%s...\n' "${label}" "$(slice_duration_note "${slice_id}")"
+        printf '  %s %s%s...\n' "${precheck_mode^^}" "${label}" "$(slice_duration_note "${slice_id}")"
 
-        run_child_captured "${bin}" "${verify_args[@]}"
+        run_child_captured "${bin}" "${precheck_args[@]}"
 
         # The convergence rule, and the reason a second prepare run is cheap
         # and safe: an already-satisfied slice is SKIPPED outright. Nothing is
@@ -590,7 +623,7 @@ run_apply() {
         # a live .env and rotates a working credential.
         if (( CHILD_STATUS == 0 )); then
             SLICE_STATUS[${slice_id}]='PASS (already satisfied — skipped)'
-            printf '  SKIP — already satisfied (%s %s passed); no child apply\n' "${bin}" "${verify_args[*]}"
+            printf '  SKIP — already satisfied (%s %s passed); no child apply\n' "${bin}" "${precheck_args[*]}"
             continue
         fi
 
@@ -600,10 +633,10 @@ run_apply() {
         # propagated verbatim and never escalated into a child apply.
         if (( CHILD_STATUS != 1 )); then
             print_child_excerpt
-            child_failed "slice ${slice_id} pre-apply verification" "${bin}" "${verify_args[@]}"
+            child_failed "slice ${slice_id} pre-apply verification" "${bin}" "${precheck_args[@]}"
         fi
 
-        printf '  APPLY required (%s %s exit status %d)\n' "${bin}" "${verify_args[*]}" "${CHILD_STATUS}"
+        printf '  APPLY required (%s %s exit status %d)\n' "${bin}" "${precheck_args[*]}" "${CHILD_STATUS}"
         printf '  APPLY %s %s (child output follows)\n' "${bin}" "${apply_args[*]}"
 
         # The child's own --apply streams directly: its transaction, its
@@ -621,6 +654,10 @@ run_apply() {
 
         printf '  VERIFY %s (post-apply)%s...\n' "${label}" "$(slice_duration_note "${slice_id}")"
 
+        # Always the authoritative --verify here, never the material-aware
+        # --check: afterwards the only question that matters is whether the
+        # host itself satisfies the contract.
+        mapfile -t verify_args < <(slice_args "${slice_id}" verify)
         run_child_captured "${bin}" "${verify_args[@]}"
 
         # The child's own apply reported success while its authoritative

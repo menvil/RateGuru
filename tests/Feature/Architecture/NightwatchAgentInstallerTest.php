@@ -222,6 +222,17 @@ function nightwatchStubs(string $scratch, array $options = []): void
         .' *"/usr/local/sbin/"*|*"/rateguru/bin/"*) echo 755;;'
         .' *) echo 644;; esac';
 
+    // Stubbed like every other external tool this file touches, so the suite
+    // does not hard-depend on the `sudo` package being installed. The negative
+    // case below points it at a stub that rejects, which is what proves the
+    // installer's sudoers validation is not decorative.
+    file_put_contents($scratch.'/bin/visudo-stub', "#!/usr/bin/env bash\nexit 0\n");
+    chmod($scratch.'/bin/visudo-stub', 0o755);
+
+    file_put_contents($scratch.'/bin/visudo-reject', "#!/usr/bin/env bash\n"
+        ."echo 'parse error near line 1' >&2\nexit 1\n");
+    chmod($scratch.'/bin/visudo-reject', 0o755);
+
     file_put_contents($scratch.'/bin/stat-root', "#!/usr/bin/env bash\n"
         .'case "${2:-}" in "%U") echo root;; "%G") echo root;; "%a") '.$modeByDestination.';; *) echo "";; esac'."\n");
     chmod($scratch.'/bin/stat-root', 0o755);
@@ -254,6 +265,7 @@ function runNightwatchInstaller(string $scratch, array $arguments, array $overri
         'RATEGURU_NIGHTWATCH_CHOWN_BIN' => $scratch.'/bin/chown-stub',
         'RATEGURU_NIGHTWATCH_CHMOD_BIN' => $scratch.'/bin/chmod-stub',
         'RATEGURU_NIGHTWATCH_STAT_BIN' => $scratch.'/bin/stat-root',
+        'RATEGURU_NIGHTWATCH_VISUDO_BIN' => $scratch.'/bin/visudo-stub',
         'RATEGURU_NIGHTWATCH_WAIT_ATTEMPTS' => '1',
         'RATEGURU_NIGHTWATCH_RETRY_DELAY' => '0',
         'RATEGURU_NIGHTWATCH_STABILITY_WAIT' => '0',
@@ -675,6 +687,52 @@ it('fails verification when the application cannot reach its own agent', functio
         [$exit, $output] = runNightwatchInstaller($scratch, ['--verify', '--target', 'staging-main']);
         expect($exit)->not->toBe(0);
         expect($output)->toContain('nightwatch:status');
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('refuses to install the deployment-marker grant when visudo rejects it', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchDeployedTarget($scratch);
+
+        // A sudoers file the parser rejects would break every operational
+        // wrapper on the host, not just this one, so it must never reach
+        // /etc/sudoers.d under its real name.
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply', '--target', 'staging-main'], [
+            'RATEGURU_NIGHTWATCH_VISUDO_BIN' => $scratch.'/bin/visudo-reject',
+        ]);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('failed visudo -cf');
+        expect(is_file($scratch.'/fs/etc/sudoers.d/rateguru-nightwatch-deployment'))->toBeFalse();
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('refuses to manage a symlinked marker destination, and leaves it alone', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchDeployedTarget($scratch);
+
+        // Rejected before the transaction arms: a symlink recorded as "no
+        // previous file" would be deleted by a rollback that believed it was
+        // cleaning up after itself.
+        file_put_contents($scratch.'/fs/decoy', "decoy\n");
+        symlink($scratch.'/fs/decoy', $scratch.'/fs/usr/local/sbin/rateguru-nightwatch-deployment');
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('refusing to manage a symlinked destination');
+        expect(is_link($scratch.'/fs/usr/local/sbin/rateguru-nightwatch-deployment'))->toBeTrue();
+        expect(file_get_contents($scratch.'/fs/decoy'))->toBe("decoy\n");
     } finally {
         exec('rm -rf '.escapeshellarg($scratch));
     }

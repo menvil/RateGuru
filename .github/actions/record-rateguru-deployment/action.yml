@@ -202,7 +202,13 @@ runs:
     # purpose: this action is called from inside jobs that already have their
     # own SSH material in GITHUB_ENV, and reusing their names would make the
     # caller's own cleanup step delete this action's file instead of its own.
+    # Everything from here on is fail-open, this step included. A key that is
+    # malformed, or that rotated between the deploy job and this one, is an
+    # observability problem: it must leave the marker unrecorded, never fail an
+    # already-deployed, already-health-checked release. The step therefore
+    # reports usability through an output instead of its exit status.
     - name: Configure observability SSH
+      id: ssh
       if: ${{ steps.preflight.outputs.nightwatch_configured == 'true' }}
       shell: bash
       env:
@@ -220,12 +226,17 @@ runs:
         printf '%s\n' "${SSH_PRIVATE_KEY}" > "${key_path}"
         printf '%s\n' "${KNOWN_HOSTS}" > "${known_hosts_path}"
 
-        ssh-keygen -y -f "${key_path}" >/dev/null
-
         {
           echo "RATEGURU_OBSERVABILITY_SSH_KEY_PATH=${key_path}"
           echo "RATEGURU_OBSERVABILITY_KNOWN_HOSTS_PATH=${known_hosts_path}"
         } >> "${GITHUB_ENV}"
+
+        if ssh-keygen -y -f "${key_path}" >/dev/null 2>&1; then
+          echo "usable=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "usable=false" >> "${GITHUB_OUTPUT}"
+          echo "The deployment SSH key is not usable; skipping the Nightwatch deployment marker. The deployment itself is unaffected." >&2
+        fi
 
     # The Nightwatch deployment primitive is application-side: `artisan
     # nightwatch:deploy` reads NIGHTWATCH_TOKEN out of the target's own
@@ -245,7 +256,7 @@ runs:
     # continue-on-error is the whole point: the deployment already succeeded.
     - name: Record Nightwatch deployment marker
       id: nightwatch
-      if: ${{ steps.preflight.outputs.nightwatch_configured == 'true' }}
+      if: ${{ steps.preflight.outputs.nightwatch_configured == 'true' && steps.ssh.outputs.usable == 'true' }}
       continue-on-error: true
       shell: bash
       env:
@@ -288,6 +299,7 @@ runs:
         RELEASE_ID: ${{ inputs.release-id }}
         SOURCE_SHA: ${{ inputs.source-sha }}
         CONFIGURED: ${{ steps.preflight.outputs.nightwatch_configured }}
+        KEY_USABLE: ${{ steps.ssh.outputs.usable }}
         OUTCOME: ${{ steps.nightwatch.outcome }}
         SENTRY_RECORDED: ${{ steps.sentry.outputs.recorded }}
       run: |
@@ -296,6 +308,9 @@ runs:
         if [[ "${CONFIGURED}" != "true" ]]; then
           recorded="false"
           nightwatch_summary="Nightwatch deployment marker skipped: the ${ENVIRONMENT} environment has no deployment SSH material."
+        elif [[ "${KEY_USABLE}" != "true" ]]; then
+          recorded="false"
+          nightwatch_summary="Nightwatch deployment marker skipped: the ${ENVIRONMENT} deployment SSH key could not be read. The deployment itself succeeded and is unaffected."
         elif [[ "${OUTCOME}" == "success" ]]; then
           recorded="true"
           nightwatch_summary="Nightwatch recorded a deployment of \`${RELEASE_ID}\` on \`${DEPLOYMENT_TARGET}\`."

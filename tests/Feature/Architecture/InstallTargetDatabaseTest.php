@@ -68,7 +68,15 @@ function itdbWriteStubs(string $scratch): void
 
         # Order matters: the rolcanlogin probe also mentions pg_roles, so it has
         # to be matched before the generic existence query.
+        if [[ -e "${STUB_STATE}/psql-unreachable" ]]; then
+            echo "psql: error: connection to server failed" >&2
+            exit 2
+        fi
+
         case "${payload}" in
+            *"rolsuper"*)
+                [[ -e "${STUB_STATE}/role-elevated" ]] && echo SUPERUSER
+                ;;
             *"SELECT rolcanlogin"*)
                 [[ -e "${STUB_STATE}/role-exists" ]] && echo t
                 ;;
@@ -311,6 +319,89 @@ it('skips an existing role and database without recreating either', function () 
     }
 });
 
+it('refuses an over-privileged pre-existing role rather than calling the target prepared', function () {
+    $scratch = itdbScratchDir();
+
+    try {
+        itdbWriteStubs($scratch);
+        itdbWriteEnv($scratch);
+        itdbExistingDatabase($scratch);
+        touch($scratch.'/state/role-elevated');
+
+        // "It can log in" is not "it is safe to hand the application": a role
+        // created by someone else may hold SUPERUSER, and this installer never
+        // alters an existing role, so the only honest answer is to fail.
+        [$exit, $output] = itdbRun($scratch, ['--verify', '--target', 'staging-main']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('holds SUPERUSER');
+        expect($output)->toContain('never alters an existing role');
+
+        [$exit, $output] = itdbRun($scratch, ['--check', '--target', 'staging-main']);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('holds SUPERUSER');
+    } finally {
+        itdbCleanup($scratch);
+    }
+});
+
+it('treats an unreadable catalog as fatal, never as an absent object', function () {
+    $scratch = itdbScratchDir();
+
+    try {
+        itdbWriteStubs($scratch);
+        itdbWriteEnv($scratch);
+        touch($scratch.'/state/psql-unreachable');
+
+        // A database server that is down and a role that does not exist both
+        // produce empty output. Conflating them would let --check report a
+        // clean bill of health on a broken host, and let --apply converge
+        // against state it never actually read.
+        [$exit, $output] = itdbRun($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('refusing to treat an unreadable catalog as an absent object');
+        expect(itdbLog($scratch))
+            ->not->toContain('CREATE ROLE')
+            ->not->toContain('CREATE DATABASE');
+    } finally {
+        itdbCleanup($scratch);
+    }
+});
+
+it('reports readiness through the exit status of --check', function () {
+    $scratch = itdbScratchDir();
+
+    try {
+        itdbWriteStubs($scratch);
+        itdbWriteEnv($scratch);
+
+        // prepare-host's read-only walk reads this status; a --check that
+        // always succeeded would let it call a target prepared on a host with
+        // no database at all.
+        [$exit, $output] = itdbRun($scratch, ['--check', '--target', 'staging-main']);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('NEEDS_APPLY');
+
+        itdbExistingDatabase($scratch);
+
+        [$exit, $output] = itdbRun($scratch, ['--check', '--target', 'staging-main']);
+        expect($exit)->toBe(0);
+        expect($output)->toContain('already satisfied');
+
+        // And read-only means read-only: neither run issued a statement that
+        // changes anything. (The privilege probe legitimately names CREATEDB
+        // and CREATEROLE while reading pg_roles, so the guard names the
+        // statements rather than the substring.)
+        expect(itdbLog($scratch))
+            ->not->toContain('CREATE ROLE')
+            ->not->toContain('CREATE DATABASE')
+            ->not->toContain('GRANT ');
+    } finally {
+        itdbCleanup($scratch);
+    }
+});
+
 it('never issues a destructive or schema-changing statement in any mode', function () {
     $scratch = itdbScratchDir();
 
@@ -386,7 +477,9 @@ it('fails closed when existing credentials cannot connect, and changes nothing',
         expect($output)->toContain('were left completely untouched');
         expect($output)->toContain('rotation is a separate operation');
 
-        expect(itdbLog($scratch))->not->toContain('CREATE');
+        expect(itdbLog($scratch))
+            ->not->toContain('CREATE ROLE')
+            ->not->toContain('CREATE DATABASE');
     } finally {
         itdbCleanup($scratch);
     }
@@ -421,7 +514,11 @@ it('reads the target .env without ever sourcing or eval-ing it', function () {
     // Only real invocations count: the header prose legitimately promises the
     // file is "never eval'd".
     expect($source)->not->toMatch('/(^|[;&|(]\s*)eval\s/m');
+    // The allowlist is load-bearing, not decorative: the reads are driven from
+    // the array, so a seventh key cannot be introduced at a call site.
     expect($source)->toContain('ENV_KEYS=(DB_CONNECTION DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD)');
+    expect($source)->toContain('for key in "${ENV_KEYS[@]}"; do');
+    expect($source)->toContain('read_env_keys "${SHARED_ENV}"');
 
     // The only `source` in the file is the installed common library.
     preg_match_all('/^\s*source\s+"?([^"\n]+)"?/m', $source, $matches);

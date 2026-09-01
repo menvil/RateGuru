@@ -203,17 +203,31 @@ validate_inputs() {
 # point of the check: `rollback --previous` cannot know its own outcome in
 # advance, so a marker built from the request rather than the result would
 # routinely describe a release the server is not running.
+#
+# `current` must resolve to a direct child of the target's own releases
+# directory — the same containment rule deploy and rollback apply. A basename
+# match alone would be satisfied by a `current` pointing anywhere on the
+# filesystem, and this command runs that tree's artisan as the runtime user.
 resolve_active_release() {
     local current="${TARGET_ROOT}/current"
+    local releases="${TARGET_ROOT}/releases"
 
     [[ -L "${current}" ]] \
         || fail "no current release symlink for target ${TARGET_ID}: ${current}"
 
-    local resolved
+    local resolved resolved_releases
     resolved="$(readlink -f -- "${current}" 2>/dev/null || true)"
 
     [[ -n "${resolved}" ]] && [[ -d "${resolved}" ]] \
         || fail "current release symlink is dangling for target ${TARGET_ID}: ${current}"
+
+    resolved_releases="$(readlink -f -- "${releases}" 2>/dev/null || true)"
+
+    [[ -n "${resolved_releases}" ]] && [[ -d "${resolved_releases}" ]] \
+        || fail "releases directory is missing for target ${TARGET_ID}: ${releases}"
+
+    [[ "$(dirname -- "${resolved}")" == "${resolved_releases}" ]] \
+        || fail "current resolves outside ${releases} (${resolved}) for target ${TARGET_ID} — refusing to run anything from a release tree the target does not own"
 
     ACTIVE_RELEASE="$(basename -- "${resolved}")"
     ACTIVE_RELEASE_ROOT="${resolved}"
@@ -318,6 +332,17 @@ main() {
 
     TARGET_ROOT="$(target_root "${TARGET_ID}")"
     RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+
+    # The same deployment lock deploy, rollback and cleanup take, held for the
+    # whole read-then-record sequence. Without it a deploy or rollback landing
+    # between resolve_active_release and record_marker would have this command
+    # tell Nightwatch about a release the target had already stopped serving —
+    # the precise decorrelation the identity gate exists to prevent.
+    #
+    # It is `flock -n`: a marker that cannot take the lock fails immediately
+    # rather than queueing behind a deployment, and the caller treats that as
+    # the observability gap it is.
+    acquire_deployment_lock "${TARGET_ROOT}"
 
     resolve_active_release
     verify_release_metadata

@@ -14,16 +14,61 @@ use Symfony\Component\Yaml\Yaml;
  * unprovisioned until Phase 8.
  */
 
-/** @return list<string> */
+/**
+ * Every operational file a rejected architecture could sneak back into.
+ *
+ * PHP's glob has no `**`, so `infrastructure/config` is walked recursively
+ * rather than globbed — the committed config tree is two levels deep today and
+ * a guard that silently stopped at the first would be worse than no guard.
+ *
+ * @return list<string>
+ */
 function p72OperationalFiles(): array
 {
+    $configFiles = [];
+
+    $tree = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(base_path('infrastructure/config'), FilesystemIterator::SKIP_DOTS),
+    );
+
+    foreach ($tree as $entry) {
+        if ($entry->isFile()) {
+            $configFiles[] = $entry->getPathname();
+        }
+    }
+
     return array_values(array_filter(array_merge(
         glob(base_path('.github/workflows/*.yml')) ?: [],
         glob(base_path('.github/actions/*/action.yml')) ?: [],
         glob(base_path('infrastructure/scripts/*')) ?: [],
-        glob(base_path('infrastructure/config/*')) ?: [],
-        glob(base_path('infrastructure/config/**/*')) ?: [],
+        $configFiles,
     ), 'is_file'));
+}
+
+/**
+ * The revision this branch is measured against: the pull request's own base
+ * commit in CI, `origin/develop` locally, or null when neither is available.
+ *
+ * `actions/checkout` on a pull_request event creates no `origin/develop` ref,
+ * so a guard that only looked for that would silently skip in exactly the place
+ * it matters most.
+ */
+function p72BaseRevision(): ?string
+{
+    $baseSha = getenv('BASE_SHA');
+
+    if (is_string($baseSha) && $baseSha !== '' && p72GitSucceeds("cat-file -e {$baseSha}^{commit}")) {
+        return $baseSha;
+    }
+
+    return p72GitSucceeds('rev-parse --verify origin/develop') ? 'origin/develop' : null;
+}
+
+function p72GitSucceeds(string $arguments): bool
+{
+    $command = 'cd '.escapeshellarg(base_path()).' && git '.$arguments.' >/dev/null 2>&1; echo $?';
+
+    return trim((string) shell_exec($command)) === '0';
 }
 
 // =============================================================================
@@ -171,13 +216,18 @@ it('adds no durable release-artifact archive', function () {
 
     // GitHub artifacts stay what they are: temporary CI/deployment transport.
     $deployStaging = Yaml::parse(File::get(base_path('.github/workflows/deploy-staging.yml')));
-    $build = collect($deployStaging['jobs']['build']['steps'])->firstWhere('id', 'build');
+    $build = collect($deployStaging['jobs']['build']['steps'])
+        ->firstWhere('uses', './.github/actions/build-rateguru');
+
+    expect($build)->not->toBeNull('the staging build step is missing');
     expect($build['with']['artifact-retention-days'])->toBe('3');
 });
 
 it('leaves the backup architecture and its manifest schema untouched', function () {
+    $base = p72BaseRevision();
+
     $baseline = trim((string) shell_exec(
-        'cd '.escapeshellarg(base_path()).' && git diff --name-only origin/develop...HEAD 2>/dev/null'
+        'cd '.escapeshellarg(base_path()).' && git diff --name-only '.escapeshellarg($base).'...HEAD 2>/dev/null'
     ));
 
     $changed = $baseline === '' ? [] : explode("\n", $baseline);
@@ -193,8 +243,8 @@ it('leaves the backup architecture and its manifest schema untouched', function 
     ] as $untouched) {
         expect($changed)->not->toContain($untouched);
     }
-})->skip(fn (): bool => shell_exec('cd '.escapeshellarg(base_path()).' && git rev-parse --verify origin/develop 2>/dev/null') === null,
-    'requires an origin/develop reference');
+})->skip(fn (): bool => p72BaseRevision() === null,
+    'requires the PR base SHA or an origin/develop reference');
 
 it('keeps release.json exactly as it is', function () {
     // release.release stays the operator/history identity, release.source_sha

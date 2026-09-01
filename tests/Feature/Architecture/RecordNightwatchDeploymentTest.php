@@ -106,6 +106,10 @@ function nwWriteCommon(string $scratch): string
         log() { printf '[log] %s\\n' "\$*"; }
         fail() { printf 'ERROR: %s\\n' "\$*" >&2; exit 1; }
         require_root() { [[ "\${STUB_EUID:-0}" == 0 ]] || fail "this command must be executed as root"; }
+        acquire_deployment_lock() {
+            exec 200>"\$1/locks/deployment.lock"
+            flock -n 200 || fail "another deployment operation is already running"
+        }
         rateguru_test_overrides_allowed() { [[ "\${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]; }
         validate_release_id() {
             [[ "\$1" =~ \${RELEASE_ID_REGEX} ]] || fail "invalid release ID: \$1"
@@ -148,11 +152,25 @@ function nwTargetRoot(string $scratch, array $options = []): string
     $releaseRoot = $root.'/releases/'.$release;
 
     mkdir($releaseRoot, 0o755, true);
+    // The deployment lock directory slice 5.3 creates on a real host.
+    mkdir($root.'/locks', 0o755, true);
     touch($releaseRoot.'/artisan');
     file_put_contents($releaseRoot.'/release.json', json_encode([
         'release' => $metadataRelease,
         'source_sha' => $sha,
     ], JSON_PRETTY_PRINT));
+
+    if ($options['current_outside_releases'] ?? false) {
+        // A release-shaped directory somewhere else entirely: same basename,
+        // same release.json, but not a release this target owns.
+        $foreign = $scratch.'/foreign/'.$release;
+        mkdir($foreign, 0o755, true);
+        touch($foreign.'/artisan');
+        copy($releaseRoot.'/release.json', $foreign.'/release.json');
+        symlink($foreign, $root.'/current');
+
+        return $root;
+    }
 
     if ($options['current'] ?? true) {
         symlink($releaseRoot, $root.'/current');
@@ -404,6 +422,90 @@ it('refuses when release.json disagrees with the current symlink', function () {
         expect($exit)->toBe(1);
         expect($output)->toContain('release metadata names v0.0.0-20250101-120000-9999999');
         expect(nwRunuserArgs($scratch))->toBe([]);
+    } finally {
+        nwCleanup($scratch);
+    }
+});
+
+it('records the run URL and a human-readable name alongside the release', function () {
+    $scratch = nwScratchDir();
+
+    try {
+        [$exit] = nwRun(
+            ['--target', 'staging-main', '--release', 'v0.0.0-20260101-120000-abc1234',
+                '--source-sha', 'abc1234def5678',
+                '--run-url', 'https://github.com/menvil/RateGuru/actions/runs/123456'],
+            nwFixture($scratch),
+        );
+
+        expect($exit)->toBe(0);
+
+        $invocation = nwRunuserArgs($scratch)[0] ?? '';
+
+        // The correlation half of the marker: the operation that produced the
+        // transition, and a name an operator can read in the Nightwatch UI.
+        expect($invocation)->toContain('--url https://github.com/menvil/RateGuru/actions/runs/123456');
+        expect($invocation)->toContain('--name staging-main v0.0.0-20260101-120000-abc1234');
+    } finally {
+        nwCleanup($scratch);
+    }
+});
+
+it('refuses a current symlink that resolves outside the target releases directory', function () {
+    $scratch = nwScratchDir();
+
+    try {
+        [$exit, $output] = nwRun(
+            ['--target', 'staging-main', '--release', 'v0.0.0-20260101-120000-abc1234',
+                '--source-sha', 'abc1234def5678'],
+            nwFixture($scratch, ['current_outside_releases' => true]),
+        );
+
+        // A basename match is not ownership: this command runs that tree's
+        // artisan as the runtime user.
+        expect($exit)->toBe(1);
+        expect($output)->toContain('current resolves outside');
+        expect(nwRunuserArgs($scratch))->toBe([]);
+    } finally {
+        nwCleanup($scratch);
+    }
+});
+
+it('takes the target deployment lock, so a concurrent deploy cannot decorrelate the marker', function () {
+    $scratch = nwScratchDir();
+
+    try {
+        $env = nwFixture($scratch);
+
+        // Hold the same lock a deploy or rollback would hold. Without the
+        // lock, `current` could be switched between the identity check and the
+        // artisan call, and Nightwatch would be told about a release the
+        // target had already stopped serving.
+        $lockPath = $scratch.'/target/locks/deployment.lock';
+        $lock = fopen($lockPath, 'c');
+        expect(flock($lock, LOCK_EX | LOCK_NB))->toBeTrue();
+
+        [$exit, $output] = nwRun(
+            ['--target', 'staging-main', '--release', 'v0.0.0-20260101-120000-abc1234',
+                '--source-sha', 'abc1234def5678'],
+            $env,
+        );
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('another deployment operation is already running');
+        expect(nwRunuserArgs($scratch))->toBe([]);
+
+        flock($lock, LOCK_UN);
+        fclose($lock);
+
+        // And it succeeds again the moment the lock is free.
+        [$exit] = nwRun(
+            ['--target', 'staging-main', '--release', 'v0.0.0-20260101-120000-abc1234',
+                '--source-sha', 'abc1234def5678'],
+            $env,
+        );
+
+        expect($exit)->toBe(0);
     } finally {
         nwCleanup($scratch);
     }

@@ -198,23 +198,23 @@ argument to any script, because no production target has a program to install.
 every sense — no token, no environment, no `.env` key, no registry field, no
 agent.
 
-### Deployment markers are deliberately not wired
+### Deployment markers — superseded by Phase 7.2A
 
-The package ships an `artisan nightwatch:deploy` command that posts deployment
-metadata to Nightwatch's API, and Phase 6B does not use it.
+Phase 6B deliberately did not wire `artisan nightwatch:deploy`. The reasoning
+recorded here at the time was that nothing depended on it — every Nightwatch
+event already carries the canonical release in its native `deploy` field, plus
+`release`, `commit` and `deployment_target` in its context — and that wiring it
+would mean putting a second Nightwatch credential somewhere CI can reach it, for
+a product that might be removed in Phase 6C.
 
-Nothing depends on it: every Nightwatch event already carries the canonical
-release in its native `deploy` field, plus `release`, `commit` and
-`deployment_target` in its context — which is everything the comparison against
-Sentry needs. Wiring the command would mean putting a second Nightwatch
-credential somewhere CI can reach it, and answering the question of what a
-"deployment" is a second time, for a product that may be removed in Phase 6C.
-
-If Nightwatch is retained, the marker is a small, well-defined follow-up: the
-command takes the deploy identity as an argument, so it can be handed
-`config('nightwatch.deployment')` — the same release.json value everything else
-uses — from the same post-deploy step that already creates the Sentry marker,
-with no second deployment identity invented.
+**Phase 7.2A wired it, and answered that objection rather than accepting it.**
+No credential went into CI: the command runs on the server, as the target's
+runtime user, inside the release that is serving, where the token already lives.
+The deploy identity is `config('nightwatch.deployment')`'s own value — the same
+release.json release everything else uses — so no second deployment identity was
+invented, exactly as this section anticipated. See
+[Deployment markers (Phase 7.2A)](#deployment-markers-phase-72a) above for what
+actually shipped.
 
 ### One agent, one environment, one port
 

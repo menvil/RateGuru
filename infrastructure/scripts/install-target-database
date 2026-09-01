@@ -201,6 +201,19 @@ check_required_tools() {
 
 ENV_KEYS=(DB_CONNECTION DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD)
 
+# read_env_keys FILE — reads exactly the keys in ENV_KEYS and nothing else,
+# assigning each into ENV_<KEY>. Driven from the array rather than a list of
+# hand-written assignments, so the allowlist has one definition and cannot
+# quietly grow a seventh key at a call site.
+read_env_keys() {
+    local env_file="$1" key value
+
+    for key in "${ENV_KEYS[@]}"; do
+        value="$(env_value "${key}" "${env_file}" || true)"
+        printf -v "ENV_${key}" '%s' "${value}"
+    done
+}
+
 env_value() {
     local key="$1" env_file="$2" line value
 
@@ -269,12 +282,7 @@ resolve_credentials() {
     [[ -r "${SHARED_ENV}" ]] \
         || fail "target environment file is unreadable: ${TARGET_ROOT}/shared/.env"
 
-    ENV_DB_CONNECTION="$(env_value DB_CONNECTION "${SHARED_ENV}" || true)"
-    ENV_DB_HOST="$(env_value DB_HOST "${SHARED_ENV}" || true)"
-    ENV_DB_PORT="$(env_value DB_PORT "${SHARED_ENV}" || true)"
-    ENV_DB_DATABASE="$(env_value DB_DATABASE "${SHARED_ENV}" || true)"
-    ENV_DB_USERNAME="$(env_value DB_USERNAME "${SHARED_ENV}" || true)"
-    ENV_DB_PASSWORD="$(env_value DB_PASSWORD "${SHARED_ENV}" || true)"
+    read_env_keys "${SHARED_ENV}"
 
     # Laravel's own pgsql defaults, repeated here rather than guessed, so a
     # .env that legitimately omits host/port behaves identically to the running
@@ -309,17 +317,47 @@ resolve_credentials() {
 # --- PostgreSQL access ---------------------------------------------------------
 
 # superuser_query SQL — one scalar, read as the postgres superuser over a local
-# socket. SQL is always a literal from this file; the only values it ever
-# carries are the two registry identifiers already matched against
-# IDENTIFIER_REGEX.
+# socket, assigned to SUPERUSER_QUERY_RESULT in the CALLER's shell. SQL is
+# always a literal from this file; the only values it ever carries are the two
+# registry identifiers already matched against IDENTIFIER_REGEX.
+#
+# Deliberately NOT a function whose output is captured with $(...), and that is
+# the whole point. `fail` is an `exit`, and an exit inside a command
+# substitution kills only the subshell — the caller would carry on with an
+# empty result, which is exactly indistinguishable from "the object does not
+# exist". Every predicate below therefore calls this directly, in its own
+# shell, so a failed query is fatal where it happens.
+#
+# A query that fails is never an answer: PostgreSQL being unreachable and a
+# role not existing produce the same empty output, and conflating them would
+# let --check report a clean bill of health on a host whose database server is
+# down, and let --apply proceed without ever having read the state it is
+# converging.
+SUPERUSER_QUERY_RESULT=""
+
 superuser_query() {
-    "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
-        "${PSQL_BIN}" \
-            --no-psqlrc \
-            --no-align \
-            --tuples-only \
-            --dbname=postgres \
-            --command="$1"
+    local output status=0
+
+    output="$(
+        "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+            "${PSQL_BIN}" \
+                --no-psqlrc \
+                --no-align \
+                --tuples-only \
+                --set=ON_ERROR_STOP=1 \
+                --dbname=postgres \
+                --command="$1" \
+            2>&1
+    )" || status=$?
+
+    if (( status != 0 )); then
+        printf '%s\n' "${output}" >&2
+        fail "could not query PostgreSQL as ${POSTGRES_SUPERUSER} (exit status ${status}) — refusing to treat an unreadable catalog as an absent object"
+    fi
+
+    SUPERUSER_QUERY_RESULT="$(tr -s '[:space:]' ' ' <<<"${output}")"
+    SUPERUSER_QUERY_RESULT="${SUPERUSER_QUERY_RESULT#"${SUPERUSER_QUERY_RESULT%%[![:space:]]*}"}"
+    SUPERUSER_QUERY_RESULT="${SUPERUSER_QUERY_RESULT%"${SUPERUSER_QUERY_RESULT##*[![:space:]]}"}"
 }
 
 # sql_literal VALUE — VALUE as a PostgreSQL E'' string literal. Backslashes
@@ -336,27 +374,53 @@ sql_literal() {
 }
 
 role_exists() {
-    local result
-    result="$(superuser_query "SELECT 1 FROM pg_roles WHERE rolname = '${DB_ROLE}';")" || return 1
-    [[ "${result//[[:space:]]/}" == "1" ]]
+    superuser_query "SELECT 1 FROM pg_roles WHERE rolname = '${DB_ROLE}';"
+
+    [[ "${SUPERUSER_QUERY_RESULT}" == "1" ]]
 }
 
 database_exists() {
-    local result
-    result="$(superuser_query "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}';")" || return 1
-    [[ "${result//[[:space:]]/}" == "1" ]]
+    superuser_query "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}';"
+
+    [[ "${SUPERUSER_QUERY_RESULT}" == "1" ]]
 }
 
-database_owner() {
-    local result
-    result="$(superuser_query "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '${DB_NAME}';")" || return 1
-    printf '%s\n' "${result//[[:space:]]/}"
+DATABASE_OWNER=""
+
+resolve_database_owner() {
+    superuser_query "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '${DB_NAME}';"
+
+    DATABASE_OWNER="${SUPERUSER_QUERY_RESULT}"
 }
 
 role_can_login() {
-    local result
-    result="$(superuser_query "SELECT rolcanlogin FROM pg_roles WHERE rolname = '${DB_ROLE}';")" || return 1
-    [[ "${result//[[:space:]]/}" == "t" ]]
+    superuser_query "SELECT rolcanlogin FROM pg_roles WHERE rolname = '${DB_ROLE}';"
+
+    [[ "${SUPERUSER_QUERY_RESULT}" == "t" ]]
+}
+
+# resolve_role_elevated_privileges — the privilege flags an application role
+# must not hold, as a space-separated list of the ones it actually has.
+#
+# The role this installer CREATES is NOSUPERUSER NOCREATEDB NOCREATEROLE
+# NOREPLICATION, but a role that already existed was created by someone else,
+# and "it can log in" is not the same as "it is safe to hand the application".
+# A pre-existing SUPERUSER role would otherwise sail through verification and
+# be reported as a correctly prepared target.
+ROLE_ELEVATED=""
+
+resolve_role_elevated_privileges() {
+    superuser_query "
+        SELECT trim(concat_ws(' ',
+            CASE WHEN rolsuper       THEN 'SUPERUSER'   END,
+            CASE WHEN rolcreatedb    THEN 'CREATEDB'    END,
+            CASE WHEN rolcreaterole  THEN 'CREATEROLE'  END,
+            CASE WHEN rolreplication THEN 'REPLICATION' END,
+            CASE WHEN rolbypassrls   THEN 'BYPASSRLS'   END))
+        FROM pg_roles WHERE rolname = '${DB_ROLE}';
+    "
+
+    ROLE_ELEVATED="${SUPERUSER_QUERY_RESULT}"
 }
 
 # application_can_connect — the only verification that actually proves the
@@ -431,18 +495,21 @@ verify_state() {
     role_can_login \
         || fail "PostgreSQL role ${DB_ROLE} exists but cannot log in — resolve manually; this installer never alters an existing role"
 
+    resolve_role_elevated_privileges
+
+    [[ -z "${ROLE_ELEVATED}" ]] \
+        || fail "PostgreSQL role ${DB_ROLE} holds ${ROLE_ELEVATED} — an application role must hold none of SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. Resolve manually; this installer never alters an existing role"
+
     database_exists \
         || fail "PostgreSQL database ${DB_NAME} does not exist — run --apply"
 
-    local owner
-    owner="$(database_owner)" \
-        || fail "could not read the owner of database ${DB_NAME}"
+    resolve_database_owner
 
     # A database owned by someone else is drift, and reassigning ownership
     # underneath a running application is exactly the kind of destructive
     # "repair" this script refuses to perform.
-    [[ "${owner}" == "${DB_ROLE}" ]] \
-        || fail "database ${DB_NAME} is owned by ${owner}, not ${DB_ROLE} — resolve the mismatch manually; ownership is never reassigned here"
+    [[ "${DATABASE_OWNER}" == "${DB_ROLE}" ]] \
+        || fail "database ${DB_NAME} is owned by ${DATABASE_OWNER}, not ${DB_ROLE} — resolve the mismatch manually; ownership is never reassigned here"
 
     # The decisive check, and the reason an existing role's password is never
     # rotated: if the supplied credentials work, there is nothing to fix; if
@@ -464,31 +531,56 @@ run_check() {
 
     log "--- current state (read-only) ---"
 
+    local satisfied=true
+
     if role_exists; then
-        if role_can_login; then
+        resolve_role_elevated_privileges
+
+        if [[ -n "${ROLE_ELEVATED}" ]]; then
+            satisfied=false
+            log "role ${DB_ROLE}: exists but holds ${ROLE_ELEVATED} — --apply will not alter it; resolve manually"
+        elif role_can_login; then
             log "role ${DB_ROLE}: exists and may log in — --apply will leave it completely untouched (no password rotation)"
         else
+            satisfied=false
             log "role ${DB_ROLE}: exists but CANNOT log in — --apply will not alter it; resolve manually"
         fi
     else
+        satisfied=false
         log "role ${DB_ROLE}: absent — --apply will create it from the credential already in shared/.env"
     fi
 
     if database_exists; then
-        local owner
-        owner="$(database_owner || printf 'unknown\n')"
-        log "database ${DB_NAME}: exists, owned by ${owner} — --apply will never drop, recreate, truncate or migrate it"
+        resolve_database_owner
+        log "database ${DB_NAME}: exists, owned by ${DATABASE_OWNER} — --apply will never drop, recreate, truncate or migrate it"
+
+        if [[ "${DATABASE_OWNER}" != "${DB_ROLE}" ]]; then
+            satisfied=false
+            log "database ${DB_NAME}: owner ${DATABASE_OWNER} is not ${DB_ROLE} — resolve manually; ownership is never reassigned here"
+        fi
     else
+        satisfied=false
         log "database ${DB_NAME}: absent — --apply will create it empty, owned by ${DB_ROLE}"
     fi
 
     if application_can_connect; then
         log "application connectivity: OK as ${DB_ROLE} at ${ENV_DB_HOST}:${ENV_DB_PORT}"
     else
+        satisfied=false
         log "application connectivity: NOT established yet as ${DB_ROLE} at ${ENV_DB_HOST}:${ENV_DB_PORT}"
     fi
 
-    log "PASS: --check complete (no changes made)"
+    # The exit status is the answer, exactly as it is for every other RateGuru
+    # installer: 0 only when the whole contract already holds. prepare-host's
+    # read-only walk reads this, so a --check that always succeeded would make
+    # it report a target as prepared on a host with no database at all.
+    if [[ "${satisfied}" == true ]]; then
+        log "PASS: --check complete, database prerequisites already satisfied (no changes made)"
+        return 0
+    fi
+
+    log "NEEDS_APPLY: --check complete, database prerequisites are not satisfied yet (no changes made)"
+    return 1
 }
 
 run_apply() {
@@ -529,13 +621,18 @@ run_verify() {
 main() {
     parse_args "$@"
 
+    # --check answers through its exit status (0 satisfied, 1 not) — the same
+    # verdict every other RateGuru installer uses. Captured explicitly rather
+    # than left to `set -e`, so the intent is on the page.
+    local status=0
+
     case "${MODE}" in
-        check)  run_check ;;
+        check)  run_check || status=$? ;;
         apply)  run_apply ;;
         verify) run_verify ;;
     esac
 
-    exit 0
+    exit "${status}"
 }
 
 # Source-guard: lets tests source this file and call individual functions
