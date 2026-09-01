@@ -313,6 +313,15 @@ The ordering matters: `restore-target` must let `backup` acquire and release
 the backup lock before taking it itself, otherwise the emergency backup would
 deadlock against its own orchestrator.
 
+### One thing the locks do not cover
+
+`install-target-operations --apply` replaces the operational bundle file by
+file and takes none of these locks — it never has, for `deploy` or `rollback`
+either. Upgrading the bundle while a restore is in flight can therefore load a
+mismatched pair of Phase 7.3 scripts into the same operation. Do not run the
+installer while a restore is running; `restore-history.jsonl` and the
+operation workspace under `run/restores/` both show whether one is.
+
 ## Compensation
 
 Once activation begins, three things exist: the staged (now live) data, the

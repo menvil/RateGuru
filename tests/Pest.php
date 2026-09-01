@@ -1502,12 +1502,25 @@ case "${action}" in
         state="$(cat "${P73_SUPERVISOR_STATE}")"
         [[ "${state}" == "UNKNOWN" ]] && exit 1
         printf '%-40s %s   pid 4242, uptime 0:10:00\n' "${group%:*}:${group%:*}_00" "${state}"
+
+        # A second process in the same group, so a MIXED group (one RUNNING,
+        # one FATAL) can be exercised the way a real crash-looping worker
+        # presents. Empty means a single-process group.
+        second="$(cat "${P73_SUPERVISOR_SECOND_STATE}" 2>/dev/null || true)"
+        if [[ -n "${second}" ]]; then
+            printf '%-40s %s   pid 4243, uptime 0:00:01\n' "${group%:*}:${group%:*}_01" "${second}"
+        fi
         ;;
     stop)
+        # supervisorctl stop takes the whole group down, second process included.
         printf 'STOPPED\n' > "${P73_SUPERVISOR_STATE}"
+        [[ -z "$(cat "${P73_SUPERVISOR_SECOND_STATE}" 2>/dev/null || true)" ]] \
+            || printf 'STOPPED\n' > "${P73_SUPERVISOR_SECOND_STATE}"
         ;;
     start)
         printf '%s\n' "${P73_SUPERVISOR_START_STATE:-RUNNING}" > "${P73_SUPERVISOR_STATE}"
+        [[ -z "$(cat "${P73_SUPERVISOR_SECOND_STATE}" 2>/dev/null || true)" ]] \
+            || printf '%s\n' "${P73_SUPERVISOR_START_STATE:-RUNNING}" > "${P73_SUPERVISOR_SECOND_STATE}"
         ;;
     *)
         exit 1
@@ -1579,6 +1592,7 @@ exit "${P73_PGREP_EXIT:-1}"
 BASH);
 
     file_put_contents($scratch.'/supervisor-state', "RUNNING\n");
+    file_put_contents($scratch.'/supervisor-second-state', '');
 
     foreach (['supervisor', 'php', 'backup', 'restore-test', 'health-check', 'pgrep'] as $log) {
         touch($scratch.'/'.$log.'.log');
@@ -1591,6 +1605,7 @@ function p73RuntimeEnv(string $scratch): array
     return [
         'P73_SUPERVISOR_LOG' => $scratch.'/supervisor.log',
         'P73_SUPERVISOR_STATE' => $scratch.'/supervisor-state',
+        'P73_SUPERVISOR_SECOND_STATE' => $scratch.'/supervisor-second-state',
         'P73_PHP_LOG' => $scratch.'/php.log',
         'P73_MAINTENANCE_FLAG' => $scratch.'/target/shared/storage/framework/down',
         'P73_BACKUP_LOG' => $scratch.'/backup.log',

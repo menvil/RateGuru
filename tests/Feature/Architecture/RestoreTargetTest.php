@@ -477,9 +477,58 @@ it('leaves a queue program that was already stopped stopped', function () {
         $result = restoreTargetApply($scratch);
         expect($result['exit'])->toBe(0, $result['output']);
 
-        expect($result['output'])->toContain('was not running before this restore');
+        expect($result['output'])->toContain('was already fully stopped before this restore');
         expect(File::get($scratch.'/supervisor.log'))->not->toContain('start parity-queue');
         expect(restoreTargetQueueState($scratch))->toBe('STOPPED');
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('stops a queue group that is only partly running, and leaves it stopped afterwards', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        // One worker RUNNING, one FATAL: not fully running, and emphatically
+        // not safe to swap data underneath.
+        file_put_contents($scratch.'/supervisor-second-state', "FATAL\n");
+
+        $result = restoreTargetApply($scratch);
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        expect($result['output'])->toContain('neither fully RUNNING nor fully STOPPED');
+        expect(File::get($scratch.'/supervisor.log'))->toContain('stop parity-queue:*');
+
+        // Left stopped, because it was never fully running to begin with —
+        // and said out loud rather than silently.
+        expect(restoreTargetQueueState($scratch))->toBe('STOPPED');
+        expect(trim(File::get($scratch.'/supervisor-second-state')))->toBe('STOPPED');
+        expect(File::get($scratch.'/supervisor.log'))->not->toContain('start parity-queue');
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('refuses to restore when the target queue program cannot be observed at all', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        // supervisorctl cannot answer: supervisord down, or the program not
+        // registered. "Cannot see it" is never "it is not running".
+        file_put_contents($scratch.'/supervisor-state', "UNKNOWN\n");
+
+        $result = restoreTargetApply($scratch);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('cannot observe the target queue program parity-queue');
+
+        expect(p73Databases($scratch))->toBe(['parity_db']);
+        expect(is_file(restoreTargetStorage($scratch).'/app/live-marker.txt'))->toBeTrue();
+        expect(restoreTargetMaintenanceActive($scratch))->toBeFalse();
     } finally {
         p73Cleanup($scratch);
     }
@@ -947,6 +996,11 @@ it('does not resume a target whose health check fails, and holds it instead', fu
 
         expect(restoreTargetMaintenanceActive($scratch))->toBeTrue();
         expect(restoreTargetQueueState($scratch))->toBe('STOPPED');
+
+        // Held means held: the scheduler cron entry the resume had already
+        // put back is taken out of /etc/cron.d again, so nothing writes to
+        // the database while an operator investigates.
+        expect(restoreTargetSchedulerPresent($scratch))->toBeFalse();
 
         expect(restoreTargetHistory($scratch)[1])->toMatchArray(['status' => 'failed-held']);
     } finally {

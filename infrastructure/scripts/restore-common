@@ -974,6 +974,26 @@ restore_assert_recovery_identity() {
     jq -e 'type == "object"' "${release_json}" >/dev/null 2>&1 \
         || fail "backup release.json is not a JSON object — this backup cannot identify the code its data belongs to"
 
+    # Type first, exactly like manifest_schema_classify: `jq -r` collapses a
+    # JSON number into text, so a numeric source_sha of 1234567 would sail
+    # through a bare hex regex and be reported as a real commit. Only a JSON
+    # string is a release identity.
+    local release_type source_sha_type
+    release_type="$(jq -r '.release | type' "${release_json}")"
+    source_sha_type="$(jq -r '.source_sha | type' "${release_json}")"
+
+    # Absent and wrong-typed are different diagnoses, and an operator reading
+    # this needs to know which one they have.
+    [[ "${release_type}" != "null" ]] \
+        || fail "backup release.json carries no release — a destructive restore cannot proceed without the release identity the data belongs to"
+    [[ "${release_type}" == "string" ]] \
+        || fail "backup release.json release is not a JSON string (${release_type}) — a destructive restore cannot proceed without the release identity the data belongs to"
+
+    [[ "${source_sha_type}" != "null" ]] \
+        || fail "backup release.json carries no source_sha — a destructive restore cannot proceed without the commit required for code alignment"
+    [[ "${source_sha_type}" == "string" ]] \
+        || fail "backup release.json source_sha is not a JSON string (${source_sha_type}) — a destructive restore cannot proceed without the commit required for code alignment"
+
     local release source_sha
     release="$(jq -r '.release // empty' "${release_json}")"
     source_sha="$(jq -r '.source_sha // empty' "${release_json}")"
@@ -993,7 +1013,12 @@ restore_assert_recovery_identity() {
     # current symlink at all, and is accepted; any other value must agree with
     # release.json, otherwise the backup describes two different releases and
     # neither can be trusted for alignment.
-    local manifest_release
+    local manifest_release manifest_release_type
+    manifest_release_type="$(jq -r '.release | type' "${manifest_path}")"
+
+    [[ "${manifest_release_type}" == "string" ]] || [[ "${manifest_release_type}" == "null" ]] \
+        || fail "backup manifest release is not a JSON string (${manifest_release_type})"
+
     manifest_release="$(jq -r '.release // empty' "${manifest_path}")"
 
     if [[ -n "${manifest_release}" ]] && [[ "${manifest_release}" != "unknown" ]]; then
@@ -1043,9 +1068,20 @@ restore_read_current_identity() {
 
     jq -e 'type == "object"' "${metadata}" >/dev/null 2>&1 || return 0
 
+    # Same type-first rule as restore_assert_recovery_identity: a numeric
+    # source_sha must never be able to satisfy the hex regex and make a
+    # mismatched release look aligned.
     local release source_sha
-    release="$(jq -r '.release // empty' "${metadata}")"
-    source_sha="$(jq -r '.source_sha // empty' "${metadata}")"
+    release=""
+    source_sha=""
+
+    if [[ "$(jq -r '.release | type' "${metadata}")" == "string" ]]; then
+        release="$(jq -r '.release' "${metadata}")"
+    fi
+
+    if [[ "$(jq -r '.source_sha | type' "${metadata}")" == "string" ]]; then
+        source_sha="$(jq -r '.source_sha' "${metadata}")"
+    fi
 
     [[ "${release}" =~ ${RESTORE_RELEASE_ID_REGEX} ]] || release=""
     [[ "${source_sha}" =~ ${RESTORE_SOURCE_SHA_REGEX} ]] || source_sha=""

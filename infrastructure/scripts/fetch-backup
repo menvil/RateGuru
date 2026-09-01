@@ -162,6 +162,44 @@ resolve_fetch_subject() {
     LABEL="${TARGET_ID}"
 }
 
+# --- locking ----------------------------------------------------------------------
+#
+# Two locks, both keyed on the registry backup namespace exactly like every
+# other backup-path script, and neither of them host-global:
+#
+#   fetch-backup-<namespace>  serializes fetches. Without it two invocations
+#                             given the SAME explicit operation ID could both
+#                             pass the "already staged" check and write the
+#                             same selected-backup directory.
+#   backup-<namespace>        the EXISTING backup lock, held only across LOCAL
+#                             staging. `backup` applies local retention the
+#                             moment it finishes, and retention deleting the
+#                             source directory between validation and the last
+#                             hardlink would leave a half-staged backup.
+#
+# Always taken in this order, and nothing anywhere takes them in the reverse
+# order, so no deadlock is possible. restore-target calls this script BEFORE
+# it takes the backup lock itself, so the two never contend.
+acquire_fetch_lock() {
+    install -d -o root -g root -m 0700 "${RUN_ROOT}"
+
+    exec 203>"${RUN_ROOT}/fetch-backup-${BACKUP_NAMESPACE}.lock"
+
+    flock -n 203 \
+        || fail "another fetch is already staging a backup for namespace ${BACKUP_NAMESPACE}"
+}
+
+acquire_local_backup_lock() {
+    exec 204>"${RUN_ROOT}/backup-${BACKUP_NAMESPACE}.lock"
+
+    flock -n 204 \
+        || fail "a backup is running for namespace ${BACKUP_NAMESPACE} — its retention pass could delete the backup being staged; retry when it finishes"
+}
+
+release_local_backup_lock() {
+    exec 204>&-
+}
+
 # --- local staging --------------------------------------------------------------
 
 # stage_local_backup — resolves the ONE canonical local location for this
@@ -180,6 +218,10 @@ resolve_fetch_subject() {
 #     special file.
 stage_local_backup() {
     local backup_root="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
+
+    # Held across validation AND the copy, then released: a retention pass
+    # cannot remove the source out from under a half-finished staging.
+    acquire_local_backup_lock
 
     [[ ! -L "${BACKUP_BASE}" ]] || fail "backup base must not be a symlink: ${BACKUP_BASE}"
     [[ -d "${BACKUP_BASE}" ]] || fail "backup base is not a directory: ${BACKUP_BASE}"
@@ -227,6 +269,8 @@ stage_local_backup() {
             || fail "could not stage backup file: ${name}"
         chmod 0600 "${SELECTED_BACKUP_DIR}/${name}"
     done
+
+    release_local_backup_lock
 
     STAGED_FROM="${source_dir}"
 }
@@ -298,6 +342,11 @@ perform_fetch() {
         OPERATION_ID="$(generate_operation_id)"
         validate_operation_id "${OPERATION_ID}"
     fi
+
+    # Taken before the workspace is inspected, and held for the whole staging:
+    # the "is a backup already staged here?" check below is only meaningful if
+    # no second fetch can pass it at the same time.
+    acquire_fetch_lock
 
     if [[ "${OPERATION_SEEN}" == true ]] \
         && [[ -d "$(restore_operation_root "${TARGET_ID}" "${OPERATION_ID}")" ]]

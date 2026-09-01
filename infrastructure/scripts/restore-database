@@ -256,6 +256,12 @@ perform_stage() {
             "${STAGED_DATABASE}" \
         || fail "could not create the staged restore database: ${STAGED_DATABASE}"
 
+    # Recorded the moment it exists, not at the end of a successful stage: if
+    # the restore below fails AND the immediate drop also fails, the
+    # orchestrator's own cleanup must still be able to name the database and
+    # retry, rather than leaving an orphan nobody knows about.
+    restore_state_set "${STATE_FILE}" staged_database "${STAGED_DATABASE}"
+
     log "restoring the backup dump into ${STAGED_DATABASE}"
 
     # Restored AS THE APPLICATION ROLE, over TCP, with the application's own

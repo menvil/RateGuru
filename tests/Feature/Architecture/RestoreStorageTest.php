@@ -96,31 +96,87 @@ it('extracts the archive into a sibling of the live tree and never touches the l
     }
 });
 
-it('assigns ownership from the registry and the exact www-data access model deploy establishes', function () {
+/**
+ * A group this process belongs to that is NOT its primary group, or null.
+ * Only such a group can prove the public/private split behaviourally: with
+ * one group everywhere, "the web group" and "the runtime group" are the same
+ * value and the assertion would pass either way.
+ */
+function restoreStorageSecondaryGroup(): ?string
+{
+    $groups = preg_split('/\s+/', trim((string) shell_exec('id -Gn')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $primary = trim((string) shell_exec('id -gn'));
+
+    foreach ($groups as $group) {
+        if ($group !== $primary) {
+            return $group;
+        }
+    }
+
+    return null;
+}
+
+it('gives the web group the two directories Nginx needs, and nothing else', function () {
+    $webGroup = restoreStorageSecondaryGroup();
+
+    if ($webGroup === null) {
+        test()->markTestSkipped('needs a secondary group to distinguish the web group from the runtime group');
+    }
+
     $scratch = p73Scratch();
 
     try {
-        $operation = restoreStorageFixture($scratch);
+        $operation = restoreStorageFixture($scratch, [
+            'backup' => [
+                'archive_builder' => function (string $stage): void {
+                    mkdir($stage.'/app/private', 0o755, true);
+                    file_put_contents($stage.'/app/private/secret-report.pdf', "private\n");
+                },
+            ],
+        ]);
 
-        expect(restoreStorageRun($scratch, $operation, 'stage')['exit'])->toBe(0);
+        $runtimeGroup = trim((string) shell_exec('id -gn'));
+        $user = trim((string) shell_exec('id -un'));
+
+        expect(restoreStorageRun($scratch, $operation, 'stage', [
+            'RATEGURU_RESTORE_WEB_GROUP' => $webGroup,
+        ])['exit'])->toBe(0);
 
         $app = restoreStorageRoot($scratch).'/.restore-'.$operation.'/app';
-        $expectedOwner = trim((string) shell_exec('id -un')).':'.trim((string) shell_exec('id -gn'));
 
-        expect(trim((string) shell_exec('stat -c "%U:%G" '.escapeshellarg($app))))->toBe($expectedOwner);
-
-        // app itself: Nginx traverses, never lists.
+        // app itself: the traverse-only doorway, in the web group.
+        expect(trim((string) shell_exec('stat -c "%U:%G" '.escapeshellarg($app))))->toBe($user.':'.$webGroup);
         expect(trim((string) shell_exec('stat -c "%a" '.escapeshellarg($app))))->toBe('2710');
 
-        // app/public: Nginx lists and reads published media.
+        // app/public: Nginx lists and reads published media, so it and its
+        // contents are in the web group.
+        expect(trim((string) shell_exec('stat -c "%U:%G" '.escapeshellarg($app.'/public'))))->toBe($user.':'.$webGroup);
         expect(trim((string) shell_exec('stat -c "%a" '.escapeshellarg($app.'/public'))))->toBe('2750');
-        expect(trim((string) shell_exec('stat -c "%U:%G" '.escapeshellarg($app.'/public'))))->toBe($expectedOwner);
-
-        // Files stay group-readable, which is how www-data serves them.
+        expect(trim((string) shell_exec('stat -c "%G" '.escapeshellarg($app.'/public/restored-public.txt'))))->toBe($webGroup);
         expect(trim((string) shell_exec('stat -c "%a" '.escapeshellarg($app.'/public/restored-public.txt'))))->toBe('640');
+
+        // Private application storage: same modes, but the target's OWN
+        // runtime group — www-data can traverse app, so leaving private
+        // content in the web group would hand it to Nginx.
+        expect(trim((string) shell_exec('stat -c "%U:%G" '.escapeshellarg($app.'/private'))))->toBe($user.':'.$runtimeGroup);
+        expect(trim((string) shell_exec('stat -c "%a" '.escapeshellarg($app.'/private'))))->toBe('2750');
+        expect(trim((string) shell_exec('stat -c "%G" '.escapeshellarg($app.'/private/secret-report.pdf'))))->toBe($runtimeGroup);
+        expect(trim((string) shell_exec('stat -c "%a" '.escapeshellarg($app.'/private/secret-report.pdf'))))->toBe('640');
     } finally {
         p73Cleanup($scratch);
     }
+});
+
+it('assigns the whole tree the runtime identity first, and the web group to exactly two paths', function () {
+    // The structural half of the split above, so the contract holds on a
+    // host where the test process has only one group.
+    expect(File::get(restoreStorageScript()))
+        ->toContain('chown -R "${RUNTIME_USER}:${RUNTIME_GROUP}" "${app_root}"')
+        ->toContain('chgrp "${RESTORE_WEB_GROUP}" "${app_root}"')
+        ->toContain('chgrp -R "${RESTORE_WEB_GROUP}" "${app_root}/public"');
+
+    // And exactly those two, never a blanket web-group chown.
+    expect(substr_count(File::get(restoreStorageScript()), 'RESTORE_WEB_GROUP}" "${app_root}'))->toBe(2);
 });
 
 it('refuses to stage over an existing staging directory or pre-restore tree', function () {
@@ -198,7 +254,7 @@ it('re-validates the archive immediately before extracting it as root', function
     }
 });
 
-it('rejects an archive that produces anything other than app/', function () {
+it('rejects an archive whose members are not all under app/, before extracting', function () {
     $scratch = p73Scratch();
 
     try {
@@ -215,7 +271,12 @@ it('rejects an archive that produces anything other than app/', function () {
         $result = restoreStorageRun($scratch, $operation, 'stage');
 
         expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('outside app/');
+        // Rejected by the pre-extraction archive-safety pass, so nothing was
+        // written at all. The staged-entries check inside --stage is the
+        // defence-in-depth backstop behind it and is unreachable while that
+        // pass holds.
+        expect($result['output'])->toContain('storage archive contains an entry outside app/');
+        expect(is_dir(restoreStorageRoot($scratch).'/.restore-'.$operation))->toBeFalse();
     } finally {
         p73Cleanup($scratch);
     }

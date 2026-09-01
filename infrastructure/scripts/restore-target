@@ -231,6 +231,7 @@ CODE_ALIGNMENT="unknown"
 RUNTIME_RESUMED="no"
 MAINTENANCE_BEFORE="unknown"
 QUEUE_RUNNING_BEFORE="unknown"
+QUEUE_FULLY_STOPPED_BEFORE="unknown"
 SCHEDULER_PRESENT_BEFORE="unknown"
 MAINTENANCE_ENTERED_BY_RESTORE=false
 QUEUE_STOPPED_BY_RESTORE=false
@@ -285,23 +286,40 @@ maintenance_active() {
     [[ -f "${MAINTENANCE_FLAG}" ]]
 }
 
+# queue_program_status — the raw status lines for THIS target's program group,
+# or a non-zero return when supervisorctl cannot answer at all (supervisord
+# down, program not registered). "Cannot observe" is never treated as "not
+# running": a restore must not swap live data underneath a worker it merely
+# failed to see.
+queue_program_status() {
+    local output
+
+    output="$("${RESTORE_SUPERVISORCTL_BIN}" status "${SUPERVISOR_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    printf '%s\n' "${output}"
+}
+
 # Identical classification to deploy's own queue_program_running: only a
 # program group whose every process reports RUNNING counts as running.
 # STARTING, BACKOFF, FATAL, EXITED and STOPPED are all "not running".
 queue_program_running() {
     local output
 
-    output="$("${RESTORE_SUPERVISORCTL_BIN}" status "${SUPERVISOR_PROGRAM}:*" 2>/dev/null)" || return 1
-    [[ -n "${output}" ]] || return 1
+    output="$(queue_program_status)" || return 1
 
     ! grep -qv 'RUNNING' <<<"${output}"
 }
 
-queue_program_stopped() {
+# The mirror image, and the one the quiesce decision is actually made on:
+# every process must report STOPPED. A group where some processes are STOPPED
+# and others are RUNNING, STARTING or BACKOFF is NOT stopped — one live worker
+# is one live database writer, and "not fully running" must never be mistaken
+# for "safe to swap data underneath".
+queue_program_fully_stopped() {
     local output
 
-    output="$("${RESTORE_SUPERVISORCTL_BIN}" status "${SUPERVISOR_PROGRAM}:*" 2>/dev/null)" || return 1
-    [[ -n "${output}" ]] || return 1
+    output="$(queue_program_status)" || return 1
 
     ! grep -qv 'STOPPED' <<<"${output}"
 }
@@ -399,8 +417,17 @@ capture_runtime_state() {
         MAINTENANCE_BEFORE=false
     fi
 
+    # Fail closed on an unobservable program group. Recording it as "not
+    # running" would make the quiesce below skip the stop and swap live data
+    # underneath workers this restore simply could not see.
+    queue_program_status >/dev/null \
+        || fail "cannot observe the target queue program ${SUPERVISOR_PROGRAM} — refusing to restore without knowing whether a worker is running"
+
     QUEUE_RUNNING_BEFORE=false
     queue_program_running && QUEUE_RUNNING_BEFORE=true
+
+    QUEUE_FULLY_STOPPED_BEFORE=false
+    queue_program_fully_stopped && QUEUE_FULLY_STOPPED_BEFORE=true
 
     SCHEDULER_PRESENT_BEFORE=false
     scheduler_file_present && SCHEDULER_PRESENT_BEFORE=true
@@ -408,9 +435,10 @@ capture_runtime_state() {
     restore_state_set "${STATE_FILE}" \
         maintenance_before "${MAINTENANCE_BEFORE}" \
         queue_running_before "${QUEUE_RUNNING_BEFORE}" \
+        queue_fully_stopped_before "${QUEUE_FULLY_STOPPED_BEFORE}" \
         scheduler_present_before "${SCHEDULER_PRESENT_BEFORE}"
 
-    log "runtime before restore: maintenance=${MAINTENANCE_BEFORE} queue_running=${QUEUE_RUNNING_BEFORE} scheduler_present=${SCHEDULER_PRESENT_BEFORE}"
+    log "runtime before restore: maintenance=${MAINTENANCE_BEFORE} queue_running=${QUEUE_RUNNING_BEFORE} queue_fully_stopped=${QUEUE_FULLY_STOPPED_BEFORE} scheduler_present=${SCHEDULER_PRESENT_BEFORE}"
 }
 
 quiesce_http() {
@@ -429,11 +457,19 @@ quiesce_http() {
     log "maintenance mode enabled by this restore"
 }
 
+# The decision is made on "provably fully stopped", never on "fully running".
+# A group in any mixed or failed state — one process RUNNING and another
+# FATAL, or a worker in BACKOFF about to be respawned — still contains a live
+# database writer, and is stopped here like any other.
 quiesce_queue() {
-    if [[ "${QUEUE_RUNNING_BEFORE}" != true ]]; then
-        log "queue program ${SUPERVISOR_PROGRAM} was not running before this restore — leaving it stopped"
+    if [[ "${QUEUE_FULLY_STOPPED_BEFORE}" == true ]]; then
+        log "queue program ${SUPERVISOR_PROGRAM} was already fully stopped before this restore — leaving it stopped"
 
         return 0
+    fi
+
+    if [[ "${QUEUE_RUNNING_BEFORE}" != true ]]; then
+        log "queue program ${SUPERVISOR_PROGRAM} was neither fully RUNNING nor fully STOPPED before this restore — stopping it for the swap, and leaving it stopped afterwards; start it by hand once the underlying problem is resolved"
     fi
 
     # Only this target's own program group. Never `supervisorctl stop all`,
@@ -441,7 +477,7 @@ quiesce_queue() {
     "${RESTORE_SUPERVISORCTL_BIN}" stop "${SUPERVISOR_PROGRAM}:*" >/dev/null \
         || fail "could not stop the target queue program ${SUPERVISOR_PROGRAM}"
 
-    wait_for_queue_state queue_program_stopped \
+    wait_for_queue_state queue_program_fully_stopped \
         || fail "queue program ${SUPERVISOR_PROGRAM} did not reach STOPPED within the wait budget"
 
     QUEUE_STOPPED_BY_RESTORE=true
@@ -450,13 +486,16 @@ quiesce_queue() {
     log "queue program ${SUPERVISOR_PROGRAM} STOPPED"
 }
 
-quiesce_scheduler() {
-    if [[ "${SCHEDULER_PRESENT_BEFORE}" != true ]]; then
-        log "no ${SCHEDULER_FILE} to hold — leaving the scheduler exactly as it was"
-
-        return 0
-    fi
-
+# hold_scheduler_entry — move THIS target's cron entry out of /etc/cron.d into
+# the root-only operation workspace, recording its exact ownership and mode so
+# resume can put it back byte-for-byte. Moved, not copied-and-deleted: the
+# entry leaves /etc/cron.d in one operation, only this target's own file is
+# ever touched, and the global cron daemon is never stopped — every other
+# project on this host keeps running.
+#
+# Shared by the quiesce below and by hold_runtime, which has to re-hold it
+# when a resume failed partway.
+hold_scheduler_entry() {
     local hold_dir
     hold_dir="$(restore_scheduler_hold_dir "${WORKSPACE}")"
     install -d -o root -g root -m 0700 "${hold_dir}"
@@ -465,9 +504,6 @@ quiesce_scheduler() {
     owner="$(stat -c '%u:%g' "${SCHEDULER_FILE}")"
     mode="$(stat -c '%a' "${SCHEDULER_FILE}")"
 
-    # Moved, not copied-and-deleted: the entry leaves /etc/cron.d in one
-    # operation, and only this target's own file is ever touched. The global
-    # cron daemon is never stopped — other projects on this host keep running.
     mv "${SCHEDULER_FILE}" "${hold_dir}/${SCHEDULER_NAME}" \
         || fail "could not hold the target scheduler cron entry"
 
@@ -478,7 +514,17 @@ quiesce_scheduler() {
         scheduler_owner "${owner}" \
         scheduler_mode "${mode}"
 
-    log "scheduler cron entry held outside /etc/cron.d for the duration of this restore"
+    log "scheduler cron entry held outside /etc/cron.d"
+}
+
+quiesce_scheduler() {
+    if [[ "${SCHEDULER_PRESENT_BEFORE}" != true ]]; then
+        log "no ${SCHEDULER_FILE} to hold — leaving the scheduler exactly as it was"
+
+        return 0
+    fi
+
+    hold_scheduler_entry
 
     interrupt_running_schedule
 }
@@ -567,22 +613,32 @@ resume_runtime() {
     fi
 
     if [[ "${QUEUE_STOPPED_BY_RESTORE}" == true ]]; then
-        "${RESTORE_SUPERVISORCTL_BIN}" start "${SUPERVISOR_PROGRAM}:*" >/dev/null || {
-            log "ERROR: could not start the target queue program ${SUPERVISOR_PROGRAM}"
+        # The group is started again only if it was FULLY RUNNING before. A
+        # group this restore had to stop because it was in a mixed or failed
+        # state is left stopped: starting it would be inventing a runtime
+        # state the target never had, and hiding the failure that produced
+        # it. QUEUE_STOPPED_BY_RESTORE deliberately stays true, so a later
+        # hold_runtime knows it is already stopped.
+        if [[ "${QUEUE_RUNNING_BEFORE}" != true ]]; then
+            log "queue program ${SUPERVISOR_PROGRAM} was not fully RUNNING before this restore — leaving it stopped; start it by hand once the underlying problem is resolved"
+        else
+            "${RESTORE_SUPERVISORCTL_BIN}" start "${SUPERVISOR_PROGRAM}:*" >/dev/null || {
+                log "ERROR: could not start the target queue program ${SUPERVISOR_PROGRAM}"
 
-            return 1
-        }
+                return 1
+            }
 
-        wait_for_queue_state queue_program_running || {
-            log "ERROR: queue program ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget"
+            wait_for_queue_state queue_program_running || {
+                log "ERROR: queue program ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget"
 
-            return 1
-        }
+                return 1
+            }
 
-        QUEUE_STOPPED_BY_RESTORE=false
-        ( restore_state_set "${STATE_FILE}" queue_stopped_by_restore false ) || true
+            QUEUE_STOPPED_BY_RESTORE=false
+            ( restore_state_set "${STATE_FILE}" queue_stopped_by_restore false ) || true
 
-        log "queue program ${SUPERVISOR_PROGRAM} RUNNING"
+            log "queue program ${SUPERVISOR_PROGRAM} RUNNING"
+        fi
     fi
 
     if [[ "${MAINTENANCE_ENTERED_BY_RESTORE}" == true ]]; then
@@ -606,6 +662,14 @@ resume_runtime() {
 # something already went wrong, and its own failure must never replace the
 # original diagnosis.
 hold_runtime() {
+    # A resume that got as far as restoring the cron entry and then failed
+    # would otherwise leave a scheduled database writer running against a
+    # target nobody has verified. Held means held: the scheduler goes back
+    # out of /etc/cron.d too.
+    if [[ "${SCHEDULER_HELD_BY_RESTORE}" != true ]] && scheduler_file_present; then
+        ( hold_scheduler_entry ) >/dev/null 2>&1 && SCHEDULER_HELD_BY_RESTORE=true || true
+    fi
+
     if [[ "${QUEUE_STOPPED_BY_RESTORE}" == false ]] && [[ "${QUEUE_RUNNING_BEFORE}" == true ]]; then
         if "${RESTORE_SUPERVISORCTL_BIN}" stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1; then
             QUEUE_STOPPED_BY_RESTORE=true
@@ -997,7 +1061,7 @@ handle_restore_exit() {
 # pre-activation attempt created OUTSIDE the workspace. Never fatal: it runs
 # on a path that is already reporting a different failure.
 discard_staged_artifacts() {
-    local staged_database staged_path storage_root stage_parent
+    local staged_database storage_root stage_parent
 
     [[ -n "${STATE_FILE}" ]] && [[ -f "${STATE_FILE}" ]] || return 0
 
@@ -1008,12 +1072,14 @@ discard_staged_artifacts() {
             "${DROPDB_BIN}" --if-exists "${staged_database}" >/dev/null 2>&1 || true
     fi
 
-    staged_path="$(restore_state_get "${STATE_FILE}" storage_stage_path 2>/dev/null || printf '')"
+    # Derived, never read from state: an extraction that failed halfway never
+    # got to record storage_stage_path, and that is exactly when a root-owned
+    # half-extracted tree would otherwise be left behind. The path is a pure
+    # function of the target and the operation ID, so it is always knowable.
+    storage_root="$(restore_storage_root "${TARGET_ROOT}")"
+    stage_parent="$(restore_storage_stage_parent "${TARGET_ROOT}" "${OPERATION_ID}")"
 
-    if [[ -n "${staged_path}" ]]; then
-        storage_root="$(restore_storage_root "${TARGET_ROOT}")"
-        stage_parent="$(restore_storage_stage_parent "${TARGET_ROOT}" "${OPERATION_ID}")"
-
+    if [[ -e "${stage_parent}" ]] || [[ -L "${stage_parent}" ]]; then
         # Subshell: the guarded remover calls `fail` on anything it refuses,
         # and an exit from here would abandon the failure report.
         ( restore_remove_storage_sibling "${storage_root}" "${stage_parent}" ) >/dev/null 2>&1 || true
@@ -1141,10 +1207,17 @@ perform_restore() {
     verify_restored_data
     restore_state_set "${STATE_FILE}" phase verified
 
+    # MUTATION_STAGE moves to `committed` BEFORE the commit calls, not after.
+    # Commit only discards the retained pre-restore copies, and the restore is
+    # already verified at this point — so a failure here must never be
+    # answered by compensating a verified restore. Doing that would undo the
+    # half whose old copy still exists and leave the other half restored: a
+    # mixed database/storage state, brought back up as if it were fine.
+    # Instead the target is held, loudly, with both halves consistent.
     step "commit"
+    MUTATION_STAGE=committed
     "${RESTORE_STORAGE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
     "${RESTORE_DATABASE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
-    MUTATION_STAGE=committed
     restore_state_set "${STATE_FILE}" phase committed
 
     step "decide code alignment"

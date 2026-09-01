@@ -300,15 +300,19 @@ it('reverses a completed swap, putting the pre-restore database back under the c
         p73SetPhase($workspace, 'emergency-backup-verified');
         expect(restoreDatabaseRun($scratch, $operation, 'activate')['exit'])->toBe(0);
 
-        // A distinguishing marker on the ORIGINAL database, so "the original
-        // is back" is proven by identity rather than by name alone.
-        file_put_contents($scratch.'/pg/db/'.p73PreRestoreDatabase($operation), "parity_app f\n");
+        // A genuinely distinguishing marker on the ORIGINAL database, so
+        // "the original is back" is proven by identity rather than by name.
+        // The fake catalog stores "<owner> <allowconn>", and a compensation
+        // that merely renamed the RESTORED database back would leave the
+        // restored owner value in place instead of this one.
+        file_put_contents($scratch.'/pg/db/'.p73PreRestoreDatabase($operation), "the_original_database f\n");
 
         $result = restoreDatabaseRun($scratch, $operation, 'compensate');
         expect($result['exit'])->toBe(0, $result['output']);
 
         expect(p73Databases($scratch))->toBe(['parity_db', p73StagedDatabase($operation)]);
-        expect(trim(File::get($scratch.'/pg/db/parity_db')))->toBe('parity_app t');
+        expect(trim(File::get($scratch.'/pg/db/parity_db')))->toBe('the_original_database t');
+        expect(trim(File::get($scratch.'/pg/db/'.p73StagedDatabase($operation))))->toBe('parity_app f');
         expect($result['output'])->toContain('swap reversed');
     } finally {
         p73Cleanup($scratch);

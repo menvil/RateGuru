@@ -184,24 +184,30 @@ sudo infrastructure/scripts/install-target-operations --apply
    and that `health-check`, `cleanup --dry-run`, `deploy` (with a deliberately
    unusable release/artifact combination), `rollback` (with a deliberately
    unusable release ID), `backup`, `restore-test`, `offsite-backup`,
-   `offsite-retention`, `offsite-restore-test` and `backup-cycle` all still
-   correctly fail against `--target tits-guru` with `lifecycle=planned`.
+   `offsite-retention`, `offsite-restore-test`, `backup-cycle`,
+   `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage` and
+   `restore-target` all still correctly fail against `--target tits-guru`
+   with `lifecycle=planned`.
    Every staged `cleanup` invocation here is `--dry-run` only, and neither
    `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`,
-   `offsite-retention`, `offsite-restore-test` nor `backup-cycle` is ever
-   invoked for real (a deployment, a rollback, a database dump, a restore, a
-   remote upload, a remote deletion, a remote restore test, or a full backup
-   cycle), so this step never mutates the real staging target and never
-   contacts Backblaze B2.
+   `offsite-retention`, `offsite-restore-test`, `backup-cycle` nor any of the
+   five restore primitives is ever invoked for real (a deployment, a
+   rollback, a database dump, a restore test, a remote upload, a remote
+   deletion, a remote restore test, a full backup cycle, a backup download,
+   or a live data restore), so this step never mutates the real staging
+   target and never contacts Backblaze B2.
 5. A timestamped backup directory is created (see below), and each
    destination is installed in dependency order — registry, `targets`,
    `common`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`,
    `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
-   `offsite-restore-test`, `backup-cycle`, `verify-required-clis`, then
-   `deployment.conf` last — via
+   `offsite-restore-test`, `backup-cycle`, `restore-common`, `fetch-backup`,
+   `verify-backup`, `restore-database`, `restore-storage`, `restore-target`,
+   `verify-required-clis`, then `deployment.conf` last — via
    stage-in-place-then-atomic-rename into a same-directory, `mktemp`-created
    temporary file, never a direct overwrite and never a predictable temporary
-   path. `deployment.conf` is installed last so every script sourcing it
+   path. `common` precedes every script that sources it, and `restore-common`
+   precedes the five restore primitives that source it in turn.
+   `deployment.conf` is installed last so every script sourcing it
    either atomically sees the old config or the new one, never a
    half-installed bundle in between. An existing destination that is anything
    other than absent or a plain regular file — a symlink, directory, FIFO,

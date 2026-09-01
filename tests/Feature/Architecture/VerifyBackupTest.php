@@ -355,6 +355,16 @@ it('refuses a destructive restore when release.json carries a malformed release 
         ['release' => P73_RELEASE],
         'carries no source_sha',
     ],
+    // jq -r collapses a JSON number into text, so 1234567 would satisfy a
+    // bare hex regex and be reported as a real commit.
+    'a numeric source_sha' => [
+        ['release' => P73_RELEASE, 'source_sha' => 1234567],
+        'source_sha is not a JSON string (number)',
+    ],
+    'a numeric release' => [
+        ['release' => 42, 'source_sha' => P73_SOURCE_SHA],
+        'release is not a JSON string (number)',
+    ],
     'a source_sha that is not a commit' => [
         ['release' => P73_RELEASE, 'source_sha' => 'not-a-sha'],
         'malformed source_sha',
@@ -532,7 +542,28 @@ it('refuses an archive that would escape app/ or create anything but a directory
     ],
 ]);
 
-it('refuses an unreadable or empty storage archive', function () {
+it('refuses a storage archive with no entries at all', function () {
+    $scratch = p73Scratch();
+
+    try {
+        $backup = p73BuildBackup($scratch.'/source', '20260115-120000');
+        $operation = verifyBackupStage($scratch, $backup);
+        $staged = $scratch.'/run/restores/parity-target/'.$operation.'/selected-backup';
+
+        // A perfectly valid gzip tar that would create nothing: a backup
+        // whose storage archive is empty is not a backup of any storage.
+        verifyBackupReplaceArchive($staged, []);
+
+        $result = verifyBackupRun($scratch, ['--target', 'parity-target', '--operation', $operation]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('storage archive is empty');
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('refuses an unreadable storage archive', function () {
     $scratch = p73Scratch();
 
     try {

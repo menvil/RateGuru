@@ -33,8 +33,10 @@
 # and regular files — no symlink, hardlink, device, FIFO or socket), and runs
 # with --no-same-owner --no-same-permissions so no uid, gid or mode from
 # inside the archive is ever trusted. Ownership is then assigned from the
-# target registry, preserving the exact www-data access model deploy and
-# install-public-storage-access already establish.
+# target registry: the web group reaches exactly the two directories Nginx
+# needs (the traverse-only `app` doorway and published media under
+# `app/public`), and private application storage goes back into the target's
+# own runtime group.
 
 set -Eeuo pipefail
 umask 077
@@ -137,6 +139,7 @@ resolve_restore_storage_subject() {
 
     TARGET_ROOT="$(target_root "${TARGET_ID}")"
     RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+    RUNTIME_GROUP="$(target_runtime_group "${TARGET_ID}")"
     ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
     LABEL="${TARGET_ID}"
 }
@@ -177,22 +180,29 @@ assert_live_app_canonical() {
 # --no-same-owner --no-same-permissions, and the whole tree is (re)assigned
 # here from the registry's runtime user plus the host's fixed web group.
 #
-# The mode layout is exactly the one deploy establishes and
-# install-public-storage-access depends on:
+# The mode layout keeps the two directories Nginx actually needs byte-identical
+# to what deploy creates, and gives the web group NOTHING anywhere else:
 #
-#   app          runtime:www-data  2710  traverse-only for Nginx, never listable
-#   app/public   runtime:www-data  2750  Nginx lists and reads published media
-#   other dirs   runtime:www-data  2750  setgid, so anything Laravel creates
-#                                        later inherits the web group
-#   files        runtime:www-data  0640  owner writes, Nginx reads by group
+#   app             runtime:www-data  2710  Nginx traverses, never lists
+#   app/public/**   runtime:www-data  2750 dirs / 0640 files  Nginx reads media
+#   everything else runtime:<runtime group>  2750 dirs / 0640 files
 #
-# This is never wider than what is on disk today (Laravel's own runtime mkdir
-# leaves 2755 world-readable directories), and the two directories Nginx
-# actually needs are byte-identical to what deploy creates.
+# The split matters. `app` carries setgid with group www-data, exactly as
+# deploy creates it, so a `public` directory Laravel recreates later still
+# ends up in the web group. But private application storage is deliberately
+# put back in the target's own runtime group instead: www-data can traverse
+# `app`, so leaving private content group-www-data would make it readable by
+# Nginx, and a restore must not hand the web server data it could not reach
+# before just because the tree passed through here.
+#
+# Nothing here is ever wider than what is on disk today — Laravel's own
+# runtime mkdir leaves 2755 world-readable directories under `app`.
 normalize_storage_ownership() {
     local app_root="$1"
 
-    chown -R "${RUNTIME_USER}:${RESTORE_WEB_GROUP}" "${app_root}" \
+    # Everything starts as the target's own runtime identity: no part of the
+    # tree is in the web group unless the two rules below put it there.
+    chown -R "${RUNTIME_USER}:${RUNTIME_GROUP}" "${app_root}" \
         || fail "could not assign ownership of the restored storage tree"
 
     find "${app_root}" -type d -exec chmod 2750 {} + \
@@ -201,10 +211,17 @@ normalize_storage_ownership() {
     find "${app_root}" -type f -exec chmod 0640 {} + \
         || fail "could not normalize restored storage file modes"
 
+    # app itself: the traverse-only doorway deploy creates, so Nginx can reach
+    # public/ and nothing else.
+    chgrp "${RESTORE_WEB_GROUP}" "${app_root}" \
+        || fail "could not assign the web group to the restored storage root"
     chmod 2710 "${app_root}" \
         || fail "could not set the traverse-only mode on the restored storage root"
 
-    if [[ -d "${app_root}/public" ]]; then
+    # And published media, which Nginx must actually read.
+    if [[ -d "${app_root}/public" ]] && [[ ! -L "${app_root}/public" ]]; then
+        chgrp -R "${RESTORE_WEB_GROUP}" "${app_root}/public" \
+            || fail "could not assign the web group to the restored public storage"
         chmod 2750 "${app_root}/public" \
             || fail "could not set the public storage mode"
     fi
