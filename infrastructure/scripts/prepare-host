@@ -1,0 +1,776 @@
+#!/usr/bin/env bash
+#
+# prepare-host — Phase 7.2B: turn a clean supported VPS into infrastructure
+# ready to host ONE RateGuru target, as a single resumable operation.
+#
+# Composes the already-authoritative primitives in their only valid dependency
+# order:
+#
+#   5.2  install-bootstrap-runtime                  base packages
+#   7.2  install-target-prerequisites --scope host  Nginx-referenced material
+#   5.x  bootstrap-host                             the whole bootstrap pipeline
+#   7.2  install-target-prerequisites --scope target  identity-scoped material
+#   7.2  install-target-database                    PostgreSQL role/database
+#   ->   final prepare-host verification
+#
+# WHY THAT ORDER, AND WHY IT IS NOT NEGOTIABLE. Each step exists at the only
+# point in the sequence where it can succeed:
+#
+#   * The runtime slice runs first because everything after it needs tools a
+#     clean Ubuntu image does not carry — `jq` above all, without which the
+#     target registry cannot be read at all. It is one of Phase 5's own
+#     authoritative installers, invoked here rather than reimplemented, and it
+#     installs packages only: no RateGuru identity, no target directory, no
+#     secret, nothing target-specific. bootstrap-host re-verifies this same
+#     slice below and SKIPs it, which costs one verification and keeps
+#     bootstrap-host the owner of the pipeline.
+#
+#   * Host-scope external material comes next because
+#     install-bootstrap-services (5.4) FAILS CLOSED when an Nginx vhost names a
+#     file that does not exist. This is the one manual step the Phase 5
+#     clean-host runbook still asks an operator to perform between `--check`
+#     and `--apply`; automating it is what makes preparation a single
+#     operation. All of it lives under /etc and depends on no RateGuru
+#     identity.
+#
+#   * bootstrap-host then runs its whole 5.2 -> 5.3 -> 5.4 -> preflight
+#     pipeline, unchanged and undecomposed.
+#
+#   * Target-scope material follows, because shared/.env and the deploy user's
+#     authorized_keys live inside directories and accounts slice 5.3 creates.
+#     Installing them earlier would mean creating those directories with the
+#     wrong owner and making 5.3 disagree with the host.
+#
+#   * The database is last: it needs PostgreSQL (5.2) AND the credentials
+#     inside shared/.env, which only exist after the step before it.
+#
+# ORCHESTRATION ONLY. Every child stays authoritative for its own contract: no
+# package list, user/group logic, filesystem ownership, service configuration,
+# perimeter decision, secret-material rule or SQL statement is duplicated here,
+# and bootstrap-host's own 5.2 -> 5.3 -> 5.4 -> preflight pipeline is invoked,
+# never reimplemented. There is deliberately no --force, no --skip and no
+# --continue-on-error: an unsafe host makes the owning child fail, and this
+# orchestrator stops.
+#
+# WHAT PREPARE HOST IS NOT. Each of these is a different operation with a
+# different blast radius, and collapsing them into one verb is how a
+# "preparation" run ends up destroying a live system:
+#
+#   * it is not a deploy — no artifact, no release, no current symlink, no
+#     migration. A prepared target legitimately has NO application release at
+#     all, and that is the correct end state;
+#   * it is not a restore — no database contents, no storage, no media, no
+#     historical release;
+#   * it is not a repair — drift in existing material or an existing database
+#     is reported and fails closed, never silently reconciled (Phase 7.5);
+#   * it is not production activation — a lifecycle=planned target is rejected
+#     before any target-specific mutation, and this script never edits the
+#     registry;
+#   * it is not configuration management for the machine — only resources this
+#     repository's own contract declares are touched, and unrelated projects,
+#     databases, vhosts, pools, users and directories on the same host are
+#     never read, changed or removed.
+#
+# SAFE TO PRESS TWICE. On an already prepared — and possibly already deployed,
+# already populated — host, a second run is verify/SKIP throughout: nothing is
+# reinstalled blindly, no secret is rotated, no TLS key is replaced, no .env is
+# overwritten, no user is recreated, no release is deleted, no migration runs
+# and no backup is restored. An already deployed target stays deployed and
+# healthy.
+#
+# Modes (all root-only — the children require root even for their read-only
+# modes, and missing privileges are never silently downgraded into success):
+#   --check   Strictly read-only, dependency-aware: how far is this host from
+#             being prepared for this target? Runs each child's own read-only
+#             mode in order; a slice whose prerequisite is unsatisfied is
+#             reported BLOCKED rather than misjudged. Never invokes any child
+#             --apply.
+#   --apply   Convergent, not one giant transaction. Per slice: run the
+#             authoritative child verification; if already satisfied, SKIP;
+#             otherwise run the child's own --apply and require its
+#             verification to pass before the next slice. Any child failure
+#             stops the run immediately; earlier slices stay converged and
+#             re-running resumes at the failing slice.
+#   --verify  Read-only: every slice's own verification must pass, and the
+#             target must be genuinely prepared.
+#   --help    Usage.
+#
+# Clean-host rule: this command runs from a checked-out/extracted RateGuru
+# repository (the trusted bootstrap bundle GitHub uploads), and its children are
+# resolved as siblings of this script's own canonical location — never through
+# /home/www/rateguru/current (a clean server has no deployment) and never
+# through /home/www/rateguru/bin (which only exists after bootstrap installs
+# the operational bundle).
+#
+# Signals: SIGINT is never trapped or reinterpreted — interrupting a long child
+# verification terminates the orchestration without continuing downstream
+# slices, and the child's signal-derived exit status is propagated.
+#
+# Test overrides: every RATEGURU_PREPAREHOST_* override below is honored only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true — the identical gate every other
+# bootstrap script uses — so a stray variable in a real root shell can never
+# redirect this orchestrator at attacker- or operator-controlled children.
+
+set -Eeuo pipefail
+
+# --- Locations ----------------------------------------------------------------
+
+# The script FILE is canonicalized before its directory, and that ordering is
+# security-relevant — see the identical, fully-commented resolution in
+# infrastructure/scripts/bootstrap-host. Canonicalizing the file first pins
+# SCRIPT_DIR to the directory holding the REAL script, so sibling resolution
+# can never be redirected by how the command was invoked.
+if ! SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null)" \
+    || [[ -z "${SCRIPT_PATH}" ]]
+then
+    printf 'ERROR: cannot canonicalize the prepare-host script path: %s\n' "${BASH_SOURCE[0]}" >&2
+    exit 1
+fi
+
+if ! SCRIPT_DIR="$(cd -- "$(dirname -- "${SCRIPT_PATH}")" >/dev/null 2>&1 && pwd -P)" \
+    || [[ -z "${SCRIPT_DIR}" ]]
+then
+    printf 'ERROR: cannot resolve the prepare-host script directory: %s\n' "${SCRIPT_PATH}" >&2
+    exit 1
+fi
+
+if [[ "${SCRIPT_DIR}" != */infrastructure/scripts ]]; then
+    printf 'ERROR: prepare-host must run from the repository checkout (…/infrastructure/scripts); resolved location: %s\n' "${SCRIPT_DIR}" >&2
+    exit 1
+fi
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_PREPAREHOST_EUID "${EUID}")"
+
+# The authoritative children, in the only valid dependency order.
+RUNTIME_INSTALLER_BIN="$(gated_default RATEGURU_PREPAREHOST_RUNTIME_INSTALLER_BIN "${SCRIPT_DIR}/install-bootstrap-runtime")"
+PREREQUISITES_INSTALLER_BIN="$(gated_default RATEGURU_PREPAREHOST_PREREQUISITES_INSTALLER_BIN "${SCRIPT_DIR}/install-target-prerequisites")"
+BOOTSTRAP_HOST_BIN="$(gated_default RATEGURU_PREPAREHOST_BOOTSTRAP_HOST_BIN "${SCRIPT_DIR}/bootstrap-host")"
+DATABASE_INSTALLER_BIN="$(gated_default RATEGURU_PREPAREHOST_DATABASE_INSTALLER_BIN "${SCRIPT_DIR}/install-target-database")"
+TARGETS_CLI_BIN="$(gated_default RATEGURU_PREPAREHOST_TARGETS_CLI_BIN "${SCRIPT_DIR}/targets")"
+
+# The SOURCE registry in this checkout, never the installed runtime copy: on a
+# clean host nothing is installed yet, and the trusted bootstrap bundle is the
+# authority. Same source/runtime split bootstrap-host-preflight applies.
+SOURCE_REGISTRY="$(gated_default RATEGURU_PREPAREHOST_SOURCE_REGISTRY "$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)/infrastructure/config/deployment-targets.json")"
+
+# --- Output -------------------------------------------------------------------
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+MODE=""
+MODE_SEEN=false
+TARGET_ID=""
+TARGET_SEEN=false
+MATERIAL_DIR=""
+MATERIAL_DIR_SEEN=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  prepare-host --check  --target TARGET_ID [--material-dir DIR]
+  prepare-host --apply  --target TARGET_ID [--material-dir DIR]
+  prepare-host --verify --target TARGET_ID
+  prepare-host --help
+
+All modes require root and a lifecycle=active target.
+
+  --target        Deployment target ID from the RateGuru target registry.
+  --material-dir  Root-owned 0700 directory of operator-supplied external
+                  material, consumed by install-target-prerequisites. Only
+                  ever used to fill in what is ABSENT; existing material is
+                  never overwritten or rotated.
+
+  --check   Read-only, dependency-aware preparation status per slice
+            (prerequisites -> host bootstrap -> database -> final), reporting
+            PASS / NEEDS_APPLY / BLOCKED. Exit 0 only when the target is
+            already fully prepared.
+  --apply   Convergent preparation: per slice, skip when its authoritative
+            verification already passes, otherwise run the child's own --apply
+            and require its verification. Fails fast and never rolls back
+            safely converged earlier slices — re-run to resume.
+  --verify  Read-only: every slice must verify, and the target must be
+            prepared.
+
+Orchestration only. Never deploys an application, never runs a migration,
+never restores a backup, never creates or rotates a secret, never drops or
+recreates a database, and never provisions a lifecycle=planned target.
+USAGE
+}
+
+# --- Slice table --------------------------------------------------------------
+
+SLICE_IDS=(runtime host-prerequisites bootstrap target-prerequisites database)
+
+# The runtime slice is the only host-global, target-agnostic one, and the only
+# one allowed to run before the target lifecycle gate — see
+# gate_lifecycle_before().
+TARGET_AGNOSTIC_SLICE=runtime
+
+slice_label() {
+    case "$1" in
+        runtime)              printf 'base runtime packages (Phase 5.2)\n' ;;
+        host-prerequisites)   printf 'Nginx-referenced external material (required before 5.4)\n' ;;
+        bootstrap)            printf 'host bootstrap (5.2 runtime -> 5.3 identities -> 5.4 services -> preflight)\n' ;;
+        target-prerequisites) printf 'identity-scoped external material (.env, deploy key, rclone)\n' ;;
+        database)             printf 'target PostgreSQL role and database\n' ;;
+        *)                    fail "internal: unknown slice: $1" ;;
+    esac
+}
+
+slice_bin() {
+    case "$1" in
+        runtime)              printf '%s\n' "${RUNTIME_INSTALLER_BIN}" ;;
+        host-prerequisites)   printf '%s\n' "${PREREQUISITES_INSTALLER_BIN}" ;;
+        bootstrap)            printf '%s\n' "${BOOTSTRAP_HOST_BIN}" ;;
+        target-prerequisites) printf '%s\n' "${PREREQUISITES_INSTALLER_BIN}" ;;
+        database)             printf '%s\n' "${DATABASE_INSTALLER_BIN}" ;;
+        *)                    fail "internal: unknown slice: $1" ;;
+    esac
+}
+
+# slice_preapply_mode SLICE_ID — which read-only child mode decides whether a
+# slice may be SKIPPED during --apply.
+#
+# For every slice but the two prerequisite ones this is `verify`: the question
+# is simply "does the host already satisfy this contract?".
+#
+# The prerequisite slices are different, and getting this wrong would defeat one
+# of the operation's load-bearing safety rules. Their `--verify` is deliberately
+# material-blind — a prepared host is judged by what is installed on it, not by
+# what was uploaded beside the run — so on a re-run where the operator supplied
+# material that DIFFERS from what the host holds, `--verify` would pass, the
+# slice would be skipped, and the conflict this whole design exists to surface
+# would never be reported. `--check` is the material-aware read-only mode, and
+# it is the correct gate whenever material was supplied: it returns 0 only when
+# there is nothing to install AND nothing in conflict.
+slice_preapply_mode() {
+    local slice_id="$1"
+
+    case "${slice_id}" in
+        host-prerequisites|target-prerequisites)
+            if [[ -n "${MATERIAL_DIR}" ]]; then
+                printf 'check\n'
+
+                return 0
+            fi
+            ;;
+    esac
+
+    printf 'verify\n'
+}
+
+# slice_args SLICE_ID MODE — the child's own argv for one mode.
+#
+# bootstrap-host is host-global and takes no --target: a host is bootstrapped
+# once and can then carry several targets. Passing one would be a lie about
+# what that pipeline does. The two target-aware children take --target, and
+# only the prerequisite installer is ever handed the material directory.
+slice_args() {
+    local slice_id="$1" mode="$2" scope=""
+
+    case "${slice_id}" in
+        runtime|bootstrap)
+            printf '%s\n' "--${mode}"
+            ;;
+        host-prerequisites|target-prerequisites)
+            scope="${slice_id%-prerequisites}"
+
+            printf '%s\n' "--${mode}" --target "${TARGET_ID}" --scope "${scope}"
+
+            # --verify deliberately never sees the material directory: a
+            # prepared host is judged by what is actually installed on it, not
+            # by what happened to be uploaded alongside this run.
+            if [[ -n "${MATERIAL_DIR}" ]] && [[ "${mode}" != verify ]]; then
+                printf '%s\n' --material-dir "${MATERIAL_DIR}"
+            fi
+            ;;
+        database)
+            printf '%s\n' "--${mode}" --target "${TARGET_ID}"
+            ;;
+        *)
+            fail "internal: unknown slice: ${slice_id}"
+            ;;
+    esac
+}
+
+# Long-child visibility (usability only — no invented progress): the host
+# bootstrap slice runs three installers and a full preflight underneath.
+slice_duration_note() {
+    case "$1" in
+        runtime)   printf ' (installs base packages on a clean host — this may take a while)' ;;
+        bootstrap) printf ' (runs the whole 5.2/5.3/5.4 pipeline and its preflight — this takes a while)' ;;
+        *)         printf '' ;;
+    esac
+}
+
+declare -A SLICE_STATUS
+FINAL_STATUS=""
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == "0" ]] || fail "--${MODE} must run as root"
+}
+
+require_children_executable() {
+    local slice_id bin
+
+    for slice_id in "${SLICE_IDS[@]}"; do
+        bin="$(slice_bin "${slice_id}")"
+        [[ -x "${bin}" ]] || fail "slice ${slice_id} child is not executable: ${bin} — run from a full repository checkout"
+    done
+
+    [[ -x "${RUNTIME_INSTALLER_BIN}" ]] || fail "runtime installer is not executable: ${RUNTIME_INSTALLER_BIN} — run from a full repository checkout"
+
+    [[ -x "${TARGETS_CLI_BIN}" ]] || fail "targets CLI is not executable: ${TARGETS_CLI_BIN} — run from a full repository checkout"
+}
+
+# --- Target lifecycle gate ----------------------------------------------------
+#
+# The single most important gate in this script.
+#
+# `targets` is the standalone registry CLI: it validates the whole registry and
+# reads a target without needing an installed deployment.conf, which is exactly
+# right on a clean VPS where nothing is installed yet. It is pointed at the
+# SOURCE registry in this checkout — the trusted bootstrap bundle — never at a
+# runtime copy that may not exist. Every target-aware child re-enforces
+# lifecycle independently; this gate exists so an unknown or planned target is
+# refused BEFORE any target-specific mutation rather than after one.
+#
+# That ordering is what stops host-global bootstrap from becoming a loophole
+# for silently provisioning a planned production target: `prepare-host --apply
+# --target tits-guru` refuses while tits-guru remains lifecycle=planned, and
+# refuses before a single RateGuru identity, directory, secret or database
+# exists for it.
+#
+# One wrinkle, handled explicitly rather than papered over: reading a JSON
+# registry needs `jq`, and a clean Ubuntu image has none — it arrives with the
+# runtime slice, which is why that slice is the one and only step allowed to
+# run before this gate. It installs packages from a committed list and nothing
+# target-specific, so nothing is provisioned for a target that has not been
+# gated. On every host that already has jq — which is every host that has ever
+# been prepared — the gate runs first, before anything at all.
+
+LIFECYCLE_VALIDATED=false
+
+registry_readable() {
+    command -v jq >/dev/null 2>&1 \
+        && [[ -x "${TARGETS_CLI_BIN}" ]] \
+        && [[ -f "${SOURCE_REGISTRY}" ]] \
+        && "${TARGETS_CLI_BIN}" validate --file "${SOURCE_REGISTRY}" >/dev/null 2>&1
+}
+
+validate_target_id() {
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] \
+        || fail "invalid target ID: ${TARGET_ID}"
+}
+
+validate_target_lifecycle() {
+    validate_target_id
+
+    local target_json lifecycle status=0
+
+    target_json="$("${TARGETS_CLI_BIN}" show --target "${TARGET_ID}" --file "${SOURCE_REGISTRY}" 2>&1)" || status=$?
+
+    if (( status != 0 )); then
+        printf '%s\n' "${target_json}" >&2
+        fail "unknown or unusable target: ${TARGET_ID}"
+    fi
+
+    lifecycle="$(printf '%s' "${target_json}" | jq -r '.lifecycle // empty')"
+
+    if [[ "${lifecycle}" != "active" ]]; then
+        fail "target ${TARGET_ID} has lifecycle=${lifecycle:-unknown}, not active — preparation is refused before any target-specific mutation. Activating a target is a deliberate registry change in its own phase, never a side effect of preparing a host."
+    fi
+
+    LIFECYCLE_VALIDATED=true
+    printf 'Target %s: lifecycle=active — preparation may proceed\n' "${TARGET_ID}"
+}
+
+# gate_lifecycle_now_if_possible — run the gate up front on any host whose
+# registry can already be read. On a genuinely bare host it silently defers to
+# gate_lifecycle_before, which still runs it before the first target-specific
+# slice; the read-only modes simply report the runtime slice as unsatisfied and
+# everything downstream as BLOCKED, which is the truthful answer.
+gate_lifecycle_now_if_possible() {
+    if registry_readable; then
+        validate_target_lifecycle
+        return 0
+    fi
+
+    printf 'Target %s: lifecycle not yet readable (the registry needs jq, installed by the runtime slice); the gate runs before the first target-specific slice\n' "${TARGET_ID}"
+}
+
+# gate_lifecycle_before SLICE_ID — enforced immediately before every slice
+# except the target-agnostic runtime one, and idempotent, so the gate is
+# guaranteed to have run before anything target-specific no matter which path
+# got us here.
+gate_lifecycle_before() {
+    local slice_id="$1"
+
+    [[ "${LIFECYCLE_VALIDATED}" != true ]] || return 0
+    [[ "${slice_id}" != "${TARGET_AGNOSTIC_SLICE}" ]] || return 0
+
+    validate_target_lifecycle
+}
+
+# --- Child invocation ---------------------------------------------------------
+
+CHILD_OUTPUT=""
+CHILD_STATUS=0
+
+run_child_captured() {
+    CHILD_OUTPUT=""
+    CHILD_STATUS=0
+    CHILD_OUTPUT="$("$@" 2>&1)" || CHILD_STATUS=$?
+}
+
+# print_child_excerpt — the child's own SUMMARY section when it has one,
+# indented; a child that failed before printing any SUMMARY has its complete
+# output shown instead, so the failing slice is never hidden.
+print_child_excerpt() {
+    if grep -q '^SUMMARY$' <<<"${CHILD_OUTPUT}"; then
+        awk '/^SUMMARY$/ { buffer = ""; collecting = 1 }
+             collecting { buffer = buffer "    " $0 "\n" }
+             END { printf "%s", buffer }' <<<"${CHILD_OUTPUT}"
+    else
+        awk '{ print "    | " $0 }' <<<"${CHILD_OUTPUT}"
+    fi
+}
+
+child_failed() {
+    local description="$1"
+    shift
+
+    printf 'ERROR: %s failed: %s (exit status %d)\n' "${description}" "$*" "${CHILD_STATUS}" >&2
+    exit "${CHILD_STATUS}"
+}
+
+# --- Summary ------------------------------------------------------------------
+
+print_summary() {
+    local ready_label="$1" slice_id
+    local ready=true
+
+    printf '\nSUMMARY\n'
+
+    for slice_id in "${SLICE_IDS[@]}"; do
+        printf '%s %s\n' "${slice_id}" "${SLICE_STATUS[${slice_id}]}"
+        [[ "${SLICE_STATUS[${slice_id}]}" == PASS* ]] || ready=false
+    done
+
+    printf 'FINAL %s\n' "${FINAL_STATUS}"
+    [[ "${FINAL_STATUS}" == PASS* ]] || ready=false
+
+    printf '\n'
+
+    if [[ "${ready}" == true ]]; then
+        printf '%s: YES\n' "${ready_label}"
+        printf 'APPLICATION DEPLOYED: NOT REQUIRED — a prepared target legitimately has no release yet\n'
+        return 0
+    fi
+
+    printf '%s: NO\n' "${ready_label}"
+    return 1
+}
+
+# --- Read-only walkers (--check / --verify) -----------------------------------
+
+# run_readonly_walk CHILD_MODE UNSATISFIED_STATUS — the shared dependency-aware,
+# strictly read-only pipeline walk. The first unsatisfied slice gets
+# UNSATISFIED_STATUS plus its concise child summary, and every downstream slice
+# is BLOCKED rather than misjudged on a host its prerequisite has not prepared:
+# a database installer cannot meaningfully judge a host with no PostgreSQL on
+# it yet. No path in here executes any child --apply.
+run_readonly_walk() {
+    local child_mode="$1" unsatisfied_status="$2"
+    local blocked=false previous_slice="" slice_id label bin
+    local -a child_args
+
+    for slice_id in "${SLICE_IDS[@]}"; do
+        label="$(slice_label "${slice_id}")"
+        bin="$(slice_bin "${slice_id}")"
+
+        printf '\nSLICE %s — %s\n' "${slice_id}" "${label}"
+
+        if [[ "${blocked}" == true ]]; then
+            SLICE_STATUS[${slice_id}]=BLOCKED
+            printf '  BLOCKED until slice %s is satisfied\n' "${previous_slice}"
+            previous_slice="${slice_id}"
+            continue
+        fi
+
+        previous_slice="${slice_id}"
+
+        # Reached only when every prerequisite slice is satisfied, so on a host
+        # whose registry was unreadable up front this is the first point at
+        # which the gate both can and must run.
+        gate_lifecycle_before "${slice_id}"
+
+        printf '  %s %s%s...\n' "${child_mode^^}" "${label}" "$(slice_duration_note "${slice_id}")"
+
+        mapfile -t child_args < <(slice_args "${slice_id}" "${child_mode}")
+        run_child_captured "${bin}" "${child_args[@]}"
+
+        if (( CHILD_STATUS == 0 )); then
+            SLICE_STATUS[${slice_id}]=PASS
+            printf '  PASS — slice contract satisfied (%s %s)\n' "${bin}" "${child_args[*]}"
+            continue
+        fi
+
+        # Exit status 1 is the children's one and only "contract not satisfied"
+        # verdict. Anything else (127, a signal-derived 130, ...) is abnormal
+        # termination — surfaced and propagated verbatim, never reinterpreted.
+        if (( CHILD_STATUS != 1 )); then
+            print_child_excerpt
+            child_failed "slice ${slice_id} ${child_mode}" "${bin}" "${child_args[@]}"
+        fi
+
+        SLICE_STATUS[${slice_id}]="${unsatisfied_status}"
+        blocked=true
+        printf '  %s — slice contract not satisfied (%s %s, exit status %d)\n' \
+            "${unsatisfied_status}" "${bin}" "${child_args[*]}" "${CHILD_STATUS}"
+        print_child_excerpt
+        printf '  run for the full report: %s %s\n' "${bin}" "${child_args[*]}"
+    done
+
+    printf '\nFINAL PREPARATION STATE\n'
+
+    if [[ "${blocked}" == true ]]; then
+        FINAL_STATUS=BLOCKED
+        printf '  BLOCKED until slice %s is satisfied\n' "${previous_slice}"
+        return 0
+    fi
+
+    FINAL_STATUS='PASS — target prepared'
+    printf '  PASS — %s is prepared: host bootstrap satisfied, external prerequisites present, database role/database ready and reachable with the target'"'"'s own credentials\n' "${TARGET_ID}"
+}
+
+run_check() {
+    printf 'RateGuru prepare host (check mode, read-only)\n'
+    printf 'Target: %s\n' "${TARGET_ID}"
+    printf 'Pipeline: external prerequisites -> host bootstrap -> target database -> final\n'
+
+    gate_lifecycle_now_if_possible
+    run_readonly_walk check NEEDS_APPLY
+
+    print_summary 'TARGET PREPARED' || exit 1
+}
+
+run_verify() {
+    printf 'RateGuru prepare host (verify mode, read-only)\n'
+    printf 'Target: %s\n' "${TARGET_ID}"
+
+    gate_lifecycle_now_if_possible
+    run_readonly_walk verify FAIL
+
+    print_summary 'TARGET PREPARED' || exit 1
+}
+
+# --- Apply --------------------------------------------------------------------
+
+run_apply() {
+    printf 'RateGuru prepare host (apply)\n'
+    printf 'Target: %s\n' "${TARGET_ID}"
+    printf 'Convergent, fail-fast; safely converged earlier slices are never rolled back — re-run to resume\n'
+
+    # Before ANY mutation whenever the registry can already be read, and in
+    # every case before the first target-specific slice.
+    gate_lifecycle_now_if_possible
+
+    local slice_id label bin apply_status precheck_mode
+    local -a precheck_args apply_args verify_args
+
+    for slice_id in "${SLICE_IDS[@]}"; do
+        label="$(slice_label "${slice_id}")"
+        bin="$(slice_bin "${slice_id}")"
+
+        # Idempotent, and unconditional for every target-specific slice: no
+        # RateGuru identity, directory, secret or database can come into
+        # existence for a target that has not passed the lifecycle gate.
+        gate_lifecycle_before "${slice_id}"
+
+        precheck_mode="$(slice_preapply_mode "${slice_id}")"
+
+        mapfile -t precheck_args < <(slice_args "${slice_id}" "${precheck_mode}")
+        mapfile -t apply_args < <(slice_args "${slice_id}" apply)
+
+        printf '\nSLICE %s — %s\n' "${slice_id}" "${label}"
+        printf '  %s %s%s...\n' "${precheck_mode^^}" "${label}" "$(slice_duration_note "${slice_id}")"
+
+        run_child_captured "${bin}" "${precheck_args[@]}"
+
+        # The convergence rule, and the reason a second prepare run is cheap
+        # and safe: an already-satisfied slice is SKIPPED outright. Nothing is
+        # reinstalled to "make sure", because "making sure" is what overwrites
+        # a live .env and rotates a working credential.
+        if (( CHILD_STATUS == 0 )); then
+            SLICE_STATUS[${slice_id}]='PASS (already satisfied — skipped)'
+            printf '  SKIP — already satisfied (%s %s passed); no child apply\n' "${bin}" "${precheck_args[*]}"
+            continue
+        fi
+
+        # Only the children's explicit "contract not satisfied" verdict (exit 1)
+        # triggers convergence. Abnormal termination — including a
+        # signal-derived status like 130 from an interrupted verification — is
+        # propagated verbatim and never escalated into a child apply.
+        if (( CHILD_STATUS != 1 )); then
+            print_child_excerpt
+            child_failed "slice ${slice_id} pre-apply verification" "${bin}" "${precheck_args[@]}"
+        fi
+
+        printf '  APPLY required (%s %s exit status %d)\n' "${bin}" "${precheck_args[*]}" "${CHILD_STATUS}"
+        printf '  APPLY %s %s (child output follows)\n' "${bin}" "${apply_args[*]}"
+
+        # The child's own --apply streams directly: its transaction, its
+        # rollback, its diagnostics — never captured, never swallowed.
+        apply_status=0
+        "${bin}" "${apply_args[@]}" || apply_status=$?
+
+        if (( apply_status != 0 )); then
+            printf 'ERROR: slice %s apply failed: %s %s (exit status %d)\n' \
+                "${slice_id}" "${bin}" "${apply_args[*]}" "${apply_status}" >&2
+            printf 'Earlier slices remain safely converged; fix the surfaced problem and re-run prepare-host --apply to resume at slice %s\n' \
+                "${slice_id}" >&2
+            exit "${apply_status}"
+        fi
+
+        printf '  VERIFY %s (post-apply)%s...\n' "${label}" "$(slice_duration_note "${slice_id}")"
+
+        # Always the authoritative --verify here, never the material-aware
+        # --check: afterwards the only question that matters is whether the
+        # host itself satisfies the contract.
+        mapfile -t verify_args < <(slice_args "${slice_id}" verify)
+        run_child_captured "${bin}" "${verify_args[@]}"
+
+        # The child's own apply reported success while its authoritative
+        # contract still does not hold — the one case where a summary excerpt
+        # is not enough, so the complete child report is printed.
+        if (( CHILD_STATUS != 0 )); then
+            printf '%s\n' "${CHILD_OUTPUT}"
+            child_failed "slice ${slice_id} post-apply verification" "${bin}" "${verify_args[@]}"
+        fi
+
+        SLICE_STATUS[${slice_id}]='PASS (applied and verified)'
+        printf '  PASS verified\n'
+    done
+
+    printf '\nFINAL PREPARATION STATE\n'
+    FINAL_STATUS='PASS — target prepared'
+    printf '  PASS — %s is prepared\n' "${TARGET_ID}"
+
+    print_summary 'TARGET PREPARED' || exit 1
+}
+
+# --- Entry point --------------------------------------------------------------
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "mode given more than once"
+                fi
+
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                if [[ $# -lt 2 ]] || [[ -z "${2-}" ]]; then
+                    fail "--target requires a non-empty value"
+                fi
+
+                case "$2" in
+                    -*) fail "--target requires a value, not another option: $2" ;;
+                esac
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --material-dir)
+                if [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
+                    fail "--material-dir given more than once"
+                fi
+
+                if [[ $# -lt 2 ]] || [[ -z "${2-}" ]]; then
+                    fail "--material-dir requires a non-empty value"
+                fi
+
+                case "$2" in
+                    -*) fail "--material-dir requires a value, not another option: $2" ;;
+                esac
+
+                MATERIAL_DIR="$2"
+                MATERIAL_DIR_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${MODE_SEEN}" != true ]]; then
+        usage >&2
+        fail "one of --check, --apply or --verify is required"
+    fi
+
+    if [[ "${TARGET_SEEN}" != true ]]; then
+        usage >&2
+        fail "--target is required"
+    fi
+
+    if [[ "${MODE}" == verify ]] && [[ "${MATERIAL_DIR_SEEN}" == true ]]; then
+        fail "--verify never consults supplied material; it inspects the prepared host only"
+    fi
+}
+
+main() {
+    parse_args "$@"
+
+    require_root
+    require_children_executable
+
+    case "${MODE}" in
+        check)  run_check ;;
+        verify) run_verify ;;
+        apply)  run_apply ;;
+    esac
+
+    exit 0
+}
+
+# Source-guard: allows tests to source this file and call functions directly
+# without main() auto-running — the same pattern every other orchestrator uses.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

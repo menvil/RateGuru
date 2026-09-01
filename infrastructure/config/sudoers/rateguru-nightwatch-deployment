@@ -1,0 +1,20 @@
+# Deployment-observability grant, kept separate from the operational grant in
+# /etc/sudoers.d/rateguru-deploy on purpose: install-target-perimeter owns that
+# file and the three operational wrappers it names, while Laravel Nightwatch is
+# still a Phase 6B/6C evaluation whose whole footprint has to stay removable in
+# one step (install-nightwatch-agent --remove). Two drop-ins, two owners.
+#
+# The grant is strictly narrower than the operational one. The wrapper it names
+# can only ask the application to re-assert, to Nightwatch, which immutable
+# release the target is ALREADY serving; it cannot deploy, switch, migrate or
+# run any other artisan command.
+#
+# Only the staging deploy user appears here, exactly as in the operational
+# grant: tits-guru remains lifecycle=planned, has no Nightwatch program in the
+# closed allowlist in infrastructure/scripts/common, and must never be granted
+# anything by an installer.
+
+Defaults:deploy-rateguru-staging !requiretty
+
+deploy-rateguru-staging ALL=(root) NOPASSWD: \
+    /usr/local/sbin/rateguru-nightwatch-deployment

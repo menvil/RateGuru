@@ -209,17 +209,26 @@ build artifact (canonical release ID)
   → Sentry release + deployment marker    ← Phase 6 adds only this
 ```
 
-`.github/actions/sentry-release` is the single shared composite action, used by:
+`.github/actions/sentry-release` remains the single Sentry implementation. Since
+Phase 7.2A it is no longer called directly by workflows: it is called by
+`.github/actions/record-rateguru-deployment`, the one place a successful
+deployment state transition is recorded in *every* observability system —
+Sentry and Laravel Nightwatch alike. That action is used by:
 
-| Workflow | Job | Sentry environment |
+| Workflow | Job | Environment |
 |---|---|---|
 | `deploy-staging.yml` | `observability` (needs `deploy`) | `staging` |
 | `release.yml` | `deploy-staging` (after the deploy step) | `staging` |
 | `release.yml` | `deploy-production` (after the deploy step) | `production` |
 | `.github/actions/rollback-rateguru` | inside the shared action, after its own read-back | the caller's class — `staging` or `production` |
 
-A failed RateGuru deployment can therefore never produce a Sentry deployment
-marker: the marker step is unreachable unless the deployment already succeeded.
+A failed RateGuru deployment can therefore never produce a deployment marker in
+either system: the recording step is unreachable unless the deployment already
+succeeded.
+
+The Nightwatch half of the same transition is documented in
+[`nightwatch-evaluation.md`](nightwatch-evaluation.md); the two markers describe
+one event and carry the same release identity.
 
 ### Sentry outages never roll anything back
 

@@ -15,9 +15,10 @@ description: Roll a RateGuru deployment target back through the generic, target-
 # Callers own the identity of what is being rolled back: the deployment target
 # and the GitHub Environment are fixed by the calling workflow, never chosen
 # by the operator. Everything that follows a successful rollback — reading the
-# restored release back, recording its Sentry deployment marker and writing the
-# run summary — is common to every target and lives here, so the operator
-# workflows carry no duplicated observability block.
+# restored release and its source commit back off the server, recording that
+# state transition through the shared record-rateguru-deployment action, and
+# writing the run summary — is common to every target and lives here, so the
+# operator workflows carry no duplicated observability block.
 
 inputs:
   deployment-target:
@@ -81,6 +82,10 @@ outputs:
   active-release-id:
     description: Canonical release the target is serving after a successful rollback, or empty when it could not be read back
     value: ${{ steps.active.outputs.release_id }}
+
+  active-source-sha:
+    description: Commit that release's own release.json records, or empty when it could not be read back
+    value: ${{ steps.active.outputs.source_sha }}
 
 runs:
   using: composite
@@ -216,9 +221,13 @@ runs:
     # Reached only when the previous step succeeded, which — because the
     # server-side wrapper restores the old release and fails when its health
     # check fails — means the target is serving a healthy release again. The
-    # release ID is read back off the server rather than derived from the
-    # workflow inputs, so `mode=previous` reports the real immutable release
-    # the target landed on instead of guessing.
+    # release ID and its source commit are both read back off the server
+    # rather than derived from the workflow inputs, so `mode=previous` reports
+    # the real immutable release the target landed on instead of guessing.
+    #
+    # The commit comes from that release's own release.json — the same file
+    # the running application reports as its release identity — never from the
+    # rollback request, which does not carry one at all.
     - name: Resolve the release now serving the target
       id: active
       shell: bash
@@ -230,15 +239,33 @@ runs:
       run: |
         set -Eeuo pipefail
 
+        # Nothing below may fail this step. The rollback already succeeded and
+        # the target is already healthy; every early exit here records no
+        # marker rather than reporting a healthy rollback as a failed run.
+        #
+        # Both outputs are written exactly once, by one of these two helpers,
+        # so the step never depends on how duplicate keys in the output file
+        # would be resolved.
+        emit_nothing() {
+          {
+            echo "release_id="
+            echo "source_sha="
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Rollback succeeded; skipping the deployment markers." >&2
+          exit 0
+        }
+
         if [[ -z "${DEPLOY_ROOT}" ]]; then
           echo "DEPLOY_ROOT is not configured; cannot resolve the active release." >&2
-          echo "release_id=" >> "${GITHUB_OUTPUT}"
-          exit 0
+          emit_nothing
         fi
+
+        current_path="${DEPLOY_ROOT%/}/current"
 
         printf -v current_command \
           'basename "$(readlink -f %q)"' \
-          "${DEPLOY_ROOT%/}/current"
+          "${current_path}"
 
         # This is a second, independent SSH connection made purely to read a
         # value back. Under `set -e` a failed assignment would abort the step
@@ -258,12 +285,9 @@ runs:
             "${current_command}"
         )"; then
           echo "Could not read the active release back from the target." >&2
-          echo "Rollback succeeded; skipping Sentry deployment marker." >&2
-          echo "release_id=" >> "${GITHUB_OUTPUT}"
-          exit 0
+          emit_nothing
         fi
 
-        # The rollback itself already succeeded and the target is healthy.
         # If what came back is not a canonical release ID — an absent
         # `current`, a truncated read — record nothing rather than failing
         # this job for an observability reason.
@@ -271,31 +295,80 @@ runs:
 
         if [[ ! "${active_release}" =~ ${release_regex} ]]; then
           echo "Active release is not a canonical release ID: ${active_release}" >&2
-          echo "Rollback succeeded; skipping Sentry deployment marker." >&2
-          echo "release_id=" >> "${GITHUB_OUTPUT}"
-          exit 0
+          emit_nothing
         fi
 
-        echo "release_id=${active_release}" >> "${GITHUB_OUTPUT}"
-        echo "Target is now serving ${active_release}"
+        printf -v metadata_command 'cat %q' "${current_path}/release.json"
 
-    # A rollback is a deployment of an existing release, so it records a new
-    # deploy marker against that same immutable release — never a synthetic
+        if ! metadata="$(
+          ssh \
+            -p "${DEPLOY_PORT}" \
+            -i "${RATEGURU_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "${metadata_command}"
+        )"; then
+          echo "Could not read release.json back from the target." >&2
+          emit_nothing
+        fi
+
+        active_sha="$(printf '%s' "${metadata}" | jq -r '.source_sha // empty' 2>/dev/null || true)"
+        metadata_release="$(printf '%s' "${metadata}" | jq -r '.release // empty' 2>/dev/null || true)"
+
+        # The two identities must agree before either is published. A
+        # release.json naming a different release than the symlink resolves to
+        # is broken deployment state, not something to record a marker for.
+        if [[ "${metadata_release}" != "${active_release}" ]]; then
+          echo "release.json names ${metadata_release:-nothing}, but current resolves to ${active_release}." >&2
+          emit_nothing
+        fi
+
+        if [[ ! "${active_sha}" =~ ^[0-9a-f]{7,40}$ ]]; then
+          echo "release.json carries no usable source_sha: ${active_sha}" >&2
+          emit_nothing
+        fi
+
+        {
+          echo "release_id=${active_release}"
+          echo "source_sha=${active_sha}"
+        } >> "${GITHUB_OUTPUT}"
+
+        echo "Target is now serving ${active_release} (source ${active_sha})"
+
+    # A rollback is a deployment of an existing release, so it records new
+    # deploy markers against that same immutable release — never a synthetic
     # "rollback" release, and never a re-association of its commits. Skipped
     # outright when the release could not be read back, and the shared
-    # observability action is itself continue-on-error, so a Sentry outage can
-    # never turn an already-healthy rollback into a failed run.
-    - name: Record Sentry deployment marker for the restored release
-      if: ${{ steps.active.outputs.release_id != '' }}
-      uses: ./.github/actions/sentry-release
+    # observability action is fail-open throughout, so an unreachable Sentry
+    # or Nightwatch can never turn an already-healthy rollback into a failed
+    # run.
+    #
+    # Same shared implementation the deploy workflows use: one place records a
+    # successful deployment state transition, whichever operation produced it.
+    - name: Record the restored release in Sentry and Nightwatch
+      if: ${{ steps.active.outputs.release_id != '' && steps.active.outputs.source_sha != '' }}
+      uses: ./.github/actions/record-rateguru-deployment
       with:
+        deployment-target: ${{ inputs.deployment-target }}
+        environment: ${{ inputs.environment }}
+
+        release-id: ${{ steps.active.outputs.release_id }}
+        source-sha: ${{ steps.active.outputs.source_sha }}
+
         sentry-auth-token: ${{ inputs.sentry-auth-token }}
         sentry-org: ${{ inputs.sentry-org }}
         sentry-project: ${{ inputs.sentry-project }}
 
-        environment: ${{ inputs.environment }}
+        deploy-host: ${{ inputs.deploy-host }}
+        deploy-port: ${{ inputs.deploy-port }}
+        deploy-user: ${{ inputs.deploy-user }}
 
-        release-id: ${{ steps.active.outputs.release_id }}
+        ssh-private-key: ${{ inputs.ssh-private-key }}
+        known-hosts: ${{ inputs.known-hosts }}
 
     # Reports what happened on failed runs too. The result comes from the
     # rollback step's own outcome rather than the calling job's status, so it
@@ -310,6 +383,7 @@ runs:
         MODE: ${{ inputs.mode }}
         RELEASE_ID: ${{ inputs.release-id }}
         ACTIVE_RELEASE: ${{ steps.active.outputs.release_id }}
+        ACTIVE_SOURCE_SHA: ${{ steps.active.outputs.source_sha }}
         ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
       run: |
         set -Eeuo pipefail
@@ -325,6 +399,7 @@ runs:
           echo "- Mode: ${MODE}"
           echo "- Requested release: ${RELEASE_ID:-previous}"
           echo "- Active release: ${ACTIVE_RELEASE:-unknown}"
+          echo "- Active source commit: ${ACTIVE_SOURCE_SHA:-unknown}"
           echo "- Result: ${ROLLBACK_OUTCOME:-not attempted}"
         } >> "${GITHUB_STEP_SUMMARY}"
 

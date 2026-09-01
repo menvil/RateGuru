@@ -62,6 +62,11 @@ it('has exactly one build, one deploy and one rollback implementation', function
     expect($actions)->toBe([
         'build-rateguru',
         'deploy-rateguru',
+        // Phase 7.2's two additions: one PREPARE implementation and one
+        // deployment-recording implementation. Still one action per operation,
+        // never a per-environment fork of any of them.
+        'prepare-rateguru-host',
+        'record-rateguru-deployment',
         'rollback-rateguru',
         'sentry-release',
     ]);
@@ -73,6 +78,8 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'coverage.yml',
         'deploy-staging.yml',
         'label-review-bot-prs.yml',
+        'prepare-production-host.yml',
+        'prepare-staging-host.yml',
         'release.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
@@ -207,7 +214,7 @@ it('records Phase 7 as the consolidated plan, with the artifact archive gone', f
     // The final Phase 7 headings, in order.
     foreach ([
         '**7.1 Common operational primitives',
-        '**7.2 Prepare Host',
+        '**7.2 Deployment observability + Prepare Host',
         '**7.3 Restore Target Data',
         '**7.4 GitHub Restore actions',
         '**7.5 Repair Target',
@@ -239,17 +246,15 @@ it('records Phase 7 as the consolidated plan, with the artifact archive gone', f
     expect($roadmap)->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
 });
 
-it('implements nothing from Phase 7.2 onwards', function () {
-    // Prepare / Restore / Repair / Recover are future work. Nothing in this
-    // slice may ship an implementation of any of them.
+it('implements nothing from Phase 7.3 onwards', function () {
+    // Prepare Host landed in Phase 7.2 and has its own scope guard in
+    // Phase72ScopeTest. Restore, Repair and Recover remain future work, and
+    // nothing may ship an implementation of any of them.
     foreach ([
-        'infrastructure/scripts/prepare-host',
         'infrastructure/scripts/restore-target',
         'infrastructure/scripts/restore-target-data',
         'infrastructure/scripts/repair-target',
         'infrastructure/scripts/recover-host',
-        '.github/workflows/prepare-staging.yml',
-        '.github/workflows/prepare-production.yml',
         '.github/workflows/restore-staging.yml',
         '.github/workflows/restore-production.yml',
         '.github/workflows/repair-staging.yml',
@@ -257,7 +262,7 @@ it('implements nothing from Phase 7.2 onwards', function () {
         '.github/workflows/recover-production.yml',
     ] as $futureWork) {
         expect(File::exists(base_path($futureWork)))
-            ->toBeFalse("{$futureWork} is Phase 7.2+ work and must not be in this slice");
+            ->toBeFalse("{$futureWork} is Phase 7.3+ work and must not exist yet");
     }
 
     // restore-test stays what it always was: a scratch-database integrity
@@ -310,12 +315,21 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
     // workflow does not fail merely because another was already holding it.
     //
     // Every place a target is mutated, and the group that must cover it:
+    //
+    // Phase 7.2 added two operations that name a target: preparing its host,
+    // which reconfigures the machine a deployed release runs on and therefore
+    // belongs in the same domain, and recording an already-completed
+    // deployment, which mutates nothing on the target but inherits the domain
+    // of the workflow it reports on.
     $mutations = [
         'deploy-staging.yml:deploy' => ['staging-main', 'rateguru-staging-deployment'],
+        'deploy-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
         'rollback-staging.yml:rollback' => ['staging-main', 'rateguru-staging-deployment'],
         'release.yml:deploy-staging' => ['staging-main', 'rateguru-staging-deployment'],
         'release.yml:deploy-production' => ['tits-guru', 'rateguru-production-release'],
         'rollback-production.yml:rollback' => ['tits-guru', 'rateguru-production-release'],
+        'prepare-staging-host.yml:prepare' => ['staging-main', 'rateguru-staging-deployment'],
+        'prepare-production-host.yml:prepare' => ['tits-guru', 'rateguru-production-release'],
     ];
 
     $found = [];
@@ -348,7 +362,9 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
 
     expect($groups['rollback-staging.yml'])->toBe($groups['deploy-staging.yml'])
         ->and($groups['rollback-production.yml'])->toBe($groups['release.yml'])
-        ->and($groups['release.yml'])->toBe('rateguru-production-release');
+        ->and($groups['release.yml'])->toBe('rateguru-production-release')
+        ->and($groups['prepare-staging-host.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['prepare-production-host.yml'])->toBe($groups['release.yml']);
 
     // ...and GitHub concurrency never replaced the server-side lock.
     expect(File::get(base_path('infrastructure/scripts/common')))->toContain('flock');

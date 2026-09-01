@@ -1,0 +1,72 @@
+name: Prepare production host
+
+# The production counterpart of prepare-staging-host.yml. Same operator
+# semantics, same shared implementation, different fixed identity — an operator
+# picks the workflow that names their environment rather than selecting a target
+# from a dropdown.
+#
+# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned
+# and unprovisioned. infrastructure/scripts/prepare-host refuses any target that
+# is not lifecycle=active, and it refuses BEFORE any target-specific mutation —
+# so a real run of this workflow fails closed on the server today. It exists now
+# to prove that production will be prepared by exactly the same mechanism once
+# Phase 8 activates and provisions the target, rather than by a separate
+# production-shaped procedure invented under pressure on launch day.
+#
+# Nothing here weakens that gate, nothing here edits the registry, and the
+# production GitHub Environment's own protection rules stay authoritative on top
+# of it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The same logical domain every other production target mutation uses:
+# preparation must never overlap a production release or a production rollback.
+concurrency:
+  group: rateguru-production-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare the tits-guru host
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout trusted bootstrap tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Pinned to the real production target ID, so it fails closed on the
+      # server's lifecycle gate. Routing production preparation at staging-main,
+      # or activating tits-guru to make this pass, would defeat the entire
+      # purpose of adding the workflow now.
+      - name: Prepare tits-guru
+        uses: ./.github/actions/prepare-rateguru-host
+        with:
+          deployment-target: tits-guru
+          environment: production
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+          laravel-env: ${{ secrets.PREPARE_LARAVEL_ENV }}
+          deploy-authorized-keys: ${{ secrets.PREPARE_DEPLOY_AUTHORIZED_KEYS }}
+          rclone-config: ${{ secrets.PREPARE_RCLONE_CONFIG }}
+          basic-auth: ${{ secrets.PREPARE_BASIC_AUTH }}
+          tls-certificate: ${{ secrets.PREPARE_TLS_CERTIFICATE }}
+          tls-private-key: ${{ secrets.PREPARE_TLS_PRIVATE_KEY }}
+          tls-dhparams: ${{ secrets.PREPARE_TLS_DHPARAMS }}
+          nginx-tls-options: ${{ secrets.PREPARE_NGINX_TLS_OPTIONS }}
+          mail-tls-certificate: ${{ secrets.PREPARE_MAIL_TLS_CERTIFICATE }}
+          mail-tls-private-key: ${{ secrets.PREPARE_MAIL_TLS_PRIVATE_KEY }}

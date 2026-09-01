@@ -1,0 +1,366 @@
+#!/usr/bin/env bash
+#
+# record-nightwatch-deployment — Phase 7.2A: record ONE successful RateGuru
+# deployment state transition in Laravel Nightwatch, for ONE target.
+#
+# Why this exists on the server at all. Nightwatch's supported deployment
+# primitive is `php artisan nightwatch:deploy` (laravel/nightwatch
+# src/Console/DeployCommand.php) — an application-side command that reads
+# NIGHTWATCH_TOKEN out of the target's own shared/.env through Laravel's
+# config. Running it on a GitHub runner would mean either shipping that token
+# into CI or booting arbitrary staging application source with observability
+# credentials attached; staging deploys any branch an operator names, so both
+# are new trust-boundary holes. Instead the marker is produced where the token
+# and the running code already live: this narrow, target-aware root command,
+# invoked over the existing restricted deploy SSH channel through the generic
+# /usr/local/sbin/rateguru-nightwatch-deployment sudo wrapper.
+#
+# It is deliberately NOT a general "run artisan on the server" facility:
+#
+#   * the argument set is closed — --target, --release, --source-sha and an
+#     optional --run-url, each format-validated before anything is executed;
+#   * nothing a caller supplies is ever interpreted as a shell word: the
+#     artisan invocation is a fixed argv array, never a string;
+#   * the only artisan command it can ever run is `nightwatch:deploy`, spelled
+#     as a literal here;
+#   * the release the caller names must ALREADY be the release the target is
+#     serving, and its release.json must already carry the source SHA the
+#     caller named. This command records history; it never creates it.
+#
+# Identity comes from the server, not the caller. `--release` and
+# `--source-sha` are assertions to be checked against `current` and its
+# release.json, not values to be trusted — which is what makes it correct for
+# `rollback --previous`, where GitHub genuinely does not know in advance which
+# immutable release the target will land on.
+#
+# Fail-open by contract, at the caller. This command exits non-zero on any
+# mismatch, missing prerequisite or unconfirmed send, and every caller
+# (.github/actions/record-rateguru-deployment) treats that as an observability
+# gap — never as a failed deployment. A healthy release is never rolled back
+# because Nightwatch was unreachable.
+#
+# Installed by install-nightwatch-agent (never by install-target-operations):
+# Nightwatch is a time-boxed Phase 6B/6C evaluation, so its files stay
+# reversible in one place through that installer's --remove, and no host is
+# ever required to carry them.
+
+set -Eeuo pipefail
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — a stray environment variable surviving in a real root shell (a
+# leftover export, a shared profile) can never silently redirect this
+# privileged script at an attacker- or operator-controlled file to source.
+# Plain inline condition, not common's own rateguru_test_overrides_allowed():
+# common has not been sourced yet, so no function it defines exists to call.
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+# The one artisan command this script may ever run, as a literal. Never
+# assembled from a variable, never taken from an argument.
+NIGHTWATCH_COMMAND="nightwatch:deploy"
+
+# Positive confirmation, not failure sniffing. DeployCommand always exits 0 —
+# it reports an HTTP rejection, a missing token and a missing deploy ID all as
+# `components->error` and still returns 0 — so an exit status tells us nothing.
+# Requiring the success line means an unrecognised outcome is reported as "not
+# recorded" (honest, fail-open) rather than as a fabricated success. A vendor
+# upgrade that renames this string is caught by
+# tests/Feature/Architecture/RecordNightwatchDeploymentTest.php, which pins it
+# against the installed package source.
+NIGHTWATCH_SUCCESS_MARKER="Deployment sent to Nightwatch successfully."
+
+if rateguru_test_overrides_allowed && [[ -n "${RATEGURU_NIGHTWATCH_RUNUSER_BIN:-}" ]]; then
+    RUNUSER_BIN="${RATEGURU_NIGHTWATCH_RUNUSER_BIN}"
+else
+    RUNUSER_BIN=runuser
+fi
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  record-nightwatch-deployment --target TARGET_ID --release RELEASE_ID \
+      --source-sha SOURCE_SHA [--run-url URL]
+
+Records the deployment state transition the target has ALREADY completed in
+Laravel Nightwatch, using the package's own `artisan nightwatch:deploy`
+command, executed as the target's runtime user inside the release that is
+currently serving.
+
+  --target      Deployment target ID from the RateGuru target registry.
+  --release     The immutable release ID the target must already be serving.
+  --source-sha  The commit that release.json must already record for it.
+  --run-url     Optional https://github.com/... URL for the operation that
+                produced this transition.
+
+Never deploys, never switches a release, never runs migrations, and never
+executes any artisan command other than nightwatch:deploy.
+USAGE
+}
+
+# --- Arguments ---------------------------------------------------------------
+
+TARGET_ID=""
+RELEASE_ID=""
+SOURCE_SHA=""
+RUN_URL=""
+
+TARGET_SEEN=false
+RELEASE_SEEN=false
+SOURCE_SHA_SEEN=false
+RUN_URL_SEEN=false
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --release)
+                if [[ "${RELEASE_SEEN}" == true ]]; then
+                    fail "--release given more than once"
+                fi
+
+                require_flag_value "--release" "$#" "${2-}"
+                RELEASE_ID="$2"
+                RELEASE_SEEN=true
+                shift 2
+                ;;
+            --source-sha)
+                if [[ "${SOURCE_SHA_SEEN}" == true ]]; then
+                    fail "--source-sha given more than once"
+                fi
+
+                require_flag_value "--source-sha" "$#" "${2-}"
+                SOURCE_SHA="$2"
+                SOURCE_SHA_SEEN=true
+                shift 2
+                ;;
+            --run-url)
+                if [[ "${RUN_URL_SEEN}" == true ]]; then
+                    fail "--run-url given more than once"
+                fi
+
+                require_flag_value "--run-url" "$#" "${2-}"
+                RUN_URL="$2"
+                RUN_URL_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+    [[ "${RELEASE_SEEN}" == true ]] || fail "--release is required"
+    [[ "${SOURCE_SHA_SEEN}" == true ]] || fail "--source-sha is required"
+}
+
+# validate_inputs — every caller-supplied value is checked against a closed
+# pattern before it is used to build a path, a comparison or an argv entry.
+# The release pattern is the host's own RELEASE_ID_REGEX from deployment.conf,
+# so there is exactly one definition of a valid release ID on the machine.
+validate_inputs() {
+    validate_release_id "${RELEASE_ID}"
+
+    [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{7,40}$ ]] \
+        || fail "invalid source SHA: ${SOURCE_SHA}"
+
+    # Correlation only, and still narrowed to this repository's own run URLs:
+    # the value reaches the Nightwatch API as an argv entry, never a shell
+    # word, but a closed pattern keeps anything but a GitHub run URL out of
+    # the observability record entirely.
+    if [[ -n "${RUN_URL}" ]]; then
+        [[ "${RUN_URL}" =~ ^https://github\.com/[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$ ]] \
+            || fail "invalid --run-url (expected an https://github.com/... URL): ${RUN_URL}"
+    fi
+}
+
+# --- Server-side identity resolution -----------------------------------------
+
+# resolve_active_release — reads what the target is ACTUALLY serving and
+# refuses to continue unless it matches what the caller asserted. The whole
+# point of the check: `rollback --previous` cannot know its own outcome in
+# advance, so a marker built from the request rather than the result would
+# routinely describe a release the server is not running.
+#
+# `current` must resolve to a direct child of the target's own releases
+# directory — the same containment rule deploy and rollback apply. A basename
+# match alone would be satisfied by a `current` pointing anywhere on the
+# filesystem, and this command runs that tree's artisan as the runtime user.
+resolve_active_release() {
+    local current="${TARGET_ROOT}/current"
+    local releases="${TARGET_ROOT}/releases"
+
+    [[ -L "${current}" ]] \
+        || fail "no current release symlink for target ${TARGET_ID}: ${current}"
+
+    local resolved resolved_releases
+    resolved="$(readlink -f -- "${current}" 2>/dev/null || true)"
+
+    [[ -n "${resolved}" ]] && [[ -d "${resolved}" ]] \
+        || fail "current release symlink is dangling for target ${TARGET_ID}: ${current}"
+
+    # The releases root itself must be a real directory, never a symlink. A
+    # symlinked releases root would let `readlink -f` normalize a foreign tree
+    # into "contained", which is exactly the containment this check exists to
+    # establish. Same rule rollback's own validate_releases_root applies.
+    [[ ! -L "${releases}" ]] \
+        || fail "releases root must not be a symlink for target ${TARGET_ID}: ${releases}"
+
+    [[ -d "${releases}" ]] \
+        || fail "releases root must be a real directory for target ${TARGET_ID}: ${releases}"
+
+    resolved_releases="$(readlink -f -- "${releases}" 2>/dev/null || true)"
+
+    [[ -n "${resolved_releases}" ]] && [[ -d "${resolved_releases}" ]] \
+        || fail "releases directory is missing for target ${TARGET_ID}: ${releases}"
+
+    [[ "$(dirname -- "${resolved}")" == "${resolved_releases}" ]] \
+        || fail "current resolves outside ${releases} (${resolved}) for target ${TARGET_ID} — refusing to run anything from a release tree the target does not own"
+
+    ACTIVE_RELEASE="$(basename -- "${resolved}")"
+    ACTIVE_RELEASE_ROOT="${resolved}"
+
+    [[ "${ACTIVE_RELEASE}" == "${RELEASE_ID}" ]] \
+        || fail "target ${TARGET_ID} is serving ${ACTIVE_RELEASE}, not the asserted ${RELEASE_ID} — refusing to record a deployment marker for a release the server is not running"
+}
+
+# verify_release_metadata — the second half of the identity gate. release.json
+# is the canonical deployment identity baked into the immutable artifact, and
+# it is the same file the application itself reports as event.release, so a
+# marker whose release/SHA disagree with it would decorrelate every event it
+# was supposed to explain.
+verify_release_metadata() {
+    local metadata_file="${ACTIVE_RELEASE_ROOT}/release.json"
+
+    [[ -r "${metadata_file}" ]] \
+        || fail "release metadata is unreadable: ${metadata_file}"
+
+    local metadata_release metadata_sha
+
+    metadata_release="$(jq -r '.release // empty' "${metadata_file}" 2>/dev/null || true)"
+    metadata_sha="$(jq -r '.source_sha // empty' "${metadata_file}" 2>/dev/null || true)"
+
+    [[ -n "${metadata_release}" ]] \
+        || fail "release metadata carries no .release: ${metadata_file}"
+
+    [[ "${metadata_release}" == "${RELEASE_ID}" ]] \
+        || fail "release metadata names ${metadata_release}, not ${RELEASE_ID}: ${metadata_file}"
+
+    [[ -n "${metadata_sha}" ]] \
+        || fail "release metadata carries no .source_sha: ${metadata_file}"
+
+    [[ "${metadata_sha}" == "${SOURCE_SHA}" ]] \
+        || fail "release metadata records source SHA ${metadata_sha}, not the asserted ${SOURCE_SHA}: ${metadata_file}"
+
+    log "verified active release ${RELEASE_ID} (source ${SOURCE_SHA}) for target ${TARGET_ID}"
+}
+
+# --- The one supported Nightwatch operation ----------------------------------
+
+# record_marker — `artisan nightwatch:deploy`, run as the target's runtime
+# user from inside the release that is serving, so the token, the config cache
+# and the code are all the ones actually in production for this target.
+#
+# The deploy identifier is the release ID itself, deliberately: config
+# nightwatch.deployment already resolves to release.json's release for every
+# request this application serves, so events and markers land on the same key.
+# A rollback therefore records a NEW marker against the SAME existing
+# immutable release — never a synthetic "rollback-<n>" identity.
+record_marker() {
+    local -a artisan_args=(
+        "${NIGHTWATCH_COMMAND}"
+        "${RELEASE_ID}"
+        --ref "${SOURCE_SHA}"
+        --name "${TARGET_ID} ${RELEASE_ID}"
+    )
+
+    if [[ -n "${RUN_URL}" ]]; then
+        artisan_args+=(--url "${RUN_URL}")
+    fi
+
+    [[ -f "${ACTIVE_RELEASE_ROOT}/artisan" ]] \
+        || fail "release ${RELEASE_ID} contains no artisan — not a Laravel release, nothing to record"
+
+    log "recording Nightwatch deployment marker for ${RELEASE_ID} as ${RUNTIME_USER}"
+
+    local output status=0
+
+    output="$(
+        cd "${ACTIVE_RELEASE_ROOT}" \
+            && "${RUNUSER_BIN}" \
+                -u "${RUNTIME_USER}" \
+                -- "${PHP_BIN}" artisan "${artisan_args[@]}" 2>&1
+    )" || status=$?
+
+    printf '%s\n' "${output}"
+
+    (( status == 0 )) \
+        || fail "artisan ${NIGHTWATCH_COMMAND} terminated abnormally (exit status ${status})"
+
+    # DeployCommand reports every failure — HTTP rejection, missing token,
+    # missing deploy ID — and still exits 0. Only its explicit success line
+    # counts as recorded.
+    grep -Fq "${NIGHTWATCH_SUCCESS_MARKER}" <<<"${output}" \
+        || fail "Nightwatch did not confirm the deployment marker for ${RELEASE_ID} — the deployment itself is unaffected and must not be rolled back for this"
+
+    log "Nightwatch deployment marker recorded for ${TARGET_ID} ${RELEASE_ID}"
+}
+
+main() {
+    parse_args "$@"
+
+    require_root
+
+    # Validates the target ID, the whole registry, that the target exists and
+    # that it is lifecycle=active — before any path is built or any command is
+    # run. A planned target (tits-guru today) is rejected here.
+    require_active_target "${TARGET_ID}"
+
+    validate_inputs
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+
+    # The same deployment lock deploy, rollback and cleanup take, held for the
+    # whole read-then-record sequence. Without it a deploy or rollback landing
+    # between resolve_active_release and record_marker would have this command
+    # tell Nightwatch about a release the target had already stopped serving —
+    # the precise decorrelation the identity gate exists to prevent.
+    #
+    # It is `flock -n`: a marker that cannot take the lock fails immediately
+    # rather than queueing behind a deployment, and the caller treats that as
+    # the observability gap it is.
+    acquire_deployment_lock "${TARGET_ROOT}"
+
+    resolve_active_release
+    verify_release_metadata
+    record_marker
+}
+
+# Source-guard: tests source this file and call functions directly without
+# main() auto-running — the same pattern every other operational script uses.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

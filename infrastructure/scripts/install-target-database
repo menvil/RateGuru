@@ -1,0 +1,658 @@
+#!/usr/bin/env bash
+#
+# install-target-database — Phase 7.2B: create and verify ONE target's
+# PostgreSQL role and database, and nothing else.
+#
+# The clean-host gap this closes. Phase 5 host bootstrap deliberately installs
+# PostgreSQL but never creates a target's role or database: the credentials for
+# them live in the target's own shared/.env, which is external secret material
+# no installer may invent. That left exactly one manual step between "bootstrap
+# passed" and "the first deploy can run". This script closes it — by reading
+# the credentials the operator already supplied, never by generating any.
+#
+# Modes (all require root — PostgreSQL administration runs through
+# `runuser -u postgres`, which an unprivileged caller cannot do):
+#   --check   Report the current role/database/connectivity state and what
+#             --apply would do. Strictly read-only.
+#   --apply   Convergent, never destructive. Creates the role if it is absent,
+#             creates the database owned by that role if it is absent, and
+#             grants CONNECT. Then verifies.
+#   --verify  Re-run every verification against what exists now. Makes NO
+#             changes.
+#
+# WHAT THIS NEVER DOES, in any mode. This is the load-bearing half of the
+# contract, because Prepare Host is a button an operator can press by accident
+# on a live, deployed, populated host:
+#
+#   * never DROP a role or a database;
+#   * never recreate, rename or truncate anything;
+#   * never delete, alter or inspect a single row of application data;
+#   * never reset a schema and never run a migration — schema is the
+#     application's business, applied by `deploy --migrate`;
+#   * never rotate the password of a role that already exists. A password
+#     change is a deliberate operational act with its own blast radius (every
+#     running PHP-FPM worker, the queue worker, the scheduler), not a silent
+#     side effect of re-running preparation;
+#   * never restore a backup.
+#
+# When an existing role or database cannot be proven to match the intended
+# configuration, this script FAILS CLOSED and reports the mismatch. Reconciling
+# genuine drift is Repair Target (Phase 7.5) and credential rotation is its own
+# future operation; neither is smuggled in here.
+#
+# Credentials come from the target's shared/.env, parsed by a deliberately
+# limited reader below — six keys, plain string extraction, never sourced,
+# never eval'd. A .env is operator-authored secret material and must never be
+# executed as shell by a root process.
+#
+# Secret handling: the password is read into a shell variable, passed to
+# PostgreSQL over stdin (as part of a SQL statement) or through PGPASSWORD, and
+# never appears in an argument vector, a log line, an error message or a
+# summary. It is never printed even when it is the thing that is wrong.
+
+set -Eeuo pipefail
+umask 022
+
+# --- Locations and test seams -------------------------------------------------
+#
+# Identical gated shape to every other RateGuru installer: an override is
+# honored only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, so a stray
+# environment variable surviving in a real root shell can never redirect this
+# script at an operator- or attacker-controlled binary. Production never sets
+# either variable.
+
+COMMON_FILE=/home/www/rateguru/bin/common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] \
+    && [[ -n "${RATEGURU_COMMON_FILE:-}" ]]
+then
+    COMMON_FILE="${RATEGURU_COMMON_FILE}"
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+PSQL_BIN="$(gated_default RATEGURU_TARGETDB_PSQL_BIN /usr/bin/psql)"
+RUNUSER_BIN="$(gated_default RATEGURU_TARGETDB_RUNUSER_BIN runuser)"
+POSTGRES_SUPERUSER="$(gated_default RATEGURU_TARGETDB_SUPERUSER postgres)"
+EFFECTIVE_EUID="$(gated_default RATEGURU_TARGETDB_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_TARGETDB_FS_ROOT '')"
+
+# physical PATH — the real filesystem location of a logical path. FS_ROOT is
+# empty in production, so this is the identity function there.
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+# PostgreSQL's own identifier rules, narrowed: unquoted lowercase identifiers
+# only. Both values come from the registry, which is validated before this
+# script runs, but they end up inside SQL text — so they are matched against a
+# closed class rather than trusted, and nothing else is ever interpolated into
+# a statement.
+IDENTIFIER_REGEX='^[a-z_][a-z0-9_]{0,62}$'
+
+REQUIRED_TOOLS=(grep sed tail printf)
+
+# --- Arguments ----------------------------------------------------------------
+
+MODE=""
+MODE_SEEN=false
+TARGET_ID=""
+TARGET_SEEN=false
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-target-database --check  --target TARGET_ID
+  install-target-database --apply  --target TARGET_ID
+  install-target-database --verify --target TARGET_ID
+
+All modes require root and a lifecycle=active target.
+
+  --check   Read-only: report role, database, ownership and connectivity.
+  --apply   Create the role and database if absent, then verify. Never drops,
+            recreates, truncates, migrates, rotates a password or restores.
+  --verify  Read-only: the role and database exist, the database is owned by
+            the role, and the target's own .env credentials can connect.
+USAGE
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                if [[ "${MODE_SEEN}" == true ]]; then
+                    usage >&2
+                    fail "mode given more than once"
+                fi
+
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                if [[ "${TARGET_SEEN}" == true ]]; then
+                    fail "--target given more than once"
+                fi
+
+                require_flag_value "--target" "$#" "${2-}"
+
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ "${MODE_SEEN}" != true ]]; then
+        usage >&2
+        fail "one of --check, --apply or --verify is required"
+    fi
+
+    if [[ "${TARGET_SEEN}" != true ]]; then
+        usage >&2
+        fail "--target is required"
+    fi
+}
+
+require_root_mode() {
+    if [[ "${EFFECTIVE_EUID}" -ne 0 ]]; then
+        fail "--${MODE} must run as root"
+    fi
+}
+
+check_required_tools() {
+    local tool
+    for tool in "${REQUIRED_TOOLS[@]}"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+
+    for tool in "${PSQL_BIN}" "${RUNUSER_BIN}"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+}
+
+# --- Deliberately limited .env reader ------------------------------------------
+#
+# Six keys, nothing else, and the file is never sourced or eval'd. A target's
+# .env is operator-authored secret material; executing it as shell in a root
+# process would hand whoever wrote it a root shell. The reader takes the LAST
+# assignment of a key (dotenv's own precedence), strips one layer of matching
+# quotes and a trailing carriage return, and returns non-zero for an absent or
+# empty value rather than inventing one.
+
+ENV_KEYS=(DB_CONNECTION DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD)
+
+# read_env_keys FILE — reads exactly the keys in ENV_KEYS and nothing else,
+# assigning each into ENV_<KEY>. Driven from the array rather than a list of
+# hand-written assignments, so the allowlist has one definition and cannot
+# quietly grow a seventh key at a call site.
+read_env_keys() {
+    local env_file="$1" key value
+
+    for key in "${ENV_KEYS[@]}"; do
+        value="$(env_value "${key}" "${env_file}" || true)"
+        printf -v "ENV_${key}" '%s' "${value}"
+    done
+}
+
+env_value() {
+    local key="$1" env_file="$2" line value
+
+    [[ -f "${env_file}" ]] || return 1
+
+    line="$(grep -E "^[[:space:]]*${key}=" "${env_file}" | tail -n 1)" || return 1
+    [[ -n "${line}" ]] || return 1
+
+    value="${line#*=}"
+    value="${value%$'\r'}"
+
+    # One layer of matching quotes only. An unbalanced quote is left as-is and
+    # will simply fail to authenticate — never silently reinterpreted.
+    if [[ "${value}" == \"*\" ]] && (( ${#value} >= 2 )); then
+        value="${value:1:${#value}-2}"
+    elif [[ "${value}" == \'*\' ]] && (( ${#value} >= 2 )); then
+        value="${value:1:${#value}-2}"
+    fi
+
+    [[ -n "${value}" ]] || return 1
+
+    printf '%s\n' "${value}"
+}
+
+# --- Target and credential resolution -------------------------------------------
+
+TARGET_ROOT=""
+SHARED_ENV=""
+DB_NAME=""
+DB_ROLE=""
+ENV_DB_CONNECTION=""
+ENV_DB_HOST=""
+ENV_DB_PORT=""
+ENV_DB_DATABASE=""
+ENV_DB_USERNAME=""
+ENV_DB_PASSWORD=""
+
+resolve_target() {
+    # Validates the target ID, the whole registry, that the target exists and
+    # that it is lifecycle=active — before any path is built or any SQL runs.
+    # A planned target (tits-guru today) is rejected here, so no production
+    # database can ever be brought into existence by this script.
+    require_active_target "${TARGET_ID}"
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    DB_NAME="$(target_database_name "${TARGET_ID}")"
+    DB_ROLE="$(target_database_role "${TARGET_ID}")"
+    SHARED_ENV="$(physical "${TARGET_ROOT}")/shared/.env"
+
+    [[ "${DB_NAME}" =~ ${IDENTIFIER_REGEX} ]] \
+        || fail "registry database name for ${TARGET_ID} is not a plain lowercase identifier: ${DB_NAME}"
+    [[ "${DB_ROLE}" =~ ${IDENTIFIER_REGEX} ]] \
+        || fail "registry application role for ${TARGET_ID} is not a plain lowercase identifier: ${DB_ROLE}"
+
+    log "target ${TARGET_ID}: database=${DB_NAME} role=${DB_ROLE}"
+}
+
+# resolve_credentials — the registry declares WHICH database and role a target
+# owns; the .env carries the credentials for them. Both have to agree, and a
+# disagreement is drift an operator must resolve, never something to reconcile
+# by preferring one source.
+resolve_credentials() {
+    [[ -f "${SHARED_ENV}" ]] \
+        || fail "target environment file is missing: ${TARGET_ROOT}/shared/.env — external secret material, never generated here"
+
+    [[ -r "${SHARED_ENV}" ]] \
+        || fail "target environment file is unreadable: ${TARGET_ROOT}/shared/.env"
+
+    read_env_keys "${SHARED_ENV}"
+
+    # Laravel's own pgsql defaults, repeated here rather than guessed, so a
+    # .env that legitimately omits host/port behaves identically to the running
+    # application.
+    ENV_DB_HOST="${ENV_DB_HOST:-127.0.0.1}"
+    ENV_DB_PORT="${ENV_DB_PORT:-5432}"
+
+    [[ "${ENV_DB_CONNECTION}" == pgsql ]] \
+        || fail "${TARGET_ROOT}/shared/.env sets DB_CONNECTION=${ENV_DB_CONNECTION:-<unset>}; this installer manages PostgreSQL targets only"
+
+    [[ -n "${ENV_DB_DATABASE}" ]] \
+        || fail "${TARGET_ROOT}/shared/.env carries no DB_DATABASE"
+    [[ -n "${ENV_DB_USERNAME}" ]] \
+        || fail "${TARGET_ROOT}/shared/.env carries no DB_USERNAME"
+
+    # Never echoed, never compared to anything but emptiness.
+    [[ -n "${ENV_DB_PASSWORD}" ]] \
+        || fail "${TARGET_ROOT}/shared/.env carries no DB_PASSWORD — supply the credential, it is never generated here"
+
+    [[ "${ENV_DB_DATABASE}" == "${DB_NAME}" ]] \
+        || fail "drift: the registry declares database ${DB_NAME} for ${TARGET_ID}, but shared/.env names ${ENV_DB_DATABASE} — resolve the mismatch manually; nothing was changed"
+
+    [[ "${ENV_DB_USERNAME}" == "${DB_ROLE}" ]] \
+        || fail "drift: the registry declares role ${DB_ROLE} for ${TARGET_ID}, but shared/.env names ${ENV_DB_USERNAME} — resolve the mismatch manually; nothing was changed"
+
+    [[ "${ENV_DB_PORT}" =~ ^[0-9]{1,5}$ ]] \
+        || fail "${TARGET_ROOT}/shared/.env carries a non-numeric DB_PORT: ${ENV_DB_PORT}"
+
+    log "credentials resolved from shared/.env (values other than host/port/database/role are never read into the report)"
+}
+
+# --- PostgreSQL access ---------------------------------------------------------
+
+# superuser_query SQL — one scalar, read as the postgres superuser over a local
+# socket, assigned to SUPERUSER_QUERY_RESULT in the CALLER's shell. SQL is
+# always a literal from this file; the only values it ever carries are the two
+# registry identifiers already matched against IDENTIFIER_REGEX.
+#
+# Deliberately NOT a function whose output is captured with $(...), and that is
+# the whole point. `fail` is an `exit`, and an exit inside a command
+# substitution kills only the subshell — the caller would carry on with an
+# empty result, which is exactly indistinguishable from "the object does not
+# exist". Every predicate below therefore calls this directly, in its own
+# shell, so a failed query is fatal where it happens.
+#
+# A query that fails is never an answer: PostgreSQL being unreachable and a
+# role not existing produce the same empty output, and conflating them would
+# let --check report a clean bill of health on a host whose database server is
+# down, and let --apply proceed without ever having read the state it is
+# converging.
+SUPERUSER_QUERY_RESULT=""
+
+superuser_query() {
+    local output status=0
+
+    # stdout only. Merging stderr in would put a NOTICE or a warning from a
+    # perfectly successful query into the result, and the callers compare that
+    # result against exactly "1" or "t" — an existing object would read as
+    # absent. psql's diagnostics go straight through to this script's own
+    # stderr, where they belong.
+    output="$(
+        "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+            "${PSQL_BIN}" \
+                --no-psqlrc \
+                --no-align \
+                --tuples-only \
+                --set=ON_ERROR_STOP=1 \
+                --dbname=postgres \
+                --command="$1"
+    )" || status=$?
+
+    if (( status != 0 )); then
+        fail "could not query PostgreSQL as ${POSTGRES_SUPERUSER} (exit status ${status}) — refusing to treat an unreadable catalog as an absent object"
+    fi
+
+    SUPERUSER_QUERY_RESULT="$(tr -s '[:space:]' ' ' <<<"${output}")"
+    SUPERUSER_QUERY_RESULT="${SUPERUSER_QUERY_RESULT#"${SUPERUSER_QUERY_RESULT%%[![:space:]]*}"}"
+    SUPERUSER_QUERY_RESULT="${SUPERUSER_QUERY_RESULT%"${SUPERUSER_QUERY_RESULT##*[![:space:]]}"}"
+}
+
+# sql_literal VALUE — VALUE as a PostgreSQL E'' string literal. Backslashes
+# first, then single quotes: reversing the order would re-escape the escapes.
+# Used for exactly one value, the role password, so that it can travel inside a
+# statement on stdin instead of on a command line.
+sql_literal() {
+    local value="$1"
+
+    value="${value//\\/\\\\}"
+    value="${value//\'/\'\'}"
+
+    printf "E'%s'" "${value}"
+}
+
+role_exists() {
+    superuser_query "SELECT 1 FROM pg_roles WHERE rolname = '${DB_ROLE}';"
+
+    [[ "${SUPERUSER_QUERY_RESULT}" == "1" ]]
+}
+
+database_exists() {
+    superuser_query "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}';"
+
+    [[ "${SUPERUSER_QUERY_RESULT}" == "1" ]]
+}
+
+DATABASE_OWNER=""
+
+resolve_database_owner() {
+    superuser_query "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '${DB_NAME}';"
+
+    DATABASE_OWNER="${SUPERUSER_QUERY_RESULT}"
+}
+
+role_can_login() {
+    superuser_query "SELECT rolcanlogin FROM pg_roles WHERE rolname = '${DB_ROLE}';"
+
+    [[ "${SUPERUSER_QUERY_RESULT}" == "t" ]]
+}
+
+# resolve_role_elevated_privileges — the privilege flags an application role
+# must not hold, as a space-separated list of the ones it actually has.
+#
+# The role this installer CREATES is NOSUPERUSER NOCREATEDB NOCREATEROLE
+# NOREPLICATION, but a role that already existed was created by someone else,
+# and "it can log in" is not the same as "it is safe to hand the application".
+# A pre-existing SUPERUSER role would otherwise sail through verification and
+# be reported as a correctly prepared target.
+ROLE_ELEVATED=""
+
+resolve_role_elevated_privileges() {
+    superuser_query "
+        SELECT trim(concat_ws(' ',
+            CASE WHEN rolsuper       THEN 'SUPERUSER'   END,
+            CASE WHEN rolcreatedb    THEN 'CREATEDB'    END,
+            CASE WHEN rolcreaterole  THEN 'CREATEROLE'  END,
+            CASE WHEN rolreplication THEN 'REPLICATION' END,
+            CASE WHEN rolbypassrls   THEN 'BYPASSRLS'   END))
+        FROM pg_roles WHERE rolname = '${DB_ROLE}';
+    "
+
+    ROLE_ELEVATED="${SUPERUSER_QUERY_RESULT}"
+}
+
+# application_can_connect — the only verification that actually proves the
+# target will work: connect exactly the way the application will, with exactly
+# the credentials it will use. PGPASSWORD keeps the secret out of the argument
+# vector; the connection is made as root but authenticates as the application
+# role over TCP, so it exercises pg_hba.conf too.
+application_can_connect() {
+    PGPASSWORD="${ENV_DB_PASSWORD}" \
+        "${PSQL_BIN}" \
+            --no-psqlrc \
+            --no-align \
+            --tuples-only \
+            --host="${ENV_DB_HOST}" \
+            --port="${ENV_DB_PORT}" \
+            --username="${DB_ROLE}" \
+            --dbname="${DB_NAME}" \
+            --command='SELECT 1;' \
+            >/dev/null 2>&1
+}
+
+# --- Convergence ---------------------------------------------------------------
+
+create_role() {
+    log "creating PostgreSQL role ${DB_ROLE} (LOGIN, no superuser, no createdb, no createrole)"
+
+    # The password reaches PostgreSQL on stdin, inside the statement — never in
+    # argv, never in a log. A here-string, not a here-doc with a variable
+    # expansion in the delimiter, so nothing about it can be word-split.
+    "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+        "${PSQL_BIN}" \
+            --no-psqlrc \
+            --quiet \
+            --dbname=postgres \
+            --set=ON_ERROR_STOP=1 \
+        <<<"CREATE ROLE ${DB_ROLE} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD $(sql_literal "${ENV_DB_PASSWORD}");" \
+        || fail "could not create role ${DB_ROLE}"
+}
+
+create_database() {
+    log "creating PostgreSQL database ${DB_NAME} owned by ${DB_ROLE}"
+
+    "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+        "${PSQL_BIN}" \
+            --no-psqlrc \
+            --quiet \
+            --dbname=postgres \
+            --set=ON_ERROR_STOP=1 \
+            --command="CREATE DATABASE ${DB_NAME} OWNER ${DB_ROLE} TEMPLATE template0 ENCODING 'UTF8';" \
+        || fail "could not create database ${DB_NAME}"
+}
+
+grant_connect() {
+    # Idempotent and additive: GRANT CONNECT on an already-granted database is
+    # a no-op, and nothing is ever revoked here.
+    "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+        "${PSQL_BIN}" \
+            --no-psqlrc \
+            --quiet \
+            --dbname=postgres \
+            --set=ON_ERROR_STOP=1 \
+            --command="GRANT CONNECT ON DATABASE ${DB_NAME} TO ${DB_ROLE};" \
+        || fail "could not grant CONNECT on ${DB_NAME} to ${DB_ROLE}"
+}
+
+# --- Verification ---------------------------------------------------------------
+
+verify_state() {
+    role_exists \
+        || fail "PostgreSQL role ${DB_ROLE} does not exist — run --apply"
+
+    role_can_login \
+        || fail "PostgreSQL role ${DB_ROLE} exists but cannot log in — resolve manually; this installer never alters an existing role"
+
+    resolve_role_elevated_privileges
+
+    [[ -z "${ROLE_ELEVATED}" ]] \
+        || fail "PostgreSQL role ${DB_ROLE} holds ${ROLE_ELEVATED} — an application role must hold none of SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. Resolve manually; this installer never alters an existing role"
+
+    database_exists \
+        || fail "PostgreSQL database ${DB_NAME} does not exist — run --apply"
+
+    resolve_database_owner
+
+    # A database owned by someone else is drift, and reassigning ownership
+    # underneath a running application is exactly the kind of destructive
+    # "repair" this script refuses to perform.
+    [[ "${DATABASE_OWNER}" == "${DB_ROLE}" ]] \
+        || fail "database ${DB_NAME} is owned by ${DATABASE_OWNER}, not ${DB_ROLE} — resolve the mismatch manually; ownership is never reassigned here"
+
+    # The decisive check, and the reason an existing role's password is never
+    # rotated: if the supplied credentials work, there is nothing to fix; if
+    # they do not, silently resetting the password would break every running
+    # worker and hide the real problem.
+    application_can_connect \
+        || fail "the credentials in ${TARGET_ROOT}/shared/.env cannot connect to ${DB_NAME} as ${DB_ROLE} at ${ENV_DB_HOST}:${ENV_DB_PORT} — the role and database exist and were left completely untouched; resolve the credential mismatch manually (rotation is a separate operation)"
+
+    log "PASS: role ${DB_ROLE} and database ${DB_NAME} exist, ownership is correct, and the target's own credentials connect"
+}
+
+# --- Modes -----------------------------------------------------------------------
+
+run_check() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    resolve_credentials
+
+    log "--- current state (read-only) ---"
+
+    local satisfied=true
+
+    if role_exists; then
+        resolve_role_elevated_privileges
+
+        if [[ -n "${ROLE_ELEVATED}" ]]; then
+            satisfied=false
+            log "role ${DB_ROLE}: exists but holds ${ROLE_ELEVATED} — --apply will not alter it; resolve manually"
+        elif role_can_login; then
+            log "role ${DB_ROLE}: exists and may log in — --apply will leave it completely untouched (no password rotation)"
+        else
+            satisfied=false
+            log "role ${DB_ROLE}: exists but CANNOT log in — --apply will not alter it; resolve manually"
+        fi
+    else
+        satisfied=false
+        log "role ${DB_ROLE}: absent — --apply will create it from the credential already in shared/.env"
+    fi
+
+    if database_exists; then
+        resolve_database_owner
+        log "database ${DB_NAME}: exists, owned by ${DATABASE_OWNER} — --apply will never drop, recreate, truncate or migrate it"
+
+        if [[ "${DATABASE_OWNER}" != "${DB_ROLE}" ]]; then
+            satisfied=false
+            log "database ${DB_NAME}: owner ${DATABASE_OWNER} is not ${DB_ROLE} — resolve manually; ownership is never reassigned here"
+        fi
+    else
+        satisfied=false
+        log "database ${DB_NAME}: absent — --apply will create it empty, owned by ${DB_ROLE}"
+    fi
+
+    if application_can_connect; then
+        log "application connectivity: OK as ${DB_ROLE} at ${ENV_DB_HOST}:${ENV_DB_PORT}"
+    else
+        satisfied=false
+        log "application connectivity: NOT established yet as ${DB_ROLE} at ${ENV_DB_HOST}:${ENV_DB_PORT}"
+    fi
+
+    # The exit status is the answer, exactly as it is for every other RateGuru
+    # installer: 0 only when the whole contract already holds. prepare-host's
+    # read-only walk reads this, so a --check that always succeeded would make
+    # it report a target as prepared on a host with no database at all.
+    if [[ "${satisfied}" == true ]]; then
+        log "PASS: --check complete, database prerequisites already satisfied (no changes made)"
+        return 0
+    fi
+
+    log "NEEDS_APPLY: --check complete, database prerequisites are not satisfied yet (no changes made)"
+    return 1
+}
+
+run_apply() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    resolve_credentials
+
+    # Convergence, one object at a time. Each existing object is skipped
+    # outright — there is no path in this function that modifies something that
+    # is already there.
+    if role_exists; then
+        # Every fail-closed condition an existing role can be in is checked
+        # BEFORE anything is created — the same set run_check reports on.
+        # Discovering one only in the verification at the end would mean a
+        # database and a CONNECT grant had already been created for an account
+        # this run is about to refuse.
+        resolve_role_elevated_privileges
+
+        [[ -z "${ROLE_ELEVATED}" ]] \
+            || fail "PostgreSQL role ${DB_ROLE} holds ${ROLE_ELEVATED} — an application role must hold none of SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. Nothing was created; resolve manually, since this installer never alters an existing role"
+
+        role_can_login \
+            || fail "PostgreSQL role ${DB_ROLE} exists but cannot log in. Nothing was created; resolve manually, since this installer never alters an existing role"
+
+        log "SKIP role ${DB_ROLE}: already exists (never re-created, never re-passworded)"
+    else
+        create_role
+    fi
+
+    if database_exists; then
+        log "SKIP database ${DB_NAME}: already exists (never dropped, never recreated, contents never touched)"
+    else
+        create_database
+    fi
+
+    grant_connect
+    verify_state
+
+    log "PASS: database prerequisites satisfied for ${TARGET_ID}. No schema was created and no migration was run — the first deployment does that."
+}
+
+run_verify() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+    resolve_credentials
+    verify_state
+}
+
+main() {
+    parse_args "$@"
+
+    # --check answers through its exit status (0 satisfied, 1 not) — the same
+    # verdict every other RateGuru installer uses. Captured explicitly rather
+    # than left to `set -e`, so the intent is on the page.
+    local status=0
+
+    case "${MODE}" in
+        check)  run_check || status=$? ;;
+        apply)  run_apply ;;
+        verify) run_verify ;;
+    esac
+
+    exit "${status}"
+}
+
+# Source-guard: lets tests source this file and call individual functions
+# without main() auto-running — the same pattern every other installer uses.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

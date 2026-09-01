@@ -215,17 +215,28 @@ jobs:
 
       # Runs inside the staging job, after the deployment action has already
       # completed its health check and active-release verification, so the
-      # marker can only appear for a genuinely successful staging deployment.
-      - name: Record Sentry release and staging deployment marker
-        uses: ./.github/actions/sentry-release
+      # markers can only appear for a genuinely successful staging deployment.
+      # Same shared implementation deploy-staging.yml and the rollback action
+      # use — there is one place a successful deployment is recorded.
+      - name: Record staging deployment in Sentry and Nightwatch
+        uses: ./.github/actions/record-rateguru-deployment
         with:
+          deployment-target: staging-main
+          environment: staging
+
+          release-id: ${{ needs.build.outputs.release-id }}
+          source-sha: ${{ needs.validate.outputs.source-sha }}
+
           sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
           sentry-org: ${{ vars.SENTRY_ORG }}
           sentry-project: ${{ vars.SENTRY_PROJECT }}
 
-          environment: staging
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
 
-          release-id: ${{ needs.build.outputs.release-id }}
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
   deploy-production:
     name: Deploy approved release to production
@@ -298,13 +309,22 @@ jobs:
       # The environment stays `production` for every production target. Which
       # brand was deployed is carried by the deployment_target tag on the
       # events themselves, not by inventing production-<brand> environments.
-      - name: Record Sentry production deployment marker
-        uses: ./.github/actions/sentry-release
+      - name: Record production deployment in Sentry and Nightwatch
+        uses: ./.github/actions/record-rateguru-deployment
         with:
+          deployment-target: tits-guru
+          environment: production
+
+          release-id: ${{ needs.build.outputs.release-id }}
+          source-sha: ${{ needs.validate.outputs.source-sha }}
+
           sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
           sentry-org: ${{ vars.SENTRY_ORG }}
           sentry-project: ${{ vars.SENTRY_PROJECT }}
 
-          environment: production
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
 
-          release-id: ${{ needs.build.outputs.release-id }}
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}

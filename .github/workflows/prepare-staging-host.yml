@@ -1,0 +1,88 @@
+name: Prepare staging host
+
+# Manual-only by design, and deliberately without a single operator input.
+#
+# There is nothing to choose here. The environment is staging, the target is
+# staging-main, and the tooling always comes from develop — all three are
+# structural properties of this workflow rather than things an operator selects.
+# An operator presses "Run workflow"; every decision the operation makes belongs
+# to infrastructure/scripts/prepare-host on the server.
+#
+# There is deliberately no `ref`, `mode` or `run-migrations` input either: this
+# prepares infrastructure and never deploys application code. The operation is
+# convergent and safe to repeat, so a separate "plan only" button would add a
+# choice without adding safety — `prepare-host --check` exists for that and is
+# available to an operator on the host itself.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The same logical domain every other staging target mutation uses. Preparation
+# reconfigures the host a deployed release is running on, so it must never
+# overlap a staging deploy, a staging rollback, or the staging verification step
+# of a production release — and future restore/recover operations join this same
+# group for the same reason. Orchestration on top of, never a replacement for,
+# the server-side deployment lock.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare the staging-main host
+    runs-on: ubuntu-latest
+    environment: staging
+    # Host preparation on a genuinely clean VPS installs the full base runtime
+    # before it does anything else, which is by far the slowest step; an
+    # already-prepared host finishes in a fraction of this.
+    timeout-minutes: 45
+
+    steps:
+      # Preparation tooling is operational code and always comes from the
+      # trusted develop branch. There is no second checkout here, because there
+      # is no application source in this operation at all.
+      - name: Checkout trusted bootstrap tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare staging-main
+        uses: ./.github/actions/prepare-rateguru-host
+        with:
+          deployment-target: staging-main
+          environment: staging
+
+          # The physical host binding is reused from the deployment
+          # configuration on purpose: a GitHub Environment is exactly where a
+          # logical target is bound to the physical host currently serving it,
+          # and that host is the same one whether we are deploying to it or
+          # preparing it.
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The credential, however, is emphatically NOT reused. Ordinary
+          # deployment uses a restricted user that can only reach the
+          # rateguru-deploy / rateguru-rollback wrappers; preparing a host needs
+          # root, so it gets its own key with its own lifecycle.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+          # External material, by logical name. Every one is optional: an
+          # unset secret is simply not uploaded, and the server then preserves
+          # whatever the host already holds. Material that differs from what
+          # the host already holds fails the run rather than rotating it.
+          laravel-env: ${{ secrets.PREPARE_LARAVEL_ENV }}
+          deploy-authorized-keys: ${{ secrets.PREPARE_DEPLOY_AUTHORIZED_KEYS }}
+          rclone-config: ${{ secrets.PREPARE_RCLONE_CONFIG }}
+          basic-auth: ${{ secrets.PREPARE_BASIC_AUTH }}
+          tls-certificate: ${{ secrets.PREPARE_TLS_CERTIFICATE }}
+          tls-private-key: ${{ secrets.PREPARE_TLS_PRIVATE_KEY }}
+          tls-dhparams: ${{ secrets.PREPARE_TLS_DHPARAMS }}
+          nginx-tls-options: ${{ secrets.PREPARE_NGINX_TLS_OPTIONS }}
+          mail-tls-certificate: ${{ secrets.PREPARE_MAIL_TLS_CERTIFICATE }}
+          mail-tls-private-key: ${{ secrets.PREPARE_MAIL_TLS_PRIVATE_KEY }}

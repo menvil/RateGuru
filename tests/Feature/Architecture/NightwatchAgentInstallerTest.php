@@ -43,7 +43,18 @@ function nightwatchScratch(): string
 {
     $dir = sys_get_temp_dir().'/nightwatch-agent-'.uniqid('', true).'-'.getmypid();
 
-    foreach (['/bin', '/fs/etc/supervisor/conf.d', '/log', '/state'] as $sub) {
+    foreach ([
+        '/bin',
+        '/fs/etc/supervisor/conf.d',
+        // Phase 7.2A: the installer also owns the deployment-marker primitive,
+        // its sudo wrapper and its sudoers grant. Their destination directories
+        // are created by host bootstrap on a real host.
+        '/fs/etc/sudoers.d',
+        '/fs/usr/local/sbin',
+        '/fs/home/www/rateguru/bin',
+        '/log',
+        '/state',
+    ] as $sub) {
         expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
     }
 
@@ -201,12 +212,33 @@ function nightwatchStubs(string $scratch, array $options = []): void
     // enforcement is asserted from the chown/chmod logs in the apply test; a
     // negative case below points this at a stub that lies the other way, which
     // is what proves the check is not decorative.
+    //
+    // The mode answer is per-destination rather than a single constant: the
+    // installer owns a 0644 Supervisor program, two 0755 executables and a
+    // 0440 sudoers grant, and a stub that answered 644 everywhere would make
+    // three of those four checks impossible to fail.
+    $modeByDestination = 'case "$3" in'
+        .' *"/etc/sudoers.d/"*) echo 440;;'
+        .' *"/usr/local/sbin/"*|*"/rateguru/bin/"*) echo 755;;'
+        .' *) echo 644;; esac';
+
+    // Stubbed like every other external tool this file touches, so the suite
+    // does not hard-depend on the `sudo` package being installed. The negative
+    // case below points it at a stub that rejects, which is what proves the
+    // installer's sudoers validation is not decorative.
+    file_put_contents($scratch.'/bin/visudo-stub', "#!/usr/bin/env bash\nexit 0\n");
+    chmod($scratch.'/bin/visudo-stub', 0o755);
+
+    file_put_contents($scratch.'/bin/visudo-reject', "#!/usr/bin/env bash\n"
+        ."echo 'parse error near line 1' >&2\nexit 1\n");
+    chmod($scratch.'/bin/visudo-reject', 0o755);
+
     file_put_contents($scratch.'/bin/stat-root', "#!/usr/bin/env bash\n"
-        .'case "${2:-}" in "%U") echo root;; "%G") echo root;; "%a") echo 644;; *) echo "";; esac'."\n");
+        .'case "${2:-}" in "%U") echo root;; "%G") echo root;; "%a") '.$modeByDestination.';; *) echo "";; esac'."\n");
     chmod($scratch.'/bin/stat-root', 0o755);
 
     file_put_contents($scratch.'/bin/stat-wrong-owner', "#!/usr/bin/env bash\n"
-        .'case "${2:-}" in "%U") echo nobody;; "%G") echo root;; "%a") echo 644;; *) echo "";; esac'."\n");
+        .'case "${2:-}" in "%U") echo nobody;; "%G") echo root;; "%a") '.$modeByDestination.';; *) echo "";; esac'."\n");
     chmod($scratch.'/bin/stat-wrong-owner', 0o755);
 }
 
@@ -233,6 +265,7 @@ function runNightwatchInstaller(string $scratch, array $arguments, array $overri
         'RATEGURU_NIGHTWATCH_CHOWN_BIN' => $scratch.'/bin/chown-stub',
         'RATEGURU_NIGHTWATCH_CHMOD_BIN' => $scratch.'/bin/chmod-stub',
         'RATEGURU_NIGHTWATCH_STAT_BIN' => $scratch.'/bin/stat-root',
+        'RATEGURU_NIGHTWATCH_VISUDO_BIN' => $scratch.'/bin/visudo-stub',
         'RATEGURU_NIGHTWATCH_WAIT_ATTEMPTS' => '1',
         'RATEGURU_NIGHTWATCH_RETRY_DELAY' => '0',
         'RATEGURU_NIGHTWATCH_STABILITY_WAIT' => '0',
@@ -612,7 +645,18 @@ it('verifies an installed agent, and fails when its ownership has drifted', func
 
         [$exit, $output] = runNightwatchInstaller($scratch, ['--verify', '--target', 'staging-main']);
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('PASS: Nightwatch agent verified');
+        expect($output)->toContain('PASS: Nightwatch agent and deployment-marker primitive verified');
+
+        // Phase 7.2A: the marker primitive, its wrapper and its sudoers grant
+        // are installed and verified alongside the agent, so a Phase 6C
+        // rejection can remove the whole integration in one step.
+        foreach ([
+            '/fs/home/www/rateguru/bin/record-nightwatch-deployment',
+            '/fs/usr/local/sbin/rateguru-nightwatch-deployment',
+            '/fs/etc/sudoers.d/rateguru-nightwatch-deployment',
+        ] as $installed) {
+            expect(is_file($scratch.$installed))->toBeTrue("{$installed} should have been installed");
+        }
 
         // The ownership check is not decorative: point stat the other way and
         // the same verification fails.
@@ -648,6 +692,52 @@ it('fails verification when the application cannot reach its own agent', functio
     }
 });
 
+it('refuses to install the deployment-marker grant when visudo rejects it', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchDeployedTarget($scratch);
+
+        // A sudoers file the parser rejects would break every operational
+        // wrapper on the host, not just this one, so it must never reach
+        // /etc/sudoers.d under its real name.
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply', '--target', 'staging-main'], [
+            'RATEGURU_NIGHTWATCH_VISUDO_BIN' => $scratch.'/bin/visudo-reject',
+        ]);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('failed visudo -cf');
+        expect(is_file($scratch.'/fs/etc/sudoers.d/rateguru-nightwatch-deployment'))->toBeFalse();
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
+it('refuses to manage a symlinked marker destination, and leaves it alone', function () {
+    $scratch = nightwatchScratch();
+
+    try {
+        nightwatchStubs($scratch);
+        nightwatchDeployedTarget($scratch);
+
+        // Rejected before the transaction arms: a symlink recorded as "no
+        // previous file" would be deleted by a rollback that believed it was
+        // cleaning up after itself.
+        file_put_contents($scratch.'/fs/decoy', "decoy\n");
+        symlink($scratch.'/fs/decoy', $scratch.'/fs/usr/local/sbin/rateguru-nightwatch-deployment');
+
+        [$exit, $output] = runNightwatchInstaller($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('refusing to manage a symlinked destination');
+        expect(is_link($scratch.'/fs/usr/local/sbin/rateguru-nightwatch-deployment'))->toBeTrue();
+        expect(file_get_contents($scratch.'/fs/decoy'))->toBe("decoy\n");
+    } finally {
+        exec('rm -rf '.escapeshellarg($scratch));
+    }
+});
+
 it('removes the agent and proves the ingest port is closed', function () {
     $scratch = nightwatchScratch();
 
@@ -669,6 +759,17 @@ it('removes the agent and proves the ingest port is closed', function () {
         expect($exit)->toBe(0, $output);
         expect(is_file($installed))->toBeFalse('the Supervisor program was not uninstalled');
         expect(nightwatchStubLog($scratch, 'supervisorctl'))->toContain('supervisorctl stop '.nightwatchProgramName().':*');
+
+        // Phase 7.2A: the whole integration goes, sudo grant included. A grant
+        // left behind would point the deploy user at a wrapper that no longer
+        // exists.
+        foreach ([
+            '/fs/etc/sudoers.d/rateguru-nightwatch-deployment',
+            '/fs/usr/local/sbin/rateguru-nightwatch-deployment',
+            '/fs/home/www/rateguru/bin/record-nightwatch-deployment',
+        ] as $removed) {
+            expect(is_file($scratch.$removed))->toBeFalse("{$removed} should have been removed");
+        }
 
         // Removal stops telemetry infrastructure; it does not un-evaluate
         // Nightwatch, so the package and the target .env survive.

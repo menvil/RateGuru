@@ -195,10 +195,10 @@ jobs:
   # extracted, current was switched, PHP-FPM reloaded, the HTTP health check
   # passed, the queue worker transitioned and the active release was verified
   # against release.json. A failed RateGuru deployment therefore never produces
-  # a Sentry deploy marker, and this job never influences whether the
-  # deployment itself is considered successful.
+  # a deployment marker in Sentry or in Nightwatch, and this job never
+  # influences whether the deployment itself is considered successful.
   observability:
-    name: Record release in Sentry
+    name: Record deployment in Sentry and Nightwatch
     runs-on: ubuntu-latest
     needs:
       - build
@@ -220,13 +220,27 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Record Sentry release and deployment marker
-        uses: ./.github/actions/sentry-release
+      # One shared implementation for both observability systems. The
+      # Nightwatch marker is produced server-side, through the ordinary
+      # restricted deploy credential and the generic target-aware wrapper —
+      # the arbitrary application ref this run deployed never executes on the
+      # runner, and no observability credential is ever handed to it.
+      - name: Record deployment in Sentry and Nightwatch
+        uses: ./.github/actions/record-rateguru-deployment
         with:
+          deployment-target: staging-main
+          environment: staging
+
+          release-id: ${{ needs.build.outputs.release-id }}
+          source-sha: ${{ needs.build.outputs.source-sha }}
+
           sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
           sentry-org: ${{ vars.SENTRY_ORG }}
           sentry-project: ${{ vars.SENTRY_PROJECT }}
 
-          environment: staging
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
 
-          release-id: ${{ needs.build.outputs.release-id }}
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
