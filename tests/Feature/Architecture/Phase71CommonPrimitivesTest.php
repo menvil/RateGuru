@@ -246,13 +246,12 @@ it('records Phase 7 as the consolidated plan, with the artifact archive gone', f
     expect($roadmap)->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
 });
 
-it('implements nothing from Phase 7.3 onwards', function () {
-    // Prepare Host landed in Phase 7.2 and has its own scope guard in
-    // Phase72ScopeTest. Restore, Repair and Recover remain future work, and
-    // nothing may ship an implementation of any of them.
+it('implements nothing from Phase 7.4 onwards', function () {
+    // Prepare Host landed in Phase 7.2 and Restore Target Data in Phase 7.3;
+    // each has its own scope guard (Phase72ScopeTest, Phase73ScopeTest).
+    // The GitHub-facing restore surface, Repair and Recover remain future
+    // work, and nothing may ship an implementation of any of them.
     foreach ([
-        'infrastructure/scripts/restore-target',
-        'infrastructure/scripts/restore-target-data',
         'infrastructure/scripts/repair-target',
         'infrastructure/scripts/recover-host',
         '.github/workflows/restore-staging.yml',
@@ -262,12 +261,16 @@ it('implements nothing from Phase 7.3 onwards', function () {
         '.github/workflows/recover-production.yml',
     ] as $futureWork) {
         expect(File::exists(base_path($futureWork)))
-            ->toBeFalse("{$futureWork} is Phase 7.3+ work and must not exist yet");
+            ->toBeFalse("{$futureWork} is Phase 7.4+ work and must not exist yet");
     }
 
     // restore-test stays what it always was: a scratch-database integrity
-    // check, never a live restore.
+    // check, never a live restore. Phase 7.3's live restore is a separate
+    // primitive built beside it, not a mutation of it.
     expect(File::exists(base_path('infrastructure/scripts/restore-test')))->toBeTrue();
+    expect(File::get(base_path('infrastructure/scripts/restore-test')))
+        ->toContain('rateguru_restore_')
+        ->not->toContain('ALTER DATABASE');
 });
 
 it('leaves every accepted Phase 4 and Phase 5 primitive in place', function () {

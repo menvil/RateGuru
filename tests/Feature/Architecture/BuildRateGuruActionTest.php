@@ -487,8 +487,10 @@ it('builds an application tree that contains none of the deployment tooling, end
             chmod($source.'/infrastructure/scripts/'.$cli, 0o755);
         }
 
-        file_put_contents($source.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
-        chmod($source.'/infrastructure/scripts/common', 0o644);
+        foreach (sourcedLibraryNames() as $library) {
+            file_put_contents($source.'/infrastructure/scripts/'.$library, "#!/usr/bin/env bash\n");
+            chmod($source.'/infrastructure/scripts/'.$library, 0o644);
+        }
 
         expect(is_dir($source.'/.github'))->toBeFalse('the fixture must not carry any deployment tooling');
 

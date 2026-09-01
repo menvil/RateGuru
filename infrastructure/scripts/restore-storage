@@ -1,0 +1,386 @@
+#!/usr/bin/env bash
+#
+# restore-storage — the filesystem half of a live target data restore, as four
+# explicit, separately invocable steps.
+#
+#   restore-storage --target T --operation OP --stage
+#   restore-storage --target T --operation OP --activate
+#   restore-storage --target T --operation OP --compensate
+#   restore-storage --target T --operation OP --commit
+#
+# What this deliberately is NOT:
+#
+#   rm -rf shared/storage/app && tar -xzf storage-app.tar.gz -C shared/storage
+#
+# That destroys the live tree first and then finds out whether the archive
+# extracts. An interrupted extraction leaves the target with a half-populated
+# storage directory and nothing to go back to.
+#
+# Instead the archive is extracted into a SIBLING directory of the live tree,
+# validated there, and only then swapped in with two renames:
+#
+#   shared/storage/app                       -> .pre-restore-app-<operation>
+#   shared/storage/.restore-<operation>/app  -> app
+#
+# Both siblings live inside the target's own shared/storage, which is what
+# guarantees the renames are same-filesystem and therefore atomic — a staging
+# directory anywhere else could silently degrade into a copy that half
+# succeeds. The pre-restore tree is retained until the whole restore operation
+# commits.
+#
+# Extraction as root is gated by a full archive-safety pass first (no absolute
+# path, no `..` component, nothing outside app/, and nothing but directories
+# and regular files — no symlink, hardlink, device, FIFO or socket), and runs
+# with --no-same-owner --no-same-permissions so no uid, gid or mode from
+# inside the archive is ever trusted. Ownership is then assigned from the
+# target registry, preserving the exact www-data access model deploy and
+# install-public-storage-access already establish.
+
+set -Eeuo pipefail
+umask 077
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup.
+COMMON_FILE=/home/www/rateguru/bin/common
+RESTORE_COMMON_FILE=/home/www/rateguru/bin/restore-common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]; then
+    if [[ -n "${RATEGURU_COMMON_FILE:-}" ]]; then
+        COMMON_FILE="${RATEGURU_COMMON_FILE}"
+    fi
+
+    if [[ -n "${RATEGURU_RESTORE_COMMON_FILE:-}" ]]; then
+        RESTORE_COMMON_FILE="${RATEGURU_RESTORE_COMMON_FILE}"
+    fi
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+# shellcheck disable=SC1090
+source "${RESTORE_COMMON_FILE}"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  restore-storage --target TARGET_ID --operation OPERATION_ID --stage
+  restore-storage --target TARGET_ID --operation OPERATION_ID --activate
+  restore-storage --target TARGET_ID --operation OPERATION_ID --compensate
+  restore-storage --target TARGET_ID --operation OPERATION_ID --commit
+
+  --stage       Extract and validate the backup's storage archive into a
+                sibling of the live tree. Never touches the live tree.
+  --activate    Swap the staged tree in, retaining the previous one.
+  --compensate  Undo an activation from whatever state it actually reached.
+  --commit      Remove the retained pre-restore tree and the staging parent.
+
+This primitive is driven by restore-target, which owns the locks, the
+quiesce, the emergency backup and the operation state it validates against.
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only.
+
+# --- argument parsing -----------------------------------------------------------
+
+parse_restore_storage_args() {
+    TARGET_ID=""
+    TARGET_SEEN=false
+    OPERATION_ID=""
+    OPERATION_SEEN=false
+    STEP=""
+    STEP_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --operation)
+                [[ "${OPERATION_SEEN}" != true ]] || fail "--operation given more than once"
+                require_flag_value "--operation" "$#" "${2-}"
+                OPERATION_ID="$2"
+                OPERATION_SEEN=true
+                shift 2
+                ;;
+            --stage|--activate|--compensate|--commit)
+                [[ "${STEP_SEEN}" != true ]] || fail "only one of --stage, --activate, --compensate or --commit may be given"
+                STEP="${1#--}"
+                STEP_SEEN=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+    [[ "${OPERATION_SEEN}" == true ]] || fail "--operation is required"
+    [[ "${STEP_SEEN}" == true ]] || fail "exactly one of --stage, --activate, --compensate or --commit is required"
+}
+
+# --- target resolution -----------------------------------------------------------
+#
+# require_active_target runs first thing — before the storage root, the
+# staging sibling, the archive, or any filesystem mutation.
+resolve_restore_storage_subject() {
+    require_active_target "${TARGET_ID}"
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+}
+
+resolve_restore_storage_paths() {
+    validate_operation_id "${OPERATION_ID}"
+
+    WORKSPACE="$(restore_require_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
+    STATE_FILE="$(restore_state_file "${WORKSPACE}")"
+    SELECTED_BACKUP_DIR="$(restore_selected_backup_dir "${WORKSPACE}")"
+
+    STORAGE_ROOT="$(restore_storage_root "${TARGET_ROOT}")"
+    LIVE_APP="${STORAGE_ROOT}/app"
+    STAGE_PARENT="$(restore_storage_stage_parent "${TARGET_ROOT}" "${OPERATION_ID}")"
+    STAGED_APP="${STAGE_PARENT}/app"
+    PRE_RESTORE_APP="$(restore_storage_pre_restore_path "${TARGET_ROOT}" "${OPERATION_ID}")"
+
+    [[ ! -L "${STORAGE_ROOT}" ]] \
+        || fail "shared storage root must not be a symlink: ${STORAGE_ROOT}"
+    [[ -d "${STORAGE_ROOT}" ]] \
+        || fail "shared storage root is not a directory: ${STORAGE_ROOT}"
+}
+
+# assert_live_app_canonical — the live tree must be a REAL directory. A
+# symlinked shared/storage/app would make both the rename and the ownership
+# normalization act on somewhere else entirely, so it is refused rather than
+# followed.
+assert_live_app_canonical() {
+    [[ -e "${LIVE_APP}" ]] || fail "live storage tree is missing: ${LIVE_APP}"
+    [[ ! -L "${LIVE_APP}" ]] \
+        || fail "live storage tree must be a real directory, not a symlink: ${LIVE_APP}"
+    [[ -d "${LIVE_APP}" ]] || fail "live storage path is not a directory: ${LIVE_APP}"
+}
+
+# --- ownership and modes ----------------------------------------------------------
+#
+# Nothing from inside the archive is trusted: extraction already ran
+# --no-same-owner --no-same-permissions, and the whole tree is (re)assigned
+# here from the registry's runtime user plus the host's fixed web group.
+#
+# The mode layout is exactly the one deploy establishes and
+# install-public-storage-access depends on:
+#
+#   app          runtime:www-data  2710  traverse-only for Nginx, never listable
+#   app/public   runtime:www-data  2750  Nginx lists and reads published media
+#   other dirs   runtime:www-data  2750  setgid, so anything Laravel creates
+#                                        later inherits the web group
+#   files        runtime:www-data  0640  owner writes, Nginx reads by group
+#
+# This is never wider than what is on disk today (Laravel's own runtime mkdir
+# leaves 2755 world-readable directories), and the two directories Nginx
+# actually needs are byte-identical to what deploy creates.
+normalize_storage_ownership() {
+    local app_root="$1"
+
+    chown -R "${RUNTIME_USER}:${RESTORE_WEB_GROUP}" "${app_root}" \
+        || fail "could not assign ownership of the restored storage tree"
+
+    find "${app_root}" -type d -exec chmod 2750 {} + \
+        || fail "could not normalize restored storage directory modes"
+
+    find "${app_root}" -type f -exec chmod 0640 {} + \
+        || fail "could not normalize restored storage file modes"
+
+    chmod 2710 "${app_root}" \
+        || fail "could not set the traverse-only mode on the restored storage root"
+
+    if [[ -d "${app_root}/public" ]]; then
+        chmod 2750 "${app_root}/public" \
+            || fail "could not set the public storage mode"
+    fi
+}
+
+# --- stage ----------------------------------------------------------------------------
+
+perform_stage() {
+    restore_state_require_phase "${STATE_FILE}" "${TARGET_ID}" database-staged
+
+    assert_live_app_canonical
+    restore_assert_backup_regular_file "${SELECTED_BACKUP_DIR}" storage-app.tar.gz
+
+    [[ ! -e "${STAGE_PARENT}" ]] && [[ ! -L "${STAGE_PARENT}" ]] \
+        || fail "storage staging directory already exists: ${STAGE_PARENT}"
+    [[ ! -e "${PRE_RESTORE_APP}" ]] && [[ ! -L "${PRE_RESTORE_APP}" ]] \
+        || fail "pre-restore storage tree already exists: ${PRE_RESTORE_APP}"
+
+    # Re-validated here, immediately before extraction, rather than trusting
+    # that verify-backup ran earlier in the same operation: this is the last
+    # moment before a root process writes what the archive describes.
+    restore_assert_storage_archive_safe "${SELECTED_BACKUP_DIR}/storage-app.tar.gz"
+
+    install -d -o root -g root -m 0700 "${STAGE_PARENT}"
+
+    log "${LABEL} extracting the backup storage archive into ${STAGE_PARENT}"
+
+    tar \
+        -xzf "${SELECTED_BACKUP_DIR}/storage-app.tar.gz" \
+        --no-same-owner \
+        --no-same-permissions \
+        -C "${STAGE_PARENT}" \
+        || fail "could not extract the storage archive"
+
+    [[ -d "${STAGED_APP}" ]] && [[ ! -L "${STAGED_APP}" ]] \
+        || fail "the storage archive did not produce an app/ directory"
+
+    local staged_entries
+    staged_entries="$(find "${STAGE_PARENT}" -mindepth 1 -maxdepth 1 -printf '%f\n')"
+
+    [[ "${staged_entries}" == "app" ]] \
+        || fail "the storage archive produced entries other than app/: ${staged_entries}"
+
+    restore_assert_extracted_tree_safe "${STAGED_APP}"
+
+    normalize_storage_ownership "${STAGED_APP}"
+
+    assert_live_app_canonical
+
+    restore_state_set "${STATE_FILE}" \
+        storage_stage_path "${STAGED_APP}" \
+        pre_restore_storage_path "${PRE_RESTORE_APP}" \
+        phase storage-staged
+
+    log "${LABEL} staged storage tree verified at ${STAGED_APP} (live ${LIVE_APP} untouched)"
+}
+
+# --- activate ---------------------------------------------------------------------------
+
+perform_activate() {
+    restore_state_require_phase "${STATE_FILE}" "${TARGET_ID}" database-activated
+
+    assert_live_app_canonical
+
+    [[ -d "${STAGED_APP}" ]] && [[ ! -L "${STAGED_APP}" ]] \
+        || fail "staged storage tree is missing: ${STAGED_APP}"
+    [[ ! -e "${PRE_RESTORE_APP}" ]] && [[ ! -L "${PRE_RESTORE_APP}" ]] \
+        || fail "pre-restore storage tree already exists: ${PRE_RESTORE_APP}"
+
+    log "${LABEL} activating restored storage tree"
+
+    # -T on both renames: without it, a directory that unexpectedly exists at
+    # the destination would silently receive the source as a CHILD instead of
+    # replacing it, which is how a "successful" restore ends up with
+    # shared/storage/app/app.
+    mv -T "${LIVE_APP}" "${PRE_RESTORE_APP}" \
+        || fail "could not move the live storage tree aside"
+
+    if ! mv -T "${STAGED_APP}" "${LIVE_APP}"; then
+        # Put the original straight back: this half-completed rename is the
+        # one moment the target has no storage tree at all.
+        mv -T "${PRE_RESTORE_APP}" "${LIVE_APP}" || true
+        fail "could not move the staged storage tree into place"
+    fi
+
+    restore_state_set "${STATE_FILE}" phase storage-activated
+
+    log "${LABEL} storage activated; ${PRE_RESTORE_APP} retained until commit"
+}
+
+# --- compensate ---------------------------------------------------------------------------
+#
+# Driven by what is actually on disk, not by how far the caller believes
+# activation got.
+perform_compensate() {
+    # emergency-backup-verified is included deliberately: when the DATABASE
+    # activation failed, restore-target still compensates both halves, and
+    # this one must be allowed to run and find nothing to undo. The same
+    # applies to a storage activation that failed between its two renames.
+    restore_state_require_phase "${STATE_FILE}" "${TARGET_ID}" \
+        emergency-backup-verified database-activated storage-activated verified
+
+    local live_exists=false pre_exists=false
+
+    [[ -d "${LIVE_APP}" ]] && [[ ! -L "${LIVE_APP}" ]] && live_exists=true
+    [[ -d "${PRE_RESTORE_APP}" ]] && [[ ! -L "${PRE_RESTORE_APP}" ]] && pre_exists=true
+
+    if [[ "${pre_exists}" == false ]]; then
+        [[ "${live_exists}" == true ]] \
+            || fail "storage compensation impossible: neither ${LIVE_APP} nor ${PRE_RESTORE_APP} is a usable directory"
+
+        log "${LABEL} storage compensation: nothing to undo (the live tree was never swapped)"
+
+        return 0
+    fi
+
+    if [[ "${live_exists}" == false ]]; then
+        mv -T "${PRE_RESTORE_APP}" "${LIVE_APP}" \
+            || fail "could not restore the original storage tree from ${PRE_RESTORE_APP}"
+
+        log "${LABEL} storage compensation: original tree restored from ${PRE_RESTORE_APP}"
+
+        return 0
+    fi
+
+    # Both exist: the swap completed and ${LIVE_APP} currently holds the
+    # RESTORED tree. Move it back into the staging parent and reinstate the
+    # original.
+    [[ -d "${STAGE_PARENT}" ]] \
+        || fail "storage compensation impossible: the staging parent is gone (${STAGE_PARENT})"
+    [[ ! -e "${STAGED_APP}" ]] && [[ ! -L "${STAGED_APP}" ]] \
+        || fail "storage compensation impossible: ${STAGED_APP} unexpectedly exists alongside a completed swap"
+
+    mv -T "${LIVE_APP}" "${STAGED_APP}" \
+        || fail "could not move the restored storage tree aside during compensation"
+
+    if ! mv -T "${PRE_RESTORE_APP}" "${LIVE_APP}"; then
+        mv -T "${STAGED_APP}" "${LIVE_APP}" || true
+        fail "could not restore the original storage tree during compensation"
+    fi
+
+    log "${LABEL} storage compensation: swap reversed, ${LIVE_APP} is the pre-restore tree again"
+}
+
+# --- commit --------------------------------------------------------------------------------
+
+perform_commit() {
+    restore_state_require_phase "${STATE_FILE}" "${TARGET_ID}" verified
+
+    if [[ -e "${PRE_RESTORE_APP}" ]] || [[ -L "${PRE_RESTORE_APP}" ]]; then
+        restore_remove_storage_sibling "${STORAGE_ROOT}" "${PRE_RESTORE_APP}"
+        log "${LABEL} removed the pre-restore storage tree"
+    fi
+
+    if [[ -e "${STAGE_PARENT}" ]] || [[ -L "${STAGE_PARENT}" ]]; then
+        restore_remove_storage_sibling "${STORAGE_ROOT}" "${STAGE_PARENT}"
+        log "${LABEL} removed the storage staging directory"
+    fi
+}
+
+# --- dispatch --------------------------------------------------------------------------------
+
+main() {
+    require_root
+    parse_restore_storage_args "$@"
+    resolve_restore_storage_subject
+    resolve_restore_storage_paths
+
+    case "${STEP}" in
+        stage)      perform_stage ;;
+        activate)   perform_activate ;;
+        compensate) perform_compensate ;;
+        commit)     perform_commit ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

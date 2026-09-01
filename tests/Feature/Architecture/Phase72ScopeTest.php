@@ -146,17 +146,22 @@ it('keeps one implementation per operation', function () {
 it('implements no Restore operation', function () {
     // restore-test remains what it has always been: a read-only proof that a
     // backup can be restored into a throwaway scratch database. Turning it
-    // into a live restore is Phase 7.3, and nothing here does.
+    // into a live restore was Phase 7.3, and nothing 7.2 added does it.
+    //
+    // Phase 7.3 landed the SERVER primitives (restore-target and friends);
+    // their own scope guard is Phase73ScopeTest. What stays out of both
+    // phases — the GitHub-facing restore surface — is Phase 7.4, and is
+    // asserted here because 7.2 is the phase that owns the workflow/action
+    // inventory.
     expect(File::exists(base_path('infrastructure/scripts/restore-test')))->toBeTrue();
 
     foreach ([
-        'infrastructure/scripts/restore-target',
         'infrastructure/scripts/restore',
         '.github/workflows/restore-staging.yml',
         '.github/workflows/restore-production.yml',
         '.github/actions/restore-rateguru/action.yml',
     ] as $path) {
-        expect(File::exists(base_path($path)))->toBeFalse("{$path} belongs to Phase 7.3, not 7.2");
+        expect(File::exists(base_path($path)))->toBeFalse("{$path} belongs to Phase 7.4, not 7.2 or 7.3");
     }
 
     // And nothing added in 7.2 restores anything.

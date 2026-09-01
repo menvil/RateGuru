@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+#
+# verify-backup — prove a STAGED backup is complete, internally consistent,
+# owned by the resolved target, and safe to extract as root.
+#
+#   verify-backup --target TARGET_ID --operation OPERATION_ID [--for-restore]
+#
+# Every destructive restore re-verifies its selected backup inside its own
+# operation, from scratch. An entry in restore-tests.jsonl proves a backup was
+# good when it was tested; it proves nothing about the bytes sitting in this
+# workspace right now, and a restore that skipped this because "the nightly
+# restore-test passed" would be trusting a different file at a different time.
+#
+# What it proves, in order (each gate before the next has anything to read):
+#   1. the seven backup files exist and are plain regular files;
+#   2. SHA256SUMS names exactly the six checksummed backup files, once each,
+#      and nothing else — before `sha256sum --check` follows a single path;
+#   3. every checksum matches;
+#   4. the manifest identifies THIS target (existing schema 1/schema 2
+#      contract, unchanged);
+#   5. the storage archive would create nothing but directories and regular
+#      files, all under app/.
+#
+# --for-restore adds the recovery-identity gate a DESTRUCTIVE live restore
+# needs and a read-only restore test does not: release.json must carry a
+# usable release and source_sha, and a non-`unknown` manifest release must
+# agree with it. A backup that cannot say which commit its data belongs to
+# cannot be restored onto a live target, because nothing could then decide
+# whether the code on that target matches the data.
+#
+# Read-only with one exception: it writes verified-identity.json into the
+# operation workspace, so the orchestrator consumes a verified value rather
+# than re-deriving identity from the same untrusted files.
+
+set -Eeuo pipefail
+umask 077
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup.
+COMMON_FILE=/home/www/rateguru/bin/common
+RESTORE_COMMON_FILE=/home/www/rateguru/bin/restore-common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]; then
+    if [[ -n "${RATEGURU_COMMON_FILE:-}" ]]; then
+        COMMON_FILE="${RATEGURU_COMMON_FILE}"
+    fi
+
+    if [[ -n "${RATEGURU_RESTORE_COMMON_FILE:-}" ]]; then
+        RESTORE_COMMON_FILE="${RATEGURU_RESTORE_COMMON_FILE}"
+    fi
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+# shellcheck disable=SC1090
+source "${RESTORE_COMMON_FILE}"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  verify-backup --target TARGET_ID --operation OPERATION_ID [--for-restore]
+
+  --target        Deployment target the staged backup must belong to.
+  --operation     Restore operation workspace holding the staged backup.
+  --for-restore   Additionally require the recovery identity (release and
+                  source_sha) a destructive live restore needs.
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called.
+
+parse_verify_args() {
+    TARGET_ID=""
+    TARGET_SEEN=false
+    OPERATION_ID=""
+    OPERATION_SEEN=false
+    FOR_RESTORE=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --operation)
+                [[ "${OPERATION_SEEN}" != true ]] || fail "--operation given more than once"
+                require_flag_value "--operation" "$#" "${2-}"
+                OPERATION_ID="$2"
+                OPERATION_SEEN=true
+                shift 2
+                ;;
+            --for-restore)
+                [[ "${FOR_RESTORE}" != true ]] || fail "--for-restore given more than once"
+                FOR_RESTORE=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+    [[ "${OPERATION_SEEN}" == true ]] || fail "--operation is required"
+}
+
+# require_active_target runs first thing — before the workspace path, the
+# staged backup, or any file is read.
+resolve_verify_subject() {
+    require_active_target "${TARGET_ID}"
+
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+}
+
+perform_verify_backup() {
+    validate_operation_id "${OPERATION_ID}"
+
+    WORKSPACE="$(restore_require_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
+    SELECTED_BACKUP_DIR="$(restore_selected_backup_dir "${WORKSPACE}")"
+
+    log "${LABEL} verifying staged backup in ${SELECTED_BACKUP_DIR}"
+
+    restore_assert_backup_file_set "${SELECTED_BACKUP_DIR}"
+    log "  required files: OK (${#RESTORE_BACKUP_REQUIRED_FILES[@]} regular files)"
+
+    # Before a single checksum is followed: SHA256SUMS is content from the
+    # backup, not a trusted index. An entry naming an absolute path, a
+    # ../ escape, or any file that is not part of a RateGuru backup would
+    # otherwise be handed straight to sha256sum --check.
+    restore_assert_sha256sums_entries "${SELECTED_BACKUP_DIR}"
+    log "  SHA256SUMS entry list: OK (exactly the six checksummed backup files)"
+
+    (
+        cd "${SELECTED_BACKUP_DIR}"
+        sha256sum --check SHA256SUMS
+    ) || fail "staged backup failed SHA-256 verification"
+    log "  checksums: OK"
+
+    restore_assert_manifest_identity "${SELECTED_BACKUP_DIR}/manifest.json"
+    log "  manifest identity: OK (project/environment/database/namespace/target)"
+
+    restore_assert_storage_archive_safe "${SELECTED_BACKUP_DIR}/storage-app.tar.gz"
+    log "  storage archive: OK (directories and regular files under app/ only)"
+
+    RESTORE_BACKUP_RELEASE=""
+    RESTORE_BACKUP_SOURCE_SHA=""
+
+    if [[ "${FOR_RESTORE}" == true ]]; then
+        restore_assert_recovery_identity "${SELECTED_BACKUP_DIR}"
+        log "  recovery identity: OK (release ${RESTORE_BACKUP_RELEASE}, source_sha ${RESTORE_BACKUP_SOURCE_SHA})"
+    fi
+
+    write_identity_document
+
+    log ""
+    log "${LABEL} staged backup verified."
+}
+
+# The orchestrator's machine-readable view of what was proven here. Carries
+# public build identity (an immutable release ID and a Git commit) and the
+# backup's own coordinates — never a checksum digest, an environment value or
+# anything that could act as a fingerprint for secret material.
+write_identity_document() {
+    local identity_file
+    identity_file="$(restore_identity_file "${WORKSPACE}")"
+
+    local tmp
+    tmp="$(mktemp "${identity_file}.XXXXXX")"
+    chmod 0600 "${tmp}"
+
+    jq \
+        --null-input \
+        --arg verified_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg target "${TARGET_ID}" \
+        --arg environment "${ENVIRONMENT_CLASS}" \
+        --arg backup_namespace "${BACKUP_NAMESPACE}" \
+        --arg operation "${OPERATION_ID}" \
+        --arg release "${RESTORE_BACKUP_RELEASE}" \
+        --arg source_sha "${RESTORE_BACKUP_SOURCE_SHA}" \
+        --argjson for_restore "${FOR_RESTORE}" \
+        '{
+            verified_at: $verified_at,
+            target: $target,
+            environment: $environment,
+            backup_namespace: $backup_namespace,
+            operation: $operation,
+            for_restore: $for_restore,
+            release: $release,
+            source_sha: $source_sha
+        }' > "${tmp}" || { rm -f "${tmp}"; fail "could not write the verified identity document"; }
+
+    mv -f "${tmp}" "${identity_file}"
+    chmod 0600 "${identity_file}"
+}
+
+# --- dispatch -----------------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation.
+main() {
+    require_root
+    parse_verify_args "$@"
+    resolve_verify_subject
+    perform_verify_backup
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

@@ -1,0 +1,508 @@
+#!/usr/bin/env bash
+#
+# restore-database — the PostgreSQL half of a live target data restore, as
+# four explicit, separately invocable steps.
+#
+#   restore-database --target T --operation OP --stage
+#   restore-database --target T --operation OP --activate
+#   restore-database --target T --operation OP --compensate
+#   restore-database --target T --operation OP --commit
+#
+# What this deliberately is NOT:
+#
+#   dropdb <target>; createdb <target>; pg_restore <target>
+#   pg_restore --clean <target>
+#
+# Both of those destroy the live database FIRST and only then find out whether
+# the dump restores. A dump that fails halfway leaves the target with no
+# database at all, or with a half-cleaned one — from which the only way back
+# is another restore. RateGuru does a staged swap instead:
+#
+#   --stage      Build a COMPLETE, verified copy of the backup in a brand new
+#                temporary database. The live database is not read, not
+#                written, not locked, and not renamed. A failed stage leaves
+#                the target exactly as it was, still serving traffic.
+#   --activate   Only once the staged database is proven good, the target is
+#                quiesced and an emergency backup exists: block new
+#                connections to the live database, terminate the ones it has,
+#                rename it aside, and rename the staged database into the
+#                canonical name. Two catalog renames — no data movement.
+#   --compensate Undo the swap from whatever state activation actually
+#                reached, driven by the catalog rather than by assumption.
+#   --commit     Only after the whole restore operation succeeded: drop the
+#                retained pre-restore database.
+#
+# The pre-restore database is never dropped before commit. Until then it is
+# the fastest possible way back, and an emergency backup has already been
+# taken and verified besides.
+#
+# Every database name is DERIVED from the registry backup namespace and the
+# generated operation ID and matched against a closed lowercase-identifier
+# class. No SQL identifier from a command line ever reaches a statement, and
+# the .env is read by a six-key reader, never sourced or eval'd.
+
+set -Eeuo pipefail
+umask 077
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup.
+COMMON_FILE=/home/www/rateguru/bin/common
+RESTORE_COMMON_FILE=/home/www/rateguru/bin/restore-common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]; then
+    if [[ -n "${RATEGURU_COMMON_FILE:-}" ]]; then
+        COMMON_FILE="${RATEGURU_COMMON_FILE}"
+    fi
+
+    if [[ -n "${RATEGURU_RESTORE_COMMON_FILE:-}" ]]; then
+        RESTORE_COMMON_FILE="${RATEGURU_RESTORE_COMMON_FILE}"
+    fi
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+# shellcheck disable=SC1090
+source "${RESTORE_COMMON_FILE}"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  restore-database --target TARGET_ID --operation OPERATION_ID --stage
+  restore-database --target TARGET_ID --operation OPERATION_ID --activate
+  restore-database --target TARGET_ID --operation OPERATION_ID --compensate
+  restore-database --target TARGET_ID --operation OPERATION_ID --commit
+
+  --stage       Restore the staged backup into a NEW temporary database and
+                verify it. Never touches the live database.
+  --activate    Swap the verified staged database into the canonical name,
+                retaining the previous one under a pre-restore name.
+  --compensate  Undo an activation from whatever state it actually reached.
+  --commit      Drop the retained pre-restore database.
+
+This primitive is driven by restore-target, which owns the locks, the
+quiesce, the emergency backup and the operation state it validates against.
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only.
+
+# --- argument parsing -----------------------------------------------------------
+
+parse_restore_database_args() {
+    TARGET_ID=""
+    TARGET_SEEN=false
+    OPERATION_ID=""
+    OPERATION_SEEN=false
+    STEP=""
+    STEP_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --operation)
+                [[ "${OPERATION_SEEN}" != true ]] || fail "--operation given more than once"
+                require_flag_value "--operation" "$#" "${2-}"
+                OPERATION_ID="$2"
+                OPERATION_SEEN=true
+                shift 2
+                ;;
+            --stage|--activate|--compensate|--commit)
+                [[ "${STEP_SEEN}" != true ]] || fail "only one of --stage, --activate, --compensate or --commit may be given"
+                STEP="${1#--}"
+                STEP_SEEN=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+    [[ "${OPERATION_SEEN}" == true ]] || fail "--operation is required"
+    [[ "${STEP_SEEN}" == true ]] || fail "exactly one of --stage, --activate, --compensate or --commit is required"
+}
+
+# --- target resolution -----------------------------------------------------------
+#
+# require_active_target runs first thing — before the workspace, the .env, any
+# derived database name, or any PostgreSQL connection.
+resolve_restore_database_subject() {
+    require_active_target "${TARGET_ID}"
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
+    DATABASE_ROLE="$(target_database_role "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+
+    restore_validate_identifier "${DATABASE_NAME}" "registry database name for ${TARGET_ID}"
+    restore_validate_identifier "${DATABASE_ROLE}" "registry application role for ${TARGET_ID}"
+}
+
+resolve_restore_database_paths() {
+    validate_operation_id "${OPERATION_ID}"
+
+    WORKSPACE="$(restore_require_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
+    STATE_FILE="$(restore_state_file "${WORKSPACE}")"
+    SELECTED_BACKUP_DIR="$(restore_selected_backup_dir "${WORKSPACE}")"
+
+    STAGED_DATABASE="$(restore_staged_database_name "${BACKUP_NAMESPACE}" "${OPERATION_ID}")"
+    PRE_RESTORE_DATABASE="$(restore_pre_restore_database_name "${BACKUP_NAMESPACE}" "${OPERATION_ID}")"
+}
+
+# --- PostgreSQL predicates --------------------------------------------------------
+
+database_owner_of() {
+    restore_superuser_query "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '$1';"
+}
+
+# The privilege flags an application role must not hold. A role that already
+# existed was created by someone else, and "it can log in" is not the same as
+# "it is safe to restore a whole database as". Identical list and reasoning to
+# install-target-database's own resolve_role_elevated_privileges.
+assert_application_role_safe() {
+    restore_superuser_query "SELECT 1 FROM pg_roles WHERE rolname = '${DATABASE_ROLE}';"
+    [[ "${RESTORE_SQL_RESULT}" == "1" ]] \
+        || fail "application role ${DATABASE_ROLE} does not exist"
+
+    restore_superuser_query "SELECT rolcanlogin FROM pg_roles WHERE rolname = '${DATABASE_ROLE}';"
+    [[ "${RESTORE_SQL_RESULT}" == "t" ]] \
+        || fail "application role ${DATABASE_ROLE} cannot log in"
+
+    restore_superuser_query "
+        SELECT trim(concat_ws(' ',
+            CASE WHEN rolsuper       THEN 'SUPERUSER'   END,
+            CASE WHEN rolcreatedb    THEN 'CREATEDB'    END,
+            CASE WHEN rolcreaterole  THEN 'CREATEROLE'  END,
+            CASE WHEN rolreplication THEN 'REPLICATION' END,
+            CASE WHEN rolbypassrls   THEN 'BYPASSRLS'   END))
+        FROM pg_roles WHERE rolname = '${DATABASE_ROLE}';
+    "
+
+    [[ -z "${RESTORE_SQL_RESULT}" ]] \
+        || fail "application role ${DATABASE_ROLE} holds elevated privileges (${RESTORE_SQL_RESULT}) — refusing to restore a database as it"
+}
+
+# application_query DBNAME SQL — one scalar, read over TCP as the application
+# role with exactly the credentials the application itself uses. PGPASSWORD
+# keeps the secret out of the argument vector; it is never logged, never
+# written to state, and never compared against anything but emptiness.
+#
+# Captured by the CALLER with $(...) and checked with `|| fail`, so a failure
+# aborts in the caller's own shell rather than inside a subshell.
+application_query() {
+    local database="$1" sql="$2"
+
+    PGPASSWORD="${ENV_DB_PASSWORD}" \
+        "${PSQL_BIN}" \
+            --no-psqlrc \
+            --no-align \
+            --tuples-only \
+            --set=ON_ERROR_STOP=1 \
+            --host="${ENV_DB_HOST}" \
+            --port="${ENV_DB_PORT}" \
+            --username="${DATABASE_ROLE}" \
+            --dbname="${database}" \
+            --command="${sql}"
+}
+
+# --- stage --------------------------------------------------------------------------
+
+drop_staged_database() {
+    "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+        "${DROPDB_BIN}" --if-exists "${STAGED_DATABASE}" >/dev/null 2>&1 || true
+}
+
+perform_stage() {
+    restore_state_require_phase "${STATE_FILE}" "${TARGET_ID}" backup-verified
+
+    restore_resolve_credentials "${TARGET_ROOT}" "${DATABASE_NAME}" "${DATABASE_ROLE}"
+
+    restore_assert_backup_regular_file "${SELECTED_BACKUP_DIR}" database.dump
+
+    restore_database_exists "${DATABASE_NAME}" \
+        || fail "the target's canonical database does not exist: ${DATABASE_NAME} — this is a data restore, not a target provisioning step"
+
+    assert_application_role_safe
+
+    ! restore_database_exists "${STAGED_DATABASE}" \
+        || fail "staged restore database already exists: ${STAGED_DATABASE}"
+    ! restore_database_exists "${PRE_RESTORE_DATABASE}" \
+        || fail "pre-restore database already exists: ${PRE_RESTORE_DATABASE}"
+
+    log "${LABEL} staging PostgreSQL restore into ${STAGED_DATABASE} (live ${DATABASE_NAME} is not touched)"
+
+    # template0, so the staged database inherits nothing an operator may have
+    # left in template1; owned by the application role, so the role also owns
+    # the public schema (pg_database_owner) and the restore below can create
+    # in it exactly the way a normal migration would.
+    "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+        "${CREATEDB_BIN}" \
+            --template=template0 \
+            --owner="${DATABASE_ROLE}" \
+            "${STAGED_DATABASE}" \
+        || fail "could not create the staged restore database: ${STAGED_DATABASE}"
+
+    log "restoring the backup dump into ${STAGED_DATABASE}"
+
+    # Restored AS THE APPLICATION ROLE, over TCP, with the application's own
+    # credentials. The dump was taken --no-owner --no-privileges, so every
+    # object ends up owned by whoever runs the restore: running it as postgres
+    # would leave the application unable to touch its own tables. This also
+    # proves, as a side effect, that the credentials in shared/.env genuinely
+    # work against the staged database.
+    #
+    # --single-transaction + --exit-on-error: either the whole dump lands or
+    # nothing does. The dump file itself stays root-only; this process is root
+    # and opens it, PostgreSQL never reads it.
+    if ! PGPASSWORD="${ENV_DB_PASSWORD}" \
+        "${PG_RESTORE_BIN}" \
+            --exit-on-error \
+            --single-transaction \
+            --no-owner \
+            --no-privileges \
+            --host="${ENV_DB_HOST}" \
+            --port="${ENV_DB_PORT}" \
+            --username="${DATABASE_ROLE}" \
+            --dbname="${STAGED_DATABASE}" \
+        < "${SELECTED_BACKUP_DIR}/database.dump"
+    then
+        drop_staged_database
+        fail "pg_restore failed — the live database ${DATABASE_NAME} was never touched"
+    fi
+
+    verify_staged_database
+
+    restore_state_set "${STATE_FILE}" \
+        staged_database "${STAGED_DATABASE}" \
+        pre_restore_database "${PRE_RESTORE_DATABASE}" \
+        staged_tables "${STAGED_TABLE_COUNT}" \
+        staged_migrations "${STAGED_MIGRATION_COUNT}" \
+        phase database-staged
+
+    log "${LABEL} staged database verified: ${STAGED_TABLE_COUNT} public tables, ${STAGED_MIGRATION_COUNT} migration rows"
+}
+
+verify_staged_database() {
+    # Called directly, never inside $(...): restore_superuser_query's own
+    # `fail` on an unreachable catalog must abort this script, not merely a
+    # subshell that the caller would then read an empty result from.
+    local owner
+    database_owner_of "${STAGED_DATABASE}"
+    owner="${RESTORE_SQL_RESULT}"
+
+    [[ "${owner}" == "${DATABASE_ROLE}" ]] \
+        || fail "staged database ${STAGED_DATABASE} is owned by '${owner}', expected ${DATABASE_ROLE}"
+
+    STAGED_TABLE_COUNT="$(
+        application_query "${STAGED_DATABASE}" "
+            SELECT count(*)
+            FROM information_schema.tables
+            WHERE table_schema = 'public';
+        "
+    )" || { drop_staged_database; fail "could not read the staged database as ${DATABASE_ROLE}"; }
+
+    STAGED_TABLE_COUNT="${STAGED_TABLE_COUNT//[[:space:]]/}"
+
+    if [[ ! "${STAGED_TABLE_COUNT}" =~ ^[0-9]+$ ]] || (( STAGED_TABLE_COUNT == 0 )); then
+        drop_staged_database
+        fail "staged database contains no public tables"
+    fi
+
+    STAGED_MIGRATION_COUNT="$(
+        application_query "${STAGED_DATABASE}" "
+            SELECT CASE
+                WHEN to_regclass('public.migrations') IS NULL
+                    THEN 0
+                ELSE (SELECT count(*) FROM migrations)
+            END;
+        "
+    )" || { drop_staged_database; fail "could not read the staged migrations table"; }
+
+    STAGED_MIGRATION_COUNT="${STAGED_MIGRATION_COUNT//[[:space:]]/}"
+
+    if [[ ! "${STAGED_MIGRATION_COUNT}" =~ ^[0-9]+$ ]]; then
+        drop_staged_database
+        fail "unable to determine the staged migrations table row count"
+    fi
+}
+
+# --- activate ---------------------------------------------------------------------
+#
+# Every statement below is checked explicitly and returns non-zero rather than
+# aborting: this function is invoked from a caller that must be able to
+# compensate, and an `exit` in the middle of a half-completed swap would leave
+# nobody to undo it.
+
+block_and_terminate() {
+    local database="$1"
+
+    restore_superuser_statement \
+        "ALTER DATABASE \"${database}\" WITH ALLOW_CONNECTIONS false;" >/dev/null \
+        || return 1
+
+    # The last hard write barrier: no new session can reach the database, and
+    # every session that already had one is terminated. Scoped to exactly this
+    # database — never a host-wide disconnect.
+    restore_superuser_statement "
+        SELECT pg_terminate_backend(pid)
+        FROM pg_stat_activity
+        WHERE datname = '${database}'
+          AND pid <> pg_backend_pid();
+    " >/dev/null || return 1
+}
+
+perform_activate() {
+    restore_state_require_phase "${STATE_FILE}" "${TARGET_ID}" emergency-backup-verified
+
+    restore_database_exists "${STAGED_DATABASE}" \
+        || fail "staged restore database is missing: ${STAGED_DATABASE}"
+    restore_database_exists "${DATABASE_NAME}" \
+        || fail "canonical database is missing: ${DATABASE_NAME}"
+    ! restore_database_exists "${PRE_RESTORE_DATABASE}" \
+        || fail "pre-restore database already exists: ${PRE_RESTORE_DATABASE}"
+
+    log "${LABEL} activating restored database (${STAGED_DATABASE} -> ${DATABASE_NAME})"
+
+    block_and_terminate "${DATABASE_NAME}" \
+        || fail "could not block and terminate connections to ${DATABASE_NAME}"
+
+    restore_superuser_statement \
+        "ALTER DATABASE \"${DATABASE_NAME}\" RENAME TO \"${PRE_RESTORE_DATABASE}\";" >/dev/null \
+        || fail "could not rename ${DATABASE_NAME} aside to ${PRE_RESTORE_DATABASE}"
+
+    restore_superuser_statement \
+        "ALTER DATABASE \"${STAGED_DATABASE}\" RENAME TO \"${DATABASE_NAME}\";" >/dev/null \
+        || fail "could not rename ${STAGED_DATABASE} into ${DATABASE_NAME}"
+
+    restore_superuser_statement \
+        "ALTER DATABASE \"${DATABASE_NAME}\" WITH ALLOW_CONNECTIONS true;" >/dev/null \
+        || fail "could not re-enable connections to ${DATABASE_NAME}"
+
+    restore_state_set "${STATE_FILE}" phase database-activated
+
+    log "${LABEL} database activated; ${PRE_RESTORE_DATABASE} retained until commit"
+}
+
+# --- compensate ----------------------------------------------------------------------
+#
+# Driven entirely by what the catalog actually shows, not by how far the
+# caller believes activation got: an interrupted activation can be in exactly
+# three observable states, and each has one correct reversal.
+perform_compensate() {
+    # emergency-backup-verified is included deliberately: an activation that
+    # failed BETWEEN its two renames never reached the phase update, and that
+    # is precisely the state compensation exists for. Refusing it there would
+    # leave a recoverable target held.
+    restore_state_require_phase "${STATE_FILE}" "${TARGET_ID}" \
+        emergency-backup-verified database-activated storage-activated verified
+
+    local live_exists=false pre_exists=false staged_exists=false
+
+    restore_database_exists "${DATABASE_NAME}" && live_exists=true
+    restore_database_exists "${PRE_RESTORE_DATABASE}" && pre_exists=true
+    restore_database_exists "${STAGED_DATABASE}" && staged_exists=true
+
+    if [[ "${pre_exists}" == false ]]; then
+        # The live database was never renamed aside: nothing to undo. Only
+        # make sure connections are not left blocked by a failed barrier.
+        if [[ "${live_exists}" == true ]]; then
+            restore_superuser_statement \
+                "ALTER DATABASE \"${DATABASE_NAME}\" WITH ALLOW_CONNECTIONS true;" >/dev/null \
+                || fail "could not re-enable connections to ${DATABASE_NAME}"
+            log "${LABEL} database compensation: nothing to undo (${DATABASE_NAME} was never swapped)"
+
+            return 0
+        fi
+
+        fail "database compensation impossible: neither ${DATABASE_NAME} nor ${PRE_RESTORE_DATABASE} exists"
+    fi
+
+    if [[ "${live_exists}" == false ]]; then
+        # Activation renamed the original aside but never completed the second
+        # rename. Put the original back under its canonical name; the staged
+        # database, if any, is left for --commit-free cleanup by the operator.
+        restore_superuser_statement \
+            "ALTER DATABASE \"${PRE_RESTORE_DATABASE}\" RENAME TO \"${DATABASE_NAME}\";" >/dev/null \
+            || fail "could not rename ${PRE_RESTORE_DATABASE} back to ${DATABASE_NAME}"
+
+        restore_superuser_statement \
+            "ALTER DATABASE \"${DATABASE_NAME}\" WITH ALLOW_CONNECTIONS true;" >/dev/null \
+            || fail "could not re-enable connections to ${DATABASE_NAME}"
+
+        log "${LABEL} database compensation: original database restored from ${PRE_RESTORE_DATABASE}"
+
+        return 0
+    fi
+
+    # Both exist: the swap completed and ${DATABASE_NAME} currently holds the
+    # RESTORED data. Move it back out of the way and reinstate the original.
+    [[ "${staged_exists}" == false ]] \
+        || fail "database compensation impossible: ${STAGED_DATABASE} unexpectedly exists alongside a completed swap"
+
+    block_and_terminate "${DATABASE_NAME}" \
+        || fail "could not block and terminate connections to ${DATABASE_NAME} during compensation"
+
+    restore_superuser_statement \
+        "ALTER DATABASE \"${DATABASE_NAME}\" RENAME TO \"${STAGED_DATABASE}\";" >/dev/null \
+        || fail "could not move the restored database aside during compensation"
+
+    restore_superuser_statement \
+        "ALTER DATABASE \"${PRE_RESTORE_DATABASE}\" RENAME TO \"${DATABASE_NAME}\";" >/dev/null \
+        || fail "could not rename ${PRE_RESTORE_DATABASE} back to ${DATABASE_NAME}"
+
+    restore_superuser_statement \
+        "ALTER DATABASE \"${DATABASE_NAME}\" WITH ALLOW_CONNECTIONS true;" >/dev/null \
+        || fail "could not re-enable connections to ${DATABASE_NAME}"
+
+    log "${LABEL} database compensation: swap reversed, ${DATABASE_NAME} is the pre-restore database again"
+}
+
+# --- commit -----------------------------------------------------------------------------
+
+perform_commit() {
+    restore_state_require_phase "${STATE_FILE}" "${TARGET_ID}" verified
+
+    if restore_database_exists "${PRE_RESTORE_DATABASE}"; then
+        "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+            "${DROPDB_BIN}" --if-exists "${PRE_RESTORE_DATABASE}" \
+            || fail "could not drop the pre-restore database: ${PRE_RESTORE_DATABASE}"
+
+        log "${LABEL} dropped the pre-restore database ${PRE_RESTORE_DATABASE}"
+    else
+        log "${LABEL} no pre-restore database to drop"
+    fi
+}
+
+# --- dispatch --------------------------------------------------------------------------
+
+main() {
+    require_root
+    parse_restore_database_args "$@"
+    resolve_restore_database_subject
+    resolve_restore_database_paths
+
+    case "${STEP}" in
+        stage)      perform_stage ;;
+        activate)   perform_activate ;;
+        compensate) perform_compensate ;;
+        commit)     perform_commit ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

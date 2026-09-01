@@ -184,9 +184,22 @@ function requiredCliManifestNames(): array
 }
 
 /**
+ * The sourced libraries under infrastructure/scripts: never executed
+ * directly, so they must stay non-executable. Kept here beside
+ * requiredCliManifestNames() so the CLI allowlist and the library exemption
+ * have one definition between every test that reasons about either.
+ *
+ * @return list<string>
+ */
+function sourcedLibraryNames(): array
+{
+    return ['common', 'restore-common'];
+}
+
+/**
  * A correctly normalized release-tree fixture: every manifested CLI present
- * and executable, common present, readable and non-executable, the manifest
- * itself copied verbatim from the real committed one. Shared by
+ * and executable, every sourced library present, readable and non-executable,
+ * the manifest itself copied verbatim from the real committed one. Shared by
  * InfrastructureScriptExecutableModesTest (testing verify-required-clis and
  * deploy directly) and DeployStagingWorkflowTest/ProductionReleaseWorkflowTest
  * (testing that each workflow correctly delegates to it).
@@ -204,8 +217,10 @@ function releaseCliFixture(array $cliNames): string
         chmod($root.'/infrastructure/scripts/'.$name, 0o755);
     }
 
-    file_put_contents($root.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
-    chmod($root.'/infrastructure/scripts/common', 0o644);
+    foreach (sourcedLibraryNames() as $library) {
+        file_put_contents($root.'/infrastructure/scripts/'.$library, "#!/usr/bin/env bash\n");
+        chmod($root.'/infrastructure/scripts/'.$library, 0o644);
+    }
 
     return $root;
 }
@@ -732,4 +747,865 @@ function imageFitGeometry(mixed $page, string $selector): array
     $geometry['ratioDiff'] = abs($naturalRatio - $renderedRatio);
 
     return $geometry;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Phase 7.3 — Restore Target Data harness
+|--------------------------------------------------------------------------
+|
+| Shared by FetchBackupTest, VerifyBackupTest, RestoreDatabaseTest,
+| RestoreStorageTest, RestoreTargetTest and Phase73ScopeTest — five files that
+| all need the same scratch target tree, the same parity registry, the same
+| backup fixtures and the same self-contained stub host tooling. A helper used
+| by more than one test file has to live here rather than in any single one of
+| them (see the block comment above the image-marker helpers).
+|
+| Every test below executes the REAL shipped scripts under
+| infrastructure/scripts — never a reimplementation of their logic — with each
+| host dependency supplied through the gated RATEGURU_* test-override
+| contract, exactly the way BackupTest/RestoreTest already do.
+*/
+
+/** The immutable release identity the fixture target is "serving". */
+const P73_RELEASE = 'v1.4.0-20260101-000000-a81d7f2';
+
+const P73_SOURCE_SHA = 'a81d7f2c3b4a5968778899aabbccddeeff001122';
+
+/** A different, equally valid release/commit pair, for code-mismatch tests. */
+const P73_OTHER_RELEASE = 'v1.5.0-20260202-000000-b92e8a3';
+
+const P73_OTHER_SOURCE_SHA = 'b92e8a3d4c5a6a79889900bbccddeeff11223344';
+
+function p73Scratch(): string
+{
+    $dir = sys_get_temp_dir().'/p73-'.uniqid('', true).'-'.getmypid();
+
+    foreach (['', '/bin', '/pg'] as $sub) {
+        expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
+    }
+
+    return $dir;
+}
+
+function p73Cleanup(string $dir): void
+{
+    exec('rm -rf '.escapeshellarg($dir));
+}
+
+function p73Script(string $name): string
+{
+    return base_path('infrastructure/scripts/'.$name);
+}
+
+/**
+ * A copy of a shipped script with two — and only two — mechanical rewrites,
+ * so the real pipeline runs end to end without being root:
+ *
+ *   * every root-only `install -o root -g root` uses this process's own
+ *     uid/gid instead;
+ *   * `require_root` becomes a no-op, but ONLY when P73_BYPASS_ROOT=true is
+ *     explicitly set in the environment.
+ *
+ * Every line of restore logic under test is byte-identical to what ships. The
+ * production root gate itself is proven separately, against the unpatched
+ * script, by the "requires root" test in each file.
+ */
+function p73PatchedScript(string $scratch, string $name): string
+{
+    $path = $scratch.'/patched-'.$name;
+
+    if (file_exists($path)) {
+        return $path;
+    }
+
+    $source = File::get(p73Script($name));
+    $source = str_replace('-o root', '-o '.getmyuid(), $source);
+    $source = str_replace('-g root', '-g '.getmygid(), $source);
+    $source = str_replace(
+        "source \"\${RESTORE_COMMON_FILE}\"\n",
+        "source \"\${RESTORE_COMMON_FILE}\"\n\nif [[ \"\${P73_BYPASS_ROOT:-false}\" == true ]]; then require_root() { :; }; fi\n",
+        $source,
+    );
+
+    file_put_contents($path, $source);
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+function p73WriteExecutable(string $path, string $body): string
+{
+    file_put_contents($path, $body);
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * A host-global deployment.conf pointing PHP_BIN at the scratch php stub.
+ * common validates and sources this file; it is never the installed default
+ * path, so no root ownership is demanded of it.
+ */
+function p73DeploymentConf(string $scratch): string
+{
+    $path = $scratch.'/deployment.conf';
+
+    file_put_contents($path, implode("\n", [
+        "RELEASE_ID_REGEX='^v[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}\$'",
+        'PHP_BIN='.$scratch.'/bin/php',
+        'PHP_FPM_SERVICE=php-noop-fpm',
+        '',
+    ]));
+
+    return $path;
+}
+
+/**
+ * A registry declaring one fully valid, lifecycle=active `parity-target`
+ * whose paths all live inside the scratch tree, plus the patched `targets`
+ * validator that accepts it (the shipped validator only allows staging-main
+ * to be active).
+ *
+ * @return array{0: string, 1: string} [registryPath, targetsCliPath]
+ */
+function p73Registry(string $scratch, array $options = []): array
+{
+    $account = trim((string) shell_exec('id -un'));
+    $group = trim((string) shell_exec('id -gn'));
+
+    $patched = File::get(base_path('infrastructure/scripts/targets'));
+    $patched = str_replace('ACTIVE_ALLOWLIST="staging-main"', 'ACTIVE_ALLOWLIST="parity-target"', $patched);
+    $patched = str_replace('elif [[ "${application_root}" != /home/www/rateguru/* ]]; then', 'elif false; then', $patched);
+    $patched = str_replace('elif [[ "${incoming}" != /home/* ]]; then', 'elif false; then', $patched);
+    $patched = str_replace('if [[ "${code_group}" == "${runtime_group}" ]]; then', 'if false; then', $patched);
+    $patched = str_replace('if [[ "${code_group}" == "${runtime_user}" ]]; then', 'if false; then', $patched);
+
+    $targetsPath = p73WriteExecutable($scratch.'/parity-targets', $patched);
+
+    $registry = [
+        'schema_version' => 1,
+        'targets' => [
+            'parity-target' => [
+                'id' => 'parity-target',
+                'lifecycle' => $options['lifecycle'] ?? 'active',
+                'environment_class' => 'staging',
+                'application_root' => $scratch.'/target',
+                'runtime_user' => $account,
+                'runtime_group' => $group,
+                'deploy_user' => 'parity-deploy',
+                'code_group' => $group,
+                'incoming_artifacts' => $scratch.'/incoming',
+                'release_retention' => 5,
+                'database' => [
+                    'name' => $options['database'] ?? 'parity_db',
+                    'application_role' => $options['role'] ?? 'parity_app',
+                ],
+                'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'parity.internal'],
+                'public_hostnames' => ['parity.example'],
+                'backup' => [
+                    'namespace' => $options['namespace'] ?? 'parity',
+                    'local_retention_days' => 14,
+                    'offsite_retention_days' => 30,
+                    'minimum_retained_backups' => 2,
+                ],
+                'php_fpm' => ['pool' => 'parity-pool', 'socket' => '/run/php/parity.sock'],
+                'supervisor' => ['program' => 'parity-queue', 'queue' => 'parity'],
+                'scheduler' => ['name' => 'parity-scheduler'],
+                'nginx' => ['site_name' => 'parity-site', 'internal_hostname' => 'parity.internal'],
+                'environment_template' => 'infrastructure/templates/environment/staging.env.example',
+            ],
+            'planned-target' => [
+                'id' => 'planned-target',
+                'lifecycle' => 'planned',
+                'environment_class' => 'production',
+                'application_root' => $scratch.'/planned',
+                // Distinct identities from parity-target: the registry
+                // validator rejects two targets sharing a runtime user,
+                // runtime group or code group. Nothing ever uses these — a
+                // planned target is rejected before any identity is read.
+                'runtime_user' => 'planned-runtime',
+                'runtime_group' => 'planned-runtime',
+                'deploy_user' => 'planned-deploy',
+                'code_group' => 'planned-code',
+                'incoming_artifacts' => $scratch.'/planned-incoming',
+                'release_retention' => 5,
+                'database' => ['name' => 'planned_db', 'application_role' => 'planned_app'],
+                'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'planned.internal'],
+                'public_hostnames' => ['planned.example'],
+                'backup' => [
+                    'namespace' => 'planned',
+                    'local_retention_days' => 14,
+                    'offsite_retention_days' => 30,
+                    'minimum_retained_backups' => 2,
+                ],
+                'php_fpm' => ['pool' => 'planned-pool', 'socket' => '/run/php/planned.sock'],
+                'supervisor' => ['program' => 'planned-queue', 'queue' => 'planned'],
+                'scheduler' => ['name' => 'planned-scheduler'],
+                'nginx' => ['site_name' => 'planned-site', 'internal_hostname' => 'planned.internal'],
+                'environment_template' => 'infrastructure/templates/environment/tits-guru.env.example',
+            ],
+        ],
+    ];
+
+    $registryPath = $scratch.'/registry.json';
+    file_put_contents($registryPath, json_encode($registry, JSON_PRETTY_PRINT));
+
+    exec(escapeshellarg($targetsPath).' validate --file '.escapeshellarg($registryPath).' 2>&1', $out, $exit);
+    expect($exit)->toBe(0, "parity registry fixture failed validation:\n".implode("\n", $out));
+
+    return [$registryPath, $targetsPath];
+}
+
+/**
+ * The scratch target tree a live restore acts on: an immutable release under
+ * releases/, a current symlink, shared/.env, the shared storage layout deploy
+ * itself creates, and the lock/deployment directories.
+ */
+function p73TargetTree(string $scratch, array $options = []): string
+{
+    $root = $scratch.'/target';
+    $release = $options['release'] ?? P73_RELEASE;
+    $sourceSha = $options['source_sha'] ?? P73_SOURCE_SHA;
+
+    mkdir($root.'/releases/'.$release, 0o755, true);
+    mkdir($root.'/shared/storage/app/public', 0o755, true);
+    mkdir($root.'/shared/storage/framework', 0o755, true);
+    mkdir($root.'/locks', 0o755, true);
+    mkdir($root.'/deployments', 0o755, true);
+    mkdir($root.'/incoming', 0o755, true);
+
+    file_put_contents(
+        $root.'/releases/'.$release.'/release.json',
+        json_encode(['project' => 'rateguru', 'release' => $release, 'source_sha' => $sourceSha], JSON_PRETTY_PRINT),
+    );
+    file_put_contents($root.'/releases/'.$release.'/artisan', "<?php\n");
+
+    if (($options['current'] ?? true) === true) {
+        symlink($root.'/releases/'.$release, $root.'/current');
+    }
+
+    file_put_contents($root.'/shared/.env', implode("\n", [
+        'APP_ENV=staging',
+        'DB_CONNECTION=pgsql',
+        'DB_HOST=127.0.0.1',
+        'DB_PORT=5432',
+        'DB_DATABASE='.($options['database'] ?? 'parity_db'),
+        'DB_USERNAME='.($options['role'] ?? 'parity_app'),
+        'DB_PASSWORD=s3cr3t-not-logged',
+        '',
+    ]));
+
+    file_put_contents($root.'/shared/storage/app/live-marker.txt', "live\n");
+    file_put_contents($root.'/shared/storage/app/public/live-public.txt', "live public\n");
+
+    return $root;
+}
+
+/**
+ * A real, on-disk backup directory in exactly the shape
+ * infrastructure/scripts/backup produces: a genuine gzip storage archive, the
+ * six checksummed files, and a genuine SHA256SUMS computed with real
+ * sha256sum, so every checksum check downstream is a real check.
+ */
+function p73BuildBackup(string $namespaceRoot, string $timestamp, array $options = []): string
+{
+    $dir = $namespaceRoot.'/'.$timestamp;
+    mkdir($dir, 0o755, true);
+
+    file_put_contents($dir.'/database.dump', $options['dump'] ?? "FAKE-PG-CUSTOM-DUMP\n");
+
+    $stage = $dir.'.src';
+    mkdir($stage.'/app/public', 0o755, true);
+    file_put_contents($stage.'/app/restored-marker.txt', "restored\n");
+    file_put_contents($stage.'/app/public/restored-public.txt', "restored public\n");
+
+    if (isset($options['archive_builder'])) {
+        $options['archive_builder']($stage);
+    }
+
+    exec('tar -C '.escapeshellarg($stage).' -czf '.escapeshellarg($dir.'/storage-app.tar.gz').' '.($options['archive_member'] ?? 'app').' 2>&1');
+    exec('rm -rf '.escapeshellarg($stage));
+
+    if (isset($options['storage_archive_bytes'])) {
+        file_put_contents($dir.'/storage-app.tar.gz', $options['storage_archive_bytes']);
+    }
+
+    file_put_contents($dir.'/environment.env', "APP_ENV=staging\nDB_PASSWORD=from-backup-never-applied\n");
+    file_put_contents($dir.'/server-configuration.tar.gz', "fake server configuration snapshot\n");
+
+    $releaseJson = array_key_exists('release_json', $options)
+        ? $options['release_json']
+        : ['project' => 'rateguru', 'release' => P73_RELEASE, 'source_sha' => P73_SOURCE_SHA];
+
+    file_put_contents(
+        $dir.'/release.json',
+        is_string($releaseJson) ? $releaseJson : json_encode($releaseJson, JSON_PRETTY_PRINT),
+    );
+
+    $manifest = array_key_exists('manifest', $options)
+        ? $options['manifest']
+        : p73Manifest();
+
+    if ($manifest !== null) {
+        file_put_contents($dir.'/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT));
+    }
+
+    $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
+
+    if ($manifest !== null) {
+        $files[] = 'manifest.json';
+    }
+
+    $lines = [];
+    foreach ($files as $file) {
+        $lines[] = hash_file('sha256', $dir.'/'.$file).'  '.$file;
+    }
+
+    foreach ($options['extra_sha_lines'] ?? [] as $extra) {
+        $lines[] = $extra;
+    }
+
+    file_put_contents($dir.'/SHA256SUMS', implode("\n", $lines)."\n");
+
+    if (! empty($options['corrupt_after_checksum'])) {
+        file_put_contents($dir.'/database.dump', "TAMPERED\n");
+    }
+
+    return $dir;
+}
+
+/** @return array<string, mixed> */
+function p73Manifest(array $overrides = []): array
+{
+    return array_merge([
+        'manifest_schema_version' => 2,
+        'project' => 'rateguru',
+        'selector' => 'target',
+        'target' => 'parity-target',
+        'environment' => 'staging',
+        'backup_namespace' => 'parity',
+        'created_at' => '2026-01-01T00:00:00Z',
+        'hostname' => 'test-host',
+        'database' => 'parity_db',
+        'release' => P73_RELEASE,
+        'postgres_version' => 'pg_dump (PostgreSQL) 18.4',
+        'php_version' => '8.5.0',
+    ], $overrides);
+}
+
+/**
+ * A file-backed fake PostgreSQL: one file per database under $scratch/pg/db,
+ * holding "<owner> <allowconn>". The psql/createdb/dropdb/pg_restore stubs
+ * below read and mutate it, so a rename swap, a connection barrier and a drop
+ * are all genuinely observable across separate script invocations — which is
+ * what makes the activation/compensation tests real rather than rigged.
+ */
+function p73FakePostgres(string $scratch, array $options = []): void
+{
+    $catalog = $scratch.'/pg/db';
+    @mkdir($catalog, 0o755, true);
+
+    foreach ($options['databases'] ?? ['parity_db' => 'parity_app'] as $name => $owner) {
+        file_put_contents($catalog.'/'.$name, $owner." t\n");
+    }
+
+    p73WriteExecutable($scratch.'/bin/runuser', "#!/usr/bin/env bash\nshift 2; shift\nexec \"\$@\"\n");
+
+    p73WriteExecutable($scratch.'/bin/psql', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+catalog="${P73_PG_CATALOG}"
+printf '%s\n' "psql $*" >> "${P73_PSQL_LOG}"
+
+cmd=""
+for arg in "$@"; do
+    case "${arg}" in
+        --command=*) cmd="${arg#--command=}" ;;
+    esac
+done
+
+db_owner() { [[ -f "${catalog}/$1" ]] && awk '{print $1}' "${catalog}/$1"; }
+db_allow() { [[ -f "${catalog}/$1" ]] && awk '{print $2}' "${catalog}/$1"; }
+
+if [[ "${cmd}" =~ SELECT\ 1\ FROM\ pg_database\ WHERE\ datname\ =\ \'([a-z0-9_]+)\' ]]; then
+    [[ -f "${catalog}/${BASH_REMATCH[1]}" ]] && printf '1\n'
+    exit 0
+fi
+
+if [[ "${cmd}" =~ pg_get_userbyid\(datdba\)\ FROM\ pg_database\ WHERE\ datname\ =\ \'([a-z0-9_]+)\' ]]; then
+    db_owner "${BASH_REMATCH[1]}"
+    exit 0
+fi
+
+if [[ "${cmd}" =~ SELECT\ datallowconn\ FROM\ pg_database\ WHERE\ datname\ =\ \'([a-z0-9_]+)\' ]]; then
+    db_allow "${BASH_REMATCH[1]}"
+    exit 0
+fi
+
+if [[ "${cmd}" =~ SELECT\ 1\ FROM\ pg_roles\ WHERE\ rolname\ =\ \'([a-z0-9_]+)\' ]]; then
+    grep -qx "${BASH_REMATCH[1]}" "${P73_PG_ROLES}" && printf '1\n'
+    exit 0
+fi
+
+if [[ "${cmd}" == *"rolcanlogin"* ]]; then
+    printf '%s\n' "${P73_ROLE_CANLOGIN:-t}"
+    exit 0
+fi
+
+if [[ "${cmd}" == *"rolsuper"* ]]; then
+    printf '%s\n' "${P73_ROLE_ELEVATED:-}"
+    exit 0
+fi
+
+if [[ "${cmd}" =~ ALTER\ DATABASE\ \"([a-z0-9_]+)\"\ WITH\ ALLOW_CONNECTIONS\ (true|false) ]]; then
+    name="${BASH_REMATCH[1]}"
+    value="${BASH_REMATCH[2]}"
+    [[ -f "${catalog}/${name}" ]] || { printf 'ERROR: no such database %s\n' "${name}" >&2; exit 1; }
+    flag=t
+    [[ "${value}" == false ]] && flag=f
+    printf '%s %s\n' "$(db_owner "${name}")" "${flag}" > "${catalog}/${name}"
+    exit 0
+fi
+
+if [[ "${cmd}" =~ ALTER\ DATABASE\ \"([a-z0-9_]+)\"\ RENAME\ TO\ \"([a-z0-9_]+)\" ]]; then
+    from="${BASH_REMATCH[1]}"
+    to="${BASH_REMATCH[2]}"
+    if [[ -n "${P73_RENAME_FAIL:-}" ]] && [[ "${P73_RENAME_FAIL}" == "${from}->${to}" ]]; then
+        printf 'ERROR: injected rename failure\n' >&2
+        exit 1
+    fi
+    if [[ -n "${P73_RENAME_FAIL_TO_PREFIX:-}" ]] && [[ "${to}" == "${P73_RENAME_FAIL_TO_PREFIX}"* ]]; then
+        printf 'ERROR: injected rename failure\n' >&2
+        exit 1
+    fi
+    [[ -f "${catalog}/${from}" ]] || { printf 'ERROR: no such database %s\n' "${from}" >&2; exit 1; }
+    [[ ! -f "${catalog}/${to}" ]] || { printf 'ERROR: database %s already exists\n' "${to}" >&2; exit 1; }
+    mv "${catalog}/${from}" "${catalog}/${to}"
+    exit 0
+fi
+
+if [[ "${cmd}" == *"pg_terminate_backend"* ]]; then
+    exit 0
+fi
+
+if [[ "${cmd}" == *"information_schema.tables"* ]]; then
+    printf '%s\n' "${P73_TABLE_COUNT:-42}"
+    exit 0
+fi
+
+if [[ "${cmd}" == *"public.migrations"* ]]; then
+    printf '%s\n' "${P73_MIGRATION_COUNT:-17}"
+    exit 0
+fi
+
+if [[ "${cmd}" == "SELECT 1;" ]]; then
+    printf '1\n'
+    exit 0
+fi
+
+printf 'ERROR: unhandled SQL in fake psql: %s\n' "${cmd}" >&2
+exit 1
+BASH);
+
+    p73WriteExecutable($scratch.'/bin/createdb', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "createdb $*" >> "${P73_CREATEDB_LOG}"
+[[ "${P73_CREATEDB_EXIT:-0}" == 0 ]] || exit "${P73_CREATEDB_EXIT}"
+owner=""
+name=""
+for arg in "$@"; do
+    case "${arg}" in
+        --owner=*) owner="${arg#--owner=}" ;;
+        --template=*) ;;
+        -*) ;;
+        *) name="${arg}" ;;
+    esac
+done
+[[ -n "${name}" ]] || exit 1
+[[ ! -f "${P73_PG_CATALOG}/${name}" ]] || exit 1
+printf '%s t\n' "${owner}" > "${P73_PG_CATALOG}/${name}"
+BASH);
+
+    p73WriteExecutable($scratch.'/bin/dropdb', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "dropdb $*" >> "${P73_DROPDB_LOG}"
+for arg in "$@"; do
+    case "${arg}" in
+        -*) ;;
+        *) rm -f "${P73_PG_CATALOG}/${arg}" ;;
+    esac
+done
+BASH);
+
+    p73WriteExecutable($scratch.'/bin/pg_restore', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "pg_restore $*" >> "${P73_PG_RESTORE_LOG}"
+if [[ -n "${PGPASSWORD:-}" ]]; then
+    printf 'pgpassword-present\n' >> "${P73_PG_RESTORE_LOG}"
+fi
+cat >/dev/null
+exit "${P73_PG_RESTORE_EXIT:-0}"
+BASH);
+
+    file_put_contents($scratch.'/pg/roles', implode("\n", $options['roles'] ?? ['parity_app'])."\n");
+
+    foreach (['psql', 'createdb', 'dropdb', 'pg_restore'] as $log) {
+        touch($scratch.'/'.$log.'.log');
+    }
+}
+
+/** @return array<string, string> */
+function p73PostgresEnv(string $scratch): array
+{
+    return [
+        'P73_PG_CATALOG' => $scratch.'/pg/db',
+        'P73_PG_ROLES' => $scratch.'/pg/roles',
+        'P73_PSQL_LOG' => $scratch.'/psql.log',
+        'P73_CREATEDB_LOG' => $scratch.'/createdb.log',
+        'P73_DROPDB_LOG' => $scratch.'/dropdb.log',
+        'P73_PG_RESTORE_LOG' => $scratch.'/pg_restore.log',
+        'RATEGURU_CREATEDB_BIN' => $scratch.'/bin/createdb',
+        'RATEGURU_DROPDB_BIN' => $scratch.'/bin/dropdb',
+        'RATEGURU_PG_RESTORE_BIN' => $scratch.'/bin/pg_restore',
+        'RATEGURU_PSQL_BIN' => $scratch.'/bin/psql',
+        'RATEGURU_RESTORE_RUNUSER_BIN' => $scratch.'/bin/runuser',
+    ];
+}
+
+/** The baseline environment every Phase 7.3 script invocation needs. */
+function p73BaseEnv(string $scratch, string $registryPath, string $targetsPath, array $overrides = []): array
+{
+    return array_merge([
+        'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_COMMON_FILE' => p73Script('common'),
+        // The patched copy: restore-common's own workspace/history creation
+        // uses `install -o root -g root`, which needs real root. Only that is
+        // rewritten; every line of logic under test is byte-identical.
+        'RATEGURU_RESTORE_COMMON_FILE' => p73PatchedScript($scratch, 'restore-common'),
+        'RATEGURU_DEPLOYMENT_CONF_FILE' => p73DeploymentConf($scratch),
+        'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+        'RATEGURU_TARGETS_CLI' => $targetsPath,
+        'RATEGURU_BACKUP_BASE' => $scratch.'/backups',
+        'RATEGURU_RUN_ROOT' => $scratch.'/run',
+        'RATEGURU_RESTORE_HISTORY_ROOT' => $scratch.'/restores',
+        'RATEGURU_RESTORE_CRON_D_ROOT' => $scratch.'/cron.d',
+        'RATEGURU_RESTORE_WEB_GROUP' => trim((string) shell_exec('id -gn')),
+        'P73_BYPASS_ROOT' => 'true',
+    ], $overrides);
+}
+
+/**
+ * @param  array<string, string>  $env
+ * @return array{0: int, 1: string}
+ */
+function p73Run(string $scriptPath, array $arguments, array $env): array
+{
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(array_merge(['bash', $scriptPath], $arguments), $descriptors, $pipes, null, $env);
+
+    expect($process)->not->toBeFalse('could not start the script under test');
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+/**
+ * Sources a script (so its functions exist without main() running) and
+ * executes an arbitrary body against them — the technique BackupTest and
+ * RestoreTest already use for coverage that must bypass require_root.
+ *
+ * @param  array<string, string>  $env
+ * @return array{0: int, 1: string}
+ */
+function p73RunHarness(string $scratch, string $scriptPath, string $body, array $env): array
+{
+    $harness = $scratch.'/harness-'.uniqid('', true).'.sh';
+    file_put_contents($harness, "set -Eeuo pipefail\nsource ".escapeshellarg($scriptPath)."\n".$body."\n");
+
+    return p73Run($harness, [], $env);
+}
+
+/** Extracts every operation ID a script printed, newest last. */
+function p73OperationIds(string $output): array
+{
+    preg_match_all('/\b(\d{8}-\d{6}-[0-9a-f]{6})\b/', $output, $matches);
+
+    return array_values(array_unique($matches[1]));
+}
+
+/**
+ * A restore operation workspace with a state document in a chosen phase, and
+ * a real staged backup inside it — the exact shape restore-target hands the
+ * restore-database/restore-storage primitives.
+ *
+ * @param  array<string, string>  $state
+ */
+function p73Workspace(string $scratch, string $operationId, array $state = [], array $backupOptions = []): string
+{
+    $workspace = $scratch.'/run/restores/parity-target/'.$operationId;
+    mkdir($workspace.'/selected-backup', 0o700, true);
+    chmod($workspace, 0o700);
+
+    $backup = p73BuildBackup($scratch.'/source-'.$operationId, '20260115-120000', $backupOptions);
+
+    foreach (scandir($backup) as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+
+        copy($backup.'/'.$entry, $workspace.'/selected-backup/'.$entry);
+    }
+
+    file_put_contents($workspace.'/state.json', json_encode(array_merge([
+        'operation_id' => $operationId,
+        'target' => 'parity-target',
+        'environment' => 'staging',
+        'backup_namespace' => 'parity',
+        'source' => 'local',
+        'backup' => '20260115-120000',
+        'status' => 'running',
+        'phase' => 'backup-verified',
+    ], $state), JSON_PRETTY_PRINT));
+    chmod($workspace.'/state.json', 0o600);
+
+    return $workspace;
+}
+
+/** @return array<string, mixed> */
+function p73State(string $workspace): array
+{
+    return json_decode(File::get($workspace.'/state.json'), true);
+}
+
+/** The database names restore-database derives for a given operation. */
+function p73StagedDatabase(string $operationId): string
+{
+    return 'rateguru_rst_parity_'.str_replace('-', '_', $operationId);
+}
+
+function p73PreRestoreDatabase(string $operationId): string
+{
+    return 'rateguru_pre_parity_'.str_replace('-', '_', $operationId);
+}
+
+/** Every database the fake catalog currently holds. */
+function p73Databases(string $scratch): array
+{
+    $entries = array_values(array_diff(scandir($scratch.'/pg/db'), ['.', '..']));
+    sort($entries);
+
+    return $entries;
+}
+
+/** Advances an operation's recorded phase, the way restore-target does. */
+function p73SetPhase(string $workspace, string $phase): void
+{
+    $state = p73State($workspace);
+    $state['phase'] = $phase;
+
+    file_put_contents($workspace.'/state.json', json_encode($state, JSON_PRETTY_PRINT));
+}
+
+/**
+ * Builds a tar.gz from an explicit entry spec, so an archive containing a
+ * symlink, hardlink, device node, FIFO, absolute path or `..` component can
+ * be constructed exactly — none of which a filesystem-based `tar -c` can
+ * reliably produce on every platform this suite runs on.
+ *
+ * @param  list<array{name: string, type: string, link?: string}>  $entries
+ */
+function p73Archive(string $path, array $entries): void
+{
+    $python = <<<'PY'
+import io, json, sys, tarfile
+
+spec = json.loads(sys.argv[2])
+
+with tarfile.open(sys.argv[1], "w:gz") as tf:
+    for entry in spec:
+        info = tarfile.TarInfo(entry["name"])
+        kind = entry["type"]
+
+        if kind == "dir":
+            info.type = tarfile.DIRTYPE
+            info.mode = 0o755
+        elif kind == "file":
+            info.type = tarfile.REGTYPE
+            info.mode = 0o644
+            info.size = 1
+        elif kind == "symlink":
+            info.type = tarfile.SYMTYPE
+            info.linkname = entry.get("link", "/etc/passwd")
+        elif kind == "hardlink":
+            info.type = tarfile.LNKTYPE
+            info.linkname = entry.get("link", "app/regular.txt")
+        elif kind == "fifo":
+            info.type = tarfile.FIFOTYPE
+        elif kind == "chardev":
+            info.type = tarfile.CHRTYPE
+            info.devmajor, info.devminor = 1, 3
+        elif kind == "blockdev":
+            info.type = tarfile.BLKTYPE
+            info.devmajor, info.devminor = 8, 0
+        else:
+            raise SystemExit("unknown entry type: " + kind)
+
+        if info.type == tarfile.REGTYPE:
+            tf.addfile(info, io.BytesIO(b"x"))
+        else:
+            tf.addfile(info)
+PY;
+
+    $script = sys_get_temp_dir().'/p73-archive-'.uniqid('', true).'.py';
+    file_put_contents($script, $python);
+
+    exec(
+        'python3 '.escapeshellarg($script).' '.escapeshellarg($path).' '.escapeshellarg(json_encode($entries)).' 2>&1',
+        $output,
+        $exit,
+    );
+
+    unlink($script);
+
+    expect($exit)->toBe(0, "could not build the archive fixture:\n".implode("\n", $output));
+}
+
+/**
+ * The target-runtime stubs a full restore-target run needs: this target's own
+ * Supervisor program, its Laravel maintenance mode, the existing `backup` and
+ * `restore-test` implementations it reuses for the emergency backup, the
+ * health check, and pgrep for the scheduler barrier.
+ *
+ * Each records what it was asked to do, so a test can assert BOTH the runtime
+ * state that resulted and the fact that nothing global was ever touched.
+ */
+function p73RuntimeStubs(string $scratch): void
+{
+    p73WriteExecutable($scratch.'/bin/supervisorctl', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "supervisorctl $*" >> "${P73_SUPERVISOR_LOG}"
+
+action="${1:-}"
+group="${2:-}"
+
+case "${action}" in
+    status)
+        state="$(cat "${P73_SUPERVISOR_STATE}")"
+        [[ "${state}" == "UNKNOWN" ]] && exit 1
+        printf '%-40s %s   pid 4242, uptime 0:10:00\n' "${group%:*}:${group%:*}_00" "${state}"
+        ;;
+    stop)
+        printf 'STOPPED\n' > "${P73_SUPERVISOR_STATE}"
+        ;;
+    start)
+        printf '%s\n' "${P73_SUPERVISOR_START_STATE:-RUNNING}" > "${P73_SUPERVISOR_STATE}"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+BASH);
+
+    p73WriteExecutable($scratch.'/bin/php', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "php $*" >> "${P73_PHP_LOG}"
+
+case "${2:-}" in
+    down)
+        [[ "${P73_ARTISAN_DOWN_EXIT:-0}" == 0 ]] || exit "${P73_ARTISAN_DOWN_EXIT}"
+        printf '{"time":0}\n' > "${P73_MAINTENANCE_FLAG}"
+        ;;
+    up)
+        [[ "${P73_ARTISAN_UP_EXIT:-0}" == 0 ]] || exit "${P73_ARTISAN_UP_EXIT}"
+        rm -f "${P73_MAINTENANCE_FLAG}"
+        ;;
+    schedule:interrupt)
+        exit "${P73_SCHEDULE_INTERRUPT_EXIT:-0}"
+        ;;
+    *)
+        ;;
+esac
+BASH);
+
+    p73WriteExecutable($scratch.'/bin/backup-stub', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "backup $*" >> "${P73_BACKUP_LOG}"
+[[ "${P73_BACKUP_EXIT:-0}" == 0 ]] || exit "${P73_BACKUP_EXIT}"
+
+mkdir -p "${P73_BACKUP_NAMESPACE_ROOT}"
+
+# "none" is the explicit "this backup run produced nothing" case: an empty
+# environment value cannot express it, since a shell default would take over.
+ids="${P73_EMERGENCY_BACKUP_IDS:-20260116-090000}"
+
+if [[ "${ids}" != none ]]; then
+    for stamp in ${ids}; do
+        cp -a "${P73_BACKUP_TEMPLATE}" "${P73_BACKUP_NAMESPACE_ROOT}/${stamp}"
+    done
+fi
+BASH);
+
+    p73WriteExecutable($scratch.'/bin/restore-test-stub', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "restore-test $*" >> "${P73_RESTORE_TEST_LOG}"
+exit "${P73_RESTORE_TEST_EXIT:-0}"
+BASH);
+
+    p73WriteExecutable($scratch.'/bin/health-check-stub', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "health-check $*" >> "${P73_HEALTH_CHECK_LOG}"
+exit "${P73_HEALTH_CHECK_EXIT:-0}"
+BASH);
+
+    // Nothing is running by default: pgrep exits 1 when no process matches.
+    p73WriteExecutable($scratch.'/bin/pgrep', <<<'BASH'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "pgrep $*" >> "${P73_PGREP_LOG}"
+exit "${P73_PGREP_EXIT:-1}"
+BASH);
+
+    file_put_contents($scratch.'/supervisor-state', "RUNNING\n");
+
+    foreach (['supervisor', 'php', 'backup', 'restore-test', 'health-check', 'pgrep'] as $log) {
+        touch($scratch.'/'.$log.'.log');
+    }
+}
+
+/** @return array<string, string> */
+function p73RuntimeEnv(string $scratch): array
+{
+    return [
+        'P73_SUPERVISOR_LOG' => $scratch.'/supervisor.log',
+        'P73_SUPERVISOR_STATE' => $scratch.'/supervisor-state',
+        'P73_PHP_LOG' => $scratch.'/php.log',
+        'P73_MAINTENANCE_FLAG' => $scratch.'/target/shared/storage/framework/down',
+        'P73_BACKUP_LOG' => $scratch.'/backup.log',
+        'P73_BACKUP_TEMPLATE' => $scratch.'/emergency-template',
+        'P73_BACKUP_NAMESPACE_ROOT' => $scratch.'/backups/parity',
+        'P73_RESTORE_TEST_LOG' => $scratch.'/restore-test.log',
+        'P73_HEALTH_CHECK_LOG' => $scratch.'/health-check.log',
+        'P73_PGREP_LOG' => $scratch.'/pgrep.log',
+        'RATEGURU_RESTORE_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
+        'RATEGURU_RESTORE_BACKUP_BIN' => $scratch.'/bin/backup-stub',
+        'RATEGURU_RESTORE_RESTORE_TEST_BIN' => $scratch.'/bin/restore-test-stub',
+        'RATEGURU_RESTORE_HEALTH_CHECK_BIN' => $scratch.'/bin/health-check-stub',
+        'RATEGURU_RESTORE_QUEUE_WAIT_ATTEMPTS' => '3',
+        'RATEGURU_RESTORE_QUEUE_RETRY_DELAY' => '0',
+        'RATEGURU_RESTORE_SCHEDULER_WAIT_ATTEMPTS' => '3',
+        'RATEGURU_RESTORE_SCHEDULER_RETRY_DELAY' => '0',
+    ];
 }

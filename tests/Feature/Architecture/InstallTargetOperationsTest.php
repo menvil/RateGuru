@@ -794,6 +794,56 @@ SH;
 }
 
 /**
+ * A self-contained stub for one of the five Phase 7.3 restore primitives.
+ * They share one contract — answer --help, reject tits-guru with the
+ * lifecycle diagnostic, do nothing otherwise — so one parameterized stub
+ * covers all five instead of five near-identical copies.
+ */
+function installOpsRestorePrimitiveStub(string $name, string $titsGuru = 'reject'): string
+{
+    $titsGuruClause = match ($titsGuru) {
+        'unexpected-success' => 'printf "tits-guru reachable (test stub)\n"; exit 0',
+        'wrong-reason' => 'printf "some unrelated stub failure\n" >&2; exit 1',
+        default => 'printf "ERROR: target tits-guru has lifecycle=planned, not active\n" >&2; exit 1',
+    };
+
+    return <<<SH
+#!/usr/bin/env bash
+set -uo pipefail
+if [[ "\${1:-}" == "--help" || "\${1:-}" == "-h" ]]; then
+    printf 'Usage: {$name} --target TARGET_ID ...\\n'
+    exit 0
+fi
+
+target=""
+while [[ \$# -gt 0 ]]; do
+    case "\$1" in
+        --target) target="\$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+if [[ "\$target" == "tits-guru" ]]; then
+    {$titsGuruClause}
+fi
+
+exit 0
+
+SH;
+}
+
+/**
+ * The five restore primitives, in the order the installer stages and
+ * installs them.
+ *
+ * @return list<string>
+ */
+function installOpsRestorePrimitiveNames(): array
+{
+    return ['fetch-backup', 'verify-backup', 'restore-database', 'restore-storage', 'restore-target'];
+}
+
+/**
  * The standard scratch layout for a full perform_apply/perform_verify
  * integration test: real registry/targets/common (targets is fully
  * standalone; common is never sourced by the stub health-check/status/
@@ -825,6 +875,7 @@ function installOpsBaseVars(
     ?string $offsiteRetentionStub = null,
     ?string $offsiteRestoreTestStub = null,
     ?string $backupCycleStub = null,
+    ?array $restorePrimitiveStubs = null,
 ): array {
     installOpsWriteExecutable($scratch.'/src/health-check', $healthCheckStub ?? installOpsHealthCheckStub());
     installOpsWriteExecutable($scratch.'/src/status', $statusStub ?? installOpsStatusStub());
@@ -837,6 +888,13 @@ function installOpsBaseVars(
     installOpsWriteExecutable($scratch.'/src/offsite-retention', $offsiteRetentionStub ?? installOpsOffsiteRetentionStub());
     installOpsWriteExecutable($scratch.'/src/offsite-restore-test', $offsiteRestoreTestStub ?? installOpsOffsiteRestoreTestStub());
     installOpsWriteExecutable($scratch.'/src/backup-cycle', $backupCycleStub ?? installOpsBackupCycleStub());
+
+    foreach (installOpsRestorePrimitiveNames() as $primitive) {
+        installOpsWriteExecutable(
+            $scratch.'/src/'.$primitive,
+            $restorePrimitiveStubs[$primitive] ?? installOpsRestorePrimitiveStub($primitive),
+        );
+    }
 
     $ownerId = (string) getmyuid();
     $groupId = (string) getmygid();
@@ -874,6 +932,12 @@ function installOpsBaseVars(
         'SRC_OFFSITE_RETENTION' => $scratch.'/src/offsite-retention',
         'SRC_OFFSITE_RESTORE_TEST' => $scratch.'/src/offsite-restore-test',
         'SRC_BACKUP_CYCLE' => $scratch.'/src/backup-cycle',
+        'SRC_RESTORE_COMMON' => base_path('infrastructure/scripts/restore-common'),
+        'SRC_FETCH_BACKUP' => $scratch.'/src/fetch-backup',
+        'SRC_VERIFY_BACKUP' => $scratch.'/src/verify-backup',
+        'SRC_RESTORE_DATABASE' => $scratch.'/src/restore-database',
+        'SRC_RESTORE_STORAGE' => $scratch.'/src/restore-storage',
+        'SRC_RESTORE_TARGET' => $scratch.'/src/restore-target',
         'SRC_VERIFY_REQUIRED_CLIS' => base_path('infrastructure/scripts/verify-required-clis'),
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
         'DST_CONFIG_ROOT' => $scratch.'/dst-config',
@@ -892,6 +956,12 @@ function installOpsBaseVars(
         'DST_OFFSITE_RETENTION' => $scratch.'/dst-bin/offsite-retention',
         'DST_OFFSITE_RESTORE_TEST' => $scratch.'/dst-bin/offsite-restore-test',
         'DST_BACKUP_CYCLE' => $scratch.'/dst-bin/backup-cycle',
+        'DST_RESTORE_COMMON' => $scratch.'/dst-bin/restore-common',
+        'DST_FETCH_BACKUP' => $scratch.'/dst-bin/fetch-backup',
+        'DST_VERIFY_BACKUP' => $scratch.'/dst-bin/verify-backup',
+        'DST_RESTORE_DATABASE' => $scratch.'/dst-bin/restore-database',
+        'DST_RESTORE_STORAGE' => $scratch.'/dst-bin/restore-storage',
+        'DST_RESTORE_TARGET' => $scratch.'/dst-bin/restore-target',
         'DST_VERIFY_REQUIRED_CLIS' => $scratch.'/dst-bin/verify-required-clis',
         'DST_DEPLOYMENT_CONF' => $scratch.'/dst-config/deployment.conf',
         'BACKUP_ROOT' => $scratch.'/backups',
@@ -937,12 +1007,12 @@ it('passes bash -n syntax check on the installer', function () {
 it('keeps every destination a fixed, hardcoded constant — never env- or CLI-overridable', function () {
     $source = installOpsSource();
 
-    // DST_CONFIG_ROOT/DST_BIN_ROOT are plain literals; the sixteen destination
+    // DST_CONFIG_ROOT/DST_BIN_ROOT are plain literals; the twenty-two destination
     // paths compose from those two (e.g. "${DST_CONFIG_ROOT}/..."), which is
     // fine — it's still built entirely from fixed constants. What must never
     // appear is a fallback to an environment variable (":-"/":+") or a read
     // of anything RATEGURU_*-shaped.
-    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP', 'DST_DEPLOY', 'DST_ROLLBACK', 'DST_BACKUP', 'DST_RESTORE_TEST', 'DST_OFFSITE_BACKUP', 'DST_OFFSITE_RETENTION', 'DST_OFFSITE_RESTORE_TEST', 'DST_BACKUP_CYCLE'] as $name) {
+    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP', 'DST_DEPLOY', 'DST_ROLLBACK', 'DST_BACKUP', 'DST_RESTORE_TEST', 'DST_OFFSITE_BACKUP', 'DST_OFFSITE_RETENTION', 'DST_OFFSITE_RESTORE_TEST', 'DST_BACKUP_CYCLE', 'DST_RESTORE_COMMON', 'DST_FETCH_BACKUP', 'DST_VERIFY_BACKUP', 'DST_RESTORE_DATABASE', 'DST_RESTORE_STORAGE', 'DST_RESTORE_TARGET'] as $name) {
         // preg_match alone only proves "at least one match" — it stops at
         // the first hit, so a second, later (and possibly unsafe)
         // assignment to the same name — the one bash would actually use at
@@ -983,7 +1053,7 @@ it('never sources common or deployment.conf itself', function () {
     }
 });
 
-it('documents exactly the sixteen files it owns, and what it does not touch, in the runbook', function () {
+it('documents exactly the twenty-two files it owns, and what it does not touch, in the runbook', function () {
     $runbook = File::get(base_path('infrastructure/runbooks/install-target-operations.md'));
 
     expect($runbook)
@@ -1015,6 +1085,18 @@ it('documents exactly the sixteen files it owns, and what it does not touch, in 
         ->toContain('/home/www/rateguru/bin/offsite-restore-test')
         ->toContain('infrastructure/scripts/backup-cycle')
         ->toContain('/home/www/rateguru/bin/backup-cycle')
+        ->toContain('infrastructure/scripts/restore-common')
+        ->toContain('/home/www/rateguru/bin/restore-common')
+        ->toContain('infrastructure/scripts/fetch-backup')
+        ->toContain('/home/www/rateguru/bin/fetch-backup')
+        ->toContain('infrastructure/scripts/verify-backup')
+        ->toContain('/home/www/rateguru/bin/verify-backup')
+        ->toContain('infrastructure/scripts/restore-database')
+        ->toContain('/home/www/rateguru/bin/restore-database')
+        ->toContain('infrastructure/scripts/restore-storage')
+        ->toContain('/home/www/rateguru/bin/restore-storage')
+        ->toContain('infrastructure/scripts/restore-target')
+        ->toContain('/home/www/rateguru/bin/restore-target')
         ->toContain('fixed, hardcoded constants')
         ->toContain('/home/www/rateguru/config/deployment.conf')
         ->toContain('Why tits-guru remains planned');
@@ -1085,9 +1167,9 @@ it('--check succeeds read-only against the real repository, with no root require
 
     expect($exit)->toBe(0, $output);
     expect($output)
-        ->toContain('all sixteen source files are present regular files')
-        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle and verify-required-clis are all executable')
-        ->toContain('bash -n passed for all fourteen source shell scripts')
+        ->toContain('all twenty-two source files are present regular files')
+        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target and verify-required-clis are all executable; common and restore-common are not')
+        ->toContain('bash -n passed for all twenty source shell scripts')
         ->toContain('source registry is valid JSON')
         ->toContain('required host tools present')
         ->toContain('check passed');
@@ -1103,18 +1185,22 @@ it('--check succeeds read-only against the real repository, with no root require
 // =============================================================================
 
 /**
- * @return array<string, string> SRC_* overrides: fourteen executable dummy
- *                               CLI files plus one non-executable common.
+ * @return array<string, string> SRC_* overrides: nineteen executable dummy
+ *                               CLI files plus two non-executable libraries.
  */
 function installOpsExecutableModeVars(string $scratch): array
 {
-    foreach (['self', 'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback', 'backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test', 'backup-cycle', 'verify-required-clis'] as $name) {
+    foreach (['self', 'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback', 'backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test', 'backup-cycle', 'fetch-backup', 'verify-backup', 'restore-database', 'restore-storage', 'restore-target', 'verify-required-clis'] as $name) {
         installOpsWriteExecutable("{$scratch}/{$name}", "#!/usr/bin/env bash\nexit 0\n");
     }
 
     $commonPath = "{$scratch}/common";
     file_put_contents($commonPath, "#!/usr/bin/env bash\n");
     chmod($commonPath, 0o644);
+
+    $restoreCommonPath = "{$scratch}/restore-common";
+    file_put_contents($restoreCommonPath, "#!/usr/bin/env bash\n");
+    chmod($restoreCommonPath, 0o644);
 
     return [
         'SRC_SELF' => "{$scratch}/self",
@@ -1130,8 +1216,14 @@ function installOpsExecutableModeVars(string $scratch): array
         'SRC_OFFSITE_RETENTION' => "{$scratch}/offsite-retention",
         'SRC_OFFSITE_RESTORE_TEST' => "{$scratch}/offsite-restore-test",
         'SRC_BACKUP_CYCLE' => "{$scratch}/backup-cycle",
+        'SRC_FETCH_BACKUP' => "{$scratch}/fetch-backup",
+        'SRC_VERIFY_BACKUP' => "{$scratch}/verify-backup",
+        'SRC_RESTORE_DATABASE' => "{$scratch}/restore-database",
+        'SRC_RESTORE_STORAGE' => "{$scratch}/restore-storage",
+        'SRC_RESTORE_TARGET' => "{$scratch}/restore-target",
         'SRC_VERIFY_REQUIRED_CLIS' => "{$scratch}/verify-required-clis",
         'SRC_COMMON' => $commonPath,
+        'SRC_RESTORE_COMMON' => $restoreCommonPath,
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
     ];
 }
@@ -1145,13 +1237,13 @@ it('validate_source_executable_modes passes when every managed CLI, including ve
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_executable_modes');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle and verify-required-clis are all executable');
+        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target and verify-required-clis are all executable; common and restore-common are not');
     } finally {
         installOpsCleanup($scratch);
     }
 });
 
-it('validate_source_executable_modes does not require common to be executable', function () {
+it('validate_source_executable_modes requires common and restore-common to be non-executable', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -1167,7 +1259,7 @@ it('validate_source_executable_modes does not require common to be executable', 
 });
 
 it('validate_source_executable_modes fails, naming the specific file, for each required CLI', function () {
-    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS', 'SRC_CLEANUP', 'SRC_DEPLOY', 'SRC_ROLLBACK', 'SRC_BACKUP', 'SRC_RESTORE_TEST', 'SRC_OFFSITE_BACKUP', 'SRC_OFFSITE_RETENTION', 'SRC_OFFSITE_RESTORE_TEST', 'SRC_BACKUP_CYCLE', 'SRC_VERIFY_REQUIRED_CLIS'] as $key) {
+    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS', 'SRC_CLEANUP', 'SRC_DEPLOY', 'SRC_ROLLBACK', 'SRC_BACKUP', 'SRC_RESTORE_TEST', 'SRC_OFFSITE_BACKUP', 'SRC_OFFSITE_RETENTION', 'SRC_OFFSITE_RESTORE_TEST', 'SRC_BACKUP_CYCLE', 'SRC_FETCH_BACKUP', 'SRC_VERIFY_BACKUP', 'SRC_RESTORE_DATABASE', 'SRC_RESTORE_STORAGE', 'SRC_RESTORE_TARGET', 'SRC_VERIFY_REQUIRED_CLIS'] as $key) {
         $scratch = installOpsScratchDir();
 
         try {
@@ -2317,7 +2409,7 @@ it('verify_backup_cycle_planned_target_rejected fails when the rejection happens
 // the candidates, the real registry/targets/common otherwise.
 // =============================================================================
 
-it('a successful apply installs all sixteen files with correct ownership, mode and content, and creates a timestamped backup', function () {
+it('a successful apply installs all twenty-two files with correct ownership, mode and content, and creates a timestamped backup', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -2349,6 +2441,14 @@ it('a successful apply installs all sixteen files with correct ownership, mode a
             ['DST_OFFSITE_RETENTION', 'SRC_OFFSITE_RETENTION', '0755'],
             ['DST_OFFSITE_RESTORE_TEST', 'SRC_OFFSITE_RESTORE_TEST', '0755'],
             ['DST_BACKUP_CYCLE', 'SRC_BACKUP_CYCLE', '0755'],
+            // restore-common is the second sourced library — 0644, never
+            // executable, exactly like common.
+            ['DST_RESTORE_COMMON', 'SRC_RESTORE_COMMON', '0644'],
+            ['DST_FETCH_BACKUP', 'SRC_FETCH_BACKUP', '0755'],
+            ['DST_VERIFY_BACKUP', 'SRC_VERIFY_BACKUP', '0755'],
+            ['DST_RESTORE_DATABASE', 'SRC_RESTORE_DATABASE', '0755'],
+            ['DST_RESTORE_STORAGE', 'SRC_RESTORE_STORAGE', '0755'],
+            ['DST_RESTORE_TARGET', 'SRC_RESTORE_TARGET', '0755'],
             ['DST_VERIFY_REQUIRED_CLIS', 'SRC_VERIFY_REQUIRED_CLIS', '0755'],
             ['DST_DEPLOYMENT_CONF', 'SRC_DEPLOYMENT_CONF', '0640'],
         ] as [$dstKey, $srcKey, $mode]) {
@@ -2360,6 +2460,7 @@ it('a successful apply installs all sixteen files with correct ownership, mode a
         }
 
         expect(is_executable($vars['DST_COMMON']))->toBeFalse('installed common must not be executable');
+        expect(is_executable($vars['DST_RESTORE_COMMON']))->toBeFalse('installed restore-common must not be executable');
 
         $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
         expect($backups)->not->toBeEmpty('apply must create a timestamped backup directory');
@@ -3674,8 +3775,10 @@ it('leaves the installed deploy able to reach the installed verify-required-clis
         file_put_contents($releaseRoot.'/infrastructure/config/required-clis.txt', "targets\n");
         file_put_contents($releaseRoot.'/infrastructure/scripts/targets', "#!/usr/bin/env bash\nexit 0\n");
         chmod($releaseRoot.'/infrastructure/scripts/targets', 0o644);
-        file_put_contents($releaseRoot.'/infrastructure/scripts/common', "#!/usr/bin/env bash\n");
-        chmod($releaseRoot.'/infrastructure/scripts/common', 0o644);
+        foreach (sourcedLibraryNames() as $library) {
+            file_put_contents($releaseRoot.'/infrastructure/scripts/'.$library, "#!/usr/bin/env bash\n");
+            chmod($releaseRoot.'/infrastructure/scripts/'.$library, 0o644);
+        }
 
         exec(escapeshellarg($vars['DST_VERIFY_REQUIRED_CLIS']).' --release-root '.escapeshellarg($releaseRoot).' 2>&1', $out, $code);
         expect($code)->not->toBe(0, 'the installed helper must fail closed on a non-executable required CLI');

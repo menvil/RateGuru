@@ -1,0 +1,1352 @@
+#!/usr/bin/env bash
+#
+# restore-target — restore ONE live target's DATA from ONE exact backup.
+#
+#   restore-target --apply  --target T --source local|offsite --backup YYYYMMDD-HHMMSS
+#   restore-target --resume --target T --operation OPERATION_ID
+#
+# Scenario: the server is alive, the infrastructure is intact, the target
+# exists and is active — only its data is wrong. This is NOT Recover Host
+# (a replacement VPS), and it is NOT the read-only restore-test (which
+# restores into a throwaway scratch database and always did).
+#
+# The whole shape of this operation is "do the heavy, fallible work while the
+# target is still serving traffic; take the downtime only for two renames":
+#
+#   validate target
+#     -> stage the EXACT named backup (local disk or B2)
+#     -> verify it completely (checksums, manifest, archive safety, identity)
+#     -> restore it into a NEW temporary database and verify that
+#     -> extract it into a NEW sibling storage tree and verify that
+#     -- nothing live has been touched up to this point --
+#     -> take the deployment lock
+#     -> quiesce ONLY this target (maintenance, its queue program, its cron)
+#     -> take a full emergency backup of the CURRENT state and verify it
+#     -> swap the database in (two catalog renames)
+#     -> swap the storage tree in (two directory renames)
+#     -> verify the result
+#     -> commit, or compensate the whole thing back
+#     -> resume the target if its code matches the backup, otherwise hold it
+#
+# What it restores: database.dump and storage-app.tar.gz. Nothing else. A live
+# restore never rewrites shared/.env, rclone.conf, TLS material,
+# authorized_keys, Nginx, PHP-FPM, Supervisor, the installed infrastructure,
+# or the current/previous release links — environment.env and
+# server-configuration.tar.gz are verified as part of backup completeness and
+# then deliberately never applied.
+#
+# It NEVER runs a migration. Backup data must meet the code it was taken
+# under, identified by release.json.source_sha; making data meet different
+# code is a deliberate future deployment, never a side effect of a restore.
+#
+# Cross-project safety: only this target's own resources are touched. No
+# global nginx, PostgreSQL, Redis, Supervisor or cron service is ever stopped,
+# no unrelated database, role, Supervisor group, cron file, vhost or /home/www
+# tree is ever read or written.
+
+set -Eeuo pipefail
+umask 077
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup.
+COMMON_FILE=/home/www/rateguru/bin/common
+RESTORE_COMMON_FILE=/home/www/rateguru/bin/restore-common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]; then
+    if [[ -n "${RATEGURU_COMMON_FILE:-}" ]]; then
+        COMMON_FILE="${RATEGURU_COMMON_FILE}"
+    fi
+
+    if [[ -n "${RATEGURU_RESTORE_COMMON_FILE:-}" ]]; then
+        RESTORE_COMMON_FILE="${RATEGURU_RESTORE_COMMON_FILE}"
+    fi
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+# shellcheck disable=SC1090
+source "${RESTORE_COMMON_FILE}"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  restore-target --apply --target TARGET_ID --source local|offsite \
+                 --backup YYYYMMDD-HHMMSS
+
+  restore-target --resume --target TARGET_ID --operation OPERATION_ID
+
+  --apply      Restore this target's database and storage from the named
+               backup. The backup timestamp is mandatory: there is no
+               "latest" and no implicit selection.
+  --source     local   the target's own local backup namespace
+               offsite the fixed B2 remote/bucket for that namespace
+  --resume     Resume a target that completed its data restore but was held
+               because its code did not match the backup. Only valid once the
+               target's current release carries the backup's own source_sha.
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called, mirroring deploy/rollback/backup's structure exactly.
+
+# --- argument parsing -------------------------------------------------------------
+
+parse_restore_target_args() {
+    MODE=""
+    MODE_SEEN=false
+    TARGET_ID=""
+    TARGET_SEEN=false
+    SOURCE_KIND=""
+    SOURCE_SEEN=false
+    BACKUP_ID=""
+    BACKUP_SEEN=false
+    OPERATION_ID=""
+    OPERATION_SEEN=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --apply|--resume)
+                [[ "${MODE_SEEN}" != true ]] || fail "only one of --apply or --resume may be given"
+                MODE="${1#--}"
+                MODE_SEEN=true
+                shift
+                ;;
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --source)
+                [[ "${SOURCE_SEEN}" != true ]] || fail "--source given more than once"
+                require_flag_value "--source" "$#" "${2-}"
+                SOURCE_KIND="$2"
+                SOURCE_SEEN=true
+                shift 2
+                ;;
+            --backup)
+                [[ "${BACKUP_SEEN}" != true ]] || fail "--backup given more than once"
+                require_flag_value "--backup" "$#" "${2-}"
+                BACKUP_ID="$2"
+                BACKUP_SEEN=true
+                shift 2
+                ;;
+            --operation)
+                [[ "${OPERATION_SEEN}" != true ]] || fail "--operation given more than once"
+                require_flag_value "--operation" "$#" "${2-}"
+                OPERATION_ID="$2"
+                OPERATION_SEEN=true
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${MODE_SEEN}" == true ]] || fail "exactly one of --apply or --resume is required"
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+
+    if [[ "${MODE}" == "apply" ]]; then
+        [[ "${OPERATION_SEEN}" != true ]] \
+            || fail "--operation is only valid with --resume; --apply generates its own operation ID"
+        [[ "${SOURCE_SEEN}" == true ]] || fail "--source is required (local or offsite)"
+        [[ "${BACKUP_SEEN}" == true ]] \
+            || fail "--backup is required — a destructive restore never selects a backup implicitly, and there is no 'latest'"
+
+        case "${SOURCE_KIND}" in
+            local|offsite) ;;
+            *) fail "--source must be local or offsite, got: ${SOURCE_KIND}" ;;
+        esac
+    else
+        [[ "${SOURCE_SEEN}" != true ]] || fail "--source is only valid with --apply"
+        [[ "${BACKUP_SEEN}" != true ]] || fail "--backup is only valid with --apply"
+        [[ "${OPERATION_SEEN}" == true ]] || fail "--resume requires --operation"
+    fi
+}
+
+# --- target resolution -------------------------------------------------------------
+#
+# require_active_target runs first thing — before the workspace, the backup
+# root, the remote path, the lock files, the .env, PostgreSQL, Supervisor or
+# cron are ever computed or touched. main() already called require_root, so
+# the full ordering is: root authorization -> lifecycle=planned rejection ->
+# (only if active) any work at all. A planned target (tits-guru today) never
+# reaches a single one of those.
+resolve_restore_target_subject() {
+    require_active_target "${TARGET_ID}"
+
+    TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+    DATABASE_NAME="$(target_database_name "${TARGET_ID}")"
+    DATABASE_ROLE="$(target_database_role "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
+    SCHEDULER_NAME="$(target_scheduler_name "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+
+    # Defence in depth. The registry is root-owned and already validated, but
+    # these four values end up inside SQL text, a Supervisor argument and an
+    # /etc/cron.d path, and the registry validator only requires them to be
+    # non-empty strings. A closed class here means a malformed registry can
+    # never become a path escape or an injected identifier.
+    restore_validate_identifier "${DATABASE_NAME}" "registry database name for ${TARGET_ID}"
+    restore_validate_identifier "${DATABASE_ROLE}" "registry application role for ${TARGET_ID}"
+
+    [[ "${SUPERVISOR_PROGRAM}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] \
+        || fail "registry Supervisor program for ${TARGET_ID} is not a plain program name: ${SUPERVISOR_PROGRAM}"
+    [[ "${SCHEDULER_NAME}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] \
+        || fail "registry scheduler name for ${TARGET_ID} is not a plain cron.d entry name: ${SCHEDULER_NAME}"
+
+    CURRENT_LINK="${TARGET_ROOT}/current"
+    PREVIOUS_LINK="${TARGET_ROOT}/previous"
+    SHARED_ENV="${TARGET_ROOT}/shared/.env"
+    MAINTENANCE_FLAG="${TARGET_ROOT}/shared/storage/framework/down"
+    SCHEDULER_FILE="${RESTORE_CRON_D_ROOT}/${SCHEDULER_NAME}"
+}
+
+# --- operation-wide state ------------------------------------------------------------
+
+MAIN_BASHPID=""
+RESTORE_TERMINAL=false
+CURRENT_STEP="start"
+MUTATION_STAGE=none          # none | quiesced | activating | activated | committed
+COMPENSATION_STATUS="not-required"
+OPERATION_STARTED_AT=""
+WORKSPACE=""
+STATE_FILE=""
+EMERGENCY_BACKUP=""
+BACKUP_RELEASE=""
+BACKUP_SOURCE_SHA=""
+CURRENT_RELEASE_BEFORE=""
+CURRENT_SOURCE_SHA_BEFORE=""
+CODE_ALIGNMENT="unknown"
+RUNTIME_RESUMED="no"
+MAINTENANCE_BEFORE="unknown"
+QUEUE_RUNNING_BEFORE="unknown"
+SCHEDULER_PRESENT_BEFORE="unknown"
+MAINTENANCE_ENTERED_BY_RESTORE=false
+QUEUE_STOPPED_BY_RESTORE=false
+SCHEDULER_HELD_BY_RESTORE=false
+ENV_FINGERPRINT_BEFORE=""
+CURRENT_TARGET_BEFORE=""
+PREVIOUS_TARGET_BEFORE=""
+
+step() {
+    CURRENT_STEP="$1"
+    log "step: $1"
+}
+
+# --- locks -------------------------------------------------------------------------
+#
+# Three locks, all keyed the way the existing operational scripts already key
+# theirs, and none of them host-global:
+#
+#   restore-target-<namespace>  this operation, so two restores against the
+#                               same backup namespace serialize even when they
+#                               name two different targets
+#   <target>/locks/deployment   the EXISTING per-target deployment lock, so a
+#                               restore can never race deploy, rollback or
+#                               cleanup. Not a new, incompatible lock.
+#   backup-<namespace>          the EXISTING backup lock, taken only AFTER the
+#                               emergency backup has released it, and held
+#                               across activation so no new local backup can
+#                               capture a half-restored mixture.
+#
+# The ordering is what avoids a deadlock: restore-target must let `backup`
+# acquire and release the backup lock before taking it itself.
+
+acquire_restore_operation_lock() {
+    install -d -o root -g root -m 0700 "${RUN_ROOT}"
+
+    exec 201>"${RUN_ROOT}/restore-target-${BACKUP_NAMESPACE}.lock"
+
+    flock -n 201 \
+        || fail "another restore operation is already running for backup namespace ${BACKUP_NAMESPACE}"
+}
+
+acquire_backup_namespace_lock() {
+    exec 202>"${RUN_ROOT}/backup-${BACKUP_NAMESPACE}.lock"
+
+    flock -n 202 \
+        || fail "a backup is running for namespace ${BACKUP_NAMESPACE} — refusing to mutate live data while it could capture a half-restored state"
+}
+
+# --- runtime observation -------------------------------------------------------------
+
+maintenance_active() {
+    [[ -f "${MAINTENANCE_FLAG}" ]]
+}
+
+# Identical classification to deploy's own queue_program_running: only a
+# program group whose every process reports RUNNING counts as running.
+# STARTING, BACKOFF, FATAL, EXITED and STOPPED are all "not running".
+queue_program_running() {
+    local output
+
+    output="$("${RESTORE_SUPERVISORCTL_BIN}" status "${SUPERVISOR_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+queue_program_stopped() {
+    local output
+
+    output="$("${RESTORE_SUPERVISORCTL_BIN}" status "${SUPERVISOR_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'STOPPED' <<<"${output}"
+}
+
+wait_for_queue_state() {
+    local predicate="$1" attempt
+
+    for ((attempt = 1; attempt <= RESTORE_QUEUE_WAIT_ATTEMPTS; attempt++)); do
+        if "${predicate}"; then
+            return 0
+        fi
+
+        sleep "${RESTORE_QUEUE_RETRY_DELAY}"
+    done
+
+    "${predicate}"
+}
+
+scheduler_file_present() {
+    [[ -f "${SCHEDULER_FILE}" ]] && [[ ! -L "${SCHEDULER_FILE}" ]]
+}
+
+artisan_as_runtime_user() {
+    local release_dir="${CURRENT_LINK}"
+
+    (
+        cd "${release_dir}"
+
+        "${RUNUSER_BIN}" -u "${RUNTIME_USER}" -- "${PHP_BIN}" artisan "$@"
+    )
+}
+
+# --- preconditions --------------------------------------------------------------------
+#
+# Phase 7.3 restores DATA on a live, deployed target. A target with no
+# canonical current release cannot be put into maintenance, cannot be health
+# checked, and — decisively — offers no release.json to compare the backup's
+# source_sha against, so the code-alignment decision this whole operation ends
+# in would be undecidable. Reconstructing a target that has no release at all
+# is Recover Host (7.6), not this. Fails closed, before anything is created.
+assert_deployed_target() {
+    [[ -L "${CURRENT_LINK}" ]] \
+        || fail "${TARGET_ID} has no current release symlink — a live data restore requires a deployed target (rebuilding one is Recover Host, not restore-target)"
+
+    restore_read_current_identity "${TARGET_ROOT}"
+
+    [[ -n "${RESTORE_CURRENT_RELEASE}" ]] && [[ -n "${RESTORE_CURRENT_SOURCE_SHA}" ]] \
+        || fail "${TARGET_ID}'s current release carries no usable release/source_sha in release.json — code alignment could not be decided after the restore"
+
+    [[ -f "${CURRENT_LINK}/artisan" ]] \
+        || fail "${TARGET_ID}'s current release contains no artisan — maintenance mode and the scheduler barrier are not available"
+
+    [[ -f "${SHARED_ENV}" ]] && [[ ! -L "${SHARED_ENV}" ]] \
+        || fail "${TARGET_ID} has no shared/.env regular file — restore never creates one"
+
+    CURRENT_RELEASE_BEFORE="${RESTORE_CURRENT_RELEASE}"
+    CURRENT_SOURCE_SHA_BEFORE="${RESTORE_CURRENT_SOURCE_SHA}"
+}
+
+# A cheap, non-secret proof that shared/.env was neither replaced nor
+# rewritten: device, inode, size, mtime, owner, group and mode. Deliberately
+# NOT a content hash — a hash of secret material is a fingerprint of that
+# material, and nothing about .env content belongs anywhere near this
+# operation's state or journal.
+env_fingerprint() {
+    stat -c '%d:%i:%s:%Y:%u:%g:%a' "${SHARED_ENV}"
+}
+
+record_immutable_baseline() {
+    ENV_FINGERPRINT_BEFORE="$(env_fingerprint)"
+    CURRENT_TARGET_BEFORE="$(readlink "${CURRENT_LINK}")"
+    PREVIOUS_TARGET_BEFORE="$(readlink "${PREVIOUS_LINK}" 2>/dev/null || printf '')"
+}
+
+assert_immutables_unchanged() {
+    [[ "$(env_fingerprint)" == "${ENV_FINGERPRINT_BEFORE}" ]] \
+        || fail "shared/.env changed during the restore — a live restore must never rewrite the target environment"
+
+    [[ "$(readlink "${CURRENT_LINK}")" == "${CURRENT_TARGET_BEFORE}" ]] \
+        || fail "the current release symlink changed during the restore — a restore never switches releases"
+
+    local previous_now
+    previous_now="$(readlink "${PREVIOUS_LINK}" 2>/dev/null || printf '')"
+
+    [[ "${previous_now}" == "${PREVIOUS_TARGET_BEFORE}" ]] \
+        || fail "the previous release symlink changed during the restore — a restore never switches releases"
+}
+
+# --- quiesce ----------------------------------------------------------------------------
+
+capture_runtime_state() {
+    if maintenance_active; then
+        MAINTENANCE_BEFORE=true
+    else
+        MAINTENANCE_BEFORE=false
+    fi
+
+    QUEUE_RUNNING_BEFORE=false
+    queue_program_running && QUEUE_RUNNING_BEFORE=true
+
+    SCHEDULER_PRESENT_BEFORE=false
+    scheduler_file_present && SCHEDULER_PRESENT_BEFORE=true
+
+    restore_state_set "${STATE_FILE}" \
+        maintenance_before "${MAINTENANCE_BEFORE}" \
+        queue_running_before "${QUEUE_RUNNING_BEFORE}" \
+        scheduler_present_before "${SCHEDULER_PRESENT_BEFORE}"
+
+    log "runtime before restore: maintenance=${MAINTENANCE_BEFORE} queue_running=${QUEUE_RUNNING_BEFORE} scheduler_present=${SCHEDULER_PRESENT_BEFORE}"
+}
+
+quiesce_http() {
+    if [[ "${MAINTENANCE_BEFORE}" == true ]]; then
+        log "target was already in maintenance before this restore — leaving it exactly as it was"
+
+        return 0
+    fi
+
+    artisan_as_runtime_user down \
+        || fail "could not put ${TARGET_ID} into maintenance mode"
+
+    MAINTENANCE_ENTERED_BY_RESTORE=true
+    restore_state_set "${STATE_FILE}" maintenance_entered_by_restore true
+
+    log "maintenance mode enabled by this restore"
+}
+
+quiesce_queue() {
+    if [[ "${QUEUE_RUNNING_BEFORE}" != true ]]; then
+        log "queue program ${SUPERVISOR_PROGRAM} was not running before this restore — leaving it stopped"
+
+        return 0
+    fi
+
+    # Only this target's own program group. Never `supervisorctl stop all`,
+    # never a Supervisor daemon restart, never another project's group.
+    "${RESTORE_SUPERVISORCTL_BIN}" stop "${SUPERVISOR_PROGRAM}:*" >/dev/null \
+        || fail "could not stop the target queue program ${SUPERVISOR_PROGRAM}"
+
+    wait_for_queue_state queue_program_stopped \
+        || fail "queue program ${SUPERVISOR_PROGRAM} did not reach STOPPED within the wait budget"
+
+    QUEUE_STOPPED_BY_RESTORE=true
+    restore_state_set "${STATE_FILE}" queue_stopped_by_restore true
+
+    log "queue program ${SUPERVISOR_PROGRAM} STOPPED"
+}
+
+quiesce_scheduler() {
+    if [[ "${SCHEDULER_PRESENT_BEFORE}" != true ]]; then
+        log "no ${SCHEDULER_FILE} to hold — leaving the scheduler exactly as it was"
+
+        return 0
+    fi
+
+    local hold_dir
+    hold_dir="$(restore_scheduler_hold_dir "${WORKSPACE}")"
+    install -d -o root -g root -m 0700 "${hold_dir}"
+
+    local owner mode
+    owner="$(stat -c '%u:%g' "${SCHEDULER_FILE}")"
+    mode="$(stat -c '%a' "${SCHEDULER_FILE}")"
+
+    # Moved, not copied-and-deleted: the entry leaves /etc/cron.d in one
+    # operation, and only this target's own file is ever touched. The global
+    # cron daemon is never stopped — other projects on this host keep running.
+    mv "${SCHEDULER_FILE}" "${hold_dir}/${SCHEDULER_NAME}" \
+        || fail "could not hold the target scheduler cron entry"
+
+    SCHEDULER_HELD_BY_RESTORE=true
+    restore_state_set "${STATE_FILE}" \
+        scheduler_held_by_restore true \
+        scheduler_hold_path "${hold_dir}/${SCHEDULER_NAME}" \
+        scheduler_owner "${owner}" \
+        scheduler_mode "${mode}"
+
+    log "scheduler cron entry held outside /etc/cron.d for the duration of this restore"
+
+    interrupt_running_schedule
+}
+
+# A schedule:run that started in the minute before the cron entry was removed
+# is still executing, and it is a database writer. Laravel's own
+# schedule:interrupt asks it to stop at the end of its current task; the
+# bounded wait below then observes that no scheduler process for THIS target's
+# runtime user remains. Fail-open on the interrupt itself (an older release
+# without the command must not abort a restore) — the hard write barrier is
+# the database connection barrier at activation, not this.
+interrupt_running_schedule() {
+    if artisan_as_runtime_user schedule:interrupt >/dev/null 2>&1; then
+        log "schedule:interrupt issued to the running scheduler"
+    else
+        log "schedule:interrupt is unavailable in the current release — relying on the connection barrier instead"
+    fi
+
+    if ! command -v pgrep >/dev/null 2>&1; then
+        log "pgrep is unavailable — cannot observe scheduler processes; relying on the connection barrier"
+
+        return 0
+    fi
+
+    local attempt
+    for ((attempt = 1; attempt <= RESTORE_SCHEDULER_WAIT_ATTEMPTS; attempt++)); do
+        if ! pgrep -u "${RUNTIME_USER}" -f 'artisan schedule:run' >/dev/null 2>&1; then
+            log "no scheduler process remains for ${RUNTIME_USER}"
+
+            return 0
+        fi
+
+        sleep "${RESTORE_SCHEDULER_RETRY_DELAY}"
+    done
+
+    fail "a scheduler process for ${RUNTIME_USER} is still running after the interrupt budget — refusing to swap data underneath a writer"
+}
+
+# --- resume / hold ------------------------------------------------------------------------
+#
+# The exact inverse of the quiesce above, and ONLY that: whatever was not
+# changed by this restore is not changed back. A queue that was stopped before
+# stays stopped, a target already in maintenance stays down, and a scheduler
+# entry that did not exist is never invented.
+
+# Returns non-zero instead of calling fail: this runs both on the success
+# path (where the caller turns a failure into a fatal one) and from the
+# failure handler (where the caller must be able to hold the target instead).
+# `fail` is an `exit`, which would terminate the whole script even from inside
+# an `if`, leaving nobody to decide between "recovered" and "held".
+resume_runtime() {
+    if [[ "${SCHEDULER_HELD_BY_RESTORE}" == true ]]; then
+        local hold_path owner mode
+        hold_path="$(restore_state_get "${STATE_FILE}" scheduler_hold_path)"
+        owner="$(restore_state_get "${STATE_FILE}" scheduler_owner)"
+        mode="$(restore_state_get "${STATE_FILE}" scheduler_mode)"
+
+        if [[ ! -f "${hold_path}" ]]; then
+            log "ERROR: the held scheduler cron entry is missing: ${hold_path}"
+
+            return 1
+        fi
+
+        mv "${hold_path}" "${SCHEDULER_FILE}" || {
+            log "ERROR: could not restore the target scheduler cron entry"
+
+            return 1
+        }
+
+        chown "${owner}" "${SCHEDULER_FILE}" || {
+            log "ERROR: could not restore the scheduler cron entry ownership"
+
+            return 1
+        }
+
+        chmod "${mode}" "${SCHEDULER_FILE}" || {
+            log "ERROR: could not restore the scheduler cron entry mode"
+
+            return 1
+        }
+
+        SCHEDULER_HELD_BY_RESTORE=false
+        ( restore_state_set "${STATE_FILE}" scheduler_held_by_restore false ) || true
+
+        log "scheduler cron entry restored"
+    fi
+
+    if [[ "${QUEUE_STOPPED_BY_RESTORE}" == true ]]; then
+        "${RESTORE_SUPERVISORCTL_BIN}" start "${SUPERVISOR_PROGRAM}:*" >/dev/null || {
+            log "ERROR: could not start the target queue program ${SUPERVISOR_PROGRAM}"
+
+            return 1
+        }
+
+        wait_for_queue_state queue_program_running || {
+            log "ERROR: queue program ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget"
+
+            return 1
+        }
+
+        QUEUE_STOPPED_BY_RESTORE=false
+        ( restore_state_set "${STATE_FILE}" queue_stopped_by_restore false ) || true
+
+        log "queue program ${SUPERVISOR_PROGRAM} RUNNING"
+    fi
+
+    if [[ "${MAINTENANCE_ENTERED_BY_RESTORE}" == true ]]; then
+        artisan_as_runtime_user up || {
+            log "ERROR: could not bring ${TARGET_ID} out of maintenance mode"
+
+            return 1
+        }
+
+        MAINTENANCE_ENTERED_BY_RESTORE=false
+        ( restore_state_set "${STATE_FILE}" maintenance_entered_by_restore false ) || true
+
+        log "maintenance mode disabled"
+    fi
+
+    RUNTIME_RESUMED="yes"
+}
+
+# hold_runtime — best-effort re-quiesce after a resume that could not be
+# proven healthy. Every action is guarded and non-fatal: this runs when
+# something already went wrong, and its own failure must never replace the
+# original diagnosis.
+hold_runtime() {
+    if [[ "${QUEUE_STOPPED_BY_RESTORE}" == false ]] && [[ "${QUEUE_RUNNING_BEFORE}" == true ]]; then
+        if "${RESTORE_SUPERVISORCTL_BIN}" stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1; then
+            QUEUE_STOPPED_BY_RESTORE=true
+        fi
+    fi
+
+    if [[ "${MAINTENANCE_ENTERED_BY_RESTORE}" == false ]] && [[ "${MAINTENANCE_BEFORE}" == false ]]; then
+        if artisan_as_runtime_user down >/dev/null 2>&1; then
+            MAINTENANCE_ENTERED_BY_RESTORE=true
+        fi
+    fi
+
+    RUNTIME_RESUMED="no"
+}
+
+# --- emergency pre-restore backup ------------------------------------------------------------
+
+list_backup_ids() {
+    local root="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
+
+    [[ -d "${root}" ]] || return 0
+
+    find "${root}" \
+        -regextype posix-extended \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -regex '.*/[0-9]{8}-[0-9]{6}' \
+        -printf '%f\n' \
+        | sort
+}
+
+# create_emergency_backup — a full, ordinary RateGuru backup of the CURRENT
+# state, taken after the target is quiesced and before the first live
+# mutation. Deliberately the existing `backup` implementation, not a second
+# backup format: it produces the same dump, the same storage archive, the same
+# .env and server-configuration snapshots, the same manifest and the same
+# SHA256SUMS an operator already knows how to restore from.
+#
+# Local only, on purpose: an emergency data restore must stay possible during
+# a B2 outage, so offsite availability is never a hard prerequisite for
+# repairing a live target. The emergency backup is still a complete,
+# checksum-verified backup and is uploaded by the next ordinary backup cycle.
+create_emergency_backup() {
+    local before_list="${WORKSPACE}/backups-before.txt"
+    local after_list="${WORKSPACE}/backups-after.txt"
+
+    list_backup_ids > "${before_list}"
+
+    "${RESTORE_BACKUP_BIN}" --target "${TARGET_ID}" \
+        || fail "the emergency pre-restore backup failed — no live data was mutated"
+
+    list_backup_ids > "${after_list}"
+
+    # Exactly one new timestamped directory must have appeared. `backup` also
+    # applies local retention in the same run, so entries may legitimately
+    # DISAPPEAR — only additions are considered. Zero or more than one
+    # addition means the emergency backup cannot be named with certainty, and
+    # a restore that cannot name its own safety net does not proceed.
+    local -a added=()
+    mapfile -t added < <(comm -13 "${before_list}" "${after_list}")
+
+    (( ${#added[@]} == 1 )) \
+        || fail "could not unambiguously identify the emergency backup (${#added[@]} new backups appeared) — no live data was mutated"
+
+    EMERGENCY_BACKUP="${added[0]}"
+    validate_backup_id "${EMERGENCY_BACKUP}"
+
+    restore_state_set "${STATE_FILE}" emergency_backup "${EMERGENCY_BACKUP}"
+
+    log "emergency pre-restore backup created: ${EMERGENCY_BACKUP}"
+
+    # Taken only now: `backup` above needed the backup-namespace lock itself,
+    # so holding it earlier would have deadlocked. From here it stays held
+    # through activation, which is what stops a concurrent local backup from
+    # capturing a half-restored mixture of old and new data.
+    acquire_backup_namespace_lock
+
+    # restore-test verifies the NEWEST local backup. Proving the emergency
+    # backup is that newest backup — while holding the lock that stops another
+    # one appearing — is what makes reusing the existing, accepted restore-test
+    # correct here instead of writing a second verifier.
+    local newest
+    newest="$(list_backup_ids | tail -1)"
+
+    [[ "${newest}" == "${EMERGENCY_BACKUP}" ]] \
+        || fail "the emergency backup ${EMERGENCY_BACKUP} is not the newest local backup (${newest}) — refusing to verify the wrong backup"
+
+    "${RESTORE_RESTORE_TEST_BIN}" --target "${TARGET_ID}" \
+        || fail "the emergency pre-restore backup failed its restore test — no live data was mutated"
+
+    log "emergency pre-restore backup verified by restore-test"
+}
+
+# --- final data verification -------------------------------------------------------------------
+
+verify_restored_database() {
+    restore_resolve_credentials "${TARGET_ROOT}" "${DATABASE_NAME}" "${DATABASE_ROLE}"
+
+    restore_database_exists "${DATABASE_NAME}" \
+        || fail "the canonical database is missing after activation: ${DATABASE_NAME}"
+
+    restore_superuser_query "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '${DATABASE_NAME}';"
+
+    [[ "${RESTORE_SQL_RESULT}" == "${DATABASE_ROLE}" ]] \
+        || fail "restored database ${DATABASE_NAME} is owned by '${RESTORE_SQL_RESULT}', expected ${DATABASE_ROLE}"
+
+    restore_superuser_query "SELECT datallowconn FROM pg_database WHERE datname = '${DATABASE_NAME}';"
+
+    [[ "${RESTORE_SQL_RESULT}" == "t" ]] \
+        || fail "restored database ${DATABASE_NAME} does not allow connections"
+
+    local tables migrations
+
+    tables="$(
+        PGPASSWORD="${ENV_DB_PASSWORD}" "${PSQL_BIN}" \
+            --no-psqlrc --no-align --tuples-only --set=ON_ERROR_STOP=1 \
+            --host="${ENV_DB_HOST}" --port="${ENV_DB_PORT}" \
+            --username="${DATABASE_ROLE}" --dbname="${DATABASE_NAME}" \
+            --command="SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';"
+    )" || fail "the application role cannot read the restored database"
+
+    tables="${tables//[[:space:]]/}"
+
+    [[ "${tables}" =~ ^[0-9]+$ ]] && (( tables > 0 )) \
+        || fail "the restored database contains no public tables"
+
+    migrations="$(
+        PGPASSWORD="${ENV_DB_PASSWORD}" "${PSQL_BIN}" \
+            --no-psqlrc --no-align --tuples-only --set=ON_ERROR_STOP=1 \
+            --host="${ENV_DB_HOST}" --port="${ENV_DB_PORT}" \
+            --username="${DATABASE_ROLE}" --dbname="${DATABASE_NAME}" \
+            --command="SELECT CASE WHEN to_regclass('public.migrations') IS NULL THEN 0 ELSE (SELECT count(*) FROM migrations) END;"
+    )" || fail "could not read the restored migrations table"
+
+    migrations="${migrations//[[:space:]]/}"
+
+    [[ "${migrations}" =~ ^[0-9]+$ ]] \
+        || fail "unable to determine the restored migrations table row count"
+
+    log "restored database verified: ${tables} public tables, ${migrations} migration rows, owner ${DATABASE_ROLE}"
+}
+
+verify_restored_storage() {
+    local storage_root app_root
+    storage_root="$(restore_storage_root "${TARGET_ROOT}")"
+    app_root="${storage_root}/app"
+
+    [[ -e "${app_root}" ]] || fail "restored storage tree is missing: ${app_root}"
+    [[ ! -L "${app_root}" ]] \
+        || fail "restored storage tree must be a real directory, not a symlink: ${app_root}"
+    [[ -d "${app_root}" ]] || fail "restored storage path is not a directory: ${app_root}"
+
+    local owner mode
+    owner="$(stat -c '%U:%G' "${app_root}")"
+    mode="$(stat -c '%a' "${app_root}")"
+
+    [[ "${owner}" == "${RUNTIME_USER}:${RESTORE_WEB_GROUP}" ]] \
+        || fail "restored storage tree is owned by ${owner}, expected ${RUNTIME_USER}:${RESTORE_WEB_GROUP}"
+
+    (( 8#${mode} == 8#2710 )) \
+        || fail "restored storage tree has mode ${mode}, expected 2710 (Nginx traverses, never lists)"
+
+    if [[ -d "${app_root}/public" ]]; then
+        local public_mode public_owner
+        public_mode="$(stat -c '%a' "${app_root}/public")"
+        public_owner="$(stat -c '%U:%G' "${app_root}/public")"
+
+        (( 8#${public_mode} == 8#2750 )) \
+            || fail "restored public storage has mode ${public_mode}, expected 2750"
+        [[ "${public_owner}" == "${RUNTIME_USER}:${RESTORE_WEB_GROUP}" ]] \
+            || fail "restored public storage is owned by ${public_owner}, expected ${RUNTIME_USER}:${RESTORE_WEB_GROUP}"
+    fi
+
+    log "restored storage verified: ${app_root} (${owner}, mode ${mode})"
+}
+
+verify_restored_data() {
+    verify_restored_database
+    verify_restored_storage
+    assert_immutables_unchanged
+}
+
+# --- compensation -----------------------------------------------------------------------------
+#
+# Called only from the failure path, and only once activation could have
+# changed live state. Both halves are attempted regardless of the other's
+# outcome — a storage compensation failure must not leave the database swapped
+# — and the combined result decides whether the target may be brought back up
+# at all.
+compensate_activation() {
+    local storage_ok=true database_ok=true
+
+    log "compensating: restoring the pre-restore storage tree and database"
+
+    "${RESTORE_STORAGE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --compensate \
+        || storage_ok=false
+
+    "${RESTORE_DATABASE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --compensate \
+        || database_ok=false
+
+    if [[ "${storage_ok}" == true ]] && [[ "${database_ok}" == true ]]; then
+        COMPENSATION_STATUS="complete"
+
+        # The target is back to exactly its pre-restore state, so the staged
+        # copies have no further use: dropping them here is what keeps a
+        # failed-and-recovered restore from leaving a full temporary database
+        # and a full extracted storage tree behind on the host. The backup
+        # itself is untouched and the emergency backup still exists, so
+        # nothing that could be needed again is discarded.
+        discard_staged_artifacts
+
+        return 0
+    fi
+
+    COMPENSATION_STATUS="incomplete"
+
+    return 1
+}
+
+# --- history and summary -------------------------------------------------------------------------
+
+append_restore_history() {
+    local status="$1"
+    local failed_step_json="null"
+
+    if [[ "${status}" != completed ]] && [[ "${status}" != held ]] && [[ "${status}" != resumed ]]; then
+        failed_step_json="$(jq -cn --arg v "${CURRENT_STEP}" '$v')"
+    fi
+
+    local record
+    record="$(
+        jq -cn \
+            --arg status "${status}" \
+            --arg operation_id "${OPERATION_ID}" \
+            --arg started_at "${OPERATION_STARTED_AT}" \
+            --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg target "${TARGET_ID}" \
+            --arg environment "${ENVIRONMENT_CLASS}" \
+            --arg backup_namespace "${BACKUP_NAMESPACE}" \
+            --arg source "${SOURCE_KIND}" \
+            --arg backup "${BACKUP_ID}" \
+            --arg backup_release "${BACKUP_RELEASE}" \
+            --arg backup_source_sha "${BACKUP_SOURCE_SHA}" \
+            --arg current_release_before "${CURRENT_RELEASE_BEFORE}" \
+            --arg current_source_sha_before "${CURRENT_SOURCE_SHA_BEFORE}" \
+            --arg emergency_backup "${EMERGENCY_BACKUP}" \
+            --arg code_alignment "${CODE_ALIGNMENT}" \
+            --arg runtime_resumed "${RUNTIME_RESUMED}" \
+            --arg compensation_status "${COMPENSATION_STATUS}" \
+            --argjson failed_step "${failed_step_json}" \
+            '{
+                status: $status,
+                operation_id: $operation_id,
+                started_at: $started_at,
+                completed_at: $completed_at,
+                target: $target,
+                environment: $environment,
+                backup_namespace: $backup_namespace,
+                source: $source,
+                backup: $backup,
+                backup_release: $backup_release,
+                backup_source_sha: $backup_source_sha,
+                current_release_before: $current_release_before,
+                current_source_sha_before: $current_source_sha_before,
+                emergency_backup: $emergency_backup,
+                code_alignment: $code_alignment,
+                runtime_resumed: $runtime_resumed,
+                failed_step: $failed_step,
+                compensation_status: $compensation_status
+            }'
+    )" || return 1
+
+    restore_history_append "${record}"
+}
+
+print_summary() {
+    local data_complete="$1"
+
+    printf '\n'
+    printf '========================================================\n'
+    printf 'RESTORE DATA COMPLETE: %s\n' "${data_complete}"
+    printf 'CODE ALIGNMENT: %s\n' "${CODE_ALIGNMENT}"
+    printf 'BACKUP RELEASE: %s\n' "${BACKUP_RELEASE:-unknown}"
+    printf 'BACKUP SOURCE SHA: %s\n' "${BACKUP_SOURCE_SHA:-unknown}"
+    printf 'CURRENT RELEASE: %s\n' "${RESTORE_CURRENT_RELEASE:-unknown}"
+    printf 'CURRENT SOURCE SHA: %s\n' "${RESTORE_CURRENT_SOURCE_SHA:-unknown}"
+    printf 'TARGET RESUMED: %s\n' "$(printf '%s' "${RUNTIME_RESUMED}" | tr '[:lower:]' '[:upper:]')"
+    printf 'OPERATION: %s\n' "${OPERATION_ID}"
+    printf 'EMERGENCY BACKUP: %s\n' "${EMERGENCY_BACKUP:-none}"
+    printf '========================================================\n'
+}
+
+# --- failure handling ---------------------------------------------------------------------------
+#
+# set -E means this trap is inherited by every $(...) subshell, including ones
+# whose command can legitimately fail. Recording the main process's BASHPID
+# before arming the trap, and comparing against it here, makes every
+# invocation from outside the main process a silent, side-effect-free exit —
+# the same generic guard install-target-operations already uses.
+handle_restore_exit() {
+    local code=$?
+    trap - ERR EXIT
+
+    if [[ "${BASHPID}" != "${MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    if [[ "${RESTORE_TERMINAL}" == true ]]; then
+        exit "${code}"
+    fi
+
+    log "restore failed (exit ${code}) during step: ${CURRENT_STEP}"
+
+    local status="failed"
+
+    case "${MUTATION_STAGE}" in
+        none)
+            # Nothing live was ever touched. Remove the staged artifacts so a
+            # failed attempt leaves no temporary database or half-extracted
+            # tree behind, then report.
+            discard_staged_artifacts
+            status="failed"
+            ;;
+        quiesced)
+            # Quiesced, but no live data was mutated: put the runtime back
+            # exactly as it was.
+            discard_staged_artifacts
+
+            if resume_runtime_quietly; then
+                status="failed"
+            else
+                status="failed-held"
+            fi
+            ;;
+        activating|activated)
+            if compensate_activation; then
+                if resume_runtime_quietly; then
+                    status="failed-recovered"
+                else
+                    status="failed-held"
+                fi
+            else
+                status="failed-held"
+            fi
+            ;;
+        committed)
+            # The data restore itself completed and committed; the failure is
+            # in resuming the runtime. There is nothing to compensate, and the
+            # target must stay held rather than be brought up unproven.
+            hold_runtime
+            status="failed-held"
+            ;;
+    esac
+
+    # Every recovery action below is wrapped in a subshell: `fail` is an
+    # `exit`, and an exit from inside this handler would abandon the rest of
+    # the reporting — the original failure must always reach the operator.
+    if [[ -n "${STATE_FILE}" ]] && [[ -f "${STATE_FILE}" ]]; then
+        (
+            restore_state_set "${STATE_FILE}" \
+                status "${status}" \
+                failed_step "${CURRENT_STEP}" \
+                compensation_status "${COMPENSATION_STATUS}" \
+                completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        ) || log "WARNING: could not record the terminal restore state"
+    fi
+
+    append_restore_history "${status}" || log "WARNING: could not append the restore history record"
+
+    if [[ "${status}" == "failed-held" ]]; then
+        printf '\n'
+        printf '########################################################\n'
+        printf '# MANUAL RECOVERY REQUIRED\n'
+        printf '# target: %s\n' "${TARGET_ID}"
+        printf '# operation: %s\n' "${OPERATION_ID}"
+        printf '# failed step: %s\n' "${CURRENT_STEP}"
+        printf '# compensation: %s\n' "${COMPENSATION_STATUS}"
+        printf '# emergency backup: %s\n' "${EMERGENCY_BACKUP:-none}"
+        printf '# The target is intentionally NOT serving traffic.\n'
+        printf '# state: %s\n' "${STATE_FILE}"
+        printf '########################################################\n'
+    fi
+
+    exit "${code}"
+}
+
+# discard_staged_artifacts — best-effort removal of everything a failed
+# pre-activation attempt created OUTSIDE the workspace. Never fatal: it runs
+# on a path that is already reporting a different failure.
+discard_staged_artifacts() {
+    local staged_database staged_path storage_root stage_parent
+
+    [[ -n "${STATE_FILE}" ]] && [[ -f "${STATE_FILE}" ]] || return 0
+
+    staged_database="$(restore_state_get "${STATE_FILE}" staged_database 2>/dev/null || printf '')"
+
+    if [[ -n "${staged_database}" ]]; then
+        "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+            "${DROPDB_BIN}" --if-exists "${staged_database}" >/dev/null 2>&1 || true
+    fi
+
+    staged_path="$(restore_state_get "${STATE_FILE}" storage_stage_path 2>/dev/null || printf '')"
+
+    if [[ -n "${staged_path}" ]]; then
+        storage_root="$(restore_storage_root "${TARGET_ROOT}")"
+        stage_parent="$(restore_storage_stage_parent "${TARGET_ROOT}" "${OPERATION_ID}")"
+
+        # Subshell: the guarded remover calls `fail` on anything it refuses,
+        # and an exit from here would abandon the failure report.
+        ( restore_remove_storage_sibling "${storage_root}" "${stage_parent}" ) >/dev/null 2>&1 || true
+    fi
+}
+
+# resume_runtime_quietly — resume_runtime without letting its own failure
+# replace the original diagnosis. Returns non-zero when the runtime could not
+# be fully restored, so the caller can hold the target instead.
+resume_runtime_quietly() {
+    if resume_runtime; then
+        return 0
+    fi
+
+    hold_runtime
+
+    return 1
+}
+
+# --- apply --------------------------------------------------------------------------------------
+
+perform_restore() {
+    validate_backup_id "${BACKUP_ID}"
+
+    OPERATION_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    step "acquire restore operation lock"
+    acquire_restore_operation_lock
+
+    step "validate deployed target"
+    assert_deployed_target
+
+    step "create operation workspace"
+    OPERATION_ID="$(generate_operation_id)"
+    WORKSPACE="$(restore_create_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
+    STATE_FILE="$(restore_state_file "${WORKSPACE}")"
+    restore_state_init "${STATE_FILE}"
+
+    MAIN_BASHPID="${BASHPID}"
+    trap handle_restore_exit ERR EXIT
+
+    restore_state_set "${STATE_FILE}" \
+        operation_id "${OPERATION_ID}" \
+        target "${TARGET_ID}" \
+        environment "${ENVIRONMENT_CLASS}" \
+        backup_namespace "${BACKUP_NAMESPACE}" \
+        source "${SOURCE_KIND}" \
+        backup "${BACKUP_ID}" \
+        started_at "${OPERATION_STARTED_AT}" \
+        current_release_before "${CURRENT_RELEASE_BEFORE}" \
+        current_source_sha_before "${CURRENT_SOURCE_SHA_BEFORE}" \
+        status running \
+        phase initialized
+
+    log "${LABEL} restore operation ${OPERATION_ID} (source=${SOURCE_KIND} backup=${BACKUP_ID})"
+
+    step "stage backup"
+    "${RESTORE_FETCH_BACKUP_BIN}" \
+        --target "${TARGET_ID}" \
+        --source "${SOURCE_KIND}" \
+        --backup "${BACKUP_ID}" \
+        --operation "${OPERATION_ID}"
+    restore_state_set "${STATE_FILE}" phase backup-staged
+
+    step "verify backup"
+    "${RESTORE_VERIFY_BACKUP_BIN}" \
+        --target "${TARGET_ID}" \
+        --operation "${OPERATION_ID}" \
+        --for-restore
+
+    local identity_file
+    identity_file="$(restore_identity_file "${WORKSPACE}")"
+    BACKUP_RELEASE="$(jq -r '.release // empty' "${identity_file}")"
+    BACKUP_SOURCE_SHA="$(jq -r '.source_sha // empty' "${identity_file}")"
+
+    [[ -n "${BACKUP_RELEASE}" ]] && [[ -n "${BACKUP_SOURCE_SHA}" ]] \
+        || fail "the verified backup identity carries no release/source_sha"
+
+    restore_state_set "${STATE_FILE}" \
+        backup_release "${BACKUP_RELEASE}" \
+        backup_source_sha "${BACKUP_SOURCE_SHA}" \
+        phase backup-verified
+
+    step "stage database"
+    "${RESTORE_DATABASE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --stage
+
+    step "stage storage"
+    "${RESTORE_STORAGE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --stage
+
+    step "acquire deployment lock"
+    acquire_deployment_lock "${TARGET_ROOT}"
+
+    # Re-read after taking the lock: everything above ran while deploy,
+    # rollback and cleanup could still have been running, so the release the
+    # alignment decision is made against must be the one that is current NOW.
+    assert_deployed_target
+    record_immutable_baseline
+    restore_state_set "${STATE_FILE}" \
+        current_release_before "${CURRENT_RELEASE_BEFORE}" \
+        current_source_sha_before "${CURRENT_SOURCE_SHA_BEFORE}"
+
+    step "capture runtime state"
+    capture_runtime_state
+
+    step "quiesce target"
+    MUTATION_STAGE=quiesced
+    quiesce_http
+    quiesce_queue
+    quiesce_scheduler
+    restore_state_set "${STATE_FILE}" phase quiesced
+
+    step "emergency pre-restore backup"
+    create_emergency_backup
+    restore_state_set "${STATE_FILE}" phase emergency-backup-verified
+
+    step "activate database"
+    MUTATION_STAGE=activating
+    "${RESTORE_DATABASE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --activate
+    MUTATION_STAGE=activated
+
+    step "activate storage"
+    "${RESTORE_STORAGE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --activate
+
+    step "verify restored data"
+    verify_restored_data
+    restore_state_set "${STATE_FILE}" phase verified
+
+    step "commit"
+    "${RESTORE_STORAGE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
+    "${RESTORE_DATABASE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
+    MUTATION_STAGE=committed
+    restore_state_set "${STATE_FILE}" phase committed
+
+    step "decide code alignment"
+    decide_code_alignment
+}
+
+# --- code alignment ---------------------------------------------------------------------------------
+#
+# The restore never switches releases, never builds anything and never runs a
+# migration. It only answers one question: does the code this target is
+# serving RIGHT NOW correspond to the commit the restored data was taken
+# under?
+#
+#   aligned   -> the target goes back to exactly the runtime state it had
+#   required  -> the DATA restore is complete and successful, but the target
+#                stays in maintenance with its queue and scheduler held until
+#                the matching code is deployed and `--resume` is run
+decide_code_alignment() {
+    restore_read_current_identity "${TARGET_ROOT}"
+
+    if [[ "${RESTORE_CURRENT_SOURCE_SHA}" == "${BACKUP_SOURCE_SHA}" ]]; then
+        CODE_ALIGNMENT="ALIGNED"
+        restore_state_set "${STATE_FILE}" code_alignment aligned
+
+        step "resume runtime"
+        resume_runtime || fail "could not resume the target runtime after an aligned restore"
+
+        step "health check"
+        "${RESTORE_HEALTH_CHECK_BIN}" --target "${TARGET_ID}" \
+            || fail "health check failed after the restore"
+
+        restore_state_set "${STATE_FILE}" \
+            status completed \
+            runtime_resumed yes \
+            completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+        RESTORE_TERMINAL=true
+        trap - ERR EXIT
+
+        append_restore_history completed \
+            || fail "could not append the restore history record"
+
+        print_summary YES
+
+        log "${LABEL} restore completed and the target is serving again"
+        cleanup_completed_operation
+
+        return 0
+    fi
+
+    CODE_ALIGNMENT="REQUIRED"
+    RUNTIME_RESUMED="no"
+
+    restore_state_set "${STATE_FILE}" \
+        status held \
+        code_alignment required \
+        runtime_resumed no \
+        completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    RESTORE_TERMINAL=true
+    trap - ERR EXIT
+
+    append_restore_history held \
+        || fail "could not append the restore history record"
+
+    print_summary YES
+
+    printf '\n'
+    printf 'The DATA restore succeeded. The target is intentionally HELD:\n'
+    printf '  maintenance: ON\n'
+    printf '  queue:       HELD\n'
+    printf '  scheduler:   HELD\n'
+    printf '\n'
+    printf 'Deploy the backup source SHA (%s) with migrations disabled, then run:\n' "${BACKUP_SOURCE_SHA}"
+    printf '  restore-target --resume --target %s --operation %s\n' "${TARGET_ID}" "${OPERATION_ID}"
+    printf '\n'
+}
+
+# cleanup_completed_operation — the workspace of a fully completed, resumed
+# operation carries nothing anyone needs any more: the staged backup is a
+# duplicate of a backup that still exists, and the outcome is in the history
+# journal. Removed through the guarded helper, never a raw rm -rf.
+cleanup_completed_operation() {
+    if ( restore_remove_operation_path "${WORKSPACE}" ); then
+        log "operation workspace removed: ${WORKSPACE}"
+    else
+        log "WARNING: could not remove the operation workspace: ${WORKSPACE}"
+    fi
+}
+
+# --- resume ------------------------------------------------------------------------------------------
+
+perform_resume() {
+    validate_operation_id "${OPERATION_ID}"
+
+    step "acquire restore operation lock"
+    acquire_restore_operation_lock
+
+    step "load operation state"
+    WORKSPACE="$(restore_require_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
+    STATE_FILE="$(restore_state_file "${WORKSPACE}")"
+
+    [[ -f "${STATE_FILE}" ]] || fail "restore operation has no state file: ${STATE_FILE}"
+
+    local state_target state_status state_phase
+    state_target="$(restore_state_get "${STATE_FILE}" target)"
+    state_status="$(restore_state_get "${STATE_FILE}" status)"
+    state_phase="$(restore_state_get "${STATE_FILE}" phase)"
+
+    [[ "${state_target}" == "${TARGET_ID}" ]] \
+        || fail "restore operation ${OPERATION_ID} belongs to target ${state_target:-<unset>}, not ${TARGET_ID}"
+
+    [[ "${state_status}" == "held" ]] \
+        || fail "restore operation ${OPERATION_ID} has status '${state_status:-<unset>}' — --resume only applies to an operation whose data restore completed and whose runtime is held for code alignment"
+
+    [[ "${state_phase}" == "committed" ]] \
+        || fail "restore operation ${OPERATION_ID} is in phase '${state_phase:-<unset>}', expected committed"
+
+    OPERATION_STARTED_AT="$(restore_state_get "${STATE_FILE}" started_at)"
+    SOURCE_KIND="$(restore_state_get "${STATE_FILE}" source)"
+    BACKUP_ID="$(restore_state_get "${STATE_FILE}" backup)"
+    BACKUP_RELEASE="$(restore_state_get "${STATE_FILE}" backup_release)"
+    BACKUP_SOURCE_SHA="$(restore_state_get "${STATE_FILE}" backup_source_sha)"
+    EMERGENCY_BACKUP="$(restore_state_get "${STATE_FILE}" emergency_backup)"
+    CURRENT_RELEASE_BEFORE="$(restore_state_get "${STATE_FILE}" current_release_before)"
+    CURRENT_SOURCE_SHA_BEFORE="$(restore_state_get "${STATE_FILE}" current_source_sha_before)"
+    MAINTENANCE_BEFORE="$(restore_state_get "${STATE_FILE}" maintenance_before)"
+    QUEUE_RUNNING_BEFORE="$(restore_state_get "${STATE_FILE}" queue_running_before)"
+    SCHEDULER_PRESENT_BEFORE="$(restore_state_get "${STATE_FILE}" scheduler_present_before)"
+    MAINTENANCE_ENTERED_BY_RESTORE="$(restore_state_get "${STATE_FILE}" maintenance_entered_by_restore)"
+    QUEUE_STOPPED_BY_RESTORE="$(restore_state_get "${STATE_FILE}" queue_stopped_by_restore)"
+    SCHEDULER_HELD_BY_RESTORE="$(restore_state_get "${STATE_FILE}" scheduler_held_by_restore)"
+
+    [[ "${BACKUP_SOURCE_SHA}" =~ ${RESTORE_SOURCE_SHA_REGEX} ]] \
+        || fail "restore operation ${OPERATION_ID} carries no usable backup source_sha"
+
+    step "acquire deployment lock"
+    acquire_deployment_lock "${TARGET_ROOT}"
+
+    step "validate deployed target"
+    assert_deployed_target
+
+    step "check code alignment"
+    restore_read_current_identity "${TARGET_ROOT}"
+
+    if [[ "${RESTORE_CURRENT_SOURCE_SHA}" != "${BACKUP_SOURCE_SHA}" ]]; then
+        CODE_ALIGNMENT="REQUIRED"
+        print_summary YES
+
+        fail "the current release still does not carry the backup's source_sha (${BACKUP_SOURCE_SHA}) — the target stays held"
+    fi
+
+    CODE_ALIGNMENT="ALIGNED"
+
+    MAIN_BASHPID="${BASHPID}"
+    MUTATION_STAGE=committed
+    trap handle_restore_exit ERR EXIT
+
+    step "resume runtime"
+    resume_runtime || fail "could not resume the target runtime"
+
+    step "health check"
+    "${RESTORE_HEALTH_CHECK_BIN}" --target "${TARGET_ID}" \
+        || fail "health check failed after resume"
+
+    step "verify restored data"
+    verify_restored_database
+    verify_restored_storage
+
+    restore_state_set "${STATE_FILE}" \
+        status resumed \
+        code_alignment aligned \
+        runtime_resumed yes \
+        resumed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    RESTORE_TERMINAL=true
+    trap - ERR EXIT
+
+    append_restore_history resumed \
+        || fail "could not append the restore history record"
+
+    print_summary YES
+
+    log "${LABEL} restore operation ${OPERATION_ID} resumed; the target is serving again"
+    cleanup_completed_operation
+}
+
+# --- dispatch --------------------------------------------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation,
+# matching deploy/rollback/backup's contract exactly.
+main() {
+    require_root
+    parse_restore_target_args "$@"
+    resolve_restore_target_subject
+
+    case "${MODE}" in
+        apply)  perform_restore ;;
+        resume) perform_resume ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

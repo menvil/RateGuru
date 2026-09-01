@@ -2,8 +2,9 @@
 #
 # verify-required-clis — proves every infrastructure CLI named in
 # infrastructure/config/required-clis.txt still has its executable bit
-# inside a release tree, and that infrastructure/scripts/common remains a
-# readable, non-executable sourced library.
+# inside a release tree, and that every sourced library
+# (infrastructure/scripts/common and infrastructure/scripts/restore-common)
+# remains a readable, non-executable file.
 #
 # Shared by deploy itself (checking the just-normalized, not-yet-switched
 # release on the server) and both artifact-build workflows (checking
@@ -94,15 +95,23 @@ done < "${REQUIRED_CLI_MANIFEST}"
 [[ "${REQUIRED_CLI_COUNT}" -gt 0 ]] \
     || fail "required CLI manifest is empty: infrastructure/config/required-clis.txt"
 
-COMMON_RELEASE_PATH="${RELEASE_ROOT}/infrastructure/scripts/common"
+# The sourced libraries: never invoked directly, so they must NOT carry an
+# executable bit. Kept as an explicit list rather than "everything that is not
+# a required CLI", so adding a library is a deliberate edit here rather than
+# something a release silently stops checking.
+SOURCED_LIBRARIES=(common restore-common)
 
-[[ -f "${COMMON_RELEASE_PATH}" ]] \
-    || fail "release is missing infrastructure/scripts/common"
+for LIBRARY_NAME in "${SOURCED_LIBRARIES[@]}"; do
+    LIBRARY_RELEASE_PATH="${RELEASE_ROOT}/infrastructure/scripts/${LIBRARY_NAME}"
 
-[[ -r "${COMMON_RELEASE_PATH}" ]] \
-    || fail "infrastructure/scripts/common is not readable"
+    [[ -f "${LIBRARY_RELEASE_PATH}" ]] \
+        || fail "release is missing infrastructure/scripts/${LIBRARY_NAME}"
 
-[[ ! -x "${COMMON_RELEASE_PATH}" ]] \
-    || fail "common must remain a non-executable sourced library"
+    [[ -r "${LIBRARY_RELEASE_PATH}" ]] \
+        || fail "infrastructure/scripts/${LIBRARY_NAME} is not readable"
+
+    [[ ! -x "${LIBRARY_RELEASE_PATH}" ]] \
+        || fail "${LIBRARY_NAME} must remain a non-executable sourced library"
+done
 
 log "verified: every required infrastructure CLI retains its executable mode after release normalization"

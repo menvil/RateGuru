@@ -54,6 +54,14 @@ infrastructure, and moves out once a second project exists.
   deploy/rollback timeline Sentry has — see
   [`runbooks/nightwatch-evaluation.md`](runbooks/nightwatch-evaluation.md);
 - local and offsite backup scripts;
+- target data restore: `infrastructure/scripts/restore-target` and the four
+  primitives it drives (`fetch-backup`, `verify-backup`, `restore-database`,
+  `restore-storage`) — a live target's database and storage restored from one
+  exact, fully re-verified backup, staged entirely before any downtime, with a
+  verified emergency pre-restore backup taken first and a compensating undo for
+  every live step. It restores data only: never `.env`, never server
+  configuration, never a release switch, and never a migration — see
+  [`runbooks/restore-target.md`](runbooks/restore-target.md);
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
 - Nginx configuration;
