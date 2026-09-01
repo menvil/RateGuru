@@ -301,7 +301,9 @@ material and have preparation bless it as present and correct.
 
 Verification enforces the **owner, group and mode the prerequisite table
 declares**, exactly — not merely presence, and not merely the absence of
-world-read.
+world-read. `--apply` checks the same contract on everything already present
+*before* it installs anything, so a host with one prerequisite absent and
+another one's ownership wrong is never left half-converged.
 
 Presence alone is not readiness. A `shared/.env` that drifted to `root:root
 0600` is perfectly protected from outsiders and completely unreadable by the

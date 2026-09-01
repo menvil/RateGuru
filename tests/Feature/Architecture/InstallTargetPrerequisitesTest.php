@@ -49,9 +49,11 @@ function itpRun(string $scratch, array $arguments, array $environment = []): arr
             'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
             'RATEGURU_TARGETPREREQ_EUID' => '0',
             'RATEGURU_TARGETPREREQ_FS_ROOT' => $scratch,
-            // The scratch tree has no rateguru-staging or www-data account, so
-            // ownership comparison is off by default; the test that exercises
-            // it turns it on and relies on a row declared root:root.
+            // The scratch tree has no rateguru-staging, www-data or root-owned
+            // files, so ownership comparison is off by default. The test that
+            // exercises it turns it on, and every row then mismatches — the
+            // first one reached is shared/.env, declared
+            // rateguru-staging:rateguru-staging.
             'RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'false',
         ], $environment),
     );
@@ -373,6 +375,35 @@ it('fails closed rather than rotating a secret that differs from the supplied ma
 
         // The live key is untouched — this is the whole point.
         expect(File::get($key))->toBe($liveContent);
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('refuses before installing anything when an existing prerequisite has drifted', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpSupply($scratch, ITP_HOST_MATERIAL);
+
+        // One row already present but with the wrong mode, every other row
+        // absent. Installing the absent ones first and only then discovering
+        // the drift would leave the host half-converged on a path that fails
+        // closed by design.
+        mkdir($scratch.'/etc/nginx', 0o755, true);
+        file_put_contents($scratch.'/etc/nginx/rateguru-staging.htpasswd', "material-content-basic-auth\n");
+        chmod($scratch.'/etc/nginx/rateguru-staging.htpasswd', 0o600);
+
+        [$exit, $output] = itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'host',
+            '--material-dir', '/root/material',
+        ]);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('has mode 600, expected 0640');
+        expect($output)->not->toContain('INSTALLED');
+
+        expect(is_dir($scratch.'/etc/letsencrypt'))->toBeFalse('nothing may be installed before the drift is reported');
     } finally {
         itpCleanup($scratch);
     }

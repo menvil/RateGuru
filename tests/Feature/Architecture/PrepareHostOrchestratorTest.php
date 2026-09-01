@@ -50,16 +50,28 @@ function prepScratchDir(): string
 /**
  * A registry fixture for the lifecycle gate.
  *
- * Copied from the committed registry so it satisfies the same schema the real
- * `targets` CLI validates, then written into the scratch tree. The tests below
- * are about what prepare-host DOES with a lifecycle, so they must not depend on
- * — or be broken by — an edit to the real registry; the separate test at the
- * end of this file is what pins the real registry's own lifecycle values, and
- * keeps the fixture from quietly diverging from reality.
+ * The committed registry supplies the SHAPE — every field the real `targets`
+ * validator demands, without this file having to restate a schema it does not
+ * own — but the fixture then states the two facts these tests are about
+ * outright: one active target and one planned one. Flipping a lifecycle in the
+ * committed registry therefore cannot change what the tests below mean, which a
+ * verbatim copy would not have achieved.
+ *
+ * The separate test at the end of this file is what asserts the real registry
+ * still gives those two targets those two lifecycles.
  */
 function prepRegistryFixture(string $scratch): string
 {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
+
+    foreach (['staging-main' => 'active', 'tits-guru' => 'planned'] as $target => $lifecycle) {
+        // toHaveKey's second argument is an expected VALUE, not a message, so
+        // the diagnostic lives here: the fixture borrows the committed
+        // registry's shape and needs both entries to exist to borrow it from.
+        expect($registry['targets'])->toHaveKey($target);
+
+        $registry['targets'][$target]['lifecycle'] = $lifecycle;
+    }
 
     $path = $scratch.'/deployment-targets.json';
 
@@ -830,9 +842,9 @@ it('reports plainly that a prepared target has no application release', function
 });
 
 it('gates on the same lifecycle values the committed registry actually declares', function () {
-    // The tests above run against a copy of the registry, so this is what keeps
-    // the copy honest: the two target IDs they exercise, and the lifecycles the
-    // real registry gives them.
+    // The tests above run against a fixture that states its own lifecycles, so
+    // this is what ties them back to reality: the two target IDs they exercise,
+    // with the lifecycles the committed registry really gives them.
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
     expect($registry['targets']['staging-main']['lifecycle'])->toBe('active');

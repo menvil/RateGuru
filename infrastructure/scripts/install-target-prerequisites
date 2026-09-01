@@ -868,6 +868,11 @@ run_apply() {
     # whole run on any conflict or unsatisfiable prerequisite, so a partially
     # supplied set can never leave the host half-converged with one new secret
     # installed beside a conflicting old one.
+    #
+    # It also verifies the metadata of everything already present, for the same
+    # reason: a host with one row absent and another row's ownership wrong must
+    # not have the absent one installed before the wrong one is discovered. Any
+    # fail-closed condition, of any kind, is found before the first mutation.
     while IFS='|' read -r scope name destination owner group mode secret description; do
         [[ -n "${name}" ]] || continue
 
@@ -876,6 +881,9 @@ run_apply() {
         case "${CLASSIFY_STATE}" in
             CONFLICT|MISSING)
                 fail "external prerequisite ${name}: ${CLASSIFY_REASON}"
+                ;;
+            PRESENT|CONVERGED)
+                verify_row_metadata "${name}" "${destination}" "${owner}" "${group}" "${mode}" "${description}"
                 ;;
         esac
     done < <(rows_in_scope)
