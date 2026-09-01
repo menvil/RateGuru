@@ -159,8 +159,9 @@ it('never lets commit association stand between a deployment and its marker', fu
     // The environment is what actually produces the deploy marker.
     expect(data_get($sentryStep, 'with.environment'))->toBe('${{ inputs.environment }}');
 
-    // No call site may pass a commit either, now that the input is gone.
-    foreach (sentryReleaseCallSites() as $label => $site) {
+    // No call site may pass a commit either, now that the input is gone —
+    // neither the Sentry action's own caller nor the four places that call it.
+    foreach (array_merge(sentryReleaseCallSites(), deploymentRecordingCallSites()) as $label => $site) {
         expect(data_get($site['step'], 'with'))
             ->not->toHaveKey('commit', "{$label} must not pass a commit");
     }
@@ -298,7 +299,12 @@ it('is called only after a successful, health-checked deployment', function () {
 });
 
 it('records the canonical release the pipeline built, never a recomputed one', function () {
-    $callSites = sentryReleaseCallSites();
+    // The identity is fixed where the deployment happened, then forwarded
+    // unchanged through the shared recording action to Sentry.
+    expect(data_get(sentryReleaseCallSites()['record-rateguru-deployment/action.yml:runs']['step'], 'with.release-id'))
+        ->toBe('${{ inputs.release-id }}');
+
+    $callSites = deploymentRecordingCallSites();
 
     expect(data_get($callSites['deploy-staging.yml:observability']['step'], 'with.release-id'))
         ->toBe('${{ needs.build.outputs.release-id }}');
