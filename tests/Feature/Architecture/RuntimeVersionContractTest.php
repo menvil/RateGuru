@@ -8,8 +8,13 @@ it('requires PHP 8.5 across Composer and every workflow', function () {
         true,
         flags: JSON_THROW_ON_ERROR,
     );
+
+    // Composite actions count too: the deployment build's PHP version moved
+    // out of the two deployment workflows and into the shared build action.
     $workflows = collect(File::files(base_path('.github/workflows')))
         ->map(fn (SplFileInfo $file): string => File::get($file->getPathname()))
+        ->merge(collect(glob(base_path('.github/actions/*/action.yml')) ?: [])
+            ->map(fn (string $path): string => File::get($path)))
         ->implode("\n");
 
     preg_match_all('/php-version:\s*[\'\"]?([^\'\"\s]+)/', $workflows, $matches);

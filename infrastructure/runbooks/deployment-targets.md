@@ -495,13 +495,27 @@ refused is an unsafe *target* of that symlink — escaping the releases root, a
 nested path, a release directory that is itself a symlink, an invalid release
 ID, or a missing target.
 
-### Rolling back staging from the GitHub UI
+### Rolling back from the GitHub UI
 
-`.github/workflows/rollback-staging.yml` ("Rollback staging") wraps the exact
-same server-side pipeline for operators without SSH access:
+Two operator-facing workflows wrap the exact same server-side pipeline for
+operators without SSH access — one per environment, so nobody ever has to
+select a target:
 
-1. GitHub → **Actions** → **Rollback staging** → **Run workflow**.
-2. Leave `mode` at `previous` (the default) to switch staging back to the
+| Workflow | Deployment target | GitHub Environment | Concurrency group |
+|---|---|---|---|
+| **Rollback staging** (`.github/workflows/rollback-staging.yml`) | `staging-main` | `staging` | `rateguru-staging-deployment` |
+| **Rollback production** (`.github/workflows/rollback-production.yml`) | `tits-guru` | `production` | `rateguru-production-release` |
+
+Both are thin — a checkout and one action call each: the target and the
+environment are hard-coded in the workflow and cannot be chosen at dispatch
+time, and both call the single shared `.github/actions/rollback-rateguru`
+composite action, which owns input validation, SSH material, the wrapper
+invocation, the active-release read-back, the Sentry deployment marker and the
+run summary. No rollback business logic exists in GitHub.
+
+1. GitHub → **Actions** → **Rollback staging** (or **Rollback production**)
+   → **Run workflow**.
+2. Leave `mode` at `previous` (the default) to switch the target back to the
    previous release. `release-id` must stay empty in this mode.
 3. To roll back to a specific release instead: set `mode` to `release` and
    enter the release ID in `release-id`. The workflow only checks that the
@@ -509,16 +523,48 @@ same server-side pipeline for operators without SSH access:
    source of truth for release ID format, existence, and every safety rule
    above (lock, atomic switch, health check with automatic restore).
 
-The workflow is `workflow_dispatch`-only, runs in the `staging` GitHub
-Environment with the same `DEPLOY_*` variables and secrets as
-`deploy-staging.yml`, shares the `rateguru-staging-deployment` concurrency
-group (a rollback never runs concurrently with a staging deploy — it queues,
-nothing is cancelled), and executes exactly
-`sudo -n /usr/local/sbin/rateguru-rollback --target staging-main
---previous|--release ID` over hardened SSH as `deploy-rateguru-staging`. An
-invalid input combination fails before any SSH connection; a non-zero remote
-exit fails the job. The job's step summary records the target, mode, and
-requested release.
+Both workflows are `workflow_dispatch`-only, take the same `DEPLOY_*`
+variables and secrets from their own GitHub Environment, share their
+environment's deployment concurrency group (a rollback never runs concurrently
+with a deploy to the same target — it queues, nothing is cancelled; see
+"Which operations serialize" below), and
+execute exactly `sudo -n /usr/local/sbin/rateguru-rollback --target TARGET_ID
+--previous|--release ID` over hardened SSH. An invalid input combination fails
+before any SSH connection; a non-zero remote exit fails the job. The step
+summary records the target, environment, mode, requested release and the
+release the target ended up serving.
+
+### Which operations serialize
+
+Every GitHub operation that mutates a target sits in the concurrency group its
+target belongs to, so two of them queue rather than race:
+
+| Operation | Target | Concurrency group |
+|---|---|---|
+| `deploy-staging.yml` (whole workflow) | `staging-main` | `rateguru-staging-deployment` |
+| `rollback-staging.yml` (whole workflow) | `staging-main` | `rateguru-staging-deployment` |
+| `release.yml` → `deploy-staging` (job-level) | `staging-main` | `rateguru-staging-deployment` |
+| `release.yml` (whole workflow) | `tits-guru` | `rateguru-production-release` |
+| `rollback-production.yml` (whole workflow) | `tits-guru` | `rateguru-production-release` |
+
+`release.yml` carries both: the workflow-level `rateguru-production-release`
+group keeps a whole release serialized against a production rollback, and its
+`deploy-staging` job additionally joins `rateguru-staging-deployment` because
+that job mutates `staging-main`. Without the job-level group, a manual staging
+deploy or rollback could overlap a release's staging verification.
+
+None of this replaces the server-side deployment lock in
+`infrastructure/scripts/common`, which is what actually protects a target's
+integrity. GitHub concurrency exists so one workflow does not fail merely
+because another already holds that lock. `cancel-in-progress` is `false`
+everywhere: a deployment in flight is never cancelled.
+
+**Rollback production fails closed today.** `tits-guru` is still
+`lifecycle=planned` and unprovisioned. That gate is enforced server-side by
+the wrapper, and the `production` GitHub Environment has no `DEPLOY_*`
+configuration yet — so the workflow stops with an explicit diagnostic instead
+of touching anything. Neither the workflow nor the shared action weakens the
+lifecycle gate to make itself pass.
 
 ## Local backup and restore-test
 

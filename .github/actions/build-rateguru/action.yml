@@ -1,0 +1,403 @@
+name: Build RateGuru release artifact
+description: Build one immutable RateGuru release package, checksum it and upload it as a workflow artifact
+
+# The single mechanical build implementation for every RateGuru release.
+#
+# Callers own policy and nothing else: which commit is checked out, which
+# version prefix the release ID carries, how long GitHub keeps the artifact,
+# and whatever extra identity their environment records in release.json. This
+# action owns the mechanics — PHP/Node toolchain, production Composer
+# dependencies, frontend assets, the package tree and its exclusion contract,
+# the fail-closed infrastructure CLI mode check, release.json, the tarball,
+# its SHA-256 sidecar and the upload — so that pipeline exists exactly once.
+#
+# Two trees, never conflated. This action is loaded from the caller's trusted
+# operational-tooling checkout at $GITHUB_WORKSPACE; the application it builds
+# lives at `source-root` and may be any commit the caller resolved, including
+# one far older than this action. Every application-sensitive command below
+# runs with `source-root` as its working directory, so the artifact contains
+# that application's tree and its own helpers — never the tooling checkout's.
+#
+# That separation is what keeps an arbitrary staging ref buildable: the
+# selected application source is not required to contain this action, or any
+# other part of the current deployment tooling, in order to be deployed.
+
+inputs:
+  source-root:
+    required: true
+    description: Directory holding the application checkout to build; every application-sensitive command runs there
+
+  source-ref:
+    required: true
+    description: Already-resolved source ref, recorded verbatim as release.json source_ref
+
+  release-version:
+    required: true
+    description: Already-resolved vMAJOR.MINOR.PATCH prefix of the immutable release ID
+
+  workflow-artifact-prefix:
+    required: true
+    description: Caller-owned prefix of the GitHub workflow artifact name
+
+  artifact-retention-days:
+    required: true
+    description: Caller-owned GitHub artifact retention policy, in days
+
+  release-metadata:
+    required: false
+    default: "{}"
+    description: Caller-owned extra release.json fields as a JSON object; may never redefine a core field
+
+  expected-source-sha:
+    required: false
+    default: ""
+    description: Commit the caller already resolved; the build fails closed if the checkout is a different commit
+
+  validate-composer:
+    required: false
+    default: "false"
+    description: Run composer validate --strict before installing dependencies
+
+  node-cache:
+    required: false
+    default: ""
+    description: actions/setup-node cache mode ("npm", or empty for no cache)
+
+outputs:
+  source-sha:
+    description: Exact commit the artifact was built from
+    value: ${{ steps.release.outputs.source_sha }}
+
+  release-id:
+    description: Immutable release identifier
+    value: ${{ steps.release.outputs.release_id }}
+
+  artifact-name:
+    description: Release tarball file name
+    value: ${{ steps.release.outputs.artifact_name }}
+
+  workflow-artifact-name:
+    description: GitHub workflow artifact name holding the tarball and its checksum
+    value: ${{ steps.release.outputs.workflow_artifact_name }}
+
+  artifact-path:
+    description: Absolute path of the built release tarball on the runner
+    value: ${{ steps.release.outputs.artifact_path }}
+
+  checksum-path:
+    description: Absolute path of the built release checksum on the runner
+    value: ${{ steps.release.outputs.checksum_path }}
+
+runs:
+  using: composite
+
+  steps:
+    # Every policy input is validated before any dependency is installed, so a
+    # caller that passes a malformed version, prefix, retention or metadata
+    # document fails closed here rather than producing an artifact that only
+    # the deploy action would later reject.
+    - name: Validate build inputs
+      shell: bash
+      env:
+        SOURCE_ROOT: ${{ inputs.source-root }}
+        SOURCE_REF: ${{ inputs.source-ref }}
+        RELEASE_VERSION: ${{ inputs.release-version }}
+        WORKFLOW_ARTIFACT_PREFIX: ${{ inputs.workflow-artifact-prefix }}
+        ARTIFACT_RETENTION_DAYS: ${{ inputs.artifact-retention-days }}
+        RELEASE_METADATA: ${{ inputs.release-metadata }}
+        EXPECTED_SOURCE_SHA: ${{ inputs.expected-source-sha }}
+        VALIDATE_COMPOSER: ${{ inputs.validate-composer }}
+        NODE_CACHE: ${{ inputs.node-cache }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${SOURCE_REF}" ]]; then
+          echo "source-ref must not be empty" >&2
+          exit 1
+        fi
+
+        # Fail here rather than silently building whatever happens to be in
+        # the default working directory — which is the tooling checkout, not
+        # the application. The .git requirement is what makes the source_sha
+        # recorded below the application commit's, never the tooling's.
+        if [[ -z "${SOURCE_ROOT}" ]]; then
+          echo "source-root must not be empty" >&2
+          exit 1
+        fi
+
+        if [[ ! -d "${SOURCE_ROOT}" ]]; then
+          echo "source-root is not a directory: ${SOURCE_ROOT}" >&2
+          exit 1
+        fi
+
+        if [[ ! -d "${SOURCE_ROOT}/.git" ]]; then
+          echo "source-root is not a Git checkout: ${SOURCE_ROOT}" >&2
+          exit 1
+        fi
+
+        # The release ID prefix is a resolved version, never a raw ref: the
+        # caller has already applied its own version policy by this point.
+        if [[ ! "${RELEASE_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "release-version must be vMAJOR.MINOR.PATCH (got: ${RELEASE_VERSION})" >&2
+          exit 1
+        fi
+
+        # Same closed character class the deploy action uses for target IDs:
+        # rejects empty, uppercase, slashes, whitespace, shell metacharacters
+        # and a flag-shaped leading "-".
+        if [[ ! "${WORKFLOW_ARTIFACT_PREFIX}" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+          echo "workflow-artifact-prefix is not a valid artifact name prefix: ${WORKFLOW_ARTIFACT_PREFIX}" >&2
+          exit 1
+        fi
+
+        if [[ ! "${ARTIFACT_RETENTION_DAYS}" =~ ^[1-9][0-9]*$ ]] \
+          || (( ARTIFACT_RETENTION_DAYS > 90 ))
+        then
+          echo "artifact-retention-days must be an integer between 1 and 90 (got: ${ARTIFACT_RETENTION_DAYS})" >&2
+          exit 1
+        fi
+
+        if [[ -n "${EXPECTED_SOURCE_SHA}" ]] \
+          && [[ ! "${EXPECTED_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+        then
+          echo "expected-source-sha must be a full commit SHA" >&2
+          exit 1
+        fi
+
+        case "${VALIDATE_COMPOSER}" in
+          true|false)
+            ;;
+          *)
+            echo "validate-composer must be true or false" >&2
+            exit 1
+            ;;
+        esac
+
+        case "${NODE_CACHE}" in
+          ""|npm)
+            ;;
+          *)
+            echo "node-cache must be npm or empty" >&2
+            exit 1
+            ;;
+        esac
+
+        # release-metadata is caller-supplied extra identity, so it is checked
+        # for being a JSON object here and — critically — for not redefining
+        # any core field. Without this a caller could quietly overwrite the
+        # release ID or source SHA the rest of the pipeline verifies against.
+        if ! printf '%s' "${RELEASE_METADATA}" | jq -e 'type == "object"' >/dev/null; then
+          echo "release-metadata must be a JSON object" >&2
+          exit 1
+        fi
+
+        # --- core release.json fields (begin) ---
+        core_fields='["project","source_ref","source_sha","release","built_at","workflow_run_id","workflow_run_number"]'
+        # --- core release.json fields (end) ---
+
+        reserved="$(
+          printf '%s' "${RELEASE_METADATA}" |
+            jq -r --argjson core "${core_fields}" 'keys_unsorted - (keys_unsorted - $core) | join(", ")'
+        )"
+
+        if [[ -n "${reserved}" ]]; then
+          echo "release-metadata must not redefine core release.json fields: ${reserved}" >&2
+          exit 1
+        fi
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+      with:
+        php-version: "8.5"
+        extensions: bcmath, curl, gd, intl, mbstring, pcntl, pdo_pgsql, redis, zip
+        coverage: none
+
+    - name: Setup Node
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      with:
+        node-version: 26
+        cache: ${{ inputs.node-cache }}
+        cache-dependency-path: ${{ inputs.source-root }}/package-lock.json
+
+    - name: Validate Composer definition
+      if: ${{ inputs.validate-composer == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.source-root }}
+      run: composer validate --strict
+
+    - name: Install production PHP dependencies
+      shell: bash
+      working-directory: ${{ inputs.source-root }}
+      env:
+        APP_ENV: production
+      run: |
+        composer install \
+          --no-dev \
+          --no-interaction \
+          --prefer-dist \
+          --no-progress \
+          --classmap-authoritative
+
+    - name: Build frontend assets
+      shell: bash
+      working-directory: ${{ inputs.source-root }}
+      run: |
+        npm ci
+        npm run build
+
+    # Runs inside the application checkout, so every relative path below —
+    # `git rev-parse HEAD`, the existence checks, rsync's source and the
+    # infrastructure CLI verifier — resolves against the application being
+    # built and not against the tooling this action came from.
+    - name: Build release archive
+      id: release
+      shell: bash
+      working-directory: ${{ inputs.source-root }}
+      env:
+        SOURCE_ROOT: ${{ inputs.source-root }}
+        SOURCE_REF: ${{ inputs.source-ref }}
+        RELEASE_VERSION: ${{ inputs.release-version }}
+        WORKFLOW_ARTIFACT_PREFIX: ${{ inputs.workflow-artifact-prefix }}
+        RELEASE_METADATA: ${{ inputs.release-metadata }}
+        EXPECTED_SOURCE_SHA: ${{ inputs.expected-source-sha }}
+      run: |
+        set -Eeuo pipefail
+
+        # The application checkout, not the tooling one this action was
+        # loaded from. Printed so a run's log shows which tree was packaged.
+        echo "Application source: ${PWD}"
+
+        source_sha="$(git rev-parse HEAD)"
+
+        # The caller resolved a commit and every downstream job trusts that
+        # resolution; building a different tree under the same release
+        # identity would break the promise silently, so it fails closed.
+        if [[ -n "${EXPECTED_SOURCE_SHA}" ]] \
+          && [[ "${EXPECTED_SOURCE_SHA}" != "${source_sha}" ]]
+        then
+          echo "Checked-out commit ${source_sha} is not the resolved source commit ${EXPECTED_SOURCE_SHA}" >&2
+          exit 1
+        fi
+
+        short_sha="${source_sha:0:7}"
+        timestamp="$(date -u +%Y%m%d-%H%M%S)"
+
+        release_id="${RELEASE_VERSION}-${timestamp}-${short_sha}"
+        artifact_name="rateguru-${release_id}.tar.gz"
+        workflow_artifact_name="${WORKFLOW_ARTIFACT_PREFIX}-${release_id}"
+
+        package_root="${RUNNER_TEMP}/rateguru-build-package"
+        output_root="${RUNNER_TEMP}/rateguru-build-output"
+
+        rm -rf \
+          "${package_root}" \
+          "${output_root}"
+
+        mkdir -p \
+          "${package_root}" \
+          "${output_root}"
+
+        test -f artisan
+        test -f public/index.php
+        test -f vendor/autoload.php
+        test -f public/build/manifest.json
+
+        rsync \
+          --archive \
+          --delete \
+          --exclude='.git/' \
+          --exclude='.github/' \
+          --exclude='.env' \
+          --exclude='.env.*' \
+          --exclude='node_modules/' \
+          --exclude='storage/' \
+          --exclude='tests/' \
+          --exclude='docs/' \
+          --exclude='coderabbit-review/' \
+          --exclude='tools/' \
+          --exclude='database/database.sqlite' \
+          --exclude='public/hot' \
+          ./ \
+          "${package_root}/"
+
+        # Fail closed if a required infrastructure CLI lost its executable
+        # bit somewhere before this point (a wrong Git blob mode is the only
+        # way that happens — rsync --archive and the tar step below both
+        # preserve whatever mode is already on disk). deploy's own
+        # permission normalization can only preserve an existing executable
+        # bit, never invent one, so a bad artifact here would reach the
+        # target unusable exactly the way install-target-operations and
+        # targets were. This must never be "fixed" with a chmod here: that
+        # would hide the wrong repository metadata instead of catching it.
+        # --- verify infrastructure CLI executable bits (begin) ---
+        infrastructure/scripts/verify-required-clis --release-root "${package_root}"
+        # --- verify infrastructure CLI executable bits (end) ---
+
+        # The core identity every consumer depends on — the application's own
+        # DeploymentMetadata, Sentry, deploy's active-release verification and
+        # any future rebuild-from-source recovery — is written here, once.
+        # Caller metadata is merged on top and can only add fields, never
+        # redefine one of these.
+        jq \
+          --null-input \
+          --arg project "rateguru" \
+          --arg source_ref "${SOURCE_REF}" \
+          --arg source_sha "${source_sha}" \
+          --arg release "${release_id}" \
+          --arg built_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --arg workflow_run_id "${GITHUB_RUN_ID}" \
+          --arg workflow_run_number "${GITHUB_RUN_NUMBER}" \
+          --argjson extra "${RELEASE_METADATA}" \
+          '{
+            project: $project,
+            source_ref: $source_ref,
+            source_sha: $source_sha,
+            release: $release,
+            built_at: $built_at,
+            workflow_run_id: $workflow_run_id,
+            workflow_run_number: $workflow_run_number
+          } + $extra' \
+          > "${package_root}/release.json"
+
+        tar \
+          -C "${package_root}" \
+          -czf "${output_root}/${artifact_name}" \
+          .
+
+        (
+          cd "${output_root}"
+
+          sha256sum "${artifact_name}" \
+            > "${artifact_name}.sha256"
+        )
+
+        {
+          echo "source_sha=${source_sha}"
+          echo "release_id=${release_id}"
+          echo "artifact_name=${artifact_name}"
+          echo "workflow_artifact_name=${workflow_artifact_name}"
+          echo "artifact_path=${output_root}/${artifact_name}"
+          echo "checksum_path=${output_root}/${artifact_name}.sha256"
+        } >> "${GITHUB_OUTPUT}"
+
+        echo "Built ${release_id}"
+
+        echo "Release metadata:"
+        cat "${package_root}/release.json"
+
+        echo "Artifact:"
+        du -h "${output_root}/${artifact_name}"
+
+        echo "Checksum:"
+        cat "${output_root}/${artifact_name}.sha256"
+
+    - name: Upload immutable release artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: ${{ steps.release.outputs.workflow_artifact_name }}
+        path: |
+          ${{ steps.release.outputs.artifact_path }}
+          ${{ steps.release.outputs.checksum_path }}
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: ${{ inputs.artifact-retention-days }}

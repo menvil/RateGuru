@@ -1,0 +1,337 @@
+name: Roll back RateGuru target
+description: Roll a RateGuru deployment target back through the generic, target-aware server-side wrapper
+
+# The single GitHub-side rollback implementation for every RateGuru target.
+#
+# Transport and orchestration only. The server-side wrapper
+# /usr/local/sbin/rateguru-rollback -> infrastructure/scripts/rollback owns
+# every piece of rollback business logic — deployment lock, target lifecycle
+# enforcement, release path validation, the atomic current/previous switch,
+# PHP-FPM handling, the health check with automatic restore on failure and the
+# rollback history. None of that is reimplemented, mirrored or second-guessed
+# here, so a target that is lifecycle=planned or unprovisioned fails closed on
+# the server exactly as it does for every other operation.
+#
+# Callers own the identity of what is being rolled back: the deployment target
+# and the GitHub Environment are fixed by the calling workflow, never chosen
+# by the operator. Everything that follows a successful rollback — reading the
+# restored release back, recording its Sentry deployment marker and writing the
+# run summary — is common to every target and lives here, so the operator
+# workflows carry no duplicated observability block.
+
+inputs:
+  deployment-target:
+    required: true
+    description: Deployment target ID from the RateGuru target registry
+
+  environment:
+    required: true
+    description: Environment class this rollback runs in (staging or production), for diagnostics and the run summary
+
+  deploy-host:
+    required: true
+    description: SSH server hostname or IP
+
+  deploy-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  deploy-user:
+    required: true
+    description: Restricted deployment user
+
+  deploy-root:
+    required: true
+    description: Target root containing current and releases
+
+  ssh-private-key:
+    required: true
+    description: Deployment SSH private key
+
+  known-hosts:
+    required: true
+    description: Verified SSH known_hosts entry
+
+  mode:
+    required: true
+    description: previous (roll back one release) or release (roll back to an explicit release ID)
+
+  release-id:
+    required: false
+    default: ""
+    description: Release ID, required when mode=release and forbidden when mode=previous
+
+  sentry-auth-token:
+    required: false
+    default: ""
+    description: Sentry auth token; the deployment marker is skipped when the environment has no Sentry credentials
+
+  sentry-org:
+    required: false
+    default: ""
+    description: Sentry organization slug
+
+  sentry-project:
+    required: false
+    default: ""
+    description: Sentry project slug
+
+outputs:
+  active-release-id:
+    description: Canonical release the target is serving after a successful rollback, or empty when it could not be read back
+    value: ${{ steps.active.outputs.release_id }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Validate rollback inputs
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        MODE: ${{ inputs.mode }}
+        RELEASE_ID: ${{ inputs.release-id }}
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+      run: |
+        set -Eeuo pipefail
+
+        # Rejects empty, uppercase, slash, whitespace, shell metacharacters
+        # and a flag-shaped value (a leading "-") in one closed character
+        # class — none of those characters are members of [a-z0-9-]. Exactly
+        # the expression the deploy action validates a target with.
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        case "${ENVIRONMENT}" in
+          staging|production)
+            ;;
+          *)
+            echo "environment must be staging or production" >&2
+            exit 1
+            ;;
+        esac
+
+        for required_var in DEPLOY_HOST DEPLOY_PORT DEPLOY_USER; do
+          if [[ -z "${!required_var}" ]]; then
+            echo "${required_var} is not configured for the ${ENVIRONMENT} environment" >&2
+            exit 1
+          fi
+        done
+
+        case "${MODE}" in
+          previous)
+            if [[ -n "${RELEASE_ID}" ]]; then
+              echo "release-id must be empty when mode=previous" >&2
+              exit 1
+            fi
+            ;;
+          release)
+            # Basic non-empty validation only: the server-side rollback
+            # script is the single source of truth for the release ID
+            # format and its existence on the target.
+            if [[ -z "${RELEASE_ID}" ]]; then
+              echo "release-id is required when mode=release" >&2
+              exit 1
+            fi
+            ;;
+          *)
+            echo "Invalid mode: ${MODE}" >&2
+            exit 1
+            ;;
+        esac
+
+    - name: Configure SSH
+      shell: bash
+      env:
+        SSH_PRIVATE_KEY: ${{ inputs.ssh-private-key }}
+        KNOWN_HOSTS: ${{ inputs.known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_rollback_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${SSH_PRIVATE_KEY}" > "${key_path}"
+        printf '%s\n' "${KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    - name: Roll back via target-aware wrapper
+      id: rollback
+      shell: bash
+      env:
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        MODE: ${{ inputs.mode }}
+        RELEASE_ID: ${{ inputs.release-id }}
+      run: |
+        set -Eeuo pipefail
+
+        echo "Deployment target: ${DEPLOYMENT_TARGET}"
+
+        # The remote command is a fixed argv built as a Bash array — never
+        # an interpolated shell string, never user input concatenated into
+        # a command line. The wrapper is the generic, target-aware one; a
+        # per-environment wrapper would not understand --target at all.
+        remote_command=(
+          sudo -n /usr/local/sbin/rateguru-rollback
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        if [[ "${MODE}" == "previous" ]]; then
+          remote_command+=(--previous)
+        else
+          remote_command+=(--release "${RELEASE_ID}")
+        fi
+
+        ssh \
+          -p "${DEPLOY_PORT}" \
+          -i "${RATEGURU_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+          "${DEPLOY_USER}@${DEPLOY_HOST}" \
+          "${remote_command[@]@Q}"
+
+    # Reached only when the previous step succeeded, which — because the
+    # server-side wrapper restores the old release and fails when its health
+    # check fails — means the target is serving a healthy release again. The
+    # release ID is read back off the server rather than derived from the
+    # workflow inputs, so `mode=previous` reports the real immutable release
+    # the target landed on instead of guessing.
+    - name: Resolve the release now serving the target
+      id: active
+      shell: bash
+      env:
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_PORT: ${{ inputs.deploy-port }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
+        DEPLOY_ROOT: ${{ inputs.deploy-root }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${DEPLOY_ROOT}" ]]; then
+          echo "DEPLOY_ROOT is not configured; cannot resolve the active release." >&2
+          echo "release_id=" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        printf -v current_command \
+          'basename "$(readlink -f %q)"' \
+          "${DEPLOY_ROOT%/}/current"
+
+        # This is a second, independent SSH connection made purely to read a
+        # value back. Under `set -e` a failed assignment would abort the step
+        # and fail the job — reporting an already-successful, already-health-
+        # checked rollback as a failed run. Catch it and carry on to the
+        # summary with no release ID instead.
+        if ! active_release="$(
+          ssh \
+            -p "${DEPLOY_PORT}" \
+            -i "${RATEGURU_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "${current_command}"
+        )"; then
+          echo "Could not read the active release back from the target." >&2
+          echo "Rollback succeeded; skipping Sentry deployment marker." >&2
+          echo "release_id=" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        # The rollback itself already succeeded and the target is healthy.
+        # If what came back is not a canonical release ID — an absent
+        # `current`, a truncated read — record nothing rather than failing
+        # this job for an observability reason.
+        release_regex='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+        if [[ ! "${active_release}" =~ ${release_regex} ]]; then
+          echo "Active release is not a canonical release ID: ${active_release}" >&2
+          echo "Rollback succeeded; skipping Sentry deployment marker." >&2
+          echo "release_id=" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        echo "release_id=${active_release}" >> "${GITHUB_OUTPUT}"
+        echo "Target is now serving ${active_release}"
+
+    # A rollback is a deployment of an existing release, so it records a new
+    # deploy marker against that same immutable release — never a synthetic
+    # "rollback" release, and never a re-association of its commits. Skipped
+    # outright when the release could not be read back, and the shared
+    # observability action is itself continue-on-error, so a Sentry outage can
+    # never turn an already-healthy rollback into a failed run.
+    - name: Record Sentry deployment marker for the restored release
+      if: ${{ steps.active.outputs.release_id != '' }}
+      uses: ./.github/actions/sentry-release
+      with:
+        sentry-auth-token: ${{ inputs.sentry-auth-token }}
+        sentry-org: ${{ inputs.sentry-org }}
+        sentry-project: ${{ inputs.sentry-project }}
+
+        environment: ${{ inputs.environment }}
+
+        release-id: ${{ steps.active.outputs.release_id }}
+
+    # Reports what happened on failed runs too. The result comes from the
+    # rollback step's own outcome rather than the calling job's status, so it
+    # describes the mutation itself and is never coloured by an unrelated
+    # observability step the caller runs afterwards.
+    - name: Write rollback summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        MODE: ${{ inputs.mode }}
+        RELEASE_ID: ${{ inputs.release-id }}
+        ACTIVE_RELEASE: ${{ steps.active.outputs.release_id }}
+        ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+      run: |
+        set -Eeuo pipefail
+
+        # The step summary is rendered as Markdown, so plain consecutive
+        # lines would collapse into one paragraph. Same heading + list shape
+        # the release workflow's own summaries use.
+        {
+          echo "## Rollback"
+          echo
+          echo "- Target: ${DEPLOYMENT_TARGET}"
+          echo "- Environment: ${ENVIRONMENT}"
+          echo "- Mode: ${MODE}"
+          echo "- Requested release: ${RELEASE_ID:-previous}"
+          echo "- Active release: ${ACTIVE_RELEASE:-unknown}"
+          echo "- Result: ${ROLLBACK_OUTCOME:-not attempted}"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Remove temporary SSH material
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RATEGURU_SSH_KEY_PATH:-}" \
+          "${RATEGURU_KNOWN_HOSTS_PATH:-}"

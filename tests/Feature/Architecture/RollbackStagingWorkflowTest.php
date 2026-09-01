@@ -3,6 +3,12 @@
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
+/**
+ * The staging rollback workflow after Phase 7.1: a thin operator-facing shell
+ * whose target and environment are structural, calling the one shared
+ * .github/actions/rollback-rateguru implementation
+ * (RollbackRateGuruActionTest owns that contract).
+ */
 it('rolls back staging manually, through the fixed target-aware wrapper only', function () {
     $path = base_path('.github/workflows/rollback-staging.yml');
 
@@ -24,6 +30,10 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
         ->and(data_get($workflow, 'on.workflow_dispatch.inputs.release-id.type'))->toBe('string')
         ->and(data_get($workflow, 'on.workflow_dispatch.inputs.release-id.required'))->toBeFalse();
 
+    // The operator chooses what to roll back to — never which target.
+    expect(array_keys((array) data_get($workflow, 'on.workflow_dispatch.inputs')))
+        ->toBe(['mode', 'release-id']);
+
     // Minimal permissions, the staging environment boundary, one job.
     expect($workflow['permissions'])->toBe(['contents' => 'read'])
         ->and(array_keys($workflow['jobs']))->toBe(['rollback'])
@@ -37,75 +47,42 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
         ->and(data_get($workflow, 'concurrency.group'))->toBe('rateguru-staging-deployment')
         ->and(data_get($workflow, 'concurrency.cancel-in-progress'))->toBeFalse();
 
-    // Input validation fails invalid mode/release-id combinations before any
-    // SSH configuration or connection step runs.
-    $names = $steps->pluck('name')->all();
-    expect(array_search('Validate inputs', $names, true))
-        ->toBeLessThan(array_search('Configure SSH', $names, true))
-        ->and(array_search('Configure SSH', $names, true))
-        ->toBeLessThan(array_search('Roll back via target-aware wrapper', $names, true));
+    // The shared implementation, with staging's fixed identity and the two
+    // operator inputs passed straight through.
+    $rollback = $stepsByName->get('Roll back staging-main');
 
-    $validate = $stepsByName->get('Validate inputs');
-    expect(data_get($validate, 'env.MODE'))->toBe('${{ inputs.mode }}')
-        ->and(data_get($validate, 'env.RELEASE_ID'))->toBe('${{ inputs.release-id }}')
-        ->and(data_get($validate, 'env.DEPLOY_HOST'))->toBe('${{ vars.DEPLOY_HOST }}')
-        ->and(data_get($validate, 'run'))
-        ->toContain('case "${MODE}"')
-        ->toContain('release-id must be empty when mode=previous')
-        ->toContain('release-id is required when mode=release')
-        ->toContain('is not configured for the staging environment')
-        ->toContain('exit 1');
+    expect(data_get($rollback, 'uses'))->toBe('./.github/actions/rollback-rateguru')
+        ->and(data_get($rollback, 'id'))->toBe('rollback')
+        ->and(data_get($rollback, 'with.deployment-target'))->toBe('staging-main')
+        ->and(data_get($rollback, 'with.environment'))->toBe('staging')
+        ->and(data_get($rollback, 'with.mode'))->toBe('${{ inputs.mode }}')
+        ->and(data_get($rollback, 'with.release-id'))->toBe('${{ inputs.release-id }}')
+        ->and(data_get($rollback, 'with.deploy-host'))->toBe('${{ vars.DEPLOY_HOST }}')
+        ->and(data_get($rollback, 'with.deploy-port'))->toBe('${{ vars.DEPLOY_PORT }}')
+        ->and(data_get($rollback, 'with.deploy-user'))->toBe('${{ vars.DEPLOY_USER }}')
+        ->and(data_get($rollback, 'with.deploy-root'))->toBe('${{ vars.DEPLOY_ROOT }}')
+        ->and(data_get($rollback, 'with.ssh-private-key'))->toBe('${{ secrets.DEPLOY_SSH_KEY }}')
+        ->and(data_get($rollback, 'with.known-hosts'))->toBe('${{ secrets.DEPLOY_KNOWN_HOSTS }}')
+        // Observability coordinates are forwarded, not re-implemented here.
+        ->and(data_get($rollback, 'with.sentry-auth-token'))->toBe('${{ secrets.SENTRY_AUTH_TOKEN }}')
+        ->and(data_get($rollback, 'with.sentry-org'))->toBe('${{ vars.SENTRY_ORG }}')
+        ->and(data_get($rollback, 'with.sentry-project'))->toBe('${{ vars.SENTRY_PROJECT }}');
 
-    // SSH material comes only from the existing staging secrets, written with
-    // the exact hardening pattern the deploy action uses.
-    $configureSsh = $stepsByName->get('Configure SSH');
-    expect(data_get($configureSsh, 'env.SSH_PRIVATE_KEY'))->toBe('${{ secrets.DEPLOY_SSH_KEY }}')
-        ->and(data_get($configureSsh, 'env.KNOWN_HOSTS'))->toBe('${{ secrets.DEPLOY_KNOWN_HOSTS }}')
-        ->and(data_get($configureSsh, 'run'))
-        ->toContain('install -m 0600 /dev/null')
-        ->toContain('ssh-keygen -y');
+    // Two steps, both of them `uses:` — a checkout and the shared action.
+    expect($steps->pluck('name')->all())->toBe([
+        'Checkout rollback and observability actions',
+        'Roll back staging-main',
+    ]);
 
-    // The remote command is the fixed wrapper with the fixed target, built as
-    // a Bash array and safely quoted — never eval, never a string-built
-    // command line, never a concatenation of user input.
-    $rollback = $stepsByName->get('Roll back via target-aware wrapper');
-    expect(data_get($rollback, 'env.DEPLOY_HOST'))->toBe('${{ vars.DEPLOY_HOST }}')
-        ->and(data_get($rollback, 'env.DEPLOY_PORT'))->toBe('${{ vars.DEPLOY_PORT }}')
-        ->and(data_get($rollback, 'env.DEPLOY_USER'))->toBe('${{ vars.DEPLOY_USER }}')
-        ->and(data_get($rollback, 'run'))
-        ->toContain('sudo -n /usr/local/sbin/rateguru-rollback')
-        ->toContain('--target staging-main')
-        ->toContain('remote_command+=(--previous)')
-        ->toContain('remote_command+=(--release "${RELEASE_ID}")')
-        ->toContain('"${remote_command[@]@Q}"')
-        ->toContain('-o BatchMode=yes')
-        ->toContain('-o IdentitiesOnly=yes')
-        ->toContain('-o ConnectTimeout=')
-        ->toContain('-o StrictHostKeyChecking=yes')
-        ->toContain('-o UserKnownHostsFile=');
+    // Deployment tooling is taken from develop, never from a release ref.
+    $checkout = $stepsByName->get('Checkout rollback and observability actions');
 
-    // Every run script takes workflow inputs through env, never through
-    // direct `${{ }}` interpolation into the script body. Steps that are a
-    // `uses:` have no script to interpolate into and are skipped explicitly,
-    // rather than silently passing through a null.
-    $runSteps = $steps->filter(fn (array $step): bool => isset($step['run']));
+    expect(data_get($checkout, 'uses'))->toMatch('/^actions\/checkout@[0-9a-f]{40}$/')
+        ->and(data_get($checkout, 'with.ref'))->toBe('develop')
+        ->and(data_get($checkout, 'with.persist-credentials'))->toBeFalse();
 
-    expect($runSteps)->not->toBeEmpty();
-
-    foreach ($runSteps as $step) {
-        expect($step['run'])->not->toContain('${{');
-    }
-
-    // The step summary reports what happened — on failed runs too — with
-    // the result derived from the real job status, and without echoing any
-    // secret.
-    $summary = $stepsByName->get('Write summary');
-    expect(data_get($summary, 'if'))->toBe('always()')
-        ->and(data_get($summary, 'env.JOB_STATUS'))->toBe('${{ job.status }}')
-        ->and(data_get($summary, 'run'))
-        ->toContain('GITHUB_STEP_SUMMARY')
-        ->toContain('Target: staging-main')
-        ->toContain('Result: ${JOB_STATUS}');
+    // The workflow itself holds no shell logic at all any more.
+    expect($steps->filter(fn (array $step): bool => isset($step['run']))->all())->toBe([]);
 
     // No forbidden constructs anywhere in the workflow: no eval, no bash -c,
     // no disabled host-key checking, no root SSH, no legacy --environment
@@ -134,4 +111,24 @@ it('rolls back staging manually, through the fixed target-aware wrapper only', f
         ->toEqualCanonicalizing(['DEPLOY_HOST', 'DEPLOY_PORT', 'DEPLOY_USER', 'DEPLOY_ROOT', 'SENTRY_ORG', 'SENTRY_PROJECT'])
         ->and(array_values(array_unique($secretMatches[1])))
         ->toEqualCanonicalizing(['DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS', 'SENTRY_AUTH_TOKEN']);
+});
+
+it('delegates the restored-release marker instead of carrying its own copy', function () {
+    $source = File::get(base_path('.github/workflows/rollback-staging.yml'));
+    $workflow = Yaml::parse($source);
+    $steps = collect(data_get($workflow, 'jobs.rollback.steps'));
+
+    // The marker moved into the shared rollback action, which performed the
+    // read-back it depends on. Nothing here duplicates it.
+    expect($steps->pluck('uses')->all())
+        ->not->toContain('./.github/actions/sentry-release');
+
+    expect($source)
+        ->not->toContain('active-release-id')
+        ->not->toMatch('/release-id:\s*[\'"]?rollback/');
+
+    // What it does contribute is the environment class the marker is recorded
+    // against — fixed by this workflow, exactly like the target.
+    expect(data_get($steps->keyBy('name')->get('Roll back staging-main'), 'with.environment'))
+        ->toBe('staging');
 });

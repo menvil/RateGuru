@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\File;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * Phase 5 slice 5.2: infrastructure/scripts/install-bootstrap-runtime — the
@@ -2201,6 +2202,36 @@ it('keeps the PHP series aligned with the committed deployment.conf template', f
     expect($template)->toContain('PHP_FPM_SERVICE=php'.$series[1].'-fpm');
 });
 
+/**
+ * The shared build action, parsed.
+ */
+function buildActionDefinition(): array
+{
+    return Yaml::parse(File::get(base_path('.github/actions/build-rateguru/action.yml')));
+}
+
+/**
+ * The setup-php extension list the shared build action declares, read from
+ * the step that actually configures PHP rather than by first-match regex: any
+ * other `extensions:` key in the file — a later step, a different action, a
+ * commented example — must never be able to stand in for it.
+ *
+ * @return list<string>
+ */
+function buildActionPhpExtensions(array $action): array
+{
+    $step = collect(data_get($action, 'runs.steps'))
+        ->first(fn (array $step): bool => data_get($step, 'name') === 'Setup PHP');
+
+    $extensions = data_get($step, 'with.extensions');
+
+    if (! is_string($extensions) || trim($extensions) === '') {
+        return [];
+    }
+
+    return array_values(array_filter(array_map('trim', explode(',', $extensions))));
+}
+
 it('covers every PHP extension the deploy workflow and composer.json require', function () {
     $installer = bootstrapRuntimeSource();
 
@@ -2208,14 +2239,14 @@ it('covers every PHP extension the deploy workflow and composer.json require', f
     expect($modulesMatch[1] ?? null)->not->toBeNull();
     $verifiedModules = preg_split('/\s+/', trim($modulesMatch[1]));
 
-    $workflow = File::get(base_path('.github/workflows/deploy-staging.yml'));
-    preg_match('/extensions:\s*(.+)$/m', $workflow, $extensionsMatch);
-    expect($extensionsMatch[1] ?? null)->not->toBeNull('deploy-staging.yml no longer declares setup-php extensions');
-    $workflowExtensions = array_map('trim', explode(',', $extensionsMatch[1]));
+    // The deployment build's PHP toolchain is declared once, in the shared
+    // build action both deployment workflows call.
+    $workflowExtensions = buildActionPhpExtensions(buildActionDefinition());
+    expect($workflowExtensions)->not->toBeEmpty('the shared build action no longer declares setup-php extensions');
 
     foreach ($workflowExtensions as $extension) {
         expect(in_array($extension, $verifiedModules, true))
-            ->toBeTrue("deploy workflow extension {$extension} is not verified by the installer");
+            ->toBeTrue("deploy build extension {$extension} is not verified by the installer");
     }
 
     $composer = json_decode(File::get(base_path('composer.json')), true);
@@ -2226,6 +2257,39 @@ it('covers every PHP extension the deploy workflow and composer.json require', f
                 ->toBeTrue("composer.json {$requirement} is not verified by the installer");
         }
     }
+});
+
+it('reads the build action PHP extensions from the Setup PHP step, never from another extensions key', function () {
+    // A first-match regex over the file would have taken this decoy — a
+    // different step's unrelated `extensions:` — and then compared the wrong
+    // list against the installer's verified modules, passing or failing for a
+    // reason that has nothing to do with the PHP runtime contract.
+    $decoy = Yaml::parse(<<<'YAML'
+        runs:
+          using: composite
+          steps:
+            - name: Setup Node
+              with:
+                extensions: not-a-php-extension
+            - name: Setup PHP
+              with:
+                extensions: bcmath, curl
+            - name: Later step
+              with:
+                extensions: also-not-a-php-extension
+        YAML);
+
+    expect(buildActionPhpExtensions($decoy))->toBe(['bcmath', 'curl']);
+
+    // An action with no Setup PHP step resolves to nothing rather than to
+    // some other step's value, so the caller's non-empty assertion catches it.
+    expect(buildActionPhpExtensions(['runs' => ['steps' => [['name' => 'Setup Node', 'with' => ['extensions' => 'x']]]]]))
+        ->toBe([]);
+
+    // And the real action still resolves through that same path.
+    expect(buildActionPhpExtensions(buildActionDefinition()))
+        ->toContain('pdo_pgsql')
+        ->toContain('redis');
 });
 
 it('never installs build-time or unwanted packages: no Node.js, npm, Composer, SQLite or dev validators', function () {

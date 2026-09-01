@@ -1,11 +1,22 @@
-name: Rollback staging
+name: Rollback production
 
+# The production counterpart of rollback-staging.yml. Same operator
+# semantics, same shared implementation, different fixed identity — an
+# operator picks the workflow that names their environment rather than
+# selecting a target from a dropdown.
+#
 # Manual-only: rollback is an operator decision, never an automatic
 # reaction. The server-side wrapper owns all business logic (deployment
 # lock, target lifecycle, release validation, atomic current/previous
 # switch, PHP-FPM reload, health check with automatic restore on failure,
 # rollback history) and .github/actions/rollback-rateguru owns the GitHub
 # transport — this workflow only fixes the identity of what is rolled back.
+#
+# tits-guru is still lifecycle=planned and unprovisioned. That gate lives in
+# the target registry and is enforced server-side by the wrapper, so this
+# workflow fails closed on a real run until production is provisioned and
+# activated in a later phase. Nothing here weakens it, and the production
+# GitHub Environment's own protection rules stay authoritative on top.
 on:
   workflow_dispatch:
     inputs:
@@ -26,17 +37,18 @@ on:
 permissions:
   contents: read
 
-# Same logical deployment domain as deploy-staging.yml: a rollback must
-# never run concurrently with a staging deploy.
+# Same logical deployment domain as release.yml, the only workflow that
+# deploys to a production target: a production rollback must never run
+# concurrently with a production release.
 concurrency:
-  group: rateguru-staging-deployment
+  group: rateguru-production-release
   cancel-in-progress: false
 
 jobs:
   rollback:
-    name: Roll back staging-main
+    name: Roll back tits-guru
     runs-on: ubuntu-latest
-    environment: staging
+    environment: production
     timeout-minutes: 10
 
     steps:
@@ -54,12 +66,12 @@ jobs:
       # The target and the environment are structural properties of this
       # workflow, never operator input: an operator chooses what to roll back
       # to, never which target gets rolled back.
-      - name: Roll back staging-main
+      - name: Roll back tits-guru
         id: rollback
         uses: ./.github/actions/rollback-rateguru
         with:
-          deployment-target: staging-main
-          environment: staging
+          deployment-target: tits-guru
+          environment: production
 
           deploy-host: ${{ vars.DEPLOY_HOST }}
           deploy-port: ${{ vars.DEPLOY_PORT }}

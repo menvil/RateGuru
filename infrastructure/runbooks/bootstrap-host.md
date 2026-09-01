@@ -904,7 +904,7 @@ Phase 5 proves that a brand-new supported VPS can be reproducibly
 bootstrapped into a working RateGuru application host. It does **not**
 prove disaster recovery. The offsite `restore-test` that passed here shows
 a backup is restorable — a different question from reconstructing a lost
-application — and closes nothing in Phase 7, which still owns the durable
-release archive, the backup ↔ release mapping, rebuilding after server/data
-loss, restoring application state on a clean server, application-level
-verification after recovery, and the timed drill.
+application — and closes nothing in Phase 7, which still owns rebuilding a
+lost application from the exact `source_sha` its backup's own `release.json`
+already carries, restoring application state on a clean server,
+application-level verification after recovery, and the timed drill.
