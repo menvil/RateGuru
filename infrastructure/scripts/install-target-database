@@ -596,14 +596,18 @@ run_apply() {
     # outright — there is no path in this function that modifies something that
     # is already there.
     if role_exists; then
-        # Checked BEFORE anything is created. An over-privileged role is a
-        # fail-closed condition, and discovering it only in the verification at
-        # the end would mean a database and a grant had already been created
-        # for an account this run is about to refuse.
+        # Every fail-closed condition an existing role can be in is checked
+        # BEFORE anything is created — the same set run_check reports on.
+        # Discovering one only in the verification at the end would mean a
+        # database and a CONNECT grant had already been created for an account
+        # this run is about to refuse.
         resolve_role_elevated_privileges
 
         [[ -z "${ROLE_ELEVATED}" ]] \
             || fail "PostgreSQL role ${DB_ROLE} holds ${ROLE_ELEVATED} — an application role must hold none of SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. Nothing was created; resolve manually, since this installer never alters an existing role"
+
+        role_can_login \
+            || fail "PostgreSQL role ${DB_ROLE} exists but cannot log in. Nothing was created; resolve manually, since this installer never alters an existing role"
 
         log "SKIP role ${DB_ROLE}: already exists (never re-created, never re-passworded)"
     else

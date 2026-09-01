@@ -545,13 +545,20 @@ validate_material_dir() {
 CLASSIFY_STATE=""
 CLASSIFY_REASON=""
 
-# destination_may_be_a_symlink NAME — the closed set of prerequisites whose
-# canonical destination is legitimately a link.
+# ACME_LIVE_PREFIX — where an ACME client publishes the links, and the only
+# place a linked prerequisite may live or point.
+ACME_LIVE_PREFIX="/etc/letsencrypt/live/"
+ACME_ROOT_PREFIX="/etc/letsencrypt/"
+
+# destination_may_be_a_symlink NAME DESTINATION — whether this prerequisite's
+# canonical destination is allowed to be a link.
 #
-# Only the ACME-published certificate and key pairs qualify: certbot writes
-# live/<host>/{fullchain,privkey}.pem as links into its own archive, and
-# rejecting those would make every host with real certbot-managed TLS fail
-# verification forever.
+# Only the ACME-published certificate and key pairs qualify, and the logical
+# name alone is not enough to decide it: the destination has to be one an ACME
+# client actually publishes. Certbot writes live/<host>/{fullchain,privkey}.pem
+# as links into its own archive, and rejecting those would make every host with
+# real certbot-managed TLS fail verification forever — but that is the entire
+# exception, not a general licence for the four TLS rows.
 #
 # Everything else must be a real file, and that is a security property rather
 # than tidiness. A target's shared/ directory is writable by the application's
@@ -559,14 +566,35 @@ CLASSIFY_REASON=""
 # replace .env with a pointer at attacker-controlled material and have
 # preparation bless it as present and correct.
 destination_may_be_a_symlink() {
-    case "$1" in
+    local name="$1" destination="$2"
+
+    case "${name}" in
         tls-certificate|tls-private-key|mail-tls-certificate|mail-tls-private-key)
-            return 0
             ;;
         *)
             return 1
             ;;
     esac
+
+    [[ "${destination}" == "${ACME_LIVE_PREFIX}"* ]]
+}
+
+# acme_link_target_is_managed DESTINATION — the link must also resolve inside
+# the ACME tree. Otherwise a link at an allowed path could still point at
+# arbitrary material and be reported as prepared TLS.
+acme_link_target_is_managed() {
+    local resolved acme_root
+
+    # Both sides are canonicalized before comparison. A prefix test between a
+    # resolved path and an unresolved one would be decided by whatever
+    # symlinks happen to sit above the tree — which is how a scratch root under
+    # /var (a link to /private/var) makes a perfectly managed link look
+    # foreign.
+    resolved="$(readlink -m -- "$(physical "$1")" 2>/dev/null || true)"
+    acme_root="$(readlink -m -- "$(physical "${ACME_ROOT_PREFIX}")" 2>/dev/null || true)"
+
+    [[ -n "${resolved}" ]] && [[ -n "${acme_root}" ]] \
+        && [[ "${resolved}" == "${acme_root}/"* ]]
 }
 
 classify_row() {
@@ -581,18 +609,24 @@ classify_row() {
     fi
 
     if [[ -L "${dst}" ]]; then
-        if ! destination_may_be_a_symlink "${name}"; then
+        if ! destination_may_be_a_symlink "${name}" "${destination}"; then
             CLASSIFY_STATE=CONFLICT
-            CLASSIFY_REASON="canonical destination is a symlink, and only ACME-published TLS material may be: ${destination}"
+            CLASSIFY_REASON="canonical destination is a symlink, and only ACME-published TLS material under ${ACME_LIVE_PREFIX} may be: ${destination}"
             return 0
         fi
 
-        # For the ones that may be: what matters is that it resolves to a
-        # regular file. Nothing here ever writes through it, because a
-        # destination that exists is never installed over.
+        # For the ones that may be: it has to resolve to a regular file, and
+        # that file has to be inside the ACME tree. Nothing here ever writes
+        # through it, because a destination that exists is never installed over.
         if [[ ! -f "${dst}" ]]; then
             CLASSIFY_STATE=CONFLICT
             CLASSIFY_REASON="canonical destination is a symlink that does not resolve to a regular file: ${destination}"
+            return 0
+        fi
+
+        if ! acme_link_target_is_managed "${destination}"; then
+            CLASSIFY_STATE=CONFLICT
+            CLASSIFY_REASON="canonical destination is a symlink pointing outside ${ACME_ROOT_PREFIX}: ${destination}"
             return 0
         fi
     fi
@@ -835,8 +869,11 @@ verify_rows() {
         # -e and -f follow a symlink, which is exactly right for the ACME
         # material that legitimately is one — but only for that material.
         if [[ -L "${dst}" ]]; then
-            destination_may_be_a_symlink "${name}" \
-                || fail "external prerequisite ${name} is a symlink, and only ACME-published TLS material may be: ${destination}"
+            destination_may_be_a_symlink "${name}" "${destination}" \
+                || fail "external prerequisite ${name} is a symlink, and only ACME-published TLS material under ${ACME_LIVE_PREFIX} may be: ${destination}"
+
+            acme_link_target_is_managed "${destination}" \
+                || fail "external prerequisite ${name} is a symlink pointing outside ${ACME_ROOT_PREFIX}: ${destination}"
         fi
 
         [[ -e "${dst}" ]] \

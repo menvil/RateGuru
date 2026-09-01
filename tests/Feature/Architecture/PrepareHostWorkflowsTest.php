@@ -431,6 +431,31 @@ it('refuses a planned target on the runner, before any material is staged', func
         ->toContain('not active — preparation is refused before any target-specific mutation');
 });
 
+it('keeps the runner-side and server-side lifecycle gates deciding the same thing', function () {
+    // Two copies of one rule can drift, and a test that only pinned each copy's
+    // own string would let them. Both are therefore reduced to the set of
+    // lifecycle values they accept, and the sets are compared.
+    $gate = collect(phwAction()['runs']['steps'])
+        ->firstWhere('name', 'Validate the target lifecycle before any material is staged')['run'];
+
+    $server = File::get(base_path('infrastructure/scripts/prepare-host'));
+
+    $accepted = static function (string $source): array {
+        // Every lifecycle value either gate compares against, however it is
+        // spelled: `!= "active"`, `!= active`, `== active`.
+        preg_match_all('/lifecycle[^\n]*?[!=]=\s*"?([a-z]+)"?/', $source, $matches);
+
+        return array_values(array_unique($matches[1]));
+    };
+
+    expect($accepted($gate))->toBe(['active']);
+    expect($accepted($server))->toBe(['active']);
+
+    // Both also refuse, rather than warn, and say so in the same terms.
+    expect($gate)->toContain('exit 1');
+    expect($server)->toContain('fail "target ${TARGET_ID} has lifecycle=');
+});
+
 it('leaves tits-guru lifecycle=planned and changes no registry entry', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 

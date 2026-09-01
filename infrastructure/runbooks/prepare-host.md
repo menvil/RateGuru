@@ -265,12 +265,16 @@ deliberate operation.
 Secrets are compared, never read. A conflict reports only that the two
 differ: no content, no length, no hash, no byte offset.
 
-A destination may be a **symlink only for the ACME-published certificate and
-key pairs** (`tls-certificate`, `tls-private-key`, `mail-tls-certificate`,
-`mail-tls-private-key`) — that is exactly how certbot publishes
+A destination may be a **symlink only where an ACME client actually publishes
+one**: one of the four TLS rows (`tls-certificate`, `tls-private-key`,
+`mail-tls-certificate`, `mail-tls-private-key`), at a path under
+`/etc/letsencrypt/live/`, resolving to a regular file inside
+`/etc/letsencrypt/`. That is exactly how certbot publishes
 `live/<host>/{fullchain,privkey}.pem`, and such a link is accepted as present
-and never written through. A link resolving to nothing, or to something that is
-not a regular file, is broken state and fails closed.
+and never written through. All three conditions are required — the logical name
+alone would let a link at an allowed path point at anything and still be
+reported as prepared TLS. A link resolving to nothing, to something that is not
+a regular file, or to material outside the ACME tree fails closed.
 
 Everywhere else a link is refused outright, and that is a security property
 rather than tidiness: a target's `shared/` directory is writable by the
@@ -299,9 +303,12 @@ NOCREATEROLE NOREPLICATION`), creates the database owned by that role, grants
 `CONNECT`, and then proves the target's own credentials can connect. On an
 already-prepared host both objects are SKIPped.
 
-It also refuses a pre-existing role that holds `SUPERUSER`, `CREATEDB`,
-`CREATEROLE`, `REPLICATION` or `BYPASSRLS`: "it can log in" is not "it is safe
-to hand the application", and this installer never alters an existing role.
+It also refuses a pre-existing role that cannot log in, or that holds
+`SUPERUSER`, `CREATEDB`, `CREATEROLE`, `REPLICATION` or `BYPASSRLS`: "it exists"
+is not "it is safe to hand the application", and this installer never alters an
+existing role. Both checks run **before** anything is created, so a refused run
+never leaves a database and a `CONNECT` grant behind for an account it went on
+to reject.
 
 It never, in any mode:
 

@@ -78,7 +78,11 @@ function itdbWriteStubs(string $scratch): void
                 [[ -e "${STUB_STATE}/role-elevated" ]] && echo SUPERUSER
                 ;;
             *"SELECT rolcanlogin"*)
-                [[ -e "${STUB_STATE}/role-exists" ]] && echo t
+                if [[ -e "${STUB_STATE}/role-cannot-login" ]]; then
+                    echo f
+                elif [[ -e "${STUB_STATE}/role-exists" ]]; then
+                    echo t
+                fi
                 ;;
             *"FROM pg_roles WHERE rolname"*)
                 [[ -e "${STUB_STATE}/role-exists" ]] && echo 1
@@ -457,6 +461,33 @@ it('never runs a migration and contains no migration machinery at all', function
     // invoked. (`no createdb, no createrole` appears in a log line describing
     // the role's own privileges, so bare-word occurrences are not enough.)
     expect($source)->not->toMatch('/(^|[\s"\/])(createdb|dropdb)\s/m');
+});
+
+it('refuses a role that cannot log in before creating a database for it', function () {
+    $scratch = itdbScratchDir();
+
+    try {
+        itdbWriteStubs($scratch);
+        itdbWriteEnv($scratch);
+
+        // The role exists but cannot log in, and the database does not exist
+        // yet. Discovering that only in the final verification would leave a
+        // database and a CONNECT grant behind for an account the run refuses.
+        touch($scratch.'/state/role-exists');
+        file_put_contents($scratch.'/state/role-cannot-login', '');
+
+        [$exit, $output] = itdbRun($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('exists but cannot log in');
+        expect($output)->toContain('Nothing was created');
+
+        expect(itdbLog($scratch))
+            ->not->toContain('CREATE DATABASE')
+            ->not->toContain('GRANT ');
+    } finally {
+        itdbCleanup($scratch);
+    }
 });
 
 it('fails closed when existing credentials cannot connect, and changes nothing', function () {

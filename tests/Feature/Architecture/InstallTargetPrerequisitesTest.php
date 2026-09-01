@@ -478,15 +478,45 @@ it('refuses a symlinked destination for anything but ACME-published TLS material
         [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target']);
 
         expect($exit)->toBe(1);
-        expect($output)->toContain('only ACME-published TLS material may be');
+        expect($output)->toContain('only ACME-published TLS material under /etc/letsencrypt/live/ may be');
 
         [$exit, $output] = itpRun($scratch, ['--check', '--target', 'staging-main', '--scope', 'target']);
         expect($exit)->toBe(1);
-        expect($output)->toContain('only ACME-published TLS material may be');
+        expect($output)->toContain('only ACME-published TLS material under /etc/letsencrypt/live/ may be');
 
         // Refused, never followed and never replaced.
         expect(is_link($scratch.'/home/www/rateguru/staging/shared/.env'))->toBeTrue();
         expect(File::get($scratch.'/attacker-env'))->toBe("DB_PASSWORD=owned\n");
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('refuses a TLS link that points outside the ACME tree', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        // Everything in scope present and valid...
+        itpSupply($scratch, ITP_HOST_MATERIAL);
+        itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'host',
+            '--material-dir', '/root/material',
+        ]);
+
+        // ...except one key replaced by a link to material outside the ACME
+        // tree. An allowlisted logical name at an allowed path is not enough
+        // on its own.
+        $key = $scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem';
+        unlink($key);
+        file_put_contents($scratch.'/attacker-key', "-----BEGIN PRIVATE KEY-----\n");
+        chmod($scratch.'/attacker-key', 0o600);
+        symlink($scratch.'/attacker-key', $key);
+
+        [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'host']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('pointing outside /etc/letsencrypt/');
+        expect(is_link($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem'))->toBeTrue();
     } finally {
         itpCleanup($scratch);
     }
@@ -569,7 +599,7 @@ it('refuses a symlinked htpasswd, where no link is allowed at all', function () 
         ]);
 
         expect($exit)->toBe(1);
-        expect($output)->toContain('only ACME-published TLS material may be');
+        expect($output)->toContain('only ACME-published TLS material under /etc/letsencrypt/live/ may be');
         expect(File::get($scratch.'/decoy'))->toBe("decoy\n");
     } finally {
         itpCleanup($scratch);
