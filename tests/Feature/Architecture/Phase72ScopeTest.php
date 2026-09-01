@@ -51,22 +51,32 @@ function p72OperationalFiles(): array
  *
  * `actions/checkout` on a pull_request event creates no `origin/develop` ref,
  * so a guard that only looked for that would silently skip in exactly the place
- * it matters most.
+ * it matters most. CI therefore passes the base commit through BASE_SHA and
+ * checks out two commits, which is enough for the merge commit's first parent
+ * to be present.
  */
 function p72BaseRevision(): ?string
 {
     $baseSha = getenv('BASE_SHA');
 
-    if (is_string($baseSha) && $baseSha !== '' && p72GitSucceeds("cat-file -e {$baseSha}^{commit}")) {
+    if (is_string($baseSha) && $baseSha !== '' && p72GitSucceeds(['cat-file', '-e', $baseSha.'^{commit}'])) {
         return $baseSha;
     }
 
-    return p72GitSucceeds('rev-parse --verify origin/develop') ? 'origin/develop' : null;
+    return p72GitSucceeds(['rev-parse', '--verify', 'origin/develop']) ? 'origin/develop' : null;
 }
 
-function p72GitSucceeds(string $arguments): bool
+/**
+ * @param  list<string>  $arguments
+ */
+function p72GitSucceeds(array $arguments): bool
 {
-    $command = 'cd '.escapeshellarg(base_path()).' && git '.$arguments.' >/dev/null 2>&1; echo $?';
+    // Every argument is escaped individually. BASE_SHA is an environment value
+    // and this runs through a shell, so interpolating it raw would let a
+    // metacharacter in it execute in the test runner.
+    $command = 'cd '.escapeshellarg(base_path()).' && git '
+        .implode(' ', array_map('escapeshellarg', $arguments))
+        .' >/dev/null 2>&1; echo $?';
 
     return trim((string) shell_exec($command)) === '0';
 }
@@ -226,8 +236,13 @@ it('adds no durable release-artifact archive', function () {
 it('leaves the backup architecture and its manifest schema untouched', function () {
     $base = p72BaseRevision();
 
+    // A plain two-tree diff, not a three-dot range: computing a merge base
+    // needs history a shallow CI clone does not have, and on a pull_request
+    // checkout HEAD already contains the base merged in, so the two are
+    // equivalent here.
     $baseline = trim((string) shell_exec(
-        'cd '.escapeshellarg(base_path()).' && git diff --name-only '.escapeshellarg($base).'...HEAD 2>/dev/null'
+        'cd '.escapeshellarg(base_path()).' && git diff --name-only '
+            .escapeshellarg($base).' HEAD 2>/dev/null'
     ));
 
     $changed = $baseline === '' ? [] : explode("\n", $baseline);

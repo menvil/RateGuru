@@ -338,6 +338,11 @@ SUPERUSER_QUERY_RESULT=""
 superuser_query() {
     local output status=0
 
+    # stdout only. Merging stderr in would put a NOTICE or a warning from a
+    # perfectly successful query into the result, and the callers compare that
+    # result against exactly "1" or "t" — an existing object would read as
+    # absent. psql's diagnostics go straight through to this script's own
+    # stderr, where they belong.
     output="$(
         "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
             "${PSQL_BIN}" \
@@ -346,12 +351,10 @@ superuser_query() {
                 --tuples-only \
                 --set=ON_ERROR_STOP=1 \
                 --dbname=postgres \
-                --command="$1" \
-            2>&1
+                --command="$1"
     )" || status=$?
 
     if (( status != 0 )); then
-        printf '%s\n' "${output}" >&2
         fail "could not query PostgreSQL as ${POSTGRES_SUPERUSER} (exit status ${status}) — refusing to treat an unreadable catalog as an absent object"
     fi
 
@@ -593,6 +596,15 @@ run_apply() {
     # outright — there is no path in this function that modifies something that
     # is already there.
     if role_exists; then
+        # Checked BEFORE anything is created. An over-privileged role is a
+        # fail-closed condition, and discovering it only in the verification at
+        # the end would mean a database and a grant had already been created
+        # for an account this run is about to refuse.
+        resolve_role_elevated_privileges
+
+        [[ -z "${ROLE_ELEVATED}" ]] \
+            || fail "PostgreSQL role ${DB_ROLE} holds ${ROLE_ELEVATED} — an application role must hold none of SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. Nothing was created; resolve manually, since this installer never alters an existing role"
+
         log "SKIP role ${DB_ROLE}: already exists (never re-created, never re-passworded)"
     else
         create_role

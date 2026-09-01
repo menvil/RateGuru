@@ -914,18 +914,29 @@ delete:
   tests/Feature/Architecture/NightwatchAgentInstallerTest.php
   tests/Feature/Docs/Phase6BNightwatchRunbookTest.php
 
+  # Phase 7.2A deployment-marker primitive
+  infrastructure/scripts/record-nightwatch-deployment
+  infrastructure/config/wrappers/rateguru-nightwatch-deployment
+  infrastructure/config/sudoers/rateguru-nightwatch-deployment
+  tests/Feature/Architecture/RecordNightwatchDeploymentTest.php
+
 revert:
   app/Providers/ObservabilityServiceProvider.php   (configureNightwatch)
   app/Console/Commands/ObservabilityHealthCommand.php (checkNightwatch)
   infrastructure/scripts/common                    (target_nightwatch_program)
   infrastructure/scripts/deploy                    (nightwatch agent transition)
-  infrastructure/config/required-clis.txt          (install-nightwatch-agent)
+  infrastructure/config/required-clis.txt          (install-nightwatch-agent,
+                                                    record-nightwatch-deployment)
+  .github/actions/record-rateguru-deployment       (the Nightwatch marker step;
+                                                    the Sentry half stays)
   infrastructure/templates/environment/staging.env.example (NIGHTWATCH_*)
   .env.example                                     (NIGHTWATCH_*)
   phpunit.xml                                      (NIGHTWATCH_ENABLED, if desired)
 
 on the server:
   install-nightwatch-agent --remove --target staging-main
+    (takes the agent AND the deployment-marker primitive, its sudo wrapper and
+     its sudoers grant — that is why they are owned by this installer)
   remove NIGHTWATCH_* from /home/www/rateguru/staging/shared/.env
   delete the Nightwatch application in the dashboard
 

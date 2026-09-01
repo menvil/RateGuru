@@ -160,6 +160,9 @@ jobs:
       DB_DATABASE: rateguru_test
       DB_USERNAME: rateguru
       DB_PASSWORD: rateguru
+      # The commit this branch is measured against, for the architecture scope
+      # guards. Empty on a push event, where those guards correctly skip.
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
     outputs:
       assertions: ${{ steps.test-results.outputs.assertions }}
       migrations: ${{ steps.postgres-migrations.outputs.migrations }}
@@ -179,8 +182,15 @@ jobs:
           --health-timeout=5s
           --health-retries=10
     steps:
+      # Depth 2, not the default 1. On a pull_request event the checkout is a
+      # merge commit whose first parent is the base branch tip, so two commits
+      # is exactly enough for the architecture scope guards to diff this branch
+      # against its base — and a scope guard that silently skips on every pull
+      # request protects nothing.
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2

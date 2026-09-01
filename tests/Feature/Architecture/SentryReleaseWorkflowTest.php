@@ -14,15 +14,17 @@ function sentryReleaseAction(): array
 }
 
 /**
- * Every place the shared observability action is invoked — from a workflow
- * job, or from another composite action. Phase 7.1 moved the post-rollback
- * marker into .github/actions/rollback-rateguru so the two operator
- * workflows stopped carrying identical copies of it, and this scan follows
- * it there rather than losing sight of a call site.
+ * Every place a local composite action is called, keyed by
+ * "<workflow>.yml:<job>" for a workflow and "<action>/action.yml:runs" for
+ * another action.
+ *
+ * One scanner rather than one per action: the two helpers below differ only in
+ * which `uses:` value they look for, and a second copy would be a second place
+ * to fix when the key shape or the search set changes.
  *
  * @return array<string, array{source: string, scope: string, step: array}>
  */
-function sentryReleaseCallSites(): array
+function localActionCallSites(string $uses): array
 {
     $callSites = [];
 
@@ -31,7 +33,7 @@ function sentryReleaseCallSites(): array
 
         foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
             foreach ((array) data_get($job, 'steps', []) as $step) {
-                if (data_get($step, 'uses') !== './.github/actions/sentry-release') {
+                if (data_get($step, 'uses') !== $uses) {
                     continue;
                 }
 
@@ -48,7 +50,7 @@ function sentryReleaseCallSites(): array
         $action = Yaml::parse(File::get($path));
 
         foreach ((array) data_get($action, 'runs.steps', []) as $step) {
-            if (data_get($step, 'uses') !== './.github/actions/sentry-release') {
+            if (data_get($step, 'uses') !== $uses) {
                 continue;
             }
 
@@ -66,54 +68,29 @@ function sentryReleaseCallSites(): array
 }
 
 /**
+ * Every place the shared Sentry action is invoked — from a workflow job, or
+ * from another composite action. Phase 7.1 moved the post-rollback marker into
+ * .github/actions/rollback-rateguru, and Phase 7.2A moved every remaining
+ * caller behind .github/actions/record-rateguru-deployment, so this scan
+ * follows it there rather than losing sight of a call site.
+ *
+ * @return array<string, array{source: string, scope: string, step: array}>
+ */
+function sentryReleaseCallSites(): array
+{
+    return localActionCallSites('./.github/actions/sentry-release');
+}
+
+/**
  * Phase 7.2A inserted one indirection: workflows no longer call the Sentry
  * action directly, they call .github/actions/record-rateguru-deployment, which
- * records the same transition in Sentry AND in Nightwatch. This returns the
- * call sites of that shared recording action, in the same shape.
+ * records the same transition in Sentry AND in Nightwatch.
  *
  * @return array<string, array{source: string, scope: string, step: array}>
  */
 function deploymentRecordingCallSites(): array
 {
-    $callSites = [];
-
-    foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
-        $workflow = Yaml::parse(File::get($path));
-
-        foreach ((array) data_get($workflow, 'jobs', []) as $jobName => $job) {
-            foreach ((array) data_get($job, 'steps', []) as $step) {
-                if (data_get($step, 'uses') !== './.github/actions/record-rateguru-deployment') {
-                    continue;
-                }
-
-                $callSites[basename($path).":{$jobName}"] = [
-                    'source' => basename($path),
-                    'scope' => $jobName,
-                    'step' => $step,
-                ];
-            }
-        }
-    }
-
-    foreach (glob(base_path('.github/actions/*/action.yml')) ?: [] as $path) {
-        $action = Yaml::parse(File::get($path));
-
-        foreach ((array) data_get($action, 'runs.steps', []) as $step) {
-            if (data_get($step, 'uses') !== './.github/actions/record-rateguru-deployment') {
-                continue;
-            }
-
-            $name = basename(dirname($path));
-
-            $callSites["{$name}/action.yml:runs"] = [
-                'source' => "{$name}/action.yml",
-                'scope' => 'runs',
-                'step' => $step,
-            ];
-        }
-    }
-
-    return $callSites;
+    return localActionCallSites('./.github/actions/record-rateguru-deployment');
 }
 
 it('pins the official Sentry release action by immutable commit SHA, like every other third-party action', function () {

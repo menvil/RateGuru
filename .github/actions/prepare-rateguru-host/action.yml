@@ -183,9 +183,13 @@ runs:
         # A syntactically numeric port is not enough: 0 and anything above
         # 65535 would sail through and fail later inside every ssh and scp call
         # with a far less obvious diagnostic.
+        # 10# forces decimal. Bash reads a leading-zero operand inside (( ))
+        # as octal, so a port like 08 would raise "value too great for base",
+        # return non-zero, and be read by this || chain as "the condition did
+        # not hold" — quietly passing validation.
         if [[ ! "${BOOTSTRAP_PORT}" =~ ^[0-9]{1,5}$ ]] \
-          || (( BOOTSTRAP_PORT < 1 )) \
-          || (( BOOTSTRAP_PORT > 65535 ))
+          || (( 10#${BOOTSTRAP_PORT} < 1 )) \
+          || (( 10#${BOOTSTRAP_PORT} > 65535 ))
         then
           echo "Invalid bootstrap port (expected 1-65535): ${BOOTSTRAP_PORT}" >&2
           exit 1
@@ -272,6 +276,45 @@ runs:
         fi
 
         echo "RATEGURU_PRIVILEGED_PREFIX=${privileged_prefix}" >> "${GITHUB_ENV}"
+
+    # The server-side lifecycle gate stays authoritative, and it is what
+    # actually protects the host. This is the same question asked one step
+    # earlier, on the runner, for one reason: without it a run against a
+    # lifecycle=planned target would upload the operator's secret material to a
+    # host before the server refused it, and material must never reach a host
+    # for a target that must not be provisioned.
+    #
+    # It asks the repository's own `targets` CLI, against the committed
+    # registry in the trusted checkout — no lifecycle rule is reimplemented
+    # here, and no destination path is known here.
+    - name: Validate the target lifecycle before any material is staged
+      shell: bash
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        set -Eeuo pipefail
+
+        registry="${GITHUB_WORKSPACE}/infrastructure/config/deployment-targets.json"
+        targets_cli="${GITHUB_WORKSPACE}/infrastructure/scripts/targets"
+
+        test -x "${targets_cli}"
+        test -f "${registry}"
+
+        if ! target_json="$("${targets_cli}" show --target "${DEPLOYMENT_TARGET}" --file "${registry}" 2>&1)"; then
+          echo "${target_json}" >&2
+          echo "Unknown or unusable deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        fi
+
+        lifecycle="$(printf '%s' "${target_json}" | jq -r '.lifecycle // empty')"
+
+        if [[ "${lifecycle}" != "active" ]]; then
+          echo "Target ${DEPLOYMENT_TARGET} has lifecycle=${lifecycle:-unknown}, not active." >&2
+          echo "Host preparation is refused before any material is staged or uploaded. Activating a target is a deliberate registry change in its own phase, never a side effect of preparing a host." >&2
+          exit 1
+        fi
+
+        echo "Target ${DEPLOYMENT_TARGET}: lifecycle=active — preparation may proceed"
 
     # Only infrastructure/ — every bootstrap and preparation script resolves
     # every file it needs beneath that one directory, and nothing else in this

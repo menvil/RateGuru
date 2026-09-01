@@ -461,6 +461,37 @@ it('accepts an ACME-managed symlink at a TLS destination and never replaces it',
     }
 });
 
+it('refuses a symlinked destination for anything but ACME-published TLS material', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpCreateTargetDirectories($scratch);
+
+        // A target's shared/ directory is writable by the application's own
+        // runtime user, so blessing a link there would let a compromised
+        // runtime point .env at material it controls and have preparation call
+        // it present and correct.
+        file_put_contents($scratch.'/attacker-env', "DB_PASSWORD=owned\n");
+        chmod($scratch.'/attacker-env', 0o600);
+        symlink($scratch.'/attacker-env', $scratch.'/home/www/rateguru/staging/shared/.env');
+
+        [$exit, $output] = itpRun($scratch, ['--verify', '--target', 'staging-main', '--scope', 'target']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('only ACME-published TLS material may be');
+
+        [$exit, $output] = itpRun($scratch, ['--check', '--target', 'staging-main', '--scope', 'target']);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('only ACME-published TLS material may be');
+
+        // Refused, never followed and never replaced.
+        expect(is_link($scratch.'/home/www/rateguru/staging/shared/.env'))->toBeTrue();
+        expect(File::get($scratch.'/attacker-env'))->toBe("DB_PASSWORD=owned\n");
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
 it('fails verification when a secret prerequisite is readable by every user on the host', function () {
     $scratch = itpScratchDir();
 
@@ -493,16 +524,18 @@ it('fails verification when a secret prerequisite is readable by every user on t
     }
 });
 
-it('refuses to follow a symlink at a canonical destination', function () {
+it('refuses a dangling symlink even where a symlink is otherwise allowed', function () {
     $scratch = itpScratchDir();
 
     try {
-        mkdir($scratch.'/etc/nginx', 0o755, true);
-
-        // A link that resolves to a regular file is legitimate (certbot); one
-        // that resolves to nothing, or to a directory, is broken state this
+        // The ACME certificate rows may legitimately be links — but only ones
+        // that resolve to a real file. A dangling link is broken state this
         // must never write through or paper over.
-        symlink($scratch.'/does-not-exist', $scratch.'/etc/nginx/rateguru-staging.htpasswd');
+        mkdir($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua', 0o755, true);
+        symlink(
+            $scratch.'/does-not-exist',
+            $scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem',
+        );
 
         itpSupply($scratch, ITP_HOST_MATERIAL);
 
@@ -513,8 +546,31 @@ it('refuses to follow a symlink at a canonical destination', function () {
 
         expect($exit)->toBe(1);
         expect($output)->toContain('does not resolve to a regular file');
-        expect(is_link($scratch.'/etc/nginx/rateguru-staging.htpasswd'))->toBeTrue();
+        expect(is_link($scratch.'/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/privkey.pem'))->toBeTrue();
         expect(file_exists($scratch.'/does-not-exist'))->toBeFalse();
+    } finally {
+        itpCleanup($scratch);
+    }
+});
+
+it('refuses a symlinked htpasswd, where no link is allowed at all', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        mkdir($scratch.'/etc/nginx', 0o755, true);
+        file_put_contents($scratch.'/decoy', "decoy\n");
+        symlink($scratch.'/decoy', $scratch.'/etc/nginx/rateguru-staging.htpasswd');
+
+        itpSupply($scratch, ITP_HOST_MATERIAL);
+
+        [$exit, $output] = itpRun($scratch, [
+            '--apply', '--target', 'staging-main', '--scope', 'host',
+            '--material-dir', '/root/material',
+        ]);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('only ACME-published TLS material may be');
+        expect(File::get($scratch.'/decoy'))->toBe("decoy\n");
     } finally {
         itpCleanup($scratch);
     }

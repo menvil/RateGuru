@@ -471,6 +471,33 @@ it('refuses a current symlink that resolves outside the target releases director
     }
 });
 
+it('refuses a symlinked releases root, which would normalize a foreign tree into containment', function () {
+    $scratch = nwScratchDir();
+
+    try {
+        $env = nwFixture($scratch);
+
+        // With releases/ itself a link, `readlink -f` would resolve a foreign
+        // tree to a path that looks contained — defeating the containment
+        // check rather than satisfying it.
+        $root = $scratch.'/target';
+        exec('mv '.escapeshellarg($root.'/releases').' '.escapeshellarg($scratch.'/elsewhere'));
+        symlink($scratch.'/elsewhere', $root.'/releases');
+
+        [$exit, $output] = nwRun(
+            ['--target', 'staging-main', '--release', 'v0.0.0-20260101-120000-abc1234',
+                '--source-sha', 'abc1234def5678'],
+            $env,
+        );
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('releases root must not be a symlink');
+        expect(nwRunuserArgs($scratch))->toBe([]);
+    } finally {
+        nwCleanup($scratch);
+    }
+});
+
 it('takes the target deployment lock, so a concurrent deploy cannot decorrelate the marker', function () {
     $scratch = nwScratchDir();
 
@@ -662,13 +689,18 @@ it('keeps the whole Nightwatch integration removable in one step', function () {
     // install-target-perimeter's wrappers — so a Phase 6C rejection removes the
     // entire integration with `--remove`, and no host is ever required to
     // carry any of it.
-    foreach ([
-        'infrastructure/scripts/record-nightwatch-deployment',
-        'infrastructure/config/wrappers/rateguru-nightwatch-deployment',
-        'infrastructure/config/sudoers/rateguru-nightwatch-deployment',
-    ] as $source) {
-        expect($installer)->toContain(basename($source));
-    }
+    // The full repository-relative paths, each asserted on its own: the three
+    // files share a basename, so a basename check would pass on any one of
+    // them and prove nothing about the other two.
+    expect($installer)
+        ->toContain('SRC_RECORD_BIN="${REPO_ROOT}/infrastructure/scripts/record-nightwatch-deployment"')
+        ->toContain('SRC_MARKER_WRAPPER="${REPO_ROOT}/infrastructure/config/wrappers/rateguru-nightwatch-deployment"')
+        ->toContain('SRC_MARKER_SUDOERS="${REPO_ROOT}/infrastructure/config/sudoers/rateguru-nightwatch-deployment"');
+
+    // And each is backed up under its own key, because a basename-keyed backup
+    // would have the sudoers grant and the wrapper share one slot — and a
+    // rollback restore sudoers content over an executable.
+    expect($installer)->toContain('backup_path="${TXN_MARKER_BACKUP_DIR}/$(backup_key "${dst}")"');
 
     expect($installer)->toContain('remove_marker_files');
 

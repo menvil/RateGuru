@@ -406,6 +406,31 @@ it('cannot bypass the lifecycle=planned gate from the production workflow', func
         ->toContain('not active — preparation is refused before any target-specific mutation');
 });
 
+it('refuses a planned target on the runner, before any material is staged', function () {
+    $steps = phwAction()['runs']['steps'];
+    $names = array_column($steps, 'name');
+
+    $gateIndex = array_search('Validate the target lifecycle before any material is staged', $names, true);
+    $stageIndex = array_search('Stage external material', $names, true);
+    $uploadIndex = array_search('Upload bootstrap bundle and material', $names, true);
+
+    expect($gateIndex)->not->toBeFalse();
+    expect($stageIndex)->toBeGreaterThan($gateIndex,
+        'no secret may be written to the runner for a target that must not be provisioned');
+    expect($uploadIndex)->toBeGreaterThan($gateIndex);
+
+    // The lifecycle rule itself is not reimplemented here: the repository's own
+    // CLI answers, against the committed registry in the trusted checkout.
+    $gate = $steps[$gateIndex]['run'];
+    expect($gate)->toContain('infrastructure/scripts/targets');
+    expect($gate)->toContain('infrastructure/config/deployment-targets.json');
+    expect($gate)->toContain('lifecycle}" != "active"');
+
+    // And the server-side gate stays authoritative regardless.
+    expect(File::get(base_path('infrastructure/scripts/prepare-host')))
+        ->toContain('not active — preparation is refused before any target-specific mutation');
+});
+
 it('leaves tits-guru lifecycle=planned and changes no registry entry', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 

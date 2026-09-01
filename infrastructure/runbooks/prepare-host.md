@@ -265,10 +265,18 @@ deliberate operation.
 Secrets are compared, never read. A conflict reports only that the two
 differ: no content, no length, no hash, no byte offset.
 
-A destination that is a **symlink resolving to a regular file** is accepted as
-present and never written through — that is exactly how an ACME client
-publishes `live/<host>/{fullchain,privkey}.pem`. A link resolving to nothing,
-or to something that is not a regular file, is broken state and fails closed.
+A destination may be a **symlink only for the ACME-published certificate and
+key pairs** (`tls-certificate`, `tls-private-key`, `mail-tls-certificate`,
+`mail-tls-private-key`) — that is exactly how certbot publishes
+`live/<host>/{fullchain,privkey}.pem`, and such a link is accepted as present
+and never written through. A link resolving to nothing, or to something that is
+not a regular file, is broken state and fails closed.
+
+Everywhere else a link is refused outright, and that is a security property
+rather than tidiness: a target's `shared/` directory is writable by the
+application's own runtime user, so accepting a link there would let a
+compromised runtime replace `.env` with a pointer at attacker-controlled
+material and have preparation bless it as present and correct.
 
 Verification checks presence, and one metadata property: a **secret-class
 prerequisite readable by every user on the host** fails. Exact modes are the

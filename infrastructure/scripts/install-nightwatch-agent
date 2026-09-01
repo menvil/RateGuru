@@ -781,6 +781,12 @@ registry_target_ids() {
 TXN_MARKER_BACKUPS=()
 TXN_MARKER_BACKUP_DIR=""
 
+# backup_key DESTINATION — a collision-free filename for one destination's
+# backup, derived from the whole path rather than its last component.
+backup_key() {
+    printf '%s\n' "${1#/}" | tr '/' '_'
+}
+
 backup_existing_marker_files() {
     local src dst mode label dst_phys backup_path
 
@@ -802,15 +808,22 @@ backup_existing_marker_files() {
         fi
 
         if [[ -f "${dst_phys}" ]]; then
-            backup_path="${TXN_MARKER_BACKUP_DIR}/$(basename "${dst}")"
+            # Keyed by the whole destination path, not its basename: the sudo
+            # wrapper and its sudoers grant are both called
+            # rateguru-nightwatch-deployment, so a basename-keyed backup would
+            # have one file serving two destinations — and a rollback would
+            # restore sudoers content over an executable.
+            backup_path="${TXN_MARKER_BACKUP_DIR}/$(backup_key "${dst}")"
 
             cp -- "${dst_phys}" "${backup_path}" \
                 || fail "cannot back up ${dst}"
 
             # Ownership and mode are part of the previous state, so they are
             # captured alongside the bytes; restoring content while leaving a
-            # failed apply's mode behind is not a rollback.
-            TXN_MARKER_BACKUPS+=("${dst}|${backup_path}|$("${STAT_BIN}" -c '%U:%G' "${dst_phys}")|$("${STAT_BIN}" -c '%a' "${dst_phys}")")
+            # failed apply's mode behind is not a rollback. Numeric IDs, not
+            # names: a file owned by a uid with no passwd entry would otherwise
+            # be captured as the literal UNKNOWN and fail to restore.
+            TXN_MARKER_BACKUPS+=("${dst}|${backup_path}|$("${STAT_BIN}" -c '%u:%g' "${dst_phys}")|$("${STAT_BIN}" -c '%a' "${dst_phys}")")
             log "backed up ${dst}"
         else
             TXN_MARKER_BACKUPS+=("${dst}|||")

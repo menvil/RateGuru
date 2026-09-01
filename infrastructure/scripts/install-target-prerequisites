@@ -385,17 +385,38 @@ build_prerequisite_table() {
     # shared TLS options are literally the same file for both).
     local category path mail_src
 
+    # Every vhost source is proved readable BEFORE it is parsed. A process
+    # substitution's failure never reaches the loop that consumes it, so a
+    # missing or unreadable vhost would simply contribute no rows — and a
+    # host-scope table that silently came out empty would make --verify report
+    # "all 0 external prerequisites present" and pass on a host with no TLS
+    # material at all. Fail-open in exactly the place that must not be.
+    require_vhost_source "${SRC_NGINX_DIR}/${nginx_site}"
+
     while IFS='|' read -r category path; do
         [[ -n "${category}" ]] || continue
         emit_nginx_row "${category}" "${path}" "" "${TARGET_ID} vhost"
     done < <(nginx_external_prerequisites "${SRC_NGINX_DIR}/${nginx_site}")
 
     for mail_src in "${SRC_MAIL_NGINX_SOURCES[@]}"; do
+        require_vhost_source "${mail_src}"
+
         while IFS='|' read -r category path; do
             [[ -n "${category}" ]] || continue
             emit_nginx_row "${category}" "${path}" "mail-" "shared mail-capture vhosts"
         done < <(nginx_external_prerequisites "${mail_src}")
     done
+
+    # The committed vhosts always reference external material; a table with no
+    # host-scope rows means the parse produced nothing and something is wrong
+    # with this checkout, not with the host.
+    local row host_rows=0
+    for row in ${PREREQ_ROWS[@]+"${PREREQ_ROWS[@]}"}; do
+        [[ "${row%%|*}" != host ]] || host_rows=$((host_rows + 1))
+    done
+
+    (( host_rows > 0 )) \
+        || fail "no external prerequisites could be derived from the committed vhosts — refusing to report a target as prepared against an empty contract"
 
     # --- target scope: files inside RateGuru's own identities and directories.
     #
@@ -416,6 +437,16 @@ build_prerequisite_table() {
         "/root/.config/rclone/rclone.conf" \
         root root 0600 secret \
         "Backblaze B2 credentials for offsite backups"
+}
+
+# require_vhost_source PATH — a committed vhost this checkout must contain.
+require_vhost_source() {
+    local src="$1"
+
+    [[ -e "${src}" ]] || fail "committed Nginx vhost is missing: ${src} — run from a full repository checkout"
+    [[ ! -L "${src}" ]] || fail "committed Nginx vhost must not be a symlink: ${src}"
+    [[ -f "${src}" ]] || fail "committed Nginx vhost is not a regular file: ${src}"
+    [[ -r "${src}" ]] || fail "committed Nginx vhost is not readable: ${src}"
 }
 
 # emit_nginx_row CATEGORY PATH NAME_PREFIX DESCRIPTION — one row per distinct
@@ -514,6 +545,30 @@ validate_material_dir() {
 CLASSIFY_STATE=""
 CLASSIFY_REASON=""
 
+# destination_may_be_a_symlink NAME — the closed set of prerequisites whose
+# canonical destination is legitimately a link.
+#
+# Only the ACME-published certificate and key pairs qualify: certbot writes
+# live/<host>/{fullchain,privkey}.pem as links into its own archive, and
+# rejecting those would make every host with real certbot-managed TLS fail
+# verification forever.
+#
+# Everything else must be a real file, and that is a security property rather
+# than tidiness. A target's shared/ directory is writable by the application's
+# own runtime user, so accepting a link there would let a compromised runtime
+# replace .env with a pointer at attacker-controlled material and have
+# preparation bless it as present and correct.
+destination_may_be_a_symlink() {
+    case "$1" in
+        tls-certificate|tls-private-key|mail-tls-certificate|mail-tls-private-key)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 classify_row() {
     local name="$1" destination="$2"
     local dst material
@@ -525,16 +580,21 @@ classify_row() {
         material="$(physical "${MATERIAL_DIR}")/${name}"
     fi
 
-    # A symlink at the destination is normal, not suspicious: an ACME client
-    # publishes /etc/letsencrypt/live/<host>/{fullchain,privkey}.pem as links
-    # into its own archive, and rejecting those would make every prepared host
-    # with real certbot-managed TLS fail verification forever. What matters is
-    # that it resolves to a regular file — and nothing here ever writes through
-    # it, because a destination that exists is never installed over.
-    if [[ -L "${dst}" ]] && [[ ! -f "${dst}" ]]; then
-        CLASSIFY_STATE=CONFLICT
-        CLASSIFY_REASON="canonical destination is a symlink that does not resolve to a regular file: ${destination}"
-        return 0
+    if [[ -L "${dst}" ]]; then
+        if ! destination_may_be_a_symlink "${name}"; then
+            CLASSIFY_STATE=CONFLICT
+            CLASSIFY_REASON="canonical destination is a symlink, and only ACME-published TLS material may be: ${destination}"
+            return 0
+        fi
+
+        # For the ones that may be: what matters is that it resolves to a
+        # regular file. Nothing here ever writes through it, because a
+        # destination that exists is never installed over.
+        if [[ ! -f "${dst}" ]]; then
+            CLASSIFY_STATE=CONFLICT
+            CLASSIFY_REASON="canonical destination is a symlink that does not resolve to a regular file: ${destination}"
+            return 0
+        fi
     fi
 
     if [[ -e "${dst}" ]] && [[ ! -f "${dst}" ]]; then
@@ -772,9 +832,13 @@ verify_rows() {
 
         dst="$(physical "${destination}")"
 
-        # -e and -f follow a symlink, which is exactly right: a certbot-managed
-        # link is a legitimate destination as long as it resolves to a real
-        # file.
+        # -e and -f follow a symlink, which is exactly right for the ACME
+        # material that legitimately is one — but only for that material.
+        if [[ -L "${dst}" ]]; then
+            destination_may_be_a_symlink "${name}" \
+                || fail "external prerequisite ${name} is a symlink, and only ACME-published TLS material may be: ${destination}"
+        fi
+
         [[ -e "${dst}" ]] \
             || fail "external prerequisite ${name} is absent: ${destination} (${description}) — provide it; it is never generated here"
         [[ -f "${dst}" ]] \

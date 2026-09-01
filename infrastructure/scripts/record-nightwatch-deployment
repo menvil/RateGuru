@@ -221,6 +221,16 @@ resolve_active_release() {
     [[ -n "${resolved}" ]] && [[ -d "${resolved}" ]] \
         || fail "current release symlink is dangling for target ${TARGET_ID}: ${current}"
 
+    # The releases root itself must be a real directory, never a symlink. A
+    # symlinked releases root would let `readlink -f` normalize a foreign tree
+    # into "contained", which is exactly the containment this check exists to
+    # establish. Same rule rollback's own validate_releases_root applies.
+    [[ ! -L "${releases}" ]] \
+        || fail "releases root must not be a symlink for target ${TARGET_ID}: ${releases}"
+
+    [[ -d "${releases}" ]] \
+        || fail "releases root must be a real directory for target ${TARGET_ID}: ${releases}"
+
     resolved_releases="$(readlink -f -- "${releases}" 2>/dev/null || true)"
 
     [[ -n "${resolved_releases}" ]] && [[ -d "${resolved_releases}" ]] \
