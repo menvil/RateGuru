@@ -571,7 +571,7 @@ operation (one carrying `state.json`).
 | `backup` refuses: `… is held after restore operation …` | a restore guard is in place for this target | restored, or mid-restore | controlled code alignment is required — do **not** use the normal deployment path; Phase 7.4 will deploy the required source SHA while preserving the hold, then resume |
 | `WARNING: one or more writers could NOT be proven stopped` | a queue worker, the scheduler or maintenance mode could not be confirmed | unknown, possibly still being written | treat the data as live; find and stop the writer named in the `ERROR` lines before touching anything |
 | the process was killed mid-activation | no handler ran, so nothing compensated | possibly half-swapped | read `state.json` in the operation workspace for the exact phase, then either finish or reverse it with the `restore-database` / `restore-storage` steps, or restore from the emergency backup |
-| `CODE ALIGNMENT: REQUIRED` | the data is restored, the code does not match | restored | deploy the named `source_sha`, then `--resume` |
+| `CODE ALIGNMENT: REQUIRED` | the data is restored, the code does not match | restored | controlled code alignment is required — do **not** use the normal deployment path; Phase 7.4 will deploy the required source SHA while preserving the hold, then `--resume`. Until it exists this is finished by hand, keeping the target held throughout |
 
 ## Expected server commands
 
