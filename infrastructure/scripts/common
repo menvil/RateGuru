@@ -668,4 +668,63 @@ USAGE
 
     [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
+# --- restore hold marker (Phase 7.3) ------------------------------------------
+#
+# A restore that lands data from backup A onto a target whose `current` still
+# serves code B finishes in a deliberate HELD state: the data is restored, but
+# nothing may run against it until the matching code is deployed. The hold
+# itself is runtime state — maintenance on, queue stopped, cron entry moved
+# aside — and it dies with the process that created it.
+#
+# This marker is the part that has to outlive it, because the hold is not only
+# about traffic. While a target is held, its live data belongs to a DIFFERENT
+# commit than the one `current/release.json` names, and an ordinary backup
+# copies the data from disk while taking its release identity from
+# `current/release.json`. Taken in that window it would produce a backup
+# asserting that data from A belongs to commit B — quietly corrupting the one
+# invariant the whole disaster-recovery model rests on:
+#
+#   backup release.json.source_sha -> the code the restored data belongs to
+#
+# So the marker is a root-only file that says "this target's data does not
+# match its code yet", and `backup` refuses to snapshot while it exists. It is
+# written when a restore ends held (or ends held after a failure that may have
+# left replaced data behind), and removed only by a successful `--resume`:
+# health check passed, restored data verified, code aligned.
+#
+# It lives under the restore run root rather than the target's own locks/
+# directory, which is deploy_user:code_group 2750 — a safety marker must not
+# sit somewhere the deployment credential can unlink it. Everything under the
+# run root is root:root 0700.
+
+# restore_hold_marker_file TARGET_ID RUN_ROOT
+restore_hold_marker_file() {
+    local target_id="${1-}" run_root="${2-}"
+
+    [[ -n "${target_id}" ]] || fail "restore_hold_marker_file: target ID is required"
+    [[ -n "${run_root}" ]] || fail "restore_hold_marker_file: run root is required"
+
+    printf '%s/restores/%s/restore-held\n' "${run_root%/}" "${target_id}"
+}
+
+# assert_no_restore_hold TARGET_ID RUN_ROOT OPERATION_DESCRIPTION — fail closed
+# while the target is held awaiting code alignment.
+#
+# Deliberately reads the marker rather than trusting its mere presence to be
+# self-explanatory: an operator who hits this needs the operation ID and the
+# source SHA the target is waiting for, and both are in the file.
+assert_no_restore_hold() {
+    local target_id="${1-}" run_root="${2-}" operation="${3-an operation}"
+    local marker held_operation held_sha
+
+    marker="$(restore_hold_marker_file "${target_id}" "${run_root}")"
+
+    [[ -e "${marker}" ]] || return 0
+
+    held_operation="$(jq -r '.operation // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_sha="$(jq -r '.required_source_sha // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+
+    fail "${target_id} is held after restore operation ${held_operation}: its live data was restored from a backup taken under ${held_sha}, which is not what current serves. ${operation} would record the wrong source_sha for this data. Resolve the hold first (deploy ${held_sha}, then restore-target --resume --target ${target_id} --operation ${held_operation}); the marker is ${marker}"
+}
+
 # --- deployment target registry (end) ---

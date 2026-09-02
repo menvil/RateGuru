@@ -822,10 +822,16 @@ function p73PatchedScript(string $scratch, string $name): string
     $source = File::get(p73Script($name));
     $source = str_replace('-o root', '-o '.getmyuid(), $source);
     $source = str_replace('-g root', '-g '.getmygid(), $source);
-    $source = str_replace(
-        "source \"\${RESTORE_COMMON_FILE}\"\n",
-        "source \"\${RESTORE_COMMON_FILE}\"\n\nif [[ \"\${P73_BYPASS_ROOT:-false}\" == true ]]; then require_root() { :; }; fi\n",
+
+    // Anchored on the LAST library the script sources, so this works for the
+    // restore primitives (common + restore-common) and for a script that
+    // sources common alone — require_root only exists once the library
+    // defining it has been loaded.
+    $source = preg_replace(
+        '/^(source "\$\{[A-Z_]*COMMON_FILE\}"\n)(?![\s\S]*^source "\$\{[A-Z_]*COMMON_FILE\}"\n)/m',
+        "$1\nif [[ \"\${P73_BYPASS_ROOT:-false}\" == true ]]; then require_root() { :; }; fi\n",
         $source,
+        1,
     );
 
     file_put_contents($path, $source);

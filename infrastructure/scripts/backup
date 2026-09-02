@@ -453,6 +453,20 @@ main() {
     require_root
     parse_backup_args "$@"
     resolve_backup_subject
+
+    # A backup takes its DATA from disk and its release identity from
+    # current/release.json. Those two normally describe the same thing — but
+    # not on a target held after a restore, whose live data came from a backup
+    # taken under a different commit than the one current serves. A backup
+    # created in that window would assert that this data belongs to a commit it
+    # does not, breaking the invariant every recovery depends on:
+    #
+    #   backup release.json.source_sha -> the code the restored data belongs to
+    #
+    # Refused before perform_backup creates a temporary root, a snapshot or a
+    # retention pass. backup-cycle inherits this by starting with this script.
+    assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"
+
     perform_backup
 }
 

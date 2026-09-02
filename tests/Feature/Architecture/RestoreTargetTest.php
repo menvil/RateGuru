@@ -1255,6 +1255,287 @@ it('does not resume a target whose health check fails, and holds it instead', fu
 });
 
 // =============================================================================
+// A hold has to be a hold, including against a scheduler that started DURING
+// the operation
+// =============================================================================
+
+it('interrupts and proves the absence of a scheduler that cron started after the resume', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch, [
+            'current_release' => P73_OTHER_RELEASE,
+            'current_source_sha' => P73_OTHER_SOURCE_SHA,
+        ]);
+
+        $operation = restoreTargetHeldOperation($scratch);
+        restoreTargetAlignCode($scratch);
+
+        // The window this closes: --resume puts the cron entry back and leaves
+        // maintenance, cron fires a schedule:run, and only THEN does the
+        // health check fail. Re-holding the cron entry stops the next run; it
+        // does nothing about the one already writing to PostgreSQL and
+        // storage.
+        file_put_contents($scratch.'/pgrep.log', '');
+        file_put_contents($scratch.'/php.log', '');
+
+        $result = restoreTargetRun(
+            $scratch,
+            ['--resume', '--target', 'parity-target', '--operation', $operation],
+            ['P73_HEALTH_CHECK_EXIT' => '1', 'P73_PGREP_EXIT' => '0'],
+        );
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('health check failed after resume');
+
+        // The hold asked the running scheduler to stop...
+        expect(File::get($scratch.'/php.log'))->toContain('schedule:interrupt');
+
+        // ...then actually looked for it, rather than assuming the cron move
+        // was enough.
+        $pgrep = File::get($scratch.'/pgrep.log');
+        expect($pgrep)->toContain('artisan schedule:run');
+        expect(substr_count($pgrep, 'artisan schedule:run'))->toBe(3, 'the hold must spend its whole observation budget');
+
+        // And it says out loud that the hold is not proven, rather than
+        // reporting a clean-looking held target with a writer still running.
+        expect($result['output'])->toContain('a scheduler process for');
+        expect($result['output'])->toContain('still running after the interrupt budget');
+        expect($result['output'])->toContain('WARNING: one or more writers could NOT be proven stopped');
+
+        expect(restoreTargetSchedulerPresent($scratch))->toBeFalse();
+        expect(restoreTargetHistory($scratch)[1])->toMatchArray(['status' => 'failed-held']);
+
+        // And the data is still the backup's while current serves something
+        // else, so the hold marker stays and backups stay refused.
+        expect(is_file($scratch.'/run/restores/parity-target/restore-held'))->toBeTrue();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('reports a clean hold when no scheduler process remains', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch, [
+            'current_release' => P73_OTHER_RELEASE,
+            'current_source_sha' => P73_OTHER_SOURCE_SHA,
+        ]);
+
+        $operation = restoreTargetHeldOperation($scratch);
+        restoreTargetAlignCode($scratch);
+
+        // Same failure, but nothing is running: the hold is proven, and says so
+        // without the warning.
+        $result = restoreTargetRun(
+            $scratch,
+            ['--resume', '--target', 'parity-target', '--operation', $operation],
+            ['P73_HEALTH_CHECK_EXIT' => '1'],
+        );
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('no scheduler process is running against this target');
+        expect($result['output'])->not->toContain('WARNING: one or more writers could NOT be proven stopped');
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The restore hold marker: a held target's data does not match its code, and
+// an ordinary backup would label it with that code anyway
+// =============================================================================
+
+/** The marker restore-target writes for a held target. */
+function restoreHoldMarker(string $scratch): string
+{
+    return $scratch.'/run/restores/parity-target/restore-held';
+}
+
+/**
+ * Runs the REAL backup script against the same scratch host, patched only for
+ * root exactly like every other Phase 7.3 subject.
+ *
+ * The assertions below are about the restore-hold guard, not about the backup
+ * pipeline: `backup` is refused before it creates anything, or it gets past the
+ * guard and reaches its first real step. What happens after that belongs to
+ * BackupTest, which owns the full pipeline and its database fakes.
+ *
+ * @return array{exit: int, output: string, blocked: bool, reached_backup: bool}
+ */
+function restoreHoldRunBackup(string $scratch): array
+{
+    [$registryPath, $targetsPath] = p73Registry($scratch);
+
+    [$exit, $output] = p73Run(
+        p73PatchedScript($scratch, 'backup'),
+        ['--target', 'parity-target'],
+        p73BaseEnv($scratch, $registryPath, $targetsPath, p73PostgresEnv($scratch)),
+    );
+
+    return [
+        'exit' => $exit,
+        'output' => $output,
+        'blocked' => str_contains($output, 'is held after restore operation'),
+        'reached_backup' => str_contains($output, 'Backing up PostgreSQL database'),
+    ];
+}
+
+it('refuses an ordinary backup while the target is held, and says which commit it is waiting for', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch, [
+            'current_release' => P73_OTHER_RELEASE,
+            'current_source_sha' => P73_OTHER_SOURCE_SHA,
+        ]);
+
+        $operation = restoreTargetHeldOperation($scratch);
+
+        // The marker is the part of the hold that outlives the process.
+        expect(is_file(restoreHoldMarker($scratch)))->toBeTrue();
+
+        $marker = json_decode(File::get(restoreHoldMarker($scratch)), true);
+        expect($marker)->toMatchArray([
+            'operation' => $operation,
+            'target' => 'parity-target',
+            'required_source_sha' => P73_SOURCE_SHA,
+            'status' => 'held',
+        ]);
+
+        // Identity only — nothing an operator has to redact.
+        expect(array_keys($marker))->toEqualCanonicalizing([
+            'operation', 'target', 'required_source_sha', 'status', 'created_at',
+        ]);
+
+        // A backup here would take its DATA from the restored disk and its
+        // release identity from current/release.json, which still names the
+        // OTHER commit — a backup asserting that this data belongs to code it
+        // does not.
+        $backup = restoreHoldRunBackup($scratch);
+
+        expect($backup['exit'])->not->toBe(0);
+        expect($backup['blocked'])->toBeTrue();
+        expect($backup['output'])->toContain(P73_SOURCE_SHA);
+        expect($backup['output'])->toContain('would record the wrong source_sha');
+
+        // Refused before anything was created: it never reached its first real
+        // step, and the namespace holds exactly the backups it held before.
+        expect($backup['reached_backup'])->toBeFalse();
+
+        $namespace = $scratch.'/backups/parity';
+        expect(array_values(array_diff(scandir($namespace), ['.', '..'])))
+            ->toBe(['20260115-120000', '20260116-090000']);
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('clears the hold marker only once a resume has proven the data and the code agree', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch, [
+            'current_release' => P73_OTHER_RELEASE,
+            'current_source_sha' => P73_OTHER_SOURCE_SHA,
+        ]);
+
+        $operation = restoreTargetHeldOperation($scratch);
+        expect(is_file(restoreHoldMarker($scratch)))->toBeTrue();
+        expect(restoreHoldRunBackup($scratch)['blocked'])->toBeTrue();
+
+        restoreTargetAlignCode($scratch);
+
+        $resumed = restoreTargetRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+
+        expect($resumed['exit'])->toBe(0, $resumed['output']);
+
+        // Cleared only after the health check AND the restored-data
+        // verification, never merely because the code now matches.
+        $steps = $resumed['output'];
+        expect(mb_strpos($steps, 'step: verify restored data'))
+            ->toBeLessThan(mb_strpos($steps, 'step: clear restore hold marker'));
+        expect(mb_strpos($steps, 'step: health check'))
+            ->toBeLessThan(mb_strpos($steps, 'step: clear restore hold marker'));
+
+        expect(is_file(restoreHoldMarker($scratch)))->toBeFalse();
+
+        // And ordinary backups are no longer refused.
+        expect(restoreHoldRunBackup($scratch)['blocked'])->toBeFalse();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('never writes a hold marker for an aligned restore, which leaves data and code matching', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        $result = restoreTargetApply($scratch);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('CODE ALIGNMENT: ALIGNED');
+        expect(is_file(restoreHoldMarker($scratch)))->toBeFalse();
+
+        $backup = restoreHoldRunBackup($scratch);
+        expect($backup['blocked'])->toBeFalse();
+        expect($backup['reached_backup'])->toBeTrue();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('writes a hold marker when a failure leaves replaced data behind, and none when nothing was touched', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        // Failed before any live mutation: the data still matches the code, so
+        // blocking backups would strand the target for no reason.
+        $result = restoreTargetApply($scratch, ['P73_BACKUP_EXIT' => '1']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('emergency pre-restore backup failed');
+        expect(is_file(restoreHoldMarker($scratch)))->toBeFalse();
+
+        $backup = restoreHoldRunBackup($scratch);
+        expect($backup['blocked'])->toBeFalse();
+        expect($backup['reached_backup'])->toBeTrue();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('refuses to start a second restore on a target that is already held', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch, [
+            'current_release' => P73_OTHER_RELEASE,
+            'current_source_sha' => P73_OTHER_SOURCE_SHA,
+        ]);
+
+        $operation = restoreTargetHeldOperation($scratch);
+
+        // The second restore would take an emergency "pre-restore" backup of
+        // data that does not match its code — and be refused for it, halfway
+        // in. It is refused before anything is staged instead.
+        $second = restoreTargetApply($scratch);
+
+        expect($second['exit'])->not->toBe(0);
+        expect($second['output'])->toContain('check restore hold');
+        expect($second['output'])->toContain('is held after restore operation '.$operation);
+        expect($second['output'])->not->toContain('stage backup');
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+// =============================================================================
 // Locking, lifecycle and preconditions
 // =============================================================================
 

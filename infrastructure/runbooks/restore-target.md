@@ -395,6 +395,49 @@ TARGET RESUMED: NO
 The exit code is **0**: the requested DATA restore succeeded. The summary and
 the operation state are what say the runtime is intentionally held.
 
+### The hold marker
+
+The runtime hold — maintenance on, queue stopped, cron entry moved aside —
+dies with the process that created it. One part of it has to outlive that, and
+it is written to:
+
+```text
+/home/www/rateguru/run/restores/<target>/restore-held
+```
+
+Root-only (everything under the run root is `root:root 0700`, deliberately not
+the target's own `locks/`, which the deployment user can write to). It contains
+identity and nothing else — operation, target, the `source_sha` the data is
+waiting for, the status, a timestamp. No secret.
+
+It exists because the hold is not only about traffic. While a target is held,
+its live data belongs to the backup's commit while `current/release.json` still
+names a different one — and an ordinary backup takes its **data** from disk and
+its **release identity** from `current/release.json`. A backup created in that
+window would assert that this data belongs to a commit it does not, quietly
+breaking the invariant every recovery depends on:
+
+```text
+backup release.json.source_sha  ->  the code the restored data belongs to
+```
+
+So while the marker exists:
+
+* `backup` refuses, before it creates a temporary root, a snapshot or a
+  retention pass — and `backup-cycle` inherits that by starting with `backup`;
+* `restore-target --apply` refuses to start a second restore on the target,
+  before anything is staged;
+* the refusal names the operation and the `source_sha` being waited for.
+
+`offsite-backup` is not blocked: it uploads a backup that already exists and
+was already correctly labelled.
+
+The marker is removed by exactly one thing — a successful `--resume`, after the
+code alignment check, the health check and the restored-data verification have
+all passed. A `failed-held` operation's marker is removed by the operator as
+part of the manual recovery the output demands; the path is printed in the
+`MANUAL RECOVERY REQUIRED` block.
+
 ## Resuming a held target
 
 **Do not use the normal deployment path.** A normal deploy is not
@@ -502,6 +545,7 @@ operation (one carrying `state.json`).
 | `no live data was mutated` | the emergency backup or its verification failed | untouched | fix the backup path first, then retry |
 | `failed-recovered` | activation or verification failed; everything was undone | restored to its pre-restore state | read the journal, then retry or investigate |
 | `failed-held` + `MANUAL RECOVERY REQUIRED` | compensation could not complete | inconsistent | do not start the target; use the emergency backup named in the output |
+| `WARNING: one or more writers could NOT be proven stopped` | a queue worker, the scheduler or maintenance mode could not be confirmed | unknown, possibly still being written | treat the data as live; find and stop the writer named in the `ERROR` lines before touching anything |
 | the process was killed mid-activation | no handler ran, so nothing compensated | possibly half-swapped | read `state.json` in the operation workspace for the exact phase, then either finish or reverse it with the `restore-database` / `restore-storage` steps, or restore from the emergency backup |
 | `CODE ALIGNMENT: REQUIRED` | the data is restored, the code does not match | restored | deploy the named `source_sha`, then `--resume` |
 

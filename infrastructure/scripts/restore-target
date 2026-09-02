@@ -228,6 +228,11 @@ MAIN_BASHPID=""
 RESTORE_TERMINAL=false
 CURRENT_STEP="start"
 MUTATION_STAGE=none          # none | quiesced | activating | activated | committed
+
+# Set by hold_runtime whenever a writer could not be PROVEN stopped. "Held"
+# claims nothing writes to the target; when that claim cannot be observed the
+# operator has to be told, rather than reading a clean-looking held status.
+HOLD_UNCONFIRMED=false
 COMPENSATION_STATUS="not-required"
 OPERATION_STARTED_AT=""
 WORKSPACE=""
@@ -560,14 +565,27 @@ quiesce_scheduler() {
 # runtime user remains. Fail-open on the interrupt itself (an older release
 # without the command must not abort a restore) — the hard write barrier is
 # the database connection barrier at activation, not this.
-interrupt_running_schedule() {
+#
+# observe_schedule_run_absence RETURNS rather than fails, and that is what lets
+# one observation serve both callers. The quiesce below turns a non-zero into a
+# fatal refusal to swap data underneath a writer; hold_runtime turns it into a
+# loud ERROR, because it runs when something has already gone wrong and its own
+# failure must never replace the original diagnosis. The reason is left in
+# SCHEDULE_ABSENCE_REASON so both render the same sentence.
+SCHEDULE_ABSENCE_REASON=""
+
+observe_schedule_run_absence() {
+    SCHEDULE_ABSENCE_REASON=""
+
     # The connection barrier at activation is NOT a substitute for this. It
     # stops the scheduler writing to PostgreSQL; it does nothing about
     # storage/app, which the storage swap is about to replace underneath any
     # process still writing there. So this must PROVE the scheduler stopped,
     # and every outcome that is not proof is a failure.
     if ! command -v "${RESTORE_PGREP_BIN}" >/dev/null 2>&1; then
-        fail "${RESTORE_PGREP_BIN} is unavailable — this restore cannot prove ${TARGET_ID}'s scheduler has stopped, and the connection barrier only covers PostgreSQL, not storage"
+        SCHEDULE_ABSENCE_REASON="${RESTORE_PGREP_BIN} is unavailable — cannot prove ${TARGET_ID}'s scheduler has stopped, and the connection barrier only covers PostgreSQL, not storage"
+
+        return 1
     fi
 
     if artisan_as_runtime_user schedule:interrupt >/dev/null 2>&1; then
@@ -595,14 +613,23 @@ interrupt_running_schedule() {
                 # 2 is a usage/syntax error, 3 a fatal one. Either way the
                 # observation itself is broken, and an unobservable writer is
                 # never treated as an absent one.
-                fail "${RESTORE_PGREP_BIN} failed with exit ${status} — cannot observe ${TARGET_ID}'s scheduler processes, so a running writer cannot be ruled out"
+                SCHEDULE_ABSENCE_REASON="${RESTORE_PGREP_BIN} failed with exit ${status} — cannot observe ${TARGET_ID}'s scheduler processes, so a running writer cannot be ruled out"
+
+                return 1
                 ;;
         esac
 
         sleep "${RESTORE_SCHEDULER_RETRY_DELAY}"
     done
 
-    fail "a scheduler process for ${RUNTIME_USER} is still running after the interrupt budget — refusing to swap data underneath a writer"
+    SCHEDULE_ABSENCE_REASON="a scheduler process for ${RUNTIME_USER} is still running after the interrupt budget"
+
+    return 1
+}
+
+interrupt_running_schedule() {
+    observe_schedule_run_absence \
+        || fail "${SCHEDULE_ABSENCE_REASON} — refusing to swap data underneath a writer"
 }
 
 # --- resume / hold ------------------------------------------------------------------------
@@ -762,8 +789,27 @@ hold_runtime() {
             SCHEDULER_HELD_BY_RESTORE=true
             log "scheduler cron entry held out of ${RESTORE_CRON_D_ROOT}"
         else
+            HOLD_UNCONFIRMED=true
             log "ERROR: could not hold ${SCHEDULER_FILE} — a scheduled writer may still be running against this target"
         fi
+    fi
+
+    # 1b. Removing the cron entry only stops the NEXT schedule:run. One cron
+    #     already started is still executing, and it writes to both PostgreSQL
+    #     and storage — so the same proof the quiesce demands is demanded here.
+    #
+    #     This matters most on the resume path, which is the one place a
+    #     scheduler can start DURING the operation: --resume puts the cron
+    #     entry back and leaves maintenance, cron fires, and only then does the
+    #     health check fail and bring us here. Holding the entry again would
+    #     stop the next run while the running one carried on writing, and
+    #     "held" would be a lie about exactly the writer this operation exists
+    #     to keep away from the data.
+    if observe_schedule_run_absence; then
+        log "no scheduler process is running against this target"
+    else
+        HOLD_UNCONFIRMED=true
+        log "ERROR: ${SCHEDULE_ABSENCE_REASON} — a scheduled writer may still be running against this target"
     fi
 
     # 2. Anything not PROVABLY fully stopped is a queue writer — including a
@@ -775,6 +821,7 @@ hold_runtime() {
             QUEUE_STOPPED_BY_RESTORE=true
             log "queue program ${SUPERVISOR_PROGRAM} STOPPED"
         else
+            HOLD_UNCONFIRMED=true
             log "ERROR: could not confirm ${SUPERVISOR_PROGRAM} is STOPPED — a queue worker may still be running against this target"
         fi
     fi
@@ -786,11 +833,88 @@ hold_runtime() {
             MAINTENANCE_ENTERED_BY_RESTORE=true
             log "maintenance mode enabled for the held target"
         else
+            HOLD_UNCONFIRMED=true
             log "ERROR: could not put ${TARGET_ID} into maintenance mode — it may still be serving traffic"
         fi
     fi
 
     RUNTIME_RESUMED="no"
+}
+
+# --- restore hold marker ------------------------------------------------------------------
+#
+# The runtime hold dies with this process. The marker is what outlives it, and
+# it exists for one specific hazard: while a target is held, its live data
+# belongs to the backup's commit while current/release.json still names a
+# different one — and an ordinary `backup` takes its data from disk and its
+# release identity from current/release.json. A backup created in that window
+# would assert that this data belongs to a commit it does not, which is the one
+# invariant disaster recovery cannot afford to lose. `backup` refuses while
+# this file exists; see assert_no_restore_hold in infrastructure/scripts/common.
+
+write_restore_hold_marker() {
+    local hold_status="$1" marker marker_dir
+
+    marker="$(restore_hold_marker_file "${TARGET_ID}" "${RUN_ROOT}")"
+    marker_dir="$(dirname "${marker}")"
+
+    # Non-fatal on the failure path — this is called from the terminal handler
+    # too, and its own failure must never replace the diagnosis being reported.
+    # It is loud instead, because an absent marker means backups are NOT
+    # blocked on a target whose data no longer matches its code.
+    if ! install -d -o root -g root -m 0700 "${marker_dir}" 2>/dev/null; then
+        log "ERROR: could not create ${marker_dir} — the restore hold marker is NOT in place, and an ordinary backup would record the wrong source_sha for this data"
+
+        return 1
+    fi
+
+    # Content is identity only: which operation, which target, which commit the
+    # data is waiting for. No secret, and nothing an operator has to interpret.
+    if ! jq -n \
+        --arg operation "${OPERATION_ID}" \
+        --arg target "${TARGET_ID}" \
+        --arg required_source_sha "${BACKUP_SOURCE_SHA}" \
+        --arg status "${hold_status}" \
+        --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{
+            operation: $operation,
+            target: $target,
+            required_source_sha: $required_source_sha,
+            status: $status,
+            created_at: $created_at
+        }' > "${marker}.tmp" 2>/dev/null
+    then
+        rm -f "${marker}.tmp" 2>/dev/null || true
+        log "ERROR: could not write the restore hold marker ${marker} — an ordinary backup would record the wrong source_sha for this data"
+
+        return 1
+    fi
+
+    chmod 0600 "${marker}.tmp" 2>/dev/null || true
+
+    if ! mv -f "${marker}.tmp" "${marker}" 2>/dev/null; then
+        rm -f "${marker}.tmp" 2>/dev/null || true
+        log "ERROR: could not install the restore hold marker ${marker} — an ordinary backup would record the wrong source_sha for this data"
+
+        return 1
+    fi
+
+    log "restore hold marker written: ${marker} (ordinary backups of ${TARGET_ID} now refuse until the hold is resolved)"
+}
+
+# clear_restore_hold_marker — only ever called once the target's data and code
+# are proven to agree again: code alignment checked, runtime resumed, health
+# check passed and the restored data verified.
+clear_restore_hold_marker() {
+    local marker
+    marker="$(restore_hold_marker_file "${TARGET_ID}" "${RUN_ROOT}")"
+
+    [[ -e "${marker}" ]] || return 0
+
+    rm -f "${marker}" \
+        || fail "could not remove the restore hold marker ${marker} — ordinary backups of ${TARGET_ID} will keep refusing until it is gone"
+
+    log "restore hold marker cleared: ${marker}"
 }
 
 # --- emergency pre-restore backup ------------------------------------------------------------
@@ -1133,6 +1257,25 @@ handle_restore_exit() {
             ;;
     esac
 
+    # A held target whose live data was, or may have been, replaced must also
+    # stop accepting ordinary backups: its data no longer provably corresponds
+    # to the commit current/release.json names, and a backup would record that
+    # commit for it anyway.
+    #
+    # Keyed on the mutation stage, not the status: `none` and `quiesced` never
+    # touched live data, so a backup there is still semantically correct and
+    # blocking it would strand a target for no reason. From `activating` on,
+    # the data may be the backup's — including when compensation ran, since a
+    # compensation that could not be confirmed is exactly the case that must
+    # not be trusted.
+    if [[ "${status}" == "failed-held" ]]; then
+        case "${MUTATION_STAGE}" in
+            activating|activated|committed)
+                write_restore_hold_marker "${status}" || true
+                ;;
+        esac
+    fi
+
     # Every recovery action below is wrapped in a subshell: `fail` is an
     # `exit`, and an exit from inside this handler would abandon the rest of
     # the reporting — the original failure must always reach the operator.
@@ -1158,6 +1301,15 @@ handle_restore_exit() {
         printf '# compensation: %s\n' "${COMPENSATION_STATUS}"
         printf '# emergency backup: %s\n' "${EMERGENCY_BACKUP:-none}"
         printf '# The target is intentionally NOT serving traffic.\n'
+        printf '# ordinary backups of this target refuse while the hold marker exists:\n'
+        printf '#   %s\n' "$(restore_hold_marker_file "${TARGET_ID}" "${RUN_ROOT}")"
+
+
+        if [[ "${HOLD_UNCONFIRMED}" == true ]]; then
+            printf '# WARNING: one or more writers could NOT be proven stopped.\n'
+            printf '#          See the ERROR lines above before touching this data.\n'
+        fi
+
         printf '# state: %s\n' "${STATE_FILE}"
         printf '########################################################\n'
     fi
@@ -1243,6 +1395,13 @@ perform_restore() {
         phase initialized
 
     log "${LABEL} restore operation ${OPERATION_ID} (source=${SOURCE_KIND} backup=${BACKUP_ID})"
+
+    # A target already held from an earlier restore has data that does not
+    # match its code. Starting a second restore there would take an emergency
+    # "pre-restore" backup of exactly that mismatched state — and be refused
+    # for it, halfway in. Refusing here says why, before anything is staged.
+    step "check restore hold"
+    assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a new restore"
 
     step "stage backup"
     "${RESTORE_FETCH_BACKUP_BIN}" \
@@ -1385,6 +1544,11 @@ decide_code_alignment() {
         runtime_resumed no \
         completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+    # The data is now from BACKUP_SOURCE_SHA while current still serves
+    # something else, so an ordinary backup taken from here would label this
+    # data with the wrong commit. Blocked until --resume proves the two agree.
+    write_restore_hold_marker held || true
+
     RESTORE_TERMINAL=true
     trap - ERR EXIT
 
@@ -1501,6 +1665,12 @@ perform_resume() {
     step "verify restored data"
     verify_restored_database
     verify_restored_storage
+
+    # Code alignment checked, runtime resumed, health check passed and the
+    # restored data verified — only now does this target's data provably match
+    # the code serving it, and only now may an ordinary backup label it.
+    step "clear restore hold marker"
+    clear_restore_hold_marker
 
     restore_state_set "${STATE_FILE}" \
         status resumed \
