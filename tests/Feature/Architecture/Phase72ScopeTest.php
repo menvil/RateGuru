@@ -45,42 +45,6 @@ function p72OperationalFiles(): array
     ), 'is_file'));
 }
 
-/**
- * The revision this branch is measured against: the pull request's own base
- * commit in CI, `origin/develop` locally, or null when neither is available.
- *
- * `actions/checkout` on a pull_request event creates no `origin/develop` ref,
- * so a guard that only looked for that would silently skip in exactly the place
- * it matters most. CI therefore passes the base commit through BASE_SHA and
- * checks out two commits, which is enough for the merge commit's first parent
- * to be present.
- */
-function p72BaseRevision(): ?string
-{
-    $baseSha = getenv('BASE_SHA');
-
-    if (is_string($baseSha) && $baseSha !== '' && p72GitSucceeds(['cat-file', '-e', $baseSha.'^{commit}'])) {
-        return $baseSha;
-    }
-
-    return p72GitSucceeds(['rev-parse', '--verify', 'origin/develop']) ? 'origin/develop' : null;
-}
-
-/**
- * @param  list<string>  $arguments
- */
-function p72GitSucceeds(array $arguments): bool
-{
-    // Every argument is escaped individually. BASE_SHA is an environment value
-    // and this runs through a shell, so interpolating it raw would let a
-    // metacharacter in it execute in the test runner.
-    $command = 'cd '.escapeshellarg(base_path()).' && git '
-        .implode(' ', array_map('escapeshellarg', $arguments))
-        .' >/dev/null 2>&1; echo $?';
-
-    return trim((string) shell_exec($command)) === '0';
-}
-
 // =============================================================================
 // What Phase 7.2 adds
 // =============================================================================
@@ -239,19 +203,36 @@ it('adds no durable release-artifact archive', function () {
 });
 
 it('leaves the backup architecture and its manifest schema untouched', function () {
-    $base = p72BaseRevision();
+    // Phase 7.2 promised not to redesign backups, and this is what that means
+    // in terms anyone can check on any branch: the artifact contract and the
+    // manifest schema are still the ones that shipped before it.
+    //
+    // This was originally a git diff of the branch against its base, which
+    // only expressed the promise while the branch under test WAS Phase 7.2.
+    // From a later branch it asserted something else entirely — that no
+    // subsequent phase may touch a backup file — and Phase 7.3 legitimately
+    // does (see below). A structural guard says the intended thing from
+    // anywhere.
+    $backup = File::get(base_path('infrastructure/scripts/backup'));
 
-    // A plain two-tree diff, not a three-dot range: computing a merge base
-    // needs history a shallow CI clone does not have, and on a pull_request
-    // checkout HEAD already contains the base merged in, so the two are
-    // equivalent here.
-    $baseline = trim((string) shell_exec(
-        'cd '.escapeshellarg(base_path()).' && git diff --name-only '
-            .escapeshellarg($base).' HEAD 2>/dev/null'
-    ));
+    // The same six files, written under the same names.
+    foreach ([
+        'database.dump',
+        'storage-app.tar.gz',
+        'environment.env',
+        'server-configuration.tar.gz',
+        'SHA256SUMS',
+        'manifest.json',
+    ] as $artifact) {
+        expect($backup)->toContain($artifact);
+    }
 
-    $changed = $baseline === '' ? [] : explode("\n", $baseline);
+    // The same manifest schema, and the classifier that reads it.
+    expect($backup)->toContain('--argjson manifest_schema_version 2');
+    expect(File::get(base_path('infrastructure/scripts/common')))
+        ->toContain('manifest_schema_classify');
 
+    // And no artifact-archive concept anywhere in the backup path.
     foreach ([
         'infrastructure/scripts/backup',
         'infrastructure/scripts/backup-cycle',
@@ -259,12 +240,37 @@ it('leaves the backup architecture and its manifest schema untouched', function 
         'infrastructure/scripts/offsite-retention',
         'infrastructure/scripts/offsite-restore-test',
         'infrastructure/scripts/restore-test',
-        'infrastructure/config/cron/rateguru-backups',
-    ] as $untouched) {
-        expect($changed)->not->toContain($untouched);
+    ] as $script) {
+        $source = File::get(base_path($script));
+
+        foreach (['rateguru-release-artifacts', 'B2_ARTIFACT_', 'ARTIFACT_BUCKET'] as $rejected) {
+            expect($source)->not->toContain($rejected);
+        }
     }
-})->skip(fn (): bool => p72BaseRevision() === null,
-    'requires the PR base SHA or an origin/develop reference');
+});
+
+it('lets Phase 7.3 add exactly one fail-closed guard to backup, and nothing else', function () {
+    // The one deliberate change a later phase made to this path, asserted
+    // positively so it cannot quietly grow into backup logic. A target held
+    // after a restore has data belonging to a different commit than
+    // current/release.json names, and a backup taken there would label it with
+    // that commit — so backup refuses, and refuses without touching anything.
+    $backup = File::get(base_path('infrastructure/scripts/backup'));
+
+    expect($backup)->toContain('assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"');
+
+    // Before perform_backup, which is what makes it a refusal rather than a
+    // half-created snapshot.
+    expect(mb_strpos($backup, 'assert_no_restore_hold'))
+        ->toBeLessThan(mb_strpos($backup, "\n    perform_backup\n"));
+
+    // Read-only: the guard reads a marker and fails. It never writes, removes
+    // or repairs one — clearing the hold belongs to restore-target --resume.
+    $common = File::get(base_path('infrastructure/scripts/common'));
+
+    expect($common)->toContain('assert_no_restore_hold()');
+    expect($common)->not->toMatch('/assert_no_restore_hold\(\)[\s\S]{0,2000}?\b(rm|mv|install|touch|printf[^\n]*>)\s/');
+});
 
 it('keeps release.json exactly as it is', function () {
     // release.release stays the operator/history identity, release.source_sha

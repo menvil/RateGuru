@@ -96,6 +96,41 @@ function p73ChangedFiles(): array
     return $baseline === '' ? [] : explode("\n", $baseline);
 }
 
+/**
+ * The lines this branch adds to, and removes from, one file.
+ *
+ * `-U0` so the hunks carry no context: every `+` really is an addition. This is
+ * what lets a scope guard say "exactly this much changed, and nothing else"
+ * about a file the phase deliberately touches, instead of the blunter "this
+ * file did not change at all".
+ *
+ * @return array{added: list<string>, removed: list<string>}
+ */
+function p73FileDiff(string $path): array
+{
+    $diff = (string) shell_exec(
+        'cd '.escapeshellarg(base_path()).' && git diff -U0 '
+            .escapeshellarg((string) p73BaseRevision()).' HEAD -- '.escapeshellarg($path).' 2>/dev/null'
+    );
+
+    $added = [];
+    $removed = [];
+
+    foreach (explode("\n", $diff) as $line) {
+        if (str_starts_with($line, '+++') || str_starts_with($line, '---')) {
+            continue;
+        }
+
+        if (str_starts_with($line, '+')) {
+            $added[] = mb_substr($line, 1);
+        } elseif (str_starts_with($line, '-')) {
+            $removed[] = mb_substr($line, 1);
+        }
+    }
+
+    return ['added' => $added, 'removed' => $removed];
+}
+
 // =============================================================================
 // What Phase 7.3 adds
 // =============================================================================
@@ -340,8 +375,10 @@ it('adds no durable release-artifact archive and no artifact bucket', function (
 it('leaves the accepted backup subsystem and its manifest schema untouched', function () {
     $changed = p73ChangedFiles();
 
+    // toContain is variadic in Pest, so a second "message" argument is read as
+    // another needle and the negation passes on any file — the diagnostic
+    // belongs in a comment, not in the call.
     foreach ([
-        'infrastructure/scripts/backup',
         'infrastructure/scripts/backup-cycle',
         'infrastructure/scripts/offsite-backup',
         'infrastructure/scripts/offsite-retention',
@@ -351,8 +388,34 @@ it('leaves the accepted backup subsystem and its manifest schema untouched', fun
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',
     ] as $untouched) {
-        expect($changed)->not->toContain($untouched, "Phase 7.3 must not modify {$untouched}");
+        expect($changed)->not->toContain($untouched);
     }
+})->skip(fn (): bool => p73BaseRevision() === null,
+    'requires the PR base SHA or an origin/develop reference');
+
+it('adds exactly one fail-closed guard to backup, and changes nothing else in it', function () {
+    // `backup` is the one file in the backup subsystem Phase 7.3 touches, and
+    // it may only gain a refusal. A target held after a restore has data
+    // belonging to a different commit than current/release.json names, and a
+    // backup taken there would label it with that commit — so backup refuses
+    // before creating anything. Removing a line, or adding any second
+    // behaviour, would be a backup redesign wearing a guard's clothes.
+    $diff = p73FileDiff('infrastructure/scripts/backup');
+
+    expect($diff['removed'])->toBe([], 'Phase 7.3 may add a guard to backup, never remove or rewrite a line of it');
+
+    $addedCode = array_values(array_filter(
+        array_map('trim', $diff['added']),
+        static fn (string $line): bool => $line !== '' && ! str_starts_with($line, '#'),
+    ));
+
+    expect($addedCode)->toBe(['assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"']);
+
+    // And it is a refusal, not a step: it runs before perform_backup.
+    $backup = File::get(base_path('infrastructure/scripts/backup'));
+
+    expect(mb_strpos($backup, 'assert_no_restore_hold'))
+        ->toBeLessThan(mb_strpos($backup, "\n    perform_backup\n"));
 })->skip(fn (): bool => p73BaseRevision() === null,
     'requires the PR base SHA or an origin/develop reference');
 
@@ -466,14 +529,45 @@ it('never switches a release, and never touches the current or previous link', f
         ->toContain('the current release symlink changed during the restore — a restore never switches releases');
 });
 
+it('adds only the restore-hold marker helpers to the shared library', function () {
+    // `common` is sourced by every operational script, so a change to it
+    // reaches deploy, rollback, cleanup and backup at once. Phase 7.3 adds the
+    // two helpers that let a held target refuse an ordinary backup, and must
+    // not touch a line of anything that was already there.
+    $diff = p73FileDiff('infrastructure/scripts/common');
+
+    expect($diff['removed'])->toBe([], 'Phase 7.3 may add to common, never remove or rewrite a line of it');
+
+    // Every added line belongs to the new section, delimited by its own header
+    // and the existing registry terminator.
+    $common = File::get(base_path('infrastructure/scripts/common'));
+    $start = mb_strpos($common, '# --- restore hold marker (Phase 7.3) ---');
+    $end = mb_strpos($common, '# --- deployment target registry (end) ---');
+
+    expect($start)->not->toBeFalse('the restore hold marker section is missing from common');
+    expect($end)->toBeGreaterThan($start);
+
+    $section = mb_substr($common, $start, $end - $start);
+
+    foreach ($diff['added'] as $line) {
+        expect($section)->toContain($line);
+    }
+
+    // The section defines exactly the two helpers, and neither mutates.
+    expect($section)->toContain('restore_hold_marker_file()');
+    expect($section)->toContain('assert_no_restore_hold()');
+    expect($section)->not->toMatch('/^\s*(rm|mv|install|touch|chmod|chown)\s/m');
+})->skip(fn (): bool => p73BaseRevision() === null,
+    'requires the PR base SHA or an origin/develop reference');
+
 it('does not weaken deploy, rollback, cleanup or any earlier phase contract', function () {
     $changed = p73ChangedFiles();
 
+    // See the note above on toContain's variadic signature: no message here.
     foreach ([
         'infrastructure/scripts/deploy',
         'infrastructure/scripts/rollback',
         'infrastructure/scripts/cleanup',
-        'infrastructure/scripts/common',
         'infrastructure/scripts/targets',
         'infrastructure/scripts/health-check',
         'infrastructure/scripts/status',
@@ -482,7 +576,7 @@ it('does not weaken deploy, rollback, cleanup or any earlier phase contract', fu
         'infrastructure/config/deployment-targets.json',
         'infrastructure/templates/deployment.conf.example',
     ] as $untouched) {
-        expect($changed)->not->toContain($untouched, "Phase 7.3 must not modify {$untouched}");
+        expect($changed)->not->toContain($untouched);
     }
 
     // Deploy gains no restore mode, no backup selector and no hidden
