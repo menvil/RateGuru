@@ -915,8 +915,14 @@ function installOpsBaseVars(
     @mkdir($scratch.'/target/releases/20240101120000', 0o755, true);
     @symlink($scratch.'/target/releases/20240101120000', $scratch.'/target/current');
 
+    // The operational run root the restore locks live in. Pointed at the
+    // scratch tree so an --apply test locks there rather than in the real
+    // /home/www/rateguru/run.
+    @mkdir($scratch.'/run', 0o700, true);
+
     return [
         'STAGING_TARGET_ROOT' => $scratch.'/target',
+        'OPERATIONAL_RUN_ROOT' => $scratch.'/run',
         'SRC_SELF' => base_path('infrastructure/scripts/install-target-operations'),
         'SRC_REGISTRY' => base_path('infrastructure/config/deployment-targets.json'),
         'SRC_TARGETS' => base_path('infrastructure/scripts/targets'),
@@ -3791,6 +3797,113 @@ it('leaves the installed deploy able to reach the installed verify-required-clis
     } finally {
         installOpsCleanup($scratch);
     }
+});
+
+// =============================================================================
+// Restore serialization: --apply must never replace the bundle underneath a
+// running restore-target operation.
+// =============================================================================
+
+it('holds the existing per-namespace restore lock across an apply', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('restore lock held for backup namespace staging');
+        expect($output)->toContain('no restore is in flight');
+
+        // The lock file is the EXACT one restore-target itself takes, keyed
+        // on the backup namespace — never a second, incompatible lock.
+        expect(file_exists($scratch.'/run/restore-target-staging.lock'))->toBeTrue();
+        expect(File::get(base_path('infrastructure/scripts/restore-target')))
+            ->toContain('${RUN_ROOT}/restore-target-${BACKUP_NAMESPACE}.lock');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('refuses to apply while a restore is running, and changes nothing', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        $lockFile = $scratch.'/run/restore-target-staging.lock';
+        touch($lockFile);
+
+        $holder = proc_open(
+            ['flock', '-x', $lockFile, 'sleep', '30'],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+        );
+
+        usleep(300000);
+
+        try {
+            [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+            expect($exit)->not->toBe(0);
+            expect($output)->toContain('a restore is running for backup namespace staging');
+            expect($output)->toContain('refusing to replace the operational bundle underneath it');
+
+            // Fail-closed before anything on the host is touched: no
+            // destination installed, no backup directory created.
+            foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_RESTORE_COMMON', 'DST_RESTORE_TARGET'] as $key) {
+                expect(file_exists($vars[$key]))->toBeFalse("{$key} must not be installed while a restore is running");
+            }
+
+            expect(glob($scratch.'/backups/*', GLOB_ONLYDIR) ?: [])->toBe([]);
+        } finally {
+            proc_terminate($holder);
+            proc_close($holder);
+        }
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('installs on a host that has no operational run root at all', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        // A clean host: nothing operational has ever run, so no restore can
+        // be in flight — and this installer creates no directories.
+        exec('rm -rf '.escapeshellarg($scratch.'/run'));
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('no operational run root');
+        expect(is_dir($scratch.'/run'))->toBeFalse('this installer never creates the run root');
+        expect(file_exists($vars['DST_RESTORE_TARGET']))->toBeTrue();
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('takes no lock at all in --check or --verify', function () {
+    $source = installOpsSource();
+
+    expect(preg_match_all('/^\s*acquire_restore_locks$/m', $source, $matches))
+        ->toBe(1, 'acquire_restore_locks must be called exactly once, from perform_apply');
+
+    expect(preg_match(
+        '/perform_apply\(\) \{.*?acquire_restore_locks/s',
+        $source,
+    ))->toBe(1, 'the only call site must be inside perform_apply');
+
+    // And it runs before any destination is validated or touched.
+    expect(mb_strpos($source, 'acquire_restore_locks'."\n".'    validate_destination_directories'))
+        ->not->toBeFalse();
 });
 
 it('keeps the target-only lifecycle contract and introduces no legacy selector alongside the new CLI', function () {

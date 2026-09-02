@@ -228,6 +228,47 @@ normalize_storage_ownership() {
 }
 
 # --- stage ----------------------------------------------------------------------------
+#
+# Extraction creates a root-only directory before it can know whether the
+# archive extracts cleanly, whether it produced the expected tree, or whether
+# ownership normalization succeeds. Every one of those failures is a `fail`,
+# which exits — so without a handler the partially extracted tree would be
+# left behind inside the target's own shared/storage, root-owned and invisible
+# to the operator, for every failed attempt.
+#
+# The primitive cleans up after itself rather than relying on its caller:
+# restore-target's own failure path also removes this directory, but a
+# standalone `restore-storage --stage` has no orchestrator behind it.
+STAGE_PARENT_CREATED=false
+STAGE_MAIN_BASHPID=""
+
+discard_partial_stage() {
+    local code=$?
+    trap - ERR EXIT
+
+    # set -E means this trap is inherited by every $(...) subshell, including
+    # ones whose command can legitimately fail. Only the main process cleans
+    # up; every other invocation exits quietly — the same generic guard
+    # install-target-operations and restore-target already use.
+    if [[ "${BASHPID}" != "${STAGE_MAIN_BASHPID}" ]]; then
+        exit "${code}"
+    fi
+
+    if [[ "${STAGE_PARENT_CREATED}" != true ]]; then
+        exit "${code}"
+    fi
+
+    # Subshell: the guarded remover calls `fail` on anything it refuses, and
+    # an exit from here would replace the original diagnosis with a cleanup
+    # error.
+    if ( restore_remove_storage_sibling "${STORAGE_ROOT}" "${STAGE_PARENT}" ); then
+        log "removed the partially staged storage tree: ${STAGE_PARENT}"
+    else
+        log "WARNING: could not remove the partially staged storage tree: ${STAGE_PARENT}"
+    fi
+
+    exit "${code}"
+}
 
 perform_stage() {
     restore_state_require_phase "${STATE_FILE}" "${TARGET_ID}" database-staged
@@ -245,7 +286,11 @@ perform_stage() {
     # moment before a root process writes what the archive describes.
     restore_assert_storage_archive_safe "${SELECTED_BACKUP_DIR}/storage-app.tar.gz"
 
+    STAGE_MAIN_BASHPID="${BASHPID}"
+    trap discard_partial_stage ERR EXIT
+
     install -d -o root -g root -m 0700 "${STAGE_PARENT}"
+    STAGE_PARENT_CREATED=true
 
     log "${LABEL} extracting the backup storage archive into ${STAGE_PARENT}"
 
@@ -275,6 +320,11 @@ perform_stage() {
         storage_stage_path "${STAGED_APP}" \
         pre_restore_storage_path "${PRE_RESTORE_APP}" \
         phase storage-staged
+
+    # Staged successfully: the tree must now SURVIVE this process, so the
+    # cleanup handler is disarmed before returning.
+    STAGE_PARENT_CREATED=false
+    trap - ERR EXIT
 
     log "${LABEL} staged storage tree verified at ${STAGED_APP} (live ${LIVE_APP} untouched)"
 }

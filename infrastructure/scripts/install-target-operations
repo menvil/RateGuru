@@ -54,6 +54,11 @@
 # this installer's whole job is to put these twenty-two files in these
 # twenty-two places with these exact permissions, nothing else.
 #
+# --apply additionally takes the EXISTING per-namespace restore lock for every
+# active target before it touches anything, so the bundle can never be
+# replaced underneath a running `restore-target` operation. It is the only
+# lock this installer takes, and it takes no others.
+#
 # This script never sources infrastructure/scripts/common. It installs
 # deployment.conf as plain file content and never reads or parses it as
 # shell.
@@ -117,6 +122,12 @@ DST_VERIFY_REQUIRED_CLIS="${DST_BIN_ROOT}/verify-required-clis"
 DST_DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
 
 BACKUP_ROOT="/var/backups/rateguru-target-operations"
+
+# Where the operational scripts keep their lock files. This installer never
+# creates it and owns nothing inside it — it only takes the EXISTING restore
+# lock across an --apply, so replacing the bundle cannot swap a restore's
+# scripts out from under it mid-operation. See acquire_restore_locks below.
+OPERATIONAL_RUN_ROOT="/home/www/rateguru/run"
 
 REGISTRY_MODE="0640"
 # common and restore-common are sourced libraries, never CLIs — neither may
@@ -1422,6 +1433,72 @@ validate_destination_directories() {
     log "destination directories exist, are root-owned, non-writable-by-others directories (unchanged by this installer)"
 }
 
+# --- Restore serialization (apply mode only) --------------------------------
+#
+# `restore-target` holds `<run root>/restore-target-<namespace>.lock` for the
+# whole of a live data restore. This installer replaces the bundle file by
+# file, so an --apply that overlapped a running restore could hand that
+# restore a mismatched pair of Phase 7.3 scripts halfway through — a
+# restore-target from one revision driving a restore-database from another.
+#
+# So --apply takes the SAME lock, for every active target's backup namespace,
+# before it validates destinations or touches anything, and holds it for the
+# rest of the run (the file descriptors stay open until this process exits).
+# It is never a new, incompatible lock: two targets sharing a backup namespace
+# resolve to the identical file, exactly as every backup-path script already
+# does.
+#
+# Deliberately non-blocking and fail-closed. A restore is a long, destructive
+# operation an operator is watching; queueing an installer behind it silently
+# would be worse than telling them to wait.
+#
+# Lock ordering: restore-target takes this lock first, then the target
+# deployment lock, then the backup lock. This installer takes only this one,
+# so no cycle is possible.
+RESTORE_LOCK_FDS=()
+
+active_backup_namespaces() {
+    jq -r '
+        .targets
+        | to_entries
+        | map(select(.value.lifecycle == "active") | .value.backup.namespace)
+        | unique
+        | .[]
+    ' "${SRC_REGISTRY}"
+}
+
+acquire_restore_locks() {
+    # A run root that does not exist is a host on which no operational script
+    # has ever run, so no restore can be in flight. This installer creates no
+    # directories — that is the bootstrap layout installer's job — so it does
+    # not conjure one here just to lock inside it.
+    if [[ ! -d "${OPERATIONAL_RUN_ROOT}" ]]; then
+        log "no operational run root at ${OPERATIONAL_RUN_ROOT} — no restore can be in flight"
+
+        return 0
+    fi
+
+    local namespace lock_file lock_fd
+
+    while IFS= read -r namespace; do
+        [[ -n "${namespace}" ]] || continue
+
+        lock_file="${OPERATIONAL_RUN_ROOT}/restore-target-${namespace}.lock"
+
+        exec {lock_fd}>"${lock_file}" \
+            || fail "could not open the restore lock for backup namespace ${namespace}: ${lock_file}"
+
+        if ! flock -n "${lock_fd}"; then
+            fail "a restore is running for backup namespace ${namespace} — refusing to replace the operational bundle underneath it (${lock_file})"
+        fi
+
+        RESTORE_LOCK_FDS+=("${lock_fd}")
+        log "  restore lock held for backup namespace ${namespace}"
+    done < <(active_backup_namespaces)
+
+    log "no restore is in flight for any active target's backup namespace"
+}
+
 verify_preflight_target_health() {
     # PRE_DEPLOY: there is no installed application to be healthy yet — the
     # preflight health gate is deferred (logged, never faked). A BROKEN
@@ -1511,8 +1588,11 @@ perform_apply() {
 
     log "mode: apply"
 
+    RESTORE_LOCK_FDS=()
+
     run_source_validation
     classify_staging_deployment_state
+    acquire_restore_locks
     validate_destination_directories
     verify_preflight_target_health
 

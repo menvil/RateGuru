@@ -179,6 +179,55 @@ it('assigns the whole tree the runtime identity first, and the web group to exac
     expect(substr_count(File::get(restoreStorageScript()), 'RESTORE_WEB_GROUP}" "${app_root}'))->toBe(2);
 });
 
+it('removes its own partially staged tree when staging fails after extraction', function () {
+    $scratch = p73Scratch();
+
+    try {
+        $operation = restoreStorageFixture($scratch);
+        $staged = $scratch.'/run/restores/parity-target/'.$operation.'/selected-backup';
+
+        // An archive whose single entry is named `app` but is a regular FILE:
+        // it passes the pre-extraction safety pass (a regular file under the
+        // app root is legitimate), gets extracted into the staging parent,
+        // and only then fails the "did the archive produce app/?" check —
+        // which is exactly the window in which a root-owned partial tree
+        // would otherwise be left behind.
+        p73Archive($staged.'/storage-app.tar.gz', [
+            ['name' => 'app', 'type' => 'file'],
+        ]);
+
+        $result = restoreStorageRun($scratch, $operation, 'stage');
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('did not produce an app/ directory');
+        expect($result['output'])->toContain('removed the partially staged storage tree');
+
+        // Nothing root-owned is left inside the target's shared storage, and
+        // the live tree is untouched.
+        expect(restoreStorageEntries($scratch))->toBe(['app', 'framework']);
+        expect(is_file(restoreStorageRoot($scratch).'/app/live-marker.txt'))->toBeTrue();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('keeps the staged tree when staging succeeds', function () {
+    $scratch = p73Scratch();
+
+    try {
+        $operation = restoreStorageFixture($scratch);
+
+        // The mirror image of the test above: the cleanup handler must be
+        // disarmed on success, or a successful stage would delete the very
+        // tree activation is about to swap in.
+        expect(restoreStorageRun($scratch, $operation, 'stage')['exit'])->toBe(0);
+
+        expect(is_dir(restoreStorageRoot($scratch).'/.restore-'.$operation.'/app'))->toBeTrue();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
 it('refuses to stage over an existing staging directory or pre-restore tree', function () {
     $scratch = p73Scratch();
 

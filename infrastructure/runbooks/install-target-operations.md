@@ -159,17 +159,26 @@ sudo infrastructure/scripts/install-target-operations --apply
 ```
 
 1. Everything `--check` does.
-2. Both destination directories are validated — exist, are real directories,
+2. The restore lock is taken for every active target's backup namespace —
+   the same `<run root>/restore-target-<namespace>.lock` that `restore-target`
+   itself holds for the whole of a live data restore. An `--apply` that
+   overlapped a running restore could hand it a mismatched pair of Phase 7.3
+   scripts halfway through, so this fails closed with `a restore is running
+   for backup namespace <ns>` and installs nothing. It is the only lock this
+   installer takes, it is non-blocking, and a host whose operational run root
+   does not exist yet has no restore to serialize against — no directory is
+   ever created just to lock inside it.
+3. Both destination directories are validated — exist, are real directories,
    not symlinks, `root:root`-owned, not group- or other-writable (see
    [above](#the-two-destination-directories-must-already-exist)) — before a
    backup directory is created or a single destination file changes.
-3. The **currently installed** `staging-main` health check is proven to work
+4. The **currently installed** `staging-main` health check is proven to work
    — `health-check --target staging-main`, with every `RATEGURU_*` test
    override explicitly unset — before a single destination file changes. If
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-4. The twenty-two source files are copied into a private, root-only temporary
+5. The twenty-two source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract, and **only** here — to prove the candidate set is
    internally consistent before anything real is touched: `targets validate`;
@@ -196,7 +205,7 @@ sudo infrastructure/scripts/install-target-operations --apply
    deletion, a remote restore test, a full backup cycle, a backup download,
    or a live data restore), so this step never mutates the real staging
    target and never contacts Backblaze B2.
-5. A timestamped backup directory is created (see below), and each
+6. A timestamped backup directory is created (see below), and each
    destination is installed in dependency order — registry, `targets`,
    `common`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`,
    `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
@@ -214,13 +223,13 @@ sudo infrastructure/scripts/install-target-operations --apply
    socket or device — is refused outright, never followed, entered or
    silently replaced; a rejected destination is left untouched and is never
    backed up.
-6. The installed result is verified: exact ownership, exact mode, byte-for-byte
+7. The installed result is verified: exact ownership, exact mode, byte-for-byte
    content match against the committed source, `bash -n`, and
    `targets validate`/`targets list` against the installed registry.
-7. Runtime parity is verified against the real host, with **every**
+8. Runtime parity is verified against the real host, with **every**
    `RATEGURU_*` override explicitly unset (`env -u ...`) — see
    [Runtime parity](#runtime-parity-checks) below.
-8. Only once every one of the above passes is the change committed. Before
+9. Only once every one of the above passes is the change committed. Before
    that point, any failure rolls back every file this run touched — see
    [Rollback](#rollback) below.
 

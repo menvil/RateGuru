@@ -313,14 +313,12 @@ The ordering matters: `restore-target` must let `backup` acquire and release
 the backup lock before taking it itself, otherwise the emergency backup would
 deadlock against its own orchestrator.
 
-### One thing the locks do not cover
-
-`install-target-operations --apply` replaces the operational bundle file by
-file and takes none of these locks — it never has, for `deploy` or `rollback`
-either. Upgrading the bundle while a restore is in flight can therefore load a
-mismatched pair of Phase 7.3 scripts into the same operation. Do not run the
-installer while a restore is running; `restore-history.jsonl` and the
-operation workspace under `run/restores/` both show whether one is.
+`install-target-operations --apply` takes the restore lock too, for every
+active target's backup namespace, before it validates destinations or touches
+anything. Replacing the bundle file by file underneath a running restore could
+otherwise hand that restore a mismatched pair of Phase 7.3 scripts halfway
+through. An upgrade attempted during a restore fails closed with
+`a restore is running for backup namespace <ns>` and installs nothing.
 
 ## Compensation
 
