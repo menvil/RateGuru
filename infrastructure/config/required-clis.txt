@@ -4,6 +4,7 @@ bootstrap-host
 bootstrap-host-preflight
 cleanup
 deploy
+fetch-backup
 health-check
 install-bootstrap-host-layout
 install-bootstrap-runtime
@@ -20,10 +21,14 @@ offsite-restore-test
 offsite-retention
 prepare-host
 record-nightwatch-deployment
+restore-database
+restore-storage
+restore-target
 restore-test
 rollback
 status
 status-mail-capture
 targets
+verify-backup
 verify-mail-capture
 verify-required-clis

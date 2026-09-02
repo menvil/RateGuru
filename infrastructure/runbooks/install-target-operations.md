@@ -3,9 +3,11 @@
 This runbook covers `infrastructure/scripts/install-target-operations`, which
 installs the deployment target registry, the host-global `deployment.conf`,
 and the full set of target-aware operational scripts onto the staging VPS:
-`targets`, `common`, `health-check`, `status`, `cleanup`, `deploy`,
-`rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
-`offsite-restore-test`, `backup-cycle`, and the release-tree helper
+`targets`, `common`, `restore-common`, `health-check`, `status`, `cleanup`,
+`deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`,
+`offsite-retention`, `offsite-restore-test`, `backup-cycle`, the Phase 7.3
+restore primitives (`fetch-backup`, `verify-backup`, `restore-database`,
+`restore-storage`, `restore-target`), and the release-tree helper
 `verify-required-clis` that `deploy` invokes on every deployment.
 
 For what the registry and the target-aware commands themselves are, see
@@ -14,7 +16,7 @@ getting them onto the host safely.
 
 ## What this installer owns — and does not
 
-Exactly sixteen files:
+Exactly twenty-two files:
 
 | Source (this repo) | Destination |
 |---|---|
@@ -33,12 +35,18 @@ Exactly sixteen files:
 | `infrastructure/scripts/offsite-retention` | `/home/www/rateguru/bin/offsite-retention` |
 | `infrastructure/scripts/offsite-restore-test` | `/home/www/rateguru/bin/offsite-restore-test` |
 | `infrastructure/scripts/backup-cycle` | `/home/www/rateguru/bin/backup-cycle` |
+| `infrastructure/scripts/restore-common` | `/home/www/rateguru/bin/restore-common` |
+| `infrastructure/scripts/fetch-backup` | `/home/www/rateguru/bin/fetch-backup` |
+| `infrastructure/scripts/verify-backup` | `/home/www/rateguru/bin/verify-backup` |
+| `infrastructure/scripts/restore-database` | `/home/www/rateguru/bin/restore-database` |
+| `infrastructure/scripts/restore-storage` | `/home/www/rateguru/bin/restore-storage` |
+| `infrastructure/scripts/restore-target` | `/home/www/rateguru/bin/restore-target` |
 | `infrastructure/scripts/verify-required-clis` | `/home/www/rateguru/bin/verify-required-clis` |
 
 These destinations are **fixed, hardcoded constants** in the installer — not
 configurable by environment variable or CLI argument, on purpose. This
-installer's entire job is putting these sixteen files in these sixteen
-places with these exact permissions. Nothing else. It never sources or
+installer's entire job is putting these twenty-two files in these
+twenty-two places with these exact permissions. Nothing else. It never sources or
 evaluates `deployment.conf` as shell — it installs it as plain file content,
 identically to every other file it manages.
 
@@ -63,7 +71,7 @@ check.
 
 `/home/www/rateguru/config` and `/home/www/rateguru/bin` are **not** owned by
 this installer, and it never creates, `chown`s or `chmod`s either one — only
-the sixteen files inside them. `--apply` validates both directories before
+the twenty-two files inside them. `--apply` validates both directories before
 it creates a backup or changes anything: each must exist, be a real
 directory (not a symlink), owned by `root:root`, and not group- or
 other-writable. `--apply` refuses to proceed — before touching anything — if
@@ -129,8 +137,8 @@ clear error before anything else runs.
 
 ### `--check` — repository-only, no root
 
-Validates the sixteen source files (exist, regular, not a symlink), runs
-`bash -n` on the fourteen shell scripts (every source file except the
+Validates the twenty-two source files (exist, regular, not a symlink), runs
+`bash -n` on the twenty shell scripts (every source file except the
 registry and `deployment.conf`, neither of which is shell), confirms `jq`
 can parse the registry, runs the *committed* `targets` CLI against the
 *committed* registry and confirms it both validates and lists `staging-main`
@@ -151,17 +159,26 @@ sudo infrastructure/scripts/install-target-operations --apply
 ```
 
 1. Everything `--check` does.
-2. Both destination directories are validated — exist, are real directories,
+2. The restore lock is taken for every active target's backup namespace —
+   the same `<run root>/restore-target-<namespace>.lock` that `restore-target`
+   itself holds for the whole of a live data restore. An `--apply` that
+   overlapped a running restore could hand it a mismatched pair of Phase 7.3
+   scripts halfway through, so this fails closed with `a restore is running
+   for backup namespace <ns>` and installs nothing. It is the only lock this
+   installer takes, it is non-blocking, and a host whose operational run root
+   does not exist yet has no restore to serialize against — no directory is
+   ever created just to lock inside it.
+3. Both destination directories are validated — exist, are real directories,
    not symlinks, `root:root`-owned, not group- or other-writable (see
    [above](#the-two-destination-directories-must-already-exist)) — before a
    backup directory is created or a single destination file changes.
-3. The **currently installed** `staging-main` health check is proven to work
+4. The **currently installed** `staging-main` health check is proven to work
    — `health-check --target staging-main`, with every `RATEGURU_*` test
    override explicitly unset — before a single destination file changes. If
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-4. The sixteen source files are copied into a private, root-only temporary
+5. The twenty-two source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract, and **only** here — to prove the candidate set is
    internally consistent before anything real is touched: `targets validate`;
@@ -176,37 +193,43 @@ sudo infrastructure/scripts/install-target-operations --apply
    and that `health-check`, `cleanup --dry-run`, `deploy` (with a deliberately
    unusable release/artifact combination), `rollback` (with a deliberately
    unusable release ID), `backup`, `restore-test`, `offsite-backup`,
-   `offsite-retention`, `offsite-restore-test` and `backup-cycle` all still
-   correctly fail against `--target tits-guru` with `lifecycle=planned`.
+   `offsite-retention`, `offsite-restore-test`, `backup-cycle`,
+   `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage` and
+   `restore-target` all still correctly fail against `--target tits-guru`
+   with `lifecycle=planned`.
    Every staged `cleanup` invocation here is `--dry-run` only, and neither
    `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`,
-   `offsite-retention`, `offsite-restore-test` nor `backup-cycle` is ever
-   invoked for real (a deployment, a rollback, a database dump, a restore, a
-   remote upload, a remote deletion, a remote restore test, or a full backup
-   cycle), so this step never mutates the real staging target and never
-   contacts Backblaze B2.
-5. A timestamped backup directory is created (see below), and each
+   `offsite-retention`, `offsite-restore-test`, `backup-cycle` nor any of the
+   five restore primitives is ever invoked for real (a deployment, a
+   rollback, a database dump, a restore test, a remote upload, a remote
+   deletion, a remote restore test, a full backup cycle, a backup download,
+   or a live data restore), so this step never mutates the real staging
+   target and never contacts Backblaze B2.
+6. A timestamped backup directory is created (see below), and each
    destination is installed in dependency order — registry, `targets`,
    `common`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`,
    `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
-   `offsite-restore-test`, `backup-cycle`, `verify-required-clis`, then
-   `deployment.conf` last — via
+   `offsite-restore-test`, `backup-cycle`, `restore-common`, `fetch-backup`,
+   `verify-backup`, `restore-database`, `restore-storage`, `restore-target`,
+   `verify-required-clis`, then `deployment.conf` last — via
    stage-in-place-then-atomic-rename into a same-directory, `mktemp`-created
    temporary file, never a direct overwrite and never a predictable temporary
-   path. `deployment.conf` is installed last so every script sourcing it
+   path. `common` precedes every script that sources it, and `restore-common`
+   precedes the five restore primitives that source it in turn.
+   `deployment.conf` is installed last so every script sourcing it
    either atomically sees the old config or the new one, never a
    half-installed bundle in between. An existing destination that is anything
    other than absent or a plain regular file — a symlink, directory, FIFO,
    socket or device — is refused outright, never followed, entered or
    silently replaced; a rejected destination is left untouched and is never
    backed up.
-6. The installed result is verified: exact ownership, exact mode, byte-for-byte
+7. The installed result is verified: exact ownership, exact mode, byte-for-byte
    content match against the committed source, `bash -n`, and
    `targets validate`/`targets list` against the installed registry.
-7. Runtime parity is verified against the real host, with **every**
+8. Runtime parity is verified against the real host, with **every**
    `RATEGURU_*` override explicitly unset (`env -u ...`) — see
    [Runtime parity](#runtime-parity-checks) below.
-8. Only once every one of the above passes is the change committed. Before
+9. Only once every one of the above passes is the change committed. Before
    that point, any failure rolls back every file this run touched — see
    [Rollback](#rollback) below.
 
@@ -245,6 +268,8 @@ install. Reports each phase separately:
 --- offsite-restore-test planned-target rejection ---
 --- backup-cycle help ---
 --- backup-cycle planned-target rejection ---
+--- restore primitive help ---
+--- restore primitive planned-target rejection ---
 --- verify-required-clis help ---
 --- final result ---
 PASS: installed files and runtime behaviour verified
@@ -259,10 +284,10 @@ line — `--verify` never claims success after a step it didn't actually pass.
 |---|---|---|---|
 | `deployment-targets.json` | `root:root` | `0640` | registry — non-secret, but not world-readable |
 | `deployment.conf` | `root:root` | `0640` | host-global settings — non-secret, but not world-readable, same protection as the registry |
-| `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle`, `verify-required-clis` | `root:root` | `0755` | executable scripts |
-| `common` | `root:root` | `0644` | sourced library, never a CLI — must never be executable |
+| `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle`, `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage`, `restore-target`, `verify-required-clis` | `root:root` | `0755` | executable scripts |
+| `common`, `restore-common` | `root:root` | `0644` | sourced libraries, never CLIs — must never be executable |
 
-None of the sixteen may be group- or world-writable, and none may be a
+None of the twenty-two may be group- or world-writable, and none may be a
 symlink — enforced both when installing and when verifying. Existing
 destinations must also be a plain regular file or absent — a directory,
 FIFO, socket or device is refused the same way a symlink is.
@@ -326,7 +351,7 @@ sudo cp -a \
     /home/www/rateguru/bin/common
 ```
 
-Repeat for each of the sixteen destinations that need restoring. Confirm with:
+Repeat for each of the twenty-two destinations that need restoring. Confirm with:
 
 ```bash
 sudo infrastructure/scripts/install-target-operations --verify
@@ -423,7 +448,19 @@ a rehearsal against overridden paths:
     invoked for a real cycle by this installer, at any point, and never
     contacts Backblaze B2 — a real backup cycle is always a separate,
     explicit, human- or cron-triggered action;
-22. `verify-required-clis --help` succeeds and documents `--release-root`,
+22. `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage`
+    and `restore-target` each answer `--help` successfully, and each
+    documents the `--target` selector and no legacy selector alongside it;
+23. each of those five **fails** for `--target tits-guru`, with an error
+    naming `lifecycle=planned`. Every one is invoked with otherwise-complete
+    but deliberately unusable arguments, so a rejection can only come from
+    the lifecycle gate — never from a missing flag, a malformed backup ID or
+    a workspace that does not exist. That proves the installed ordering is
+    root authorization → `lifecycle=planned` rejection → no workspace
+    created, no backup root computed, no byte downloaded, no database
+    touched, no target quiesced. No restore primitive is ever invoked for
+    real by this installer, at any point;
+24. `verify-required-clis --help` succeeds and documents `--release-root`,
     proving the helper `deploy` invokes by absolute path on every deployment
     is actually installed and runnable. There is deliberately no
     planned-target counterpart: it is a generic release-tree check and takes

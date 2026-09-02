@@ -61,13 +61,18 @@ function infrastructureScriptGitModes(): array
     return $modes;
 }
 
-it('keeps every infrastructure CLI script executable and common non-executable in the Git index', function () {
+it('keeps every infrastructure CLI script executable and every sourced library non-executable in the Git index', function () {
     $cliAllowlist = array_map(
         fn (string $name): string => "infrastructure/scripts/{$name}",
         requiredCliManifestNames(),
     );
 
-    $sourcedLibrary = 'infrastructure/scripts/common';
+    // Two sourced libraries since Phase 7.3: common, and the restore-only
+    // restore-common the five restore primitives share.
+    $sourcedLibraries = array_map(
+        fn (string $name): string => "infrastructure/scripts/{$name}",
+        sourcedLibraryNames(),
+    );
 
     $modes = infrastructureScriptGitModes();
 
@@ -76,19 +81,21 @@ it('keeps every infrastructure CLI script executable and common non-executable i
         expect($modes[$path])->toBe('100755', "{$path} must be Git mode 100755 (executable) — is {$modes[$path]}");
     }
 
-    expect(array_key_exists($sourcedLibrary, $modes))->toBeTrue("sourced library is missing from the repository: {$sourcedLibrary}");
-    expect($modes[$sourcedLibrary])
-        ->toBe('100644', "{$sourcedLibrary} is a sourced library, never executed directly, and must be Git mode 100644 — is {$modes[$sourcedLibrary]}");
+    foreach ($sourcedLibraries as $sourcedLibrary) {
+        expect(array_key_exists($sourcedLibrary, $modes))->toBeTrue("sourced library is missing from the repository: {$sourcedLibrary}");
+        expect($modes[$sourcedLibrary])
+            ->toBe('100644', "{$sourcedLibrary} is a sourced library, never executed directly, and must be Git mode 100644 — is {$modes[$sourcedLibrary]}");
+    }
 
     // No expected CLI is missing from the allowlist, and nothing untracked
     // slipped in unclassified: the flat files directly under
-    // infrastructure/scripts/ are exactly the allowlist plus common.
-    $expectedPaths = [...$cliAllowlist, $sourcedLibrary];
+    // infrastructure/scripts/ are exactly the allowlist plus the libraries.
+    $expectedPaths = [...$cliAllowlist, ...$sourcedLibraries];
     sort($expectedPaths);
     $actualPaths = array_keys($modes);
     sort($actualPaths);
 
-    expect($actualPaths)->toBe($expectedPaths, 'infrastructure/scripts/ contains a file this test does not know how to classify — add it to the CLI allowlist or the sourced-library exemption above');
+    expect($actualPaths)->toBe($expectedPaths, 'infrastructure/scripts/ contains a file this test does not know how to classify — add it to infrastructure/config/required-clis.txt or to sourcedLibraryNames() in tests/Pest.php');
 });
 
 it('carries every infrastructure script through checkout and deploy normalization with the correct final mode', function () {
@@ -223,20 +230,35 @@ it('verify-required-clis fails closed when a required CLI is missing from the re
     }
 });
 
-it('verify-required-clis fails closed when common is wrongly executable', function () {
+it('verify-required-clis fails closed when a sourced library is wrongly executable', function (string $library) {
     $root = releaseCliFixture(requiredCliManifestNames());
 
     try {
-        chmod($root.'/infrastructure/scripts/common', 0o755);
+        chmod($root.'/infrastructure/scripts/'.$library, 0o755);
 
         [$exit, $output] = runVerifyRequiredClis($root);
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('common must remain a non-executable sourced library');
+        expect($output)->toContain("{$library} must remain a non-executable sourced library");
     } finally {
         exec('rm -rf '.escapeshellarg($root));
     }
-});
+})->with(fn (): array => sourcedLibraryNames());
+
+it('verify-required-clis fails closed when a sourced library is missing from the release', function (string $library) {
+    $root = releaseCliFixture(requiredCliManifestNames());
+
+    try {
+        unlink($root.'/infrastructure/scripts/'.$library);
+
+        [$exit, $output] = runVerifyRequiredClis($root);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("release is missing infrastructure/scripts/{$library}");
+    } finally {
+        exec('rm -rf '.escapeshellarg($root));
+    }
+})->with(fn (): array => sourcedLibraryNames());
 
 it('verify-required-clis fails closed when the required-CLI manifest is missing from the release', function () {
     $root = releaseCliFixture(requiredCliManifestNames());

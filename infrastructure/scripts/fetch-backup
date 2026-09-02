@@ -1,0 +1,422 @@
+#!/usr/bin/env bash
+#
+# fetch-backup — stage ONE exact backup into a root-only restore operation
+# workspace, from local disk or from Backblaze B2.
+#
+#   fetch-backup --target TARGET_ID --source local|offsite --backup YYYYMMDD-HHMMSS
+#   fetch-backup --discard --target TARGET_ID --operation OPERATION_ID
+#
+# There is deliberately NO "latest". A destructive restore must never
+# implicitly select a backup: the operator names the exact timestamp, and the
+# only thing this script resolves for them is where that timestamp lives —
+# from the target registry plus fixed RateGuru configuration, never from a
+# command line. No arbitrary filesystem path, no arbitrary rclone remote,
+# bucket or remote path, and no arbitrary database name can reach this script.
+#
+# Staging happens BEFORE the emergency pre-restore backup on purpose. `backup`
+# applies local retention immediately after creating a backup, so an operator
+# restoring an OLD local backup could otherwise have the emergency backup's
+# retention pass delete the very source being restored from, mid-operation.
+# Local staging hardlinks the backup's files into the workspace where
+# possible, so the staged copy survives the source directory disappearing
+# entirely.
+#
+# Root-only, exactly like every other mutating operational script, and
+# lifecycle-gated: a planned target (tits-guru today) is rejected before any
+# workspace is created, any backup root is computed, or any byte is
+# downloaded.
+
+set -Eeuo pipefail
+umask 077
+
+# RATEGURU_COMMON_FILE is only honored alongside RATEGURU_ALLOW_TEST_OVERRIDES
+# =true — see the identical comment in infrastructure/scripts/backup.
+COMMON_FILE=/home/www/rateguru/bin/common
+RESTORE_COMMON_FILE=/home/www/rateguru/bin/restore-common
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]; then
+    if [[ -n "${RATEGURU_COMMON_FILE:-}" ]]; then
+        COMMON_FILE="${RATEGURU_COMMON_FILE}"
+    fi
+
+    if [[ -n "${RATEGURU_RESTORE_COMMON_FILE:-}" ]]; then
+        RESTORE_COMMON_FILE="${RATEGURU_RESTORE_COMMON_FILE}"
+    fi
+fi
+
+# shellcheck disable=SC1090
+source "${COMMON_FILE}"
+# shellcheck disable=SC1090
+source "${RESTORE_COMMON_FILE}"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  fetch-backup --target TARGET_ID --source local|offsite --backup YYYYMMDD-HHMMSS
+               [--operation OPERATION_ID]
+  fetch-backup --discard --target TARGET_ID --operation OPERATION_ID
+
+  --target     Deployment target whose backup namespace is read.
+  --source     local   stage from /home/www/rateguru/backups/<namespace>/<backup>
+               offsite stage from the fixed B2 remote/bucket for <namespace>
+  --backup     The exact backup timestamp. There is no default and no "latest".
+  --operation  Restore operation ID to stage into. Generated when omitted.
+  --discard    Remove a fetch-only operation workspace. Refuses to touch a
+               workspace belonging to a restore-target operation.
+USAGE
+}
+
+# Everything below, down to (not including) the source guard at the bottom of
+# this file, is constants and function definitions only — nothing runs until
+# main is called, mirroring backup/restore-test's own structure exactly.
+
+# --- argument parsing ---------------------------------------------------------
+
+parse_fetch_args() {
+    TARGET_ID=""
+    TARGET_SEEN=false
+    SOURCE_KIND=""
+    SOURCE_SEEN=false
+    BACKUP_ID=""
+    BACKUP_SEEN=false
+    OPERATION_ID=""
+    OPERATION_SEEN=false
+    DISCARD=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)
+                [[ "${TARGET_SEEN}" != true ]] || fail "--target given more than once"
+                require_flag_value "--target" "$#" "${2-}"
+                TARGET_ID="$2"
+                TARGET_SEEN=true
+                shift 2
+                ;;
+            --source)
+                [[ "${SOURCE_SEEN}" != true ]] || fail "--source given more than once"
+                require_flag_value "--source" "$#" "${2-}"
+                SOURCE_KIND="$2"
+                SOURCE_SEEN=true
+                shift 2
+                ;;
+            --backup)
+                [[ "${BACKUP_SEEN}" != true ]] || fail "--backup given more than once"
+                require_flag_value "--backup" "$#" "${2-}"
+                BACKUP_ID="$2"
+                BACKUP_SEEN=true
+                shift 2
+                ;;
+            --operation)
+                [[ "${OPERATION_SEEN}" != true ]] || fail "--operation given more than once"
+                require_flag_value "--operation" "$#" "${2-}"
+                OPERATION_ID="$2"
+                OPERATION_SEEN=true
+                shift 2
+                ;;
+            --discard)
+                [[ "${DISCARD}" != true ]] || fail "--discard given more than once"
+                DISCARD=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
+
+    if [[ "${DISCARD}" == true ]]; then
+        [[ "${SOURCE_SEEN}" != true ]] || fail "--discard does not take --source"
+        [[ "${BACKUP_SEEN}" != true ]] || fail "--discard does not take --backup"
+        [[ "${OPERATION_SEEN}" == true ]] || fail "--discard requires --operation"
+
+        return 0
+    fi
+
+    [[ "${SOURCE_SEEN}" == true ]] || fail "--source is required (local or offsite)"
+    [[ "${BACKUP_SEEN}" == true ]] \
+        || fail "--backup is required — a destructive restore never selects a backup implicitly, and there is no 'latest'"
+
+    case "${SOURCE_KIND}" in
+        local|offsite) ;;
+        *) fail "--source must be local or offsite, got: ${SOURCE_KIND}" ;;
+    esac
+}
+
+# --- target resolution ---------------------------------------------------------
+#
+# require_active_target runs first thing — before the backup root, the remote
+# path, the workspace, or any filesystem or network access is computed or
+# touched. main() already called require_root, so the full ordering is: root
+# authorization -> lifecycle=planned rejection -> (only if active) any work.
+resolve_fetch_subject() {
+    require_active_target "${TARGET_ID}"
+
+    ENVIRONMENT_CLASS="$(target_environment_class "${TARGET_ID}")"
+    BACKUP_NAMESPACE="$(target_backup_namespace "${TARGET_ID}")"
+    LABEL="${TARGET_ID}"
+}
+
+# --- locking ----------------------------------------------------------------------
+#
+# Two locks, both keyed on the registry backup namespace exactly like every
+# other backup-path script, and neither of them host-global:
+#
+#   fetch-backup-<namespace>  serializes fetches. Without it two invocations
+#                             given the SAME explicit operation ID could both
+#                             pass the "already staged" check and write the
+#                             same selected-backup directory.
+#   backup-<namespace>        the EXISTING backup lock, held only across LOCAL
+#                             staging. `backup` applies local retention the
+#                             moment it finishes, and retention deleting the
+#                             source directory between validation and the last
+#                             hardlink would leave a half-staged backup.
+#
+# Always taken in this order, and nothing anywhere takes them in the reverse
+# order, so no deadlock is possible. restore-target calls this script BEFORE
+# it takes the backup lock itself, so the two never contend.
+acquire_fetch_lock() {
+    install -d -o root -g root -m 0700 "${RUN_ROOT}"
+
+    exec 203>"${RUN_ROOT}/fetch-backup-${BACKUP_NAMESPACE}.lock"
+
+    flock -n 203 \
+        || fail "another fetch is already staging a backup for namespace ${BACKUP_NAMESPACE}"
+}
+
+acquire_local_backup_lock() {
+    exec 204>"${RUN_ROOT}/backup-${BACKUP_NAMESPACE}.lock"
+
+    flock -n 204 \
+        || fail "a backup is running for namespace ${BACKUP_NAMESPACE} — its retention pass could delete the backup being staged; retry when it finishes"
+}
+
+release_local_backup_lock() {
+    exec 204>&-
+}
+
+# --- local staging --------------------------------------------------------------
+
+# stage_local_backup — resolves the ONE canonical local location for this
+# backup and stages its files into the workspace.
+#
+# The whole containment argument lives here, so it is in one place rather than
+# re-derived per caller:
+#   * the namespace comes from the registry, never from an argument;
+#   * the backup ID passed validate_backup_id (closed timestamp format, real
+#     calendar date) so it can carry no separator or relative component;
+#   * the backup root must be a real directory and not a symlink;
+#   * the backup directory must be a DIRECT child of that root, compared after
+#     full path resolution, so a symlinked timestamp directory pointing
+#     somewhere else is refused rather than followed;
+#   * each required entry must be a plain regular file, not a symlink or a
+#     special file.
+stage_local_backup() {
+    local backup_root="${BACKUP_BASE}/${BACKUP_NAMESPACE}"
+
+    # Held across validation AND the copy, then released: a retention pass
+    # cannot remove the source out from under a half-finished staging.
+    acquire_local_backup_lock
+
+    [[ ! -L "${BACKUP_BASE}" ]] || fail "backup base must not be a symlink: ${BACKUP_BASE}"
+    [[ -d "${BACKUP_BASE}" ]] || fail "backup base is not a directory: ${BACKUP_BASE}"
+    [[ ! -L "${backup_root}" ]] || fail "backup namespace root must not be a symlink: ${backup_root}"
+    [[ -d "${backup_root}" ]] || fail "backup namespace root is not a directory: ${backup_root}"
+
+    local source_dir="${backup_root}/${BACKUP_ID}"
+
+    [[ -e "${source_dir}" ]] \
+        || fail "backup ${BACKUP_ID} does not exist in namespace ${BACKUP_NAMESPACE}: ${source_dir}"
+    [[ ! -L "${source_dir}" ]] \
+        || fail "backup directory must not be a symlink: ${source_dir}"
+    [[ -d "${source_dir}" ]] \
+        || fail "backup path is not a directory: ${source_dir}"
+
+    local resolved_root resolved_dir
+    resolved_root="$(readlink -f "${backup_root}")"
+    resolved_dir="$(readlink -f "${source_dir}")"
+
+    [[ "$(dirname "${resolved_dir}")" == "${resolved_root}" ]] \
+        || fail "backup directory is not a direct child of ${backup_root}: ${resolved_dir}"
+
+    log "staging local backup ${BACKUP_ID} from ${source_dir}"
+
+    local name
+    for name in "${RESTORE_BACKUP_REQUIRED_FILES[@]}"; do
+        restore_assert_backup_regular_file "${source_dir}" "${name}"
+    done
+
+    # Hardlink where the filesystem allows it (instant, no extra space, and
+    # the staged copy survives the source directory being removed by a later
+    # retention pass), copy otherwise. Never a symlink: a symlinked stage
+    # would break the moment the source disappears, which is precisely the
+    # scenario this staging exists to survive.
+    for name in "${RESTORE_BACKUP_REQUIRED_FILES[@]}"; do
+        if ln "${source_dir}/${name}" "${SELECTED_BACKUP_DIR}/${name}" 2>/dev/null; then
+            continue
+        fi
+
+        # cp --preserve=mode would carry the source's mode across; the staged
+        # copy is deliberately narrowed to 0600 instead, and the source file
+        # is never modified (which a chmod on a hardlink WOULD do, since both
+        # names share one inode).
+        cp -- "${source_dir}/${name}" "${SELECTED_BACKUP_DIR}/${name}" \
+            || fail "could not stage backup file: ${name}"
+        chmod 0600 "${SELECTED_BACKUP_DIR}/${name}"
+    done
+
+    release_local_backup_lock
+
+    STAGED_FROM="${source_dir}"
+}
+
+# --- offsite staging -------------------------------------------------------------
+
+# stage_offsite_backup — downloads exactly one remote backup directory.
+#
+# The remote path is built entirely from the accepted offsite architecture:
+# the fixed remote name, the fixed bucket, the fixed `rateguru/` prefix and
+# the target's registry backup namespace, plus the validated backup ID. None
+# of those is a CLI input, so no remote, bucket or object path an operator
+# names can be reached from here.
+stage_offsite_backup() {
+    [[ -f "${RCLONE_CONFIG}" ]] || fail "rclone configuration not found: ${RCLONE_CONFIG}"
+
+    local remote_dir="${RCLONE_REMOTE}:${RCLONE_BUCKET}/rateguru/${BACKUP_NAMESPACE}/${BACKUP_ID}"
+
+    log "downloading offsite backup ${BACKUP_ID} from ${remote_dir}"
+
+    # --checksum makes rclone compare content hashes rather than size/mtime;
+    # the credential lives in the rclone config file and is never echoed,
+    # logged or passed on the command line.
+    "${RCLONE_BIN}" \
+        --config "${RCLONE_CONFIG}" \
+        copy \
+        "${remote_dir}" \
+        "${SELECTED_BACKUP_DIR}" \
+        --check-first \
+        --checksum \
+        --stats-one-line \
+        --stats 10s \
+        || fail "could not download backup ${BACKUP_ID} from the offsite remote"
+
+    local name
+    for name in "${RESTORE_BACKUP_REQUIRED_FILES[@]}"; do
+        restore_assert_backup_regular_file "${SELECTED_BACKUP_DIR}" "${name}"
+        chmod 0600 "${SELECTED_BACKUP_DIR}/${name}"
+    done
+
+    STAGED_FROM="${remote_dir}"
+}
+
+# --- discard ---------------------------------------------------------------------
+
+perform_discard() {
+    local workspace
+    workspace="$(restore_require_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
+
+    local state_file
+    state_file="$(restore_state_file "${workspace}")"
+
+    [[ ! -e "${state_file}" ]] \
+        || fail "refusing to discard a restore-target operation workspace (it carries state.json): ${workspace}"
+
+    restore_remove_operation_path "${workspace}"
+
+    log "discarded fetch workspace: ${workspace}"
+}
+
+# --- pipeline ----------------------------------------------------------------------
+
+perform_fetch() {
+    validate_backup_id "${BACKUP_ID}"
+
+    if [[ "${OPERATION_SEEN}" == true ]]; then
+        validate_operation_id "${OPERATION_ID}"
+    else
+        OPERATION_ID="$(generate_operation_id)"
+        validate_operation_id "${OPERATION_ID}"
+    fi
+
+    # Taken before the workspace is inspected, and held for the whole staging:
+    # the "is a backup already staged here?" check below is only meaningful if
+    # no second fetch can pass it at the same time.
+    acquire_fetch_lock
+
+    if [[ "${OPERATION_SEEN}" == true ]] \
+        && [[ -d "$(restore_operation_root "${TARGET_ID}" "${OPERATION_ID}")" ]]
+    then
+        # restore-target creates the workspace itself and then calls this
+        # script, so an existing workspace is expected in that flow — but it
+        # must not already hold a staged backup.
+        WORKSPACE="$(restore_require_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
+    else
+        WORKSPACE="$(restore_create_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
+    fi
+
+    SELECTED_BACKUP_DIR="$(restore_selected_backup_dir "${WORKSPACE}")"
+
+    [[ ! -e "${SELECTED_BACKUP_DIR}" ]] && [[ ! -L "${SELECTED_BACKUP_DIR}" ]] \
+        || fail "a backup is already staged in this operation workspace: ${SELECTED_BACKUP_DIR}"
+
+    install -d -o root -g root -m 0700 "${SELECTED_BACKUP_DIR}"
+
+    case "${SOURCE_KIND}" in
+        local)   stage_local_backup ;;
+        offsite) stage_offsite_backup ;;
+    esac
+
+    # Nothing but the seven backup files may exist in the staged directory: a
+    # remote (or a source directory) carrying an extra object must not have it
+    # silently staged alongside the backup and later mistaken for part of it.
+    local staged_count
+    staged_count="$(find "${SELECTED_BACKUP_DIR}" -mindepth 1 -maxdepth 1 -printf 'x\n' | wc -l)"
+    staged_count="${staged_count//[[:space:]]/}"
+
+    [[ "${staged_count}" == "${#RESTORE_BACKUP_REQUIRED_FILES[@]}" ]] \
+        || fail "staged backup directory holds ${staged_count} entries, expected exactly ${#RESTORE_BACKUP_REQUIRED_FILES[@]}"
+
+    restore_assert_backup_file_set "${SELECTED_BACKUP_DIR}"
+
+    log ""
+    log "${LABEL} backup staged"
+    log "  source:     ${SOURCE_KIND}"
+    log "  backup:     ${BACKUP_ID}"
+    log "  namespace:  ${BACKUP_NAMESPACE}"
+    log "  staged from: ${STAGED_FROM}"
+    log "  workspace:  ${WORKSPACE}"
+    log ""
+    log "operation: ${OPERATION_ID}"
+}
+
+# --- dispatch -----------------------------------------------------------------------
+#
+# require_root stays the first substantive action of a real invocation,
+# matching backup/restore-test's contract exactly.
+main() {
+    require_root
+    parse_fetch_args "$@"
+    resolve_fetch_subject
+
+    if [[ "${DISCARD}" == true ]]; then
+        perform_discard
+
+        return 0
+    fi
+
+    perform_fetch
+}
+
+# A real invocation always has BASH_SOURCE[0] == $0, so main runs immediately
+# here. Tests source this file instead — BASH_SOURCE[0] != $0 in that case, so
+# main never auto-runs — then call parse_fetch_args/resolve_fetch_subject/
+# perform_fetch directly, or invoke the script as a genuine subprocess (which
+# does run main(), requiring root first, exactly as production).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

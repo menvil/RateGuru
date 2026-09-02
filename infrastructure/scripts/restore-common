@@ -1,0 +1,1103 @@
+#!/usr/bin/env bash
+#
+# restore-common — Phase 7.3 restore-only shared library.
+#
+# Sourced, never executed: it defines constants and functions and runs
+# nothing. Installed 0644 root:root, exactly like infrastructure/scripts/common
+# (which every caller sources FIRST — every helper below assumes common's
+# log/fail/target_* and rateguru_test_overrides_allowed already exist).
+#
+# It exists for one reason: the five restore CLIs (fetch-backup,
+# verify-backup, restore-database, restore-storage, restore-target) share
+# five kinds of validation that must be identical in all of them, and
+# spreading five copies of each across five privileged scripts is how a
+# restore ends up trusting a path in one place that another place rejects:
+#
+#   * backup path/identity validation  (which backup, belonging to whom)
+#   * operation workspace validation   (where a restore may write)
+#   * storage archive safety           (what may be extracted as root)
+#   * restore state handling           (what phase an operation is in)
+#   * PostgreSQL identifier/name derivation for the staged swap
+#
+# Nothing here is target-specific until it is called: sourcing this file must
+# never fail merely because a registry, a workspace or a backup is absent.
+#
+# Deliberately NOT merged into common: common is sourced by every operational
+# script on the host, including read-only ones (health-check, status), and
+# none of them has any business carrying restore machinery.
+
+# --- gated test overrides ----------------------------------------------------
+#
+# Identical shape to install-target-database's gated_default: an override is
+# honored only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true, so a stray
+# environment variable surviving in a real root shell can never redirect a
+# privileged restore at an operator- or attacker-controlled backup root,
+# binary, remote or workspace. Production never sets either variable, so every
+# value below resolves to the same constant it would have been hardcoded as.
+
+restore_gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+# Reused verbatim from the existing backup path (backup, restore-test,
+# offsite-*): the same override names, so a test harness configures the whole
+# backup/restore surface with one set of variables instead of two.
+BACKUP_BASE="$(restore_gated_default RATEGURU_BACKUP_BASE /home/www/rateguru/backups)"
+RUN_ROOT="$(restore_gated_default RATEGURU_RUN_ROOT /home/www/rateguru/run)"
+
+RCLONE_CONFIG="$(restore_gated_default RATEGURU_RCLONE_CONFIG /root/.config/rclone/rclone.conf)"
+RCLONE_REMOTE="$(restore_gated_default RATEGURU_RCLONE_REMOTE rateguru-b2)"
+RCLONE_BUCKET="$(restore_gated_default RATEGURU_RCLONE_BUCKET rateguru-database-backups)"
+RCLONE_BIN="$(restore_gated_default RATEGURU_RCLONE_BIN /usr/bin/rclone)"
+
+CREATEDB_BIN="$(restore_gated_default RATEGURU_CREATEDB_BIN /usr/bin/createdb)"
+DROPDB_BIN="$(restore_gated_default RATEGURU_DROPDB_BIN /usr/bin/dropdb)"
+PG_RESTORE_BIN="$(restore_gated_default RATEGURU_PG_RESTORE_BIN /usr/bin/pg_restore)"
+PSQL_BIN="$(restore_gated_default RATEGURU_PSQL_BIN /usr/bin/psql)"
+RUNUSER_BIN="$(restore_gated_default RATEGURU_RESTORE_RUNUSER_BIN runuser)"
+POSTGRES_SUPERUSER="$(restore_gated_default RATEGURU_RESTORE_SUPERUSER postgres)"
+
+# Phase 7.3-only paths and identities.
+RESTORE_HISTORY_ROOT="$(restore_gated_default RATEGURU_RESTORE_HISTORY_ROOT /home/www/rateguru/restores)"
+RESTORE_CRON_D_ROOT="$(restore_gated_default RATEGURU_RESTORE_CRON_D_ROOT /etc/cron.d)"
+RESTORE_SUPERVISORCTL_BIN="$(restore_gated_default RATEGURU_RESTORE_SUPERVISORCTL_BIN supervisorctl)"
+RESTORE_PGREP_BIN="$(restore_gated_default RATEGURU_RESTORE_PGREP_BIN pgrep)"
+RESTORE_HEALTH_CHECK_BIN="$(restore_gated_default RATEGURU_RESTORE_HEALTH_CHECK_BIN /home/www/rateguru/bin/health-check)"
+RESTORE_BACKUP_BIN="$(restore_gated_default RATEGURU_RESTORE_BACKUP_BIN /home/www/rateguru/bin/backup)"
+RESTORE_RESTORE_TEST_BIN="$(restore_gated_default RATEGURU_RESTORE_RESTORE_TEST_BIN /home/www/rateguru/bin/restore-test)"
+
+# The five restore primitives invoke one another by absolute installed path,
+# exactly as backup-cycle already invokes backup/restore-test/offsite-*.
+RESTORE_FETCH_BACKUP_BIN="$(restore_gated_default RATEGURU_RESTORE_FETCH_BACKUP_BIN /home/www/rateguru/bin/fetch-backup)"
+RESTORE_VERIFY_BACKUP_BIN="$(restore_gated_default RATEGURU_RESTORE_VERIFY_BACKUP_BIN /home/www/rateguru/bin/verify-backup)"
+RESTORE_DATABASE_BIN="$(restore_gated_default RATEGURU_RESTORE_DATABASE_BIN /home/www/rateguru/bin/restore-database)"
+RESTORE_STORAGE_BIN="$(restore_gated_default RATEGURU_RESTORE_STORAGE_BIN /home/www/rateguru/bin/restore-storage)"
+
+# The group Nginx runs as. Hardcoded exactly like deploy's own
+# `install -d -o "${RUNTIME_USER}" -g www-data` calls and
+# install-public-storage-access's WEB_USER — the public-storage access model
+# is a fixed property of this host, not a per-target registry field.
+RESTORE_WEB_GROUP="$(restore_gated_default RATEGURU_RESTORE_WEB_GROUP www-data)"
+
+# Bounded waits. Overridable (shrunk) by tests only; production always spends
+# the values below.
+RESTORE_QUEUE_WAIT_ATTEMPTS="$(restore_gated_default RATEGURU_RESTORE_QUEUE_WAIT_ATTEMPTS 30)"
+RESTORE_QUEUE_RETRY_DELAY="$(restore_gated_default RATEGURU_RESTORE_QUEUE_RETRY_DELAY 2)"
+RESTORE_SCHEDULER_WAIT_ATTEMPTS="$(restore_gated_default RATEGURU_RESTORE_SCHEDULER_WAIT_ATTEMPTS 30)"
+RESTORE_SCHEDULER_RETRY_DELAY="$(restore_gated_default RATEGURU_RESTORE_SCHEDULER_RETRY_DELAY 2)"
+
+# --- backup contract ---------------------------------------------------------
+#
+# The exact seven files infrastructure/scripts/backup produces, in the exact
+# order it writes them into SHA256SUMS. This is the existing, accepted backup
+# format: Phase 7.3 reads it and never redefines it.
+#
+# For a LIVE restore only database.dump and storage-app.tar.gz are ever
+# applied. environment.env and server-configuration.tar.gz are required to be
+# PRESENT and CHECKSUM-VALID (a backup missing them is incomplete and must not
+# be restored from), and are then never read: a live restore must not rewrite
+# shared/.env, TLS material, authorized_keys, Nginx, PHP-FPM, Supervisor or
+# cron. Reconstructing those belongs to Recover Host / Repair Target.
+RESTORE_BACKUP_CHECKSUMMED_FILES=(
+    database.dump
+    storage-app.tar.gz
+    environment.env
+    release.json
+    server-configuration.tar.gz
+    manifest.json
+)
+
+RESTORE_BACKUP_REQUIRED_FILES=(
+    "${RESTORE_BACKUP_CHECKSUMMED_FILES[@]}"
+    SHA256SUMS
+)
+
+# Files a live restore is allowed to APPLY. Anything else in a backup is
+# verified and left alone. Named as a constant so the architectural
+# regression tests can assert the closed list rather than a comment.
+RESTORE_APPLIED_FILES=(
+    database.dump
+    storage-app.tar.gz
+)
+
+# Files a live restore must NEVER apply, no matter what.
+RESTORE_NEVER_APPLIED_FILES=(
+    environment.env
+    server-configuration.tar.gz
+)
+
+# --- closed identifier formats ----------------------------------------------
+
+# A backup ID is exactly the timestamped directory name backup itself creates.
+# No path, no separator, no relative component can survive this.
+RESTORE_BACKUP_ID_REGEX='^[0-9]{8}-[0-9]{6}$'
+
+# An operation ID is generated by this tooling, never by an operator's
+# filesystem: UTC timestamp plus six hex characters of entropy. No slash, no
+# whitespace, no shell metacharacter, no dot — so it can never climb out of
+# the workspace root it is concatenated onto.
+RESTORE_OPERATION_ID_REGEX='^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'
+
+# PostgreSQL's own identifier rules, narrowed to unquoted lowercase — the
+# identical class install-target-database enforces. Every database name this
+# library derives is matched against it before it reaches SQL text.
+RESTORE_IDENTIFIER_REGEX='^[a-z_][a-z0-9_]{0,62}$'
+
+# The full Git commit a backup must carry for a destructive restore to be able
+# to state which code the data belongs to. Matches the application's own
+# DeploymentMetadata::COMMIT_PATTERN and the build pipeline's output.
+RESTORE_SOURCE_SHA_REGEX='^[0-9a-f]{7,40}$'
+
+# The canonical immutable release ID the build pipeline seals into every
+# artifact — same expression as DeploymentMetadata::RELEASE_PATTERN.
+RESTORE_RELEASE_ID_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+
+validate_backup_id() {
+    local backup_id="${1-}"
+
+    [[ "${backup_id}" =~ ${RESTORE_BACKUP_ID_REGEX} ]] \
+        || fail "invalid backup ID (expected YYYYMMDD-HHMMSS): ${backup_id}"
+
+    # A name can match the shape without being a real calendar timestamp
+    # (month 13, day 99). Round-trip through epoch, exactly the way backup's
+    # own retention validates the names it created, so a shape-matching but
+    # impossible ID is rejected here rather than resolving to a directory
+    # somebody else created by hand.
+    local year="${backup_id:0:4}" month="${backup_id:4:2}" day="${backup_id:6:2}"
+    local hour="${backup_id:9:2}" minute="${backup_id:11:2}" second="${backup_id:13:2}"
+    local epoch canonical
+
+    epoch="$(date -u -d "${year}-${month}-${day} ${hour}:${minute}:${second} UTC" +%s 2>/dev/null)" \
+        || fail "backup ID is not a real UTC timestamp: ${backup_id}"
+
+    canonical="$(date -u -d "@${epoch}" +%Y%m%d-%H%M%S)"
+
+    [[ "${canonical}" == "${backup_id}" ]] \
+        || fail "backup ID is not a real UTC timestamp: ${backup_id}"
+}
+
+validate_operation_id() {
+    local operation_id="${1-}"
+
+    [[ "${operation_id}" =~ ${RESTORE_OPERATION_ID_REGEX} ]] \
+        || fail "invalid restore operation ID: ${operation_id}"
+}
+
+# generate_operation_id — server-side only. Entropy comes from /dev/urandom
+# (never from $RANDOM, which is seeded per process and repeats), so two
+# restores started in the same second can never collide on a workspace.
+generate_operation_id() {
+    local entropy
+    entropy="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+
+    printf '%s-%s\n' "$(date -u +%Y%m%d-%H%M%S)" "${entropy}"
+}
+
+restore_validate_identifier() {
+    local value="${1-}" label="${2:-identifier}"
+
+    [[ "${value}" =~ ${RESTORE_IDENTIFIER_REGEX} ]] \
+        || fail "${label} is not a plain lowercase PostgreSQL identifier: ${value}"
+}
+
+# --- operation workspace ------------------------------------------------------
+#
+# Every restore writes into exactly one root-only directory whose path is
+# built from three validated components and nothing else:
+#
+#   ${RUN_ROOT}/restores/<target-id>/<operation-id>
+#
+# No operator-supplied filesystem path reaches any of these functions. The
+# target ID has already passed common's validate_target_id (a closed
+# [a-z0-9-] class); the operation ID has passed validate_operation_id.
+
+restore_run_root() {
+    printf '%s/restores\n' "${RUN_ROOT}"
+}
+
+restore_operation_root() {
+    local target_id="$1" operation_id="$2"
+
+    validate_target_id "${target_id}"
+    validate_operation_id "${operation_id}"
+
+    printf '%s/%s/%s\n' "$(restore_run_root)" "${target_id}" "${operation_id}"
+}
+
+restore_state_file() {
+    printf '%s/state.json\n' "$1"
+}
+
+restore_selected_backup_dir() {
+    printf '%s/selected-backup\n' "$1"
+}
+
+restore_identity_file() {
+    printf '%s/verified-identity.json\n' "$1"
+}
+
+restore_scheduler_hold_dir() {
+    printf '%s/scheduler-hold\n' "$1"
+}
+
+# restore_assert_directory_safe DIR LABEL — a directory a privileged restore
+# is about to read from or write into must be a real directory, never a
+# symlink, and must not be group- or other-writable. Ownership is demanded
+# only when this process is genuinely root, so a non-root test fixture works
+# without weakening the production contract.
+restore_assert_directory_safe() {
+    local dir="$1" label="${2:-directory}"
+
+    [[ ! -L "${dir}" ]] || fail "${label} must not be a symlink: ${dir}"
+    [[ -d "${dir}" ]] || fail "${label} must be a directory: ${dir}"
+
+    local mode
+    mode="$(stat -c '%a' "${dir}")"
+
+    (( (8#${mode} & 8#022) == 0 )) \
+        || fail "${label} must not be group- or other-writable (mode ${mode}): ${dir}"
+
+    if [[ "${EUID}" -eq 0 ]]; then
+        local owner
+        owner="$(stat -c '%u:%g' "${dir}")"
+        [[ "${owner}" == "0:0" ]] \
+            || fail "${label} must be owned by root:root, is ${owner}: ${dir}"
+    fi
+}
+
+# restore_create_operation_workspace TARGET OPERATION — creates the workspace
+# for a NEW operation. Fails closed if it already exists: an operation ID is
+# generated once and never reused, so an existing directory means either a
+# collision or a caller trying to write into somebody else's live restore.
+restore_create_operation_workspace() {
+    local target_id="$1" operation_id="$2" root
+    root="$(restore_operation_root "${target_id}" "${operation_id}")"
+
+    install -d -o root -g root -m 0700 "$(restore_run_root)"
+    install -d -o root -g root -m 0700 "$(restore_run_root)/${target_id}"
+
+    [[ ! -e "${root}" ]] && [[ ! -L "${root}" ]] \
+        || fail "restore operation workspace already exists: ${root}"
+
+    install -d -o root -g root -m 0700 "${root}"
+
+    printf '%s\n' "${root}"
+}
+
+# restore_require_operation_workspace TARGET OPERATION — resolves and
+# validates an EXISTING workspace.
+restore_require_operation_workspace() {
+    local target_id="$1" operation_id="$2" root
+    root="$(restore_operation_root "${target_id}" "${operation_id}")"
+
+    [[ -e "${root}" ]] || fail "restore operation workspace does not exist: ${root}"
+    restore_assert_directory_safe "${root}" "restore operation workspace"
+
+    printf '%s\n' "${root}"
+}
+
+# restore_remove_operation_path PATH — the ONLY place this library removes a
+# tree recursively, and it refuses everything that is not demonstrably inside
+# the restore workspace root.
+#
+# Every guard here is deliberate: an empty or unset value, a path that is not
+# absolute, the workspace root itself, anything outside it, a symlink, or a
+# path containing a relative component all abort before `rm` runs. There is no
+# code path in Phase 7.3 that removes a recursively-deleted path built from
+# anything but validated target/operation IDs.
+restore_remove_operation_path() {
+    local path="${1-}"
+    local run_root
+    run_root="$(restore_run_root)"
+
+    [[ -n "${path}" ]] || fail "refusing to remove an empty path"
+    [[ "${path}" == /* ]] || fail "refusing to remove a relative path: ${path}"
+    [[ "${path}" != *".."* ]] || fail "refusing to remove a path with a relative component: ${path}"
+    [[ "${path}" == "${run_root}/"* ]] \
+        || fail "refusing to remove a path outside ${run_root}: ${path}"
+    [[ "${path}" != "${run_root}/" ]] || fail "refusing to remove the restore run root"
+    [[ ! -L "${path}" ]] || fail "refusing to recursively remove a symlink: ${path}"
+
+    rm -rf -- "${path}"
+}
+
+# restore_remove_storage_sibling TARGET_ROOT PATH — the storage-side twin of
+# the guard above, for the two operation-scoped sibling trees restore-storage
+# creates inside <target>/shared/storage. Same shape, different perimeter: a
+# path is only removable if it is a DIRECT child of that target's own
+# shared/storage and carries one of the two operation-scoped prefixes this
+# tooling generates.
+restore_remove_storage_sibling() {
+    local storage_root="${1-}" path="${2-}"
+    local base
+
+    [[ -n "${storage_root}" ]] || fail "refusing to remove without a storage root"
+    [[ -n "${path}" ]] || fail "refusing to remove an empty path"
+    [[ "${path}" == /* ]] || fail "refusing to remove a relative path: ${path}"
+    [[ "${path}" != *".."* ]] || fail "refusing to remove a path with a relative component: ${path}"
+    [[ "${path}" == "${storage_root}/"* ]] \
+        || fail "refusing to remove a path outside ${storage_root}: ${path}"
+
+    base="${path#"${storage_root}/"}"
+
+    [[ "${base}" != */* ]] \
+        || fail "refusing to remove a non-direct child of ${storage_root}: ${path}"
+    [[ "${base}" == .restore-* ]] || [[ "${base}" == .pre-restore-app-* ]] \
+        || fail "refusing to remove a storage entry this tooling did not create: ${path}"
+    [[ ! -L "${path}" ]] || fail "refusing to recursively remove a symlink: ${path}"
+
+    rm -rf -- "${path}"
+}
+
+# --- operation state ----------------------------------------------------------
+#
+# One root-only, 0600 JSON document per operation. It carries operational
+# identity and decisions only — never a secret: no .env content, no database
+# password, no token, no key material, no rclone credential, and no file
+# content hash that could act as a fingerprint for secret material. An
+# immutable release ID and a Git commit are public build identity and are
+# recorded in full.
+
+restore_state_init() {
+    local state_file="$1"
+
+    : > "${state_file}"
+    chmod 0600 "${state_file}"
+    printf '{}\n' > "${state_file}"
+}
+
+# restore_state_set FILE KEY VALUE [KEY VALUE ...] — string values only,
+# merged through jq (never string concatenation), written to a temporary file
+# in the same directory and renamed into place so a reader never observes a
+# half-written state.
+restore_state_set() {
+    local state_file="$1"
+    shift
+
+    [[ $(( $# % 2 )) -eq 0 ]] || fail "restore_state_set requires key/value pairs"
+
+    local -a args=()
+    local filter='.'
+    local index=0
+
+    while [[ $# -gt 0 ]]; do
+        args+=(--arg "k${index}" "$1" --arg "v${index}" "$2")
+        filter="${filter} | .[\$k${index}] = \$v${index}"
+        index=$(( index + 1 ))
+        shift 2
+    done
+
+    local tmp
+    tmp="$(mktemp "${state_file}.XXXXXX")"
+    chmod 0600 "${tmp}"
+
+    if ! jq "${args[@]}" "${filter}" "${state_file}" > "${tmp}"; then
+        rm -f "${tmp}"
+        fail "could not update restore state: ${state_file}"
+    fi
+
+    mv -f "${tmp}" "${state_file}"
+    chmod 0600 "${state_file}"
+}
+
+# restore_state_get FILE KEY — prints the value, or the empty string when the
+# key is absent or JSON null. Never fails on a missing key: callers decide
+# what an absent value means.
+restore_state_get() {
+    local state_file="$1" key="$2"
+
+    jq -r --arg k "${key}" '.[$k] // empty' "${state_file}"
+}
+
+# restore_state_require_phase FILE TARGET PHASE... — the fail-closed guard
+# that keeps a destructive primitive from running outside the orchestration
+# that created its state. A stray manual `restore-database --activate` against
+# a workspace in the wrong phase, or belonging to another target, aborts before
+# it touches PostgreSQL.
+restore_state_require_phase() {
+    local state_file="$1" target_id="$2"
+    shift 2
+
+    [[ -f "${state_file}" ]] \
+        || fail "restore operation has no state file: ${state_file} — this primitive is driven by restore-target, never invoked on its own"
+
+    local state_target phase
+    state_target="$(restore_state_get "${state_file}" target)"
+    phase="$(restore_state_get "${state_file}" phase)"
+
+    [[ "${state_target}" == "${target_id}" ]] \
+        || fail "restore operation belongs to target ${state_target:-<unset>}, not ${target_id}"
+
+    local allowed
+    for allowed in "$@"; do
+        if [[ "${phase}" == "${allowed}" ]]; then
+            return 0
+        fi
+    done
+
+    fail "restore operation is in phase '${phase:-<unset>}', expected one of: $*"
+}
+
+# --- restore history ----------------------------------------------------------
+#
+# One compact JSON object per terminal operation, appended to a fixed
+# root-only file. A single `printf ... >> file` is one write(2) on an
+# O_APPEND-opened file, which POSIX guarantees atomic up to PIPE_BUF — the
+# same property backup-cycle and offsite-backup already rely on for their own
+# cross-namespace history appends.
+restore_history_file() {
+    printf '%s/restore-history.jsonl\n' "${RESTORE_HISTORY_ROOT}"
+}
+
+# Returns non-zero rather than calling fail: a failed operation's own exit
+# status must never be replaced by a secondary history-write failure, and the
+# caller decides what an unwritable journal means — the identical contract
+# backup-cycle's append_cycle_history already uses.
+restore_history_append() {
+    local record="$1"
+    local history_file
+    history_file="$(restore_history_file)"
+
+    install -d -o root -g root -m 0700 "${RESTORE_HISTORY_ROOT}" || return 1
+
+    printf '%s\n' "${record}" >> "${history_file}" || return 1
+    chmod 0600 "${history_file}" || return 1
+}
+
+# --- deliberately limited .env reader -----------------------------------------
+#
+# Six keys, plain string extraction, never sourced and never eval'd — the
+# identical contract install-target-database established, and for the identical
+# reason: a target's .env is operator-authored secret material, and executing
+# it as shell in a root process would hand whoever wrote it a root shell.
+#
+# The password is read into a shell variable, handed to PostgreSQL through
+# PGPASSWORD only, and never printed, logged, written to state, or compared
+# against anything but emptiness.
+
+RESTORE_ENV_KEYS=(DB_CONNECTION DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD)
+
+restore_env_value() {
+    local key="$1" env_file="$2" line value
+
+    [[ -f "${env_file}" ]] || return 1
+
+    line="$(grep -E "^[[:space:]]*${key}=" "${env_file}" | tail -n 1)" || return 1
+    [[ -n "${line}" ]] || return 1
+
+    value="${line#*=}"
+    value="${value%$'\r'}"
+
+    if [[ "${value}" == \"*\" ]] && (( ${#value} >= 2 )); then
+        value="${value:1:${#value}-2}"
+    elif [[ "${value}" == \'*\' ]] && (( ${#value} >= 2 )); then
+        value="${value:1:${#value}-2}"
+    fi
+
+    [[ -n "${value}" ]] || return 1
+
+    printf '%s\n' "${value}"
+}
+
+restore_read_env_keys() {
+    local env_file="$1" key value
+
+    for key in "${RESTORE_ENV_KEYS[@]}"; do
+        value="$(restore_env_value "${key}" "${env_file}" || true)"
+        printf -v "ENV_${key}" '%s' "${value}"
+    done
+}
+
+# restore_resolve_credentials TARGET_ROOT DB_NAME DB_ROLE — reads the target's
+# own shared/.env and proves it agrees with the registry. A disagreement is
+# drift an operator resolves, never something to reconcile by preferring one
+# source — identical to install-target-database's contract.
+restore_resolve_credentials() {
+    local target_root="$1" db_name="$2" db_role="$3"
+    local shared_env="${target_root}/shared/.env"
+
+    [[ -f "${shared_env}" ]] \
+        || fail "target environment file is missing: ${target_root}/shared/.env"
+    [[ -r "${shared_env}" ]] \
+        || fail "target environment file is unreadable: ${target_root}/shared/.env"
+    [[ ! -L "${shared_env}" ]] \
+        || fail "target environment file must not be a symlink: ${target_root}/shared/.env"
+
+    restore_read_env_keys "${shared_env}"
+
+    ENV_DB_HOST="${ENV_DB_HOST:-127.0.0.1}"
+    ENV_DB_PORT="${ENV_DB_PORT:-5432}"
+
+    [[ "${ENV_DB_CONNECTION}" == pgsql ]] \
+        || fail "${target_root}/shared/.env sets DB_CONNECTION=${ENV_DB_CONNECTION:-<unset>}; restore manages PostgreSQL targets only"
+
+    [[ -n "${ENV_DB_DATABASE}" ]] || fail "${target_root}/shared/.env carries no DB_DATABASE"
+    [[ -n "${ENV_DB_USERNAME}" ]] || fail "${target_root}/shared/.env carries no DB_USERNAME"
+    [[ -n "${ENV_DB_PASSWORD}" ]] \
+        || fail "${target_root}/shared/.env carries no DB_PASSWORD — the credential is never generated here"
+
+    [[ "${ENV_DB_DATABASE}" == "${db_name}" ]] \
+        || fail "drift: the registry declares database ${db_name}, but shared/.env names ${ENV_DB_DATABASE} — resolve the mismatch manually; nothing was changed"
+    [[ "${ENV_DB_USERNAME}" == "${db_role}" ]] \
+        || fail "drift: the registry declares role ${db_role}, but shared/.env names ${ENV_DB_USERNAME} — resolve the mismatch manually; nothing was changed"
+
+    [[ "${ENV_DB_PORT}" =~ ^[0-9]{1,5}$ ]] \
+        || fail "${target_root}/shared/.env carries a non-numeric DB_PORT: ${ENV_DB_PORT}"
+}
+
+# --- PostgreSQL access --------------------------------------------------------
+#
+# Deliberately NOT a function whose output is captured with $(...) — the same
+# reasoning install-target-database documents at length: `fail` is an `exit`,
+# and an exit inside a command substitution kills only the subshell, so the
+# caller would carry on with an empty result that is indistinguishable from
+# "the object does not exist". Every caller invokes this directly, in its own
+# shell, and reads RESTORE_SQL_RESULT afterwards.
+RESTORE_SQL_RESULT=""
+
+restore_superuser_query() {
+    local output status=0
+
+    output="$(
+        "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+            "${PSQL_BIN}" \
+                --no-psqlrc \
+                --no-align \
+                --tuples-only \
+                --set=ON_ERROR_STOP=1 \
+                --dbname=postgres \
+                --command="$1"
+    )" || status=$?
+
+    if (( status != 0 )); then
+        fail "could not query PostgreSQL as ${POSTGRES_SUPERUSER} (exit status ${status}) — an unreadable catalog is never treated as an absent object"
+    fi
+
+    RESTORE_SQL_RESULT="$(tr -s '[:space:]' ' ' <<<"${output}")"
+    RESTORE_SQL_RESULT="${RESTORE_SQL_RESULT#"${RESTORE_SQL_RESULT%%[![:space:]]*}"}"
+    RESTORE_SQL_RESULT="${RESTORE_SQL_RESULT%"${RESTORE_SQL_RESULT##*[![:space:]]}"}"
+}
+
+# restore_superuser_statement SQL — a statement executed for effect. Returns
+# the psql exit status so an activation step can compensate rather than abort.
+restore_superuser_statement() {
+    "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+        "${PSQL_BIN}" \
+            --no-psqlrc \
+            --no-align \
+            --tuples-only \
+            --set=ON_ERROR_STOP=1 \
+            --dbname=postgres \
+            --command="$1"
+}
+
+restore_database_exists() {
+    restore_superuser_query "SELECT 1 FROM pg_database WHERE datname = '$1';"
+
+    [[ "${RESTORE_SQL_RESULT}" == "1" ]]
+}
+
+# --- derived database names ---------------------------------------------------
+#
+# Every database name a restore ever creates or renames to is DERIVED, never
+# supplied: from the target's registry backup namespace and the generated
+# operation ID, both already matched against closed formats. No arbitrary SQL
+# identifier can reach a statement.
+#
+# PostgreSQL silently truncates identifiers past 63 bytes, so a namespace
+# longer than 15 characters falls back to a short deterministic hash — the
+# identical guard offsite-restore-test already applies for the same reason.
+
+restore_namespace_tag() {
+    local namespace="$1" tag
+
+    tag="$(printf '%s' "${namespace}" | sed -E 's/[^a-zA-Z0-9_]/_/g' | tr '[:upper:]' '[:lower:]')"
+
+    if (( ${#tag} > 15 )); then
+        tag="h$(printf '%s' "${namespace}" | sha256sum | cut -c1-12)"
+    fi
+
+    # A namespace starting with a digit would produce an identifier that is
+    # not a valid unquoted PostgreSQL name; the fixed prefixes below always
+    # start with a letter, so this only guards the tag in isolation.
+    printf '%s\n' "${tag}"
+}
+
+restore_staged_database_name() {
+    local namespace="$1" operation_id="$2" name
+
+    name="rateguru_rst_$(restore_namespace_tag "${namespace}")_${operation_id//-/_}"
+    restore_validate_identifier "${name}" "staged restore database name"
+
+    printf '%s\n' "${name}"
+}
+
+restore_pre_restore_database_name() {
+    local namespace="$1" operation_id="$2" name
+
+    name="rateguru_pre_$(restore_namespace_tag "${namespace}")_${operation_id//-/_}"
+    restore_validate_identifier "${name}" "pre-restore database name"
+
+    printf '%s\n' "${name}"
+}
+
+# --- storage staging paths ----------------------------------------------------
+#
+# Both are DIRECT siblings of the live app tree, inside the target's own
+# shared/storage — which is what makes the two activation renames atomic
+# (same filesystem, guaranteed) rather than a copy that could half-succeed.
+
+restore_storage_root() {
+    printf '%s/shared/storage\n' "$1"
+}
+
+restore_storage_stage_parent() {
+    printf '%s/.restore-%s\n' "$(restore_storage_root "$1")" "$2"
+}
+
+restore_storage_pre_restore_path() {
+    printf '%s/.pre-restore-app-%s\n' "$(restore_storage_root "$1")" "$2"
+}
+
+# --- backup file-set validation -----------------------------------------------
+
+# restore_assert_backup_regular_file DIR NAME — every backup entry a
+# privileged restore reads must be a plain regular file inside the staged
+# backup directory. A symlink, directory, FIFO, socket or device is refused
+# outright rather than followed, and the resolved path must still be a direct
+# child of the staged directory.
+restore_assert_backup_regular_file() {
+    local dir="$1" name="$2"
+    local path="${dir}/${name}"
+
+    [[ -e "${path}" ]] || fail "backup is missing a required file: ${name}"
+    [[ ! -L "${path}" ]] || fail "backup file must not be a symlink: ${name}"
+    [[ -f "${path}" ]] || fail "backup file must be a regular file: ${name}"
+
+    local resolved
+    resolved="$(readlink -f "${path}")" \
+        || fail "could not resolve backup file: ${name}"
+
+    [[ "$(dirname "${resolved}")" == "$(readlink -f "${dir}")" ]] \
+        || fail "backup file resolves outside the staged backup directory: ${name}"
+}
+
+restore_assert_backup_file_set() {
+    local dir="$1" name
+
+    restore_assert_directory_safe "${dir}" "staged backup directory"
+
+    for name in "${RESTORE_BACKUP_REQUIRED_FILES[@]}"; do
+        restore_assert_backup_regular_file "${dir}" "${name}"
+    done
+}
+
+# restore_assert_sha256sums_entries DIR — SHA256SUMS is itself untrusted
+# input: `sha256sum --check` happily follows whatever path an entry names, so
+# a malicious backup could point a checksum line at /etc/shadow (turning a
+# successful check into an oracle) or at a file outside the backup entirely.
+#
+# The entry list is therefore validated as a closed set BEFORE any check runs:
+# every line must be "<64 hex>  <name>", every name must be one of the six
+# files backup itself checksums, and no name may repeat. Absolute paths,
+# "../" components, extra file references and unknown names all fail here.
+restore_assert_sha256sums_entries() {
+    local dir="$1"
+    local sums="${dir}/SHA256SUMS"
+    local -a seen=()
+    local line hash name known found
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${line}" ]] || continue
+
+        [[ "${line}" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] \
+            || fail "SHA256SUMS carries a malformed entry: ${line}"
+
+        hash="${BASH_REMATCH[1]}"
+        name="${BASH_REMATCH[2]}"
+
+        # Silences the "assigned but unused" reading of $hash while keeping
+        # the capture explicit about what each half of the line is.
+        [[ -n "${hash}" ]] || fail "SHA256SUMS carries an empty checksum"
+
+        found=false
+        for known in "${RESTORE_BACKUP_CHECKSUMMED_FILES[@]}"; do
+            if [[ "${name}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "SHA256SUMS references a file that is not part of a RateGuru backup: ${name}"
+
+        for known in "${seen[@]:-}"; do
+            [[ "${known}" != "${name}" ]] \
+                || fail "SHA256SUMS references ${name} more than once"
+        done
+
+        seen+=("${name}")
+    done < "${sums}"
+
+    for known in "${RESTORE_BACKUP_CHECKSUMMED_FILES[@]}"; do
+        found=false
+        for name in "${seen[@]:-}"; do
+            if [[ "${name}" == "${known}" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "SHA256SUMS does not cover ${known}"
+    done
+}
+
+# --- storage archive safety ----------------------------------------------------
+#
+# `tar -tzf` alone is nowhere near enough before extracting an archive as
+# root. It proves the archive is readable; it proves nothing about what
+# extraction would create. This is the pre-extraction gate.
+#
+# storage-app.tar.gz is produced by RateGuru's own backup script from
+# shared/storage/app, which holds application data only — directories and
+# regular files. No symlink, hardlink, device, FIFO or socket has any
+# legitimate reason to be in it, and each of those is a distinct escape
+# primitive when extracted as root.
+#
+# Two independent passes, because they read different things:
+#   1. names, from `tar -tzf`   — where extraction would write
+#   2. types, from `tar -tvzf`  — what extraction would create
+restore_assert_storage_archive_safe() {
+    local archive="$1"
+    local line entry component
+
+    [[ -f "${archive}" ]] || fail "storage archive is missing: ${archive}"
+    [[ ! -L "${archive}" ]] || fail "storage archive must not be a symlink: ${archive}"
+
+    local listing
+    listing="$(tar -tzf "${archive}")" \
+        || fail "storage archive is unreadable: ${archive}"
+
+    [[ -n "${listing}" ]] || fail "storage archive is empty: ${archive}"
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        # GNU tar escapes non-printable characters in a listing with
+        # backslashes; a real RateGuru storage path never contains one, so a
+        # backslash (or any control character surviving into the listing) is
+        # rejected rather than interpreted.
+        [[ "${entry}" != *\\* ]] \
+            || fail "storage archive entry contains a backslash: ${entry}"
+        [[ ! "${entry}" =~ [[:cntrl:]] ]] \
+            || fail "storage archive entry contains a control character"
+
+        [[ "${entry}" != /* ]] \
+            || fail "storage archive contains an absolute path: ${entry}"
+
+        # The archive root is exactly `app` and its descendants — nothing
+        # else may be created, at any depth.
+        [[ "${entry}" == "app" || "${entry}" == "app/" || "${entry}" == app/* ]] \
+            || fail "storage archive contains an entry outside app/: ${entry}"
+
+        local rest="${entry}"
+        while [[ -n "${rest}" ]]; do
+            component="${rest%%/*}"
+
+            if [[ "${rest}" == */* ]]; then
+                rest="${rest#*/}"
+            else
+                rest=""
+            fi
+
+            [[ "${component}" != ".." ]] \
+                || fail "storage archive contains a relative path component: ${entry}"
+            [[ "${component}" != "." ]] \
+                || fail "storage archive contains a relative path component: ${entry}"
+        done
+    done <<< "${listing}"
+
+    local verbose
+    verbose="$(tar -tvzf "${archive}")" \
+        || fail "storage archive is unreadable: ${archive}"
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+
+        # Both GNU tar and bsdtar print the entry's type as the first
+        # character of the mode string: '-' regular, 'd' directory, 'l'
+        # symlink, 'h' hardlink, 'c'/'b' device, 'p' FIFO, 's' socket.
+        case "${line:0:1}" in
+            -|d)
+                ;;
+            l)
+                fail "storage archive contains a symbolic link — refusing to extract as root"
+                ;;
+            h)
+                fail "storage archive contains a hard link — refusing to extract as root"
+                ;;
+            c|b)
+                fail "storage archive contains a device node — refusing to extract as root"
+                ;;
+            p)
+                fail "storage archive contains a FIFO — refusing to extract as root"
+                ;;
+            s)
+                fail "storage archive contains a socket — refusing to extract as root"
+                ;;
+            *)
+                fail "storage archive contains an entry of an unrecognized type: ${line}"
+                ;;
+        esac
+    done <<< "${verbose}"
+}
+
+# restore_assert_extracted_tree_safe DIR — the post-extraction backstop. The
+# pre-extraction gate above reads tar's own listing; this reads the filesystem
+# that actually resulted, so a tar implementation quirk cannot slip a
+# non-regular entry past both.
+restore_assert_extracted_tree_safe() {
+    local dir="$1" offender
+
+    restore_assert_directory_safe "${dir}" "extracted storage tree"
+
+    offender="$(find "${dir}" ! -type d ! -type f -print -quit)"
+
+    [[ -z "${offender}" ]] \
+        || fail "extracted storage tree contains a non-regular, non-directory entry: ${offender}"
+}
+
+# --- backup identity ----------------------------------------------------------
+
+# restore_assert_manifest_identity DIR — proves the staged backup belongs to
+# the resolved target, using the EXISTING accepted manifest contract:
+# project/environment/database always, backup_namespace and target for schema
+# 2, and common's own manifest_schema_classify for the schema itself. This is
+# the local restore-test contract (which also compares `database`), reused
+# rather than re-derived, so no second, subtly different validator exists.
+#
+# Requires ENVIRONMENT_CLASS, BACKUP_NAMESPACE, DATABASE_NAME and TARGET_ID to
+# already be resolved by the caller.
+restore_assert_manifest_identity() {
+    local manifest_path="$1"
+
+    [[ -f "${manifest_path}" ]] || fail "backup manifest is missing: ${manifest_path}"
+
+    local manifest_project manifest_environment manifest_database
+
+    manifest_project="$(jq -r '.project // empty' "${manifest_path}")"
+    manifest_environment="$(jq -r '.environment // empty' "${manifest_path}")"
+    manifest_database="$(jq -r '.database // empty' "${manifest_path}")"
+
+    [[ "${manifest_project}" == "rateguru" ]] \
+        || fail "backup manifest project mismatch: expected rateguru, got '${manifest_project}'"
+
+    [[ "${manifest_environment}" == "${ENVIRONMENT_CLASS}" ]] \
+        || fail "backup manifest environment mismatch: expected ${ENVIRONMENT_CLASS}, got '${manifest_environment}'"
+
+    [[ "${manifest_database}" == "${DATABASE_NAME}" ]] \
+        || fail "backup manifest database mismatch: expected ${DATABASE_NAME}, got '${manifest_database}'"
+
+    local manifest_schema_status
+    manifest_schema_status="$(manifest_schema_classify "${manifest_path}")"
+
+    case "${manifest_schema_status}" in
+        schema1)
+            ;;
+        schema2)
+            local manifest_backup_namespace
+            manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
+
+            [[ "${manifest_backup_namespace}" == "${BACKUP_NAMESPACE}" ]] \
+                || fail "backup manifest backup_namespace mismatch: expected ${BACKUP_NAMESPACE}, got '${manifest_backup_namespace}'"
+
+            local manifest_target_type
+            manifest_target_type="$(jq -r '.target | type' "${manifest_path}")"
+
+            case "${manifest_target_type}" in
+                null)
+                    # A schema 2 manifest predating the target-only cutover
+                    # carries no target to compare. Historical manifest
+                    # content is immutable and stays restorable.
+                    ;;
+                string)
+                    local manifest_target
+                    manifest_target="$(jq -r '.target' "${manifest_path}")"
+
+                    [[ -n "${manifest_target}" ]] \
+                        || fail "backup manifest target is an empty string"
+                    [[ "${manifest_target}" == "${TARGET_ID}" ]] \
+                        || fail "backup manifest target mismatch: expected ${TARGET_ID}, got '${manifest_target}'"
+                    ;;
+                *)
+                    local manifest_target_value
+                    manifest_target_value="$(jq -c '.target' "${manifest_path}")"
+                    fail "backup manifest target has unexpected type: ${manifest_target_value}"
+                    ;;
+            esac
+            ;;
+        invalid:*)
+            fail "unsupported backup manifest schema_version: ${manifest_schema_status#invalid:}"
+            ;;
+    esac
+}
+
+# restore_assert_recovery_identity DIR — the stricter gate a DESTRUCTIVE live
+# restore adds on top of the manifest contract above.
+#
+# A restore that cannot state which commit the restored data belongs to cannot
+# decide whether the code currently on the target matches it, and a data
+# restore that silently lands under the wrong code is exactly the failure this
+# whole phase exists to prevent. So this fails closed on a backup whose
+# release.json carries no usable release/source_sha.
+#
+# It is deliberately NOT applied by the existing restore-tests: a historical
+# backup with an empty release.json remains a perfectly valid answer to "can
+# this backup technically be restored?", and historical backups are never
+# rewritten.
+#
+# Sets RESTORE_BACKUP_RELEASE and RESTORE_BACKUP_SOURCE_SHA in the caller.
+RESTORE_BACKUP_RELEASE=""
+RESTORE_BACKUP_SOURCE_SHA=""
+
+restore_assert_recovery_identity() {
+    local dir="$1"
+    local release_json="${dir}/release.json"
+    local manifest_path="${dir}/manifest.json"
+
+    jq -e 'type == "object"' "${release_json}" >/dev/null 2>&1 \
+        || fail "backup release.json is not a JSON object — this backup cannot identify the code its data belongs to"
+
+    # Type first, exactly like manifest_schema_classify: `jq -r` collapses a
+    # JSON number into text, so a numeric source_sha of 1234567 would sail
+    # through a bare hex regex and be reported as a real commit. Only a JSON
+    # string is a release identity.
+    local release_type source_sha_type
+    release_type="$(jq -r '.release | type' "${release_json}")"
+    source_sha_type="$(jq -r '.source_sha | type' "${release_json}")"
+
+    # Absent and wrong-typed are different diagnoses, and an operator reading
+    # this needs to know which one they have.
+    [[ "${release_type}" != "null" ]] \
+        || fail "backup release.json carries no release — a destructive restore cannot proceed without the release identity the data belongs to"
+    [[ "${release_type}" == "string" ]] \
+        || fail "backup release.json release is not a JSON string (${release_type}) — a destructive restore cannot proceed without the release identity the data belongs to"
+
+    [[ "${source_sha_type}" != "null" ]] \
+        || fail "backup release.json carries no source_sha — a destructive restore cannot proceed without the commit required for code alignment"
+    [[ "${source_sha_type}" == "string" ]] \
+        || fail "backup release.json source_sha is not a JSON string (${source_sha_type}) — a destructive restore cannot proceed without the commit required for code alignment"
+
+    local release source_sha
+    release="$(jq -r '.release // empty' "${release_json}")"
+    source_sha="$(jq -r '.source_sha // empty' "${release_json}")"
+
+    [[ -n "${release}" ]] \
+        || fail "backup release.json carries no release — a destructive restore cannot proceed without the release identity the data belongs to"
+    [[ "${release}" =~ ${RESTORE_RELEASE_ID_REGEX} ]] \
+        || fail "backup release.json carries a malformed release: ${release}"
+
+    [[ -n "${source_sha}" ]] \
+        || fail "backup release.json carries no source_sha — a destructive restore cannot proceed without the commit required for code alignment"
+    [[ "${source_sha}" =~ ${RESTORE_SOURCE_SHA_REGEX} ]] \
+        || fail "backup release.json carries a malformed source_sha: ${source_sha}"
+
+    # The manifest records the release the target was serving when the backup
+    # was taken. `unknown` is what backup writes when the target had no
+    # current symlink at all, and is accepted; any other value must agree with
+    # release.json, otherwise the backup describes two different releases and
+    # neither can be trusted for alignment.
+    local manifest_release manifest_release_type
+    manifest_release_type="$(jq -r '.release | type' "${manifest_path}")"
+
+    [[ "${manifest_release_type}" == "string" ]] || [[ "${manifest_release_type}" == "null" ]] \
+        || fail "backup manifest release is not a JSON string (${manifest_release_type})"
+
+    manifest_release="$(jq -r '.release // empty' "${manifest_path}")"
+
+    if [[ -n "${manifest_release}" ]] && [[ "${manifest_release}" != "unknown" ]]; then
+        [[ "${manifest_release}" == "${release}" ]] \
+            || fail "backup manifest release (${manifest_release}) does not match release.json release (${release})"
+    fi
+
+    RESTORE_BACKUP_RELEASE="${release}"
+    RESTORE_BACKUP_SOURCE_SHA="${source_sha}"
+}
+
+# --- current release identity --------------------------------------------------
+#
+# Reads the release metadata of whatever the target is serving RIGHT NOW,
+# with the same structural validation deploy and rollback already apply to
+# `current`: a symlink, resolving to a directory that is a direct child of
+# this target's own releases/ tree. A `current` in any other shape is a broken
+# deployment an operator resolves, never something a restore reasons about.
+#
+# Sets RESTORE_CURRENT_RELEASE and RESTORE_CURRENT_SOURCE_SHA, each empty when
+# it cannot be determined. Never fails on absence: a target with no deployed
+# release is a legitimate state that simply cannot be code-aligned.
+RESTORE_CURRENT_RELEASE=""
+RESTORE_CURRENT_SOURCE_SHA=""
+
+restore_read_current_identity() {
+    local target_root="$1"
+    local current="${target_root}/current"
+    local releases="${target_root}/releases"
+
+    RESTORE_CURRENT_RELEASE=""
+    RESTORE_CURRENT_SOURCE_SHA=""
+
+    [[ -L "${current}" ]] || return 0
+
+    # The releases root must be a REAL directory of this target's own, never a
+    # symlink. Without this, `releases -> /somewhere/foreign/releases` plus a
+    # `current` pointing inside it resolves to a pair that looks internally
+    # consistent — both readlink -f to the same foreign parent — and the
+    # containment check below passes while the release identity a destructive
+    # restore aligns against comes from a tree this target does not own.
+    # deploy, rollback and the Nightwatch agent already treat the releases
+    # root as a real directory; restore holds the same line.
+    [[ ! -L "${releases}" ]] || return 0
+    [[ -d "${releases}" ]] || return 0
+
+    local resolved resolved_releases
+    resolved="$(readlink -f "${current}" 2>/dev/null || true)"
+    [[ -n "${resolved}" ]] && [[ -d "${resolved}" ]] || return 0
+
+    resolved_releases="$(readlink -f "${releases}" 2>/dev/null || true)"
+    [[ -n "${resolved_releases}" ]] || return 0
+    [[ "$(dirname "${resolved}")" == "${resolved_releases}" ]] || return 0
+
+    local metadata="${resolved}/release.json"
+    [[ -f "${metadata}" ]] || return 0
+    [[ ! -L "${metadata}" ]] || return 0
+
+    jq -e 'type == "object"' "${metadata}" >/dev/null 2>&1 || return 0
+
+    # Same type-first rule as restore_assert_recovery_identity: a numeric
+    # source_sha must never be able to satisfy the hex regex and make a
+    # mismatched release look aligned.
+    local release source_sha
+    release=""
+    source_sha=""
+
+    if [[ "$(jq -r '.release | type' "${metadata}")" == "string" ]]; then
+        release="$(jq -r '.release' "${metadata}")"
+    fi
+
+    if [[ "$(jq -r '.source_sha | type' "${metadata}")" == "string" ]]; then
+        source_sha="$(jq -r '.source_sha' "${metadata}")"
+    fi
+
+    [[ "${release}" =~ ${RESTORE_RELEASE_ID_REGEX} ]] || release=""
+    [[ "${source_sha}" =~ ${RESTORE_SOURCE_SHA_REGEX} ]] || source_sha=""
+
+    RESTORE_CURRENT_RELEASE="${release}"
+    RESTORE_CURRENT_SOURCE_SHA="${source_sha}"
+}

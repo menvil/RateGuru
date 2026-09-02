@@ -6,25 +6,28 @@
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry, the fourteen operational scripts
-#             (targets, common, health-check, status, cleanup, deploy,
-#             rollback, backup, restore-test, offsite-backup,
-#             offsite-retention, offsite-restore-test, backup-cycle,
-#             verify-required-clis) and the host-global deployment.conf,
-#             verify a staged copy before touching anything, install
-#             transactionally, then verify the installed result against the
-#             real host before committing.
+#   --apply   Install the target registry, the twenty operational scripts
+#             (targets, common, restore-common, health-check, status,
+#             cleanup, deploy, rollback, backup, restore-test,
+#             offsite-backup, offsite-retention, offsite-restore-test,
+#             backup-cycle, fetch-backup, verify-backup, restore-database,
+#             restore-storage, restore-target, verify-required-clis) and the
+#             host-global deployment.conf, verify a staged copy before
+#             touching anything, install transactionally, then verify the
+#             installed result against the real host before committing.
 #   --verify  Re-run the installed-file and runtime-parity checks against
 #             whatever is currently installed. Makes NO changes, creates NO
 #             backup.
 #
 # What this installs — and does not:
-#   * Sixteen files: the registry, the fourteen scripts — targets, common,
-#     health-check and status (read-only), cleanup, deploy, rollback,
-#     backup, restore-test, offsite-backup, offsite-retention,
-#     offsite-restore-test, backup-cycle, verify-required-clis — and
-#     deployment.conf, the host-global (non-target-specific) configuration
-#     those scripts source.
+#   * Twenty-two files: the registry, the twenty scripts — targets, common
+#     and restore-common (sourced libraries), health-check and status
+#     (read-only), cleanup, deploy, rollback, backup, restore-test,
+#     offsite-backup, offsite-retention, offsite-restore-test, backup-cycle,
+#     the Phase 7.3 restore primitives (fetch-backup, verify-backup,
+#     restore-database, restore-storage, restore-target) and
+#     verify-required-clis — and deployment.conf, the host-global
+#     (non-target-specific) configuration those scripts source.
 #     Every perimeter file (cron, systemd timers, GitHub Actions workflows,
 #     sudoers, server wrappers) stays untouched by this installer.
 #   * verify-required-clis is a hard part of the bundle, not an optional
@@ -35,6 +38,12 @@
 #     exactly that. Unlike the other scripts it never sources common and is
 #     not target-aware: it is a generic release-tree check taking
 #     --release-root, so it carries no ordering dependency here.
+#   * restore-common is the second sourced library in the bundle, alongside
+#     common: the five Phase 7.3 restore primitives share backup-path,
+#     workspace, archive-safety, restore-state and database-name validation,
+#     and five copies of each in five privileged scripts is how a restore
+#     ends up trusting a path in one place that another place rejects. Like
+#     common it is installed 0644 and must never be executable.
 #   * tits-guru is not provisioned by this or any other script: it has
 #     lifecycle=planned in the registry, and every target-aware command
 #     rejects it before touching the network or the filesystem. Installing
@@ -42,8 +51,13 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these sixteen files in these sixteen
-# places with these exact permissions, nothing else.
+# this installer's whole job is to put these twenty-two files in these
+# twenty-two places with these exact permissions, nothing else.
+#
+# --apply additionally takes the EXISTING per-namespace restore lock for every
+# active target before it touches anything, so the bundle can never be
+# replaced underneath a running `restore-target` operation. It is the only
+# lock this installer takes, and it takes no others.
 #
 # This script never sources infrastructure/scripts/common. It installs
 # deployment.conf as plain file content and never reads or parses it as
@@ -72,6 +86,12 @@ SRC_OFFSITE_BACKUP="${REPO_ROOT}/infrastructure/scripts/offsite-backup"
 SRC_OFFSITE_RETENTION="${REPO_ROOT}/infrastructure/scripts/offsite-retention"
 SRC_OFFSITE_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/offsite-restore-test"
 SRC_BACKUP_CYCLE="${REPO_ROOT}/infrastructure/scripts/backup-cycle"
+SRC_RESTORE_COMMON="${REPO_ROOT}/infrastructure/scripts/restore-common"
+SRC_FETCH_BACKUP="${REPO_ROOT}/infrastructure/scripts/fetch-backup"
+SRC_VERIFY_BACKUP="${REPO_ROOT}/infrastructure/scripts/verify-backup"
+SRC_RESTORE_DATABASE="${REPO_ROOT}/infrastructure/scripts/restore-database"
+SRC_RESTORE_STORAGE="${REPO_ROOT}/infrastructure/scripts/restore-storage"
+SRC_RESTORE_TARGET="${REPO_ROOT}/infrastructure/scripts/restore-target"
 SRC_VERIFY_REQUIRED_CLIS="${REPO_ROOT}/infrastructure/scripts/verify-required-clis"
 SRC_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
 
@@ -92,17 +112,30 @@ DST_OFFSITE_BACKUP="${DST_BIN_ROOT}/offsite-backup"
 DST_OFFSITE_RETENTION="${DST_BIN_ROOT}/offsite-retention"
 DST_OFFSITE_RESTORE_TEST="${DST_BIN_ROOT}/offsite-restore-test"
 DST_BACKUP_CYCLE="${DST_BIN_ROOT}/backup-cycle"
+DST_RESTORE_COMMON="${DST_BIN_ROOT}/restore-common"
+DST_FETCH_BACKUP="${DST_BIN_ROOT}/fetch-backup"
+DST_VERIFY_BACKUP="${DST_BIN_ROOT}/verify-backup"
+DST_RESTORE_DATABASE="${DST_BIN_ROOT}/restore-database"
+DST_RESTORE_STORAGE="${DST_BIN_ROOT}/restore-storage"
+DST_RESTORE_TARGET="${DST_BIN_ROOT}/restore-target"
 DST_VERIFY_REQUIRED_CLIS="${DST_BIN_ROOT}/verify-required-clis"
 DST_DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
 
 BACKUP_ROOT="/var/backups/rateguru-target-operations"
 
+# Where the operational scripts keep their lock files. This installer never
+# creates it and owns nothing inside it — it only takes the EXISTING restore
+# lock across an --apply, so replacing the bundle cannot swap a restore's
+# scripts out from under it mid-operation. See acquire_restore_locks below.
+OPERATIONAL_RUN_ROOT="/home/www/rateguru/run"
+
 REGISTRY_MODE="0640"
-# common is a sourced library, never a CLI — it must never be executable.
-# Every other installed script (targets, health-check, status, cleanup) is
-# invoked directly and needs the exec bit. Two distinct named constants,
-# rather than one SCRIPT_MODE reused everywhere, is what makes that
-# distinction impossible to blur at a single call site by accident.
+# common and restore-common are sourced libraries, never CLIs — neither may
+# ever be executable. Every other installed script (targets, health-check,
+# status, cleanup, ...) is invoked directly and needs the exec bit. Two
+# distinct named constants, rather than one SCRIPT_MODE reused everywhere, is
+# what makes that distinction impossible to blur at a single call site by
+# accident.
 COMMON_MODE="0644"
 CLI_MODE="0755"
 # Matches REGISTRY_MODE numerically (both root:root, non-group/other-writable
@@ -111,7 +144,7 @@ CLI_MODE="0755"
 DEPLOYMENT_CONF_MODE="0640"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the sixteen files it installs. A named constant (not a literal
+# about: the twenty-two files it installs. A named constant (not a literal
 # "root"/0 at each call site) so the whole apply/verify flow can be
 # exercised against non-root scratch paths in tests, by reassigning these
 # alongside DST_*/SRC_*/BACKUP_ROOT — production always runs with the values
@@ -278,13 +311,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all sixteen source files are present regular files"
+    log "all twenty-two source files are present regular files"
 }
 
 # Catches the exact regression that made this installer unusable after a bad
@@ -295,21 +328,29 @@ validate_source_files() {
 # must fail here, by name, before that happens — the alternative is a bare
 # "Permission denied" with no indication of which file or why. common is a
 # sourced library, never executed directly, so it is exempt here;
-# validate_source_files already requires it to be a readable regular file.
+# validate_source_files already requires them to be readable regular files.
 validate_source_executable_modes() {
     local path
-    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
+    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
         [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
     done
-    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle and verify-required-clis are all executable"
+
+    # The two sourced libraries are the mirror image: never invoked directly,
+    # so an executable bit on either is a defect in its own right, caught
+    # here rather than only at installed-file verification.
+    for path in "${SRC_COMMON}" "${SRC_RESTORE_COMMON}"; do
+        [[ ! -x "${path}" ]] || fail "sourced library must not be executable: ${path}"
+    done
+
+    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target and verify-required-clis are all executable; common and restore-common are not"
 }
 
 validate_source_syntax() {
     local path
-    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_VERIFY_REQUIRED_CLIS}"; do
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
-    log "bash -n passed for all fourteen source shell scripts"
+    log "bash -n passed for all twenty source shell scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -385,6 +426,12 @@ verify_staged_candidates() {
     local staged_offsite_retention="${stage_dir}/offsite-retention"
     local staged_offsite_restore_test="${stage_dir}/offsite-restore-test"
     local staged_backup_cycle="${stage_dir}/backup-cycle"
+    local staged_restore_common="${stage_dir}/restore-common"
+    local staged_fetch_backup="${stage_dir}/fetch-backup"
+    local staged_verify_backup="${stage_dir}/verify-backup"
+    local staged_restore_database="${stage_dir}/restore-database"
+    local staged_restore_storage="${stage_dir}/restore-storage"
+    local staged_restore_target="${stage_dir}/restore-target"
     local staged_verify_required_clis="${stage_dir}/verify-required-clis"
     local staged_deployment_conf="${stage_dir}/deployment.conf"
 
@@ -394,6 +441,7 @@ verify_staged_candidates() {
         env
         RATEGURU_ALLOW_TEST_OVERRIDES=true
         "RATEGURU_COMMON_FILE=${staged_common}"
+        "RATEGURU_RESTORE_COMMON_FILE=${staged_restore_common}"
         "RATEGURU_DEPLOYMENT_CONF_FILE=${staged_deployment_conf}"
         "RATEGURU_TARGET_REGISTRY_FILE=${staged_registry}"
         "RATEGURU_TARGETS_CLI=${staged_targets}"
@@ -416,7 +464,12 @@ verify_staged_candidates() {
         "${staged_offsite_backup}:offsite-backup" \
         "${staged_offsite_retention}:offsite-retention" \
         "${staged_offsite_restore_test}:offsite-restore-test" \
-        "${staged_backup_cycle}:backup-cycle"
+        "${staged_backup_cycle}:backup-cycle" \
+        "${staged_fetch_backup}:fetch-backup" \
+        "${staged_verify_backup}:verify-backup" \
+        "${staged_restore_database}:restore-database" \
+        "${staged_restore_storage}:restore-storage" \
+        "${staged_restore_target}:restore-target"
     do
         script="${entry%%:*}"
         help_output="$("${override_env[@]}" bash "${script}" --help 2>&1)" \
@@ -592,6 +645,42 @@ verify_staged_candidates() {
     grep -q 'lifecycle=planned' <<<"${staged_backup_cycle_planned_output}" \
         || fail "staged backup-cycle --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_backup_cycle_planned_output}"
     log "  staged backup-cycle --target tits-guru: correctly rejected (lifecycle=planned)"
+
+    # Phase 7.3: the five restore primitives are never run for real here
+    # either — a real restore would download a backup, create a temporary
+    # database, quiesce the target and swap its live data, none of which
+    # belongs in a read-only preflight. --help was already proven above; only
+    # the tits-guru lifecycle rejection remains. Each is invoked with
+    # otherwise-complete, deliberately unusable arguments, so a rejection can
+    # only come from the lifecycle gate — never from a missing flag, a bad
+    # backup ID, or a workspace that does not exist.
+    local staged_entry staged_planned_output
+    for staged_entry in \
+        "${staged_fetch_backup}|fetch-backup|--source|local|--backup|20260101-000000" \
+        "${staged_verify_backup}|verify-backup|--operation|20260101-000000-abcdef" \
+        "${staged_restore_database}|restore-database|--operation|20260101-000000-abcdef|--stage" \
+        "${staged_restore_storage}|restore-storage|--operation|20260101-000000-abcdef|--stage" \
+        "${staged_restore_target}|restore-target|--apply|--source|local|--backup|20260101-000000"
+    do
+        local -a staged_fields=()
+        IFS='|' read -r -a staged_fields <<<"${staged_entry}"
+
+        local staged_script="${staged_fields[0]}"
+        local staged_label="${staged_fields[1]}"
+        local -a staged_extra_args=("${staged_fields[@]:2}")
+
+        if staged_planned_output="$(
+            "${override_env[@]}" bash "${staged_script}" \
+                --target tits-guru "${staged_extra_args[@]}" 2>&1
+        )"; then
+            fail "staged ${staged_label} --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+        fi
+
+        grep -q 'lifecycle=planned' <<<"${staged_planned_output}" \
+            || fail "staged ${staged_label} --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_planned_output}"
+
+        log "  staged ${staged_label} --target tits-guru: correctly rejected (lifecycle=planned)"
+    done
 
     log "staged candidates verified"
 }
@@ -773,6 +862,24 @@ RATEGURU_OVERRIDE_VARS=(
     RATEGURU_OFFSITE_BACKUP_BIN
     RATEGURU_OFFSITE_RETENTION_BIN
     RATEGURU_OFFSITE_RESTORE_TEST_BIN
+    RATEGURU_RESTORE_COMMON_FILE
+    RATEGURU_RESTORE_RUNUSER_BIN
+    RATEGURU_RESTORE_SUPERUSER
+    RATEGURU_RESTORE_HISTORY_ROOT
+    RATEGURU_RESTORE_CRON_D_ROOT
+    RATEGURU_RESTORE_SUPERVISORCTL_BIN
+    RATEGURU_RESTORE_HEALTH_CHECK_BIN
+    RATEGURU_RESTORE_BACKUP_BIN
+    RATEGURU_RESTORE_RESTORE_TEST_BIN
+    RATEGURU_RESTORE_FETCH_BACKUP_BIN
+    RATEGURU_RESTORE_VERIFY_BACKUP_BIN
+    RATEGURU_RESTORE_DATABASE_BIN
+    RATEGURU_RESTORE_STORAGE_BIN
+    RATEGURU_RESTORE_WEB_GROUP
+    RATEGURU_RESTORE_QUEUE_WAIT_ATTEMPTS
+    RATEGURU_RESTORE_QUEUE_RETRY_DELAY
+    RATEGURU_RESTORE_SCHEDULER_WAIT_ATTEMPTS
+    RATEGURU_RESTORE_SCHEDULER_RETRY_DELAY
 )
 
 no_overrides_env() {
@@ -819,24 +926,33 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_OFFSITE_RETENTION}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_RETENTION}"
     verify_installed_regular_file "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_RESTORE_TEST}"
     verify_installed_regular_file "${DST_BACKUP_CYCLE}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_BACKUP_CYCLE}"
+    verify_installed_regular_file "${DST_RESTORE_COMMON}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${COMMON_MODE}" "${SRC_RESTORE_COMMON}"
+    verify_installed_regular_file "${DST_FETCH_BACKUP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_FETCH_BACKUP}"
+    verify_installed_regular_file "${DST_VERIFY_BACKUP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_VERIFY_BACKUP}"
+    verify_installed_regular_file "${DST_RESTORE_DATABASE}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RESTORE_DATABASE}"
+    verify_installed_regular_file "${DST_RESTORE_STORAGE}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RESTORE_STORAGE}"
+    verify_installed_regular_file "${DST_RESTORE_TARGET}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RESTORE_TARGET}"
     verify_installed_regular_file "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_VERIFY_REQUIRED_CLIS}"
     verify_installed_regular_file "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${DEPLOYMENT_CONF_MODE}" "${SRC_DEPLOYMENT_CONF}"
-    log "  ownership, mode and content: OK for all sixteen files"
+    log "  ownership, mode and content: OK for all twenty-two files"
 
-    # common is a sourced library, never a CLI — verify_installed_regular_file
-    # already proved its mode is exactly COMMON_MODE (0644), which has no
-    # execute bits at all, but this asserts the specific property the spec
-    # calls out by name rather than leaving it as an implication of the mode
-    # check above.
-    [[ ! -x "${DST_COMMON}" ]] \
-        || fail "installed common must not be executable: ${DST_COMMON}"
-    log "  common is not executable: OK"
+    # common and restore-common are sourced libraries, never CLIs —
+    # verify_installed_regular_file already proved their mode is exactly
+    # COMMON_MODE (0644), which has no execute bits at all, but this asserts
+    # the specific property the spec calls out by name rather than leaving it
+    # as an implication of the mode check above.
+    local library
+    for library in "${DST_COMMON}" "${DST_RESTORE_COMMON}"; do
+        [[ ! -x "${library}" ]] \
+            || fail "installed sourced library must not be executable: ${library}"
+    done
+    log "  common and restore-common are not executable: OK"
 
     local path
-    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_VERIFY_REQUIRED_CLIS}"; do
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_FETCH_BACKUP}" "${DST_VERIFY_BACKUP}" "${DST_RESTORE_DATABASE}" "${DST_RESTORE_STORAGE}" "${DST_RESTORE_TARGET}" "${DST_VERIFY_REQUIRED_CLIS}"; do
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
-    log "  bash -n: OK for all fourteen installed scripts"
+    log "  bash -n: OK for all twenty installed scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -1126,6 +1242,83 @@ verify_backup_cycle_planned_target_rejected() {
     log "backup-cycle --target tits-guru: correctly rejected (lifecycle=planned)"
 }
 
+# Phase 7.3: the five restore primitives, --help and the tits-guru lifecycle
+# rejection only — never a real fetch, verification, stage, activation or
+# restore. A real invocation would download a backup, create a temporary
+# database, quiesce the target and swap its live data; none of that belongs
+# in an installer's verification pass. This installer's own --apply/--verify
+# always run as root already, so each script's own require_root passes here
+# exactly as it would in production.
+#
+# Driven from one table rather than ten near-identical function pairs: these
+# five share a single contract (root -> lifecycle rejection -> no workspace,
+# no download, no database), and ten copies of the same six lines is exactly
+# the duplication this bundle keeps eliminating elsewhere.
+RESTORE_PRIMITIVE_CHECKS=(
+    "fetch-backup|--source|local|--backup|20260101-000000"
+    "verify-backup|--operation|20260101-000000-abcdef"
+    "restore-database|--operation|20260101-000000-abcdef|--stage"
+    "restore-storage|--operation|20260101-000000-abcdef|--stage"
+    "restore-target|--apply|--source|local|--backup|20260101-000000"
+)
+
+restore_primitive_path() {
+    case "$1" in
+        fetch-backup)     printf '%s\n' "${DST_FETCH_BACKUP}" ;;
+        verify-backup)    printf '%s\n' "${DST_VERIFY_BACKUP}" ;;
+        restore-database) printf '%s\n' "${DST_RESTORE_DATABASE}" ;;
+        restore-storage)  printf '%s\n' "${DST_RESTORE_STORAGE}" ;;
+        restore-target)   printf '%s\n' "${DST_RESTORE_TARGET}" ;;
+        *) fail "unknown restore primitive: $1" ;;
+    esac
+}
+
+verify_restore_primitive_help() {
+    local entry label path usage_output
+
+    for entry in "${RESTORE_PRIMITIVE_CHECKS[@]}"; do
+        label="${entry%%|*}"
+        path="$(restore_primitive_path "${label}")"
+
+        usage_output="$(no_overrides_env "${path}" --help 2>&1)" \
+            || fail "installed ${label} --help failed"
+
+        grep -Fq -- '--target' <<<"${usage_output}" \
+            || fail "installed ${label} usage does not document --target: ${usage_output}"
+
+        if grep -Fq -- '--environment' <<<"${usage_output}"; then
+            fail "installed ${label} usage mentions the removed --environment selector"
+        fi
+
+        log "${label} --help: OK"
+    done
+}
+
+# Deliberately unusable-but-complete arguments: a rejection can then only come
+# from the lifecycle gate, never from a missing flag, a malformed backup ID or
+# a workspace that does not exist — the same ordering proof
+# verify_deploy_planned_target_rejected makes for deploy.
+verify_restore_primitive_planned_target_rejected() {
+    local entry label path planned_output
+    local -a fields=() extra_args=()
+
+    for entry in "${RESTORE_PRIMITIVE_CHECKS[@]}"; do
+        IFS='|' read -r -a fields <<<"${entry}"
+        label="${fields[0]}"
+        extra_args=("${fields[@]:1}")
+        path="$(restore_primitive_path "${label}")"
+
+        if planned_output="$(no_overrides_env "${path}" --target tits-guru "${extra_args[@]}" 2>&1)"; then
+            fail "installed ${label} --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+        fi
+
+        grep -q 'lifecycle=planned' <<<"${planned_output}" \
+            || fail "installed ${label} --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
+
+        log "${label} --target tits-guru: correctly rejected (lifecycle=planned)"
+    done
+}
+
 # deploy invokes the installed verify-required-clis by absolute path on every
 # deployment, before current is ever switched, so "it is installed and it
 # runs" is a deployment prerequisite rather than a nicety. There is no
@@ -1165,6 +1358,8 @@ verify_runtime_parity() {
     verify_offsite_restore_test_planned_target_rejected
     verify_backup_cycle_help
     verify_backup_cycle_planned_target_rejected
+    verify_restore_primitive_help
+    verify_restore_primitive_planned_target_rejected
     verify_required_clis_help
     log "runtime parity verification passed"
 }
@@ -1193,14 +1388,20 @@ run_check() {
     log "  ${DST_OFFSITE_RETENTION}"
     log "  ${DST_OFFSITE_RESTORE_TEST}"
     log "  ${DST_BACKUP_CYCLE}"
+    log "  ${DST_RESTORE_COMMON}"
+    log "  ${DST_FETCH_BACKUP}"
+    log "  ${DST_VERIFY_BACKUP}"
+    log "  ${DST_RESTORE_DATABASE}"
+    log "  ${DST_RESTORE_STORAGE}"
+    log "  ${DST_RESTORE_TARGET}"
     log "  ${DST_VERIFY_REQUIRED_CLIS}"
     log "  ${DST_DEPLOYMENT_CONF}"
 
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The two directories every one of the sixteen destinations lives under. This
-# installer owns exactly sixteen *files* — it never creates, chowns or chmods
+# The two directories every one of the twenty-two destinations lives under.
+# This installer owns exactly twenty-two *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -1230,6 +1431,72 @@ validate_destination_directories() {
     validate_destination_directory "${DST_CONFIG_ROOT}"
     validate_destination_directory "${DST_BIN_ROOT}"
     log "destination directories exist, are root-owned, non-writable-by-others directories (unchanged by this installer)"
+}
+
+# --- Restore serialization (apply mode only) --------------------------------
+#
+# `restore-target` holds `<run root>/restore-target-<namespace>.lock` for the
+# whole of a live data restore. This installer replaces the bundle file by
+# file, so an --apply that overlapped a running restore could hand that
+# restore a mismatched pair of Phase 7.3 scripts halfway through — a
+# restore-target from one revision driving a restore-database from another.
+#
+# So --apply takes the SAME lock, for every active target's backup namespace,
+# before it validates destinations or touches anything, and holds it for the
+# rest of the run (the file descriptors stay open until this process exits).
+# It is never a new, incompatible lock: two targets sharing a backup namespace
+# resolve to the identical file, exactly as every backup-path script already
+# does.
+#
+# Deliberately non-blocking and fail-closed. A restore is a long, destructive
+# operation an operator is watching; queueing an installer behind it silently
+# would be worse than telling them to wait.
+#
+# Lock ordering: restore-target takes this lock first, then the target
+# deployment lock, then the backup lock. This installer takes only this one,
+# so no cycle is possible.
+RESTORE_LOCK_FDS=()
+
+active_backup_namespaces() {
+    jq -r '
+        .targets
+        | to_entries
+        | map(select(.value.lifecycle == "active") | .value.backup.namespace)
+        | unique
+        | .[]
+    ' "${SRC_REGISTRY}"
+}
+
+acquire_restore_locks() {
+    # A run root that does not exist is a host on which no operational script
+    # has ever run, so no restore can be in flight. This installer creates no
+    # directories — that is the bootstrap layout installer's job — so it does
+    # not conjure one here just to lock inside it.
+    if [[ ! -d "${OPERATIONAL_RUN_ROOT}" ]]; then
+        log "no operational run root at ${OPERATIONAL_RUN_ROOT} — no restore can be in flight"
+
+        return 0
+    fi
+
+    local namespace lock_file lock_fd
+
+    while IFS= read -r namespace; do
+        [[ -n "${namespace}" ]] || continue
+
+        lock_file="${OPERATIONAL_RUN_ROOT}/restore-target-${namespace}.lock"
+
+        exec {lock_fd}>"${lock_file}" \
+            || fail "could not open the restore lock for backup namespace ${namespace}: ${lock_file}"
+
+        if ! flock -n "${lock_fd}"; then
+            fail "a restore is running for backup namespace ${namespace} — refusing to replace the operational bundle underneath it (${lock_file})"
+        fi
+
+        RESTORE_LOCK_FDS+=("${lock_fd}")
+        log "  restore lock held for backup namespace ${namespace}"
+    done < <(active_backup_namespaces)
+
+    log "no restore is in flight for any active target's backup namespace"
 }
 
 verify_preflight_target_health() {
@@ -1321,8 +1588,11 @@ perform_apply() {
 
     log "mode: apply"
 
+    RESTORE_LOCK_FDS=()
+
     run_source_validation
     classify_staging_deployment_state
+    acquire_restore_locks
     validate_destination_directories
     verify_preflight_target_health
 
@@ -1347,6 +1617,12 @@ perform_apply() {
     install -m 0700 "${SRC_OFFSITE_RETENTION}" "${STAGE_DIR}/offsite-retention"
     install -m 0700 "${SRC_OFFSITE_RESTORE_TEST}" "${STAGE_DIR}/offsite-restore-test"
     install -m 0700 "${SRC_BACKUP_CYCLE}" "${STAGE_DIR}/backup-cycle"
+    install -m 0700 "${SRC_RESTORE_COMMON}" "${STAGE_DIR}/restore-common"
+    install -m 0700 "${SRC_FETCH_BACKUP}" "${STAGE_DIR}/fetch-backup"
+    install -m 0700 "${SRC_VERIFY_BACKUP}" "${STAGE_DIR}/verify-backup"
+    install -m 0700 "${SRC_RESTORE_DATABASE}" "${STAGE_DIR}/restore-database"
+    install -m 0700 "${SRC_RESTORE_STORAGE}" "${STAGE_DIR}/restore-storage"
+    install -m 0700 "${SRC_RESTORE_TARGET}" "${STAGE_DIR}/restore-target"
     install -m 0700 "${SRC_VERIFY_REQUIRED_CLIS}" "${STAGE_DIR}/verify-required-clis"
     install -m 0700 "${SRC_DEPLOYMENT_CONF}" "${STAGE_DIR}/deployment.conf"
 
@@ -1359,11 +1635,14 @@ perform_apply() {
 
     # Dependency-safe order: the registry before anything that reads it, the
     # targets validator before common (which invokes it), common before the
-    # eleven scripts that source it (health-check, status, cleanup, deploy,
+    # sixteen scripts that source it (health-check, status, cleanup, deploy,
     # rollback, backup, restore-test, offsite-backup, offsite-retention,
-    # offsite-restore-test, backup-cycle), and the host-global deployment.conf
-    # last — every script sourcing it either atomically sees the old config
-    # or the new one, never a half-installed bundle in between.
+    # offsite-restore-test, backup-cycle, fetch-backup, verify-backup,
+    # restore-database, restore-storage, restore-target), restore-common
+    # before the five restore primitives that source it in turn, and the
+    # host-global deployment.conf last — every script sourcing it either
+    # atomically sees the old config or the new one, never a half-installed
+    # bundle in between.
     install_regular_file_transactional "${STAGE_DIR}/deployment-targets.json" "${DST_REGISTRY}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${REGISTRY_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/targets" "${DST_TARGETS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/common" "${DST_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${COMMON_MODE}"
@@ -1378,6 +1657,12 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/offsite-retention" "${DST_OFFSITE_RETENTION}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/offsite-restore-test" "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/backup-cycle" "${DST_BACKUP_CYCLE}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/restore-common" "${DST_RESTORE_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${COMMON_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/fetch-backup" "${DST_FETCH_BACKUP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/verify-backup" "${DST_VERIFY_BACKUP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/restore-database" "${DST_RESTORE_DATABASE}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/restore-storage" "${DST_RESTORE_STORAGE}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/restore-target" "${DST_RESTORE_TARGET}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/verify-required-clis" "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/deployment.conf" "${DST_DEPLOYMENT_CONF}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${DEPLOYMENT_CONF_MODE}"
 
@@ -1392,7 +1677,7 @@ perform_apply() {
 
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
-    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_VERIFY_REQUIRED_CLIS}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_VERIFY_REQUIRED_CLIS}"
     log "  deployment.conf: ${DST_DEPLOYMENT_CONF}"
     log "  backups      : ${BACKUP_DIR}"
     log "Run 'install-target-operations --verify' at any time to re-check the installed result."
@@ -1498,6 +1783,12 @@ perform_verify() {
 
     log "--- backup-cycle planned-target rejection ---"
     verify_backup_cycle_planned_target_rejected
+
+    log "--- restore primitive help ---"
+    verify_restore_primitive_help
+
+    log "--- restore primitive planned-target rejection ---"
+    verify_restore_primitive_planned_target_rejected
 
     log "--- verify-required-clis help ---"
     verify_required_clis_help

@@ -998,14 +998,87 @@ Slices, in order:
    proves the structure; only a real clean-host run proves the pipeline, and
    that rehearsal belongs to the disposable-host policy below — so this slice
    is implemented rather than accepted.
-3. **7.3 Restore Target Data.** The host is alive; only its data is
-   restored. Pre-restore safety backup, DB-only / storage-only / DB+storage
-   modes, maintenance mode, queue and scheduler safety, verified backup
-   selection and application verification afterwards. Explicitly distinct
-   from the existing restore-test, which restores into a throwaway scratch
-   database and stays that way. *Future work only.* *Acceptance:* a
-   target's data is restored in place and verified, with a safety backup
-   available throughout.
+3. **7.3 Restore Target Data — implemented, awaiting real staging
+   acceptance.** The host is alive; only its data is restored. Explicitly
+   distinct from the existing restore-test, which restores into a throwaway
+   scratch database and stays that way. What landed:
+
+   - **Five server primitives and one restore-only library.**
+     `restore-target` orchestrates `fetch-backup`, `verify-backup`,
+     `restore-database` and `restore-storage`; `restore-common` holds the
+     five kinds of validation that must be identical in all of them (backup
+     path/identity, operation workspace, storage-archive safety, restore
+     state, and the derived PostgreSQL names). All six install through the
+     existing `install-target-operations`, which now owns twenty-two files.
+   - **One exact backup, never "latest".** The operator names the timestamp
+     and the source (`local` or `offsite`); everything else — backup root,
+     B2 remote, bucket, remote path, database name — resolves from the target
+     registry plus fixed configuration. No filesystem path, remote, bucket or
+     SQL identifier can be supplied on a command line, and the operation
+     workspace lives under a fixed root keyed by a server-generated
+     operation ID.
+   - **Everything that can happen before downtime does.** Fetch, full
+     verification, the temporary database and the sibling storage tree are
+     all staged and verified while the target is still serving traffic. The
+     downtime window itself contains the emergency backup and its restore
+     test — which scale with data size, so it is minutes rather than
+     seconds — plus the four renames and the final verification.
+   - **Re-verified from scratch, every time.** Checksums, a closed
+     `SHA256SUMS` entry list checked before `sha256sum --check` follows a
+     single path, the existing schema 1 / schema 2 manifest contract, and a
+     pre-extraction archive gate that refuses any absolute path, `..`
+     component, symlink, hard link, device, FIFO or socket. A destructive
+     restore additionally fails closed unless the backup carries a usable
+     `release` and `source_sha`.
+   - **A verified emergency backup before the first live mutation.** Taken
+     with the existing `backup` and verified with the existing `restore-test`
+     — no second backup format. Local only, so a B2 outage never blocks
+     repairing a live target. Exactly one new backup must appear, or the
+     operation stops.
+   - **Staged swaps, not drop-and-restore.** The database is restored into a
+     new temporary database as the application role and swapped in by rename;
+     the storage tree is extracted into a sibling and swapped in by rename.
+     The previous database and tree are retained until the whole operation
+     commits.
+   - **Only this target is quiesced.** Laravel maintenance mode from the
+     actual current release, this target's Supervisor program, and this
+     target's own `/etc/cron.d` entry moved aside — never a global nginx,
+     PostgreSQL, Redis, Supervisor or cron service, and never another
+     project's resources. The original runtime state is recorded and restored
+     exactly: a queue stopped before stays stopped, an application already in
+     maintenance stays down, an absent cron entry is never invented.
+   - **Compensation, and a loud held state when it fails.** Any failed
+     activation or final verification undoes both halves from observed state.
+     Complete compensation returns the runtime and reports `failed-recovered`;
+     incomplete compensation leaves the target deliberately down, reports
+     `failed-held` and prints `MANUAL RECOVERY REQUIRED` without masking the
+     original error.
+   - **Code alignment, never a migration.** The restore switches no release,
+     builds nothing and runs no migration — enforced by an architectural
+     regression test. If `current/release.json.source_sha` matches the
+     backup's, the target resumes and is health-checked; otherwise the DATA
+     restore is complete and successful (exit 0) and the target stays held
+     with maintenance on, queue and scheduler held, and the exact required
+     `source_sha` printed. The output says explicitly that the normal
+     deployment path must NOT be used to resume — a normal deploy
+     health-checks the target and transitions the queue, both of which fight
+     the hold — and that controlled alignment belongs to 7.4.
+     `restore-target --resume` finishes the operation once `current`
+     genuinely serves that SHA.
+   - **A machine-readable journal.** `/home/www/rateguru/restores/restore-history.jsonl`
+     (root:root 0600) records one compact object per terminal operation, with
+     no secret and no content hash in it.
+   - **Nothing else.** No GitHub restore workflow or action, no sudo wrapper
+     or sudoers grant, no Repair Target, no Recover Host, no production
+     activation, no durable artifact archive, and no change to the accepted
+     backup subsystem or its manifest schema.
+
+   See [`runbooks/restore-target.md`](runbooks/restore-target.md).
+   *Acceptance:* a real, destructive database and storage restore on the
+   staging VPS, proven by sentinels created after the backup and gone
+   afterwards. CI proves the structure and every failure path; only a real
+   run proves the pipeline, so this slice is implemented rather than
+   accepted.
 4. **7.4 GitHub Restore actions.** Turn 7.3 into operator-facing workflows
    with the same shape as 7.1's: plan before mutation, one workflow per
    environment, no target dropdown, production approval gating. *Future

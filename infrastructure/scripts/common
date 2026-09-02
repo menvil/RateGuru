@@ -668,4 +668,77 @@ USAGE
 
     [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 }
+# --- restore guard (Phase 7.3) ------------------------------------------------
+#
+# A restore that lands data from backup A onto a target whose `current` still
+# serves code B finishes in a deliberate HELD state: the data is restored, but
+# nothing may run against it until the matching code is deployed. The hold
+# itself is runtime state — maintenance on, queue stopped, cron entry moved
+# aside — and it dies with the process that created it.
+#
+# This marker is the part that has to outlive it, because the hold is not only
+# about traffic. While a target is held, its live data belongs to a DIFFERENT
+# commit than the one `current/release.json` names, and an ordinary backup
+# copies the data from disk while taking its release identity from
+# `current/release.json`. Taken in that window it would produce a backup
+# asserting that data from A belongs to commit B — quietly corrupting the one
+# invariant the whole disaster-recovery model rests on:
+#
+#   backup release.json.source_sha -> the code the restored data belongs to
+#
+# So the marker is a root-only file that says "this target's data may not match
+# its code", and `backup` refuses to snapshot while it exists.
+#
+# It is written BEFORE the first live mutation, not after a restore ends. The
+# window that needs covering is the one a failure handler cannot see: a SIGKILL
+# or OOM kill between activation and completion runs no trap, releases flock to
+# the kernel, and leaves the host's own backup cron free to snapshot restored
+# data under the old commit. A marker written only on completion is absent in
+# exactly that case.
+#
+# It is removed only by an outcome that proves the data matches the code again:
+# an aligned restore that passed its health check, a successful `--resume`, or a
+# compensation that put the live data back.
+#
+# It lives under the restore run root rather than the target's own locks/
+# directory, which is deploy_user:code_group 2750 — a safety marker must not
+# sit somewhere the deployment credential can unlink it. Everything under the
+# run root is root:root 0700.
+
+# restore_guard_file TARGET_ID RUN_ROOT
+restore_guard_file() {
+    local target_id="${1-}" run_root="${2-}"
+
+    [[ -n "${target_id}" ]] || fail "restore_guard_file: target ID is required"
+    [[ -n "${run_root}" ]] || fail "restore_guard_file: run root is required"
+
+    printf '%s/restores/%s/restore-guard\n' "${run_root%/}" "${target_id}"
+}
+
+# assert_no_restore_hold TARGET_ID RUN_ROOT OPERATION_DESCRIPTION — fail closed
+# while the target is held awaiting code alignment.
+#
+# Deliberately reads the marker rather than trusting its mere presence to be
+# self-explanatory: an operator who hits this needs the operation ID and the
+# source SHA the target is waiting for, and both are in the file.
+assert_no_restore_hold() {
+    local target_id="${1-}" run_root="${2-}" operation="${3-an operation}"
+    local marker held_operation held_sha held_status
+
+    marker="$(restore_guard_file "${target_id}" "${run_root}")"
+
+    [[ -e "${marker}" ]] || return 0
+
+    held_operation="$(jq -r '.operation // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_sha="$(jq -r '.required_source_sha // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+    held_status="$(jq -r '.status // "unknown"' "${marker}" 2>/dev/null || printf 'unknown')"
+
+    # Deliberately does NOT tell the operator to deploy the SHA. restore-target
+    # itself is explicit that the normal deployment path must not be used to
+    # resolve a hold — a normal deploy health-checks the target and transitions
+    # the queue, both of which fight the hold — and two places giving different
+    # advice about the same state is how someone ends up running the wrong one.
+    fail "${target_id} is held after restore operation ${held_operation} (status ${held_status}): its live data may be from a backup taken under ${held_sha}, which is not what current serves, so ${operation} would record the wrong source_sha for it. Controlled code alignment is required. Do NOT use the normal deployment path. Phase 7.4 will deploy the required source SHA while preserving the restore hold, then resume the operation; until it exists this is finished by hand by an operator who keeps the target held throughout. The guard is ${marker}"
+}
+
 # --- deployment target registry (end) ---
