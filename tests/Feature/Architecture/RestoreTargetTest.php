@@ -518,13 +518,17 @@ it('refuses to restore when the target queue program cannot be observed at all',
         restoreTargetFixture($scratch);
 
         // supervisorctl cannot answer: supervisord down, or the program not
-        // registered. "Cannot see it" is never "it is not running".
-        file_put_contents($scratch.'/supervisor-state', "UNKNOWN\n");
-
-        $result = restoreTargetApply($scratch);
+        // registered. "Cannot see it" is never "it is not running". Supervisor
+        // reports both as exit code 4, distinct from the 3 it uses for a group
+        // that is merely stopped.
+        $result = restoreTargetApply($scratch, [
+            'P73_SUPERVISOR_STATUS_FAILURE' => 'unix:///var/run/supervisor.sock refused connection',
+        ]);
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('cannot observe the target queue program parity-queue');
+        expect($result['output'])->toContain('supervisorctl status exited 4');
+        expect($result['output'])->toContain('refused connection');
 
         expect(p73Databases($scratch))->toBe(['parity_db']);
         expect(is_file(restoreTargetStorage($scratch).'/app/live-marker.txt'))->toBeTrue();
@@ -1249,6 +1253,244 @@ it('does not resume a target whose health check fails, and holds it instead', fu
         expect(restoreTargetSchedulerPresent($scratch))->toBeFalse();
 
         expect(restoreTargetHistory($scratch)[1])->toMatchArray(['status' => 'failed-held']);
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+// =============================================================================
+// Supervisor status observation
+//
+// Real behaviour observed on staging during the first live Phase 7.3 restore:
+// `supervisorctl status <group>:*` returns EXIT CODE 3 while correctly printing
+// the process as STOPPED. Treating every non-zero exit as "cannot observe"
+// made the quiesce wait out its whole budget and abort the restore, even though
+// the queue had stopped exactly as asked.
+//
+// The codes come from the pinned supervisor 4.2.1 the host runs
+// (supervisorctl.py LSBStatusExitStatuses, states.py STOPPED_STATES):
+//   0  every matched process is running-ish
+//   3  at least one is STOPPED, EXITED, FATAL or UNKNOWN
+//   4  upcheck() failed, or the name matched nothing
+// =============================================================================
+
+/** The supervisorctl calls a run made, in order. */
+function restoreTargetSupervisorLog(string $scratch): array
+{
+    $path = $scratch.'/supervisor.log';
+
+    if (! is_file($path)) {
+        return [];
+    }
+
+    return array_values(array_filter(explode("\n", trim((string) file_get_contents($path)))));
+}
+
+it('accepts a STOPPED group reported with exit code 3, and does not wait out the budget', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        // Exactly the staging sequence: RUNNING (rc 0) before the quiesce, then
+        // STOPPED (rc 3) after `supervisorctl stop`. The stub derives both exit
+        // codes the way supervisor does, so this fails against the old
+        // `|| return 1` on any non-zero status.
+        $result = restoreTargetApply($scratch);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->not->toContain('did not reach STOPPED within the wait budget');
+
+        // The quiesce moved on rather than looping: it stopped the group and
+        // continued to the scheduler and the emergency backup.
+        $steps = $result['output'];
+        expect($steps)->toContain('queue program parity-queue STOPPED');
+        expect(mb_strpos($steps, 'step: quiesce target'))
+            ->toBeLessThan(mb_strpos($steps, 'step: emergency pre-restore backup'));
+
+        // And the whole restore completed, which it could not have done while
+        // a correctly stopped queue was being read as unobservable.
+        expect($result['output'])->toContain('restore completed and the target is serving again');
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('classifies every state the observation can legitimately report', function (
+    string $first,
+    ?string $second,
+    bool $running,
+    bool $fullyStopped,
+) {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+        [$registryPath, $targetsPath] = p73Registry($scratch);
+
+        file_put_contents($scratch.'/supervisor-state', $first."\n");
+
+        if ($second !== null) {
+            file_put_contents($scratch.'/supervisor-second-state', $second."\n");
+        }
+
+        [$exit, $output] = p73RunHarness(
+            $scratch,
+            p73PatchedScript($scratch, 'restore-target'),
+            <<<'BASH'
+                SUPERVISOR_PROGRAM=parity-queue
+
+                if observe_queue_program; then
+                    echo "OBSERVED: ${QUEUE_PROCESS_STATES[*]}"
+                else
+                    echo "OBSERVATION FAILED: ${QUEUE_OBSERVATION_ERROR}"
+                fi
+
+                queue_program_running && echo "RUNNING: yes" || echo "RUNNING: no"
+                queue_program_fully_stopped && echo "STOPPED: yes" || echo "STOPPED: no"
+                BASH,
+            p73BaseEnv($scratch, $registryPath, $targetsPath, array_merge(
+                p73PostgresEnv($scratch),
+                p73RuntimeEnv($scratch),
+            )),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('OBSERVED: '.trim($first.' '.($second ?? '')));
+        expect($output)->toContain('RUNNING: '.($running ? 'yes' : 'no'));
+        expect($output)->toContain('STOPPED: '.($fullyStopped ? 'yes' : 'no'));
+    } finally {
+        p73Cleanup($scratch);
+    }
+})->with([
+    // A: rc 0, RUNNING -> valid, fully running.
+    'all running' => ['RUNNING', null, true, false],
+    // B: rc 3, STOPPED -> valid, fully stopped. The staging case.
+    'all stopped' => ['STOPPED', null, false, true],
+    // C: rc 3, FATAL is a real Supervisor state -> valid, neither.
+    'fatal' => ['FATAL', null, false, false],
+    'exited' => ['EXITED', null, false, false],
+    'starting' => ['STARTING', null, false, false],
+    'backoff' => ['BACKOFF', null, false, false],
+    'stopping' => ['STOPPING', null, false, false],
+    // UNKNOWN is a process state, not an observation failure.
+    'unknown state' => ['UNKNOWN', null, false, false],
+    // D: mixed groups settle as neither, whichever way round.
+    'stopped and running' => ['STOPPED', 'RUNNING', false, false],
+    'running and stopped' => ['RUNNING', 'STOPPED', false, false],
+    'stopped and fatal' => ['STOPPED', 'FATAL', false, false],
+    'stopped and starting' => ['STOPPED', 'STARTING', false, false],
+    'both running' => ['RUNNING', 'RUNNING', true, false],
+    'both stopped' => ['STOPPED', 'STOPPED', false, true],
+]);
+
+it('fails the observation closed on anything that is not a real answer about this group', function (
+    array $environment,
+    string $expected,
+) {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+        [$registryPath, $targetsPath] = p73Registry($scratch);
+
+        [$exit, $output] = p73RunHarness(
+            $scratch,
+            p73PatchedScript($scratch, 'restore-target'),
+            <<<'BASH'
+                SUPERVISOR_PROGRAM=parity-queue
+
+                if observe_queue_program; then
+                    echo "UNEXPECTED: observation succeeded with ${QUEUE_PROCESS_STATES[*]}"
+                else
+                    echo "OBSERVATION FAILED: ${QUEUE_OBSERVATION_ERROR}"
+                fi
+
+                # An unobservable group is never "not running" and never
+                # "stopped": both classifiers must refuse it too.
+                queue_program_running && echo "RUNNING: yes" || echo "RUNNING: no"
+                queue_program_fully_stopped && echo "STOPPED: yes" || echo "STOPPED: no"
+                BASH,
+            p73BaseEnv($scratch, $registryPath, $targetsPath, array_merge(
+                p73PostgresEnv($scratch),
+                p73RuntimeEnv($scratch),
+                $environment,
+            )),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('OBSERVATION FAILED');
+        expect($output)->toContain($expected);
+        expect($output)->toContain('RUNNING: no');
+        expect($output)->toContain('STOPPED: no');
+    } finally {
+        p73Cleanup($scratch);
+    }
+})->with([
+    // E: nothing printed at all.
+    'empty output' => [
+        ['P73_SUPERVISOR_STATUS_STDOUT' => ' ', 'P73_SUPERVISOR_STATUS_RC' => '0'],
+        'printed nothing',
+    ],
+    // F: the group is not registered — Supervisor's own wording and code.
+    'no such group' => [
+        ['P73_SUPERVISOR_STATUS_STDOUT' => 'parity-queue: ERROR (no such group)', 'P73_SUPERVISOR_STATUS_RC' => '4'],
+        'supervisorctl status exited 4',
+    ],
+    // …and rejected on its output even if the code were acceptable.
+    'no such group with an acceptable exit code' => [
+        ['P73_SUPERVISOR_STATUS_STDOUT' => 'parity-queue: ERROR (no such group)', 'P73_SUPERVISOR_STATUS_RC' => '0'],
+        'is not a Supervisor process state',
+    ],
+    // G: transport failure.
+    'connection refused' => [
+        ['P73_SUPERVISOR_STATUS_FAILURE' => 'unix:///var/run/supervisor.sock refused connection'],
+        'supervisorctl status exited 4',
+    ],
+    'supervisord not running' => [
+        ['P73_SUPERVISOR_STATUS_FAILURE' => 'unix:///var/run/supervisor.sock no such file', 'P73_SUPERVISOR_STATUS_FAILURE_RC' => '7'],
+        'supervisorctl status exited 7',
+    ],
+    // H: somebody else's program.
+    'another program' => [
+        ['P73_SUPERVISOR_STATUS_STDOUT' => 'other-queue:other-queue_00       RUNNING   pid 1, uptime 0:00:01', 'P73_SUPERVISOR_STATUS_RC' => '0'],
+        'is not part of parity-queue',
+    ],
+    // I: a state token Supervisor does not have.
+    'unrecognized state' => [
+        ['P73_SUPERVISOR_STATUS_STDOUT' => 'parity-queue:parity-queue_00     WOBBLING  pid 1', 'P73_SUPERVISOR_STATUS_RC' => '0'],
+        'is not a Supervisor process state',
+    ],
+    'truncated line' => [
+        ['P73_SUPERVISOR_STATUS_STDOUT' => 'parity-queue:parity-queue_00', 'P73_SUPERVISOR_STATUS_RC' => '0'],
+        'is not a Supervisor process state',
+    ],
+]);
+
+it('leaves live data untouched when the queue cannot be quiesced', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        // The staging failure mode, forced: the stop lands somewhere other than
+        // STOPPED, so the confirmation never comes. What matters is WHERE the
+        // restore gives up — before the emergency backup, the restore guard and
+        // both activations.
+        $result = restoreTargetApply($scratch, ['P73_SUPERVISOR_STOP_STATE' => 'FATAL']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('did not reach STOPPED within the wait budget');
+
+        expect($result['output'])->not->toContain('step: emergency pre-restore backup');
+        expect($result['output'])->not->toContain('step: write restore guard');
+        expect($result['output'])->not->toContain('step: activate database');
+        expect($result['output'])->not->toContain('step: activate storage');
+
+        // Live data exactly as it was, and no guard left behind.
+        expect(p73Databases($scratch))->toBe(['parity_db']);
+        expect(is_file(restoreTargetStorage($scratch).'/app/live-marker.txt'))->toBeTrue();
+        expect(is_file(restoreGuardFile($scratch)))->toBeFalse();
     } finally {
         p73Cleanup($scratch);
     }

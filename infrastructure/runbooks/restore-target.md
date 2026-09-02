@@ -257,7 +257,9 @@ Never a global service. `nginx`, PostgreSQL, Redis, the Supervisor daemon and
   the target's runtime user. `shared/.env` is not touched.
 * **Queue** — `supervisorctl stop <program>:*` for the registry-declared
   program of this target, with a bounded wait for a confirmed STOPPED state.
-  No `reread`, no `update`, no `stop all`.
+  No `reread`, no `update`, no `stop all`. See
+  [Reading `supervisorctl status`](#reading-supervisorctl-status) for why a
+  non-zero exit code from `status` is not an error.
 * **Scheduler** — this target's own `/etc/cron.d/<scheduler.name>` is **moved**
   into the root-only operation workspace for the duration, with its original
   ownership and mode recorded. The global cron daemon is never stopped, and no
@@ -309,6 +311,42 @@ applied by a live restore in any case, and the committed repository remains
 the source of truth for that file — holding the scheduler *before* taking the
 backup is what keeps a `schedule:run` from writing into the database and the
 storage tree while they are being captured.
+
+### Reading `supervisorctl status`
+
+`supervisorctl status <group>:*` reports a non-running group through its **exit
+code** as well as its output. From the pinned supervisor 4.2.1 the host runs
+(`supervisorctl.py` `LSBStatusExitStatuses`, `states.py` `STOPPED_STATES`):
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | every matched process is in a running-ish state |
+| `3` | at least one matched process is `STOPPED`, `EXITED`, `FATAL` or `UNKNOWN` |
+| `4` | `upcheck()` could not reach supervisord, **or** the name matched nothing (`<group>: ERROR (no such group)`) |
+
+So `0` and `3` are the only codes that mean *supervisord answered, about the
+group we asked for*. A correctly stopped queue reports **exit code 3**, and
+reading that as a failed observation is what aborted the first live staging
+restore: the queue had stopped exactly as asked, `supervisorctl` printed it as
+`STOPPED`, and the confirmation loop discarded the answer and waited out its
+whole budget.
+
+The exit code alone is not enough, so the output is parsed as well. Every
+non-empty line must name a process inside this target's own group and carry one
+of Supervisor's own process states — `STOPPED`, `STARTING`, `RUNNING`,
+`BACKOFF`, `STOPPING`, `EXITED`, `FATAL`, `UNKNOWN`. Anything else — no output,
+another program's line, `ERROR (no such group)`, a truncated line, a state
+Supervisor does not have — is an observation failure and **fails closed**: a
+group that cannot be seen is never recorded as "not running", because that
+would let the quiesce skip the stop and swap live data underneath a worker.
+
+`stderr` is captured rather than discarded, so a genuine Supervisor failure is
+reported as itself; the diagnostic is a short, flattened excerpt rather than an
+unbounded dump.
+
+Classification is unchanged by any of this: a group counts as **running** only
+when every process reports `RUNNING`, and as **fully stopped** only when every
+process reports `STOPPED`. A mixed group is neither.
 
 ## Locking
 

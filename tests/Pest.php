@@ -1503,10 +1503,45 @@ printf '%s\n' "supervisorctl $*" >> "${P73_SUPERVISOR_LOG}"
 action="${1:-}"
 group="${2:-}"
 
+# Supervisor's own status exit codes, from supervisor 4.2.1
+# (supervisorctl.py LSBStatusExitStatuses, states.py STOPPED_STATES):
+#
+#   0  every matched process is in a running-ish state
+#   3  at least one matched process is STOPPED, EXITED, FATAL or UNKNOWN
+#   4  upcheck() failed, or a name matched nothing
+#
+# Modelling this faithfully is the point: the stub used to exit 0 for every
+# status, which is why a real staging restore — where a correctly STOPPED queue
+# reports rc 3 — was not caught here first.
+supervisor_status_rc() {
+    local rc=0 state
+
+    for state in "$@"; do
+        case "${state}" in
+            STOPPED|EXITED|FATAL|UNKNOWN) rc=3 ;;
+        esac
+    done
+
+    printf '%s\n' "${rc}"
+}
+
 case "${action}" in
     status)
+        # An observation failure that is NOT a process state: supervisord
+        # unreachable, or the group unknown. do_status overrides the exit
+        # status to 4 for both.
+        if [[ -n "${P73_SUPERVISOR_STATUS_FAILURE:-}" ]]; then
+            printf '%s\n' "${P73_SUPERVISOR_STATUS_FAILURE}" >&2
+            exit "${P73_SUPERVISOR_STATUS_FAILURE_RC:-4}"
+        fi
+
+        # Arbitrary stdout, for the malformed / wrong-group cases.
+        if [[ -n "${P73_SUPERVISOR_STATUS_STDOUT:-}" ]]; then
+            printf '%s\n' "${P73_SUPERVISOR_STATUS_STDOUT}"
+            exit "${P73_SUPERVISOR_STATUS_RC:-0}"
+        fi
+
         state="$(cat "${P73_SUPERVISOR_STATE}")"
-        [[ "${state}" == "UNKNOWN" ]] && exit 1
         printf '%-40s %s   pid 4242, uptime 0:10:00\n' "${group%:*}:${group%:*}_00" "${state}"
 
         # A second process in the same group, so a MIXED group (one RUNNING,
@@ -1516,6 +1551,8 @@ case "${action}" in
         if [[ -n "${second}" ]]; then
             printf '%-40s %s   pid 4243, uptime 0:00:01\n' "${group%:*}:${group%:*}_01" "${second}"
         fi
+
+        exit "$(supervisor_status_rc "${state}" ${second:+"${second}"})"
         ;;
     stop)
         # supervisorctl stop takes the whole group down, second process included.
