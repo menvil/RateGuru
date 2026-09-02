@@ -841,29 +841,53 @@ hold_runtime() {
     RUNTIME_RESUMED="no"
 }
 
-# --- restore hold marker ------------------------------------------------------------------
+# --- restore guard -----------------------------------------------------------------------
 #
-# The runtime hold dies with this process. The marker is what outlives it, and
-# it exists for one specific hazard: while a target is held, its live data
-# belongs to the backup's commit while current/release.json still names a
-# different one — and an ordinary `backup` takes its data from disk and its
-# release identity from current/release.json. A backup created in that window
-# would assert that this data belongs to a commit it does not, which is the one
-# invariant disaster recovery cannot afford to lose. `backup` refuses while
-# this file exists; see assert_no_restore_hold in infrastructure/scripts/common.
+# The interlock that makes a held target refuse an ordinary backup. It is a
+# root-only marker file, and the single most important thing about it is WHEN it
+# is written: before the first live mutation, never after.
+#
+# The hazard it covers is not a Bash failure — the terminal handler already
+# covers those. It is termination the handler cannot see. Between the database
+# activation and the end of this script the process can be SIGKILLed or
+# OOM-killed: no EXIT/ERR trap runs, flock is released by the kernel, and the
+# host's own backup cron is then free to run. That cron is not the Laravel
+# scheduler and this operation does not hold it:
+#
+#   30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main
+#
+# It would snapshot restored (or half-restored) data while current/release.json
+# still names the old commit, producing exactly the mislabelled backup this
+# whole mechanism exists to prevent. A marker written only on a successful
+# completion, or only by the failure handler, is absent in precisely that case.
+#
+# So the guard goes in first and is removed only by a proven-good outcome:
+#
+#   in-progress   written before the first activation; the data may be the
+#                 backup's, and nothing may snapshot it
+#   held          the data restore completed, the code does not match yet
+#   failed-held   a failure left data that may have been replaced
+#   (removed)     the data provably matches the code again — an aligned
+#                 restore that passed its health check, a successful --resume,
+#                 or a compensation that put the live data back
+#
+# Because it is written before anything is touched, its failure is a clean
+# refusal rather than a half-restore: see the call site in perform_restore.
 
-write_restore_hold_marker() {
+RESTORE_GUARD_WRITTEN=false
+
+write_restore_guard() {
     local hold_status="$1" marker marker_dir
 
-    marker="$(restore_hold_marker_file "${TARGET_ID}" "${RUN_ROOT}")"
+    marker="$(restore_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
     marker_dir="$(dirname "${marker}")"
 
-    # Non-fatal on the failure path — this is called from the terminal handler
-    # too, and its own failure must never replace the diagnosis being reported.
-    # It is loud instead, because an absent marker means backups are NOT
-    # blocked on a target whose data no longer matches its code.
+    # Returns rather than fails, so each caller can decide. The pre-mutation
+    # call site turns a non-zero into a refusal; the terminal handler turns it
+    # into a loud ERROR, because its own failure must never replace the
+    # diagnosis it is already reporting.
     if ! install -d -o root -g root -m 0700 "${marker_dir}" 2>/dev/null; then
-        log "ERROR: could not create ${marker_dir} — the restore hold marker is NOT in place, and an ordinary backup would record the wrong source_sha for this data"
+        log "ERROR: could not create ${marker_dir} — the restore guard is NOT in place, and an ordinary backup would record the wrong source_sha for this data"
 
         return 1
     fi
@@ -885,7 +909,7 @@ write_restore_hold_marker() {
         }' > "${marker}.tmp" 2>/dev/null
     then
         rm -f "${marker}.tmp" 2>/dev/null || true
-        log "ERROR: could not write the restore hold marker ${marker} — an ordinary backup would record the wrong source_sha for this data"
+        log "ERROR: could not write the restore guard ${marker} — an ordinary backup would record the wrong source_sha for this data"
 
         return 1
     fi
@@ -894,27 +918,34 @@ write_restore_hold_marker() {
 
     if ! mv -f "${marker}.tmp" "${marker}" 2>/dev/null; then
         rm -f "${marker}.tmp" 2>/dev/null || true
-        log "ERROR: could not install the restore hold marker ${marker} — an ordinary backup would record the wrong source_sha for this data"
+        log "ERROR: could not install the restore guard ${marker} — an ordinary backup would record the wrong source_sha for this data"
 
         return 1
     fi
 
-    log "restore hold marker written: ${marker} (ordinary backups of ${TARGET_ID} now refuse until the hold is resolved)"
+    RESTORE_GUARD_WRITTEN=true
+
+    log "restore guard written: ${marker} (status=${hold_status}; ordinary backups of ${TARGET_ID} refuse while it exists)"
 }
 
-# clear_restore_hold_marker — only ever called once the target's data and code
-# are proven to agree again: code alignment checked, runtime resumed, health
-# check passed and the restored data verified.
-clear_restore_hold_marker() {
+# clear_restore_guard — only ever called once the live data provably
+# matches the code serving it again. Returns rather than fails, for the same
+# reason the writer does.
+clear_restore_guard() {
     local marker
-    marker="$(restore_hold_marker_file "${TARGET_ID}" "${RUN_ROOT}")"
+    marker="$(restore_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
 
     [[ -e "${marker}" ]] || return 0
 
-    rm -f "${marker}" \
-        || fail "could not remove the restore hold marker ${marker} — ordinary backups of ${TARGET_ID} will keep refusing until it is gone"
+    if ! rm -f "${marker}" 2>/dev/null; then
+        log "ERROR: could not remove the restore guard ${marker} — ordinary backups of ${TARGET_ID} will keep refusing until it is gone"
 
-    log "restore hold marker cleared: ${marker}"
+        return 1
+    fi
+
+    RESTORE_GUARD_WRITTEN=false
+
+    log "restore guard cleared: ${marker}"
 }
 
 # --- emergency pre-restore backup ------------------------------------------------------------
@@ -1257,21 +1288,30 @@ handle_restore_exit() {
             ;;
     esac
 
-    # A held target whose live data was, or may have been, replaced must also
-    # stop accepting ordinary backups: its data no longer provably corresponds
-    # to the commit current/release.json names, and a backup would record that
-    # commit for it anyway.
+    # The guard is already on disk by the time any of the above can fail, so
+    # the only question here is whether this outcome earned its removal.
     #
-    # Keyed on the mutation stage, not the status: `none` and `quiesced` never
-    # touched live data, so a backup there is still semantically correct and
-    # blocking it would strand a target for no reason. From `activating` on,
-    # the data may be the backup's — including when compensation ran, since a
-    # compensation that could not be confirmed is exactly the case that must
-    # not be trusted.
-    if [[ "${status}" == "failed-held" ]]; then
+    # It did exactly when the live data provably matches the code again: the
+    # activation never began, or compensation put the data back. Anything else
+    # — a compensation that could not be confirmed, a committed restore whose
+    # runtime would not come up — keeps it, re-labelled with the outcome.
+    if [[ "${RESTORE_GUARD_WRITTEN}" == true ]]; then
         case "${MUTATION_STAGE}" in
-            activating|activated|committed)
-                write_restore_hold_marker "${status}" || true
+            none|quiesced)
+                # The guard is written last before the first activation, so
+                # reaching here means the failure was the guard's own step or
+                # the one after it: nothing live was touched.
+                clear_restore_guard || true
+                ;;
+            activating|activated)
+                if [[ "${COMPENSATION_STATUS}" == "complete" ]]; then
+                    clear_restore_guard || true
+                else
+                    write_restore_guard "${status}" || true
+                fi
+                ;;
+            *)
+                write_restore_guard "${status}" || true
                 ;;
         esac
     fi
@@ -1302,7 +1342,7 @@ handle_restore_exit() {
         printf '# emergency backup: %s\n' "${EMERGENCY_BACKUP:-none}"
         printf '# The target is intentionally NOT serving traffic.\n'
         printf '# ordinary backups of this target refuse while the hold marker exists:\n'
-        printf '#   %s\n' "$(restore_hold_marker_file "${TARGET_ID}" "${RUN_ROOT}")"
+        printf '#   %s\n' "$(restore_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
 
 
         if [[ "${HOLD_UNCONFIRMED}" == true ]]; then
@@ -1372,6 +1412,13 @@ perform_restore() {
     step "validate deployed target"
     assert_deployed_target
 
+    # A target already held from an earlier restore has data that does not match
+    # its code. Checked before an operation ID or a workspace exists, so a
+    # mistaken re-run leaves no new state behind at all — and long before the
+    # emergency "pre-restore" backup would have snapshotted that mismatch.
+    step "check restore hold"
+    assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a new restore"
+
     step "create operation workspace"
     OPERATION_ID="$(generate_operation_id)"
     WORKSPACE="$(restore_create_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
@@ -1395,13 +1442,6 @@ perform_restore() {
         phase initialized
 
     log "${LABEL} restore operation ${OPERATION_ID} (source=${SOURCE_KIND} backup=${BACKUP_ID})"
-
-    # A target already held from an earlier restore has data that does not
-    # match its code. Starting a second restore there would take an emergency
-    # "pre-restore" backup of exactly that mismatched state — and be refused
-    # for it, halfway in. Refusing here says why, before anything is staged.
-    step "check restore hold"
-    assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a new restore"
 
     step "stage backup"
     "${RESTORE_FETCH_BACKUP_BIN}" \
@@ -1462,6 +1502,20 @@ perform_restore() {
     create_emergency_backup
     restore_state_set "${STATE_FILE}" phase emergency-backup-verified
 
+    # The last thing before anything live is touched, and a hard prerequisite
+    # of touching it. From here on the data may be the backup's while
+    # current/release.json still names the old commit, and the host's own
+    # backup cron — not the Laravel scheduler, and not held by this operation —
+    # is free to run the moment this process stops holding its locks. It stops
+    # holding them the instant it is SIGKILLed, with no trap and no handler.
+    #
+    # Failing here is cheap: no live data has been touched, and the runtime
+    # goes back exactly as it was. Failing to write it and continuing would
+    # not be.
+    step "write restore guard"
+    write_restore_guard in-progress \
+        || fail "could not write the restore guard — refusing to mutate live data that nothing would then stop an ordinary backup from mislabelling"
+
     step "activate database"
     MUTATION_STAGE=activating
     "${RESTORE_DATABASE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --activate
@@ -1516,6 +1570,12 @@ decide_code_alignment() {
         "${RESTORE_HEALTH_CHECK_BIN}" --target "${TARGET_ID}" \
             || fail "health check failed after the restore"
 
+        # Data verified before the commit, code proven to match, runtime up and
+        # healthy: the guard has nothing left to protect.
+        step "clear restore guard"
+        clear_restore_guard \
+            || fail "the restore succeeded but its guard could not be removed — ordinary backups of ${TARGET_ID} will keep refusing until it is gone"
+
         restore_state_set "${STATE_FILE}" \
             status completed \
             runtime_resumed yes \
@@ -1544,10 +1604,12 @@ decide_code_alignment() {
         runtime_resumed no \
         completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-    # The data is now from BACKUP_SOURCE_SHA while current still serves
-    # something else, so an ordinary backup taken from here would label this
-    # data with the wrong commit. Blocked until --resume proves the two agree.
-    write_restore_hold_marker held || true
+    # The guard has been in place since before the first activation; this only
+    # re-labels it with the outcome. Non-fatal precisely because it is already
+    # doing its job: a failed re-label leaves it at `in-progress`, which blocks
+    # an ordinary backup just as firmly.
+    write_restore_guard held \
+        || log "WARNING: the restore guard could not be re-labelled; it remains in place and ordinary backups still refuse"
 
     RESTORE_TERMINAL=true
     trap - ERR EXIT
@@ -1653,6 +1715,9 @@ perform_resume() {
 
     MAIN_BASHPID="${BASHPID}"
     MUTATION_STAGE=committed
+    # A held operation always has one on disk; saying so lets the terminal
+    # handler re-label it rather than believing there is nothing to re-label.
+    RESTORE_GUARD_WRITTEN=true
     trap handle_restore_exit ERR EXIT
 
     step "resume runtime"
@@ -1669,8 +1734,9 @@ perform_resume() {
     # Code alignment checked, runtime resumed, health check passed and the
     # restored data verified — only now does this target's data provably match
     # the code serving it, and only now may an ordinary backup label it.
-    step "clear restore hold marker"
-    clear_restore_hold_marker
+    step "clear restore guard"
+    clear_restore_guard \
+        || fail "the resume succeeded but its guard could not be removed — ordinary backups of ${TARGET_ID} will keep refusing until it is gone"
 
     restore_state_set "${STATE_FILE}" \
         status resumed \

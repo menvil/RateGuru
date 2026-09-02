@@ -131,6 +131,21 @@ function p73FileDiff(string $path): array
     return ['added' => $added, 'removed' => $removed];
 }
 
+/**
+ * One file as this branch has it committed.
+ *
+ * These guards describe the branch, not the working tree — that is what a diff
+ * against the base measures, and what CI reviews. Reading the file from HEAD
+ * too keeps both halves of an assertion talking about the same thing, instead
+ * of comparing a committed diff against uncommitted edits.
+ */
+function p73CommittedFile(string $path): string
+{
+    return (string) shell_exec(
+        'cd '.escapeshellarg(base_path()).' && git show HEAD:'.escapeshellarg($path).' 2>/dev/null'
+    );
+}
+
 // =============================================================================
 // What Phase 7.3 adds
 // =============================================================================
@@ -412,7 +427,7 @@ it('adds exactly one fail-closed guard to backup, and changes nothing else in it
     expect($addedCode)->toBe(['assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"']);
 
     // And it is a refusal, not a step: it runs before perform_backup.
-    $backup = File::get(base_path('infrastructure/scripts/backup'));
+    $backup = p73CommittedFile('infrastructure/scripts/backup');
 
     expect(mb_strpos($backup, 'assert_no_restore_hold'))
         ->toBeLessThan(mb_strpos($backup, "\n    perform_backup\n"));
@@ -529,10 +544,10 @@ it('never switches a release, and never touches the current or previous link', f
         ->toContain('the current release symlink changed during the restore — a restore never switches releases');
 });
 
-it('adds only the restore-hold marker helpers to the shared library', function () {
+it('adds only the restore guard helpers to the shared library', function () {
     // `common` is sourced by every operational script, so a change to it
     // reaches deploy, rollback, cleanup and backup at once. Phase 7.3 adds the
-    // two helpers that let a held target refuse an ordinary backup, and must
+    // two helpers that let a guarded target refuse an ordinary backup, and must
     // not touch a line of anything that was already there.
     $diff = p73FileDiff('infrastructure/scripts/common');
 
@@ -540,11 +555,11 @@ it('adds only the restore-hold marker helpers to the shared library', function (
 
     // Every added line belongs to the new section, delimited by its own header
     // and the existing registry terminator.
-    $common = File::get(base_path('infrastructure/scripts/common'));
-    $start = mb_strpos($common, '# --- restore hold marker (Phase 7.3) ---');
+    $common = p73CommittedFile('infrastructure/scripts/common');
+    $start = mb_strpos($common, '# --- restore guard (Phase 7.3) ---');
     $end = mb_strpos($common, '# --- deployment target registry (end) ---');
 
-    expect($start)->not->toBeFalse('the restore hold marker section is missing from common');
+    expect($start)->not->toBeFalse('the restore guard section is missing from common');
     expect($end)->toBeGreaterThan($start);
 
     $section = mb_substr($common, $start, $end - $start);
@@ -554,7 +569,7 @@ it('adds only the restore-hold marker helpers to the shared library', function (
     }
 
     // The section defines exactly the two helpers, and neither mutates.
-    expect($section)->toContain('restore_hold_marker_file()');
+    expect($section)->toContain('restore_guard_file()');
     expect($section)->toContain('assert_no_restore_hold()');
     expect($section)->not->toMatch('/^\s*(rm|mv|install|touch|chmod|chown)\s/m');
 })->skip(fn (): bool => p73BaseRevision() === null,

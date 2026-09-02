@@ -395,14 +395,10 @@ TARGET RESUMED: NO
 The exit code is **0**: the requested DATA restore succeeded. The summary and
 the operation state are what say the runtime is intentionally held.
 
-### The hold marker
-
-The runtime hold — maintenance on, queue stopped, cron entry moved aside —
-dies with the process that created it. One part of it has to outlive that, and
-it is written to:
+### The restore guard
 
 ```text
-/home/www/rateguru/run/restores/<target>/restore-held
+/home/www/rateguru/run/restores/<target>/restore-guard
 ```
 
 Root-only (everything under the run root is `root:root 0700`, deliberately not
@@ -410,33 +406,60 @@ the target's own `locks/`, which the deployment user can write to). It contains
 identity and nothing else — operation, target, the `source_sha` the data is
 waiting for, the status, a timestamp. No secret.
 
-It exists because the hold is not only about traffic. While a target is held,
-its live data belongs to the backup's commit while `current/release.json` still
-names a different one — and an ordinary backup takes its **data** from disk and
-its **release identity** from `current/release.json`. A backup created in that
-window would assert that this data belongs to a commit it does not, quietly
-breaking the invariant every recovery depends on:
+It exists because an ordinary backup takes its **data** from disk and its
+**release identity** from `current/release.json`. Those normally describe the
+same thing, but not during or after a restore: the data is the backup's while
+`current` still serves something else. A backup created in that window asserts
+that this data belongs to a commit it does not, breaking the invariant every
+recovery depends on:
 
 ```text
 backup release.json.source_sha  ->  the code the restored data belongs to
 ```
 
-So while the marker exists:
+**It is written before the first live mutation, not after the restore ends.**
+That ordering is the whole point. A failure is handled — the terminal handler
+compensates and reports. Termination is not: a `SIGKILL` or an OOM kill between
+the database activation and the end of the run executes no trap, and the kernel
+releases every `flock` the operation held. The host's own backup cron is not
+the Laravel scheduler, is not held by this operation, and is then free to run:
+
+```text
+30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main
+```
+
+A guard written only on completion is absent in exactly that case. Written
+first, it survives the kill and the cron refuses.
+
+Writing it is a **hard prerequisite** of the activation, not a best effort. If
+it cannot be written — read-only filesystem, full disk, permissions — the
+operation fails there, with no live data touched and the runtime put back.
+
+| status | meaning |
+| --- | --- |
+| `in-progress` | written before the first activation; the data may be the backup's |
+| `held` | the data restore completed, the code does not match yet |
+| `failed-held` | a failure left data that may have been replaced |
+| *(removed)* | the data provably matches the code again |
+
+While it exists:
 
 * `backup` refuses, before it creates a temporary root, a snapshot or a
   retention pass — and `backup-cycle` inherits that by starting with `backup`;
 * `restore-target --apply` refuses to start a second restore on the target,
-  before anything is staged;
-* the refusal names the operation and the `source_sha` being waited for.
+  before an operation ID or a workspace is even created;
+* the refusal names the operation, the status and the `source_sha` being
+  waited for.
 
-`offsite-backup` is not blocked: it uploads a backup that already exists and
-was already correctly labelled.
+`offsite-backup` is not blocked: it uploads a backup that already exists and was
+already correctly labelled.
 
-The marker is removed by exactly one thing — a successful `--resume`, after the
-code alignment check, the health check and the restored-data verification have
-all passed. A `failed-held` operation's marker is removed by the operator as
-part of the manual recovery the output demands; the path is printed in the
-`MANUAL RECOVERY REQUIRED` block.
+It is removed only by an outcome that proves the data matches the code again:
+an aligned restore that passed its health check, a successful `--resume` after
+its data verification, or a compensation that put the live data back. A
+`failed-held` operation's guard is removed by the operator as part of the manual
+recovery the output demands; the path is printed in the `MANUAL RECOVERY
+REQUIRED` block.
 
 ## Resuming a held target
 
@@ -545,6 +568,7 @@ operation (one carrying `state.json`).
 | `no live data was mutated` | the emergency backup or its verification failed | untouched | fix the backup path first, then retry |
 | `failed-recovered` | activation or verification failed; everything was undone | restored to its pre-restore state | read the journal, then retry or investigate |
 | `failed-held` + `MANUAL RECOVERY REQUIRED` | compensation could not complete | inconsistent | do not start the target; use the emergency backup named in the output |
+| `backup` refuses: `… is held after restore operation …` | a restore guard is in place for this target | restored, or mid-restore | controlled code alignment is required — do **not** use the normal deployment path; Phase 7.4 will deploy the required source SHA while preserving the hold, then resume |
 | `WARNING: one or more writers could NOT be proven stopped` | a queue worker, the scheduler or maintenance mode could not be confirmed | unknown, possibly still being written | treat the data as live; find and stop the writer named in the `ERROR` lines before touching anything |
 | the process was killed mid-activation | no handler ran, so nothing compensated | possibly half-swapped | read `state.json` in the operation workspace for the exact phase, then either finish or reverse it with the `restore-database` / `restore-storage` steps, or restore from the emergency backup |
 | `CODE ALIGNMENT: REQUIRED` | the data is restored, the code does not match | restored | deploy the named `source_sha`, then `--resume` |

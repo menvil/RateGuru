@@ -1308,7 +1308,7 @@ it('interrupts and proves the absence of a scheduler that cron started after the
 
         // And the data is still the backup's while current serves something
         // else, so the hold marker stays and backups stay refused.
-        expect(is_file($scratch.'/run/restores/parity-target/restore-held'))->toBeTrue();
+        expect(is_file($scratch.'/run/restores/parity-target/restore-guard'))->toBeTrue();
     } finally {
         p73Cleanup($scratch);
     }
@@ -1348,9 +1348,9 @@ it('reports a clean hold when no scheduler process remains', function () {
 // =============================================================================
 
 /** The marker restore-target writes for a held target. */
-function restoreHoldMarker(string $scratch): string
+function restoreGuardFile(string $scratch): string
 {
-    return $scratch.'/run/restores/parity-target/restore-held';
+    return $scratch.'/run/restores/parity-target/restore-guard';
 }
 
 /**
@@ -1382,6 +1382,153 @@ function restoreHoldRunBackup(string $scratch): array
     ];
 }
 
+it('writes the guard before the first live mutation, as a prerequisite of it', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        $result = restoreTargetApply($scratch);
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        // The ordering is the whole protection: a guard written after the
+        // activation cannot cover the activation.
+        $steps = $result['output'];
+
+        expect(mb_strpos($steps, 'step: emergency pre-restore backup'))
+            ->toBeLessThan(mb_strpos($steps, 'step: write restore guard'));
+        expect(mb_strpos($steps, 'step: write restore guard'))
+            ->toBeLessThan(mb_strpos($steps, 'step: activate database'));
+        expect($steps)->toContain('status=in-progress');
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('survives an unhandled kill mid-activation, which is the window a trap cannot cover', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        // A SIGKILL runs no EXIT/ERR trap and the kernel drops every flock, so
+        // the host's own backup cron — not the Laravel scheduler, and not held
+        // by this operation — is free to run against half-restored data. The
+        // storage activation kills its own parent to reproduce exactly that.
+        $killer = $scratch.'/bin/restore-storage-killer';
+        p73WriteExecutable($killer, <<<'BASH'
+            #!/bin/bash
+            case "$*" in
+                *--activate*) kill -9 "${PPID}"; sleep 5 ;;
+            esac
+            exec "${P73_REAL_RESTORE_STORAGE}" "$@"
+            BASH);
+
+        $result = restoreTargetRun(
+            $scratch,
+            ['--apply', '--target', 'parity-target', '--source', 'local', '--backup', '20260115-120000'],
+            [
+                'RATEGURU_RESTORE_STORAGE_BIN' => $killer,
+                'P73_REAL_RESTORE_STORAGE' => p73PatchedScript($scratch, 'restore-storage'),
+            ],
+        );
+
+        // Killed, so no terminal handler ran and nothing was reported.
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->not->toContain('MANUAL RECOVERY REQUIRED');
+
+        // The guard is on disk anyway, because it was written before the first
+        // activation rather than by a handler that never got to run.
+        expect(is_file(restoreGuardFile($scratch)))->toBeTrue(
+            'the guard must survive a kill that no handler can observe');
+
+        expect(json_decode(File::get(restoreGuardFile($scratch)), true))
+            ->toMatchArray(['target' => 'parity-target', 'status' => 'in-progress']);
+
+        // And the cron that would otherwise run next is refused.
+        $backup = restoreHoldRunBackup($scratch);
+        expect($backup['blocked'])->toBeTrue();
+        expect($backup['reached_backup'])->toBeFalse();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('refuses to mutate live data when the guard cannot be written', function () {
+    // Two halves, because a filesystem this process owns cannot be made
+    // genuinely unwritable to it: the writer reports failure, and the call site
+    // turns that failure into a refusal.
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+        [$registryPath, $targetsPath] = p73Registry($scratch);
+
+        // A run root whose `restores` component is a regular file: `install -d`
+        // cannot create the guard's directory, whoever owns it.
+        $brokenRoot = $scratch.'/broken-run';
+        mkdir($brokenRoot, 0o700, true);
+        file_put_contents($brokenRoot.'/restores', "not a directory\n");
+
+        [$exit, $output] = p73RunHarness(
+            $scratch,
+            p73PatchedScript($scratch, 'restore-target'),
+            <<<'BASH'
+                TARGET_ID=parity-target
+                OPERATION_ID=20260115-024512-3f9ac1
+                BACKUP_SOURCE_SHA=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+                LABEL=parity-target
+
+                if write_restore_guard in-progress; then
+                    echo "UNEXPECTED: the writer reported success"
+                    exit 0
+                fi
+
+                echo "WRITER REPORTED FAILURE"
+                echo "guard written flag: ${RESTORE_GUARD_WRITTEN}"
+                BASH,
+            p73BaseEnv($scratch, $registryPath, $targetsPath, ['RATEGURU_RUN_ROOT' => $brokenRoot]),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('WRITER REPORTED FAILURE');
+        expect($output)->toContain('the restore guard is NOT in place');
+        expect($output)->toContain('guard written flag: false');
+
+        // And the call site refuses rather than continuing: the guard is a
+        // prerequisite of the activation, not a best effort beside it.
+        $source = File::get(restoreTargetScript());
+
+        expect($source)->toContain(
+            "write_restore_guard in-progress \\\n        || fail \"could not write the restore guard",
+        );
+        expect(mb_strpos($source, 'write_restore_guard in-progress'))
+            ->toBeLessThan(mb_strpos($source, 'MUTATION_STAGE=activating'));
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('clears the guard when an aligned restore comes up healthy', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        $result = restoreTargetApply($scratch);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('step: clear restore guard');
+        expect(is_file(restoreGuardFile($scratch)))->toBeFalse();
+
+        $backup = restoreHoldRunBackup($scratch);
+        expect($backup['blocked'])->toBeFalse();
+        expect($backup['reached_backup'])->toBeTrue();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
 it('refuses an ordinary backup while the target is held, and says which commit it is waiting for', function () {
     $scratch = p73Scratch();
 
@@ -1394,9 +1541,9 @@ it('refuses an ordinary backup while the target is held, and says which commit i
         $operation = restoreTargetHeldOperation($scratch);
 
         // The marker is the part of the hold that outlives the process.
-        expect(is_file(restoreHoldMarker($scratch)))->toBeTrue();
+        expect(is_file(restoreGuardFile($scratch)))->toBeTrue();
 
-        $marker = json_decode(File::get(restoreHoldMarker($scratch)), true);
+        $marker = json_decode(File::get(restoreGuardFile($scratch)), true);
         expect($marker)->toMatchArray([
             'operation' => $operation,
             'target' => 'parity-target',
@@ -1442,7 +1589,7 @@ it('clears the hold marker only once a resume has proven the data and the code a
         ]);
 
         $operation = restoreTargetHeldOperation($scratch);
-        expect(is_file(restoreHoldMarker($scratch)))->toBeTrue();
+        expect(is_file(restoreGuardFile($scratch)))->toBeTrue();
         expect(restoreHoldRunBackup($scratch)['blocked'])->toBeTrue();
 
         restoreTargetAlignCode($scratch);
@@ -1455,34 +1602,14 @@ it('clears the hold marker only once a resume has proven the data and the code a
         // verification, never merely because the code now matches.
         $steps = $resumed['output'];
         expect(mb_strpos($steps, 'step: verify restored data'))
-            ->toBeLessThan(mb_strpos($steps, 'step: clear restore hold marker'));
+            ->toBeLessThan(mb_strpos($steps, 'step: clear restore guard'));
         expect(mb_strpos($steps, 'step: health check'))
-            ->toBeLessThan(mb_strpos($steps, 'step: clear restore hold marker'));
+            ->toBeLessThan(mb_strpos($steps, 'step: clear restore guard'));
 
-        expect(is_file(restoreHoldMarker($scratch)))->toBeFalse();
+        expect(is_file(restoreGuardFile($scratch)))->toBeFalse();
 
         // And ordinary backups are no longer refused.
         expect(restoreHoldRunBackup($scratch)['blocked'])->toBeFalse();
-    } finally {
-        p73Cleanup($scratch);
-    }
-});
-
-it('never writes a hold marker for an aligned restore, which leaves data and code matching', function () {
-    $scratch = p73Scratch();
-
-    try {
-        restoreTargetFixture($scratch);
-
-        $result = restoreTargetApply($scratch);
-
-        expect($result['exit'])->toBe(0, $result['output']);
-        expect($result['output'])->toContain('CODE ALIGNMENT: ALIGNED');
-        expect(is_file(restoreHoldMarker($scratch)))->toBeFalse();
-
-        $backup = restoreHoldRunBackup($scratch);
-        expect($backup['blocked'])->toBeFalse();
-        expect($backup['reached_backup'])->toBeTrue();
     } finally {
         p73Cleanup($scratch);
     }
@@ -1500,7 +1627,11 @@ it('writes a hold marker when a failure leaves replaced data behind, and none wh
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('emergency pre-restore backup failed');
-        expect(is_file(restoreHoldMarker($scratch)))->toBeFalse();
+
+        // The guard is written after the emergency backup and before the first
+        // activation, so a failure here leaves none — and must not, since the
+        // data still matches the code.
+        expect(is_file(restoreGuardFile($scratch)))->toBeFalse();
 
         $backup = restoreHoldRunBackup($scratch);
         expect($backup['blocked'])->toBeFalse();
