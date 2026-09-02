@@ -1513,11 +1513,15 @@ case "${action}" in
         ;;
     stop)
         # supervisorctl stop takes the whole group down, second process included.
-        printf 'STOPPED\n' > "${P73_SUPERVISOR_STATE}"
+        # P73_SUPERVISOR_STOP_STATE models a stop that TOOK EFFECT but landed
+        # somewhere other than STOPPED — the state a confirmation timeout sees.
+        printf '%s\n' "${P73_SUPERVISOR_STOP_STATE:-STOPPED}" > "${P73_SUPERVISOR_STATE}"
         [[ -z "$(cat "${P73_SUPERVISOR_SECOND_STATE}" 2>/dev/null || true)" ]] \
-            || printf 'STOPPED\n' > "${P73_SUPERVISOR_SECOND_STATE}"
+            || printf '%s\n' "${P73_SUPERVISOR_STOP_STATE:-STOPPED}" > "${P73_SUPERVISOR_SECOND_STATE}"
         ;;
     start)
+        # P73_SUPERVISOR_START_STATE models a start that TOOK EFFECT but has
+        # not reached RUNNING — STARTING, or a worker crash-looping in BACKOFF.
         printf '%s\n' "${P73_SUPERVISOR_START_STATE:-RUNNING}" > "${P73_SUPERVISOR_STATE}"
         [[ -z "$(cat "${P73_SUPERVISOR_SECOND_STATE}" 2>/dev/null || true)" ]] \
             || printf '%s\n' "${P73_SUPERVISOR_START_STATE:-RUNNING}" > "${P73_SUPERVISOR_SECOND_STATE}"
@@ -1540,7 +1544,9 @@ case "${2:-}" in
         ;;
     up)
         [[ "${P73_ARTISAN_UP_EXIT:-0}" == 0 ]] || exit "${P73_ARTISAN_UP_EXIT}"
-        rm -f "${P73_MAINTENANCE_FLAG}"
+        # P73_ARTISAN_UP_INEFFECTIVE models `artisan up` reporting success
+        # while the target stays down.
+        [[ -n "${P73_ARTISAN_UP_INEFFECTIVE:-}" ]] || rm -f "${P73_MAINTENANCE_FLAG}"
         ;;
     schedule:interrupt)
         exit "${P73_SCHEDULE_INTERRUPT_EXIT:-0}"
@@ -1614,6 +1620,7 @@ function p73RuntimeEnv(string $scratch): array
         'P73_RESTORE_TEST_LOG' => $scratch.'/restore-test.log',
         'P73_HEALTH_CHECK_LOG' => $scratch.'/health-check.log',
         'P73_PGREP_LOG' => $scratch.'/pgrep.log',
+        'RATEGURU_RESTORE_PGREP_BIN' => $scratch.'/bin/pgrep',
         'RATEGURU_RESTORE_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
         'RATEGURU_RESTORE_BACKUP_BIN' => $scratch.'/bin/backup-stub',
         'RATEGURU_RESTORE_RESTORE_TEST_BIN' => $scratch.'/bin/restore-test-stub',

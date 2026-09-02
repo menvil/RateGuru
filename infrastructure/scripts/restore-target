@@ -10,8 +10,17 @@
 # (a replacement VPS), and it is NOT the read-only restore-test (which
 # restores into a throwaway scratch database and always did).
 #
-# The whole shape of this operation is "do the heavy, fallible work while the
-# target is still serving traffic; take the downtime only for two renames":
+# The shape of this operation is "do every fallible thing that CAN be done
+# while the target is still serving traffic, before taking it down". What is
+# outside the downtime window: the download, the full backup verification, the
+# pg_restore into a temporary database, and the storage extraction — the four
+# things that scale with data size and are most likely to fail.
+#
+# What is INSIDE it: a full emergency backup of the current state and its
+# restore test. Those also scale with data size, so the downtime is minutes,
+# not seconds, on a target of any real size. That is the deliberate price of
+# an emergency backup that is consistent with the data being replaced — it has
+# to be taken after the writers stop, or it captures a moving target.
 #
 #   validate target
 #     -> stage the EXACT named backup (local disk or B2)
@@ -207,6 +216,7 @@ resolve_restore_target_subject() {
 
     CURRENT_LINK="${TARGET_ROOT}/current"
     PREVIOUS_LINK="${TARGET_ROOT}/previous"
+    RELEASES_ROOT="${TARGET_ROOT}/releases"
     SHARED_ENV="${TARGET_ROOT}/shared/.env"
     MAINTENANCE_FLAG="${TARGET_ROOT}/shared/storage/framework/down"
     SCHEDULER_FILE="${RESTORE_CRON_D_ROOT}/${SCHEDULER_NAME}"
@@ -363,6 +373,20 @@ artisan_as_runtime_user() {
 assert_deployed_target() {
     [[ -L "${CURRENT_LINK}" ]] \
         || fail "${TARGET_ID} has no current release symlink — a live data restore requires a deployed target (rebuilding one is Recover Host, not restore-target)"
+
+    # The same containment line deploy, rollback and cleanup hold: this
+    # target's releases root is a real directory it owns. A symlinked
+    # releases root plus a current pointing inside it resolves to a
+    # self-consistent pair, so the identity check alone would accept a
+    # release tree belonging to something else — and the whole code-alignment
+    # decision is made against that identity.
+    # restore_read_current_identity refuses it too; this is here so the
+    # operator gets the actual diagnosis rather than "carries no usable
+    # release/source_sha".
+    [[ ! -L "${RELEASES_ROOT}" ]] \
+        || fail "${TARGET_ID}'s releases root must be a real directory, not a symlink: ${RELEASES_ROOT}"
+    [[ -d "${RELEASES_ROOT}" ]] \
+        || fail "${TARGET_ID} has no releases directory: ${RELEASES_ROOT}"
 
     restore_read_current_identity "${TARGET_ROOT}"
 
@@ -537,25 +561,43 @@ quiesce_scheduler() {
 # without the command must not abort a restore) — the hard write barrier is
 # the database connection barrier at activation, not this.
 interrupt_running_schedule() {
+    # The connection barrier at activation is NOT a substitute for this. It
+    # stops the scheduler writing to PostgreSQL; it does nothing about
+    # storage/app, which the storage swap is about to replace underneath any
+    # process still writing there. So this must PROVE the scheduler stopped,
+    # and every outcome that is not proof is a failure.
+    if ! command -v "${RESTORE_PGREP_BIN}" >/dev/null 2>&1; then
+        fail "${RESTORE_PGREP_BIN} is unavailable — this restore cannot prove ${TARGET_ID}'s scheduler has stopped, and the connection barrier only covers PostgreSQL, not storage"
+    fi
+
     if artisan_as_runtime_user schedule:interrupt >/dev/null 2>&1; then
         log "schedule:interrupt issued to the running scheduler"
     else
-        log "schedule:interrupt is unavailable in the current release — relying on the connection barrier instead"
+        log "schedule:interrupt is unavailable in the current release — waiting for the running schedule:run to finish on its own"
     fi
 
-    if ! command -v pgrep >/dev/null 2>&1; then
-        log "pgrep is unavailable — cannot observe scheduler processes; relying on the connection barrier"
-
-        return 0
-    fi
-
-    local attempt
+    local attempt status
     for ((attempt = 1; attempt <= RESTORE_SCHEDULER_WAIT_ATTEMPTS; attempt++)); do
-        if ! pgrep -u "${RUNTIME_USER}" -f 'artisan schedule:run' >/dev/null 2>&1; then
-            log "no scheduler process remains for ${RUNTIME_USER}"
+        status=0
+        "${RESTORE_PGREP_BIN}" -u "${RUNTIME_USER}" -f 'artisan schedule:run' >/dev/null 2>&1 || status=$?
 
-            return 0
-        fi
+        case "${status}" in
+            0)
+                # At least one scheduler process is still running.
+                ;;
+            1)
+                # pgrep's "no process matched" — the only proof of absence.
+                log "no scheduler process remains for ${RUNTIME_USER}"
+
+                return 0
+                ;;
+            *)
+                # 2 is a usage/syntax error, 3 a fatal one. Either way the
+                # observation itself is broken, and an unobservable writer is
+                # never treated as an absent one.
+                fail "${RESTORE_PGREP_BIN} failed with exit ${status} — cannot observe ${TARGET_ID}'s scheduler processes, so a running writer cannot be ruled out"
+                ;;
+        esac
 
         sleep "${RESTORE_SCHEDULER_RETRY_DELAY}"
     done
@@ -576,109 +618,175 @@ interrupt_running_schedule() {
 # `fail` is an `exit`, which would terminate the whole script even from inside
 # an `if`, leaving nobody to decide between "recovered" and "held".
 resume_runtime() {
-    if [[ "${SCHEDULER_HELD_BY_RESTORE}" == true ]]; then
-        local hold_path owner mode
-        hold_path="$(restore_state_get "${STATE_FILE}" scheduler_hold_path)"
-        owner="$(restore_state_get "${STATE_FILE}" scheduler_owner)"
-        mode="$(restore_state_get "${STATE_FILE}" scheduler_mode)"
+    restore_scheduler_entry || return 1
+    resume_queue_program || return 1
+    leave_maintenance || return 1
 
-        if [[ ! -f "${hold_path}" ]]; then
-            log "ERROR: the held scheduler cron entry is missing: ${hold_path}"
+    RUNTIME_RESUMED="yes"
+}
 
-            return 1
-        fi
+# restore_scheduler_entry — put back exactly the cron entry this restore moved
+# aside, and nothing else.
+#
+# Driven by what is on disk, not by how far a previous attempt got: the move
+# and the ownership/mode restoration are separate operations, so a retry (or a
+# resume that failed between them) must be able to finish the half that is
+# missing rather than insist on redoing the half that already happened.
+restore_scheduler_entry() {
+    [[ "${SCHEDULER_HELD_BY_RESTORE}" == true ]] || return 0
 
+    local hold_path owner mode
+    hold_path="$(restore_state_get "${STATE_FILE}" scheduler_hold_path)"
+    owner="$(restore_state_get "${STATE_FILE}" scheduler_owner)"
+    mode="$(restore_state_get "${STATE_FILE}" scheduler_mode)"
+
+    if [[ -f "${hold_path}" ]]; then
         mv "${hold_path}" "${SCHEDULER_FILE}" || {
             log "ERROR: could not restore the target scheduler cron entry"
 
             return 1
         }
+    elif ! scheduler_file_present; then
+        log "ERROR: neither the held scheduler cron entry (${hold_path}) nor ${SCHEDULER_FILE} exists"
 
-        chown "${owner}" "${SCHEDULER_FILE}" || {
-            log "ERROR: could not restore the scheduler cron entry ownership"
-
-            return 1
-        }
-
-        chmod "${mode}" "${SCHEDULER_FILE}" || {
-            log "ERROR: could not restore the scheduler cron entry mode"
-
-            return 1
-        }
-
-        SCHEDULER_HELD_BY_RESTORE=false
-        ( restore_state_set "${STATE_FILE}" scheduler_held_by_restore false ) || true
-
-        log "scheduler cron entry restored"
+        return 1
     fi
 
-    if [[ "${QUEUE_STOPPED_BY_RESTORE}" == true ]]; then
-        # The group is started again only if it was FULLY RUNNING before. A
-        # group this restore had to stop because it was in a mixed or failed
-        # state is left stopped: starting it would be inventing a runtime
-        # state the target never had, and hiding the failure that produced
-        # it. QUEUE_STOPPED_BY_RESTORE deliberately stays true, so a later
-        # hold_runtime knows it is already stopped.
-        if [[ "${QUEUE_RUNNING_BEFORE}" != true ]]; then
+    chown "${owner}" "${SCHEDULER_FILE}" || {
+        log "ERROR: could not restore the scheduler cron entry ownership"
+
+        return 1
+    }
+
+    chmod "${mode}" "${SCHEDULER_FILE}" || {
+        log "ERROR: could not restore the scheduler cron entry mode"
+
+        return 1
+    }
+
+    SCHEDULER_HELD_BY_RESTORE=false
+    ( restore_state_set "${STATE_FILE}" scheduler_held_by_restore false ) || true
+
+    log "scheduler cron entry restored"
+}
+
+# resume_queue_program — start the group only if it was FULLY RUNNING before,
+# and only if it is not already running.
+#
+# The condition is the OBSERVED state, not QUEUE_STOPPED_BY_RESTORE: a quiesce
+# whose `supervisorctl stop` succeeded but whose STOPPED confirmation timed
+# out never set that flag, and a queue that was running before this restore
+# must still come back afterwards.
+resume_queue_program() {
+    if [[ "${QUEUE_RUNNING_BEFORE}" != true ]]; then
+        # Never fully RUNNING before, so never started here: starting it would
+        # invent a runtime state the target never had and hide the failure
+        # that produced the one it did.
+        if [[ "${QUEUE_STOPPED_BY_RESTORE}" == true ]]; then
             log "queue program ${SUPERVISOR_PROGRAM} was not fully RUNNING before this restore — leaving it stopped; start it by hand once the underlying problem is resolved"
-        else
-            "${RESTORE_SUPERVISORCTL_BIN}" start "${SUPERVISOR_PROGRAM}:*" >/dev/null || {
-                log "ERROR: could not start the target queue program ${SUPERVISOR_PROGRAM}"
-
-                return 1
-            }
-
-            wait_for_queue_state queue_program_running || {
-                log "ERROR: queue program ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget"
-
-                return 1
-            }
-
-            QUEUE_STOPPED_BY_RESTORE=false
-            ( restore_state_set "${STATE_FILE}" queue_stopped_by_restore false ) || true
-
-            log "queue program ${SUPERVISOR_PROGRAM} RUNNING"
         fi
+
+        return 0
     fi
 
-    if [[ "${MAINTENANCE_ENTERED_BY_RESTORE}" == true ]]; then
+    if queue_program_running; then
+        return 0
+    fi
+
+    "${RESTORE_SUPERVISORCTL_BIN}" start "${SUPERVISOR_PROGRAM}:*" >/dev/null || {
+        log "ERROR: could not start the target queue program ${SUPERVISOR_PROGRAM}"
+
+        return 1
+    }
+
+    wait_for_queue_state queue_program_running || {
+        log "ERROR: queue program ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget"
+
+        return 1
+    }
+
+    QUEUE_STOPPED_BY_RESTORE=false
+    ( restore_state_set "${STATE_FILE}" queue_stopped_by_restore false ) || true
+
+    log "queue program ${SUPERVISOR_PROGRAM} RUNNING"
+}
+
+# leave_maintenance — bring the target back up only if THIS restore put it
+# down, and confirm it actually came up. `artisan up` reporting success is not
+# the same as the target serving again.
+leave_maintenance() {
+    [[ "${MAINTENANCE_ENTERED_BY_RESTORE}" == true ]] || return 0
+
+    if maintenance_active; then
         artisan_as_runtime_user up || {
             log "ERROR: could not bring ${TARGET_ID} out of maintenance mode"
 
             return 1
         }
-
-        MAINTENANCE_ENTERED_BY_RESTORE=false
-        ( restore_state_set "${STATE_FILE}" maintenance_entered_by_restore false ) || true
-
-        log "maintenance mode disabled"
     fi
 
-    RUNTIME_RESUMED="yes"
+    if maintenance_active; then
+        log "ERROR: ${TARGET_ID} is still in maintenance after artisan up"
+
+        return 1
+    fi
+
+    MAINTENANCE_ENTERED_BY_RESTORE=false
+    ( restore_state_set "${STATE_FILE}" maintenance_entered_by_restore false ) || true
+
+    log "maintenance mode disabled"
 }
 
-# hold_runtime — best-effort re-quiesce after a resume that could not be
-# proven healthy. Every action is guarded and non-fatal: this runs when
-# something already went wrong, and its own failure must never replace the
-# original diagnosis.
+# hold_runtime — put the target into a state where nothing writes to it, from
+# whatever state it is ACTUALLY in.
+#
+# This is the same principle the database and storage compensation already
+# follow, and it is why none of the three steps below looks at
+# QUEUE_STOPPED_BY_RESTORE, SCHEDULER_HELD_BY_RESTORE or
+# MAINTENANCE_ENTERED_BY_RESTORE to decide. Those flags only flip once a whole
+# step completed, so every partial transition — a `supervisorctl start` that
+# took effect before its RUNNING confirmation timed out, a cron entry moved
+# back before its chown failed — leaves a flag claiming a writer is stopped
+# while the writer is running. `held` would then be a lie, which is exactly
+# the guarantee Phase 7.3 cannot afford to break.
+#
+# Every action is guarded and non-fatal: this runs when something has already
+# gone wrong, and its own failure must never replace the original diagnosis.
+# What it cannot achieve, it says out loud.
 hold_runtime() {
-    # A resume that got as far as restoring the cron entry and then failed
-    # would otherwise leave a scheduled database writer running against a
-    # target nobody has verified. Held means held: the scheduler goes back
-    # out of /etc/cron.d too.
-    if [[ "${SCHEDULER_HELD_BY_RESTORE}" != true ]] && scheduler_file_present; then
-        ( hold_scheduler_entry ) >/dev/null 2>&1 && SCHEDULER_HELD_BY_RESTORE=true || true
-    fi
-
-    if [[ "${QUEUE_STOPPED_BY_RESTORE}" == false ]] && [[ "${QUEUE_RUNNING_BEFORE}" == true ]]; then
-        if "${RESTORE_SUPERVISORCTL_BIN}" stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1; then
-            QUEUE_STOPPED_BY_RESTORE=true
+    # 1. Any cron entry present for this target is a scheduled writer,
+    #    whatever any flag says. Moved aside, never deleted, so a later resume
+    #    puts back exactly what was taken.
+    if scheduler_file_present; then
+        if ( hold_scheduler_entry ) >/dev/null 2>&1; then
+            SCHEDULER_HELD_BY_RESTORE=true
+            log "scheduler cron entry held out of ${RESTORE_CRON_D_ROOT}"
+        else
+            log "ERROR: could not hold ${SCHEDULER_FILE} — a scheduled writer may still be running against this target"
         fi
     fi
 
-    if [[ "${MAINTENANCE_ENTERED_BY_RESTORE}" == false ]] && [[ "${MAINTENANCE_BEFORE}" == false ]]; then
-        if artisan_as_runtime_user down >/dev/null 2>&1; then
+    # 2. Anything not PROVABLY fully stopped is a queue writer — including a
+    #    group whose state cannot be observed at all.
+    if ! queue_program_fully_stopped; then
+        if "${RESTORE_SUPERVISORCTL_BIN}" stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1 \
+            && wait_for_queue_state queue_program_fully_stopped
+        then
+            QUEUE_STOPPED_BY_RESTORE=true
+            log "queue program ${SUPERVISOR_PROGRAM} STOPPED"
+        else
+            log "ERROR: could not confirm ${SUPERVISOR_PROGRAM} is STOPPED — a queue worker may still be running against this target"
+        fi
+    fi
+
+    # 3. A held target must not be serving, whether or not this restore is the
+    #    thing that took it down.
+    if ! maintenance_active; then
+        if artisan_as_runtime_user down >/dev/null 2>&1 && maintenance_active; then
             MAINTENANCE_ENTERED_BY_RESTORE=true
+            log "maintenance mode enabled for the held target"
+        else
+            log "ERROR: could not put ${TARGET_ID} into maintenance mode — it may still be serving traffic"
         fi
     fi
 
@@ -1291,7 +1399,14 @@ decide_code_alignment() {
     printf '  queue:       HELD\n'
     printf '  scheduler:   HELD\n'
     printf '\n'
-    printf 'Deploy the backup source SHA (%s) with migrations disabled, then run:\n' "${BACKUP_SOURCE_SHA}"
+    printf 'Do NOT use the normal deployment path to resume this operation.\n'
+    printf 'A normal deploy is not restore-aware: it health-checks the target and\n'
+    printf 'transitions the queue, both of which fight the hold this operation is\n'
+    printf 'deliberately keeping. Controlled code alignment — deploying the required\n'
+    printf 'source SHA while PRESERVING the hold, then resuming — is Phase 7.4.\n'
+    printf '\n'
+    printf 'REQUIRED SOURCE SHA: %s\n' "${BACKUP_SOURCE_SHA}"
+    printf 'RESUME COMMAND (only once that SHA is what current serves):\n'
     printf '  restore-target --resume --target %s --operation %s\n' "${TARGET_ID}" "${OPERATION_ID}"
     printf '\n'
 }

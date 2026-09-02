@@ -605,6 +605,196 @@ it('refuses to swap data underneath a scheduler process that will not stop', fun
 });
 
 // =============================================================================
+// Partial runtime transitions: held must mean held, and resumed must mean
+// resumed, decided from what is ACTUALLY running
+// =============================================================================
+
+it('holds a queue whose start took effect but never reached RUNNING', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch, [
+            'current_release' => P73_OTHER_RELEASE,
+            'current_source_sha' => P73_OTHER_SOURCE_SHA,
+        ]);
+
+        $operation = restoreTargetHeldOperation($scratch);
+        restoreTargetAlignCode($scratch);
+
+        // The resume's `supervisorctl start` takes effect — the worker is
+        // BACKOFF, not STOPPED — but never reaches RUNNING, so the wait
+        // fails AFTER the group has come back to life. The flag that says
+        // "this restore stopped it" is still true at that moment, and a hold
+        // that trusted the flag would leave a live worker writing to a target
+        // it reports as held.
+        $result = restoreTargetRun(
+            $scratch,
+            ['--resume', '--target', 'parity-target', '--operation', $operation],
+            ['P73_SUPERVISOR_START_STATE' => 'BACKOFF'],
+        );
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('did not reach RUNNING within the wait budget');
+        expect($result['output'])->toContain('MANUAL RECOVERY REQUIRED');
+
+        // Held means held: the group was stopped again from its observed
+        // state, not skipped because a flag claimed it was already stopped.
+        expect(restoreTargetQueueState($scratch))->toBe('STOPPED');
+        expect(restoreTargetMaintenanceActive($scratch))->toBeTrue();
+        expect(restoreTargetSchedulerPresent($scratch))->toBeFalse();
+
+        expect(restoreTargetHistory($scratch)[1])->toMatchArray(['status' => 'failed-held']);
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('restores a queue whose stop took effect but never confirmed STOPPED', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        // The quiesce's `supervisorctl stop` takes effect but the group lands
+        // in FATAL rather than STOPPED, so the confirmation times out and the
+        // "this restore stopped it" flag is never set. The queue was RUNNING
+        // before, so the failure path must still bring it back.
+        $result = restoreTargetApply($scratch, ['P73_SUPERVISOR_STOP_STATE' => 'FATAL']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('did not reach STOPPED within the wait budget');
+
+        // No live mutation, and the queue that was running before is running
+        // again — decided from observed state, not from the unset flag.
+        expect(p73Databases($scratch))->toBe(['parity_db']);
+        expect(is_file(restoreTargetStorage($scratch).'/app/live-marker.txt'))->toBeTrue();
+        expect(restoreTargetQueueState($scratch))->toBe('RUNNING');
+        expect(restoreTargetMaintenanceActive($scratch))->toBeFalse();
+        expect(restoreTargetSchedulerPresent($scratch))->toBeTrue();
+
+        expect(restoreTargetHistory($scratch)[0])->toMatchArray(['status' => 'failed']);
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('re-holds a cron entry that was moved back before its metadata could be restored', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch, [
+            'current_release' => P73_OTHER_RELEASE,
+            'current_source_sha' => P73_OTHER_SOURCE_SHA,
+        ]);
+
+        $operation = restoreTargetHeldOperation($scratch);
+        restoreTargetAlignCode($scratch);
+
+        // The resume moves the cron entry back into /etc/cron.d and then
+        // fails on the ownership step. The entry is live again at that
+        // moment while the "still held" flag is untouched — the exact shape
+        // that used to leave a scheduled writer running against a target
+        // reported as held.
+        $sabotaged = $scratch.'/sabotaged-restore-target';
+        file_put_contents($sabotaged, str_replace(
+            '    chown "${owner}" "${SCHEDULER_FILE}" || {',
+            '    false || {',
+            File::get(p73PatchedScript($scratch, 'restore-target')),
+        ));
+        chmod($sabotaged, 0o755);
+
+        [$registryPath, $targetsPath] = p73Registry($scratch);
+
+        $env = p73BaseEnv($scratch, $registryPath, $targetsPath, array_merge(
+            p73PostgresEnv($scratch),
+            p73RuntimeEnv($scratch),
+            [
+                'RATEGURU_RESTORE_FETCH_BACKUP_BIN' => p73PatchedScript($scratch, 'fetch-backup'),
+                'RATEGURU_RESTORE_VERIFY_BACKUP_BIN' => p73PatchedScript($scratch, 'verify-backup'),
+                'RATEGURU_RESTORE_DATABASE_BIN' => p73PatchedScript($scratch, 'restore-database'),
+                'RATEGURU_RESTORE_STORAGE_BIN' => p73PatchedScript($scratch, 'restore-storage'),
+            ],
+        ));
+
+        [$exit, $output] = p73Run($sabotaged, ['--resume', '--target', 'parity-target', '--operation', $operation], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('could not restore the scheduler cron entry ownership');
+        expect($output)->toContain('MANUAL RECOVERY REQUIRED');
+
+        // The entry that had already gone back is taken out again.
+        expect(restoreTargetSchedulerPresent($scratch))->toBeFalse();
+        expect(restoreTargetQueueState($scratch))->toBe('STOPPED');
+        expect(restoreTargetMaintenanceActive($scratch))->toBeTrue();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('does not call a resume successful when the target stays down despite artisan up', function () {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch, [
+            'current_release' => P73_OTHER_RELEASE,
+            'current_source_sha' => P73_OTHER_SOURCE_SHA,
+        ]);
+
+        $operation = restoreTargetHeldOperation($scratch);
+        restoreTargetAlignCode($scratch);
+
+        // `artisan up` exits 0 and the target is still down: reporting the
+        // command's exit status as the outcome would call this a resume.
+        $result = restoreTargetRun(
+            $scratch,
+            ['--resume', '--target', 'parity-target', '--operation', $operation],
+            ['P73_ARTISAN_UP_INEFFECTIVE' => '1'],
+        );
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('still in maintenance after artisan up');
+        expect(restoreTargetMaintenanceActive($scratch))->toBeTrue();
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The scheduler barrier is fail-closed
+// =============================================================================
+
+it('refuses to restore when the scheduler cannot be observed', function (array $env, string $expected) {
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        $result = restoreTargetApply($scratch, $env);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+
+        // The connection barrier only covers PostgreSQL; the storage swap has
+        // no equivalent, so an unprovable scheduler stops the restore before
+        // anything live is touched.
+        expect(p73Databases($scratch))->toBe(['parity_db']);
+        expect(is_file(restoreTargetStorage($scratch).'/app/live-marker.txt'))->toBeTrue();
+
+        // And the runtime is put back.
+        expect(restoreTargetMaintenanceActive($scratch))->toBeFalse();
+        expect(restoreTargetQueueState($scratch))->toBe('RUNNING');
+        expect(restoreTargetSchedulerPresent($scratch))->toBeTrue();
+    } finally {
+        p73Cleanup($scratch);
+    }
+})->with([
+    // pgrep exit 2 is a usage error, 3 a fatal one: the observation is broken,
+    // which is never the same as "no process matched".
+    'a broken pgrep' => [['P73_PGREP_EXIT' => '2'], 'cannot observe'],
+    'no pgrep at all' => [['RATEGURU_RESTORE_PGREP_BIN' => '/definitely/not/pgrep'], 'is unavailable'],
+]);
+
+// =============================================================================
 // Compensation
 // =============================================================================
 
@@ -935,6 +1125,62 @@ it('refuses to resume an unknown operation, another target operation, or one tha
         $notHeld = restoreTargetRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
         expect($notHeld['exit'])->not->toBe(0);
         expect($notHeld['output'])->toContain('--resume only applies to an operation whose data restore completed');
+    } finally {
+        p73Cleanup($scratch);
+    }
+});
+
+it('refuses a target whose releases root is a symlink, on both apply and resume', function () {
+    // A symlinked releases root plus a current pointing inside it resolves to
+    // a self-consistent pair — both readlink -f to the same foreign parent —
+    // so the containment check alone would accept a release tree this target
+    // does not own, and the whole code-alignment decision is made against
+    // that identity. deploy, rollback and cleanup all hold the same line.
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch);
+
+        exec('mv '.escapeshellarg($scratch.'/target/releases').' '.escapeshellarg($scratch.'/foreign-releases'));
+        symlink($scratch.'/foreign-releases', $scratch.'/target/releases');
+
+        $result = restoreTargetApply($scratch);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('releases root must be a real directory, not a symlink');
+
+        expect(is_dir($scratch.'/run/restores'))->toBeFalse('nothing may be staged for an uncontained target');
+        expect(p73Databases($scratch))->toBe(['parity_db']);
+        expect(restoreTargetMaintenanceActive($scratch))->toBeFalse();
+    } finally {
+        p73Cleanup($scratch);
+    }
+
+    $scratch = p73Scratch();
+
+    try {
+        restoreTargetFixture($scratch, [
+            'current_release' => P73_OTHER_RELEASE,
+            'current_source_sha' => P73_OTHER_SOURCE_SHA,
+        ]);
+
+        $operation = restoreTargetHeldOperation($scratch);
+        restoreTargetAlignCode($scratch);
+
+        // The aligning deploy is genuine, but the releases root has been
+        // replaced with a link to a foreign tree: resume must refuse it too,
+        // and the target must stay held.
+        exec('mv '.escapeshellarg($scratch.'/target/releases').' '.escapeshellarg($scratch.'/foreign-releases'));
+        symlink($scratch.'/foreign-releases', $scratch.'/target/releases');
+
+        $result = restoreTargetRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('releases root must be a real directory, not a symlink');
+
+        expect(restoreTargetMaintenanceActive($scratch))->toBeTrue();
+        expect(restoreTargetQueueState($scratch))->toBe('STOPPED');
+        expect(restoreTargetSchedulerPresent($scratch))->toBeFalse();
     } finally {
         p73Cleanup($scratch);
     }

@@ -83,9 +83,18 @@ timestamp is refused before any workspace is created.
 
 ## The operation, step by step
 
-Everything expensive and fallible happens **while the target is still serving
-traffic**. Downtime covers two renames and a verification, not a download and
-a `pg_restore`.
+Every fallible thing that *can* be done while the target is still serving
+traffic is done then: the download, the full backup verification, the
+`pg_restore` into a temporary database, and the storage extraction — the four
+steps that scale with data size and are most likely to fail.
+
+The downtime window is steps 7 to 13. It contains a full emergency backup of
+the current state **and its restore test**, which also scale with data size:
+on a target of any real size this is **minutes, not seconds**. That is the
+deliberate price of an emergency backup consistent with the data being
+replaced — it has to be taken after the writers stop, or it captures a moving
+target. Plan the maintenance window around the size of the database and the
+storage tree, not around the four renames.
 
 ```text
  1  validate target            lifecycle=active, deployed, canonical current release
@@ -182,11 +191,18 @@ Ownership is assigned from the target registry, preserving the exact
 establish:
 
 ```text
-app          <runtime user>:www-data  2710   Nginx traverses, never lists
-app/public   <runtime user>:www-data  2750   Nginx lists and reads media
-other dirs   <runtime user>:www-data  2750   setgid, so new files inherit the group
-files        <runtime user>:www-data  0640   owner writes, Nginx reads by group
+app             <runtime user>:www-data       2710  Nginx traverses, never lists
+app/public/**   <runtime user>:www-data       2750 dirs / 0640 files
+everything else <runtime user>:<runtime grp>  2750 dirs / 0640 files
 ```
+
+The split is deliberate. `app` keeps setgid with the web group exactly as
+`deploy` creates it, so a `public` directory Laravel recreates later still
+lands in that group. But private application storage goes back into the
+target's **own runtime group**: www-data can traverse `app`, so leaving
+private content group-`www-data` would hand it to Nginx. Nothing here is ever
+wider than what is on disk today — Laravel's own runtime `mkdir` leaves 2755
+world-readable directories under `app`.
 
 ### Database: a staged swap, never a drop-and-restore
 
@@ -381,7 +397,15 @@ the operation state are what say the runtime is intentionally held.
 
 ## Resuming a held target
 
-Deploy the backup's own `source_sha` with migrations disabled, then:
+**Do not use the normal deployment path.** A normal deploy is not
+restore-aware: it health-checks the target and transitions the queue, both of
+which fight the hold this operation is deliberately keeping. Controlled code
+alignment — deploying the required `source_sha` while PRESERVING the hold, and
+then resuming — is Phase 7.4, and does not exist yet. Until it does, a held
+operation is finished by hand, by an operator who understands that the target
+must stay in maintenance with its queue and scheduler held throughout.
+
+Once `current` genuinely serves the required `source_sha`:
 
 ```bash
 sudo /home/www/rateguru/bin/restore-target \
@@ -407,8 +431,10 @@ the restored data, records the outcome, and removes the operation workspace.
 A failing health check does not count as a successful resume: the target is
 put back into as held a state as possible and the command exits non-zero.
 
-Turning this into a GitHub workflow — build the backup's `source_sha`, deploy
-it with migrations off, then resume — is Phase 7.4.
+Turning this into a safe operator workflow — build the backup's `source_sha`,
+deploy it with migrations off and the restore hold preserved, then resume — is
+Phase 7.4. Phase 7.3 deliberately stops at leaving a state and a journal
+precise enough for that to be built correctly.
 
 ## Journal and history
 

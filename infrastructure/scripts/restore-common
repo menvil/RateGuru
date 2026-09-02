@@ -67,6 +67,7 @@ POSTGRES_SUPERUSER="$(restore_gated_default RATEGURU_RESTORE_SUPERUSER postgres)
 RESTORE_HISTORY_ROOT="$(restore_gated_default RATEGURU_RESTORE_HISTORY_ROOT /home/www/rateguru/restores)"
 RESTORE_CRON_D_ROOT="$(restore_gated_default RATEGURU_RESTORE_CRON_D_ROOT /etc/cron.d)"
 RESTORE_SUPERVISORCTL_BIN="$(restore_gated_default RATEGURU_RESTORE_SUPERVISORCTL_BIN supervisorctl)"
+RESTORE_PGREP_BIN="$(restore_gated_default RATEGURU_RESTORE_PGREP_BIN pgrep)"
 RESTORE_HEALTH_CHECK_BIN="$(restore_gated_default RATEGURU_RESTORE_HEALTH_CHECK_BIN /home/www/rateguru/bin/health-check)"
 RESTORE_BACKUP_BIN="$(restore_gated_default RATEGURU_RESTORE_BACKUP_BIN /home/www/rateguru/bin/backup)"
 RESTORE_RESTORE_TEST_BIN="$(restore_gated_default RATEGURU_RESTORE_RESTORE_TEST_BIN /home/www/rateguru/bin/restore-test)"
@@ -1053,6 +1054,17 @@ restore_read_current_identity() {
     RESTORE_CURRENT_SOURCE_SHA=""
 
     [[ -L "${current}" ]] || return 0
+
+    # The releases root must be a REAL directory of this target's own, never a
+    # symlink. Without this, `releases -> /somewhere/foreign/releases` plus a
+    # `current` pointing inside it resolves to a pair that looks internally
+    # consistent — both readlink -f to the same foreign parent — and the
+    # containment check below passes while the release identity a destructive
+    # restore aligns against comes from a tree this target does not own.
+    # deploy, rollback and the Nightwatch agent already treat the releases
+    # root as a real directory; restore holds the same line.
+    [[ ! -L "${releases}" ]] || return 0
+    [[ -d "${releases}" ]] || return 0
 
     local resolved resolved_releases
     resolved="$(readlink -f "${current}" 2>/dev/null || true)"

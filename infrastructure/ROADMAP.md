@@ -1017,10 +1017,12 @@ Slices, in order:
      SQL identifier can be supplied on a command line, and the operation
      workspace lives under a fixed root keyed by a server-generated
      operation ID.
-   - **Everything heavy happens before downtime.** Fetch, full verification,
-     the temporary database and the sibling storage tree are all staged and
-     verified while the target is still serving traffic. Downtime covers two
-     catalog renames, two directory renames and a verification.
+   - **Everything that can happen before downtime does.** Fetch, full
+     verification, the temporary database and the sibling storage tree are
+     all staged and verified while the target is still serving traffic. The
+     downtime window itself contains the emergency backup and its restore
+     test — which scale with data size, so it is minutes rather than
+     seconds — plus the four renames and the final verification.
    - **Re-verified from scratch, every time.** Checksums, a closed
      `SHA256SUMS` entry list checked before `sha256sum --check` follows a
      single path, the existing schema 1 / schema 2 manifest contract, and a
@@ -1057,8 +1059,12 @@ Slices, in order:
      backup's, the target resumes and is health-checked; otherwise the DATA
      restore is complete and successful (exit 0) and the target stays held
      with maintenance on, queue and scheduler held, and the exact required
-     `source_sha` printed. `restore-target --resume` finishes the operation
-     once the matching code is deployed.
+     `source_sha` printed. The output says explicitly that the normal
+     deployment path must NOT be used to resume — a normal deploy
+     health-checks the target and transitions the queue, both of which fight
+     the hold — and that controlled alignment belongs to 7.4.
+     `restore-target --resume` finishes the operation once `current`
+     genuinely serves that SHA.
    - **A machine-readable journal.** `/home/www/rateguru/restores/restore-history.jsonl`
      (root:root 0600) records one compact object per terminal operation, with
      no secret and no content hash in it.
