@@ -1273,7 +1273,8 @@ report_filesystem() {
     report_path backups /home/www/rateguru/backups directory root root 700 "local backup base (contents never scanned)"
     report_path run /home/www/rateguru/run directory root root 700 "operational lock directory"
 
-    # The sixteen files install-target-operations manages.
+    # The seventeen files install-target-operations manages that a host must
+    # carry to be operable.
     report_path runtime-registry "${RUNTIME_REGISTRY_DEFAULT}" "regular file" root root nw "runtime target registry"
     report_path deployment-conf "${RUNTIME_DEPLOYMENT_CONF_DEFAULT}" "regular file" root root nw "host-global deployment.conf"
 
@@ -1283,9 +1284,22 @@ report_filesystem() {
     # switching current, so a host missing it cannot perform its first
     # deployment. Omitting it is what let a clean host report READY and then
     # fail the Phase 5.6 acceptance deploy.
+    #
+    # restore-target belongs here for exactly that reason too, and was added
+    # alongside the /usr/local/sbin/rateguru-restore wrapper reported below:
+    # that wrapper does nothing but exec into this binary, so a host carrying
+    # the wrapper without it would report READY with an operator-facing restore
+    # perimeter that fails on its first real use.
+    #
+    # The four primitives restore-target itself drives (fetch-backup,
+    # verify-backup, restore-database, restore-storage) are deliberately NOT
+    # here: they are internal to it, they are installed by the same installer in
+    # the same transaction, and nothing outside restore-target invokes them —
+    # so the wrapper's contract is satisfied by naming the one binary it
+    # actually reaches.
     for cli in targets health-check status cleanup deploy rollback backup \
         restore-test offsite-backup offsite-retention offsite-restore-test backup-cycle \
-        verify-required-clis
+        verify-required-clis restore-target
     do
         report_path "bin-${cli}" "${RUNTIME_BIN_ROOT}/${cli}" "regular file" root root 755 "installed operational CLI"
     done

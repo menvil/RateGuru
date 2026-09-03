@@ -198,6 +198,10 @@ function bootstrapPreflightCompliantStatTable(): array
         'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback',
         'backup', 'restore-test', 'offsite-backup', 'offsite-retention',
         'offsite-restore-test', 'backup-cycle', 'verify-required-clis',
+        // The binary /usr/local/sbin/rateguru-restore execs into. A compliant
+        // host carries both, so the "MISSING: 0" case below keeps proving what
+        // it claims rather than passing on a shorter list.
+        'restore-target',
     ] as $cli) {
         $rows[] = "/home/www/rateguru/bin/{$cli}|regular file|root|root|755";
     }

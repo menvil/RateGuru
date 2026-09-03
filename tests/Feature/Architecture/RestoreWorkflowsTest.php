@@ -136,12 +136,28 @@ it('enforces the two mode contracts before any environment or secret is reached'
         ->toContain('^[0-9]{8}-[0-9]{6}$')
         ->toContain('^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$');
 
-    // Every job that touches the target depends on that validation.
+    // Every job that touches the target depends on that validation — not just
+    // the first one. `restore` needing it would already make the others wait
+    // transitively, but only while today's chain happens to be linear: a job
+    // later rewired to start earlier would silently stop being gated. Each one
+    // names it directly, and this asserts that rather than the chain's shape.
+    //
+    // `observability` is deliberately absent: it is not in this list because
+    // it mutates nothing on the target and runs only after `resume` has
+    // already succeeded.
     foreach (['restore', 'build', 'align', 'resume'] as $job) {
         expect(data_get($workflow, "jobs.{$job}"))->not->toBeNull("{$file} must define the {$job} job");
-    }
 
-    expect(data_get($workflow, 'jobs.restore.needs'))->toBe('validate');
+        // A single dependency is a string, several are a list; both mean the
+        // same thing here.
+        //
+        // in_array + toBeTrue rather than toContain: toContain is variadic in
+        // Pest, so a second "message" argument becomes another needle and the
+        // assertion starts demanding the diagnostic itself be one of the job's
+        // dependencies. toBeTrue takes a real message.
+        expect(in_array('validate', (array) data_get($workflow, "jobs.{$job}.needs"), true))
+            ->toBeTrue("{$file}:{$job} must not start before the request is validated");
+    }
 })->with('restore workflows');
 
 it('holds one concurrency group for the entire restore chain', function (
