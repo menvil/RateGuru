@@ -825,9 +825,20 @@ RESTORE_ALIGNMENT_REQUIRED_SHA=""
 RESTORE_ALIGNMENT_BACKUP=""
 RESTORE_ALIGNMENT_BACKUP_RELEASE=""
 
-# restore_alignment_read_json FILE FILTER LABEL — one guarded read, so a
-# missing, symlinked, non-object or unreadable document is a refusal with a
-# name on it rather than an empty string that silently compares unequal.
+# restore_alignment_read_json FILE FILTER — read ONE field out of a document
+# that has already been proven readable.
+#
+# Deliberately not a guarded read, and the guarding is not missing: every
+# caller below establishes that the document exists, is a regular file, is not
+# a symlink and parses as a JSON object BEFORE its first call here. By the time
+# this runs, the only thing that can be absent is a FIELD.
+#
+# An absent field yields the empty string, and that is safe because nothing
+# acts on the value — every one of them is compared against a required target,
+# operation, status or commit, and empty matches none of those. The refusal
+# comes from that comparison, with the field's own diagnostic, rather than from
+# here. Widening this into a second layer of file checks would duplicate the
+# caller's and give two places to keep in agreement.
 restore_alignment_read_json() {
     local path="$1" filter="$2"
 

@@ -398,9 +398,12 @@ it('never migrates, health-checks or resumes a target during a controlled alignm
         ->toBeLessThan(mb_strpos($deploy, "\nperform_deploy() {"));
 
     // finalize_restore_alignment does none of the resuming actions.
-    $start = mb_strpos($deploy, "\nfinalize_restore_alignment() {");
-    $end = mb_strpos($deploy, "\n# --- deployment recovery", $start);
-    $section = mb_substr($deploy, $start, $end - $start);
+    //
+    // Through p74FunctionBody, which asserts both markers were actually found.
+    // Raw mb_strpos here would turn a renamed function into `false`, which
+    // mb_substr reads as offset 0 — and the scan below would then "pass" while
+    // describing the whole file instead of that one function.
+    $section = p74FunctionBody($deploy, 'finalize_restore_alignment');
 
     foreach ([
         'HEALTH_CHECK_BIN',

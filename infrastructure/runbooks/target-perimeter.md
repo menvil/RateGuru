@@ -128,10 +128,11 @@ it never reaches the underlying operation.
 
 Gated behind `RATEGURU_ALLOW_TEST_OVERRIDES=true`, exactly like every other
 operational script: `RATEGURU_COMMON_FILE` (which `common` to source) and
-`RATEGURU_DEPLOY_BIN`/`RATEGURU_ROLLBACK_BIN`/`RATEGURU_CLEANUP_BIN` (which
-binary to exec into). Without the allow flag, every override is ignored and
-the wrapper falls back to its real, hardcoded production paths — even if a
-`RATEGURU_*` variable happens to be present in the calling environment.
+`RATEGURU_DEPLOY_BIN`/`RATEGURU_ROLLBACK_BIN`/`RATEGURU_CLEANUP_BIN`/
+`RATEGURU_RESTORE_TARGET_BIN` (which binary to exec into). Without the allow
+flag, every override is ignored and the wrapper falls back to its real,
+hardcoded production paths — even if a `RATEGURU_*` variable happens to be
+present in the calling environment.
 
 ## Sudoers
 
@@ -233,7 +234,7 @@ already installed a fully current seventeen-file bundle — the registry,
 `deployment.conf`, and `targets`/`common`/`health-check`/`status`/`cleanup`/
 `deploy`/`rollback`/`backup`/`restore-test`/`offsite-backup`/
 `offsite-retention`/`offsite-restore-test`/`backup-cycle`/
-`verify-required-clis` — at
+`verify-required-clis`/`restore-target` — at
 `/home/www/rateguru`. This installer never installs, modifies, or takes
 ownership of any of those seventeen files; it only ever verifies them, for
 `--check`, `--apply`'s own preflight, and `--verify` alike, before a staging
@@ -274,7 +275,7 @@ operational scripts — this guard is what prevents that.
    below), `visudo -cf` on the staged sudoers file, and the cron format
    check on the staged cron file.
 4. A timestamped backup directory is created, and each destination is
-   installed in order — the three wrappers, then the sudoers file (only
+   installed in order — the four wrappers, then the sudoers file (only
    after its own fresh `visudo -cf` pass, immediately before install), then
    cron — via stage-in-place-then-atomic-rename, never a direct overwrite.
    An existing destination that is not absent and not a plain regular file
@@ -316,7 +317,7 @@ paths still exists.
 
 ### Wrapper static contract (shared by source, staged, and installed)
 
-Every one of the three wrappers is checked, by one shared function
+Every one of the four wrappers is checked, by one shared function
 (`verify_wrapper_static_contract`), for: a reference to its generic
 installed operation path; the complete absence of any mention of the
 retired per-environment flag anywhere in the wrapper's source — there is no
