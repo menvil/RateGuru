@@ -1,0 +1,29 @@
+tests/Feature/Architecture/RestoreRateGuruActionTest.php
+  s_015e6e963c56c6::t_ab0fcdfc3c433a 138-147,149
+tests/Feature/Architecture/RestoreTargetTest.php
+  s_015e6e963c56c6::t_f0f23bc72151a0 2166,2177,2221,2420,2485
+tests/Feature/Architecture/Phase74ScopeTest.php
+  s_015e6e963c56c6::t_609ea08dac65a5 401-406
+infrastructure/scripts/common
+  s_015e6e963c56c6::t_be14571eb455a0 828-841
+infrastructure/runbooks/target-perimeter.md
+  s_015e6e963c56c6::t_2ef77cf5ff824a 132
+  s_015e6e963c56c6::t_b1b2f6b401c978 133-135
+  s_015e6e963c56c6::t_a496867e7fa74a 131,237,278,320
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5d0d4771dfc10a83ca443bf2da95e1f780a7a345",
+  "prompts": {},
+  "sessions": {
+    "s_015e6e963c56c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d7f5ab7-8830-4ed4-b056-647d1bdeaf21",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
