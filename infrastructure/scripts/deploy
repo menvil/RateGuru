@@ -37,6 +37,27 @@ VERIFY_REQUIRED_CLIS_BIN_DEFAULT="/home/www/rateguru/bin/verify-required-clis"
 HEALTH_CHECK_BIN="${HEALTH_CHECK_BIN_DEFAULT}"
 VERIFY_REQUIRED_CLIS_BIN="${VERIFY_REQUIRED_CLIS_BIN_DEFAULT}"
 
+# Phase 7.4: the two values the controlled restore alignment path needs, and
+# nothing a normal deployment ever reads.
+#
+# RUN_ROOT is where the restore guard and every restore operation's own state
+# document live — the same root backup, backup-cycle and the restore
+# primitives already resolve, named here so `deploy` can consult them without
+# sourcing the restore library.
+#
+# RESTORE_TARGET_BIN is the restore orchestrator itself. A controlled
+# alignment must prove the target is genuinely still held — nothing serving,
+# no queue worker, no scheduler entry — and reading Supervisor correctly is
+# subtle enough that a second implementation of that proof would eventually
+# disagree with the first. So deploy does not re-derive it: it runs
+# `restore-target --inspect`, which is read-only and is the one place that
+# proof exists. See assert_restore_alignment_authorized.
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+RESTORE_TARGET_BIN_DEFAULT="/home/www/rateguru/bin/restore-target"
+
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+RESTORE_TARGET_BIN="${RESTORE_TARGET_BIN_DEFAULT}"
+
 # Phase 5 slice 5.5: how long the first-deploy Supervisor activation waits
 # for the target queue program to reach RUNNING. supervisorctl itself is
 # resolved through PATH — the same way this script already resolves
@@ -62,6 +83,14 @@ if rateguru_test_overrides_allowed; then
     if [[ -n "${RATEGURU_DEPLOY_QUEUE_RETRY_DELAY:-}" ]]; then
         QUEUE_RETRY_DELAY_SECONDS="${RATEGURU_DEPLOY_QUEUE_RETRY_DELAY}"
     fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_RESTORE_TARGET_BIN:-}" ]]; then
+        RESTORE_TARGET_BIN="${RATEGURU_RESTORE_TARGET_BIN}"
+    fi
 fi
 
 usage() {
@@ -74,6 +103,21 @@ Usage:
     --artifact /path/to/release.tar.gz \
     [--checksum /path/to/release.tar.gz.sha256] \
     [--migrate]
+
+  deploy \
+    --target TARGET_ID \
+    --release v1.4.0-20260717-151500-a81d7f2 \
+    --artifact /path/to/release.tar.gz \
+    --checksum /path/to/release.tar.gz.sha256 \
+    --restore-operation OPERATION_ID
+
+  --restore-operation  Controlled code alignment for a target held by that
+                       restore operation: the SAME deployment mechanics, with
+                       a different runtime policy. The target stays in
+                       maintenance, its queue stays stopped, its scheduler
+                       stays held and its restore guard stays in place;
+                       `restore-target --resume` is the only thing that ends
+                       the hold. Migrations are refused in this mode.
 USAGE
 }
 
@@ -127,6 +171,8 @@ parse_deploy_args() {
     ARTIFACT=""
     CHECKSUM_FILE=""
     RUN_MIGRATIONS=false
+    RESTORE_OPERATION_ID=""
+    RESTORE_OPERATION_SEEN=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -156,6 +202,13 @@ parse_deploy_args() {
                 RUN_MIGRATIONS=true
                 shift
                 ;;
+            --restore-operation)
+                [[ "${RESTORE_OPERATION_SEEN}" != true ]] || fail "--restore-operation given more than once"
+                require_flag_value "--restore-operation" "$#" "${2-}"
+                RESTORE_OPERATION_ID="$2"
+                RESTORE_OPERATION_SEEN=true
+                shift 2
+                ;;
             --help|-h)
                 usage
                 exit 0
@@ -173,6 +226,18 @@ parse_deploy_args() {
 
     [[ -n "${ARTIFACT}" ]] \
         || fail "--artifact is required"
+
+    if [[ "${RESTORE_OPERATION_SEEN}" == true ]]; then
+        # Rejected here, in parsing, so it can never depend on anything the
+        # rest of the pipeline observed: an alignment installs the exact code
+        # a backup's data was taken under, and a migration is by definition a
+        # change to that data's shape. The two requests contradict each other,
+        # and the safe reading of a contradiction is neither of them.
+        [[ "${RUN_MIGRATIONS}" != true ]] \
+            || fail "--migrate and --restore-operation are mutually exclusive: a controlled code alignment installs the exact commit the restored data belongs to and never migrates it"
+
+        validate_operation_id "${RESTORE_OPERATION_ID}"
+    fi
 }
 
 # --- target resolution (mirrors health-check/status/cleanup) -----------------
@@ -468,6 +533,207 @@ perform_nightwatch_transition() {
 }
 # --- nightwatch agent transition (end) ---
 
+# --- controlled restore alignment (Phase 7.4) --------------------------------
+#
+# A target whose data was restored from a backup taken under a DIFFERENT commit
+# than `current` serves is left deliberately held by restore-target: in
+# maintenance, queue stopped, scheduler entry moved aside, and a root-only
+# restore guard on disk saying so. Exactly one operation may end that hold — a
+# deployment of the exact commit the data belongs to, followed by
+# `restore-target --resume`.
+#
+# That deployment is THIS script. There is no restore-deploy, no
+# historical-deploy and no recovery-deploy: duplicating the deployment
+# algorithm is how the copy quietly stops matching the original. What changes
+# under --restore-operation is not the mechanics — artifact verification, path
+# safety, extraction, permissions, shared links, the CLI mode check, Laravel
+# cache preparation, the immutable release, the atomic current switch and the
+# PHP-FPM reload are all the same code — but the RUNTIME POLICY afterwards:
+#
+#   normal      switch -> HTTP health check -> queue transition -> serving
+#   alignment   switch -> nothing that resumes the target
+#
+# No `artisan up`, no queue start or restart, no scheduler restoration, no
+# health check treated as a success contract, and above all no removal of the
+# restore guard. The target must still be held when this script exits, because
+# the data is only proven to match the code once `restore-target --resume` has
+# said so.
+#
+# And the caller never says which commit is required. GitHub hands the server
+# an operation ID; the commit is read from the server's own restore documents
+# by common's assert_restore_alignment_operation, and the artifact is checked
+# against THAT.
+
+# Set by assert_restore_alignment_authorized. Empty in every normal deployment.
+RESTORE_OPERATION_ID=""
+DEPLOY_HISTORY_START_EVENT="deployment-started"
+DEPLOY_HISTORY_FINISH_EVENT="deployment-finished"
+
+restore_alignment_mode() {
+    [[ -n "${RESTORE_OPERATION_ID}" ]]
+}
+
+# assert_restore_alignment_authorized — everything that must be true before a
+# single byte moves, in two halves that are deliberately independent.
+#
+# The first half is read directly from the two persisted restore documents
+# (the guard and the operation's state.json) by the shared helper in common,
+# which is also what yields the required commit. The second half is the proof
+# that the target is STILL held right now — nothing serving, no queue worker,
+# no scheduler entry — and that is not re-derived here: `restore-target
+# --inspect` is read-only and is the single implementation of it. Its
+# machine-readable result is then required to name the same operation, the
+# same target and the same commit the documents did, so the two halves have to
+# agree before this deployment may behave differently from a normal one.
+assert_restore_alignment_authorized() {
+    log "controlled restore alignment requested for operation ${RESTORE_OPERATION_ID}"
+
+    assert_restore_alignment_operation "${TARGET_ID}" "${RUN_ROOT}" "${RESTORE_OPERATION_ID}"
+
+    # A controlled alignment is a code/data reconciliation, never a release
+    # promotion, and it therefore CLEARS `previous` rather than pointing it at
+    # the release being replaced (see finalize_restore_alignment). Refusing a
+    # non-symlink `previous` here — before anything is touched — is what keeps
+    # that removal a safe unlink later, on a path where failing would already
+    # have switched current.
+    if [[ -e "${PREVIOUS_LINK}" ]] && [[ ! -L "${PREVIOUS_LINK}" ]]; then
+        fail "${PREVIOUS_LINK} exists but is not a symlink — refusing a controlled alignment against a target whose release pointers are not in a state this script understands"
+    fi
+
+    local inspect_output
+    if ! inspect_output="$(
+        "${RESTORE_TARGET_BIN}" \
+            --inspect \
+            --target "${TARGET_ID}" \
+            --operation "${RESTORE_OPERATION_ID}" 2>&1
+    )"; then
+        printf '%s\n' "${inspect_output}" >&2
+
+        fail "restore-target --inspect refused restore operation ${RESTORE_OPERATION_ID} — the target is not in a state a controlled alignment may deploy into, and nothing was touched"
+    fi
+
+    printf '%s\n' "${inspect_output}"
+
+    # Exactly one result line, or the answer is not trustworthy enough to
+    # deploy on. Two would mean an ambiguity somebody has to resolve; zero
+    # would mean an --inspect that exited 0 without saying anything.
+    local -a result_lines=()
+    mapfile -t result_lines < <(printf '%s\n' "${inspect_output}" | grep '^RATEGURU_RESTORE_RESULT=' || true)
+
+    (( ${#result_lines[@]} == 1 )) \
+        || fail "restore-target --inspect produced ${#result_lines[@]} machine-readable results for operation ${RESTORE_OPERATION_ID}, expected exactly one"
+
+    local result
+    result="${result_lines[0]#RATEGURU_RESTORE_RESULT=}"
+
+    jq -e 'type == "object"' <<<"${result}" >/dev/null 2>&1 \
+        || fail "restore-target --inspect produced a malformed machine-readable result for operation ${RESTORE_OPERATION_ID}"
+
+    local inspect_status inspect_operation inspect_target inspect_alignment inspect_required inspect_resumed
+    inspect_status="$(jq -r '.status // empty' <<<"${result}")"
+    inspect_operation="$(jq -r '.operation_id // empty' <<<"${result}")"
+    inspect_target="$(jq -r '.target // empty' <<<"${result}")"
+    inspect_alignment="$(jq -r '.code_alignment // empty' <<<"${result}")"
+    inspect_required="$(jq -r '.required_source_sha // empty' <<<"${result}")"
+    inspect_resumed="$(jq -r '.runtime_resumed // empty' <<<"${result}")"
+
+    [[ "${inspect_operation}" == "${RESTORE_OPERATION_ID}" ]] \
+        || fail "restore-target --inspect reported operation ${inspect_operation:-<unset>}, not ${RESTORE_OPERATION_ID}"
+    [[ "${inspect_target}" == "${TARGET_ID}" ]] \
+        || fail "restore-target --inspect reported target ${inspect_target:-<unset>}, not ${TARGET_ID}"
+    [[ "${inspect_status}" == "held" ]] \
+        || fail "restore-target --inspect reported status ${inspect_status:-<unset>}, not held"
+    [[ "${inspect_alignment}" == "REQUIRED" ]] \
+        || fail "restore-target --inspect reported code alignment ${inspect_alignment:-<unset>}, not REQUIRED"
+    [[ "${inspect_resumed}" == "no" ]] \
+        || fail "restore-target --inspect reported the runtime as resumed — a controlled alignment only deploys into a held target"
+    [[ "${inspect_required}" == "${RESTORE_ALIGNMENT_REQUIRED_SHA}" ]] \
+        || fail "restore-target --inspect requires ${inspect_required:-<unset>}, but this target's restore documents require ${RESTORE_ALIGNMENT_REQUIRED_SHA} — refusing to deploy into a target whose own restore state is inconsistent"
+
+    log "controlled alignment authorized: ${TARGET_ID} is held by ${RESTORE_OPERATION_ID} and requires ${RESTORE_ALIGNMENT_REQUIRED_SHA}"
+}
+
+# assert_alignment_artifact_identity — the artifact really is the required
+# commit, checked against the extracted tree BEFORE current is switched.
+#
+# The commit is the one the server read out of its own restore documents, never
+# one this invocation was told. An artifact built from anything else — a
+# branch, a near-miss commit, a rebuild of the wrong tree — is rejected while
+# the only thing on disk is a staged release directory the failure handler
+# removes.
+assert_alignment_artifact_identity() {
+    local metadata="${TEMP_RELEASE_ROOT}/release.json"
+    local artifact_sha artifact_release
+
+    [[ ! -L "${metadata}" ]] \
+        || fail "artifact release.json is a symlink — refusing a controlled alignment against it"
+    [[ -f "${metadata}" ]] \
+        || fail "artifact contains no release.json — a controlled alignment cannot confirm which commit it is installing"
+
+    jq -e 'type == "object"' "${metadata}" >/dev/null 2>&1 \
+        || fail "artifact release.json is not a JSON object — a controlled alignment cannot confirm which commit it is installing"
+
+    artifact_sha="$(jq -r '.source_sha // empty' "${metadata}" 2>/dev/null || printf '')"
+    artifact_release="$(jq -r '.release // empty' "${metadata}" 2>/dev/null || printf '')"
+
+    [[ "${artifact_sha}" == "${RESTORE_ALIGNMENT_REQUIRED_SHA}" ]] \
+        || fail "artifact was built from ${artifact_sha:-<unset>}, but restore operation ${RESTORE_OPERATION_ID} requires ${RESTORE_ALIGNMENT_REQUIRED_SHA} — refusing to align a target to code its restored data does not belong to"
+
+    [[ "${artifact_release}" == "${RELEASE_ID}" ]] \
+        || fail "artifact release.json names release ${artifact_release:-<unset>}, but this deployment is ${RELEASE_ID}"
+
+    log "artifact identity confirmed: ${RELEASE_ID} built from ${artifact_sha}"
+}
+
+# finalize_restore_alignment — everything a controlled alignment does AFTER the
+# atomic current switch and the PHP-FPM reload, and nothing else.
+#
+# What is deliberately absent is the entire normal post-switch sequence: no
+# HTTP health check (a held target is in maintenance and must not pass one), no
+# queue transition (its workers must stay stopped), no scheduler restoration,
+# no `artisan up`, and no touch of the restore guard.
+finalize_restore_alignment() {
+    # The one exception, and only because it is an exception by contract: the
+    # Nightwatch agent is an observability sidecar that follows `current`, and
+    # its transition is fail-open — it warns, it never decides whether an
+    # operation succeeded. Leaving it pointed at a release that no longer
+    # exists would be a worse outcome than restarting a sidecar that writes no
+    # application data.
+    perform_nightwatch_transition
+
+    # `previous` is cleared, not repointed. A controlled alignment is a
+    # code/data reconciliation, not a release promotion: the release that WAS
+    # current is precisely the code the restored data does not match, so making
+    # it the target's "one step back" would arm an ordinary rollback to undo
+    # the alignment and leave data and code disagreeing again — silently, and
+    # after the guard is gone. Clearing it makes `rollback --previous` fail
+    # closed until a normal deployment establishes a real previous, while
+    # `rollback --release <id>` remains available to an operator who names a
+    # release deliberately. Every release directory is untouched.
+    if [[ -L "${PREVIOUS_LINK}" ]]; then
+        rm -f "${PREVIOUS_LINK}" \
+            || fail "could not clear ${PREVIOUS_LINK} after the controlled alignment"
+
+        log "cleared previous: a controlled alignment leaves no implicit rollback target"
+    fi
+
+    log "${LABEL} aligned to ${RELEASE_ID} (${RESTORE_ALIGNMENT_REQUIRED_SHA}) and is STILL HELD"
+    log "restore guard, maintenance, queue and scheduler are unchanged — finish with: restore-target --resume --target ${TARGET_ID} --operation ${RESTORE_OPERATION_ID}"
+
+    # Never "deployment-finished success": at this instant the target is in
+    # maintenance with its workers stopped, and a history that claims it is
+    # serving would be false for as long as the hold lasts. The alignment
+    # events say exactly what happened, and `restore-target --resume` writes
+    # the record that says the target came back.
+    append_history \
+        "${TARGET_ROOT}" \
+        "${DEPLOY_HISTORY_FINISH_EVENT}" \
+        "${RELEASE_ID}" \
+        "held"
+
+    TERMINAL_HISTORY_WRITTEN=true
+}
+
 # --- deployment recovery (unchanged internals; process-global trap, not
 # function-scoped, so moving the call site that arms it into perform_deploy
 # below changes nothing about when or how it fires) ---------------------------
@@ -562,7 +828,24 @@ handle_deployment_exit() {
         # deployment succeeds. Deliberately not resolved by removing the
         # program here — recovery does not own the operator's supervisor
         # registration. See runbooks/bootstrap-services.md.
-        if [[ "${SUPERVISOR_ACTIVATED_NOW}" == true ]]; then
+        if restore_alignment_mode; then
+            # A failed controlled alignment leaves the target HELD, on purpose
+            # and in every case. The link recovery above already put `current`
+            # (and `previous`) back where they were and reloaded PHP-FPM, which
+            # is the whole of what recovery may do here.
+            #
+            # What it must NOT do is anything that resumes the target: no queue
+            # start or restart, no `artisan up`, no scheduler restoration and
+            # no removal of the restore guard. The hold is not damage to be
+            # repaired — it is the correct state for a target whose data and
+            # code still disagree, and it stays until `restore-target --resume`
+            # proves otherwise.
+            log "controlled restore alignment failed; ${TARGET_ID} remains HELD — its maintenance mode, stopped queue, held scheduler and restore guard are all untouched by this recovery"
+
+            if [[ "${CURRENT_SWITCHED}" == true ]] && [[ "${recovery_succeeded}" == false ]]; then
+                log "ERROR: the prior release links could NOT be restored after a failed alignment — ${TARGET_ID} is held with release pointers this script could not return to their previous state; do not resume it until an operator has inspected ${TARGET_ROOT}"
+            fi
+        elif [[ "${SUPERVISOR_ACTIVATED_NOW}" == true ]]; then
             log "deployment failed after supervisor activation; stopping ${SUPERVISOR_PROGRAM} (it was not active before this deployment)"
 
             if ! supervisorctl stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1; then
@@ -610,7 +893,7 @@ handle_deployment_exit() {
         if [[ "${TERMINAL_HISTORY_WRITTEN}" == false ]]; then
             if append_history \
                 "${TARGET_ROOT}" \
-                "deployment-finished" \
+                "${DEPLOY_HISTORY_FINISH_EVENT}" \
                 "${RELEASE_ID}" \
                 "${FAILURE_STATUS}"
             then
@@ -678,6 +961,29 @@ perform_deploy() {
     PREVIOUS_LINK="${TARGET_ROOT}/previous"
 
     acquire_deployment_lock "${TARGET_ROOT}"
+
+    # The restore interlock, taken under the deployment lock so it cannot race
+    # a restore that is about to take the same lock, and BEFORE any mutation:
+    # nothing has been extracted, no history record exists and no link has
+    # moved by this point.
+    #
+    # A held target's live data may belong to a different commit than `current`
+    # serves. An ordinary deployment there would health-check it, transition
+    # its queue and bring it back up — fighting the hold that exists precisely
+    # to stop anything running against data whose code has not arrived yet. So
+    # an ordinary deployment refuses, and the only deployment that proceeds is
+    # the controlled alignment that proves it is the one this hold is waiting
+    # for.
+    # --- restore interlock (begin) ---
+    if restore_alignment_mode; then
+        DEPLOY_HISTORY_START_EVENT="restore-alignment-started"
+        DEPLOY_HISTORY_FINISH_EVENT="restore-alignment-finished"
+
+        assert_restore_alignment_authorized
+    else
+        assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a deployment"
+    fi
+    # --- restore interlock (end) ---
 
     ORIGINAL_CURRENT_PRESENT=false
     ORIGINAL_CURRENT_PATH=""
@@ -751,7 +1057,7 @@ perform_deploy() {
 
     append_history \
         "${TARGET_ROOT}" \
-        "deployment-started" \
+        "${DEPLOY_HISTORY_START_EVENT}" \
         "${RELEASE_ID}" \
         "running"
 
@@ -851,6 +1157,15 @@ perform_deploy() {
     then
         fail "--migrate was requested, but artifact does not contain artisan"
     fi
+
+    # Checked against the STAGED tree, so a wrong artifact is rejected while
+    # the only thing that exists is a directory the failure handler removes —
+    # long before current could point at it.
+    # --- controlled alignment artifact identity (begin) ---
+    if restore_alignment_mode; then
+        assert_alignment_artifact_identity
+    fi
+    # --- controlled alignment artifact identity (end) ---
 
     # Move to the final immutable path before generating Laravel caches.
     # Laravel configuration may contain absolute application/storage paths.
@@ -971,6 +1286,14 @@ perform_deploy() {
 
     systemctl reload "${PHP_FPM_SERVICE}"
 
+    # The fork, and the only one. Everything above this line is identical for
+    # both modes; everything below is the runtime policy that differs.
+    if restore_alignment_mode; then
+        finalize_restore_alignment
+
+        return 0
+    fi
+
     if ! "${HEALTH_CHECK_BIN}" \
         "${HEALTH_CHECK_ARGS[@]}"
     then
@@ -1010,7 +1333,7 @@ perform_deploy() {
 
     append_history \
         "${TARGET_ROOT}" \
-        "deployment-finished" \
+        "${DEPLOY_HISTORY_FINISH_EVENT}" \
         "${RELEASE_ID}" \
         "success"
 

@@ -998,8 +998,8 @@ Slices, in order:
    proves the structure; only a real clean-host run proves the pipeline, and
    that rehearsal belongs to the disposable-host policy below — so this slice
    is implemented rather than accepted.
-3. **7.3 Restore Target Data — implemented, awaiting real staging
-   acceptance.** The host is alive; only its data is restored. Explicitly
+3. **7.3 Restore Target Data — ACCEPTED on the real staging VPS.** The host
+   is alive; only its data is restored. Explicitly
    distinct from the existing restore-test, which restores into a throwaway
    scratch database and stays that way. What landed:
 
@@ -1074,16 +1074,89 @@ Slices, in order:
      backup subsystem or its manifest schema.
 
    See [`runbooks/restore-target.md`](runbooks/restore-target.md).
-   *Acceptance:* a real, destructive database and storage restore on the
-   staging VPS, proven by sentinels created after the backup and gone
-   afterwards. CI proves the structure and every failure path; only a real
-   run proves the pipeline, so this slice is implemented rather than
-   accepted.
-4. **7.4 GitHub Restore actions.** Turn 7.3 into operator-facing workflows
-   with the same shape as 7.1's: plan before mutation, one workflow per
-   environment, no target dropdown, production approval gating. *Future
-   work only.* *Acceptance:* a staging data restore runs end to end from a
-   workflow dispatch, with the plan visible before anything mutates.
+
+   **Accepted on the real staging VPS (`PHASE 7 SLICE 7.3 ACCEPTED`):** a
+   real, destructive database and storage restore, driven end to end by hand
+   on staging-main. Backup -> offsite upload and verify -> DB and storage
+   sentinels -> `restore-target --apply` -> queue STOPPED -> scheduler held ->
+   emergency backup -> emergency restore-test PASS -> restore guard ->
+   database activation -> storage activation -> verification -> commit ->
+   source_sha alignment -> scheduler restored -> queue RUNNING -> maintenance
+   OFF -> health PASS -> restore guard cleared. Final result: `RESTORE DATA
+   COMPLETE: YES`, `CODE ALIGNMENT: ALIGNED`, `TARGET RESUMED: YES`. Both
+   sentinels were gone afterwards, and `current`, `previous` and `shared/.env`
+   were all byte-identical to before. The emergency backup passed its own
+   restore test.
+4. **7.4 GitHub Restore actions + controlled code alignment — implemented,
+   awaiting real GitHub staging acceptance.** The operator layer over the
+   proven server-side restore, and the one piece 7.3 deliberately left open:
+   what to do when the backup's data belongs to a commit the target is not
+   serving. What landed:
+
+   - **Two named operator workflows, no target dropdown.**
+     `restore-staging.yml` (fixed `staging-main`, environment `staging`,
+     concurrency `rateguru-staging-deployment`) and
+     `restore-production.yml` (fixed `tits-guru`, environment `production`,
+     concurrency `rateguru-production-release`, plus a typed
+     `RESTORE tits-guru` confirmation checked before any environment or SSH).
+     The operator chooses a backup and a source; the target is structural.
+   - **One restore transport.** `.github/actions/restore-rateguru` is the only
+     GitHub-side restore implementation, with three modes — `apply`,
+     `inspect`, `resume`. It accepts no remote command, no path and no commit;
+     it validates every identifier against the server's own closed classes and
+     assembles a fixed argument vector.
+   - **A generic server wrapper.** `/usr/local/sbin/rateguru-restore`, a thin
+     target-aware perimeter that exposes exactly the `restore-target`
+     contract as a closed whitelist and forwards nothing. Installed, verified
+     and sudo-granted by the existing `install-target-perimeter`, so a
+     clean-host bootstrap gets it with no manual step.
+   - **A machine-readable restore result.** `restore-target` now prints
+     exactly one `RATEGURU_RESTORE_RESULT={...}` line on each terminal
+     success, carrying identity only. The workflow branches on that object,
+     never on prose.
+   - **A read-only `--inspect`.** Answers "what is this held operation waiting
+     for?" without touching the database, storage, queue, scheduler,
+     maintenance flag, `current` or the guard — and is also the single
+     implementation of the proof that a target is genuinely still held.
+     `in-progress` and `failed-held` are refused with a repair diagnosis
+     rather than continued.
+   - **Controlled code alignment, in the ONE deploy.**
+     `deploy --restore-operation OPERATION_ID` is a mode of
+     `infrastructure/scripts/deploy`, not a second deployment: same artifact
+     verification, path safety, extraction, permissions, links, CLI mode
+     check, Laravel cache preparation, immutable release, atomic `current`
+     switch and PHP-FPM reload — and a completely different runtime policy
+     afterwards. No migrations, no HTTP health check, no queue transition, no
+     scheduler restoration, no `artisan up`, and no touch of the restore
+     guard. `previous` is cleared rather than repointed, so an ordinary
+     "roll back one release" cannot silently undo the alignment.
+   - **The server decides which commit.** GitHub sends an operation ID and
+     nothing else. `deploy` reads the required commit out of the restore guard
+     and the operation's own `state.json`, requires `restore-target --inspect`
+     to independently name the same operation, target and commit, and then
+     checks the artifact's `release.json.source_sha` against it before
+     `current` moves.
+   - **The trust boundary is unchanged.** The historical build job holds no
+     GitHub Environment, no deploy key, no Sentry token and no B2 credential.
+     Operational tooling is checked out from `develop`; the application is
+     checked out at the exact required commit into `application/`. A commit
+     that no longer builds fails the run and leaves the target held — there is
+     no fallback to a branch or a nearby commit.
+   - **Resumable.** `mode=continue-held` picks up a held operation later — the
+     next day, after a failed build, after a lost runner — and refuses to
+     start a new restore on top of a held target.
+   - **The guard is never bypassed.** Ordinary `deploy`, `rollback` and
+     `cleanup` now refuse before their first mutation while a restore guard
+     exists, joining `backup`, which already did.
+
+   See [`runbooks/github-restore.md`](runbooks/github-restore.md).
+   *Acceptance:* two real staging runs — one where the backup matches the
+   deployed code (expect ALIGNED, resumed, no historical build), and one where
+   it does not (expect HELD, an exact-SHA build, a controlled deploy with
+   migrations off, the target still held through it, then `--resume`, health
+   PASS and the guard cleared). CI proves the structure and every failure
+   path; only a real run proves the pipeline, so this slice is implemented,
+   awaiting real GitHub staging acceptance rather than accepted.
 5. **7.5 Repair Target.** The host is alive, but one target's runtime,
    perimeter or release state is broken or has drifted. Reconstruct that
    target — identities, filesystem, perimeter, services, current release —

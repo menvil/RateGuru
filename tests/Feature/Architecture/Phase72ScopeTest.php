@@ -50,13 +50,19 @@ function p72OperationalFiles(): array
 // =============================================================================
 
 it('adds exactly the operator-facing workflows Phase 7.2 is meant to add', function () {
+    // The workflows Phase 7.2 established, all of which must still exist and
+    // still be the ONLY ones covering their operation. This is deliberately a
+    // containment check rather than an exact inventory: later phases add
+    // operator workflows of their own (7.4 added the two restore ones), and
+    // each phase's guard owns the exact inventory as of itself —
+    // Phase74ScopeTest is the current one.
     $workflows = collect(glob(base_path('.github/workflows/*.yml')) ?: [])
         ->map(static fn (string $path): string => basename($path))
         ->sort()
         ->values()
         ->all();
 
-    expect($workflows)->toBe([
+    foreach ([
         'ci.yml',
         'coverage.yml',
         'deploy-staging.yml',
@@ -66,24 +72,48 @@ it('adds exactly the operator-facing workflows Phase 7.2 is meant to add', funct
         'release.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
-    ]);
+    ] as $workflow) {
+        expect($workflows)->toContain($workflow);
+    }
+
+    // What 7.2 rejected, and every later phase inherits: one generic
+    // "Operations" workflow, and per-environment duplicates of an operation
+    // that already has a shared implementation.
+    foreach ([
+        'operations.yml',
+        'deploy-production.yml',
+        'prepare-host.yml',
+        'release-staging.yml',
+    ] as $rejected) {
+        expect($workflows)->not->toContain($rejected);
+    }
 });
 
 it('adds exactly the shared actions Phase 7.2 is meant to add', function () {
+    // Containment, for the same reason as the workflow inventory above: 7.4
+    // added restore-rateguru, and Phase74ScopeTest owns the exact list.
     $actions = collect(glob(base_path('.github/actions/*'), GLOB_ONLYDIR) ?: [])
         ->map(static fn (string $path): string => basename($path))
         ->sort()
         ->values()
         ->all();
 
-    expect($actions)->toBe([
+    foreach ([
         'build-rateguru',
         'deploy-rateguru',
         'prepare-rateguru-host',
         'record-rateguru-deployment',
         'rollback-rateguru',
         'sentry-release',
-    ]);
+    ] as $action) {
+        expect($actions)->toContain($action);
+    }
+
+    // No per-environment fork of a shared action, ever.
+    foreach ($actions as $action) {
+        expect($action)->not->toContain('-staging')
+            ->and($action)->not->toContain('-production');
+    }
 });
 
 it('keeps one implementation per operation', function () {
@@ -112,20 +142,21 @@ it('implements no Restore operation', function () {
     // backup can be restored into a throwaway scratch database. Turning it
     // into a live restore was Phase 7.3, and nothing 7.2 added does it.
     //
-    // Phase 7.3 landed the SERVER primitives (restore-target and friends);
-    // their own scope guard is Phase73ScopeTest. What stays out of both
-    // phases — the GitHub-facing restore surface — is Phase 7.4, and is
-    // asserted here because 7.2 is the phase that owns the workflow/action
-    // inventory.
+    // Phase 7.3 landed the SERVER primitives (restore-target and friends) and
+    // Phase 7.4 the GitHub-facing surface; each owns its own scope guard
+    // (Phase73ScopeTest, Phase74ScopeTest). What this test still owns is 7.2's
+    // own promise: nothing 7.2 added restores anything, and no restore
+    // implementation ever appeared under a name outside those phases.
     expect(File::exists(base_path('infrastructure/scripts/restore-test')))->toBeTrue();
 
     foreach ([
         'infrastructure/scripts/restore',
-        '.github/workflows/restore-staging.yml',
-        '.github/workflows/restore-production.yml',
-        '.github/actions/restore-rateguru/action.yml',
+        'infrastructure/scripts/restore-staging',
+        'infrastructure/scripts/restore-production',
+        '.github/actions/restore-staging/action.yml',
+        '.github/actions/restore-production/action.yml',
     ] as $path) {
-        expect(File::exists(base_path($path)))->toBeFalse("{$path} belongs to Phase 7.4, not 7.2 or 7.3");
+        expect(File::exists(base_path($path)))->toBeFalse("{$path} is not part of any phase's restore design");
     }
 
     // And nothing added in 7.2 restores anything.

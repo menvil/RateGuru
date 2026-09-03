@@ -238,6 +238,12 @@ it('is called only after a successful, health-checked deployment', function () {
         'release.yml:deploy-production',
         // One rollback marker for every target, not one per workflow.
         'rollback-rateguru/action.yml:runs',
+        // Phase 7.4: a recovery that had to install code really did deploy a
+        // release, and it is marked only once restore-target --resume brought
+        // the target back. A restore that came back ALIGNED deployed nothing
+        // and deliberately records no marker at all.
+        'restore-staging.yml:observability',
+        'restore-production.yml:observability',
     ]);
 
     $deployStaging = Yaml::parse(File::get(base_path('.github/workflows/deploy-staging.yml')));
@@ -319,13 +325,16 @@ it('uses the environment class for Sentry, never the deployment target', functio
 
     $environments = collect($callSites)->map(fn (array $site): mixed => data_get($site['step'], 'with.environment'));
 
-    expect($environments->all())->toEqual([
+    expect($environments->all())->toEqualCanonicalizing([
         'deploy-staging.yml:observability' => 'staging',
         'release.yml:deploy-staging' => 'staging',
         'release.yml:deploy-production' => 'production',
         // The shared rollback action serves every target, so its environment
         // is the one its caller fixed rather than a literal of its own.
         'rollback-rateguru/action.yml:runs' => '${{ inputs.environment }}',
+        // The restore workflows fix theirs, exactly like the deploy ones.
+        'restore-staging.yml:observability' => 'staging',
+        'restore-production.yml:observability' => 'production',
     ]);
 
     // ...and the callers that fix it pass an environment class, never a brand.

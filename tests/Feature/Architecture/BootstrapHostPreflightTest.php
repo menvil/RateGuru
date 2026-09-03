@@ -168,6 +168,9 @@ function bootstrapPreflightCompliantStatTable(): array
         '/usr/local/sbin/rateguru-deploy|regular file|root|root|755',
         '/usr/local/sbin/rateguru-rollback|regular file|root|root|755',
         '/usr/local/sbin/rateguru-cleanup|regular file|root|root|755',
+        // Phase 7.4: the restore perimeter is part of what a clean host is
+        // expected to carry, exactly like the other three wrappers.
+        '/usr/local/sbin/rateguru-restore|regular file|root|root|755',
         '/etc/sudoers.d/rateguru-deploy|regular file|root|root|440',
         '/etc/cron.d/rateguru-backups|regular file|root|root|644',
         '/etc/cron.d/rateguru-staging-scheduler|regular file|root|root|644',
@@ -195,6 +198,10 @@ function bootstrapPreflightCompliantStatTable(): array
         'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback',
         'backup', 'restore-test', 'offsite-backup', 'offsite-retention',
         'offsite-restore-test', 'backup-cycle', 'verify-required-clis',
+        // The binary /usr/local/sbin/rateguru-restore execs into. A compliant
+        // host carries both, so the "MISSING: 0" case below keeps proving what
+        // it claims rather than passing on a shorter list.
+        'restore-target',
     ] as $cli) {
         $rows[] = "/home/www/rateguru/bin/{$cli}|regular file|root|root|755";
     }

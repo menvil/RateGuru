@@ -3,4 +3,5 @@ Defaults:deploy-rateguru-staging !requiretty
 deploy-rateguru-staging ALL=(root) NOPASSWD: \
     /usr/local/sbin/rateguru-deploy, \
     /usr/local/sbin/rateguru-rollback, \
-    /usr/local/sbin/rateguru-cleanup
+    /usr/local/sbin/rateguru-cleanup, \
+    /usr/local/sbin/rateguru-restore

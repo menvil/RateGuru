@@ -2338,3 +2338,795 @@ it('keeps the post-switch health check fatal, so a release Nginx cannot serve st
         deployOpsCleanup($scratch);
     }
 });
+
+// =============================================================================
+// Phase 7.4: the restore interlock and controlled code alignment
+// =============================================================================
+//
+// Two behaviours, one gate. While a target is held after a restore its live
+// data may belong to a different commit than `current` serves, so an ORDINARY
+// deployment refuses outright — it would health-check the target, transition
+// its queue and bring it back up, fighting the hold that exists precisely to
+// stop anything running against data whose code has not arrived yet.
+//
+// The one deployment that proceeds is the controlled alignment, and it is the
+// SAME script with the SAME mechanics: artifact verification, path safety,
+// extraction, permissions, links, the CLI mode check, the immutable release,
+// the atomic current switch and the PHP-FPM reload all run unchanged. What
+// differs is everything after the switch — nothing that resumes the target.
+//
+// The commit is never an argument. deploy reads it out of the server's own
+// restore guard and the operation's own state.json, and independently requires
+// restore-target --inspect (the single implementation of "this target is
+// genuinely still held") to name the same operation, target and commit. The
+// runtime half of that proof — maintenance on, queue provably fully STOPPED,
+// no scheduler entry — is exercised against the real observer in
+// RestoreTargetTest's own --inspect coverage; what is proven here is that
+// deploy demands it, believes nothing else, and refuses on any disagreement.
+
+const DEPLOY_OPS_RESTORE_OPERATION = '20260901-101112-a1b2c3';
+const DEPLOY_OPS_REQUIRED_SHA = 'a81d7f2c3b4a5968778899aabbccddeeff001122';
+const DEPLOY_OPS_CURRENT_SHA = 'b92e8a3d4c5a6a79889900bbccddeeff11223344';
+const DEPLOY_OPS_ALIGNMENT_RELEASE = 'v1.4.0-20260101-000000-a81d7f2';
+
+function deployOpsRunRoot(string $scratch): string
+{
+    return $scratch.'/run';
+}
+
+function deployOpsGuardPath(string $scratch): string
+{
+    return deployOpsRunRoot($scratch).'/restores/parity-target/restore-guard';
+}
+
+/** @param  array<string, string|null>  $overrides */
+function deployOpsWriteRestoreGuard(string $scratch, array $overrides = []): void
+{
+    $path = deployOpsGuardPath($scratch);
+
+    if (! is_dir(dirname($path))) {
+        expect(@mkdir(dirname($path), 0o700, true))->toBeTrue('could not create the restore run root');
+    }
+
+    $guard = array_filter(array_merge([
+        'operation' => DEPLOY_OPS_RESTORE_OPERATION,
+        'target' => 'parity-target',
+        'required_source_sha' => DEPLOY_OPS_REQUIRED_SHA,
+        'status' => 'held',
+        'created_at' => '2026-09-01T10:11:12Z',
+    ], $overrides), static fn ($value): bool => $value !== null);
+
+    file_put_contents($path, json_encode($guard, JSON_PRETTY_PRINT));
+    chmod($path, 0o600);
+}
+
+function deployOpsStatePath(string $scratch, string $operation = DEPLOY_OPS_RESTORE_OPERATION): string
+{
+    return deployOpsRunRoot($scratch).'/restores/parity-target/'.$operation.'/state.json';
+}
+
+/** @param  array<string, string|null>  $overrides */
+function deployOpsWriteRestoreState(string $scratch, array $overrides = []): void
+{
+    $path = deployOpsStatePath($scratch);
+
+    if (! is_dir(dirname($path))) {
+        expect(@mkdir(dirname($path), 0o700, true))->toBeTrue('could not create the restore operation workspace');
+    }
+
+    $state = array_filter(array_merge([
+        'operation_id' => DEPLOY_OPS_RESTORE_OPERATION,
+        'target' => 'parity-target',
+        'environment' => 'staging',
+        'backup_namespace' => 'parity',
+        'source' => 'offsite',
+        'backup' => '20260115-120000',
+        'backup_release' => DEPLOY_OPS_ALIGNMENT_RELEASE,
+        'backup_source_sha' => DEPLOY_OPS_REQUIRED_SHA,
+        'status' => 'held',
+        'phase' => 'committed',
+        'code_alignment' => 'required',
+        'runtime_resumed' => 'no',
+    ], $overrides), static fn ($value): bool => $value !== null);
+
+    file_put_contents($path, json_encode($state, JSON_PRETTY_PRINT));
+    chmod($path, 0o600);
+}
+
+/** Both restore documents in the one state a controlled alignment may run in. */
+function deployOpsWriteHeldRestore(string $scratch, array $guard = [], array $state = []): void
+{
+    deployOpsWriteRestoreGuard($scratch, $guard);
+    deployOpsWriteRestoreState($scratch, $state);
+}
+
+/**
+ * A stand-in for the installed restore-target, exercised through deploy's own
+ * gated RATEGURU_RESTORE_TARGET_BIN seam — the identical technique this file
+ * already uses for health-check and verify-required-clis. It records the exact
+ * argv deploy invoked it with, so a test can prove deploy really asks the one
+ * implementation of the hold proof rather than deciding for itself.
+ */
+function deployOpsRestoreTargetStub(string $scratch, string $logFile, array $options = []): string
+{
+    $path = $scratch.'/bin/restore-target-'.uniqid('', true);
+    $exit = (int) ($options['exit'] ?? 0);
+
+    $lines = $options['lines'] ?? ['RATEGURU_RESTORE_RESULT='.json_encode(array_merge([
+        'status' => 'held',
+        'operation_id' => DEPLOY_OPS_RESTORE_OPERATION,
+        'target' => 'parity-target',
+        'backup' => '20260115-120000',
+        'backup_release' => DEPLOY_OPS_ALIGNMENT_RELEASE,
+        'backup_source_sha' => DEPLOY_OPS_REQUIRED_SHA,
+        'required_source_sha' => DEPLOY_OPS_REQUIRED_SHA,
+        'current_source_sha' => DEPLOY_OPS_CURRENT_SHA,
+        'code_alignment' => 'REQUIRED',
+        'runtime_resumed' => 'no',
+    ], $options['result'] ?? []))];
+
+    $body = "#!/usr/bin/env bash\n"
+        .'echo "restore-target $*" >> '.escapeshellarg($logFile)."\n";
+
+    foreach ($lines as $line) {
+        $body .= 'printf "%s\n" '.escapeshellarg($line)."\n";
+    }
+
+    $body .= "exit {$exit}\n";
+
+    file_put_contents($path, $body);
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * A release artifact carrying release.json — what a real build produces, and
+ * what a controlled alignment is checked against. Deliberately without
+ * artisan, so deploy's Laravel preparation (whose `install -g www-data` needs
+ * a membership CI does not have) stays out of these tests: everything they
+ * assert happens before and after it.
+ *
+ * @return array{artifact: string, checksum: string}
+ */
+function deployOpsAlignmentArtifact(
+    string $scratch,
+    array $fixture,
+    string $releaseId = DEPLOY_OPS_ALIGNMENT_RELEASE,
+    ?string $sourceSha = DEPLOY_OPS_REQUIRED_SHA,
+    bool $withReleaseJson = true,
+): array {
+    $id = uniqid('', true);
+    $source = $scratch.'/alignment-src-'.$id;
+    expect(@mkdir($source.'/public', 0o755, true))->toBeTrue('could not create the alignment artifact source');
+    file_put_contents($source.'/public/index.php', "<?php // fixture\n");
+
+    $entries = 'public';
+
+    if ($withReleaseJson) {
+        file_put_contents($source.'/release.json', json_encode(array_filter([
+            'project' => 'rateguru',
+            'release' => $releaseId,
+            'source_sha' => $sourceSha,
+        ], static fn ($value): bool => $value !== null)));
+        $entries .= ' release.json';
+    }
+
+    $artifact = $fixture['incoming'].'/rateguru-alignment-'.$id.'.tar.gz';
+
+    exec('tar -C '.escapeshellarg($source).' -czf '.escapeshellarg($artifact)." {$entries} 2>&1", $tarOutput, $tarExit);
+    expect($tarExit)->toBe(0, "failed to build the alignment artifact:\n".implode("\n", $tarOutput));
+
+    exec(
+        'cd '.escapeshellarg($fixture['incoming'])
+            .' && sha256sum '.escapeshellarg(basename($artifact))
+            .' > '.escapeshellarg(basename($artifact).'.sha256').' 2>&1',
+        $shaOutput,
+        $shaExit,
+    );
+    expect($shaExit)->toBe(0, "failed to checksum the alignment artifact:\n".implode("\n", $shaOutput));
+
+    return ['artifact' => $artifact, 'checksum' => $artifact.'.sha256'];
+}
+
+/**
+ * One real deploy invocation against an existing fixture — the same
+ * parse_deploy_args/resolve_target/perform_deploy pipeline every other test in
+ * this file drives, with RUN_ROOT pointed at the scratch restore root.
+ *
+ * @return array{exit: int, output: string, healthCheckLog: string, restoreTargetLog: string}
+ */
+function deployOpsRunDeployOn(string $scratch, array $fixture, string $arguments, array $options = []): array
+{
+    $confPath = deployOpsDeploymentConfForFixture($scratch);
+    deployOpsInstallCoreStubs($scratch);
+    [$registryPath, $targetsPath] = deployOpsParityRegistry($scratch, $fixture);
+
+    // Installed after the core stubs, which would otherwise overwrite it.
+    if (($options['systemctl_fails'] ?? false) === true) {
+        file_put_contents($scratch.'/bin/systemctl', "#!/usr/bin/env bash\n"
+            .'echo "systemctl $*" >> '.escapeshellarg($scratch.'/systemctl.log')."\n"
+            ."exit 1\n");
+        chmod($scratch.'/bin/systemctl', 0o755);
+    }
+
+    $healthCheckLog = $scratch.'/health-check-'.uniqid('', true).'.log';
+    touch($healthCheckLog);
+    $verifyCliLog = $scratch.'/verify-cli-'.uniqid('', true).'.log';
+    touch($verifyCliLog);
+    $restoreTargetLog = $scratch.'/restore-target-'.uniqid('', true).'.log';
+    touch($restoreTargetLog);
+
+    $verifyStub = ($options['verify_clis_fail'] ?? false) === true
+        ? deployOpsFailingVerifyRequiredClisStub($scratch, $verifyCliLog)
+        : deployOpsVerifyRequiredClisStub($scratch, $verifyCliLog);
+
+    $env = deployOpsBaseEnv($scratch, array_merge([
+        'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+        'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+        'RATEGURU_TARGETS_CLI' => $targetsPath,
+        'RATEGURU_HEALTH_CHECK_BIN' => deployOpsHealthCheckStub($scratch, $healthCheckLog),
+        'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyStub,
+        'RATEGURU_RUN_ROOT' => deployOpsRunRoot($scratch),
+        'RATEGURU_RESTORE_TARGET_BIN' => deployOpsRestoreTargetStub(
+            $scratch,
+            $restoreTargetLog,
+            $options['restore_target'] ?? [],
+        ),
+    ], $options['env'] ?? []));
+
+    [$exit, $output] = deployOpsRunHarness(
+        $scratch,
+        "parse_deploy_args {$arguments}\nresolve_target\nperform_deploy",
+        $env,
+    );
+
+    return [
+        'exit' => $exit,
+        'output' => $output,
+        'healthCheckLog' => $healthCheckLog,
+        'restoreTargetLog' => $restoreTargetLog,
+    ];
+}
+
+function deployOpsFailingVerifyRequiredClisStub(string $scratch, string $logFile): string
+{
+    $path = $scratch.'/bin/verify-required-clis-failing';
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'echo "$*" >> '.escapeshellarg($logFile)."\n"
+        ."echo 'a required CLI lost its executable bit' >&2\n"
+        ."exit 1\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/** A target already serving something, so an alignment has a real current to replace. */
+function deployOpsServingFixture(string $scratch): array
+{
+    $fixture = deployOpsBuildFixture($scratch);
+
+    $first = deployOpsRunDeployOn(
+        $scratch,
+        $fixture,
+        '--target parity-target --release v2.0.0-20260201-000000-bbbb111 --artifact '.$fixture['artifact'],
+    );
+    expect($first['exit'])->toBe(0, $first['output']);
+
+    return $fixture;
+}
+
+// --- normal mode: the interlock ---------------------------------------------
+
+it('deploys normally when no target is held', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch);
+
+        // The restore run root exists and is empty — the ordinary state of a
+        // host that has never had a restore held. Nothing about the normal
+        // deployment path changes.
+        expect(@mkdir(deployOpsRunRoot($scratch), 0o700, true))->toBeTrue();
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v1.0.0-20260101-000000-aaa1111 --artifact '.$fixture['artifact'],
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('deployed successfully');
+
+        // The normal contract in full: the health check ran, and the history
+        // is the ordinary deployment pair.
+        expect(File::get($result['healthCheckLog']))->toContain('--target parity-target');
+        expect(File::get($result['restoreTargetLog']))->toBe('', 'a normal deployment never consults restore-target');
+
+        $history = deployOpsHistory($fixture['root']);
+        expect(array_column($history, 'event'))->toBe(['deployment-started', 'deployment-finished']);
+        expect(end($history)['status'])->toBe('success');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses an ordinary deployment while the target is held, before any mutation', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch);
+        deployOpsWriteHeldRestore($scratch);
+
+        $releaseId = 'v1.0.0-20260101-000000-aaa2222';
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            "--target parity-target --release {$releaseId} --artifact ".$fixture['artifact'],
+        );
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('is held after restore operation '.DEPLOY_OPS_RESTORE_OPERATION)
+            ->toContain('Controlled code alignment is required')
+            ->toContain('mode=continue-held');
+
+        // Before any mutation means exactly that: no release directory, no
+        // staged temporary tree, no history record at all, and `current`
+        // untouched.
+        expect(is_dir($fixture['root'].'/releases/'.$releaseId))->toBeFalse();
+        expect(glob($fixture['root'].'/releases/.*.tmp-*') ?: [])->toBe([]);
+        expect(deployOpsHistory($fixture['root']))->toBe([]);
+        expect(is_link($fixture['root'].'/current'))->toBeFalse();
+        expect(File::get($result['healthCheckLog']))->toBe('');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+// --- alignment mode: authorization -------------------------------------------
+
+it('refuses --restore-operation together with --migrate, before anything is resolved', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --target parity-target --release v1.0.0-20260101-000000-aaa3333'
+                .' --artifact /tmp/x.tar.gz --migrate --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION,
+            deployOpsBaseEnv($scratch),
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('--migrate and --restore-operation are mutually exclusive');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('rejects a malformed restore operation ID during parsing', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        [$exit, $output] = deployOpsRunHarness(
+            $scratch,
+            'parse_deploy_args --target parity-target --release v1.0.0-20260101-000000-aaa4444'
+                .' --artifact /tmp/x.tar.gz --restore-operation ../../etc/passwd',
+            deployOpsBaseEnv($scratch),
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('invalid restore operation ID');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('refuses a controlled alignment whose restore documents do not authorize it', function (
+    string $case,
+    string $expected,
+) {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch);
+        $artifact = deployOpsAlignmentArtifact($scratch, $fixture);
+        $operation = DEPLOY_OPS_RESTORE_OPERATION;
+
+        deployOpsWriteHeldRestore($scratch);
+
+        switch ($case) {
+            case 'no-guard':
+                unlink(deployOpsGuardPath($scratch));
+                break;
+
+            case 'guard-names-another-operation':
+                deployOpsWriteRestoreGuard($scratch, ['operation' => '20200101-000000-ffffff']);
+                break;
+
+            case 'guard-names-another-target':
+                deployOpsWriteRestoreGuard($scratch, ['target' => 'other-target']);
+                break;
+
+            case 'guard-is-in-progress':
+                deployOpsWriteRestoreGuard($scratch, ['status' => 'in-progress']);
+                break;
+
+            case 'guard-is-failed-held':
+                deployOpsWriteRestoreGuard($scratch, ['status' => 'failed-held']);
+                break;
+
+            case 'guard-sha-is-abbreviated':
+                deployOpsWriteRestoreGuard($scratch, ['required_source_sha' => 'a81d7f2']);
+                break;
+
+            case 'guard-is-a-symlink':
+                unlink(deployOpsGuardPath($scratch));
+                symlink('/dev/null', deployOpsGuardPath($scratch));
+                break;
+
+            case 'state-missing':
+                unlink(deployOpsStatePath($scratch));
+                break;
+
+            case 'state-names-another-target':
+                deployOpsWriteRestoreState($scratch, ['target' => 'other-target']);
+                break;
+
+            case 'state-is-not-held':
+                deployOpsWriteRestoreState($scratch, ['status' => 'running']);
+                break;
+
+            case 'state-is-not-committed':
+                deployOpsWriteRestoreState($scratch, ['phase' => 'quiesced']);
+                break;
+
+            case 'state-alignment-is-not-required':
+                deployOpsWriteRestoreState($scratch, ['code_alignment' => 'aligned']);
+                break;
+
+            case 'state-and-guard-disagree':
+                deployOpsWriteRestoreState($scratch, ['backup_source_sha' => DEPLOY_OPS_CURRENT_SHA]);
+                break;
+
+            case 'state-names-no-backup':
+                deployOpsWriteRestoreState($scratch, ['backup' => null]);
+                break;
+
+            case 'unknown-operation':
+                $operation = '20200101-000000-ffffff';
+                break;
+        }
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                ." --restore-operation {$operation}",
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain($expected);
+
+        // Refused before mutation, in every single case: nothing extracted,
+        // nothing recorded, no current, and the guard left exactly as it was
+        // for the operator who has to resolve it.
+        expect(is_dir($fixture['root'].'/releases/'.DEPLOY_OPS_ALIGNMENT_RELEASE))->toBeFalse();
+        expect(deployOpsHistory($fixture['root']))->toBe([]);
+        expect(is_link($fixture['root'].'/current'))->toBeFalse();
+        expect(File::get($result['healthCheckLog']))->toBe('');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    ['no-guard', 'is not held: no restore guard'],
+    ['guard-names-another-operation', 'is held by restore operation 20200101-000000-ffffff'],
+    ['guard-names-another-target', 'belongs to target other-target'],
+    ['guard-is-in-progress', "hold status 'in-progress'"],
+    ['guard-is-failed-held', "hold status 'failed-held'"],
+    ['guard-sha-is-abbreviated', 'no full 40-character commit'],
+    ['guard-is-a-symlink', 'is a symlink'],
+    ['state-missing', 'has no state file'],
+    ['state-names-another-target', 'belongs to target other-target'],
+    ['state-is-not-held', "has status 'running'"],
+    ['state-is-not-committed', "is in phase 'quiesced'"],
+    ['state-alignment-is-not-required', "records code_alignment 'aligned'"],
+    ['state-and-guard-disagree', 'refusing to align a target whose own restore documents disagree'],
+    ['state-names-no-backup', 'records no backup identity'],
+    ['unknown-operation', 'is held by restore operation '.DEPLOY_OPS_RESTORE_OPERATION],
+]);
+
+it('asks restore-target to prove the target is still held, and refuses when it will not', function (
+    string $case,
+    array $restoreTarget,
+    string $expected,
+) {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch);
+        $artifact = deployOpsAlignmentArtifact($scratch, $fixture);
+        deployOpsWriteHeldRestore($scratch);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION,
+            ['restore_target' => $restoreTarget],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain($expected);
+
+        // It really did ask, and it asked read-only.
+        expect(File::get($result['restoreTargetLog']))
+            ->toContain('--inspect --target parity-target --operation '.DEPLOY_OPS_RESTORE_OPERATION);
+
+        expect(is_dir($fixture['root'].'/releases/'.DEPLOY_OPS_ALIGNMENT_RELEASE))->toBeFalse();
+        expect(deployOpsHistory($fixture['root']))->toBe([]);
+        expect(is_link($fixture['root'].'/current'))->toBeFalse();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    // The hold itself is gone — maintenance lifted, a worker running, a cron
+    // entry back. restore-target is the one implementation of that proof and
+    // it refuses; deploy believes it and stops.
+    ['inspect-refuses', ['exit' => 1, 'lines' => ['ERROR: parity-target is NOT in maintenance mode']], 'refused restore operation'],
+    ['no-result', ['lines' => []], 'produced 0 machine-readable results'],
+    ['two-results', ['lines' => [
+        'RATEGURU_RESTORE_RESULT={"status":"held"}',
+        'RATEGURU_RESTORE_RESULT={"status":"held"}',
+    ]], 'produced 2 machine-readable results'],
+    ['malformed-result', ['lines' => ['RATEGURU_RESTORE_RESULT=not-json']], 'malformed machine-readable result'],
+    ['another-operation', ['result' => ['operation_id' => '20200101-000000-ffffff']], 'reported operation 20200101-000000-ffffff'],
+    ['another-target', ['result' => ['target' => 'other-target']], 'reported target other-target'],
+    ['not-held', ['result' => ['status' => 'resumed']], 'reported status resumed'],
+    ['already-aligned', ['result' => ['code_alignment' => 'ALIGNED']], 'reported code alignment ALIGNED'],
+    ['already-resumed', ['result' => ['runtime_resumed' => 'yes']], 'reported the runtime as resumed'],
+    ['another-commit', ['result' => ['required_source_sha' => DEPLOY_OPS_CURRENT_SHA]], 'refusing to deploy into a target whose own restore state is inconsistent'],
+]);
+
+it('refuses an artifact that was not built from the required commit, before switching current', function (
+    string $case,
+    array $artifactOptions,
+    string $expected,
+) {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsServingFixture($scratch);
+        $originalCurrent = realpath($fixture['root'].'/current');
+        // array_key_exists, not ??: 'sha' => null is a deliberate case (an
+        // artifact whose release.json carries no source_sha at all), and ??
+        // would silently substitute the correct commit for it.
+        $artifact = deployOpsAlignmentArtifact(
+            $scratch,
+            $fixture,
+            $artifactOptions['release'] ?? DEPLOY_OPS_ALIGNMENT_RELEASE,
+            array_key_exists('sha', $artifactOptions) ? $artifactOptions['sha'] : DEPLOY_OPS_REQUIRED_SHA,
+            $artifactOptions['release_json'] ?? true,
+        );
+
+        deployOpsWriteHeldRestore($scratch);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION,
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain($expected);
+
+        // `current` never moved, and the release never became installable.
+        expect(realpath($fixture['root'].'/current'))->toBe($originalCurrent);
+        expect(is_dir($fixture['root'].'/releases/'.DEPLOY_OPS_ALIGNMENT_RELEASE))->toBeFalse();
+
+        // The guard is still there, so the target is still refused by every
+        // ordinary operation.
+        expect(is_file(deployOpsGuardPath($scratch)))->toBeTrue();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    ['wrong-commit', ['sha' => DEPLOY_OPS_CURRENT_SHA], 'refusing to align a target to code its restored data does not belong to'],
+    ['no-release-json', ['release_json' => false], 'artifact contains no release.json'],
+    ['no-source-sha', ['sha' => null], 'refusing to align a target to code its restored data does not belong to'],
+    ['release-mismatch', ['release' => 'v9.9.9-20260101-000000-a81d7f2'], 'names release v9.9.9-20260101-000000-a81d7f2'],
+]);
+
+// --- alignment mode: the happy path -----------------------------------------
+
+it('installs the required commit and leaves the target exactly as held as it found it', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsServingFixture($scratch);
+
+        // A second ordinary deployment, so `previous` exists and the alignment
+        // has something to clear.
+        $second = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release v2.1.0-20260202-000000-bbbb222 --artifact '.$fixture['artifact'],
+        );
+        expect($second['exit'])->toBe(0, $second['output']);
+        expect(is_link($fixture['root'].'/previous'))->toBeTrue();
+
+        $artifact = deployOpsAlignmentArtifact($scratch, $fixture);
+        deployOpsWriteHeldRestore($scratch);
+
+        // The stub log accumulates across every deploy run in this scratch
+        // tree, and the two ordinary deployments above legitimately activated
+        // and restarted the worker. Truncating here is what makes the
+        // assertions below statements about the ALIGNMENT deploy alone.
+        file_put_contents($scratch.'/supervisorctl.log', '');
+        file_put_contents($scratch.'/systemctl.log', '');
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION,
+        );
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('controlled alignment authorized')
+            ->toContain('is STILL HELD')
+            ->toContain('restore-target --resume --target parity-target --operation '.DEPLOY_OPS_RESTORE_OPERATION);
+
+        // SAME deploy mechanics: the release is installed and current points
+        // at it, PHP-FPM was reloaded, and the required CLI check ran.
+        $releaseRoot = $fixture['root'].'/releases/'.DEPLOY_OPS_ALIGNMENT_RELEASE;
+        expect(is_dir($releaseRoot))->toBeTrue();
+        expect(is_file($releaseRoot.'/public/index.php'))->toBeTrue();
+        expect(realpath($fixture['root'].'/current'))->toBe(realpath($releaseRoot));
+        expect(File::get($scratch.'/systemctl.log'))->toContain('reload');
+
+        // DIFFERENT runtime policy: nothing that resumes the target ran.
+        expect(File::get($result['healthCheckLog']))->toBe('', 'a held target is never health checked as if it were serving');
+        expect(deployOpsSupervisorctlLog($scratch))
+            ->not->toContain('supervisorctl start parity-queue:*')
+            ->not->toContain('supervisorctl update parity-queue')
+            ->not->toContain('supervisorctl reread');
+        expect(trim((string) @file_get_contents($scratch.'/artisan.log')))->toBe('');
+        expect($result['output'])->not->toContain('running database migrations');
+
+        // The guard is untouched — only restore-target --resume may remove it.
+        expect(json_decode(File::get(deployOpsGuardPath($scratch)), true))
+            ->toMatchArray(['status' => 'held', 'operation' => DEPLOY_OPS_RESTORE_OPERATION]);
+
+        // `previous` is cleared rather than pointed at the release that was
+        // current: that release is exactly the code the restored data does NOT
+        // match, so an ordinary "roll back one release" must not silently undo
+        // the alignment once the hold ends.
+        expect(is_link($fixture['root'].'/previous'))->toBeFalse();
+        expect(file_exists($fixture['root'].'/previous'))->toBeFalse();
+
+        // Every release directory is still on disk: clearing `previous`
+        // removes an implicit rollback target, never a release.
+        expect(is_dir($fixture['root'].'/releases/v2.1.0-20260202-000000-bbbb222'))->toBeTrue();
+
+        // The history says what actually happened, and never claims the target
+        // is serving while it is still in maintenance.
+        $history = deployOpsHistory($fixture['root']);
+        $alignment = array_values(array_filter(
+            $history,
+            static fn (array $entry): bool => str_starts_with((string) $entry['event'], 'restore-alignment-'),
+        ));
+
+        expect(array_column($alignment, 'event'))->toBe(['restore-alignment-started', 'restore-alignment-finished']);
+        expect(end($alignment)['status'])->toBe('held');
+
+        foreach ($history as $entry) {
+            expect($entry['event'] === 'deployment-finished' && $entry['release'] === DEPLOY_OPS_ALIGNMENT_RELEASE)
+                ->toBeFalse('a controlled alignment must never record an ordinary successful deployment');
+        }
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('keeps the target held when a controlled alignment fails before switching current', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsServingFixture($scratch);
+        $originalCurrent = realpath($fixture['root'].'/current');
+        $artifact = deployOpsAlignmentArtifact($scratch, $fixture);
+        deployOpsWriteHeldRestore($scratch);
+        file_put_contents($scratch.'/supervisorctl.log', '');
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION,
+            ['verify_clis_fail' => true],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain('controlled restore alignment failed');
+        expect($result['output'])->toContain('remains HELD');
+
+        // Nothing was switched, the staged release was discarded, and the
+        // failure was recorded as an alignment rather than as a deployment.
+        expect(realpath($fixture['root'].'/current'))->toBe($originalCurrent);
+        expect(is_dir($fixture['root'].'/releases/'.DEPLOY_OPS_ALIGNMENT_RELEASE))->toBeFalse();
+        expect(glob($fixture['root'].'/releases/.*.tmp-*') ?: [])->toBe([]);
+
+        $history = deployOpsHistory($fixture['root']);
+        $finished = end($history);
+        expect($finished['event'])->toBe('restore-alignment-finished');
+        expect($finished['status'])->toBe('failed');
+
+        // The hold is intact in every respect deploy can be responsible for.
+        expect(is_file(deployOpsGuardPath($scratch)))->toBeTrue();
+        expect(File::get($result['healthCheckLog']))->toBe('');
+        expect(deployOpsSupervisorctlLog($scratch))->not->toContain('supervisorctl start parity-queue:*');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});
+
+it('restores the prior release but still keeps the target held when an alignment fails after the switch', function () {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsServingFixture($scratch);
+        $originalCurrent = realpath($fixture['root'].'/current');
+        $artifact = deployOpsAlignmentArtifact($scratch, $fixture);
+        deployOpsWriteHeldRestore($scratch);
+        file_put_contents($scratch.'/supervisorctl.log', '');
+
+        // PHP-FPM will not reload. That is the first thing after the atomic
+        // current switch, so this is the "failed after the switch" case.
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --restore-operation '.DEPLOY_OPS_RESTORE_OPERATION,
+            ['systemctl_fails' => true],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+
+        // Recovery put the prior release back — the normal deployment recovery,
+        // unchanged.
+        expect(realpath($fixture['root'].'/current'))->toBe($originalCurrent);
+
+        // And stopped there. No queue recovery, no maintenance change, no
+        // scheduler restoration, no guard removal.
+        expect($result['output'])
+            ->toContain('controlled restore alignment failed')
+            ->toContain('remains HELD');
+        expect($result['output'])->not->toContain('re-issuing the queue restart signal');
+        expect(is_file(deployOpsGuardPath($scratch)))->toBeTrue();
+        expect(File::get($result['healthCheckLog']))->toBe('');
+        expect(deployOpsSupervisorctlLog($scratch))->not->toContain('supervisorctl start parity-queue:*');
+
+        $history = deployOpsHistory($fixture['root']);
+        $finished = end($history);
+        expect($finished['event'])->toBe('restore-alignment-finished');
+        expect($finished['status'])->not->toBe('success');
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+});

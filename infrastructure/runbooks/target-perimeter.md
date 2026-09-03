@@ -1,7 +1,7 @@
 # Target-aware perimeter
 
 This runbook covers `infrastructure/scripts/install-target-perimeter`, the
-three generic sudo wrappers it installs, the sudoers rule, the backup cron
+four generic sudo wrappers it installs, the sudoers rule, the backup cron
 entries, and the removal of the now-obsolete per-environment wrapper files
 that predate them.
 
@@ -25,20 +25,21 @@ install/verify/rollback contract, entirely separate from
 
 ## What this installs — and does not
 
-Exactly five files:
+Exactly six files:
 
 | Source (this repo) | Destination | Owner:group | Mode |
 |---|---|---|---|
 | `infrastructure/config/wrappers/rateguru-deploy` | `/usr/local/sbin/rateguru-deploy` | `root:root` | `0755` |
 | `infrastructure/config/wrappers/rateguru-rollback` | `/usr/local/sbin/rateguru-rollback` | `root:root` | `0755` |
 | `infrastructure/config/wrappers/rateguru-cleanup` | `/usr/local/sbin/rateguru-cleanup` | `root:root` | `0755` |
+| `infrastructure/config/wrappers/rateguru-restore` | `/usr/local/sbin/rateguru-restore` | `root:root` | `0755` |
 | `infrastructure/config/sudoers/rateguru-deploy` | `/etc/sudoers.d/rateguru-deploy` | `root:root` | `0440` |
 | `infrastructure/config/cron/rateguru-backups` | `/etc/cron.d/rateguru-backups` | `root:root` | `0644` |
 
 `--apply` additionally **removes** six now-obsolete wrapper files at
 `/usr/local/sbin` — one per operation (deploy, rollback, cleanup), for each
 of the two per-environment identities the platform used to operate under
-(staging, production) — that predate the three generic wrappers above and
+(staging, production) — that predate the generic wrappers above and
 are no longer referenced by anything. This removal is transactional, backed
 up, and rolled back on failure exactly like every install step: see
 [Legacy wrapper removal](#legacy-wrapper-removal) below.
@@ -63,9 +64,10 @@ meaningless at best. When `tits-guru` is actually provisioned and flipped to
 `active`, its own sudoers rule is a reviewable one-line addition alongside
 that provisioning work — not something this installer adds preemptively.
 
-## The three generic wrappers
+## The four generic wrappers
 
-Each of `rateguru-deploy`, `rateguru-rollback`, `rateguru-cleanup`:
+Each of `rateguru-deploy`, `rateguru-rollback`, `rateguru-cleanup`,
+`rateguru-restore`:
 
 1. requires root (`require_root`, from `common`) — it is only ever reached
    through `sudo`, or invoked directly by real root for server
@@ -78,7 +80,17 @@ Each of `rateguru-deploy`, `rateguru-rollback`, `rateguru-cleanup`:
    passed straight through to the underlying operation, which handles its
    own unknown-argument rejection if the flag is invalid; a lone short flag
    other than `-h`/`--help` is rejected by the wrapper itself, since every
-   real operation flag in this codebase is long-form;
+   real operation flag in this codebase is long-form.
+
+   **`rateguru-restore` is the deliberate exception to point 2.** A restore
+   replaces a live database and a live storage tree, so its wrapper is a
+   CLOSED WHITELIST rather than a pass-through: it accepts `--apply`,
+   `--inspect`, `--resume`, `--target`, `--source`, `--backup` and
+   `--operation` and nothing else, validates each value against the same
+   closed classes the server enforces, and assembles a fixed argument vector.
+   No argument is forwarded unexamined, so no future `restore-target` flag
+   becomes remotely reachable by accident. See
+   [`github-restore.md`](github-restore.md);
 3. authorizes the caller. `SUDO_USER` (set by `sudo` to the identity that
    invoked it) must exactly equal the target's own `deploy_user` from the
    registry (`target_deploy_user`), or the wrapper rejects the call with:
@@ -95,9 +107,9 @@ Each of `rateguru-deploy`, `rateguru-rollback`, `rateguru-cleanup`:
    (`tits-guru`) is rejected here, before the underlying binary is ever
    invoked;
 5. execs into the real, unchanged binary at its generic installed path —
-   `/home/www/rateguru/bin/deploy`, `.../rollback`, or `.../cleanup` — with
-   `--target TARGET_ID` prepended exactly once, then every operation
-   argument the caller gave, unmodified;
+   `/home/www/rateguru/bin/deploy`, `.../rollback`, `.../cleanup` or
+   `.../restore-target` — with `--target TARGET_ID` prepended exactly once,
+   then every operation argument the caller gave, unmodified;
 6. scrubs its own environment before that exec: `env -i` with only four
    variables — `PATH` (the same minimal production `PATH` the backup cron
    already uses), `HOME=/root`, `USER=root`, `LOGNAME=root`. Every
@@ -127,11 +139,12 @@ the wrapper falls back to its real, hardcoded production paths — even if a
 deploy-rateguru-staging ALL=(root) NOPASSWD: \
     /usr/local/sbin/rateguru-deploy, \
     /usr/local/sbin/rateguru-rollback, \
-    /usr/local/sbin/rateguru-cleanup
+    /usr/local/sbin/rateguru-cleanup, \
+    /usr/local/sbin/rateguru-restore
 ```
 
 This is the only grant in the file: the staging deploy user's access to the
-three generic wrappers, and nothing else. No rule for `tits-guru`'s
+four generic wrappers, and nothing else. No rule for `tits-guru`'s
 (unprovisioned) deploy user, and no rule for any per-environment identity —
 those grants existed only temporarily, alongside the six obsolete wrapper
 files, and were removed together with them.
@@ -188,11 +201,11 @@ infrastructure/scripts/install-target-perimeter --verify
 ```
 
 Same contract as `install-target-operations`, scoped to five installed
-files (plus the six-file legacy removal) instead of sixteen.
+files (plus the six-file legacy removal) instead of seventeen.
 
 ### `--check` — read-only
 
-Validates: the five source files exist and are regular files; the three
+Validates: the six source files exist and are regular files; the four
 wrapper scripts and the installer itself are executable and pass `bash -n`;
 `shellcheck`, when available on the host (never required — its absence
 never blocks `--check`); that `deploy`, `rollback`, `cleanup`,
@@ -201,11 +214,11 @@ never blocks `--check`); that `deploy`, `rollback`, `cleanup`,
 validates and lists `staging-main` active/staging and `tits-guru`
 planned/production; the candidate sudoers file passes `visudo -cf` and
 grants staging (never `tits-guru`, never any other identity) access to only
-the three generic wrappers; the candidate cron file has exactly three
+the four generic wrappers; the candidate cron file has exactly three
 operational lines, all using `--target staging-main`, with schedule and log
 paths unchanged; and — see
 [Installed operations bundle staleness guard](#installed-operations-bundle-staleness-guard)
-below — that the real, installed sixteen-file target operations bundle at
+below — that the real, installed seventeen-file target operations bundle at
 `/home/www/rateguru` is present, correctly owned and moded, and
 byte-identical to this repository's own committed sources. `--check` also
 reports, for each of the six legacy wrapper paths, whether it is currently
@@ -216,18 +229,18 @@ anywhere.
 ### Installed operations bundle staleness guard
 
 `install-target-perimeter` depends on `install-target-operations` having
-already installed a fully current sixteen-file bundle — the registry,
+already installed a fully current seventeen-file bundle — the registry,
 `deployment.conf`, and `targets`/`common`/`health-check`/`status`/`cleanup`/
 `deploy`/`rollback`/`backup`/`restore-test`/`offsite-backup`/
 `offsite-retention`/`offsite-restore-test`/`backup-cycle`/
 `verify-required-clis` — at
 `/home/www/rateguru`. This installer never installs, modifies, or takes
-ownership of any of those sixteen files; it only ever verifies them, for
+ownership of any of those seventeen files; it only ever verifies them, for
 `--check`, `--apply`'s own preflight, and `--verify` alike, before a staging
 directory, a backup directory, or a single perimeter destination file is
 ever touched.
 
-For each of the sixteen files, the check confirms: it exists; it is a
+For each of the seventeen files, the check confirms: it exists; it is a
 regular file, never a symlink; its owner/mode match what
 `install-target-operations` installs (registry and `deployment.conf` both
 `root:root 0640`, `common` `root:root 0644`, every other file `root:root
@@ -253,7 +266,7 @@ operational scripts — this guard is what prevents that.
    `/etc/sudoers.d`, `/etc/cron.d`) are validated — must already exist, be
    real directories, `root:root`-owned, not group- or other-writable. This
    installer never creates, `chown`s, or `chmod`s any of them.
-3. The five source files are copied into a private, root-only staging
+3. The six source files are copied into a private, root-only staging
    directory, then verified together there: `bash -n` on the staged
    wrappers, each staged wrapper's `--help` and a bare
    `--target tits-guru` probe (proving the planned-target rejection — see

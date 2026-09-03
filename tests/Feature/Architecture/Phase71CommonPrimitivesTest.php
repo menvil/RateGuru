@@ -67,6 +67,9 @@ it('has exactly one build, one deploy and one rollback implementation', function
         // never a per-environment fork of any of them.
         'prepare-rateguru-host',
         'record-rateguru-deployment',
+        // Phase 7.4's one addition: one RESTORE implementation, covering all
+        // three of its modes and both environments.
+        'restore-rateguru',
         'rollback-rateguru',
         'sentry-release',
     ]);
@@ -81,6 +84,10 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'prepare-production-host.yml',
         'prepare-staging-host.yml',
         'release.yml',
+        // Phase 7.4: one restore workflow per environment, exactly like every
+        // other operator-facing operation here.
+        'restore-production.yml',
+        'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
     ]);
@@ -194,9 +201,16 @@ it('introduces no durable release-artifact archive of any kind', function () {
         }
     }
 
+    // Every build's artifact retention is a caller-owned POLICY, and each one
+    // is a short, bounded window on a GitHub workflow artifact — never a
+    // durable archive anything recovers from. Recovery rebuilds from the
+    // source_sha a backup already carries, which is why an alignment build's
+    // artifact may expire without weakening anything.
     expect($retentions)->toBe([
         'deploy-staging.yml' => '3',
         'release.yml' => '90',
+        'restore-production.yml' => '7',
+        'restore-staging.yml' => '7',
     ]);
 });
 
@@ -216,7 +230,7 @@ it('records Phase 7 as the consolidated plan, with the artifact archive gone', f
         '**7.1 Common operational primitives',
         '**7.2 Deployment observability + Prepare Host',
         '**7.3 Restore Target Data',
-        '**7.4 GitHub Restore actions',
+        '**7.4 GitHub Restore actions + controlled code alignment',
         '**7.5 Repair Target',
         '**7.6 Recover Host',
         '**7.7 GitHub Recover + clean-host rehearsal',
@@ -246,22 +260,24 @@ it('records Phase 7 as the consolidated plan, with the artifact archive gone', f
     expect($roadmap)->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
 });
 
-it('implements nothing from Phase 7.4 onwards', function () {
-    // Prepare Host landed in Phase 7.2 and Restore Target Data in Phase 7.3;
-    // each has its own scope guard (Phase72ScopeTest, Phase73ScopeTest).
-    // The GitHub-facing restore surface, Repair and Recover remain future
-    // work, and nothing may ship an implementation of any of them.
+it('implements nothing from Phase 7.5 onwards', function () {
+    // Prepare Host landed in Phase 7.2, Restore Target Data in 7.3 and the
+    // GitHub restore surface with controlled code alignment in 7.4; each has
+    // its own scope guard (Phase72ScopeTest, Phase73ScopeTest,
+    // Phase74ScopeTest). Repair and Recover remain future work, and nothing
+    // may ship an implementation of either.
     foreach ([
         'infrastructure/scripts/repair-target',
         'infrastructure/scripts/recover-host',
-        '.github/workflows/restore-staging.yml',
-        '.github/workflows/restore-production.yml',
         '.github/workflows/repair-staging.yml',
+        '.github/workflows/repair-production.yml',
         '.github/workflows/recover-staging.yml',
         '.github/workflows/recover-production.yml',
+        '.github/actions/repair-rateguru/action.yml',
+        '.github/actions/recover-rateguru-host/action.yml',
     ] as $futureWork) {
         expect(File::exists(base_path($futureWork)))
-            ->toBeFalse("{$futureWork} is Phase 7.4+ work and must not exist yet");
+            ->toBeFalse("{$futureWork} is Phase 7.5+ work and must not exist yet");
     }
 
     // restore-test stays what it always was: a scratch-database integrity
@@ -303,7 +319,7 @@ it('leaves every accepted Phase 4 and Phase 5 primitive in place', function () {
             ->toBeTrue("infrastructure/scripts/{$script} must not be removed or merged away");
     }
 
-    foreach (['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup'] as $wrapper) {
+    foreach (['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup', 'rateguru-restore'] as $wrapper) {
         expect(File::exists(base_path("infrastructure/config/wrappers/{$wrapper}")))
             ->toBeTrue("the generic {$wrapper} wrapper must stay the privilege boundary");
     }
@@ -324,6 +340,13 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
     // belongs in the same domain, and recording an already-completed
     // deployment, which mutates nothing on the target but inherits the domain
     // of the workflow it reports on.
+    //
+    // Phase 7.4 added four more per restore workflow, and they are the reason
+    // the group is declared at WORKFLOW level there rather than per job: the
+    // restore, the controlled alignment deploy and the resume are one logical
+    // mutation of one target, and a deploy or rollback slipping in between two
+    // of them would move `current` away from the commit the restored data
+    // belongs to while the target is held and cannot object.
     $mutations = [
         'deploy-staging.yml:deploy' => ['staging-main', 'rateguru-staging-deployment'],
         'deploy-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
@@ -333,6 +356,14 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         'rollback-production.yml:rollback' => ['tits-guru', 'rateguru-production-release'],
         'prepare-staging-host.yml:prepare' => ['staging-main', 'rateguru-staging-deployment'],
         'prepare-production-host.yml:prepare' => ['tits-guru', 'rateguru-production-release'],
+        'restore-staging.yml:restore' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-staging.yml:align' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-staging.yml:resume' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-production.yml:restore' => ['tits-guru', 'rateguru-production-release'],
+        'restore-production.yml:align' => ['tits-guru', 'rateguru-production-release'],
+        'restore-production.yml:resume' => ['tits-guru', 'rateguru-production-release'],
+        'restore-production.yml:observability' => ['tits-guru', 'rateguru-production-release'],
     ];
 
     $found = [];
@@ -367,7 +398,9 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         ->and($groups['rollback-production.yml'])->toBe($groups['release.yml'])
         ->and($groups['release.yml'])->toBe('rateguru-production-release')
         ->and($groups['prepare-staging-host.yml'])->toBe($groups['deploy-staging.yml'])
-        ->and($groups['prepare-production-host.yml'])->toBe($groups['release.yml']);
+        ->and($groups['prepare-production-host.yml'])->toBe($groups['release.yml'])
+        ->and($groups['restore-staging.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['restore-production.yml'])->toBe($groups['release.yml']);
 
     // ...and GitHub concurrency never replaced the server-side lock.
     expect(File::get(base_path('infrastructure/scripts/common')))->toContain('flock');

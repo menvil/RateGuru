@@ -39,6 +39,18 @@ PINNED_FILE_OWNER="root"
 PINNED_FILE_GROUP="root"
 PINNED_FILE_MODE="0640"
 
+# Phase 7.4: where the restore guard lives — the same run root backup,
+# backup-cycle and the restore primitives already resolve. Cleanup reads it and
+# nothing else under it.
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+
+if rateguru_test_overrides_allowed; then
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+fi
+
 declare -A PROTECTED_RELEASES=()
 declare -A PINNED_RELEASES=()
 declare -A RELEASE_STATUSES=()
@@ -434,6 +446,17 @@ run_dry_run() {
 
 perform_apply() {
     acquire_deployment_lock "${TARGET_ROOT}"
+
+    # Taken under the deployment lock and before the pinned-releases file is
+    # created or a single candidate is recomputed — so nothing is written and
+    # nothing is deleted. A target held after a restore is mid-way through a
+    # controlled code alignment: the release its data belongs to may be one
+    # cleanup would otherwise consider stale, and deleting it would leave the
+    # alignment with no code to install and the target held forever. The
+    # side-effect-free --dry-run is deliberately still allowed: refusing to
+    # ANSWER a read-only question protects nothing, and an operator working a
+    # hold has every reason to ask what cleanup would do afterwards.
+    assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a cleanup"
 
     ensure_pinned_file_exists
 

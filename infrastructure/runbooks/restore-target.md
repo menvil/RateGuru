@@ -13,16 +13,16 @@ primitives it drives (`fetch-backup`, `verify-backup`, `restore-database`,
 
 These are different operations and must never be conflated.
 
-| | RESTORE TARGET DATA (this runbook, Phase 7.3) | RECOVER HOST (Phase 7.6, future) |
-|---|---|---|
-| What was lost | data | the whole server |
-| Starting point | a live, deployed, healthy-ish target | a new, empty VPS |
-| Infrastructure | already installed and correct | must be prepared first |
-| Secrets / `.env` | already present, never touched | must be recovered |
-| Server configuration | already present, never touched | must be rebuilt |
-| Application code | already deployed, never rebuilt | rebuilt from `release.json.source_sha` |
-| Migrations | never | never (the rebuilt code already matches) |
-| What is restored | `database.dump` + `storage-app.tar.gz` | those, plus everything above |
+| | RESTORE TARGET DATA (this runbook, Phase 7.3) | CONTROLLED CODE ALIGNMENT (Phase 7.4, [`github-restore.md`](github-restore.md)) | RECOVER HOST (Phase 7.6, future) |
+|---|---|---|---|
+| What was lost | data | nothing — the data is already back, the code does not match it | the whole server |
+| Starting point | a live, deployed, healthy-ish target | a target HELD by a completed restore | a new, empty VPS |
+| Infrastructure | already installed and correct | already installed and correct | must be prepared first |
+| Secrets / `.env` | already present, never touched | already present, never touched | must be recovered |
+| Server configuration | already present, never touched | already present, never touched | must be rebuilt |
+| Application code | already deployed, never rebuilt | rebuilt in GitHub Actions from the backup's exact `source_sha` and deployed | rebuilt from `release.json.source_sha` |
+| Migrations | never | never (the code is being made to match the data) | never (the rebuilt code already matches) |
+| What is restored | `database.dump` + `storage-app.tar.gz` | nothing — one release is installed | those, plus everything above |
 
 A backup contains seven files. A live restore **applies exactly two of them**:
 
@@ -503,11 +503,26 @@ REQUIRED` block.
 
 **Do not use the normal deployment path.** A normal deploy is not
 restore-aware: it health-checks the target and transitions the queue, both of
-which fight the hold this operation is deliberately keeping. Controlled code
-alignment — deploying the required `source_sha` while PRESERVING the hold, and
-then resuming — is Phase 7.4, and does not exist yet. Until it does, a held
-operation is finished by hand, by an operator who understands that the target
-must stay in maintenance with its queue and scheduler held throughout.
+which fight the hold this operation is deliberately keeping.
+
+Since Phase 7.4 there is exactly one supported way to finish a held operation,
+and it exists in two forms of the same thing:
+
+* **from GitHub** — run the Restore workflow for this target with
+  `mode=continue-held` and the operation ID. It inspects the hold, builds the
+  exact required commit, deploys it as a controlled alignment that keeps the
+  target held throughout, and then resumes. See
+  [`github-restore.md`](github-restore.md);
+* **by hand** — once an artifact built from the exact required commit is on
+  the host, `deploy --target <target> --release <id> --artifact <path>
+  --checksum <path> --restore-operation <operation>`. That is the ORDINARY
+  deploy in alignment mode: same mechanics, no migrations, no health check, no
+  queue transition, no scheduler restoration and no guard removal. It then
+  needs `--resume` below, exactly as the workflow does.
+
+Neither form lets the operator choose the commit: the required `source_sha` is
+read on the server, from the restore guard and the operation's own
+`state.json`, and the artifact is checked against it before `current` moves.
 
 Once `current` genuinely serves the required `source_sha`:
 
@@ -535,10 +550,45 @@ the restored data, records the outcome, and removes the operation workspace.
 A failing health check does not count as a successful resume: the target is
 put back into as held a state as possible and the command exits non-zero.
 
-Turning this into a safe operator workflow — build the backup's `source_sha`,
-deploy it with migrations off and the restore hold preserved, then resume — is
-Phase 7.4. Phase 7.3 deliberately stops at leaving a state and a journal
-precise enough for that to be built correctly.
+### Reading a held operation without changing it
+
+`--inspect` is the read-only answer to "what is this operation waiting for?".
+It changes no database, no storage tree, no queue, no scheduler entry, no
+maintenance flag, no `current` link and no guard:
+
+```bash
+sudo /home/www/rateguru/bin/restore-target \
+    --inspect \
+    --target staging-main \
+    --operation 20260115-024512-3f9ac1
+```
+
+It fails closed unless the operation exists, belongs to this target, is held
+for code alignment, and its guard and state agree on a full 40-character
+required commit — and unless the target is STILL held: maintenance on, its
+queue provably fully STOPPED, and no scheduler cron entry present. That last
+check is also what the controlled alignment deploy relies on, rather than
+re-deriving the same Supervisor reading a second time.
+
+Two hold statuses are deliberately NOT continuable this way. `in-progress`
+means a restore is still running or was killed mid-flight; `failed-held` means
+a restore failed with live data that may already have been replaced. Neither is
+finished by deploying a commit, and `--inspect` says so and refuses.
+
+### The machine-readable result
+
+Every terminal success also prints exactly one line for machines:
+
+```text
+RATEGURU_RESTORE_RESULT={"status":"held","operation_id":"...","target":"...", ...}
+```
+
+Ten fields — `status`, `operation_id`, `target`, `backup`, `backup_release`,
+`backup_source_sha`, `required_source_sha`, `current_source_sha`,
+`code_alignment`, `runtime_resumed` — carrying operational identity and no
+secret. `status` is `completed` (restored and serving), `held` (data restored,
+code alignment required) or `resumed`. The GitHub restore action branches on
+this object and never on the human summary above it.
 
 ## Journal and history
 
@@ -606,10 +656,10 @@ operation (one carrying `state.json`).
 | `no live data was mutated` | the emergency backup or its verification failed | untouched | fix the backup path first, then retry |
 | `failed-recovered` | activation or verification failed; everything was undone | restored to its pre-restore state | read the journal, then retry or investigate |
 | `failed-held` + `MANUAL RECOVERY REQUIRED` | compensation could not complete | inconsistent | do not start the target; use the emergency backup named in the output |
-| `backup` refuses: `… is held after restore operation …` | a restore guard is in place for this target | restored, or mid-restore | controlled code alignment is required — do **not** use the normal deployment path; Phase 7.4 will deploy the required source SHA while preserving the hold, then resume |
+| `backup`, `deploy`, `rollback` or `cleanup` refuses: `… is held after restore operation …` | a restore guard is in place for this target | restored, or mid-restore | controlled code alignment is required — do **not** use the normal deployment path. Run the Restore workflow with `mode=continue-held`, or `deploy --restore-operation <operation>` by hand, then `--resume` |
 | `WARNING: one or more writers could NOT be proven stopped` | a queue worker, the scheduler or maintenance mode could not be confirmed | unknown, possibly still being written | treat the data as live; find and stop the writer named in the `ERROR` lines before touching anything |
 | the process was killed mid-activation | no handler ran, so nothing compensated | possibly half-swapped | read `state.json` in the operation workspace for the exact phase, then either finish or reverse it with the `restore-database` / `restore-storage` steps, or restore from the emergency backup |
-| `CODE ALIGNMENT: REQUIRED` | the data is restored, the code does not match | restored | controlled code alignment is required — do **not** use the normal deployment path; Phase 7.4 will deploy the required source SHA while preserving the hold, then `--resume`. Until it exists this is finished by hand, keeping the target held throughout |
+| `CODE ALIGNMENT: REQUIRED` | the data is restored, the code does not match | restored | controlled code alignment is required — do **not** use the normal deployment path. Run the Restore workflow with `mode=continue-held` and the operation ID, or `deploy --restore-operation <operation>` by hand, then `--resume`. The target stays held throughout either way |
 
 ## Expected server commands
 
@@ -626,7 +676,24 @@ sudo /home/www/rateguru/bin/restore-target \
 # Read the journal.
 sudo tail -5 /home/www/rateguru/restores/restore-history.jsonl | jq .
 
+# Read a held operation without changing anything.
+sudo /home/www/rateguru/bin/restore-target \
+    --inspect --target staging-main --operation 20260115-024512-3f9ac1
+
 # Resume a held target after the aligning deployment.
 sudo /home/www/rateguru/bin/restore-target \
+    --resume --target staging-main --operation 20260115-024512-3f9ac1
+```
+
+The same three operations, through the restricted deploy credential and the
+generic sudo wrapper — which is what the GitHub restore action calls, and the
+only remote route into a restore:
+
+```bash
+sudo -n /usr/local/sbin/rateguru-restore \
+    --apply --target staging-main --source offsite --backup 20260115-023000
+sudo -n /usr/local/sbin/rateguru-restore \
+    --inspect --target staging-main --operation 20260115-024512-3f9ac1
+sudo -n /usr/local/sbin/rateguru-restore \
     --resume --target staging-main --operation 20260115-024512-3f9ac1
 ```
