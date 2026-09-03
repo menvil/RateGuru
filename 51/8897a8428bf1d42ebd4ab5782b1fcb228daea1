@@ -1,0 +1,36 @@
+infrastructure/scripts/common
+  s_015e6e963c56c6::t_5181b6b1d2fb3c 932
+  s_015e6e963c56c6::t_4b88e3dd9608ba 835-844
+tests/Feature/Architecture/RollbackRateGuruActionTest.php
+  s_015e6e963c56c6::t_043f6b76336038 161
+tests/Feature/Architecture/PrepareHostWorkflowsTest.php
+  s_015e6e963c56c6::t_043f6b76336038 40
+tests/Feature/Architecture/RestoreWrapperTest.php
+  s_015e6e963c56c6::t_17380fc3ca41a2 112
+tests/Feature/Architecture/RestoreWorkflowsTest.php
+  s_015e6e963c56c6::t_17380fc3ca41a2 447
+tests/Pest.php
+  s_015e6e963c56c6::t_2becdf2645c75e 187-210
+tests/Feature/Architecture/Phase74ScopeTest.php
+  s_015e6e963c56c6::t_17380fc3ca41a2 255
+tests/Feature/Architecture/RestoreRateGuruActionTest.php
+  s_015e6e963c56c6::t_17380fc3ca41a2 143
+tests/Feature/Architecture/RecordRateGuruDeploymentActionTest.php
+  s_015e6e963c56c6::t_043f6b76336038 227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "518897a8428bf1d42ebd4ab5782b1fcb228daea1",
+  "prompts": {},
+  "sessions": {
+    "s_015e6e963c56c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d7f5ab7-8830-4ed4-b056-647d1bdeaf21",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
