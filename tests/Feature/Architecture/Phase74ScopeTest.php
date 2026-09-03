@@ -252,10 +252,7 @@ it('never builds an application on the VPS and stores no durable artifact archiv
         // GitHub build does ("composer install --no-dev, ...") in comments,
         // and a whole-file scan would forbid explaining the very boundary it
         // is enforcing.
-        $source = implode("\n", array_filter(
-            preg_split('/\R/', File::get($path)),
-            static fn (string $line): bool => $line !== '' && ! str_starts_with(ltrim($line), '#'),
-        ));
+        $source = executableSourceLines(File::get($path));
 
         // The recovery contract is exact source_sha + repository lockfiles +
         // mutable backup state, assembled in GitHub Actions and nowhere else.
@@ -398,9 +395,12 @@ it('never migrates, health-checks or resumes a target during a controlled alignm
         ->toBeLessThan(mb_strpos($deploy, "\nperform_deploy() {"));
 
     // finalize_restore_alignment does none of the resuming actions.
-    $start = mb_strpos($deploy, "\nfinalize_restore_alignment() {");
-    $end = mb_strpos($deploy, "\n# --- deployment recovery", $start);
-    $section = mb_substr($deploy, $start, $end - $start);
+    //
+    // Through p74FunctionBody, which asserts both markers were actually found.
+    // Raw mb_strpos here would turn a renamed function into `false`, which
+    // mb_substr reads as offset 0 — and the scan below would then "pass" while
+    // describing the whole file instead of that one function.
+    $section = p74FunctionBody($deploy, 'finalize_restore_alignment');
 
     foreach ([
         'HEALTH_CHECK_BIN',

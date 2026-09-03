@@ -135,9 +135,15 @@ it('builds the remote command as a fixed argument vector, never a string', funct
         ->toContain('remote_command+=(--operation "${OPERATION_ID}")')
         ->toContain('"${remote_command[@]@Q}"');
 
-    // No shell construction of any kind, anywhere.
+    // No shell construction of any kind, anywhere — scanned over executable
+    // lines only, the same way install-target-perimeter's own
+    // verify_wrapper_static_contract does it. A whole-file grep would forbid
+    // the action from DOCUMENTING that it builds no shell string, which is
+    // exactly the incident that check was hardened against.
+    $executable = executableSourceLines($source);
+
     foreach (['eval ', 'bash -c', 'sh -c'] as $forbidden) {
-        expect($source)->not->toContain($forbidden);
+        expect($executable)->not->toContain($forbidden);
     }
 });
 

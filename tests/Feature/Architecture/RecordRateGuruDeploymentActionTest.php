@@ -224,10 +224,7 @@ it('never runs application code on the runner and never sends credentials into a
     // Not one artisan invocation, and not one observability credential, on the
     // runner: the marker is produced by the target's own runtime user, inside
     // the release that is actually serving.
-    $executable = implode("\n", array_filter(
-        explode("\n", $source),
-        static fn (string $line): bool => ! str_starts_with(ltrim($line), '#'),
-    ));
+    $executable = executableSourceLines($source);
 
     expect($executable)->not->toContain('artisan');
     expect($executable)->not->toContain('NIGHTWATCH_TOKEN');

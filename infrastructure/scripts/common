@@ -823,11 +823,25 @@ restore_operation_state_file() {
 # own persisted state — never from an argument.
 RESTORE_ALIGNMENT_REQUIRED_SHA=""
 RESTORE_ALIGNMENT_BACKUP=""
-RESTORE_ALIGNMENT_BACKUP_RELEASE=""
 
-# restore_alignment_read_json FILE FILTER LABEL — one guarded read, so a
-# missing, symlinked, non-object or unreadable document is a refusal with a
-# name on it rather than an empty string that silently compares unequal.
+# restore_alignment_read_json FILE FILTER — read ONE field out of a document
+# that has already been proven readable.
+#
+# Deliberately not a guarded read, and the guarding is not missing: every
+# caller below establishes that the document exists, is a regular file, is not
+# a symlink and parses as a JSON object BEFORE its first call here. By the time
+# this runs, the only thing that can be absent is a FIELD.
+#
+# An absent field yields the empty string, and that is safe because nothing acts
+# on the value: every single read below is either compared against a required
+# target, operation, status or commit, or required to be non-empty. Empty fails
+# both, so the refusal comes from that check — with the field's own diagnostic —
+# rather than from here. Widening this into a second layer of file checks would
+# duplicate the caller's and give two places to keep in agreement.
+#
+# That invariant is load-bearing: a field read here and then neither compared
+# nor required would silently accept an empty value. Keep every new read paired
+# with a check, or do not add the read.
 restore_alignment_read_json() {
     local path="$1" filter="$2"
 
@@ -839,7 +853,6 @@ assert_restore_alignment_operation() {
 
     RESTORE_ALIGNMENT_REQUIRED_SHA=""
     RESTORE_ALIGNMENT_BACKUP=""
-    RESTORE_ALIGNMENT_BACKUP_RELEASE=""
 
     [[ -n "${run_root}" ]] || fail "assert_restore_alignment_operation: run root is required"
 
@@ -916,14 +929,13 @@ assert_restore_alignment_operation() {
     jq -e 'type == "object"' "${state_file}" >/dev/null 2>&1 \
         || fail "restore operation state ${state_file} is not a JSON object — refusing to authorize a controlled alignment against it"
 
-    local state_target state_status state_phase state_alignment state_sha state_backup state_release
+    local state_target state_status state_phase state_alignment state_sha state_backup
     state_target="$(restore_alignment_read_json "${state_file}" '.target')"
     state_status="$(restore_alignment_read_json "${state_file}" '.status')"
     state_phase="$(restore_alignment_read_json "${state_file}" '.phase')"
     state_alignment="$(restore_alignment_read_json "${state_file}" '.code_alignment')"
     state_sha="$(restore_alignment_read_json "${state_file}" '.backup_source_sha')"
     state_backup="$(restore_alignment_read_json "${state_file}" '.backup')"
-    state_release="$(restore_alignment_read_json "${state_file}" '.backup_release')"
 
     [[ "${state_target}" == "${target_id}" ]] \
         || fail "restore operation ${operation_id} belongs to target ${state_target:-<unset>}, not ${target_id}"
@@ -951,7 +963,6 @@ assert_restore_alignment_operation() {
 
     RESTORE_ALIGNMENT_REQUIRED_SHA="${guard_sha}"
     RESTORE_ALIGNMENT_BACKUP="${state_backup}"
-    RESTORE_ALIGNMENT_BACKUP_RELEASE="${state_release}"
 
     log "restore operation ${operation_id} authorizes a controlled alignment of ${target_id} to ${RESTORE_ALIGNMENT_REQUIRED_SHA} (backup ${RESTORE_ALIGNMENT_BACKUP})"
 }
