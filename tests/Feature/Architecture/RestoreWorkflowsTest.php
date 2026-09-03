@@ -444,10 +444,7 @@ it('does not activate production or change any target lifecycle', function () {
     // Asserted against executable content only: the workflow's own header
     // legitimately EXPLAINS that tits-guru is lifecycle=planned, and a blunt
     // whole-file scan would forbid saying so.
-    $executable = implode("\n", array_filter(
-        preg_split('/\R/', $source),
-        static fn (string $line): bool => $line !== '' && ! str_starts_with(ltrim($line), '#'),
-    ));
+    $executable = executableSourceLines($source);
 
     foreach ([
         'targets set',

@@ -109,10 +109,7 @@ it('ships an executable, syntactically valid wrapper that names only the restore
     }
 
     // No shell construction anywhere in executable code.
-    $executable = implode("\n", array_filter(
-        preg_split('/\R/', $source),
-        static fn (string $line): bool => $line !== '' && ! str_starts_with(ltrim($line), '#'),
-    ));
+    $executable = executableSourceLines($source);
 
     foreach (['eval ', 'bash -c', 'sh -c', '$(cat'] as $forbidden) {
         expect($executable)->not->toContain($forbidden);

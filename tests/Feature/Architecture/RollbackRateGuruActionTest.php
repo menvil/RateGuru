@@ -158,10 +158,7 @@ it('is the only GitHub rollback implementation, used by both operator workflows'
     // lines are excluded: other workflows legitimately explain, in prose, that
     // the credential they use is NOT the one the rollback wrappers accept.
     foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
-        $executable = implode("\n", array_filter(
-            explode("\n", File::get($path)),
-            static fn (string $line): bool => ! str_starts_with(ltrim($line), '#'),
-        ));
+        $executable = executableSourceLines(File::get($path));
 
         foreach (['rateguru-rollback', 'ssh-keygen', 'readlink -f'] as $mechanic) {
             expect(str_contains($executable, $mechanic))

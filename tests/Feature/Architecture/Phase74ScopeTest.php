@@ -252,10 +252,7 @@ it('never builds an application on the VPS and stores no durable artifact archiv
         // GitHub build does ("composer install --no-dev, ...") in comments,
         // and a whole-file scan would forbid explaining the very boundary it
         // is enforcing.
-        $source = implode("\n", array_filter(
-            preg_split('/\R/', File::get($path)),
-            static fn (string $line): bool => $line !== '' && ! str_starts_with(ltrim($line), '#'),
-        ));
+        $source = executableSourceLines(File::get($path));
 
         // The recovery contract is exact source_sha + repository lockfiles +
         // mutable backup state, assembled in GitHub Actions and nowhere else.

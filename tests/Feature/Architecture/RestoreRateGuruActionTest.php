@@ -140,10 +140,7 @@ it('builds the remote command as a fixed argument vector, never a string', funct
     // verify_wrapper_static_contract does it. A whole-file grep would forbid
     // the action from DOCUMENTING that it builds no shell string, which is
     // exactly the incident that check was hardened against.
-    $executable = implode("\n", array_filter(
-        preg_split('/\R/', $source),
-        static fn (string $line): bool => $line !== '' && ! str_starts_with(ltrim($line), '#'),
-    ));
+    $executable = executableSourceLines($source);
 
     foreach (['eval ', 'bash -c', 'sh -c'] as $forbidden) {
         expect($executable)->not->toContain($forbidden);

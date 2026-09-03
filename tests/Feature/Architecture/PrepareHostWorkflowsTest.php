@@ -37,10 +37,7 @@ function phwActionSource(): string
  */
 function phwExecutable(string $source): string
 {
-    return implode("\n", array_filter(
-        explode("\n", $source),
-        static fn (string $line): bool => ! str_starts_with(ltrim($line), '#'),
-    ));
+    return executableSourceLines($source);
 }
 
 /** @return array<string, mixed> */

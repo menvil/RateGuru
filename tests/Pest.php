@@ -184,6 +184,31 @@ function requiredCliManifestNames(): array
 }
 
 /**
+ * One source file with its comment and blank lines removed, so a
+ * forbidden-construct scan reasons about code rather than about prose.
+ *
+ * Every guard that greps a script, a wrapper, an action or a workflow for
+ * something it must never contain needs this, and for one specific reason: the
+ * files most likely to be scanned for `eval` / `bash -c` / a legacy flag are
+ * exactly the files that legitimately DOCUMENT not using it. A naive whole-file
+ * grep turns "no eval, no bash -c, no string-built command" in a header comment
+ * into a violation — the real incident
+ * install-target-perimeter's own verify_wrapper_static_contract was hardened
+ * against, and one that has since been rediscovered in four separate test
+ * files.
+ *
+ * `#` is the comment marker in every format this is used on: shell scripts,
+ * YAML actions and YAML workflows alike.
+ */
+function executableSourceLines(string $source): string
+{
+    return implode("\n", array_filter(
+        preg_split('/\R/', $source),
+        static fn (string $line): bool => $line !== '' && ! str_starts_with(ltrim($line), '#'),
+    ));
+}
+
+/**
  * The sourced libraries under infrastructure/scripts: never executed
  * directly, so they must stay non-executable. Kept here beside
  * requiredCliManifestNames() so the CLI allowlist and the library exemption
