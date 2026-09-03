@@ -1802,3 +1802,206 @@ it('never adds www-data to a runtime group, and never provisions a planned targe
         hostLayoutCleanup($scratch);
     }
 });
+
+// =============================================================================
+// Target-scoped mode: --target TARGET_ID
+// =============================================================================
+//
+// The same contract, narrowed to one target, with every host-wide entry turned
+// from something this run owns into something it only inspects. The point of
+// the mode is that repairing one live target can never quietly become
+// bootstrapping the host underneath it.
+//
+// The first test in this section is the one that matters most: WITHOUT
+// --target nothing about this installer changed. Every other test here
+// describes new behaviour that only exists when --target is given.
+
+it('leaves host mode exactly as it was: no --target, no target vocabulary anywhere in the report', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch);
+
+        [$exit, $output] = hostLayoutRun(['--check'], $env);
+
+        expect($exit)->toBe(0, "host mode must still verify the compliant fixture clean:\n{$output}");
+
+        // The host-mode header, summary and verdict are unchanged.
+        expect($output)->toContain('SLICE 5.3 CONTRACT: SATISFIED');
+        expect($output)->toContain('Bootstrap host layout installer (check):');
+
+        // Every host root is still an item this run owns, reported under
+        // path: — not a prerequisite reported under host:.
+        expect($output)->toContain('path:/home/www/rateguru/run');
+        expect($output)->not->toContain('host:/home/www/rateguru');
+
+        // The two things that only exist in target mode must not leak into it.
+        expect($output)->not->toContain('HOST-REQ');
+        expect($output)->not->toContain('Scope: target');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('narrows the contract to one target and reports host roots as prerequisites it never owns', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch);
+
+        [$exit, $output] = hostLayoutRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(0, "target mode must verify the compliant fixture clean:\n{$output}");
+
+        expect($output)->toContain('Scope: target staging-main only');
+        expect($output)->toContain('HOST LAYOUT CONTRACT (staging-main): SATISFIED');
+        expect($output)->toContain('Bootstrap host layout installer (check, target staging-main):');
+
+        // Host roots move from "mine to converge" to "must already be right".
+        expect($output)->toContain('host:/home/www/rateguru — directory');
+        expect($output)->toContain('host:/var/log/rateguru — directory');
+        expect($output)->not->toContain('path:/home/www/rateguru/bin');
+
+        // The target's own entries stay exactly what they were.
+        expect($output)->toContain('path:/home/www/rateguru/staging/releases');
+        expect($output)->toContain('path:/home/www/rateguru/staging/shared/storage');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('reports an unsatisfied host root as HOST-REQ and refuses --apply with zero mutation', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch);
+
+        // A host-wide log directory that is not root-owned. In host mode this
+        // is drift the installer chowns; in target mode it is somebody else's
+        // job, and the run must say so rather than fixing it.
+        hostLayoutWriteOwnerTable($scratch, array_merge(
+            hostLayoutOwnerTableRows($scratch),
+            [$scratch.'/fs/var/log/rateguru' => ['rateguru-staging', 'rateguru-staging']],
+        ));
+
+        [$checkExit, $checkOutput] = hostLayoutRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($checkExit)->toBe(1, "an unsatisfied host root must fail the target contract:\n{$checkOutput}");
+        expect($checkOutput)->toContain('HOST-REQ host:/var/log/rateguru');
+        expect($checkOutput)->toContain('run install-bootstrap-host-layout --apply WITHOUT --target');
+        expect($checkOutput)->toContain('HOST LAYOUT CONTRACT (staging-main): NOT SATISFIED');
+
+        $before = hostLayoutTreeSnapshot($scratch.'/fs');
+
+        [$applyExit, $applyOutput] = hostLayoutRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0, "a target-scoped apply must refuse an unsatisfied host root:\n{$applyOutput}");
+        expect($applyOutput)->toContain('host-level prerequisite(s) are not satisfied');
+        expect($applyOutput)->toContain('No mutation was performed');
+
+        foreach (['identity.log', 'install.log', 'chown.log', 'chmod.log'] as $log) {
+            expect(hostLayoutLog($scratch, $log))->toBe('', "the refused target apply invoked a mutation tool ({$log})");
+        }
+
+        expect(hostLayoutTreeSnapshot($scratch.'/fs'))->toBe($before, 'the refused target apply changed the filesystem');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('converges only the named target and never creates a host root in target mode', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch);
+
+        // Target-owned drift the run IS allowed to fix, on an otherwise
+        // compliant host: the deploy home is group-writable.
+        chmod($scratch.'/fs/home/deploy-rateguru-staging', 0o770);
+
+        [$exit, $output] = hostLayoutRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(0, "target apply must converge target-owned drift:\n{$output}");
+
+        $chmod = hostLayoutLog($scratch, 'chmod.log');
+
+        expect($chmod)->toContain('/home/deploy-rateguru-staging');
+
+        // Nothing host-wide was ever handed to a mutation tool.
+        foreach (['/home/www/rateguru/bin', '/home/www/rateguru/config', '/var/log/rateguru'] as $hostRoot) {
+            foreach (['install.log', 'chown.log', 'chmod.log'] as $log) {
+                expect(hostLayoutLog($scratch, $log))->not->toContain($hostRoot.PHP_EOL);
+            }
+        }
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('refuses an unknown target and a planned target before any work', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch);
+
+        [$unknownExit, $unknownOutput] = hostLayoutRun(['--check', '--target', 'not-a-target'], $env);
+
+        expect($unknownExit)->not->toBe(0);
+        expect($unknownOutput)->toContain('unknown target: not-a-target');
+
+        // tits-guru is registered but lifecycle=planned. Target mode must
+        // refuse it for the same reason host mode never provisions it.
+        [$plannedExit, $plannedOutput] = hostLayoutRun(['--check', '--target', 'tits-guru'], $env);
+
+        expect($plannedExit)->not->toBe(0);
+        expect($plannedOutput)->toContain('tits-guru is lifecycle=planned');
+
+        foreach (['identity.log', 'install.log', 'chown.log', 'chmod.log'] as $log) {
+            expect(hostLayoutLog($scratch, $log))->toBe('', "a refused target invocation invoked a mutation tool ({$log})");
+        }
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('validates the whole registry before narrowing to one target', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        // A registry that is invalid somewhere OTHER than staging-main. Target
+        // mode must still reject it: narrowing is a scope reduction, never a
+        // licence to run against a registry the validator would refuse.
+        $env = hostLayoutFixture($scratch, [
+            'registry' => hostLayoutRegistryWith(['application_root' => '/opt/elsewhere']),
+        ]);
+
+        [$exit, $output] = hostLayoutRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0, "an invalid registry must be rejected in target mode too:\n{$output}");
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('rejects a malformed --target without touching the host', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch);
+
+        $cases = [
+            [['--check', '--target'], '--target requires a target ID'],
+            [['--check', '--target', '--apply'], 'requires a target ID'],
+            [['--check', '--target', 'staging-main', '--target', 'staging-main'], '--target'],
+        ];
+
+        foreach ($cases as [$arguments, $needle]) {
+            [$exit, $output] = hostLayoutRun($arguments, $env);
+
+            expect($exit)->not->toBe(0, 'malformed --target must fail: '.implode(' ', $arguments));
+            expect($output)->toContain($needle);
+        }
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
