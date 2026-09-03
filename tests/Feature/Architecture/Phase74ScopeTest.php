@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\File;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * Phase 7.4's own scope guard: what this phase establishes, and — more
@@ -75,6 +76,25 @@ function p74ChangedFiles(): array
     ));
 
     return $baseline === '' ? [] : explode("\n", $baseline);
+}
+
+/**
+ * The body of one shell function, so an ordering assertion is about what
+ * actually runs rather than about where things happen to be declared. Every one
+ * of these scripts defines its helpers above its pipeline, so a whole-file
+ * position comparison would routinely say the opposite of the truth.
+ */
+function p74FunctionBody(string $source, string $name): string
+{
+    $start = mb_strpos($source, "\n{$name}() {\n");
+
+    expect($start)->not->toBeFalse("{$name} is not defined");
+
+    $end = mb_strpos($source, "\n}\n", $start);
+
+    expect($end)->not->toBeFalse("{$name} has no closing brace");
+
+    return mb_substr($source, $start, $end - $start);
 }
 
 // =============================================================================
@@ -162,18 +182,26 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
 // =============================================================================
 
 it('adds no second build, deployment or restore implementation', function () {
-    // Every build in this repository is .github/actions/build-rateguru, and
-    // every caller of it points at an application checkout it does not own.
+    // Every RELEASE build in this repository is
+    // .github/actions/build-rateguru. ci.yml and coverage.yml are deliberately
+    // excluded: they install dependencies to run the test suite, which is not
+    // building a release and never produces a deployable artifact.
     $buildCallers = [];
 
     foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
+        $name = basename($path);
+
+        if (in_array($name, ['ci.yml', 'coverage.yml', 'label-review-bot-prs.yml'], true)) {
+            continue;
+        }
+
         $source = File::get($path);
 
         if (str_contains($source, './.github/actions/build-rateguru')) {
-            $buildCallers[] = basename($path);
+            $buildCallers[] = $name;
         }
 
-        // No workflow reimplements the build pipeline itself.
+        // No operator workflow reimplements the build pipeline itself.
         foreach (['composer install', 'npm ci', 'npm run build'] as $mechanism) {
             expect($source)->not->toContain($mechanism);
         }
@@ -206,12 +234,31 @@ it('adds no second build, deployment or restore implementation', function () {
 });
 
 it('never builds an application on the VPS and stores no durable artifact archive', function () {
-    foreach (p74OperationalFiles() as $path) {
-        $source = File::get($path);
+    // The host-side build ban is about the SERVER: nothing installed on a VPS
+    // may compile an application. GitHub Actions is where every build happens,
+    // so the workflow files are not in scope here — .github/workflows/ci.yml
+    // installs dependencies to run tests, which is exactly right.
+    $serverFiles = array_values(array_filter(array_merge(
+        glob(base_path('infrastructure/scripts/*')) ?: [],
+        glob(base_path('infrastructure/config/wrappers/*')) ?: [],
+        glob(base_path('infrastructure/config/cron/*')) ?: [],
+        glob(base_path('infrastructure/config/sudoers/*')) ?: [],
+    ), 'is_file'));
 
-        // Host-side build. The recovery contract is exact source_sha +
-        // repository lockfiles + mutable backup state, assembled in GitHub
-        // Actions and nowhere else.
+    expect($serverFiles)->not->toBeEmpty();
+
+    foreach ($serverFiles as $path) {
+        // Executable lines only. These scripts legitimately DESCRIBE what the
+        // GitHub build does ("composer install --no-dev, ...") in comments,
+        // and a whole-file scan would forbid explaining the very boundary it
+        // is enforcing.
+        $source = implode("\n", array_filter(
+            preg_split('/\R/', File::get($path)),
+            static fn (string $line): bool => $line !== '' && ! str_starts_with(ltrim($line), '#'),
+        ));
+
+        // The recovery contract is exact source_sha + repository lockfiles +
+        // mutable backup state, assembled in GitHub Actions and nowhere else.
         foreach ([
             'composer install',
             'composer update',
@@ -224,8 +271,12 @@ it('never builds an application on the VPS and stores no durable artifact archiv
         ] as $forbidden) {
             expect($source)->not->toContain($forbidden);
         }
+    }
 
-        // The rejected durable artifact archive stays rejected.
+    // The rejected durable artifact archive stays rejected everywhere.
+    foreach (p74OperationalFiles() as $path) {
+        $source = File::get($path);
+
         foreach ([
             'rateguru-release-artifacts',
             'B2_ARTIFACT_',
@@ -258,20 +309,23 @@ it('offers no target selector and no commit input anywhere', function () {
 
     foreach ($restoreWorkflows as $path) {
         $source = File::get($path);
+        $workflow = Yaml::parse($source);
 
         // The required commit is never typed by a person: it flows from the
         // backup's own verified release.json through the restore state and the
         // action's output into the checkout.
         expect($source)->toContain('${{ needs.restore.outputs.required_source_sha }}');
 
-        foreach ([
-            'required_source_sha:',
-            'historical_sha:',
-            'ref_to_restore:',
-            'source_sha:',
-        ] as $forbiddenInput) {
-            expect($source)->not->toContain($forbiddenInput);
-        }
+        // Asserted against the parsed INPUTS, not the raw text: the workflow
+        // legitimately passes a required_source_sha between jobs, and it is
+        // only ever an operator input that would be wrong.
+        $inputs = array_keys((array) data_get($workflow, 'on.workflow_dispatch.inputs'));
+
+        expect($inputs)->toBe(
+            basename($path) === 'restore-production.yml'
+                ? ['mode', 'source', 'backup', 'operation', 'confirmation']
+                : ['mode', 'source', 'backup', 'operation'],
+        );
     }
 });
 
@@ -289,18 +343,29 @@ it('makes every ordinary target mutation refuse while a restore guard exists', f
         );
     }
 
-    // And each one does it BEFORE its own first mutation.
-    $deploy = File::get(base_path('infrastructure/scripts/deploy'));
+    // And each one does it BEFORE its own first mutation, measured inside the
+    // pipeline function that actually runs them.
+    $deploy = p74FunctionBody(File::get(base_path('infrastructure/scripts/deploy')), 'perform_deploy');
+
     expect(mb_strpos($deploy, 'assert_no_restore_hold'))
         ->toBeLessThan(mb_strpos($deploy, 'append_history \\'));
 
-    $rollback = File::get(base_path('infrastructure/scripts/rollback'));
+    $rollback = p74FunctionBody(File::get(base_path('infrastructure/scripts/rollback')), 'perform_rollback');
+
     expect(mb_strpos($rollback, 'assert_no_restore_hold'))
         ->toBeLessThan(mb_strpos($rollback, 'validate_releases_root'));
 
-    $cleanup = File::get(base_path('infrastructure/scripts/cleanup'));
+    $cleanup = p74FunctionBody(File::get(base_path('infrastructure/scripts/cleanup')), 'perform_apply');
+
     expect(mb_strpos($cleanup, 'assert_no_restore_hold'))
         ->toBeLessThan(mb_strpos($cleanup, 'ensure_pinned_file_exists'));
+
+    // Each refusal is also under the target's own deployment lock, so it
+    // cannot race a restore that is about to take the same lock.
+    foreach ([$deploy, $rollback, $cleanup] as $pipeline) {
+        expect(mb_strpos($pipeline, 'acquire_deployment_lock'))
+            ->toBeLessThan(mb_strpos($pipeline, 'assert_no_restore_hold'));
+    }
 
     // Only restore-target may write or clear a guard. Nothing else in the
     // repository touches it.

@@ -1323,7 +1323,7 @@ report_filesystem() {
 
     # Perimeter files (install-target-perimeter's contract).
     local wrapper
-    for wrapper in rateguru-deploy rateguru-rollback rateguru-cleanup; do
+    for wrapper in rateguru-deploy rateguru-rollback rateguru-cleanup rateguru-restore; do
         report_path "wrapper-${wrapper}" "/usr/local/sbin/${wrapper}" "regular file" root root 755 "generic sudo wrapper"
     done
 

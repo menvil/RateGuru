@@ -84,6 +84,10 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'prepare-production-host.yml',
         'prepare-staging-host.yml',
         'release.yml',
+        // Phase 7.4: one restore workflow per environment, exactly like every
+        // other operator-facing operation here.
+        'restore-production.yml',
+        'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
     ]);
@@ -197,9 +201,16 @@ it('introduces no durable release-artifact archive of any kind', function () {
         }
     }
 
+    // Every build's artifact retention is a caller-owned POLICY, and each one
+    // is a short, bounded window on a GitHub workflow artifact — never a
+    // durable archive anything recovers from. Recovery rebuilds from the
+    // source_sha a backup already carries, which is why an alignment build's
+    // artifact may expire without weakening anything.
     expect($retentions)->toBe([
         'deploy-staging.yml' => '3',
         'release.yml' => '90',
+        'restore-production.yml' => '7',
+        'restore-staging.yml' => '7',
     ]);
 });
 
@@ -219,7 +230,7 @@ it('records Phase 7 as the consolidated plan, with the artifact archive gone', f
         '**7.1 Common operational primitives',
         '**7.2 Deployment observability + Prepare Host',
         '**7.3 Restore Target Data',
-        '**7.4 GitHub Restore actions',
+        '**7.4 GitHub Restore actions + controlled code alignment',
         '**7.5 Repair Target',
         '**7.6 Recover Host',
         '**7.7 GitHub Recover + clean-host rehearsal',
@@ -249,22 +260,24 @@ it('records Phase 7 as the consolidated plan, with the artifact archive gone', f
     expect($roadmap)->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
 });
 
-it('implements nothing from Phase 7.4 onwards', function () {
-    // Prepare Host landed in Phase 7.2 and Restore Target Data in Phase 7.3;
-    // each has its own scope guard (Phase72ScopeTest, Phase73ScopeTest).
-    // The GitHub-facing restore surface, Repair and Recover remain future
-    // work, and nothing may ship an implementation of any of them.
+it('implements nothing from Phase 7.5 onwards', function () {
+    // Prepare Host landed in Phase 7.2, Restore Target Data in 7.3 and the
+    // GitHub restore surface with controlled code alignment in 7.4; each has
+    // its own scope guard (Phase72ScopeTest, Phase73ScopeTest,
+    // Phase74ScopeTest). Repair and Recover remain future work, and nothing
+    // may ship an implementation of either.
     foreach ([
         'infrastructure/scripts/repair-target',
         'infrastructure/scripts/recover-host',
-        '.github/workflows/restore-staging.yml',
-        '.github/workflows/restore-production.yml',
         '.github/workflows/repair-staging.yml',
+        '.github/workflows/repair-production.yml',
         '.github/workflows/recover-staging.yml',
         '.github/workflows/recover-production.yml',
+        '.github/actions/repair-rateguru/action.yml',
+        '.github/actions/recover-rateguru-host/action.yml',
     ] as $futureWork) {
         expect(File::exists(base_path($futureWork)))
-            ->toBeFalse("{$futureWork} is Phase 7.4+ work and must not exist yet");
+            ->toBeFalse("{$futureWork} is Phase 7.5+ work and must not exist yet");
     }
 
     // restore-test stays what it always was: a scratch-database integrity

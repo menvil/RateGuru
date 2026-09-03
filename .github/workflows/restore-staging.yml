@@ -247,17 +247,24 @@ jobs:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
           known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
+      # Index syntax, not property dereference: half of these output names
+      # contain a hyphen, and `a.b-c || a.b-c` is exactly the shape where a
+      # dereference is ambiguous with a subtraction. `outputs['b-c']` cannot be
+      # read any other way.
+      #
+      # Exactly one of the two steps above ran; the other was skipped and its
+      # outputs are empty, so `||` picks the one that has an answer.
       - name: Decide what this restore still needs
         id: decide
         shell: bash
         env:
-          STATUS: ${{ steps.apply.outputs.status || steps.inspect.outputs.status }}
-          OPERATION_ID: ${{ steps.apply.outputs.operation-id || steps.inspect.outputs.operation-id }}
-          BACKUP: ${{ steps.apply.outputs.backup || steps.inspect.outputs.backup }}
-          BACKUP_RELEASE: ${{ steps.apply.outputs.backup-release || steps.inspect.outputs.backup-release }}
-          REQUIRED_SOURCE_SHA: ${{ steps.apply.outputs.required-source-sha || steps.inspect.outputs.required-source-sha }}
-          CURRENT_SOURCE_SHA: ${{ steps.apply.outputs.current-source-sha || steps.inspect.outputs.current-source-sha }}
-          CODE_ALIGNMENT: ${{ steps.apply.outputs.code-alignment || steps.inspect.outputs.code-alignment }}
+          STATUS: ${{ steps.apply.outputs['status'] || steps.inspect.outputs['status'] }}
+          OPERATION_ID: ${{ steps.apply.outputs['operation-id'] || steps.inspect.outputs['operation-id'] }}
+          BACKUP: ${{ steps.apply.outputs['backup'] || steps.inspect.outputs['backup'] }}
+          BACKUP_RELEASE: ${{ steps.apply.outputs['backup-release'] || steps.inspect.outputs['backup-release'] }}
+          REQUIRED_SOURCE_SHA: ${{ steps.apply.outputs['required-source-sha'] || steps.inspect.outputs['required-source-sha'] }}
+          CURRENT_SOURCE_SHA: ${{ steps.apply.outputs['current-source-sha'] || steps.inspect.outputs['current-source-sha'] }}
+          CODE_ALIGNMENT: ${{ steps.apply.outputs['code-alignment'] || steps.inspect.outputs['code-alignment'] }}
         run: |
           set -Eeuo pipefail
 

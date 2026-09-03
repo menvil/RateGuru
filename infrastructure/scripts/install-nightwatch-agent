@@ -20,7 +20,7 @@
 #     (record-nightwatch-deployment), the generic sudo wrapper the GitHub
 #     deploy channel invokes it through, and that wrapper's own sudoers
 #     drop-in. They belong here rather than in install-target-operations'
-#     sixteen-file bundle or install-target-perimeter's three wrappers for the
+#     bundle or install-target-perimeter's own generic wrappers for the
 #     same reason the agent does: every one of them is Nightwatch-only, a
 #     Phase 6C rejection has to be able to remove the entire integration in one
 #     step, and no host may be *required* to carry any of it. The accepted 5.4

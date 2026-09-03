@@ -1912,11 +1912,18 @@ assert_runtime_still_held() {
     maintenance_active \
         || fail "${TARGET_ID} is NOT in maintenance mode — the hold this operation depends on is gone, and it is not safe to continue the alignment flow"
 
+    # One observation, classified here rather than through
+    # queue_program_fully_stopped, which would observe a second time: two reads
+    # can legitimately disagree, and the states named in the refusal below must
+    # be the ones the decision was actually made on.
     observe_queue_program \
         || fail "cannot observe the target queue program ${SUPERVISOR_PROGRAM}: ${QUEUE_OBSERVATION_ERROR} — refusing to report a target as held without knowing whether a worker is running"
 
-    queue_program_fully_stopped \
-        || fail "the target queue program ${SUPERVISOR_PROGRAM} is not fully STOPPED (${QUEUE_PROCESS_STATES[*]}) — the hold this operation depends on is gone, and it is not safe to continue the alignment flow"
+    local state
+    for state in "${QUEUE_PROCESS_STATES[@]}"; do
+        [[ "${state}" == "STOPPED" ]] \
+            || fail "the target queue program ${SUPERVISOR_PROGRAM} is not fully STOPPED (${QUEUE_PROCESS_STATES[*]}) — the hold this operation depends on is gone, and it is not safe to continue the alignment flow"
+    done
 
     if scheduler_file_present; then
         fail "${SCHEDULER_FILE} is present — a scheduled writer can fire against this target, so the hold this operation depends on is gone and it is not safe to continue the alignment flow"

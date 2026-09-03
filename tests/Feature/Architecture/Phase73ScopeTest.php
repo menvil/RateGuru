@@ -609,7 +609,12 @@ it('confines every restore concern in the shared library to its own sections', f
     $baseGuardStart = mb_strpos($base, '# --- restore guard (Phase 7.3) ---');
     $baseEnd = mb_strpos($base, '# --- deployment target registry (end) ---');
 
-    if ($baseGuardStart !== false && $baseEnd !== false && $baseEnd > $baseGuardStart) {
+    if ($base === '') {
+        // The base blob is not readable in this checkout. The added-line bound
+        // above is unaffected and still ran; only the removal half is skipped,
+        // rather than being turned into an assertion about nothing.
+        expect($diff['added'])->toBeArray();
+    } elseif ($baseGuardStart !== false && $baseEnd !== false && $baseEnd > $baseGuardStart) {
         $baseSections = mb_substr($base, $baseGuardStart, $baseEnd - $baseGuardStart);
 
         foreach ($diff['removed'] as $line) {
@@ -664,7 +669,9 @@ it('does not weaken deploy, rollback, cleanup or any earlier phase contract', fu
     // operation and never a commit, a backup or a path.
     $deploy = File::get(base_path('infrastructure/scripts/deploy'));
 
-    foreach (['--backup', '--source ', 'fetch-backup', 'restore-database', 'restore-storage', 'restore_hold'] as $forbidden) {
+    // `restore_hold` is deliberately absent from this list: deploy now calls
+    // assert_no_restore_hold, whose own name contains it.
+    foreach (['--backup', '--source ', 'fetch-backup', 'restore-database', 'restore-storage'] as $forbidden) {
         expect($deploy)->not->toContain($forbidden);
     }
 

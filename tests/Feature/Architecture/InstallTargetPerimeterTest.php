@@ -362,7 +362,8 @@ it('check fails when the sudoers candidate grants access to tits-guru\'s deploy 
             deploy-rateguru-staging ALL=(root) NOPASSWD: \
                 /usr/local/sbin/rateguru-deploy, \
                 /usr/local/sbin/rateguru-rollback, \
-                /usr/local/sbin/rateguru-cleanup
+                /usr/local/sbin/rateguru-cleanup, \
+                /usr/local/sbin/rateguru-restore
 
             deploy-rateguru-tits-guru ALL=(root) NOPASSWD: \
                 /usr/local/sbin/rateguru-deploy
@@ -392,6 +393,7 @@ it('check fails when the sudoers candidate mentions a legacy wrapper name', func
                 /usr/local/sbin/rateguru-deploy, \
                 /usr/local/sbin/rateguru-rollback, \
                 /usr/local/sbin/rateguru-cleanup, \
+                /usr/local/sbin/rateguru-restore, \
                 /usr/local/sbin/rateguru-staging-deploy
             SUDOERS);
 
@@ -419,7 +421,8 @@ it('check fails when the sudoers candidate grants a production deploy user acces
             deploy-rateguru-staging ALL=(root) NOPASSWD: \
                 /usr/local/sbin/rateguru-deploy, \
                 /usr/local/sbin/rateguru-rollback, \
-                /usr/local/sbin/rateguru-cleanup
+                /usr/local/sbin/rateguru-cleanup, \
+                /usr/local/sbin/rateguru-restore
 
             deploy-rateguru-production ALL=(root) NOPASSWD: \
                 /usr/local/sbin/rateguru-deploy
@@ -949,7 +952,7 @@ it('a successful apply installs exactly six files with correct ownership, mode a
             glob($scratch.'/dest/etc/sudoers.d/*'),
             glob($scratch.'/dest/etc/cron.d/*'),
         );
-        expect($allDestFiles)->toHaveCount(5);
+        expect($allDestFiles)->toHaveCount(6);
 
         $backups = glob($vars['BACKUP_ROOT'].'/*', GLOB_ONLYDIR);
         expect($backups)->not->toBeEmpty('apply must create a timestamped backup directory');
