@@ -913,7 +913,20 @@ it('warns but never fails the deployment when the agent will not come back', fun
 ]);
 
 it('runs the agent transition after the queue transition and before the success record', function () {
-    $deploy = File::get(base_path('infrastructure/scripts/deploy'));
+    $source = File::get(base_path('infrastructure/scripts/deploy'));
+
+    // Measured inside perform_deploy, not across the file. Since Phase 7.4,
+    // finalize_restore_alignment — defined ABOVE perform_deploy — also calls
+    // perform_nightwatch_transition, so a whole-file position comparison
+    // would be about declaration order rather than about the normal
+    // deployment sequence this test is describing.
+    $pipelineStart = mb_strpos($source, "\nperform_deploy() {\n");
+    $pipelineEnd = mb_strpos($source, "\n}\n", $pipelineStart);
+
+    expect($pipelineStart)->not->toBeFalse();
+    expect($pipelineEnd)->not->toBeFalse();
+
+    $deploy = mb_substr($source, $pipelineStart, $pipelineEnd - $pipelineStart);
 
     $queue = mb_strpos($deploy, "\n    perform_queue_transition\n");
     $agent = mb_strpos($deploy, "\n    perform_nightwatch_transition\n");
@@ -927,9 +940,10 @@ it('runs the agent transition after the queue transition and before the success 
     expect($agent)->toBeLessThan($success);
 
     // And the block is delimited, so it can be extracted and removed cleanly
-    // if Phase 6C rejects Nightwatch.
+    // if Phase 6C rejects Nightwatch. Matched against the whole file: the
+    // definition lives outside perform_deploy.
     expect(preg_match(
         '/# --- nightwatch agent transition \(begin\) ---\n(.*?)\n# --- nightwatch agent transition \(end\) ---/s',
-        $deploy,
+        $source,
     ))->toBe(1);
 });

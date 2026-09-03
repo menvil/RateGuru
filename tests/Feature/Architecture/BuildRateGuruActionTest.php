@@ -146,6 +146,11 @@ it('is the only build implementation, used by both deployment pipelines', functi
     expect($callSites)->toEqualCanonicalizing([
         'deploy-staging.yml:build',
         'release.yml:build',
+        // Phase 7.4: the historical build a controlled code alignment needs.
+        // Same action, same mechanics — the only thing that differs is that
+        // the commit comes from a backup rather than from an operator.
+        'restore-staging.yml:build',
+        'restore-production.yml:build',
     ]);
 
     // And nothing else anywhere builds a RateGuru release package: the
