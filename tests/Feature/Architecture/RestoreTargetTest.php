@@ -2160,15 +2160,10 @@ function restoreTargetResult(string $output): array
     return $decoded;
 }
 
-function restoreTargetGuardPath(string $scratch): string
-{
-    return $scratch.'/run/restores/parity-target/restore-guard';
-}
-
 /** @return array<string, string> */
 function restoreTargetGuard(string $scratch): array
 {
-    return json_decode(File::get(restoreTargetGuardPath($scratch)), true);
+    return json_decode(File::get(restoreGuardFile($scratch)), true);
 }
 
 /** @param  array<string, string|null>  $overrides */
@@ -2179,7 +2174,7 @@ function restoreTargetPatchGuard(string $scratch, array $overrides): void
         static fn ($value): bool => $value !== null,
     );
 
-    file_put_contents(restoreTargetGuardPath($scratch), json_encode($guard, JSON_PRETTY_PRINT));
+    file_put_contents(restoreGuardFile($scratch), json_encode($guard, JSON_PRETTY_PRINT));
 }
 
 function restoreTargetStatePath(string $scratch, string $operation): string
@@ -2223,7 +2218,7 @@ function restoreTargetHeldSnapshot(string $scratch, string $operation): array
         'scheduler' => restoreTargetSchedulerPresent($scratch),
         'current' => readlink($scratch.'/target/current'),
         'databases' => p73Databases($scratch),
-        'guard' => File::get(restoreTargetGuardPath($scratch)),
+        'guard' => File::get(restoreGuardFile($scratch)),
         'state' => File::get(restoreTargetStatePath($scratch, $operation)),
         'storage' => is_file(restoreTargetStorage($scratch).'/app/restored-marker.txt'),
         'history' => restoreTargetHistory($scratch),
@@ -2422,7 +2417,7 @@ it('inspects the same operation repeatedly without ever resuming it', function (
         expect(restoreTargetMaintenanceActive($scratch))->toBeTrue();
         expect(restoreTargetQueueState($scratch))->toBe('STOPPED');
         expect(restoreTargetSchedulerPresent($scratch))->toBeFalse();
-        expect(is_file(restoreTargetGuardPath($scratch)))->toBeTrue();
+        expect(is_file(restoreGuardFile($scratch)))->toBeTrue();
         expect(restoreTargetHistory($scratch))->toHaveCount(1);
     } finally {
         p73Cleanup($scratch);
@@ -2487,7 +2482,7 @@ it('refuses to inspect an operation that is not this target own held code alignm
                 break;
 
             case 'guard-missing':
-                unlink(restoreTargetGuardPath($scratch));
+                unlink(restoreGuardFile($scratch));
                 break;
 
             case 'guard-is-in-progress':
