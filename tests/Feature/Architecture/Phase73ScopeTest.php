@@ -132,6 +132,18 @@ function p73FileDiff(string $path): array
 }
 
 /**
+ * One file as the base revision has it, so a diff-bounded guard can say where a
+ * REMOVED line used to live, not only where an added one landed.
+ */
+function p73BaseFile(string $path): string
+{
+    return (string) shell_exec(
+        'cd '.escapeshellarg(base_path()).' && git show '
+            .escapeshellarg((string) p73BaseRevision().':'.$path).' 2>/dev/null'
+    );
+}
+
+/**
  * One file as this branch has it committed.
  *
  * These guards describe the branch, not the working tree — that is what a diff
@@ -173,11 +185,16 @@ it('adds exactly the five restore primitives and one restore-only library', func
 it('keeps one implementation of each restore concern rather than five copies', function () {
     $library = File::get(base_path('infrastructure/scripts/restore-common'));
 
-    // The five kinds of validation that must be identical everywhere live in
+    // The kinds of validation that must be identical everywhere live in
     // restore-common, once each.
+    //
+    // validate_operation_id is deliberately NOT in this list any more. Phase
+    // 7.4 moved it (and the two identifier FORMATS) up into `common`, because
+    // `deploy` has to validate the same operation ID and must not source the
+    // restore library. It is still exactly one implementation — asserted
+    // below — and every restore primitive still calls that one.
     foreach ([
         'validate_backup_id()',
-        'validate_operation_id()',
         'restore_assert_directory_safe()',
         'restore_assert_backup_file_set()',
         'restore_assert_sha256sums_entries()',
@@ -191,6 +208,16 @@ it('keeps one implementation of each restore concern rather than five copies', f
         expect(substr_count($library, "\n{$function} {"))->toBe(1, "{$function} must be defined exactly once in restore-common");
     }
 
+    // The two identifier concerns that now live in `common`, once each, and
+    // nowhere else.
+    $common = File::get(base_path('infrastructure/scripts/common'));
+
+    expect(substr_count($common, "\nvalidate_operation_id() {"))->toBe(1);
+    expect(substr_count($common, "\nRESTORE_OPERATION_ID_REGEX="))->toBe(1);
+    expect(substr_count($common, "\nRESTORE_BACKUP_ID_REGEX="))->toBe(1);
+    expect(substr_count($library, "\nRESTORE_OPERATION_ID_REGEX="))->toBe(0);
+    expect(substr_count($library, "\nRESTORE_BACKUP_ID_REGEX="))->toBe(0);
+
     // No CLI redefines any of them.
     foreach (['fetch-backup', 'verify-backup', 'restore-database', 'restore-storage', 'restore-target'] as $cli) {
         $source = File::get(base_path('infrastructure/scripts/'.$cli));
@@ -201,7 +228,8 @@ it('keeps one implementation of each restore concern rather than five copies', f
             'restore_assert_storage_archive_safe()',
             'restore_assert_manifest_identity()',
         ] as $function) {
-            expect($source)->not->toContain("\n{$function} {", "{$cli} must not redefine {$function}");
+            // toContain is variadic in Pest, so the diagnostic stays a comment.
+            expect($source)->not->toContain("\n{$function} {");
         }
     }
 });
@@ -238,71 +266,48 @@ it('installs every new primitive through the existing target-operations installe
 });
 
 // =============================================================================
-// No GitHub restore surface — that is Phase 7.4
+// The GitHub restore surface belongs to Phase 7.4, and only to it
 // =============================================================================
+//
+// 7.3 was entirely server-side. 7.4 added the GitHub layer, and its exact
+// inventory is Phase74ScopeTest's business. What stays 7.3's business is the
+// boundary between them: the GitHub layer may DRIVE restore-target through the
+// generic wrapper, and may drive nothing else.
 
-it('adds no GitHub restore workflow, action or composite step', function () {
-    $workflows = collect(glob(base_path('.github/workflows/*.yml')) ?: [])
-        ->map(static fn (string $path): string => basename($path))
-        ->sort()
-        ->values()
-        ->all();
-
-    expect($workflows)->toBe([
-        'ci.yml',
-        'coverage.yml',
-        'deploy-staging.yml',
-        'label-review-bot-prs.yml',
-        'prepare-production-host.yml',
-        'prepare-staging-host.yml',
-        'release.yml',
-        'rollback-production.yml',
-        'rollback-staging.yml',
-    ]);
-
-    $actions = collect(glob(base_path('.github/actions/*'), GLOB_ONLYDIR) ?: [])
-        ->map(static fn (string $path): string => basename($path))
-        ->sort()
-        ->values()
-        ->all();
-
-    expect($actions)->toBe([
-        'build-rateguru',
-        'deploy-rateguru',
-        'prepare-rateguru-host',
-        'record-rateguru-deployment',
-        'rollback-rateguru',
-        'sentry-release',
-    ]);
-
-    // No workflow or action mentions a restore primitive: 7.3 is entirely
-    // server-side.
+it('exposes only restore-target to GitHub, and only through the generic wrapper', function () {
     foreach (array_merge(
         glob(base_path('.github/workflows/*.yml')) ?: [],
         glob(base_path('.github/actions/*/action.yml')) ?: [],
     ) as $path) {
         $source = File::get($path);
 
-        foreach (['restore-target', 'fetch-backup', 'verify-backup', 'restore-database', 'restore-storage'] as $primitive) {
-            expect($source)->not->toContain($primitive, basename(dirname($path)).'/'.basename($path)." must not drive {$primitive}");
+        // The four primitives restore-target orchestrates are internal to it.
+        // Nothing outside the server may fetch a backup, verify one, or touch
+        // a database or storage tree directly.
+        foreach (['fetch-backup', 'verify-backup', 'restore-database', 'restore-storage'] as $primitive) {
+            expect($source)->not->toContain($primitive);
         }
+
+        // And restore-target itself is reachable only as the wrapper's
+        // documented target, never as a path GitHub asks the server to run.
+        expect($source)->not->toContain('/home/www/rateguru/bin/restore-target');
     }
 });
 
-it('adds no sudo wrapper and no sudoers grant for restore', function () {
+it('reaches restore only through one wrapper, granted to the existing deploy account', function () {
     $wrappers = collect(glob(base_path('infrastructure/config/wrappers/*')) ?: [])
         ->map(static fn (string $path): string => basename($path))
         ->sort()
         ->values()
         ->all();
 
-    expect($wrappers)->toBe([
-        'rateguru-cleanup',
-        'rateguru-deploy',
-        'rateguru-nightwatch-deployment',
-        'rateguru-rollback',
-    ]);
+    // Exactly one restore wrapper, and it is generic — never per-environment.
+    expect($wrappers)->toContain('rateguru-restore')
+        ->not->toContain('rateguru-restore-staging')
+        ->not->toContain('rateguru-restore-production');
 
+    // No new sudoers FILE: the restore grant extends the one that already
+    // exists for this deploy account.
     $sudoers = collect(glob(base_path('infrastructure/config/sudoers/*')) ?: [])
         ->map(static fn (string $path): string => basename($path))
         ->sort()
@@ -311,21 +316,23 @@ it('adds no sudo wrapper and no sudoers grant for restore', function () {
 
     expect($sudoers)->toBe(['rateguru-deploy', 'rateguru-nightwatch-deployment']);
 
+    // Only the restore wrapper names the restore binary; no other wrapper and
+    // no sudoers rule mentions any restore primitive.
     foreach (array_merge(
         glob(base_path('infrastructure/config/wrappers/*')) ?: [],
         glob(base_path('infrastructure/config/sudoers/*')) ?: [],
     ) as $path) {
         $source = File::get($path);
+        $isRestoreWrapper = basename($path) === 'rateguru-restore';
 
-        foreach (['restore-target', 'fetch-backup', 'verify-backup', 'restore-database', 'restore-storage'] as $primitive) {
+        foreach (['fetch-backup', 'verify-backup', 'restore-database', 'restore-storage'] as $primitive) {
             expect($source)->not->toContain($primitive);
         }
-    }
 
-    // Restore is a root-only server operation an operator runs directly —
-    // the restricted deploy channel gains nothing.
-    expect(File::get(base_path('infrastructure/scripts/install-target-perimeter')))
-        ->not->toContain('restore-target');
+        if (! $isRestoreWrapper) {
+            expect($source)->not->toContain('restore-target');
+        }
+    }
 });
 
 // =============================================================================
@@ -569,45 +576,77 @@ it('never switches a release, and never touches the current or previous link', f
         ->toContain('the current release symlink changed during the restore — a restore never switches releases');
 });
 
-it('adds only the restore guard helpers to the shared library', function () {
+it('confines every restore concern in the shared library to its own sections', function () {
     // `common` is sourced by every operational script, so a change to it
-    // reaches deploy, rollback, cleanup and backup at once. Phase 7.3 adds the
-    // two helpers that let a guarded target refuse an ordinary backup, and must
-    // not touch a line of anything that was already there.
+    // reaches deploy, rollback, cleanup and backup at once. Two phases have
+    // added to it — 7.3 the guard, 7.4 the alignment authorization — and both
+    // additions must stay inside their own delimited sections rather than
+    // reaching into anything that was already there.
     $diff = p73FileDiff('infrastructure/scripts/common');
 
-    expect($diff['removed'])->toBe([], 'Phase 7.3 may add to common, never remove or rewrite a line of it');
-
-    // Every added line belongs to the new section, delimited by its own header
-    // and the existing registry terminator.
     $common = p73CommittedFile('infrastructure/scripts/common');
-    $start = mb_strpos($common, '# --- restore guard (Phase 7.3) ---');
+
+    $guardStart = mb_strpos($common, '# --- restore guard (Phase 7.3) ---');
+    $alignmentStart = mb_strpos($common, '# --- restore alignment authorization (Phase 7.4) ---');
     $end = mb_strpos($common, '# --- deployment target registry (end) ---');
 
-    expect($start)->not->toBeFalse('the restore guard section is missing from common');
-    expect($end)->toBeGreaterThan($start);
+    expect($guardStart)->not->toBeFalse('the restore guard section is missing from common');
+    expect($alignmentStart)->toBeGreaterThan($guardStart);
+    expect($end)->toBeGreaterThan($alignmentStart);
 
-    $section = mb_substr($common, $start, $end - $start);
+    $restoreSections = mb_substr($common, $guardStart, $end - $guardStart);
 
+    // Every line this branch added to common belongs to one of them.
     foreach ($diff['added'] as $line) {
-        expect($section)->toContain($line);
+        expect($restoreSections)->toContain($line);
     }
 
-    // The section defines exactly the two helpers, and neither mutates.
-    expect($section)->toContain('restore_guard_file()');
-    expect($section)->toContain('assert_no_restore_hold()');
-    expect($section)->not->toMatch('/^\s*(rm|mv|install|touch|chmod|chown)\s/m');
+    // And so does every line it removed — measured against the version it was
+    // removed from. A restore phase may rewrite its OWN text (7.4 had to: the
+    // hold refusal used to say controlled alignment did not exist yet), but it
+    // may never touch a line of anything that was already in common.
+    $base = p73BaseFile('infrastructure/scripts/common');
+    $baseGuardStart = mb_strpos($base, '# --- restore guard (Phase 7.3) ---');
+    $baseEnd = mb_strpos($base, '# --- deployment target registry (end) ---');
+
+    if ($baseGuardStart !== false && $baseEnd !== false && $baseEnd > $baseGuardStart) {
+        $baseSections = mb_substr($base, $baseGuardStart, $baseEnd - $baseGuardStart);
+
+        foreach ($diff['removed'] as $line) {
+            expect($baseSections)->toContain($line);
+        }
+    } else {
+        // A base predating the restore guard entirely: there is nothing of ours
+        // in it, so nothing may have been removed.
+        expect($diff['removed'])->toBe([]);
+    }
+
+    // The four helpers, and not one filesystem mutation between them: `common`
+    // is sourced by everything, and a helper here that wrote to disk would be
+    // running in every operational script on the host.
+    foreach ([
+        'restore_guard_file()',
+        'assert_no_restore_hold()',
+        'restore_operation_state_file()',
+        'assert_restore_alignment_operation()',
+    ] as $helper) {
+        expect($restoreSections)->toContain($helper);
+    }
+
+    expect($restoreSections)->not->toMatch('/^\s*(rm|mv|install|touch|chmod|chown)\s/m');
 })->skip(fn (): bool => p73BaseRevision() === null,
     'requires the PR base SHA or an origin/develop reference');
 
 it('does not weaken deploy, rollback, cleanup or any earlier phase contract', function () {
     $changed = p73ChangedFiles();
 
-    // See the note above on toContain's variadic signature: no message here.
+    // Files no phase after 7.3 has any business touching to build a restore
+    // surface. deploy/rollback/cleanup are deliberately NOT in this list any
+    // more: Phase 7.4 gives each of them a fail-closed refusal while a restore
+    // guard exists, and gives deploy its controlled-alignment mode — both of
+    // which are asserted in full by Phase74ScopeTest and by their own test
+    // files. (See the note above on toContain's variadic signature.)
     foreach ([
-        'infrastructure/scripts/deploy',
-        'infrastructure/scripts/rollback',
-        'infrastructure/scripts/cleanup',
         'infrastructure/scripts/targets',
         'infrastructure/scripts/health-check',
         'infrastructure/scripts/status',
@@ -619,13 +658,17 @@ it('does not weaken deploy, rollback, cleanup or any earlier phase contract', fu
         expect($changed)->not->toContain($untouched);
     }
 
-    // Deploy gains no restore mode, no backup selector and no hidden
-    // migration behaviour: that integration, if it is ever needed, is 7.4.
+    // What deploy may never gain, in any phase: a backup selector, a restore
+    // of its own, or a way to run a migration it was not explicitly asked for.
+    // Its ONE restore-aware entry point is --restore-operation, which names an
+    // operation and never a commit, a backup or a path.
     $deploy = File::get(base_path('infrastructure/scripts/deploy'));
 
-    foreach (['--restore', '--backup', 'restore-target', 'restore_hold', 'RESTORE_'] as $forbidden) {
+    foreach (['--backup', '--source ', 'fetch-backup', 'restore-database', 'restore-storage', 'restore_hold'] as $forbidden) {
         expect($deploy)->not->toContain($forbidden);
     }
+
+    expect(substr_count($deploy, '--restore-operation)'))->toBe(1, 'deploy has exactly one restore-aware flag');
 })->skip(fn (): bool => p73BaseRevision() === null,
     'requires the PR base SHA or an origin/develop reference');
 
@@ -679,12 +722,14 @@ it('ships the runbook and points the README and roadmap at it', function () {
 
     $roadmap = File::get(base_path('infrastructure/ROADMAP.md'));
 
-    expect($roadmap)->toContain('7.3 Restore Target Data — implemented');
+    expect($roadmap)->toContain('7.3 Restore Target Data — ACCEPTED');
     expect($roadmap)->toContain('runbooks/restore-target.md');
 
-    // Implemented, not accepted: CI proves the structure, only a real
-    // destructive staging run proves the pipeline.
+    // A real destructive staging run happened, and the roadmap records what it
+    // actually proved rather than merely that it ran.
     expect(preg_replace('/\s+/', ' ', $roadmap))
-        ->toContain('implemented, awaiting real staging acceptance')
-        ->toContain('this slice is implemented rather than accepted');
+        ->toContain('PHASE 7 SLICE 7.3 ACCEPTED')
+        ->toContain('RESTORE DATA COMPLETE: YES')
+        ->toContain('CODE ALIGNMENT: ALIGNED')
+        ->toContain('TARGET RESUMED: YES');
 });

@@ -1442,3 +1442,158 @@ it('does not add queue restart to rollback', function () {
     // part of the target migration.
     expect(rollbackOpsSource())->not->toContain('queue:restart');
 });
+
+// =============================================================================
+// Phase 7.4: the restore interlock
+// =============================================================================
+//
+// A target held after a restore has live data that may belong to a different
+// commit than `current` serves. A rollback there would move `current` to a
+// THIRD commit that matches neither — and, worse, would health-check the
+// target and bring it back up, which is exactly what the hold exists to
+// prevent. Only the controlled alignment deploy and `restore-target --resume`
+// may end a hold.
+
+function rollbackOpsRunRoot(string $scratch): string
+{
+    return $scratch.'/run';
+}
+
+function rollbackOpsGuardPath(string $scratch): string
+{
+    return rollbackOpsRunRoot($scratch).'/restores/parity-target/restore-guard';
+}
+
+function rollbackOpsWriteRestoreGuard(string $scratch, array $overrides = []): void
+{
+    $path = rollbackOpsGuardPath($scratch);
+
+    if (! is_dir(dirname($path))) {
+        expect(@mkdir(dirname($path), 0o700, true))->toBeTrue('could not create the restore run root');
+    }
+
+    file_put_contents($path, json_encode(array_merge([
+        'operation' => '20260901-101112-a1b2c3',
+        'target' => 'parity-target',
+        'required_source_sha' => 'a81d7f2c3b4a5968778899aabbccddeeff001122',
+        'status' => 'held',
+        'created_at' => '2026-09-01T10:11:12Z',
+    ], $overrides), JSON_PRETTY_PRINT));
+    chmod($path, 0o600);
+}
+
+it('rolls back normally when no target is held', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        // An existing but empty restore run root — the ordinary state of a host
+        // that has never had a restore held. Nothing about rollback changes.
+        expect(@mkdir(rollbackOpsRunRoot($scratch), 0o700, true))->toBeTrue();
+
+        $fixture = rollbackOpsBuildFixture($scratch);
+        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+        rollbackOpsInstallSystemctlStub($scratch);
+
+        $healthCheckLog = $scratch.'/health-check-clear.log';
+        touch($healthCheckLog);
+
+        [$exit, $output] = rollbackOpsRunHarness(
+            $scratch,
+            "parse_rollback_args --target parity-target --previous\nresolve_target\nperform_rollback",
+            rollbackOpsBaseEnv($scratch, [
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_HEALTH_CHECK_BIN' => rollbackOpsHealthCheckStub($scratch, $healthCheckLog),
+                'RATEGURU_RUN_ROOT' => rollbackOpsRunRoot($scratch),
+            ]),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect(File::get($healthCheckLog))->toContain('--target parity-target');
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('refuses a rollback while the target is held, before any mutation', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $fixture = rollbackOpsBuildFixture($scratch);
+        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+        rollbackOpsInstallSystemctlStub($scratch);
+        rollbackOpsWriteRestoreGuard($scratch);
+
+        $originalCurrent = realpath($fixture['root'].'/current');
+        $originalPrevious = realpath($fixture['root'].'/previous');
+
+        $healthCheckLog = $scratch.'/health-check-held.log';
+        touch($healthCheckLog);
+
+        [$exit, $output] = rollbackOpsRunHarness(
+            $scratch,
+            "parse_rollback_args --target parity-target --previous\nresolve_target\nperform_rollback",
+            rollbackOpsBaseEnv($scratch, [
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_HEALTH_CHECK_BIN' => rollbackOpsHealthCheckStub($scratch, $healthCheckLog),
+                'RATEGURU_RUN_ROOT' => rollbackOpsRunRoot($scratch),
+            ]),
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain('is held after restore operation 20260901-101112-a1b2c3')
+            ->toContain('a rollback is refused')
+            ->toContain('Controlled code alignment is required');
+
+        // Before any mutation: both pointers untouched, nothing health
+        // checked, nothing recorded, and the guard left for the operator.
+        expect(realpath($fixture['root'].'/current'))->toBe($originalCurrent);
+        expect(realpath($fixture['root'].'/previous'))->toBe($originalPrevious);
+        expect(File::get($healthCheckLog))->toBe('');
+        expect(trim((string) @file_get_contents($scratch.'/systemctl.log')))->toBe('');
+        expect(is_file(rollbackOpsGuardPath($scratch)))->toBeTrue();
+
+        $historyPath = $fixture['root'].'/deployments/history.jsonl';
+        expect(trim((string) @file_get_contents($historyPath)))->not->toContain('rollback');
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('refuses a rollback under every hold status, not only a completed one', function (string $status) {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $fixture = rollbackOpsBuildFixture($scratch);
+        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+        rollbackOpsInstallSystemctlStub($scratch);
+        rollbackOpsWriteRestoreGuard($scratch, ['status' => $status]);
+
+        $originalCurrent = realpath($fixture['root'].'/current');
+
+        [$exit, $output] = rollbackOpsRunHarness(
+            $scratch,
+            "parse_rollback_args --target parity-target --previous\nresolve_target\nperform_rollback",
+            rollbackOpsBaseEnv($scratch, [
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_HEALTH_CHECK_BIN' => rollbackOpsHealthCheckStub($scratch, $scratch.'/hc-'.$status.'.log'),
+                'RATEGURU_RUN_ROOT' => rollbackOpsRunRoot($scratch),
+            ]),
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("(status {$status})");
+        expect(realpath($fixture['root'].'/current'))->toBe($originalCurrent);
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+})->with(['in-progress', 'held', 'failed-held']);

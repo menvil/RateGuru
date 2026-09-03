@@ -1788,3 +1788,159 @@ it('passes bash -n and never sources common or the registry unsafely', function 
 
     expect($exit)->toBe(0, implode("\n", $output));
 });
+
+// =============================================================================
+// Phase 7.4: the restore interlock
+// =============================================================================
+//
+// A target held after a restore is mid-way through a controlled code
+// alignment: the release its data belongs to may be one cleanup would
+// otherwise consider stale, and deleting it would leave the alignment with no
+// code to install and the target held indefinitely.
+//
+// The side-effect-free --dry-run is deliberately still allowed. Refusing to
+// ANSWER a read-only question protects nothing, and an operator working a hold
+// has every reason to ask what cleanup would do once it ends.
+
+function cleanupOpsRunRoot(string $scratch): string
+{
+    return $scratch.'/run';
+}
+
+function cleanupOpsGuardPath(string $scratch): string
+{
+    return cleanupOpsRunRoot($scratch).'/restores/parity-target/restore-guard';
+}
+
+function cleanupOpsWriteRestoreGuard(string $scratch, array $overrides = []): void
+{
+    $path = cleanupOpsGuardPath($scratch);
+
+    if (! is_dir(dirname($path))) {
+        expect(@mkdir(dirname($path), 0o700, true))->toBeTrue('could not create the restore run root');
+    }
+
+    file_put_contents($path, json_encode(array_merge([
+        'operation' => '20260901-101112-a1b2c3',
+        'target' => 'parity-target',
+        'required_source_sha' => 'a81d7f2c3b4a5968778899aabbccddeeff001122',
+        'status' => 'held',
+        'created_at' => '2026-09-01T10:11:12Z',
+    ], $overrides), JSON_PRETTY_PRINT));
+    chmod($path, 0o600);
+}
+
+it('refuses to delete a release while the target is held, before creating or removing anything', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        $root = cleanupOpsBuildFixture($scratch, [
+            'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
+        ]);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
+        cleanupOpsWriteRestoreGuard($scratch);
+
+        $before = cleanupOpsSnapshotShallow($root.'/releases');
+
+        [$exit, $output] = cleanupOpsRunHarness($scratch, [
+            'PINNED_FILE_OWNER' => (string) getmyuid(),
+            'PINNED_FILE_GROUP' => (string) getmygid(),
+        ], <<<'BASH'
+            parse_cleanup_args --target parity-target --apply
+            resolve_target
+            validate_target_tree
+            perform_apply
+            BASH,
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_RUN_ROOT' => cleanupOpsRunRoot($scratch),
+            ]),
+        );
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain('is held after restore operation 20260901-101112-a1b2c3')
+            ->toContain('a cleanup is refused')
+            ->toContain('Controlled code alignment is required');
+
+        // Refused before mutation: no release deleted, no pinned-releases file
+        // created, and nothing recorded.
+        expect(cleanupOpsSnapshotShallow($root.'/releases'))->toBe($before);
+        expect($output)->not->toContain('DELETED');
+        expect(is_file($root.'/deployments/pinned-releases'))->toBeFalse();
+        expect(is_file(cleanupOpsGuardPath($scratch)))->toBeTrue();
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('still answers a read-only dry run while the target is held', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        $root = cleanupOpsBuildFixture($scratch, [
+            'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
+        ]);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
+        cleanupOpsWriteRestoreGuard($scratch);
+
+        $before = cleanupOpsSnapshotShallow($root.'/releases');
+
+        [$exit, $output] = cleanupOpsRunHarness($scratch, [], <<<'BASH'
+            parse_cleanup_args --target parity-target --dry-run
+            resolve_target
+            validate_target_tree
+            run_dry_run
+            BASH,
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_RUN_ROOT' => cleanupOpsRunRoot($scratch),
+            ]),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('DRY RUN would delete: v1.0.1-20260101-000000-abc1231');
+        expect(cleanupOpsSnapshotShallow($root.'/releases'))->toBe($before);
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});
+
+it('applies cleanup normally when no target is held', function () {
+    $scratch = cleanupOpsScratchDir();
+
+    try {
+        $root = cleanupOpsBuildFixture($scratch, [
+            'v1.0.1-20260101-000000-abc1231' => 'failed-health-check',
+        ]);
+        [$registryPath, $targetsPath] = cleanupOpsParityRegistry($scratch, $root);
+
+        // An existing but empty restore run root: the ordinary state of a host
+        // that has never had a restore held.
+        expect(@mkdir(cleanupOpsRunRoot($scratch), 0o700, true))->toBeTrue();
+
+        [$exit, $output] = cleanupOpsRunHarness($scratch, [
+            'PINNED_FILE_OWNER' => (string) getmyuid(),
+            'PINNED_FILE_GROUP' => (string) getmygid(),
+        ], <<<'BASH'
+            parse_cleanup_args --target parity-target --apply
+            resolve_target
+            validate_target_tree
+            perform_apply
+            BASH,
+            cleanupOpsBaseEnv($scratch, [
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_RUN_ROOT' => cleanupOpsRunRoot($scratch),
+            ]),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('DELETED v1.0.1-20260101-000000-abc1231');
+        expect(is_dir($root.'/releases/v1.0.1-20260101-000000-abc1231'))->toBeFalse();
+    } finally {
+        cleanupOpsCleanup($scratch);
+    }
+});

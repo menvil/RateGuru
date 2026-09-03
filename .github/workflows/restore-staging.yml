@@ -1,0 +1,584 @@
+name: Restore staging
+
+# Manual-only: restoring a live target's data is an operator decision, never an
+# automatic reaction to anything. The target is fixed to staging-main by this
+# workflow — an operator selects WHICH backup, never WHICH target. There is
+# deliberately no target dropdown anywhere in this repository: "Restore
+# staging" and "Restore production" are two buttons whose names say what they
+# do, sharing one implementation underneath.
+#
+# This workflow is policy and orchestration only. Every mechanism it uses
+# already exists and is used unchanged:
+#
+#   .github/actions/restore-rateguru        the one restore transport
+#   .github/actions/build-rateguru          the one build implementation
+#   .github/actions/deploy-rateguru         the one deployment transport
+#   .github/actions/record-rateguru-deployment  the one observability marker
+#
+# and every destructive decision is made by the server-side restore-target,
+# never here.
+#
+# The two shapes it covers:
+#
+#   CASE A — the backup matches the code the target already serves. The server
+#            restores, verifies, resumes the target itself and reports
+#            ALIGNED. Nothing else happens: no build, no deployment.
+#
+#   CASE B — the backup was taken under a different commit. The server
+#            restores the DATA, holds the target and reports REQUIRED plus the
+#            exact commit it needs. This workflow then builds THAT commit,
+#            deploys it as a controlled code alignment that keeps the hold, and
+#            asks the server to resume. The target only serves again once
+#            restore-target --resume has verified it.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: start a new restore, or continue an operation already held for code alignment
+        required: true
+        default: start
+        type: choice
+        options:
+          - start
+          - continue-held
+
+      source:
+        description: Where to read the backup from (offsite is the independent copy)
+        required: true
+        default: offsite
+        type: choice
+        options:
+          - offsite
+          - local
+
+      backup:
+        description: Exact backup timestamp YYYYMMDD-HHMMSS (required when mode=start, must be empty otherwise)
+        required: false
+        default: ""
+        type: string
+
+      operation:
+        description: Restore operation ID (required when mode=continue-held, must be empty otherwise)
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+# The WHOLE workflow, not just its first job. On a code mismatch the chain
+# restore -> build -> controlled deploy -> resume is ONE logical mutation of
+# one target: a staging deploy or rollback slipping in between the alignment
+# deploy and the resume would move `current` away from the commit the restored
+# data belongs to, while the target is held and cannot object. Same group as
+# deploy-staging.yml and rollback-staging.yml, so those cannot run alongside
+# it. cancel-in-progress stays false: a cancelled restore is not a stopped
+# restore, and the server-side locks and the restore guard remain the ultimate
+# integrity protection regardless.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # No GitHub Environment and no secret: input policy is decided before the
+  # environment's own protection rules are ever consulted, so a malformed
+  # request never becomes an approval request.
+  validate:
+    name: Validate restore request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      mode: ${{ steps.request.outputs.mode }}
+      source: ${{ steps.request.outputs.source }}
+      backup: ${{ steps.request.outputs.backup }}
+      operation: ${{ steps.request.outputs.operation }}
+
+    steps:
+      - name: Validate the restore request
+        id: request
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          SOURCE: ${{ inputs.source }}
+          BACKUP: ${{ inputs.backup }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          set -Eeuo pipefail
+
+          case "${SOURCE}" in
+            local|offsite)
+              ;;
+            *)
+              echo "source must be local or offsite" >&2
+              exit 1
+              ;;
+          esac
+
+          # Whitespace is stripped before anything is judged: a pasted backup
+          # ID or operation ID routinely arrives with a trailing space, and
+          # "looks empty but is not" is exactly the confusion these rules are
+          # here to remove.
+          backup="$(printf '%s' "${BACKUP}" | tr -d '[:space:]')"
+          operation="$(printf '%s' "${OPERATION}" | tr -d '[:space:]')"
+
+          case "${MODE}" in
+            start)
+              # An exact backup, always. There is no "latest" anywhere in this
+              # pipeline: a destructive restore names what it applies.
+              if [[ ! "${backup}" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then
+                echo "mode=start requires an exact backup timestamp YYYYMMDD-HHMMSS (got: ${BACKUP})" >&2
+                exit 1
+              fi
+
+              if [[ -n "${operation}" ]]; then
+                echo "mode=start must not name an operation: a new restore generates its own operation ID. To continue an operation that is already held, use mode=continue-held" >&2
+                exit 1
+              fi
+              ;;
+            continue-held)
+              if [[ ! "${operation}" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$ ]]; then
+                echo "mode=continue-held requires the restore operation ID to continue (got: ${OPERATION})" >&2
+                exit 1
+              fi
+
+              # Refusing a backup here is the point of the mode. A target that
+              # is held already HAS restored data, from a backup its own
+              # persisted state names; starting a second restore on top of it
+              # would replace that data — and the code alignment in flight
+              # would then be for the wrong commit.
+              if [[ -n "${backup}" ]]; then
+                echo "mode=continue-held must not name a backup: the held operation's own state records which backup it applied, and a new restore must never be started on top of a held target" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "mode must be start or continue-held" >&2
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "mode=${MODE}"
+            echo "source=${SOURCE}"
+            echo "backup=${backup}"
+            echo "operation=${operation}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Mode: ${MODE}"
+          echo "Source: ${SOURCE}"
+          echo "Backup: ${backup:-n/a}"
+          echo "Operation: ${operation:-n/a}"
+
+  restore:
+    name: Restore staging-main data
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: staging
+    # A real restore downloads, fully verifies and stages a whole backup, takes
+    # an emergency backup of the current state and restore-tests it, then swaps
+    # database and storage. All of that scales with data size.
+    timeout-minutes: 180
+
+    outputs:
+      status: ${{ steps.decide.outputs.status }}
+      operation_id: ${{ steps.decide.outputs.operation_id }}
+      backup: ${{ steps.decide.outputs.backup }}
+      backup_release: ${{ steps.decide.outputs.backup_release }}
+      required_source_sha: ${{ steps.decide.outputs.required_source_sha }}
+      current_source_sha: ${{ steps.decide.outputs.current_source_sha }}
+      code_alignment: ${{ steps.decide.outputs.code_alignment }}
+      build_required: ${{ steps.decide.outputs.build_required }}
+      resume_required: ${{ steps.decide.outputs.resume_required }}
+      release_version: ${{ steps.decide.outputs.release_version }}
+      release_metadata: ${{ steps.decide.outputs.release_metadata }}
+
+    steps:
+      # Restore business logic stays entirely server-side; nothing from this
+      # checkout is deployed. It comes from develop rather than any release
+      # ref, because the shared restore action is privileged operational
+      # tooling.
+      - name: Checkout restore action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Restore staging-main from the named backup
+        id: apply
+        if: ${{ needs.validate.outputs.mode == 'start' }}
+        uses: ./.github/actions/restore-rateguru
+        with:
+          mode: apply
+          deployment-target: staging-main
+          environment: staging
+
+          restore-source: ${{ needs.validate.outputs.source }}
+          backup-id: ${{ needs.validate.outputs.backup }}
+
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          restore-wrapper: ${{ vars.RESTORE_WRAPPER }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+      # Read-only. The data is already restored; this only reports what the
+      # held operation is waiting for, so a run whose build failed yesterday
+      # can be picked up today without touching the target again.
+      - name: Inspect the held restore operation
+        id: inspect
+        if: ${{ needs.validate.outputs.mode == 'continue-held' }}
+        uses: ./.github/actions/restore-rateguru
+        with:
+          mode: inspect
+          deployment-target: staging-main
+          environment: staging
+
+          operation-id: ${{ needs.validate.outputs.operation }}
+
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          restore-wrapper: ${{ vars.RESTORE_WRAPPER }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+      - name: Decide what this restore still needs
+        id: decide
+        shell: bash
+        env:
+          STATUS: ${{ steps.apply.outputs.status || steps.inspect.outputs.status }}
+          OPERATION_ID: ${{ steps.apply.outputs.operation-id || steps.inspect.outputs.operation-id }}
+          BACKUP: ${{ steps.apply.outputs.backup || steps.inspect.outputs.backup }}
+          BACKUP_RELEASE: ${{ steps.apply.outputs.backup-release || steps.inspect.outputs.backup-release }}
+          REQUIRED_SOURCE_SHA: ${{ steps.apply.outputs.required-source-sha || steps.inspect.outputs.required-source-sha }}
+          CURRENT_SOURCE_SHA: ${{ steps.apply.outputs.current-source-sha || steps.inspect.outputs.current-source-sha }}
+          CODE_ALIGNMENT: ${{ steps.apply.outputs.code-alignment || steps.inspect.outputs.code-alignment }}
+        run: |
+          set -Eeuo pipefail
+
+          test -n "${STATUS}"
+          test -n "${OPERATION_ID}"
+          test -n "${REQUIRED_SOURCE_SHA}"
+
+          release_version=""
+          release_metadata="{}"
+
+          case "${STATUS}" in
+            completed)
+              # CASE A. The server restored the data, found the target already
+              # serving the commit that data belongs to, resumed it and health
+              # checked it. Nothing is left to do, and building anything here
+              # would be building a release nobody asked for.
+              build_required=no
+              resume_required=no
+              ;;
+            held)
+              resume_required=yes
+
+              if [[ "${CURRENT_SOURCE_SHA}" == "${REQUIRED_SOURCE_SHA}" ]]; then
+                # Only reachable through continue-held, and only when a
+                # previous run of this workflow already deployed the required
+                # commit and then failed (or was lost) before resuming. The
+                # code is right; finish the operation rather than rebuilding
+                # and redeploying an identical tree.
+                build_required=no
+              else
+                build_required=yes
+              fi
+              ;;
+            *)
+              echo "Unexpected restore status: ${STATUS}" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ "${build_required}" == "yes" ]]; then
+            # The version prefix of the alignment release comes from the
+            # BACKUP's own release, so the rebuilt code keeps the version the
+            # data belongs to. The rest of the release ID is new, and
+            # deliberately: this is a new build of the same commit, not a claim
+            # to be byte-identical to a release that already exists. The commit
+            # is the identity that matters, and it is carried exactly.
+            if [[ ! "${BACKUP_RELEASE}" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+)-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$ ]]; then
+              echo "Backup release ${BACKUP_RELEASE} is not a canonical release ID; refusing to invent a version for the alignment build" >&2
+              exit 1
+            fi
+
+            release_version="${BASH_REMATCH[1]}"
+
+            # Extra identity only. build-rateguru refuses any attempt to
+            # redefine a core release.json field, so this can add to the
+            # artifact's provenance and never rewrite it.
+            release_metadata="$(
+              jq -cn \
+                --arg operation "${OPERATION_ID}" \
+                --arg backup "${BACKUP}" \
+                '{
+                  environment: "staging",
+                  restore_operation: $operation,
+                  restore_backup: $backup,
+                  restore_alignment: true
+                }'
+            )"
+          fi
+
+          {
+            echo "status=${STATUS}"
+            echo "operation_id=${OPERATION_ID}"
+            echo "backup=${BACKUP}"
+            echo "backup_release=${BACKUP_RELEASE}"
+            echo "required_source_sha=${REQUIRED_SOURCE_SHA}"
+            echo "current_source_sha=${CURRENT_SOURCE_SHA}"
+            echo "code_alignment=${CODE_ALIGNMENT}"
+            echo "build_required=${build_required}"
+            echo "resume_required=${resume_required}"
+            echo "release_version=${release_version}"
+            echo "release_metadata=${release_metadata}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Status: ${STATUS} (code alignment ${CODE_ALIGNMENT})"
+          echo "Operation: ${OPERATION_ID}"
+          echo "Required source commit: ${REQUIRED_SOURCE_SHA}"
+          echo "Current source commit: ${CURRENT_SOURCE_SHA}"
+          echo "Historical build required: ${build_required}"
+          echo "Resume required: ${resume_required}"
+
+  # The historical build. Deliberately holds NO GitHub Environment, no
+  # deployment SSH key, no Sentry credential and no B2 credential: the commit it
+  # builds is an arbitrary point in this repository's history, chosen by a
+  # backup rather than by a person, and it must never be able to reach anything
+  # privileged. contents: read is the whole of its permission.
+  build:
+    name: Build the exact commit the restored data belongs to
+    needs:
+      - validate
+      - restore
+    if: ${{ needs.restore.outputs.build_required == 'yes' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+
+    outputs:
+      source-sha: ${{ steps.build.outputs.source-sha }}
+      release-id: ${{ steps.build.outputs.release-id }}
+      artifact-name: ${{ steps.build.outputs.artifact-name }}
+      workflow-artifact-name: ${{ steps.build.outputs.workflow-artifact-name }}
+
+    steps:
+      # Two checkouts, deliberately, and the separation is the whole trust
+      # boundary. The build tooling is operational code and always comes from
+      # develop; the application is a historical commit that may predate every
+      # part of the current pipeline. Loading the build action out of the
+      # historical commit would let restored data decide what the operational
+      # tooling does — so it never happens.
+      - name: Checkout trusted build tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The exact commit the server said the restored data belongs to. Not a
+      # branch, not a tag, not "whatever is near it": if this commit is gone or
+      # no longer builds, this job fails and the target simply stays held.
+      # There is no fallback, because every fallback would install code the
+      # data does not belong to.
+      - name: Checkout the required historical application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.restore.outputs.required_source_sha }}
+          path: application
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build the alignment release artifact
+        id: build
+        uses: ./.github/actions/build-rateguru
+        with:
+          source-root: ${{ github.workspace }}/application
+
+          # The commit itself, so release.json's source_ref never claims a
+          # branch or tag this build did not come from.
+          source-ref: ${{ needs.restore.outputs.required_source_sha }}
+          expected-source-sha: ${{ needs.restore.outputs.required_source_sha }}
+
+          release-version: ${{ needs.restore.outputs.release_version }}
+
+          workflow-artifact-prefix: rateguru-restore-alignment
+
+          # Consumed by the alignment job in the same run; kept a little longer
+          # than a staging build so an operator can re-download the exact
+          # artifact a recovery installed.
+          artifact-retention-days: "7"
+
+          release-metadata: ${{ needs.restore.outputs.release_metadata }}
+
+  align:
+    name: Deploy the required commit while the target stays held
+    needs:
+      - validate
+      - restore
+      - build
+    if: ${{ needs.restore.outputs.build_required == 'yes' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout deployment action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Deployment code is always taken from the trusted develop branch,
+          # never from the historical application ref being deployed.
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download the alignment release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.build.outputs.workflow-artifact-name }}
+          path: ${{ runner.temp }}/rateguru-release
+
+      # The same deployment action and the same server-side deploy every
+      # ordinary release uses. restore-operation is the only difference, and it
+      # names the operation — never the commit. The server reads the required
+      # commit from that operation's own persisted state and refuses this
+      # artifact if it was built from anything else.
+      - name: Deploy the alignment release
+        uses: ./.github/actions/deploy-rateguru
+        with:
+          deployment-target: staging-main
+
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          deploy-incoming: ${{ vars.DEPLOY_INCOMING }}
+          deploy-wrapper: ${{ vars.DEPLOY_WRAPPER }}
+          deploy-root: ${{ vars.DEPLOY_ROOT }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+          release-id: ${{ needs.build.outputs.release-id }}
+
+          artifact-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}
+          checksum-path: ${{ runner.temp }}/rateguru-release/${{ needs.build.outputs.artifact-name }}.sha256
+
+          # Never true here, and the action refuses the combination outright.
+          # Restored data belongs to the schema of the commit being installed;
+          # migrating it would change the very thing the restore just put back.
+          run-migrations: "false"
+
+          restore-operation: ${{ needs.restore.outputs.operation_id }}
+
+  # The single owner of ending a hold. Nothing before this point restores the
+  # scheduler, starts the queue, leaves maintenance or clears the restore
+  # guard — restore-target --resume does all of it, verifies the restored data
+  # and health checks the target, and only then is the operation over.
+  #
+  # Reached both when an alignment was deployed above and when continue-held
+  # found the required commit already installed.
+  resume:
+    name: Resume staging-main
+    needs:
+      - validate
+      - restore
+      - build
+      - align
+    if: >-
+      ${{ !cancelled()
+          && needs.restore.result == 'success'
+          && needs.restore.outputs.resume_required == 'yes'
+          && (needs.build.result == 'success' || needs.build.result == 'skipped')
+          && (needs.align.result == 'success' || needs.align.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout restore action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resume the restore operation
+        uses: ./.github/actions/restore-rateguru
+        with:
+          mode: resume
+          deployment-target: staging-main
+          environment: staging
+
+          operation-id: ${{ needs.restore.outputs.operation_id }}
+
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+          restore-wrapper: ${{ vars.RESTORE_WRAPPER }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+  # Only for a recovery that actually deployed code, and only once the target
+  # is provably serving it again. A restore that came back ALIGNED deployed
+  # nothing, so there is no deployment to mark — inventing one would put a
+  # release into Sentry and Nightwatch that was never built or installed.
+  #
+  # Same shared implementation the deploy and rollback workflows use, and
+  # fail-open throughout: an unreachable Sentry never turns a completed
+  # recovery into a failed run.
+  observability:
+    name: Record the alignment release in Sentry and Nightwatch
+    needs:
+      - restore
+      - build
+      - align
+      - resume
+    if: >-
+      ${{ !cancelled()
+          && needs.restore.outputs.build_required == 'yes'
+          && needs.align.result == 'success'
+          && needs.resume.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout observability action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Record deployment in Sentry and Nightwatch
+        uses: ./.github/actions/record-rateguru-deployment
+        with:
+          deployment-target: staging-main
+          environment: staging
+
+          release-id: ${{ needs.build.outputs.release-id }}
+          source-sha: ${{ needs.build.outputs.source-sha }}
+
+          sentry-auth-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          sentry-org: ${{ vars.SENTRY_ORG }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+          deploy-host: ${{ vars.DEPLOY_HOST }}
+          deploy-port: ${{ vars.DEPLOY_PORT }}
+          deploy-user: ${{ vars.DEPLOY_USER }}
+
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}

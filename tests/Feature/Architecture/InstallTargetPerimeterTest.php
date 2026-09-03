@@ -102,16 +102,21 @@ function installPerimeterWriteWrapperStub(string $path, string $titsGuru = 'reje
     $script = <<<SH
 #!/usr/bin/env bash
 # Stub wrapper for install-target-perimeter tests only — never a real
-# deploy/rollback/cleanup operation. Mimics the real wrapper's own reference
-# to /home/www/rateguru/bin/deploy, /home/www/rateguru/bin/rollback and
-# /home/www/rateguru/bin/cleanup, and its own comment: no eval, no bash -c,
-# no string-built command.
+# deploy/rollback/cleanup/restore operation. Mimics the real wrappers' own
+# references to /home/www/rateguru/bin/deploy, /home/www/rateguru/bin/rollback,
+# /home/www/rateguru/bin/cleanup and /home/www/rateguru/bin/restore-target, and
+# their own comment: no eval, no bash -c, no string-built command.
 if [[ "\$*" == "--help" ]]; then
     echo "Usage: stub-wrapper --target TARGET_ID"
     exit 0
 fi
 
-if [[ "\$*" == "--target tits-guru" ]]; then
+# The bare form every wrapper is probed with, and the read-only form
+# rateguru-restore is probed with — its parser needs a mode before it will
+# accept anything, so the perimeter installer passes --inspect plus a
+# fictional operation ID that is never looked up.
+if [[ "\$*" == "--target tits-guru" ]] \
+    || [[ "\$*" == "--target tits-guru --inspect --operation "* ]]; then
 {$rejectionBranch}
 fi
 
@@ -125,7 +130,7 @@ SH;
 }
 
 /**
- * Creates a fully current, byte-identical-to-committed-source sixteen-file
+ * Creates a fully current, byte-identical-to-committed-source seventeen-file
  * operations bundle under $scratch/ops/home/www/rateguru/..., matching
  * exactly what install-target-operations installs for real — modes 0640
  * (registry, deployment.conf), 0644 (common), 0755 (every CLI). This is what
@@ -172,6 +177,7 @@ function installPerimeterWriteOperationsBundle(string $scratch): array
         'DST_OPS_OFFSITE_RESTORE_TEST' => 'offsite-restore-test',
         'DST_OPS_BACKUP_CYCLE' => 'backup-cycle',
         'DST_OPS_VERIFY_REQUIRED_CLIS' => 'verify-required-clis',
+        'DST_OPS_RESTORE_TARGET' => 'restore-target',
     ];
 
     $vars = [
@@ -207,6 +213,7 @@ function installPerimeterBaseVars(string $scratch, ?string $wrapperStub = null):
         'SRC_WRAPPER_DEPLOY' => $wrapperStub,
         'SRC_WRAPPER_ROLLBACK' => $wrapperStub,
         'SRC_WRAPPER_CLEANUP' => $wrapperStub,
+        'SRC_WRAPPER_RESTORE' => $wrapperStub,
         'SRC_SUDOERS' => base_path('infrastructure/config/sudoers/rateguru-deploy'),
         'SRC_CRON' => base_path('infrastructure/config/cron/rateguru-backups'),
         'SRC_COMMON' => base_path('infrastructure/scripts/common'),
@@ -225,9 +232,11 @@ function installPerimeterBaseVars(string $scratch, ?string $wrapperStub = null):
         'SRC_OFFSITE_RESTORE_TEST' => base_path('infrastructure/scripts/offsite-restore-test'),
         'SRC_BACKUP_CYCLE' => base_path('infrastructure/scripts/backup-cycle'),
         'SRC_VERIFY_REQUIRED_CLIS' => base_path('infrastructure/scripts/verify-required-clis'),
+        'SRC_RESTORE_TARGET' => base_path('infrastructure/scripts/restore-target'),
         'DST_WRAPPER_DEPLOY' => $scratch.'/dest/usr/local/sbin/rateguru-deploy',
         'DST_WRAPPER_ROLLBACK' => $scratch.'/dest/usr/local/sbin/rateguru-rollback',
         'DST_WRAPPER_CLEANUP' => $scratch.'/dest/usr/local/sbin/rateguru-cleanup',
+        'DST_WRAPPER_RESTORE' => $scratch.'/dest/usr/local/sbin/rateguru-restore',
         'DST_SUDOERS' => $scratch.'/dest/etc/sudoers.d/rateguru-deploy',
         'DST_CRON' => $scratch.'/dest/etc/cron.d/rateguru-backups',
         'DST_SBIN_DIR' => $scratch.'/dest/usr/local/sbin',
@@ -699,7 +708,7 @@ it('an eval/bash -c defect is detected during apply\'s own preflight, before any
         expect($exit)->not->toBe(0);
         expect($output)->toContain('source rateguru-deploy contains an executable eval');
 
-        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_SUDOERS', 'DST_CRON'] as $key) {
+        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_WRAPPER_RESTORE', 'DST_SUDOERS', 'DST_CRON'] as $key) {
             expect(file_exists($vars[$key]))->toBeFalse("{$key} must not exist — a wrapper defect must be caught before any destination file is touched");
         }
         expect(glob($vars['BACKUP_ROOT'].'/*'))->toBe([], 'no backup directory should ever be created for this failure');
@@ -723,7 +732,7 @@ it('source, staged, and installed validation all call the one shared static cont
 // =============================================================================
 // Installed operations bundle staleness guard
 //
-// install-target-perimeter must confirm the real installed sixteen-file
+// install-target-perimeter must confirm the real installed seventeen-file
 // operations bundle (install-target-operations' own responsibility) is
 // present and current — for --check, --apply's own preflight, and
 // --verify alike — before ever creating a staging directory, a backup
@@ -737,7 +746,7 @@ it('check passes when the installed operations bundle is fully current', functio
         [$exit, $output] = installPerimeterRunHarness($scratch, installPerimeterBaseVars($scratch), 'run_check');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('installed target operations bundle (sixteen files) matches this repository\'s committed sources');
+        expect($output)->toContain('installed target operations bundle (seventeen files) matches this repository\'s committed sources');
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -871,7 +880,7 @@ it('a stale installed operations bundle is rejected before any perimeter destina
         expect($exit)->not->toBe(0);
         expect($output)->toContain('installed target operations are stale or incomplete; run install-target-operations --apply first');
 
-        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_SUDOERS', 'DST_CRON'] as $key) {
+        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_WRAPPER_RESTORE', 'DST_SUDOERS', 'DST_CRON'] as $key) {
             expect(file_exists($vars[$key]))->toBeFalse("{$key} must not exist — a stale operations bundle must be rejected before any perimeter file is touched");
         }
         expect(glob($vars['BACKUP_ROOT'].'/*'))->toBe([], 'no backup directory should ever be created for this failure');
@@ -907,7 +916,7 @@ it('verify also rejects a stale installed operations bundle', function () {
 // Full perform_apply / perform_verify integration
 // =============================================================================
 
-it('a successful apply installs exactly five files with correct ownership, mode and content, and creates a timestamped backup', function () {
+it('a successful apply installs exactly six files with correct ownership, mode and content, and creates a timestamped backup', function () {
     $scratch = installPerimeterScratchDir();
 
     try {
@@ -922,6 +931,7 @@ it('a successful apply installs exactly five files with correct ownership, mode 
             ['DST_WRAPPER_DEPLOY', 'SRC_WRAPPER_DEPLOY', '0755'],
             ['DST_WRAPPER_ROLLBACK', 'SRC_WRAPPER_ROLLBACK', '0755'],
             ['DST_WRAPPER_CLEANUP', 'SRC_WRAPPER_CLEANUP', '0755'],
+            ['DST_WRAPPER_RESTORE', 'SRC_WRAPPER_RESTORE', '0755'],
             ['DST_SUDOERS', 'SRC_SUDOERS', '0440'],
             ['DST_CRON', 'SRC_CRON', '0644'],
         ] as [$dstKey, $srcKey, $mode]) {
@@ -1026,6 +1036,7 @@ it('a broken candidate aborts before touching any destination', function () {
         expect(file_exists($vars['DST_WRAPPER_DEPLOY']))->toBeFalse();
         expect(file_exists($vars['DST_WRAPPER_ROLLBACK']))->toBeFalse();
         expect(file_exists($vars['DST_WRAPPER_CLEANUP']))->toBeFalse();
+        expect(file_exists($vars['DST_WRAPPER_RESTORE']))->toBeFalse();
         expect(file_exists($vars['DST_SUDOERS']))->toBeFalse();
         expect(file_exists($vars['DST_CRON']))->toBeFalse();
     } finally {
@@ -1063,6 +1074,7 @@ it('rolls back every file to its previous content when a mid-sequence install st
         expect(file_get_contents($vars['DST_SUDOERS']))->toBe("old sudoers content\n");
         expect(file_exists($vars['DST_WRAPPER_ROLLBACK']))->toBeFalse();
         expect(file_exists($vars['DST_WRAPPER_CLEANUP']))->toBeFalse();
+        expect(file_exists($vars['DST_WRAPPER_RESTORE']))->toBeFalse();
         expect(is_dir($vars['DST_CRON']))->toBeTrue('the pre-existing directory at DST_CRON must be left untouched, never treated as a rollback target');
     } finally {
         installPerimeterCleanup($scratch);
@@ -1079,12 +1091,13 @@ it('leaves no partial perimeter when apply fails at any point', function () {
         $vars['SRC_WRAPPER_DEPLOY'] = $failingStub;
         $vars['SRC_WRAPPER_ROLLBACK'] = $failingStub;
         $vars['SRC_WRAPPER_CLEANUP'] = $failingStub;
+        $vars['SRC_WRAPPER_RESTORE'] = $failingStub;
 
         [$exit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
 
         expect($exit)->not->toBe(0);
 
-        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_SUDOERS', 'DST_CRON'] as $key) {
+        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_WRAPPER_RESTORE', 'DST_SUDOERS', 'DST_CRON'] as $key) {
             expect(file_exists($vars[$key]))->toBeFalse("{$key} must not exist — no destination existed before this run, so a failed apply must leave none behind");
         }
     } finally {
@@ -1107,13 +1120,14 @@ it('apply fails with a specific diagnostic when the planned-target rejection hap
         $vars['SRC_WRAPPER_DEPLOY'] = $wrongReasonStub;
         $vars['SRC_WRAPPER_ROLLBACK'] = $wrongReasonStub;
         $vars['SRC_WRAPPER_CLEANUP'] = $wrongReasonStub;
+        $vars['SRC_WRAPPER_RESTORE'] = $wrongReasonStub;
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
 
-        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_SUDOERS', 'DST_CRON'] as $key) {
+        foreach (['DST_WRAPPER_DEPLOY', 'DST_WRAPPER_ROLLBACK', 'DST_WRAPPER_CLEANUP', 'DST_WRAPPER_RESTORE', 'DST_SUDOERS', 'DST_CRON'] as $key) {
             expect(file_exists($vars[$key]))->toBeFalse("{$key} must not exist — this failure happens during staged verification, before any destination is touched");
         }
     } finally {
@@ -1467,6 +1481,7 @@ it('a failed apply never leaves behind a legacy wrapper that did not exist befor
         $vars['SRC_WRAPPER_DEPLOY'] = $wrongReasonStub;
         $vars['SRC_WRAPPER_ROLLBACK'] = $wrongReasonStub;
         $vars['SRC_WRAPPER_CLEANUP'] = $wrongReasonStub;
+        $vars['SRC_WRAPPER_RESTORE'] = $wrongReasonStub;
 
         [$exit] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
 

@@ -17,7 +17,10 @@ it('defines a hardened reusable RateGuru deployment action', function () {
         ->and(data_get($action, 'name'))->toBe('Deploy RateGuru artifact')
         ->and(data_get($action, 'runs.using'))->toBe('composite')
         ->and(data_get($action, 'inputs.deploy-port.default'))->toBe('22')
-        ->and(data_get($action, 'inputs.run-migrations.default'))->toBe('true');
+        ->and(data_get($action, 'inputs.run-migrations.default'))->toBe('true')
+        // Empty by default, so an ordinary deployment's contract is unchanged.
+        ->and(data_get($action, 'inputs.restore-operation.required'))->toBeFalse()
+        ->and(data_get($action, 'inputs.restore-operation.default'))->toBe('');
 
     foreach ([
         'deployment-target',
@@ -54,6 +57,11 @@ it('defines a hardened reusable RateGuru deployment action', function () {
         ->toContain('-o UserKnownHostsFile="${RATEGURU_KNOWN_HOSTS_PATH}"')
         ->toContain("'sudo -n %q --target %q --release %q --artifact %q --checksum %q'")
         ->toContain('remote_command+=" --migrate"')
+        // Phase 7.4: the alignment mode is opt-in, names an operation and
+        // never a commit, and is refused outright alongside a migration.
+        ->toContain("operation_regex='^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'")
+        ->toContain('run-migrations must be false when restore-operation is set')
+        ->toContain("printf -v restore_argument ' --restore-operation %q' \"\${RESTORE_OPERATION}\"")
         ->toContain("'basename \"$(readlink -f %q)\"'")
         ->toContain("jq -r '.release'")
         ->toContain('if: ${{ always() }}');
@@ -94,5 +102,5 @@ it('is called with an explicit, validly-shaped deployment-target by every workfl
     // Proves this scan actually found real call sites, not trivially
     // passing against zero consumers — and forces this test to be updated
     // the moment a new workflow adds a fourth one.
-    expect($consumers)->toHaveCount(3, 'expected exactly three deploy-rateguru call sites (deploy-staging.yml, release.yml staging, release.yml production); found: '.implode(', ', $consumers));
+    expect($consumers)->toHaveCount(5, 'expected exactly five deploy-rateguru call sites (deploy-staging.yml, release.yml staging, release.yml production, and the controlled alignment in each restore workflow); found: '.implode(', ', $consumers));
 });

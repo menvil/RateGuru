@@ -2,8 +2,9 @@
 #
 # restore-target — restore ONE live target's DATA from ONE exact backup.
 #
-#   restore-target --apply  --target T --source local|offsite --backup YYYYMMDD-HHMMSS
-#   restore-target --resume --target T --operation OPERATION_ID
+#   restore-target --apply   --target T --source local|offsite --backup YYYYMMDD-HHMMSS
+#   restore-target --inspect --target T --operation OPERATION_ID
+#   restore-target --resume  --target T --operation OPERATION_ID
 #
 # Scenario: the server is alive, the infrastructure is intact, the target
 # exists and is active — only its data is wrong. This is NOT Recover Host
@@ -82,6 +83,8 @@ Usage:
   restore-target --apply --target TARGET_ID --source local|offsite \
                  --backup YYYYMMDD-HHMMSS
 
+  restore-target --inspect --target TARGET_ID --operation OPERATION_ID
+
   restore-target --resume --target TARGET_ID --operation OPERATION_ID
 
   --apply      Restore this target's database and storage from the named
@@ -89,9 +92,19 @@ Usage:
                "latest" and no implicit selection.
   --source     local   the target's own local backup namespace
                offsite the fixed B2 remote/bucket for that namespace
+  --inspect    Read-only. Report a held operation's identity, the commit it
+               requires and the commit the target currently serves, without
+               changing a single thing. This is how a controlled code
+               alignment that was interrupted — a failed historical build, a
+               lost workflow run, an operator coming back the next day — is
+               picked up again.
   --resume     Resume a target that completed its data restore but was held
                because its code did not match the backup. Only valid once the
                target's current release carries the backup's own source_sha.
+
+Every terminal outcome also prints exactly one machine-readable line:
+
+  RATEGURU_RESTORE_RESULT={"status":"...","operation_id":"...", ...}
 USAGE
 }
 
@@ -115,8 +128,8 @@ parse_restore_target_args() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --apply|--resume)
-                [[ "${MODE_SEEN}" != true ]] || fail "only one of --apply or --resume may be given"
+            --apply|--inspect|--resume)
+                [[ "${MODE_SEEN}" != true ]] || fail "only one of --apply, --inspect or --resume may be given"
                 MODE="${1#--}"
                 MODE_SEEN=true
                 shift
@@ -159,12 +172,12 @@ parse_restore_target_args() {
         esac
     done
 
-    [[ "${MODE_SEEN}" == true ]] || fail "exactly one of --apply or --resume is required"
+    [[ "${MODE_SEEN}" == true ]] || fail "exactly one of --apply, --inspect or --resume is required"
     [[ "${TARGET_SEEN}" == true ]] || fail "--target is required"
 
     if [[ "${MODE}" == "apply" ]]; then
         [[ "${OPERATION_SEEN}" != true ]] \
-            || fail "--operation is only valid with --resume; --apply generates its own operation ID"
+            || fail "--operation is only valid with --inspect or --resume; --apply generates its own operation ID"
         [[ "${SOURCE_SEEN}" == true ]] || fail "--source is required (local or offsite)"
         [[ "${BACKUP_SEEN}" == true ]] \
             || fail "--backup is required — a destructive restore never selects a backup implicitly, and there is no 'latest'"
@@ -174,9 +187,13 @@ parse_restore_target_args() {
             *) fail "--source must be local or offsite, got: ${SOURCE_KIND}" ;;
         esac
     else
+        # --inspect and --resume both address an operation that already
+        # exists. Its backup and its source are recorded in that operation's
+        # own state; accepting them again would let a caller describe an
+        # operation as something other than what it is.
         [[ "${SOURCE_SEEN}" != true ]] || fail "--source is only valid with --apply"
         [[ "${BACKUP_SEEN}" != true ]] || fail "--backup is only valid with --apply"
-        [[ "${OPERATION_SEEN}" == true ]] || fail "--resume requires --operation"
+        [[ "${OPERATION_SEEN}" == true ]] || fail "--${MODE} requires --operation"
     fi
 }
 
@@ -1325,6 +1342,69 @@ append_restore_history() {
     restore_history_append "${record}"
 }
 
+# --- machine-readable result ------------------------------------------------------------------------
+#
+# Exactly one line, on exactly one terminal SUCCESS, in a fixed shape:
+#
+#   RATEGURU_RESTORE_RESULT={"status":"held", ...}
+#
+# The human summary above stays exactly as it is — an operator reading a
+# terminal is the primary audience and always will be. This exists because the
+# GitHub restore workflow is not an operator: it has to branch on whether the
+# target came back or is waiting for its code, and grepping prose for that
+# answer would make every future wording change a silent behaviour change.
+#
+# Rules the consumer relies on, and that the emitter therefore enforces:
+#
+#   * one object per invocation, never zero and never two — the flag below is
+#     what makes a second call a loud internal error rather than an ambiguity
+#     the reader has to resolve;
+#   * emitted only on a terminal SUCCESS. A failure exits non-zero, which is
+#     already unambiguous, and a result line on a failed run would invite a
+#     consumer to read state out of a run that did not finish;
+#   * identity only. Release IDs, commits, backup IDs and an operation ID are
+#     public build/operation identity; no .env value, credential, path inside
+#     a private tree or host detail is ever a field here.
+RESTORE_RESULT_EMITTED=false
+
+emit_restore_result() {
+    local status="$1"
+
+    [[ "${RESTORE_RESULT_EMITTED}" == false ]] \
+        || fail "internal error: the machine-readable restore result was already emitted"
+
+    RESTORE_RESULT_EMITTED=true
+
+    local result
+    result="$(
+        jq -cn \
+            --arg status "${status}" \
+            --arg operation_id "${OPERATION_ID}" \
+            --arg target "${TARGET_ID}" \
+            --arg backup "${BACKUP_ID}" \
+            --arg backup_release "${BACKUP_RELEASE}" \
+            --arg backup_source_sha "${BACKUP_SOURCE_SHA}" \
+            --arg required_source_sha "${BACKUP_SOURCE_SHA}" \
+            --arg current_source_sha "${RESTORE_CURRENT_SOURCE_SHA:-}" \
+            --arg code_alignment "${CODE_ALIGNMENT}" \
+            --arg runtime_resumed "${RUNTIME_RESUMED}" \
+            '{
+                status: $status,
+                operation_id: $operation_id,
+                target: $target,
+                backup: $backup,
+                backup_release: $backup_release,
+                backup_source_sha: $backup_source_sha,
+                required_source_sha: $required_source_sha,
+                current_source_sha: $current_source_sha,
+                code_alignment: $code_alignment,
+                runtime_resumed: $runtime_resumed
+            }'
+    )" || fail "could not render the machine-readable restore result"
+
+    printf 'RATEGURU_RESTORE_RESULT=%s\n' "${result}"
+}
+
 print_summary() {
     local data_complete="$1"
 
@@ -1704,6 +1784,7 @@ decide_code_alignment() {
             || fail "could not append the restore history record"
 
         print_summary YES
+        emit_restore_result completed
 
         log "${LABEL} restore completed and the target is serving again"
         cleanup_completed_operation
@@ -1734,6 +1815,7 @@ decide_code_alignment() {
         || fail "could not append the restore history record"
 
     print_summary YES
+    emit_restore_result held
 
     printf '\n'
     printf 'The DATA restore succeeded. The target is intentionally HELD:\n'
@@ -1744,11 +1826,16 @@ decide_code_alignment() {
     printf 'Do NOT use the normal deployment path to resume this operation.\n'
     printf 'A normal deploy is not restore-aware: it health-checks the target and\n'
     printf 'transitions the queue, both of which fight the hold this operation is\n'
-    printf 'deliberately keeping. Controlled code alignment — deploying the required\n'
-    printf 'source SHA while PRESERVING the hold, then resuming — is Phase 7.4.\n'
+    printf 'deliberately keeping. What finishes this is a CONTROLLED code alignment:\n'
+    printf 'the same deploy, run with --restore-operation, which installs the exact\n'
+    printf 'required commit while PRESERVING the hold, followed by --resume.\n'
     printf '\n'
     printf 'REQUIRED SOURCE SHA: %s\n' "${BACKUP_SOURCE_SHA}"
-    printf 'RESUME COMMAND (only once that SHA is what current serves):\n'
+    printf 'FROM GITHUB: run the Restore workflow for this target with\n'
+    printf '  mode=continue-held  operation=%s\n' "${OPERATION_ID}"
+    printf 'BY HAND, once an artifact built from that exact commit is on this host:\n'
+    printf '  deploy --target %s --release <release-id> --artifact <path> \\\n' "${TARGET_ID}"
+    printf '         --restore-operation %s\n' "${OPERATION_ID}"
     printf '  restore-target --resume --target %s --operation %s\n' "${TARGET_ID}" "${OPERATION_ID}"
     printf '\n'
 }
@@ -1763,6 +1850,143 @@ cleanup_completed_operation() {
     else
         log "WARNING: could not remove the operation workspace: ${WORKSPACE}"
     fi
+}
+
+# --- inspect ------------------------------------------------------------------------------------------
+#
+# Strictly read-only. It changes no database, no storage tree, no queue, no
+# scheduler entry, no maintenance flag, no `current` link and no guard — it
+# takes the operation lock (so it cannot read state a running restore is
+# halfway through writing) and reads.
+#
+# It exists because a controlled code alignment is a chain across two systems,
+# and the GitHub half of it can fail on its own: a historical commit that no
+# longer builds, a cancelled workflow run, a runner that died, or an operator
+# who simply comes back the next day. The target is still held — correctly,
+# and indefinitely — and the question that has to be answerable at any later
+# point is "what exactly is this target waiting for?".
+#
+# The answer is never taken from the caller: the operation ID is all that is
+# supplied, and the commit, the backup and the hold status all come out of the
+# server's own persisted restore documents.
+#
+# What it deliberately does NOT do is decide anything about an operation that
+# is not a plain code-alignment hold. `in-progress` and `failed-held` mean a
+# restore is still running or failed with live data that may have been
+# replaced: neither is finished by deploying a commit, and saying so is more
+# useful than a generic refusal.
+
+# A diagnosis, not an authorization: assert_restore_alignment_operation below
+# is what actually decides. This only exists so the two statuses an operator
+# will really hit get told what to do next.
+inspect_diagnose_unalignable_hold() {
+    local marker guard_status guard_operation
+
+    marker="$(restore_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
+
+    [[ -f "${marker}" ]] || return 0
+
+    guard_status="$(jq -r '.status // empty' "${marker}" 2>/dev/null || printf '')"
+    guard_operation="$(jq -r '.operation // empty' "${marker}" 2>/dev/null || printf '')"
+
+    case "${guard_status}" in
+        in-progress)
+            fail "${TARGET_ID} is held by restore operation ${guard_operation:-<unknown>} with status 'in-progress': a restore either is still running or was killed between activating the data and finishing. It is NOT a code-alignment hold, and continuing the alignment flow against it is unsafe — no build, no deployment and no --resume. Read ${marker} and the operation's own state, and recover it by hand (Repair Target is Phase 7.5)"
+            ;;
+        failed-held)
+            fail "${TARGET_ID} is held by restore operation ${guard_operation:-<unknown>} with status 'failed-held': a restore failed leaving live data that may already have been replaced. It is NOT a code-alignment hold, and continuing the alignment flow against it is unsafe — no build, no deployment and no --resume. The operation's own MANUAL RECOVERY REQUIRED report names the failed step, the compensation status and the emergency backup; recover it by hand (Repair Target is Phase 7.5)"
+            ;;
+    esac
+}
+
+# assert_runtime_still_held — the outside view of a hold: nothing may be
+# serving, nothing may be consuming the queue, and no cron entry may fire a
+# scheduler against this target.
+#
+# This is the one implementation of that proof. The controlled alignment deploy
+# does not re-derive it — it runs this, through --inspect — because reading
+# Supervisor correctly is subtle enough that a second copy would eventually
+# disagree with this one, and the disagreement would be discovered by a queue
+# worker writing to a database it should not have been able to reach.
+assert_runtime_still_held() {
+    maintenance_active \
+        || fail "${TARGET_ID} is NOT in maintenance mode — the hold this operation depends on is gone, and it is not safe to continue the alignment flow"
+
+    observe_queue_program \
+        || fail "cannot observe the target queue program ${SUPERVISOR_PROGRAM}: ${QUEUE_OBSERVATION_ERROR} — refusing to report a target as held without knowing whether a worker is running"
+
+    queue_program_fully_stopped \
+        || fail "the target queue program ${SUPERVISOR_PROGRAM} is not fully STOPPED (${QUEUE_PROCESS_STATES[*]}) — the hold this operation depends on is gone, and it is not safe to continue the alignment flow"
+
+    if scheduler_file_present; then
+        fail "${SCHEDULER_FILE} is present — a scheduled writer can fire against this target, so the hold this operation depends on is gone and it is not safe to continue the alignment flow"
+    fi
+}
+
+perform_inspect() {
+    validate_operation_id "${OPERATION_ID}"
+
+    step "acquire restore operation lock"
+    acquire_restore_operation_lock
+
+    step "diagnose hold status"
+    inspect_diagnose_unalignable_hold
+
+    # Guard and state, both read, both required to agree — the identical
+    # authorization the controlled alignment deploy performs, which is exactly
+    # the point: an operation --inspect reports as continuable is one the
+    # deploy will accept, and one it refuses is refused here first.
+    step "authorize code alignment"
+    assert_restore_alignment_operation "${TARGET_ID}" "${RUN_ROOT}" "${OPERATION_ID}"
+
+    step "load operation state"
+    WORKSPACE="$(restore_require_operation_workspace "${TARGET_ID}" "${OPERATION_ID}")"
+    STATE_FILE="$(restore_state_file "${WORKSPACE}")"
+
+    OPERATION_STARTED_AT="$(restore_state_get "${STATE_FILE}" started_at)"
+    SOURCE_KIND="$(restore_state_get "${STATE_FILE}" source)"
+    BACKUP_ID="$(restore_state_get "${STATE_FILE}" backup)"
+    BACKUP_RELEASE="$(restore_state_get "${STATE_FILE}" backup_release)"
+    BACKUP_SOURCE_SHA="$(restore_state_get "${STATE_FILE}" backup_source_sha)"
+    EMERGENCY_BACKUP="$(restore_state_get "${STATE_FILE}" emergency_backup)"
+
+    # Already proven identical to the guard's required commit by the
+    # authorization above; re-checked here because everything reported below
+    # is derived from it.
+    [[ "${BACKUP_SOURCE_SHA}" == "${RESTORE_ALIGNMENT_REQUIRED_SHA}" ]] \
+        || fail "restore operation ${OPERATION_ID} state and guard disagree about the required commit"
+
+    validate_backup_id "${BACKUP_ID}"
+
+    step "validate deployed target"
+    assert_deployed_target
+
+    step "verify the target is still held"
+    assert_runtime_still_held
+
+    step "read current release identity"
+    restore_read_current_identity "${TARGET_ROOT}"
+
+    CODE_ALIGNMENT="REQUIRED"
+    RUNTIME_RESUMED="no"
+
+    printf '\n'
+    printf '========================================================\n'
+    printf 'RESTORE OPERATION: %s\n' "${OPERATION_ID}"
+    printf 'TARGET: %s\n' "${TARGET_ID}"
+    printf 'STATUS: HELD (data restored, awaiting code alignment)\n'
+    printf 'BACKUP: %s\n' "${BACKUP_ID}"
+    printf 'BACKUP RELEASE: %s\n' "${BACKUP_RELEASE}"
+    printf 'REQUIRED SOURCE SHA: %s\n' "${BACKUP_SOURCE_SHA}"
+    printf 'CURRENT RELEASE: %s\n' "${RESTORE_CURRENT_RELEASE:-unknown}"
+    printf 'CURRENT SOURCE SHA: %s\n' "${RESTORE_CURRENT_SOURCE_SHA:-unknown}"
+    printf 'EMERGENCY BACKUP: %s\n' "${EMERGENCY_BACKUP:-none}"
+    printf 'RUNTIME: maintenance ON, queue STOPPED, scheduler HELD\n'
+    printf '========================================================\n'
+
+    emit_restore_result held
+
+    log "${LABEL} restore operation ${OPERATION_ID} inspected; nothing was changed"
 }
 
 # --- resume ------------------------------------------------------------------------------------------
@@ -1867,6 +2091,7 @@ perform_resume() {
         || fail "could not append the restore history record"
 
     print_summary YES
+    emit_restore_result resumed
 
     log "${LABEL} restore operation ${OPERATION_ID} resumed; the target is serving again"
     cleanup_completed_operation
@@ -1882,8 +2107,9 @@ main() {
     resolve_restore_target_subject
 
     case "${MODE}" in
-        apply)  perform_restore ;;
-        resume) perform_resume ;;
+        apply)   perform_restore ;;
+        inspect) perform_inspect ;;
+        resume)  perform_resume ;;
     esac
 }
 

@@ -67,6 +67,9 @@ it('has exactly one build, one deploy and one rollback implementation', function
         // never a per-environment fork of any of them.
         'prepare-rateguru-host',
         'record-rateguru-deployment',
+        // Phase 7.4's one addition: one RESTORE implementation, covering all
+        // three of its modes and both environments.
+        'restore-rateguru',
         'rollback-rateguru',
         'sentry-release',
     ]);
@@ -303,7 +306,7 @@ it('leaves every accepted Phase 4 and Phase 5 primitive in place', function () {
             ->toBeTrue("infrastructure/scripts/{$script} must not be removed or merged away");
     }
 
-    foreach (['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup'] as $wrapper) {
+    foreach (['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup', 'rateguru-restore'] as $wrapper) {
         expect(File::exists(base_path("infrastructure/config/wrappers/{$wrapper}")))
             ->toBeTrue("the generic {$wrapper} wrapper must stay the privilege boundary");
     }
@@ -324,6 +327,13 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
     // belongs in the same domain, and recording an already-completed
     // deployment, which mutates nothing on the target but inherits the domain
     // of the workflow it reports on.
+    //
+    // Phase 7.4 added four more per restore workflow, and they are the reason
+    // the group is declared at WORKFLOW level there rather than per job: the
+    // restore, the controlled alignment deploy and the resume are one logical
+    // mutation of one target, and a deploy or rollback slipping in between two
+    // of them would move `current` away from the commit the restored data
+    // belongs to while the target is held and cannot object.
     $mutations = [
         'deploy-staging.yml:deploy' => ['staging-main', 'rateguru-staging-deployment'],
         'deploy-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
@@ -333,6 +343,14 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         'rollback-production.yml:rollback' => ['tits-guru', 'rateguru-production-release'],
         'prepare-staging-host.yml:prepare' => ['staging-main', 'rateguru-staging-deployment'],
         'prepare-production-host.yml:prepare' => ['tits-guru', 'rateguru-production-release'],
+        'restore-staging.yml:restore' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-staging.yml:align' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-staging.yml:resume' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
+        'restore-production.yml:restore' => ['tits-guru', 'rateguru-production-release'],
+        'restore-production.yml:align' => ['tits-guru', 'rateguru-production-release'],
+        'restore-production.yml:resume' => ['tits-guru', 'rateguru-production-release'],
+        'restore-production.yml:observability' => ['tits-guru', 'rateguru-production-release'],
     ];
 
     $found = [];
@@ -367,7 +385,9 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         ->and($groups['rollback-production.yml'])->toBe($groups['release.yml'])
         ->and($groups['release.yml'])->toBe('rateguru-production-release')
         ->and($groups['prepare-staging-host.yml'])->toBe($groups['deploy-staging.yml'])
-        ->and($groups['prepare-production-host.yml'])->toBe($groups['release.yml']);
+        ->and($groups['prepare-production-host.yml'])->toBe($groups['release.yml'])
+        ->and($groups['restore-staging.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['restore-production.yml'])->toBe($groups['release.yml']);
 
     // ...and GitHub concurrency never replaced the server-side lock.
     expect(File::get(base_path('infrastructure/scripts/common')))->toContain('flock');

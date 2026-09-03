@@ -62,6 +62,17 @@ infrastructure, and moves out once a second project exists.
   every live step. It restores data only: never `.env`, never server
   configuration, never a release switch, and never a migration — see
   [`runbooks/restore-target.md`](runbooks/restore-target.md);
+- operator-facing restore from GitHub: the `Restore staging` and
+  `Restore production` workflows, the shared
+  `.github/actions/restore-rateguru` transport and the generic
+  `/usr/local/sbin/rateguru-restore` server wrapper. When the chosen backup's
+  data belongs to an older commit, the same pipeline builds THAT exact commit,
+  deploys it through the ordinary `deploy` in its controlled-alignment mode —
+  which keeps the target held, runs no migration and resumes nothing — and
+  then lets `restore-target --resume` be the only thing that brings the target
+  back. There is no target dropdown and no commit input: the operator chooses
+  a backup, and the server decides the commit — see
+  [`runbooks/github-restore.md`](runbooks/github-restore.md);
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
 - Nginx configuration;

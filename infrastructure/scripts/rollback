@@ -32,9 +32,19 @@ source "${COMMON_FILE}"
 HEALTH_CHECK_BIN_DEFAULT="/home/www/rateguru/bin/health-check"
 HEALTH_CHECK_BIN="${HEALTH_CHECK_BIN_DEFAULT}"
 
+# Phase 7.4: where the restore guard lives — the same run root backup,
+# backup-cycle and the restore primitives already resolve. Rollback reads it
+# and nothing else under it.
+RUN_ROOT_DEFAULT="/home/www/rateguru/run"
+RUN_ROOT="${RUN_ROOT_DEFAULT}"
+
 if rateguru_test_overrides_allowed; then
     if [[ -n "${RATEGURU_HEALTH_CHECK_BIN:-}" ]]; then
         HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
+        RUN_ROOT="${RATEGURU_RUN_ROOT}"
     fi
 fi
 
@@ -372,6 +382,15 @@ perform_rollback() {
     PREVIOUS_LINK="${TARGET_ROOT}/previous"
 
     acquire_deployment_lock "${TARGET_ROOT}"
+
+    # Taken under the deployment lock and before any validation, link move or
+    # history record: a target held after a restore has live data that may
+    # belong to a different commit than `current` serves, and a rollback there
+    # would move `current` to a THIRD commit that matches neither. Worse, it
+    # would health-check the target and bring it back up, which is exactly what
+    # the hold exists to prevent. Ended only by the controlled alignment deploy
+    # and `restore-target --resume`, never by a rollback.
+    assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a rollback"
 
     validate_releases_root
 
