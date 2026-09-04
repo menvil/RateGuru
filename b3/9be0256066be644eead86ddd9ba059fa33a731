@@ -1,0 +1,43 @@
+tests/Feature/Architecture/InstallBootstrapHostLayoutTest.php
+  s_015e6e963c56c6::t_c3c921139647f0 526-540,1987-1992,1994
+.github/actions/repair-rateguru-target/action.yml
+  s_015e6e963c56c6::t_051ec3a9c8f2d5 97,487-508,584,588
+  s_015e6e963c56c6::t_95737483c5ed90 457-486,526-528,539-567
+infrastructure/scripts/repair-target
+  s_015e6e963c56c6::t_fb9add6fa512f5 730-732,736-743,971-973
+  s_015e6e963c56c6::t_df46b449270673 371-380,383-390,396-397,399,701,708,714-720
+  s_015e6e963c56c6::t_3d8e56bbb96698 392-395,398
+  s_015e6e963c56c6::t_5065a4b3f11a46 903-916,927-932,935-936,938,940-941,943-944,946-969,1026-1036
+tests/Feature/Architecture/RepairTargetTest.php
+  s_015e6e963c56c6::t_5ab5ce3a6fd8b7 146-154,166-167,758,769,772-885
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_015e6e963c56c6::t_928cf1b7769c84 2100,2109-2114,2116-2129,2131-2137,2141-2192
+  s_015e6e963c56c6::t_b49fe4b1b8f627 1912,1930-1938,1981,1987-1991,1996-1998,2000-2002,2004-2008,2013-2035,2038-2040,2042-2043
+infrastructure/runbooks/repair-target.md
+  s_015e6e963c56c6::t_2a59405e4d326c 87,90-96,105-118,151-152,161-189,243,252-260,350-354
+tests/Feature/Architecture/RepairWorkflowsTest.php
+  s_015e6e963c56c6::t_280e187b0e3ef5 396,398,403-434
+infrastructure/scripts/install-bootstrap-services
+  s_015e6e963c56c6::t_b49fe4b1b8f627 1569
+  s_015e6e963c56c6::t_2a584f9487cd59 854-865,951-962,1249-1266,1268-1271
+  s_015e6e963c56c6::t_eb69e2161ae645 246-258,275-278
+  s_015e6e963c56c6::t_657388b630c199 878-888
+  s_015e6e963c56c6::t_f99b450541d4ea 344-349
+  s_015e6e963c56c6::t_3627e5e8f1ae42 2404-2406
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b39be0256066be644eead86ddd9ba059fa33a731",
+  "prompts": {},
+  "sessions": {
+    "s_015e6e963c56c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d7f5ab7-8830-4ed4-b056-647d1bdeaf21",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
