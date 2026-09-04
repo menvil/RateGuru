@@ -1,0 +1,28 @@
+tests/Feature/Architecture/RepairTargetTest.php
+  s_015e6e963c56c6::t_631e690abc4a8b 876,887-897,899-923
+infrastructure/scripts/install-bootstrap-services
+  s_015e6e963c56c6::t_a4b487581b9e8c 1564-1574,1578-1583,2003-2031,2095,2223,2231,2274
+  s_015e6e963c56c6::t_ea6580bf6a80fb 2420-2449,2519
+infrastructure/scripts/repair-target
+  s_015e6e963c56c6::t_f012b99717d3ba 656-665,707-712
+infrastructure/runbooks/repair-target.md
+  s_015e6e963c56c6::t_6834cd428428dc 151,159-174,200
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_015e6e963c56c6::t_f9c84c2dbb89af 2278-2344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bfc28158eb0b5d69d9a752d001d33d8b7dc6261b",
+  "prompts": {},
+  "sessions": {
+    "s_015e6e963c56c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d7f5ab7-8830-4ed4-b056-647d1bdeaf21",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
