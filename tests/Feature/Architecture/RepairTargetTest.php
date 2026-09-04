@@ -143,6 +143,15 @@ function repairWriteStubs(string $scratch): void
                 [[ -e "{$scratch}/toggles/\${me}-hostreq" ]] && { echo "  HOST-REQ host:/var/log/rateguru — absent"; exit 1; }
                 [[ -e "{$scratch}/toggles/\${me}-conflict" ]] && { echo "  CONFLICT path:/x — a regular file occupies a managed directory path"; exit 1; }
                 [[ -e "{$scratch}/toggles/\${me}-broken" ]] && { echo "the installer could not run"; exit 2; }
+                # A child that fails while printing neither MISSING nor DRIFT.
+                [[ -e "{$scratch}/toggles/\${me}-errors-only" ]] && { echo "ERROR: something went wrong"; exit 1; }
+                # The services installer verifies this target's layout as its
+                # own prerequisite, so while the layout is drifted it reports a
+                # conflict describing exactly the drift about to be repaired.
+                if [[ "\${me}" == services ]] && [[ -e "{$scratch}/toggles/host-layout-drift" ]]; then
+                    echo "  CONFLICT prerequisite:install-bootstrap-host-layout — verify failed"
+                    exit 1
+                fi
                 [[ -e "{$scratch}/toggles/\${me}-drift" ]] && { echo "  MISSING  link:/etc/nginx/sites-enabled/rateguru-staging — absent"; exit 1; }
                 exit 0
             fi
@@ -154,6 +163,8 @@ function repairWriteStubs(string $scratch): void
                 [[ -e "{$scratch}/toggles/sabotage-previous" ]] && ln -sfn releases/20260101120000 "{$root}/previous"
                 [[ -e "{$scratch}/toggles/sabotage-release-json" ]] && printf '{"release":"other","source_sha":"9999999"}\\n' > "{$root}/releases/20260101120000/release.json"
                 [[ -e "{$scratch}/toggles/sabotage-scheduler" ]] && rm -f "{$scratch}/cron.d/rateguru-staging-scheduler"
+                # The service-log directory this installer legitimately owns.
+                [[ -e "{$scratch}/toggles/repair-service-logs" ]] && chmod 2770 "{$root}/shared/storage/logs"
                 [[ -e "{$scratch}/toggles/\${me}-apply-fail" ]] && exit 1
                 rm -f "{$scratch}/toggles/\${me}-drift"
                 exit 0
@@ -744,22 +755,134 @@ it('refuses drift that is never converged automatically, and a child that cannot
     }
 });
 
-it('collects every blocker before refusing, rather than stopping at the first', function () {
+it('collects every blocker it can judge before anything is converged', function () {
     $scratch = repairScratchDir();
 
     try {
         $env = repairFixture($scratch);
         repairGuard($scratch, 'in-progress');
         repairToggle($scratch, 'host-layout-hostreq');
+
+        [$exit, $output] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('2 blocker(s)');
+        expect($output)->toContain('restore guard:');
+        expect($output)->toContain('host-layout:');
+        expect($output)->toContain('No mutation was performed');
+        expect(repairCalls($scratch))->not->toContain('--apply');
+    } finally {
+        repairCleanup($scratch);
+    }
+});
+
+it('repairs layout drift even though the services contract depends on that layout', function () {
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+
+        // The situation this whole operation exists for. The services
+        // installer verifies this target's layout as its own prerequisite, so
+        // while the layout is broken its contract report describes exactly the
+        // drift about to be repaired. Judging that report before converging
+        // the layout would make a repair refuse its primary case.
+        repairToggle($scratch, 'host-layout-drift');
+
+        [$exit, $output] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(0, "layout drift must not block itself:\n{$output}");
+        expect($output)->toContain('CHANGED: TRUE');
+        expect($output)->toContain('reading the services contract now that the layout is correct');
+
+        $calls = repairCalls($scratch);
+
+        expect($calls)->toContain('host-layout --apply --target staging-main');
+
+        // And the services contract was read AFTER the layout was converged.
+        expect(strpos($calls, 'host-layout --apply'))
+            ->toBeLessThan(strrpos($calls, 'services --check'));
+    } finally {
+        repairCleanup($scratch);
+    }
+});
+
+it('says the layout was left converged when the services contract then refuses', function () {
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        repairToggle($scratch, 'host-layout-drift');
         repairToggle($scratch, 'services-conflict');
 
         [$exit, $output] = repairRun(['--apply', '--target', 'staging-main'], $env);
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('3 blocker(s)');
-        expect($output)->toContain('restore guard:');
-        expect($output)->toContain('host-layout:');
-        expect($output)->toContain('services:');
+        expect($output)->toContain('refusing to converge this target\'s services');
+
+        // The bound matters: the layout apply is a complete, verified
+        // operation, so the target is closer to correct rather than half-done.
+        expect($output)->toContain('Its layout was converged and verified first and is left that way');
+        expect(repairCalls($scratch))->not->toContain('services --apply');
+    } finally {
+        repairCleanup($scratch);
+    }
+});
+
+it('repairs the service-log directory it owns without failing its own immutability proof', function () {
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        repairToggle($scratch, 'services-drift');
+
+        // install-bootstrap-services owns shared/storage/logs and may create
+        // it, chown it and chmod it — that is one of the things a repair is
+        // for. Counting it as user data would make a legitimate repair fail.
+        repairToggle($scratch, 'repair-service-logs');
+        chmod(repairTargetRoot($scratch).'/shared/storage/logs', 0o700);
+
+        [$exit, $output] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(0, "repairing the service-log directory must not fail the repair:\n{$output}");
+        expect($output)->toContain('STORAGE STRUCTURE: unchanged');
+
+        // The directory really was converged.
+        expect(substr(sprintf('%o', fileperms(repairTargetRoot($scratch).'/shared/storage/logs')), -4))
+            ->toBe('2770');
+
+        // And everything that IS user data is still guarded: an entry created
+        // beside it still fails the repair.
+        repairToggle($scratch, 'services-drift');
+        repairToggle($scratch, 'sabotage-storage');
+
+        [$sabotagedExit, $sabotagedOutput] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($sabotagedExit)->not->toBe(0);
+        expect($sabotagedOutput)->toContain('shared storage structure changed during the repair');
+    } finally {
+        repairCleanup($scratch);
+    }
+});
+
+it('still prints its summary when a child fails without naming a repairable item', function () {
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        repairToggle($scratch, 'services-errors-only');
+
+        [$exit, $output] = repairRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(1, $output);
+
+        // The report filters the child's output for MISSING/DRIFT lines. With
+        // none present that filter fails, and under `set -e` with `pipefail`
+        // it would take the whole run down before the summary an operator
+        // needs in order to know what happened.
+        expect($output)->toContain('SUMMARY');
+        expect($output)->toContain('REPAIR REQUIRED');
+        expect($output)->toContain('DRIFT        services:install-bootstrap-services');
     } finally {
         repairCleanup($scratch);
     }

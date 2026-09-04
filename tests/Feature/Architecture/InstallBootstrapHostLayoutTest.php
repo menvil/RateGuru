@@ -523,6 +523,22 @@ function hostLayoutRegistryWith(array $overrides): string
 }
 
 /**
+ * A committed-registry variant with one field replaced on a NAMED target.
+ *
+ * @param  array<string, mixed>  $overrides  dot-free key => value
+ */
+function hostLayoutRegistryWithOn(string $targetId, array $overrides): string
+{
+    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+
+    foreach ($overrides as $key => $value) {
+        $registry['targets'][$targetId][$key] = $value;
+    }
+
+    return json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
+}
+
+/**
  * Content + structure snapshot for mutation-free proofs.
  *
  * @return array<string, string>
@@ -1968,11 +1984,14 @@ it('validates the whole registry before narrowing to one target', function () {
     $scratch = hostLayoutScratchDir();
 
     try {
-        // A registry that is invalid somewhere OTHER than staging-main. Target
-        // mode must still reject it: narrowing is a scope reduction, never a
-        // licence to run against a registry the validator would refuse.
+        // The invalid entry is on tits-guru, NOT on the target being narrowed
+        // to. Breaking staging-main itself would prove nothing: the run would
+        // reject it even if narrowing happened first, so the test would pass
+        // whether or not the whole registry is validated. Narrowing is a scope
+        // reduction, never a licence to run against a registry the validator
+        // would refuse.
         $env = hostLayoutFixture($scratch, [
-            'registry' => hostLayoutRegistryWith(['application_root' => '/opt/elsewhere']),
+            'registry' => hostLayoutRegistryWithOn('tits-guru', ['application_root' => '/opt/elsewhere']),
         ]);
 
         [$exit, $output] = hostLayoutRun(['--check', '--target', 'staging-main'], $env);

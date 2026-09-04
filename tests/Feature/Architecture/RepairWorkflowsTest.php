@@ -393,16 +393,45 @@ it('reports every outcome from the result line rather than from prose', function
     $steps = repairAction()['runs']['steps'];
     $verify = collect($steps)->firstWhere('id', 'verify')['run'];
 
-    expect($verify)->toContain("grep -m1 '^RATEGURU_REPAIR_RESULT='");
-    expect($verify)->toContain('.status == "verified"');
+    expect($verify)->toContain('rateguru_repair_result "${verification_output}" verified');
 
-    // A missing or non-verified result is a failure, never a silently
-    // successful step.
-    expect($verify)->toContain('no machine-readable repair result');
-
-    foreach (['current_release', 'source_sha', 'changed', 'health', 'queue', 'scheduler'] as $field) {
+    foreach (['current_release', 'source_sha', 'health', 'queue', 'scheduler'] as $field) {
         expect($verify)->toContain($field);
     }
+});
+
+it('proves the result contract instead of taking the first line that matches', function () {
+    // `grep -m1` would silently accept two result objects, which is exactly
+    // the shape a bug in the primitive's "exactly one line" contract takes.
+    $source = repairExecutable(repairActionSource());
+
+    expect($source)->not->toContain('grep -m1');
+    expect($source)->toContain("grep -c '^RATEGURU_REPAIR_RESULT='");
+    expect($source)->toContain('Expected exactly one RATEGURU_REPAIR_RESULT line');
+
+    // Both call sites validate the status they expect, so an apply result can
+    // never be read as a verification or the other way round.
+    expect(substr_count($source, 'rateguru_repair_result() {'))->toBe(2);
+    expect($source)->toContain('rateguru_repair_result "${repair_output}" completed');
+    expect($source)->toContain('rateguru_repair_result "${verification_output}" verified');
+});
+
+it('takes changed from the repair, never from the read-only verification', function () {
+    // --verify is a fresh read-only invocation, so its own `changed` is false
+    // by construction. Publishing that would tell an operator "changed:
+    // false" after a real repair.
+    expect(repairAction()['outputs']['changed']['value'])
+        ->toBe('${{ steps.repair.outputs.changed }}');
+
+    $steps = repairAction()['runs']['steps'];
+
+    expect(collect($steps)->firstWhere('id', 'repair')['run'])
+        ->toContain('echo "changed=$(jq -r \'.changed\' <<<"${result_json}")" >> "${GITHUB_OUTPUT}"');
+
+    // The verification step reports it, but only by carrying the apply's
+    // answer through — it never re-derives it.
+    expect(collect($steps)->firstWhere('id', 'verify')['env']['RATEGURU_REPAIR_CHANGED'])
+        ->toBe('${{ steps.repair.outputs.changed }}');
 });
 
 it('exposes the release it did not change as an output', function () {

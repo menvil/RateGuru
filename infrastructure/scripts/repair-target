@@ -368,13 +368,35 @@ env_fingerprint() {
     stat -c '%d:%i:%s:%Y:%u:%g:%a' "${SHARED_ENV}"
 }
 
-# storage_fingerprint — the STRUCTURE of shared storage, never its contents.
-# Repair may not create, delete or re-own anything under it, so the proof is
-# that the top-level entries and their ownership are identical afterwards.
+# The one entry under shared/storage that is infrastructure rather than data:
+# install-bootstrap-services owns it, creates it and sets its owner and mode,
+# because the committed PHP-FPM and Supervisor configs write into it.
+SERVICE_LOG_DIRNAME=logs
+
+# storage_fingerprint — the STRUCTURE of the target's DATA under shared
+# storage, never its contents.
+#
+# Repair may not create, delete or re-own anything a user put there, so the
+# proof is that the entries and their ownership are identical afterwards.
 # Content is deliberately not read: it is user data, it can be large, and
 # hashing it would be both slow and none of this operation's business.
+#
+# The service-log directory is excluded, and that is not a loophole — it is the
+# boundary being drawn correctly. Repairing its owner or mode is one of the
+# things this operation exists to do, so including it would make a legitimate
+# repair fail its own immutability proof. It would also make the proof flaky
+# for a reason that has nothing to do with safety: the application writes log
+# files continuously, so a new one appearing mid-repair would be read as the
+# repair having touched user data.
 storage_fingerprint() {
-    find "${SHARED_STORAGE}" -mindepth 1 -maxdepth 2 -printf '%P|%y|%u|%g|%m\n' 2>/dev/null | LC_ALL=C sort
+    # Errors are deliberately NOT discarded. An empty fingerprint would mean
+    # "this target has no shared storage", which is indistinguishable from
+    # "the tool that reads it is broken" — and comparing an empty baseline
+    # against an empty reading afterwards proves nothing at all.
+    find "${SHARED_STORAGE}" -mindepth 1 -maxdepth 2 \
+            -path "${SHARED_STORAGE}/${SERVICE_LOG_DIRNAME}" -prune -o \
+            -printf '%P|%y|%u|%g|%m\n' \
+        | LC_ALL=C sort
 }
 
 capture_baseline() {
@@ -676,20 +698,26 @@ report_child() {
     if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  HOST-REQ '; then
         item HOST-REQ "${name}" "host-level prerequisites are not satisfied (${label})" \
             "converge the host first — run the corresponding installer WITHOUT --target"
-        printf '%s\n' "${CHILD_OUTPUT}" | grep '^  HOST-REQ ' | sed 's/^/               | /'
+        printf '%s\n' "${CHILD_OUTPUT}" | grep '^  HOST-REQ ' | sed 's/^/               | /' || true
         return 0
     fi
 
     if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  CONFLICT '; then
         item CONFLICT "${name}" "unsafe drift that is never repaired automatically (${label})" \
             "resolve the conflicting paths by hand — nothing is ever deleted or replaced to make room"
-        printf '%s\n' "${CHILD_OUTPUT}" | grep '^  CONFLICT ' | sed 's/^/               | /'
+        printf '%s\n' "${CHILD_OUTPUT}" | grep '^  CONFLICT ' | sed 's/^/               | /' || true
         return 0
     fi
 
     item DRIFT "${name}" "target-scoped drift the owning installer can converge (${label})" \
         "${bin##*/} --apply --target ${TARGET_ID}"
-    printf '%s\n' "${CHILD_OUTPUT}" | grep -E '^  (MISSING|DRIFT) ' | sed 's/^/               | /'
+
+    # `|| true` because this runs under `set -e` with `pipefail`, as the last
+    # command of the function. A child that exited 1 while printing only
+    # ERROR lines — no MISSING, no DRIFT — makes grep exit 1, which would
+    # propagate out of report_child and kill the run mid-report, before the
+    # summary an operator needs in order to know what happened.
+    printf '%s\n' "${CHILD_OUTPUT}" | grep -E '^  (MISSING|DRIFT) ' | sed 's/^/               | /' || true
 }
 
 report_target_infrastructure() {
@@ -699,9 +727,20 @@ report_target_infrastructure() {
         "identities, memberships and this target's own directory entries" \
         "${HOSTLAYOUT_BIN}"
 
+    local layout_drifted=false
+    repair_required && layout_drifted=true
+
     report_child "services:install-bootstrap-services" \
         "support log directory, Nginx site and link, PHP-FPM pool, Supervisor program, scheduler cron, public-storage ACL" \
         "${SERVICES_BIN}"
+
+    # The services installer verifies this target's layout as its own
+    # prerequisite, so while the layout is still drifted its report describes a
+    # target that no longer exists by the time it would be converged. --apply
+    # reads it in the right order; a reader of --check deserves to be told.
+    if [[ "${layout_drifted}" == true ]]; then
+        printf '  NOTE     the services report above was taken while the layout is still drifted; --apply re-reads it after converging the layout\n'
+    fi
 }
 
 report_runtime() {
@@ -861,29 +900,20 @@ apply_gate() {
         blockers+=("deployed release: ${DEPLOYED_PROBLEM} — a target with no canonical deployed release is not Repair Target's to fix, and a repair never picks a release for you")
     fi
 
-    # Ask both owning installers what they would do, before either is allowed to
-    # do any of it. A repair that converges the layout and then discovers the
-    # services contract is unrepairable leaves a target nobody inspected.
-    #
-    # Their answers become the plan: each child is applied below if and only if
-    # it reported drift HERE. Re-running --check just before applying would be a
-    # second, different reading of the same target, and then the plan an
-    # operator was shown would not be the plan that ran.
-    local bin label blocker
-    for bin in "${HOSTLAYOUT_BIN}" "${SERVICES_BIN}"; do
-        label="${bin##*/}"
+    # The layout is judged here, before anything is converged. The services
+    # contract is NOT, and that is a dependency rather than an oversight: the
+    # services installer verifies this target's layout as its own prerequisite,
+    # so while the layout is still broken it reports a conflict describing the
+    # very drift this run is about to fix. Judging it now would make a repair
+    # refuse precisely the case it exists for.
+    local blocker
+    child_report "${HOSTLAYOUT_BIN}"
 
-        child_report "${bin}"
-
-        if blocker="$(child_blocker "${label}")"; then
-            blockers+=("${blocker}")
-            continue
-        fi
-
-        if (( CHILD_STATUS != 0 )); then
-            PLANNED_CHILDREN+=("${bin}")
-        fi
-    done
+    if blocker="$(child_blocker "${HOSTLAYOUT_BIN##*/}")"; then
+        blockers+=("${blocker}")
+    elif (( CHILD_STATUS != 0 )); then
+        LAYOUT_PLANNED=true
+    fi
 
     if (( ${#blockers[@]} > 0 )); then
         for blocker in "${blockers[@]}"; do
@@ -894,30 +924,53 @@ apply_gate() {
     fi
 }
 
-# PLANNED_CHILDREN — the installers apply_gate found drift in, in the order
-# they must converge: identities and directories before the services that run
-# inside them. CHANGED stays false when the plan is empty, so the result can
-# honestly say this run changed nothing.
-PLANNED_CHILDREN=()
+# The plan, in the order the two contracts actually depend on each other:
+# identities and directories before the services that run inside them. CHANGED
+# stays false when neither drifted, so the result can honestly say this run
+# changed nothing.
+LAYOUT_PLANNED=false
+SERVICES_PLANNED=false
 CHANGED=false
 
-converge_planned_children() {
-    if (( ${#PLANNED_CHILDREN[@]} == 0 )); then
-        action "no target-scoped drift to converge"
-        return 0
+converge_child() {
+    local bin="$1" name="${1##*/}"
+
+    action "${name} --apply --target ${TARGET_ID}"
+
+    "${bin}" --apply --target "${TARGET_ID}" \
+        || fail "${name} --apply --target ${TARGET_ID} failed — its own transaction restored what it had changed; no further repair step ran"
+
+    CHANGED=true
+}
+
+# services_gate — the second half of the plan, judged once the layout it sits
+# on is correct.
+#
+# Refusing here is later than refusing in apply_gate, and the difference is
+# bounded and worth stating: the only thing that can have happened by now is
+# that the layout installer converged this target's identities and directories
+# under its own transaction and left them verified. That is a complete
+# operation, not a half-applied one — the target is strictly closer to correct
+# than it was, and the operator gets an exact diagnosis of what still is not.
+services_gate() {
+    local blocker
+
+    action "reading the services contract now that the layout is correct"
+    child_report "${SERVICES_BIN}"
+
+    if blocker="$(child_blocker "${SERVICES_BIN##*/}")"; then
+        printf 'BLOCKED %s\n' "${blocker}" >&2
+
+        if [[ "${CHANGED}" == true ]]; then
+            fail "refusing to converge this target's services: ${blocker}. Its layout was converged and verified first and is left that way; nothing else was changed"
+        fi
+
+        fail "refusing to converge this target's services: ${blocker}. No mutation was performed"
     fi
 
-    local bin name
-    for bin in "${PLANNED_CHILDREN[@]}"; do
-        name="${bin##*/}"
-
-        action "${name} --apply --target ${TARGET_ID}"
-
-        "${bin}" --apply --target "${TARGET_ID}" \
-            || fail "${name} --apply --target ${TARGET_ID} failed — its own transaction restored what it had changed; no further repair step ran"
-
-        CHANGED=true
-    done
+    if (( CHILD_STATUS != 0 )); then
+        SERVICES_PLANNED=true
+    fi
 }
 
 # restore_target_queue — start ONLY this target's program group, and only when
@@ -970,7 +1023,17 @@ perform_apply() {
     capture_baseline
     action "baseline: release ${BASELINE_RELEASE} (source ${BASELINE_SOURCE_SHA})"
 
-    converge_planned_children
+    if [[ "${LAYOUT_PLANNED}" == true ]]; then
+        converge_child "${HOSTLAYOUT_BIN}"
+    fi
+
+    services_gate
+
+    if [[ "${SERVICES_PLANNED}" == true ]]; then
+        converge_child "${SERVICES_BIN}"
+    fi
+
+    [[ "${CHANGED}" == true ]] || action "no target-scoped drift to converge"
 
     restore_target_queue
 

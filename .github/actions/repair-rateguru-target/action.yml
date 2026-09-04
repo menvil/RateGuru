@@ -94,7 +94,7 @@ outputs:
 
   changed:
     description: "true when this run actually converged something, false when the target was already correct"
-    value: ${{ steps.verify.outputs.changed }}
+    value: ${{ steps.repair.outputs.changed }}
 
   current-release:
     description: "The release the target served before and after the repair — a repair never changes it"
@@ -454,16 +454,58 @@ runs:
           --target "${DEPLOYMENT_TARGET}"
         )
 
-        ssh \
-          -p "${BOOTSTRAP_PORT}" \
-          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
-          -o BatchMode=yes \
-          -o IdentitiesOnly=yes \
-          -o ConnectTimeout=15 \
-          -o StrictHostKeyChecking=yes \
-          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
-          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
-          "${remote_command[@]@Q}"
+        # rateguru_repair_result OUTPUT EXPECTED_STATUS — the one
+        # machine-readable line, validated.
+        #
+        # Every composite step is its own shell, so this is defined in each
+        # step that needs it rather than shared. It counts the matches instead
+        # of taking the first: the primitive's contract is EXACTLY one result
+        # line per terminal success, and a `grep -m1` would accept two without
+        # a word — which is the shape a bug in that contract would take.
+        rateguru_repair_result() {
+          local output="$1" expected="$2" lines count json
+
+          lines="$(grep '^RATEGURU_REPAIR_RESULT=' <<<"${output}" || true)"
+          count="$(grep -c '^RATEGURU_REPAIR_RESULT=' <<<"${output}" || true)"
+
+          if [[ "${count}" != "1" ]]; then
+            echo "Expected exactly one RATEGURU_REPAIR_RESULT line, got ${count}." >&2
+            exit 1
+          fi
+
+          json="${lines#RATEGURU_REPAIR_RESULT=}"
+
+          jq -e --arg status "${expected}" \
+            'type == "object" and .status == $status' <<<"${json}" >/dev/null || {
+            echo "The machine-readable repair result is not a ${expected} result: ${json}" >&2
+            exit 1
+          }
+
+          printf '%s' "${json}"
+        }
+
+        repair_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}"
+        )"
+
+        printf '%s\n' "${repair_output}"
+
+        # Whether this run converged anything is known ONLY here. The
+        # verification below is a fresh read-only invocation, so its own
+        # `changed` is false by construction — reporting that as the outcome
+        # would tell an operator "changed: false" after a real repair.
+        result_json="$(rateguru_repair_result "${repair_output}" completed)"
+
+        echo "changed=$(jq -r '.changed' <<<"${result_json}")" >> "${GITHUB_OUTPUT}"
 
     # A second, independent invocation rather than a claim inherited from the
     # apply above: "repaired" means the read-only verification passes on the
@@ -481,6 +523,9 @@ runs:
         BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
         DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
         ENVIRONMENT: ${{ inputs.environment }}
+        # Whether anything was converged is the apply's answer, not this
+        # read-only invocation's.
+        RATEGURU_REPAIR_CHANGED: ${{ steps.repair.outputs.changed }}
       run: |
         set -Eeuo pipefail
 
@@ -490,6 +535,36 @@ runs:
           --verify
           --target "${DEPLOYMENT_TARGET}"
         )
+
+        # rateguru_repair_result OUTPUT EXPECTED_STATUS — the one
+        # machine-readable line, validated.
+        #
+        # Every composite step is its own shell, so this is defined in each
+        # step that needs it rather than shared. It counts the matches instead
+        # of taking the first: the primitive's contract is EXACTLY one result
+        # line per terminal success, and a `grep -m1` would accept two without
+        # a word — which is the shape a bug in that contract would take.
+        rateguru_repair_result() {
+          local output="$1" expected="$2" lines count json
+
+          lines="$(grep '^RATEGURU_REPAIR_RESULT=' <<<"${output}" || true)"
+          count="$(grep -c '^RATEGURU_REPAIR_RESULT=' <<<"${output}" || true)"
+
+          if [[ "${count}" != "1" ]]; then
+            echo "Expected exactly one RATEGURU_REPAIR_RESULT line, got ${count}." >&2
+            exit 1
+          fi
+
+          json="${lines#RATEGURU_REPAIR_RESULT=}"
+
+          jq -e --arg status "${expected}" \
+            'type == "object" and .status == $status' <<<"${json}" >/dev/null || {
+            echo "The machine-readable repair result is not a ${expected} result: ${json}" >&2
+            exit 1
+          }
+
+          printf '%s' "${json}"
+        }
 
         verification_output="$(
           ssh \
@@ -506,30 +581,17 @@ runs:
 
         printf '%s\n' "${verification_output}"
 
-        result_line="$(grep -m1 '^RATEGURU_REPAIR_RESULT=' <<<"${verification_output}" || true)"
-
-        if [[ -z "${result_line}" ]]; then
-          echo "The verification produced no machine-readable repair result." >&2
-          exit 1
-        fi
-
-        result_json="${result_line#RATEGURU_REPAIR_RESULT=}"
-
-        jq -e 'type == "object" and .status == "verified"' <<<"${result_json}" >/dev/null || {
-          echo "The machine-readable repair result is not a verified result: ${result_json}" >&2
-          exit 1
-        }
+        result_json="$(rateguru_repair_result "${verification_output}" verified)"
 
         current_release="$(jq -r '.current_release' <<<"${result_json}")"
         source_sha="$(jq -r '.source_sha' <<<"${result_json}")"
-        changed="$(jq -r '.changed' <<<"${result_json}")"
+        changed="${RATEGURU_REPAIR_CHANGED}"
         health="$(jq -r '.health' <<<"${result_json}")"
         queue="$(jq -r '.queue' <<<"${result_json}")"
         scheduler="$(jq -r '.scheduler' <<<"${result_json}")"
 
         {
           echo "repaired=true"
-          echo "changed=${changed}"
           echo "current-release=${current_release}"
           echo "source-sha=${source_sha}"
         } >> "${GITHUB_OUTPUT}"

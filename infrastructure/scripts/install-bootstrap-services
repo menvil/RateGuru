@@ -243,9 +243,19 @@ MODE_SEEN=false
 # Set by --target, it narrows the SAME contract to the service configuration
 # that belongs to one target: its support log directory, its Nginx site and
 # enabled link, its PHP-FPM pool, its Supervisor program, its scheduler cron and
-# its public-storage ACL. The host-wide families are then prerequisites — checked,
-# never converged — because repairing one target must never silently rewrite the
-# host's SSH policy, its perimeter or its mail capture.
+# its public-storage ACL. Repairing one target must never silently rewrite the
+# host's SSH policy, its perimeter, its operational bundle or its mail capture,
+# so those are out of scope: not reported, not verified and not touched.
+#
+# Not verified matters as much as not touched, and the reason only becomes
+# visible from inside a repair: install-target-operations --verify runs the
+# application health check on a deployed target. A broken vhost or pool is
+# exactly the damage a target repair fixes, so checking that family here would
+# mean the site has to be healthy before it can be made healthy.
+#
+# What IS asked, and at the same scope, is this target's own layout — see
+# apply_gate_prerequisites — plus the base services, which are checked and
+# never started.
 #
 # Nothing about the contract itself changes. There is no second renderer, no
 # second transaction mechanism and no second convergence path for target mode.
@@ -262,10 +272,10 @@ COUNT_WARN=0
 COUNT_CONFLICT=0
 COUNT_DEFERRED=0
 
-# HOST-REQ ("host prerequisite") is only ever non-zero in target mode: a
-# host-wide family this run may inspect but must never converge. It blocks like
-# a CONFLICT — a target cannot be healthy on a host whose shared services are
-# not — but it says plainly that the fix is a host operation, not this one.
+# HOST-REQ ("host prerequisite") is only ever non-zero in target mode: a base
+# host service that is not running. It blocks like a CONFLICT — a target cannot
+# serve on a host whose nginx, PHP-FPM or Supervisor is down — but it says
+# plainly that starting one is a host operation, not this one.
 #
 # Eight characters on purpose: the report is a fixed-width table whose exact
 # spacing is part of this installer's asserted output contract.
@@ -331,10 +341,12 @@ All modes require root.
   --target  Narrow the SAME contract to one active target's service
             configuration: its support log directory, Nginx site and enabled
             link, PHP-FPM pool, Supervisor program, scheduler cron and
-            public-storage ACL. The host-wide families — the operations
-            bundle, the perimeter, the SSH restriction, mail capture and base
-            service enablement — become prerequisites that are checked and
-            never converged. Without it, this installer is exactly the host
+            public-storage ACL. This target's own layout is verified at the
+            same scope, and the base services are checked but never started.
+            Everything host-wide — the operations bundle, the sudo perimeter,
+            the SSH restriction, mail capture and the material their vhosts
+            reference — is out of scope entirely: not reported, not verified,
+            not touched. Without it, this installer is exactly the host
             service bootstrap it has always been.
 
   --check   Read-only slice 5.4 contract validation plus the intended
@@ -839,9 +851,18 @@ all_external_prerequisites() {
         for target_id in "${ACTIVE_TARGETS[@]}"; do
             nginx_external_prerequisites "$(src_nginx_site "${target_id}")"
         done
-        for src in "${SRC_MAIL_NGINX_SOURCES[@]}"; do
-            nginx_external_prerequisites "${src}"
-        done
+
+        # The shared mail-capture vhosts have no per-target component, so a
+        # target-scoped run has nothing to say about their TLS material. It
+        # matters more than tidiness: a missing mail certificate would
+        # otherwise block the repair of a perfectly healthy target on secret
+        # material that belongs to the host bootstrap and that this run can
+        # never provide.
+        if ! target_scoped; then
+            for src in "${SRC_MAIL_NGINX_SOURCES[@]}"; do
+                nginx_external_prerequisites "${src}"
+            done
+        fi
     } | sort -u
 }
 
@@ -854,6 +875,17 @@ report_external_prerequisites() {
 
         if stat_probe "${path}" >/dev/null; then
             item PASS "external-prerequisite:${category}" "present at ${path} (content never read or validated)"
+        elif target_scoped; then
+            # CONFLICT, not MISSING, and the difference is load-bearing.
+            #
+            # MISSING means "--apply converges this". --apply never converges
+            # an external prerequisite in any mode — it refuses, because the
+            # material is operator-supplied and is never generated here. An
+            # orchestrator reading this report treats MISSING as repairable
+            # and proceeds, and would then discover the refusal only after
+            # converging something else. Saying CONFLICT stops it beforehand.
+            item CONFLICT "external-prerequisite:${category}" "absent: ${path}" \
+                "provide it through host preparation — a target-scoped run never generates, copies or fakes external secret material, and --apply refuses while it is absent"
         else
             item MISSING "external-prerequisite:${category}" "absent: ${path}" \
                 "provide manually before --apply — external secret material is never generated, copied or faked by this installer"
@@ -916,7 +948,18 @@ report_prerequisite_slices() {
     section "PREREQUISITES (authoritative child verifies — never re-implemented here)"
 
     report_child_gate "slice-5.2:install-bootstrap-runtime" "${RUNTIME_INSTALLER_BIN}" --verify
-    report_child_gate "slice-5.3:install-bootstrap-host-layout" "${HOSTLAYOUT_INSTALLER_BIN}" --verify
+
+    # In target mode the layout prerequisite is asked at the SAME scope, for
+    # the same reason apply_gate_prerequisites does: demanding the WHOLE host
+    # layout here would make repairing one target fail because a DIFFERENT
+    # active target had drifted, and would report this target's own layout
+    # drift — the thing a repair exists to fix — as an unfixable conflict.
+    if target_scoped; then
+        report_child_gate "prerequisite:install-bootstrap-host-layout" \
+            "${HOSTLAYOUT_INSTALLER_BIN}" --verify --target "${TARGET_SCOPE}"
+    else
+        report_child_gate "slice-5.3:install-bootstrap-host-layout" "${HOSTLAYOUT_INSTALLER_BIN}" --verify
+    fi
 }
 
 # report_child_gate NAME BIN ARGS... — runs a read-only child verify and
@@ -1203,19 +1246,29 @@ report_config_validation() {
 report_child_contracts() {
     section "CHILD INSTALLER CONTRACTS (authoritative owners — never absorbed)"
 
-    # Host-wide children. In host mode this run converges them through their
-    # own --apply; in target mode they are prerequisites the target's service
-    # configuration sits on top of — reported, gated, never installed.
-    local child_status=report_child_state
-    target_scoped && child_status=report_host_child_state
+    # Host-wide children, converged here through their own --apply.
+    #
+    # A target-scoped run reports NEITHER of them, and the reason is a
+    # dependency that only becomes visible from inside a repair:
+    # install-target-operations --verify runs the application health check on
+    # a DEPLOYED target and fails when the site does not answer. A broken
+    # Nginx vhost or PHP-FPM pool is exactly the damage a target repair exists
+    # to fix, so gating that repair on this verify would mean the site has to
+    # be healthy before it can be made healthy.
+    #
+    # Neither family is a prerequisite of converging one target's service
+    # configuration in the first place — they install the host's operational
+    # CLI bundle and its sudo perimeter — so they belong to the host bootstrap
+    # exactly like mail capture and the SSH restriction below.
+    if ! target_scoped; then
+        report_child_state "operations:install-target-operations" \
+            "runtime registry, deployment.conf and the installed operational bundle" \
+            "${OPERATIONS_INSTALLER_BIN}" --verify
 
-    "${child_status}" "operations:install-target-operations" \
-        "runtime registry, deployment.conf and the installed operational bundle" \
-        "${OPERATIONS_INSTALLER_BIN}" --verify
-
-    "${child_status}" "perimeter:install-target-perimeter" \
-        "generic sudo wrappers, sudoers, backup cron, legacy-wrapper absence" \
-        "${PERIMETER_INSTALLER_BIN}" --verify
+        report_child_state "perimeter:install-target-perimeter" \
+            "generic sudo wrappers, sudoers, backup cron, legacy-wrapper absence" \
+            "${PERIMETER_INSTALLER_BIN}" --verify
+    fi
 
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
@@ -1236,27 +1289,6 @@ report_child_contracts() {
             "shared-host-service Mailpit/Mailtrap Local (never per-target; read-only probe)" \
             "${VERIFY_MAIL_CAPTURE_BIN}" --read-only
     fi
-}
-
-# report_host_child_state — the target-mode view of a host-wide child: the same
-# read-only verify, reported as a prerequisite this run will not converge.
-report_host_child_state() {
-    local name="$1" label="$2" bin="$3"
-    shift 3
-
-    if [[ ! -x "${bin}" ]]; then
-        item HOST-REQ "${name}" "not executable: ${bin} (${label})" \
-            "run from a full repository checkout"
-        return 0
-    fi
-
-    if "${bin}" "$@" >/dev/null 2>&1; then
-        item PASS "${name}" "child verify passed (${label}; host-owned, never converged by a target-scoped run)"
-        return 0
-    fi
-
-    item HOST-REQ "${name}" "child verify failed (${label})" \
-        "run install-bootstrap-services --apply WITHOUT --target — a target-scoped run never installs a host-wide family"
 }
 
 # report_child_state NAME LABEL BIN ARGS... — a failing child contract is
@@ -1534,7 +1566,7 @@ run_contract_report() {
     printf 'Coordinates: target operations, perimeter, public-storage ACL, mail capture; directly owns the active-target service files\n'
 
     if target_scoped; then
-        printf 'Scope: target %s only — host-wide families and base services are inspected as prerequisites and never converged\n' "${TARGET_SCOPE}"
+        printf 'Scope: target %s only — host-wide families are out of scope entirely; base services are inspected and never started\n' "${TARGET_SCOPE}"
     fi
 
     report_prerequisite_slices
@@ -2287,37 +2319,6 @@ apply_gate_prerequisites() {
     fi
 }
 
-# apply_gate_host_families — target mode only. The host-wide families this run
-# may not converge must already be current, proven BEFORE the first mutation.
-#
-# A target's service configuration sits on top of them: the committed vhost and
-# Supervisor program reference the operational bundle, and the perimeter is what
-# makes the deploy credential able to act on the target at all. Repairing a
-# target on a host whose shared families have drifted would produce a target
-# that verifies in isolation and still does not work — so this refuses, and
-# names the host operation that fixes it.
-apply_gate_host_families() {
-    target_scoped || return 0
-
-    local failures=()
-
-    action "host-family gate: install-target-operations --verify"
-    "${OPERATIONS_INSTALLER_BIN}" --verify >/dev/null 2>&1 \
-        || failures+=("the installed operations bundle is stale or incomplete (install-target-operations --verify)")
-
-    action "host-family gate: install-target-perimeter --verify"
-    "${PERIMETER_INSTALLER_BIN}" --verify >/dev/null 2>&1 \
-        || failures+=("the sudo perimeter is stale or incomplete (install-target-perimeter --verify)")
-
-    if (( ${#failures[@]} > 0 )); then
-        local failure
-        for failure in "${failures[@]}"; do
-            printf 'HOST-REQ %s\n' "${failure}" >&2
-        done
-
-        fail "refusing to apply --target ${TARGET_SCOPE}: ${#failures[@]} host-wide family(ies) are not current, and a target-scoped run never installs them. Converge the host first with install-bootstrap-services --apply (no --target). No mutation was performed"
-    fi
-}
 
 apply_gate_destinations() {
     require_real_directory "${DST_NGINX_AVAILABLE_DIR}" "Nginx sites-available (installed by slice 5.2 packages)"
@@ -2367,7 +2368,6 @@ perform_apply() {
 
     # 1-2. Authoritative earlier-slice gates.
     apply_gate_prerequisites
-    apply_gate_host_families
 
     # 3. Source registry / lifecycle boundary + committed service sources.
     classify_all_target_states gate
@@ -2401,8 +2401,9 @@ perform_apply() {
     # A target-scoped repair must never rewrite the host's operational bundle,
     # its sudo perimeter or its SSH policy — those belong to every target at
     # once, and "one target drifted" is never a reason to reinstall them. In
-    # target mode they were already proven present and current by
-    # apply_gate_host_families above, and are left exactly as they are.
+    # target mode they are neither reported nor verified nor touched: see the
+    # note in report_child_contracts on why verifying the operations bundle
+    # from inside a repair is circular.
     if ! target_scoped; then
         converge_target_operations
         converge_target_perimeter

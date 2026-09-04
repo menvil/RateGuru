@@ -1909,7 +1909,7 @@ it('leaves host mode exactly as it was: no --target, no target vocabulary anywhe
     }
 });
 
-it('narrows to one target and reports every host-wide family as a prerequisite it never converges', function () {
+it('narrows to one target and leaves every host-wide family out of scope', function () {
     $scratch = bsvcScratchDir();
 
     try {
@@ -1927,9 +1927,15 @@ it('narrows to one target and reports every host-wide family as a prerequisite i
         expect($output)->not->toContain('config-test:sshd');
         expect($output)->not->toContain('mail-capture:verify-mail-capture');
 
-        // Host-wide children become read-only prerequisites, still reported.
-        expect($output)->toContain('operations:install-target-operations — child verify passed');
-        expect($output)->toContain('host-owned, never converged by a target-scoped run');
+        // The operations and perimeter families are not reported at all —
+        // see the health-circularity test below for why verifying them from
+        // inside a target repair is not merely out of scope but unsound.
+        expect($output)->not->toContain('operations:install-target-operations');
+        expect($output)->not->toContain('perimeter:install-target-perimeter');
+
+        // The layout prerequisite IS asked, and at the same scope.
+        expect($output)->toContain('prerequisite:install-bootstrap-host-layout');
+        expect($output)->toContain('--verify --target staging-main');
 
         // Base services become prerequisites rather than things to enable.
         expect($output)->toContain('host-owned, never enabled or started by a target-scoped run');
@@ -1972,39 +1978,69 @@ it('gates a target apply on that target layout only, not on the whole host layou
     }
 });
 
-it('reports an unconverged host-wide family as HOST-REQ and refuses --apply with zero mutation', function () {
+it('is not blocked by a host-wide family whose verify depends on the target being healthy', function () {
     $scratch = bsvcScratchDir();
 
     try {
         $env = bsvcFixture($scratch, ['profile' => 'compliant']);
 
-        // The perimeter family has drifted. In host mode this installer would
-        // converge it through the child's own --apply; in target mode it is
-        // somebody else's job and the run must say so instead of doing it.
+        // install-target-operations --verify runs the application health check
+        // on a DEPLOYED target. A broken vhost or pool is exactly what a target
+        // repair fixes, so gating the repair on this verify would mean the site
+        // has to be healthy before it can be made healthy.
+        @unlink($scratch.'/toggles/operations-installer-compliant');
         @unlink($scratch.'/toggles/perimeter-installer-compliant');
 
         [$checkExit, $checkOutput] = bsvcRun(['--check', '--target', 'staging-main'], $env);
 
-        expect($checkExit)->toBe(1, "an unconverged host family must fail the target contract:\n{$checkOutput}");
-        expect($checkOutput)->toContain('HOST-REQ perimeter:install-target-perimeter');
-        expect($checkOutput)->toContain('run install-bootstrap-services --apply WITHOUT --target');
-        expect($checkOutput)->toContain('TARGET SERVICES CONTRACT (staging-main): NOT SATISFIED');
+        expect($checkExit)->toBe(0, "a stale host-wide family must not fail a target-scoped check:\n{$checkOutput}");
+        expect($checkOutput)->not->toContain('operations:install-target-operations');
+        expect($checkOutput)->not->toContain('perimeter:install-target-perimeter');
 
-        $before = bsvcTreeSnapshot($scratch.'/fs');
+        [$applyExit, $applyOutput] = bsvcRun(['--apply', '--target', 'staging-main'], $env);
 
+        expect($applyExit)->toBe(0, "a stale host-wide family must not refuse a target-scoped apply:\n{$applyOutput}");
+
+        // And it is never converged either — it stays the host bootstrap's.
+        expect(bsvcLog($scratch, 'children.log'))->not->toContain('operations-installer --apply');
+        expect(bsvcLog($scratch, 'children.log'))->not->toContain('perimeter-installer --apply');
+
+        // Host mode still owns and converges both.
         foreach (glob($scratch.'/log/*') ?: [] as $log) {
             file_put_contents($log, '');
         }
 
+        [$hostExit, $hostOutput] = bsvcRun(['--apply'], $env);
+
+        expect($hostExit)->toBe(0, $hostOutput);
+        expect(bsvcLog($scratch, 'children.log'))->toContain('operations-installer --apply');
+        expect(bsvcLog($scratch, 'children.log'))->toContain('perimeter-installer --apply');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('refuses a target-scoped apply when this target own layout is not converged', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        // The one prerequisite a target-scoped run really does depend on, and
+        // it is asked at the same scope: demanding the WHOLE host layout would
+        // make repairing one target fail because a different one had drifted.
+        @unlink($scratch.'/toggles/hostlayout-installer-compliant');
+
+        $before = bsvcTreeSnapshot($scratch.'/fs');
+
         [$applyExit, $applyOutput] = bsvcRun(['--apply', '--target', 'staging-main'], $env);
 
-        expect($applyExit)->not->toBe(0, "a target-scoped apply must refuse an unconverged host family:\n{$applyOutput}");
-        expect($applyOutput)->toContain('host-wide family(ies) are not current');
-        expect($applyOutput)->toContain('No mutation was performed');
+        expect($applyExit)->not->toBe(0, $applyOutput);
+        expect($applyOutput)->toContain('install-bootstrap-host-layout --verify --target staging-main failed');
+        expect($applyOutput)->toContain('no service/config mutation was performed');
 
-        expect(bsvcSystemctlMutations($scratch))->toBe([], 'the refused target apply touched a service');
-        expect(bsvcLog($scratch, 'children.log'))->not->toContain('--apply');
-        expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before, 'the refused target apply changed the filesystem');
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+        expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before);
     } finally {
         bsvcCleanup($scratch);
     }
@@ -2061,7 +2097,7 @@ it('refuses an unknown target and a planned target before any work', function ()
     }
 });
 
-it('touches only the named target on a real two-active-target host', function () {
+it('mutates only the named target on a real two-active-target host', function () {
     $scratch = bsvcScratchDir();
 
     try {
@@ -2070,25 +2106,90 @@ it('touches only the named target on a real two-active-target host', function ()
         $env = bsvcFixture($scratch, ['profile' => 'compliant']);
         bsvcAddSecondTargetHostState($scratch);
 
-        $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
-        $process = proc_open(
-            ['bash', $script, '--check', '--target', 'staging-main'],
-            $descriptors,
-            $pipes,
-            null,
-            $env,
-        );
+        // Drift scoped to the SELECTED target, so the run has something real
+        // to converge. A --check alone would prove only that the report is
+        // quiet about the other target; the property that matters is that a
+        // mutation stays inside the one that was named.
+        $enabled = $scratch.'/fs/etc/nginx/sites-enabled/rateguru-staging';
+        @unlink($enabled);
 
-        $output = stream_get_contents($pipes[1]);
-        fclose($pipes[1]);
-        proc_close($process);
+        $secondBefore = bsvcTreeSnapshot($scratch.'/fs/etc/nginx');
 
-        // The narrowed run describes one target and is silent about the other,
-        // even though both are lifecycle=active in this registry.
+        $run = static function (array $arguments) use ($script, $env): string {
+            $process = proc_open(
+                array_merge(['bash', $script], $arguments),
+                [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
+                $pipes,
+                null,
+                $env,
+            );
+
+            $output = stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            proc_close($process);
+
+            return $output;
+        };
+
+        $output = $run(['--apply', '--target', 'staging-main']);
+
+        // The narrowed run describes and touches one target, even though both
+        // are lifecycle=active in this registry.
         expect($output)->toContain('Scope: target staging-main only');
-        expect($output)->toContain('rateguru-staging-queue');
         expect($output)->not->toContain('staging-second');
         expect($output)->not->toContain('rateguru-second');
+
+        expect(is_link($enabled))->toBeTrue("the selected target's site was not re-enabled:\n{$output}");
+
+        // Everything the other target owns is byte-identical, and no mutation
+        // tool was ever handed one of its paths.
+        $secondAfter = bsvcTreeSnapshot($scratch.'/fs/etc/nginx');
+
+        foreach ($secondBefore as $path => $state) {
+            if (str_contains($path, 'second')) {
+                expect($secondAfter[$path] ?? null)->toBe($state, "the other target's {$path} changed");
+            }
+        }
+
+        foreach (['install.log', 'chown.log', 'chmod.log', 'systemctl.log', 'children.log'] as $log) {
+            expect(bsvcLog($scratch, $log))->not->toContain('rateguru-second');
+            expect(bsvcLog($scratch, $log))->not->toContain('staging-second');
+        }
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('does not let shared mail-capture material block a healthy target', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        // The shared mail-capture vhosts have no per-target component, and the
+        // TLS material they reference belongs to the host bootstrap. A target
+        // that is itself perfectly fine must not be unrepairable because of it.
+        $env = bsvcFixture($scratch, [
+            'profile' => 'compliant',
+            'omitExternal' => [
+                '/etc/letsencrypt/live/staging-mail-capture/fullchain.pem',
+                '/etc/letsencrypt/live/staging-mail-capture/privkey.pem',
+            ],
+        ]);
+
+        [$targetExit, $targetOutput] = bsvcRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($targetExit)->toBe(0, "a missing mail certificate must not fail a target-scoped check:\n{$targetOutput}");
+        expect($targetOutput)->not->toContain('staging-mail-capture');
+
+        [$applyExit, $applyOutput] = bsvcRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->toBe(0, "a missing mail certificate must not refuse a target-scoped apply:\n{$applyOutput}");
+
+        // Host mode still demands it, because there it really is this run's
+        // prerequisite.
+        [$hostExit, $hostOutput] = bsvcRun(['--check'], $env);
+
+        expect($hostExit)->toBe(1);
+        expect($hostOutput)->toContain('staging-mail-capture');
     } finally {
         bsvcCleanup($scratch);
     }

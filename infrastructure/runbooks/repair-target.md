@@ -84,15 +84,16 @@ All three require root and all three refuse a target that is not
  4. ensure it is a deployed target         cheap pre-lock check
  5. acquire the target's deployment lock   the same lock deploy/rollback take
  6. re-read the identity UNDER the lock    authoritative
- 7. build the whole repair plan            every blocker collected together
+ 7. gate: interlocks + the LAYOUT contract every blocker collected together
  8. capture the immutable baseline
  9. converge the layout   (child --apply --target)
-10. converge the services (child --apply --target)
-11. start this target's queue program      only if it is not already running
-12. prove nothing else moved               current, previous, release, .env, storage
-13. prove the scheduler is present
-14. health check
-15. RATEGURU_REPAIR_RESULT={...}
+10. gate: the SERVICES contract            read now the layout is correct
+11. converge the services (child --apply --target)
+12. start this target's queue program      only if it is not already running
+13. prove nothing else moved               current, previous, release, .env, storage
+14. prove the scheduler is present
+15. health check
+16. RATEGURU_REPAIR_RESULT={...}
 ```
 
 Step 4 is deliberately **not** authoritative: a deploy, rollback or restore can
@@ -101,10 +102,20 @@ immediately instead of queueing behind a running deployment only to be rejected.
 Everything it observed is read again at step 6, and it is that second reading the
 repair is built on.
 
-Step 7 is the whole gate. Repairing five things and then stopping at the sixth
-would leave a target in a state nobody designed: partially converged, still
-broken, and now different from what the operator inspected. So every blocker is
-collected first and the run refuses as a whole, having mutated nothing.
+Steps 7 and 10 are the gate, and it is split for a reason rather than out of
+convenience. The services installer verifies **this target's layout** as its own
+prerequisite. While the layout is still drifted, its contract report describes
+exactly the damage the repair is about to fix — so judging it at step 7 would
+make a repair refuse the case it exists for. It is read at step 10 instead,
+after the layout is correct.
+
+What that costs is bounded and worth stating plainly: a refusal at step 10 comes
+after step 9 ran. The only thing that can have happened by then is that the
+layout installer converged this target's identities and directories under its own
+transaction and left them **verified**. That is a complete operation, not a
+half-applied one — the target is strictly closer to correct than it was, and the
+operator gets an exact diagnosis of what still is not. Every other blocker is
+still collected at step 7 and refuses with nothing touched at all.
 
 ## No second implementation
 
@@ -137,8 +148,8 @@ reported with a new `HOST-REQ` status.
 | host roots (`/home/www/rateguru`, `…/bin`, `/var/log/rateguru`, …) | created and re-owned | `HOST-REQ` if wrong; never touched |
 | the target's own directories, identities, memberships | converged | converged |
 | SSH deploy restriction (`70-rateguru-deploy.conf`) | installed, `sshd -t`, reloaded | not reported, not touched |
-| `install-target-operations`, `install-target-perimeter` | converged via their own `--apply` | verified only; `HOST-REQ` if stale |
-| mail capture | verified | not reported at all |
+| `install-target-operations`, `install-target-perimeter` | converged via their own `--apply` | not reported, not verified, not touched — see below |
+| mail capture, and the TLS material its vhosts reference | verified | not reported at all |
 | base services (nginx, PHP-FPM, Supervisor, PostgreSQL, Redis) | enabled and started | `HOST-REQ` if not active; never started |
 | the target's Nginx site, pool, program, cron, ACL | converged | converged |
 | other active targets | converged | not read, not mentioned |
@@ -146,6 +157,35 @@ reported with a new `HOST-REQ` status.
 Without `--target`, both installers are exactly the host bootstrap they have
 always been. That is the first property the test suite asserts for each of them,
 before anything about the new mode.
+
+### Why the operations and perimeter families are not even verified
+
+`install-target-operations --verify` runs the application health check on a
+DEPLOYED target and fails when the site does not answer. A broken Nginx vhost or
+PHP-FPM pool is exactly the damage a target repair exists to fix, so gating that
+repair on this verify would mean **the site has to be healthy before it can be
+made healthy**.
+
+Neither family is a prerequisite of converging one target's service
+configuration in the first place — they install the host's operational CLI
+bundle and its sudo perimeter — so they belong to the host bootstrap, exactly
+like mail capture and the SSH restriction. Whether the target actually serves at
+the end is proven directly, by the health check at step 15.
+
+### External prerequisites
+
+A target-scoped run reports only the material **its own** vhost references. The
+shared mail-capture certificates are excluded: they have no per-target
+component, they belong to host preparation, and a missing one would otherwise
+make a perfectly healthy target unrepairable over secret material this run can
+never provide.
+
+What it does report, it reports as `CONFLICT` rather than `MISSING`, and the
+difference is load-bearing. `MISSING` means "`--apply` converges this".
+`--apply` never converges an external prerequisite — it refuses, because the
+material is operator-supplied. An orchestrator reading `MISSING` would treat it
+as repairable and proceed, and would discover the refusal only after converging
+something else.
 
 ## What it refuses, and why each refusal belongs to somebody else
 
@@ -200,7 +240,7 @@ Captured before the first mutation, asserted after the last one:
 | `previous` | the raw symlink target |
 | release identity | `release` and `source_sha` from the release's own `release.json` |
 | `shared/.env` | device, inode, size, mtime, owner, group, mode |
-| `shared/storage` | the top two levels of entries with their type, owner, group and mode |
+| `shared/storage` | the top two levels of entries with their type, owner, group and mode, **excluding `logs/`** |
 
 `.env` is fingerprinted rather than hashed on purpose: a hash of secret material
 is a fingerprint of that material, and nothing about `.env` content belongs in
@@ -208,6 +248,15 @@ this operation's output or logs. Storage is compared structurally rather than by
 content: the content is user data, it can be large, and a repair may not create,
 delete or re-own anything under it — which is exactly what the structural
 comparison detects.
+
+`shared/storage/logs` is excluded, and that is the boundary being drawn
+correctly rather than a loophole. `install-bootstrap-services` owns that
+directory — the committed PHP-FPM and Supervisor configs write into it — so
+repairing its owner or mode is one of the things this operation is **for**.
+Including it would make a legitimate repair fail its own immutability proof. It
+would also make the proof flaky for a reason unrelated to safety: the
+application writes log files continuously, and a new one appearing mid-repair
+would read as the repair having touched user data.
 
 The database is proven differently, and more strongly: `repair-target` contains
 no database code at all, so there is nothing to misuse. Reachability is proven
@@ -297,6 +346,12 @@ The GitHub action branches on that object and never on prose, so a wording chang
 in the human report can never become a silent behaviour change. `changed` is
 `false` when the target was already correct — a repair that converged nothing
 says so rather than claiming credit.
+
+`changed` is read from the `--apply` result and never from the verification:
+`--verify` is a fresh read-only invocation, so its own `changed` is `false` by
+construction, and publishing that would report "changed: false" after a real
+repair. The action also counts the result lines rather than taking the first
+match — "exactly one" is a contract, and `grep -m1` would accept two in silence.
 
 ## Report vocabulary
 
