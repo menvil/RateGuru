@@ -1,0 +1,31 @@
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_015e6e963c56c6::t_af869313377b59 367
+tests/Pest.php
+  s_015e6e963c56c6::t_8539ff65fa34f5 268-314
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_015e6e963c56c6::t_c989fc34191c49 324-327,329,472-476,496
+  s_015e6e963c56c6::t_af869313377b59 267,522
+  s_015e6e963c56c6::t_90a5dad56f6ae8 458-463,485,501-502,535-540
+tests/Feature/Architecture/BootstrapHostOrchestratorTest.php
+  s_015e6e963c56c6::t_212ec5a658dfc2 6,321,323-324,538-539,582,602,618
+tests/Feature/Architecture/ReleaseBookkeepingTest.php
+  s_015e6e963c56c6::t_a501aca512e25c 78-89
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_015e6e963c56c6::t_212ec5a658dfc2 629-633,644-645
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "de930c691ed7e590271b8fe1ff647d0986ed5149",
+  "prompts": {},
+  "sessions": {
+    "s_015e6e963c56c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d7f5ab7-8830-4ed4-b056-647d1bdeaf21",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
