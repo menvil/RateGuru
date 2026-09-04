@@ -68,8 +68,8 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
 
     expect($sudoers)->toBe(['rateguru-deploy', 'rateguru-nightwatch-deployment']);
 
-    // And no new server-side CLI at all: 7.4 is a GitHub/operator layer over
-    // primitives 7.3 already accepted on real staging.
+    // And no new server-side CLI at all: this is a GitHub/operator layer over
+    // primitives already accepted on real staging.
     $scripts = collect(glob(base_path('infrastructure/scripts/*')) ?: [])
         ->filter(static fn (string $path): bool => is_file($path))
         ->map(static fn (string $path): string => basename($path))
@@ -342,7 +342,7 @@ it('implements no Repair Target and no Recover Host', function () {
     // --inspect refuses the two states that need repair rather than a
     // deployment, and says so.
     expect(File::get(base_path('infrastructure/scripts/restore-target')))
-        ->toContain('Repair Target is Repair Target');
+        ->toContain('MANUAL RECOVERY REQUIRED report names the failed step');
 });
 
 it('activates no production target, provisions nothing and changes no DNS', function () {
@@ -367,7 +367,7 @@ it('leaves the accepted backup subsystem and the 7.3 restore primitives untouche
     $changed = branchChangedCodeFiles();
 
     // The restore mechanics themselves were accepted on a real destructive
-    // staging run. 7.4 adds --inspect and a machine-readable result line to
+    // staging run. The operator surface adds --inspect and a machine-readable result line to
     // restore-target; it must not touch the primitives that swap the data.
     // (toContain is variadic in Pest, so no message argument here.)
     foreach ([
