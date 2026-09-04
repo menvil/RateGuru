@@ -1,0 +1,32 @@
+tests/Feature/Architecture/RepairTargetTest.php
+  s_015e6e963c56c6::t_6d8b72d1c9dc62 149-150,152,796,802-807,813,824-830,832-834
+infrastructure/scripts/install-bootstrap-services
+  s_015e6e963c56c6::t_fac68942b68755 958-964,975-997,1233-1270,1274-1282,1286-1287,1305-1306,1315-1316
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_015e6e963c56c6::t_0e8aaca7e6464e 2197-2277
+infrastructure/scripts/install-bootstrap-host-layout
+  s_015e6e963c56c6::t_810eef96d86f56 239-251,270,754-759,761,769,775,897,919
+infrastructure/runbooks/repair-target.md
+  s_015e6e963c56c6::t_ca7fbe5fb3b63b 87,90,105-116,173-190
+infrastructure/scripts/repair-target
+  s_015e6e963c56c6::t_ba91cfe3838eb7 892-910,915-921,951-952,954-959,962,966,969-971,1028
+  s_015e6e963c56c6::t_53c1e482504fa2 912-914
+tests/Feature/Architecture/InstallBootstrapHostLayoutTest.php
+  s_015e6e963c56c6::t_2e4b17189a6da6 2027-2092
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0d39f62ebd70b2bcfc5ab1e6b6f157c806a52a91",
+  "prompts": {},
+  "sessions": {
+    "s_015e6e963c56c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d7f5ab7-8830-4ed4-b056-647d1bdeaf21",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
