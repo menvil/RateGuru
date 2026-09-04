@@ -84,10 +84,10 @@ All three require root and all three refuse a target that is not
  4. ensure it is a deployed target         cheap pre-lock check
  5. acquire the target's deployment lock   the same lock deploy/rollback take
  6. re-read the identity UNDER the lock    authoritative
- 7. gate: interlocks + the LAYOUT contract every blocker collected together
+ 7. gate: interlocks + BOTH contracts      every blocker collected together
  8. capture the immutable baseline
  9. converge the layout   (child --apply --target)
-10. gate: the SERVICES contract            read now the layout is correct
+10. re-read the services contract          only to see what is left to do
 11. converge the services (child --apply --target)
 12. start this target's queue program      only if it is not already running
 13. prove nothing else moved               current, previous, release, .env, storage
@@ -102,20 +102,18 @@ immediately instead of queueing behind a running deployment only to be rejected.
 Everything it observed is read again at step 6, and it is that second reading the
 repair is built on.
 
-Steps 7 and 10 are the gate, and it is split for a reason rather than out of
-convenience. The services installer verifies **this target's layout** as its own
-prerequisite. While the layout is still drifted, its contract report describes
-exactly the damage the repair is about to fix — so judging it at step 7 would
-make a repair refuse the case it exists for. It is read at step 10 instead,
-after the layout is correct.
+Step 7 is the whole gate, and nothing is mutated before it finishes. Converging
+five things and then discovering the sixth is unrepairable would leave a target
+in a state nobody designed: partially repaired, still broken, and different from
+what the operator inspected. So every blocker is collected first and the run
+refuses as a whole, having touched nothing.
 
-What that costs is bounded and worth stating plainly: a refusal at step 10 comes
-after step 9 ran. The only thing that can have happened by then is that the
-layout installer converged this target's identities and directories under its own
-transaction and left them **verified**. That is a complete operation, not a
-half-applied one — the target is strictly closer to correct than it was, and the
-operator gets an exact diagnosis of what still is not. Every other blocker is
-still collected at step 7 and refuses with nothing touched at all.
+Reading the services contract that early is only sound because it distinguishes
+"unconverged prerequisite" from "unsafe" — see the next section. Step 10 is not a
+second gate: every blocker was already ruled out, and the re-read only asks what
+converging the layout has left to do. A blocker appearing there would mean the
+target changed underneath a held lock, so it fails loudly rather than repairing
+past it.
 
 ## No second implementation
 
@@ -171,6 +169,25 @@ configuration in the first place — they install the host's operational CLI
 bundle and its sudo perimeter — so they belong to the host bootstrap, exactly
 like mail capture and the SSH restriction. Whether the target actually serves at
 the end is proven directly, by the health check at step 15.
+
+### What counts as repairable
+
+The distinction the whole gate rests on. In target mode:
+
+| condition | verdict |
+|---|---|
+| a managed directory has the wrong owner, group or mode | **DRIFT** — the installer chowns and chmods that entry, never recursively |
+| a managed directory is a symlink or a file | **CONFLICT** — resolving it would mean deleting something |
+| this target's layout is not converged yet | **DRIFT** — a named owner converges it, and it is converged first |
+| `nginx -t` / `php-fpm -t` / `supervisorctl reread` fails **and** this target's own configuration is drifted | **DRIFT** — the damaged file is what the parser is choking on, and replacing it is the repair |
+| the same parser fails while this target's files are byte-identical to what is committed | **CONFLICT** — the cause is elsewhere on the host, and converging this target would change nothing |
+
+The last row is why a failing parser is not simply ignored: the error may be in
+a completely different vhost. And a committed candidate is still validated
+before it is installed — a candidate that does not parse is restored, so nothing
+is installed on the strength of that attribution.
+
+In host mode every one of these stays exactly what it was.
 
 ### External prerequisites
 

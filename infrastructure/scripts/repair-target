@@ -727,20 +727,9 @@ report_target_infrastructure() {
         "identities, memberships and this target's own directory entries" \
         "${HOSTLAYOUT_BIN}"
 
-    local layout_drifted=false
-    repair_required && layout_drifted=true
-
     report_child "services:install-bootstrap-services" \
         "support log directory, Nginx site and link, PHP-FPM pool, Supervisor program, scheduler cron, public-storage ACL" \
         "${SERVICES_BIN}"
-
-    # The services installer verifies this target's layout as its own
-    # prerequisite, so while the layout is still drifted its report describes a
-    # target that no longer exists by the time it would be converged. --apply
-    # reads it in the right order; a reader of --check deserves to be told.
-    if [[ "${layout_drifted}" == true ]]; then
-        printf '  NOTE     the services report above was taken while the layout is still drifted; --apply re-reads it after converging the layout\n'
-    fi
 }
 
 report_runtime() {
@@ -900,20 +889,36 @@ apply_gate() {
         blockers+=("deployed release: ${DEPLOYED_PROBLEM} — a target with no canonical deployed release is not Repair Target's to fix, and a repair never picks a release for you")
     fi
 
-    # The layout is judged here, before anything is converged. The services
-    # contract is NOT, and that is a dependency rather than an oversight: the
-    # services installer verifies this target's layout as its own prerequisite,
-    # so while the layout is still broken it reports a conflict describing the
-    # very drift this run is about to fix. Judging it now would make a repair
-    # refuse precisely the case it exists for.
-    local blocker
-    child_report "${HOSTLAYOUT_BIN}"
+    # BOTH contracts are judged here, before anything is converged, and that is
+    # the whole point of the gate: converging five things and then discovering
+    # the sixth is unrepairable leaves a target in a state nobody designed —
+    # partially repaired, still broken, and different from what the operator
+    # inspected.
+    #
+    # Reading the services contract this early is only sound because it
+    # distinguishes "unconverged prerequisite" from "unsafe". Its own layout
+    # prerequisite reports as DRIFT, not CONFLICT, and a parser failure caused
+    # by this target's own damaged configuration reports as DRIFT too. Neither
+    # is a blocker; both are exactly what the convergence below fixes.
+    local bin blocker
+    for bin in "${HOSTLAYOUT_BIN}" "${SERVICES_BIN}"; do
+        child_report "${bin}"
 
-    if blocker="$(child_blocker "${HOSTLAYOUT_BIN##*/}")"; then
-        blockers+=("${blocker}")
-    elif (( CHILD_STATUS != 0 )); then
-        LAYOUT_PLANNED=true
-    fi
+        if blocker="$(child_blocker "${bin##*/}")"; then
+            blockers+=("${blocker}")
+            continue
+        fi
+
+        if (( CHILD_STATUS == 0 )); then
+            continue
+        fi
+
+        if [[ "${bin}" == "${HOSTLAYOUT_BIN}" ]]; then
+            LAYOUT_PLANNED=true
+        else
+            SERVICES_PLANNED=true
+        fi
+    done
 
     if (( ${#blockers[@]} > 0 )); then
         for blocker in "${blockers[@]}"; do
@@ -943,32 +948,27 @@ converge_child() {
     CHANGED=true
 }
 
-# services_gate — the second half of the plan, judged once the layout it sits
-# on is correct.
+# reread_services_contract — after the layout converged, ask the services
+# installer again whether it still has anything to do.
 #
-# Refusing here is later than refusing in apply_gate, and the difference is
-# bounded and worth stating: the only thing that can have happened by now is
-# that the layout installer converged this target's identities and directories
-# under its own transaction and left them verified. That is a complete
-# operation, not a half-applied one — the target is strictly closer to correct
-# than it was, and the operator gets an exact diagnosis of what still is not.
-services_gate() {
+# This is NOT a second gate. Every blocker was already ruled out before the
+# first mutation; this only refines "does it still need applying", because
+# converging the layout can satisfy part of what the services contract was
+# reporting. A blocker appearing now would mean the target changed underneath a
+# held lock, so it fails loudly rather than being repaired past.
+reread_services_contract() {
     local blocker
 
-    action "reading the services contract now that the layout is correct"
+    action "re-reading the services contract now that the layout is converged"
     child_report "${SERVICES_BIN}"
 
     if blocker="$(child_blocker "${SERVICES_BIN##*/}")"; then
-        printf 'BLOCKED %s\n' "${blocker}" >&2
-
-        if [[ "${CHANGED}" == true ]]; then
-            fail "refusing to converge this target's services: ${blocker}. Its layout was converged and verified first and is left that way; nothing else was changed"
-        fi
-
-        fail "refusing to converge this target's services: ${blocker}. No mutation was performed"
+        fail "the services contract became unrepairable after the layout was converged: ${blocker}. The layout is converged and verified and is left that way; no service configuration was changed"
     fi
 
-    if (( CHILD_STATUS != 0 )); then
+    if (( CHILD_STATUS == 0 )); then
+        SERVICES_PLANNED=false
+    else
         SERVICES_PLANNED=true
     fi
 }
@@ -1025,9 +1025,8 @@ perform_apply() {
 
     if [[ "${LAYOUT_PLANNED}" == true ]]; then
         converge_child "${HOSTLAYOUT_BIN}"
+        reread_services_contract
     fi
-
-    services_gate
 
     if [[ "${SERVICES_PLANNED}" == true ]]; then
         converge_child "${SERVICES_BIN}"

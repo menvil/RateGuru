@@ -236,6 +236,19 @@ COUNT_CONFLICT=0
 #
 # Eight characters on purpose: the report is a fixed-width table whose exact
 # spacing is part of this installer's asserted output contract.
+# DRIFT is only ever non-zero in target mode: a managed directory that exists
+# and is a directory, but carries the wrong owner, group or mode.
+#
+# In host mode that stays a CONFLICT, unchanged. In target mode it is the single
+# most common thing a repair is asked to fix, and this installer already fixes
+# it safely — ensure_directory chowns and chmods the entry itself and never
+# recurses. Calling it a conflict told an orchestrator "no one may fix this
+# automatically", which is the opposite of true.
+#
+# A wrong TYPE — a symlink or a file where a directory belongs — stays a
+# CONFLICT in both modes: resolving that would mean deleting something.
+COUNT_DRIFT=0
+
 COUNT_HOST_REQ=0
 
 section() {
@@ -254,6 +267,7 @@ item() {
     case "${status}" in
         PASS)     COUNT_PASS=$((COUNT_PASS + 1)) ;;
         MISSING)  COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
+        DRIFT)    COUNT_DRIFT=$((COUNT_DRIFT + 1)) ;;
         WARN)     COUNT_WARN=$((COUNT_WARN + 1)) ;;
         CONFLICT) COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
         HOST-REQ) COUNT_HOST_REQ=$((COUNT_HOST_REQ + 1)) ;;
@@ -737,8 +751,14 @@ report_directory() {
         return 0
     fi
 
+    # Ownership and mode are converged by --apply on the entry itself, so in
+    # target mode they are drift with a named fix rather than a conflict. See
+    # the COUNT_DRIFT note above for why the distinction matters.
+    local remediable=CONFLICT
+    target_scoped && remediable=DRIFT
+
     if [[ "${actual_owner}" != "${owner}" ]] || [[ "${actual_group}" != "${group}" ]]; then
-        item CONFLICT "path:${path}" "owned by ${actual_owner}:${actual_group}, required ${owner}:${group} (${label})" \
+        item "${remediable}" "path:${path}" "owned by ${actual_owner}:${actual_group}, required ${owner}:${group} (${label})" \
             "chown ${owner}:${group} on this directory entry only (never recursive; contents keep their ownership)"
 
         return 0
@@ -746,13 +766,13 @@ report_directory() {
 
     if [[ "${policy}" == nw ]]; then
         if mode_group_other_writable "${actual_mode}"; then
-            item CONFLICT "path:${path}" "mode ${actual_mode} is group- or other-writable (${label})" \
+            item "${remediable}" "path:${path}" "mode ${actual_mode} is group- or other-writable (${label})" \
                 "chmod 0750 on this directory entry only (never recursive)"
 
             return 0
         fi
     elif ! mode_equals "${actual_mode}" "${mode}"; then
-        item CONFLICT "path:${path}" "mode ${actual_mode}, required ${mode} (${label})" \
+        item "${remediable}" "path:${path}" "mode ${actual_mode}, required ${mode} (${label})" \
             "chmod ${mode} on this directory entry only (never recursive)"
 
         return 0
@@ -874,6 +894,7 @@ report_summary() {
     printf 'CONFLICT: %d\n' "${COUNT_CONFLICT}"
 
     if target_scoped; then
+        printf 'DRIFT: %d\n' "${COUNT_DRIFT}"
         printf 'HOST-REQ: %d\n' "${COUNT_HOST_REQ}"
     fi
 
@@ -895,7 +916,7 @@ report_summary() {
 }
 
 contract_satisfied() {
-    (( COUNT_MISSING == 0 )) && (( COUNT_CONFLICT == 0 )) && (( COUNT_HOST_REQ == 0 ))
+    (( COUNT_MISSING == 0 )) && (( COUNT_DRIFT == 0 )) && (( COUNT_CONFLICT == 0 )) && (( COUNT_HOST_REQ == 0 ))
 }
 
 # run_contract_report — the full read-only report used by --check and

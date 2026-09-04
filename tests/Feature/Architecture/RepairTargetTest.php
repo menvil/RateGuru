@@ -146,10 +146,10 @@ function repairWriteStubs(string $scratch): void
                 # A child that fails while printing neither MISSING nor DRIFT.
                 [[ -e "{$scratch}/toggles/\${me}-errors-only" ]] && { echo "ERROR: something went wrong"; exit 1; }
                 # The services installer verifies this target's layout as its
-                # own prerequisite, so while the layout is drifted it reports a
-                # conflict describing exactly the drift about to be repaired.
+                # own prerequisite. While the layout is drifted it reports that
+                # as DRIFT — repairable, by a named owner — never as a conflict.
                 if [[ "\${me}" == services ]] && [[ -e "{$scratch}/toggles/host-layout-drift" ]]; then
-                    echo "  CONFLICT prerequisite:install-bootstrap-host-layout — verify failed"
+                    echo "  DRIFT    prerequisite:install-bootstrap-host-layout — verify failed"
                     exit 1
                 fi
                 [[ -e "{$scratch}/toggles/\${me}-drift" ]] && { echo "  MISSING  link:/etc/nginx/sites-enabled/rateguru-staging — absent"; exit 1; }
@@ -793,21 +793,24 @@ it('repairs layout drift even though the services contract depends on that layou
 
         expect($exit)->toBe(0, "layout drift must not block itself:\n{$output}");
         expect($output)->toContain('CHANGED: TRUE');
-        expect($output)->toContain('reading the services contract now that the layout is correct');
+        expect($output)->toContain('re-reading the services contract now that the layout is converged');
 
         $calls = repairCalls($scratch);
 
         expect($calls)->toContain('host-layout --apply --target staging-main');
 
-        // And the services contract was read AFTER the layout was converged.
-        expect(strpos($calls, 'host-layout --apply'))
-            ->toBeLessThan(strrpos($calls, 'services --check'));
+        // The services contract is judged BEFORE any mutation, and read again
+        // afterwards only to decide whether it still needs applying.
+        expect(strpos($calls, 'services --check'))
+            ->toBeLessThan(strpos($calls, 'host-layout --apply'));
+        expect(strrpos($calls, 'services --check'))
+            ->toBeGreaterThan(strpos($calls, 'host-layout --apply'));
     } finally {
         repairCleanup($scratch);
     }
 });
 
-it('says the layout was left converged when the services contract then refuses', function () {
+it('mutates nothing when the services contract is unrepairable, even with layout drift to fix', function () {
     $scratch = repairScratchDir();
 
     try {
@@ -818,12 +821,17 @@ it('says the layout was left converged when the services contract then refuses',
         [$exit, $output] = repairRun(['--apply', '--target', 'staging-main'], $env);
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('refusing to converge this target\'s services');
+        expect($output)->toContain('No mutation was performed');
 
-        // The bound matters: the layout apply is a complete, verified
-        // operation, so the target is closer to correct rather than half-done.
-        expect($output)->toContain('Its layout was converged and verified first and is left that way');
-        expect(repairCalls($scratch))->not->toContain('services --apply');
+        // The guarantee this restores: converging the layout and only then
+        // discovering the services contract is unrepairable would leave a
+        // target partially repaired, still broken, and different from what the
+        // operator inspected. Both contracts are judged first.
+        $calls = repairCalls($scratch);
+
+        expect($calls)->not->toContain('--apply --target');
+        expect($calls)->toContain('host-layout --check');
+        expect($calls)->toContain('services --check');
     } finally {
         repairCleanup($scratch);
     }

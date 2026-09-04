@@ -955,7 +955,13 @@ report_prerequisite_slices() {
     # active target had drifted, and would report this target's own layout
     # drift — the thing a repair exists to fix — as an unfixable conflict.
     if target_scoped; then
-        report_child_gate "prerequisite:install-bootstrap-host-layout" \
+        # DRIFT, not CONFLICT. This target's layout being unconverged is not an
+        # unsafe condition — it is a repairable one with a named owner, and
+        # reporting it as a conflict makes an orchestrator refuse the very case
+        # it exists for. --apply still refuses outright: see
+        # apply_gate_prerequisites, which is the gate that actually protects
+        # this installer's own mutations.
+        report_prerequisite_drift "prerequisite:install-bootstrap-host-layout" \
             "${HOSTLAYOUT_INSTALLER_BIN}" --verify --target "${TARGET_SCOPE}"
     else
         report_child_gate "slice-5.3:install-bootstrap-host-layout" "${HOSTLAYOUT_INSTALLER_BIN}" --verify
@@ -966,6 +972,29 @@ report_prerequisite_slices() {
 # reports it. A failing prerequisite is CONFLICT in every mode: --apply must
 # not run until the earlier slice converges, and that convergence belongs to
 # the earlier slice's own --apply, never to this installer.
+# report_prerequisite_drift NAME BIN ARGS... — a prerequisite that some other
+# installer owns and can converge. Same probe as report_child_gate, different
+# verdict: DRIFT says "repairable, by that installer", where CONFLICT says
+# "nobody may fix this automatically".
+report_prerequisite_drift() {
+    local name="$1" bin="$2"
+    shift 2
+
+    if [[ ! -x "${bin}" ]]; then
+        item CONFLICT "${name}" "installer not executable: ${bin}" \
+            "run from a full repository checkout"
+        return 0
+    fi
+
+    if "${bin}" "$@" >/dev/null 2>&1; then
+        item PASS "${name}" "verify passed (${bin} $*)"
+        return 0
+    fi
+
+    item DRIFT "${name}" "verify failed (${bin} $*)" \
+        "${bin##*/} --apply --target ${TARGET_SCOPE} — this installer never converges the layout itself, and refuses to mutate until it is correct"
+}
+
 report_child_gate() {
     local name="$1" bin="$2"
     shift 2
@@ -1201,14 +1230,61 @@ service_active() {
     "${SYSTEMCTL_BIN}" is-active --quiet "$1" >/dev/null 2>&1
 }
 
+# target_file_drifted DST SRC — the selected target's own copy of one managed
+# file is absent, not a regular file, or differs from what is committed.
+target_file_drifted() {
+    local dst="$1" src="$2" phys
+    phys="$(physical "${dst}")"
+
+    [[ -f "${phys}" ]] || return 0
+    cmp -s "${src}" "${phys}" || return 0
+
+    return 1
+}
+
+# report_parser_result NAME DETAIL DRIFTED — one authoritative parser's verdict.
+#
+# A failing parser is normally a CONFLICT: nothing may be reloaded until a human
+# fixes the configuration. In target mode there is one case where that is the
+# wrong answer, and it is a case this operation exists for — the selected
+# target's OWN managed file is drifted or damaged, and the parser is failing
+# BECAUSE of it. Replacing that file with the committed one is the repair, and
+# the parser is re-run against the candidate before anything is reloaded, so
+# nothing is installed on the strength of this guess.
+#
+# When the selected target's files are already byte-identical to what is
+# committed, a parser failure is somewhere else on the host and stays a
+# CONFLICT: converging this target would change nothing and fix nothing.
+report_parser_result() {
+    local name="$1" detail="$2" drifted="$3"
+
+    if ! target_scoped || [[ "${drifted}" != true ]]; then
+        item CONFLICT "${name}" "${detail}" \
+            "fix the installed configuration (apply installs candidates transactionally, validates them, and restores on a failed test)"
+        return 0
+    fi
+
+    item DRIFT "${name}" "${detail}; this target's own configuration is drifted, which is the likely cause" \
+        "replace this target's committed configuration transactionally — the parser is re-run against the candidate before any reload, and a candidate that does not parse is restored"
+}
+
 report_config_validation() {
     section "CONFIG VALIDATION (authoritative parsers, read-only)"
+
+    local nginx_drift=false fpm_drift=false supervisor_drift=false
+
+    if target_scoped; then
+        target_file_drifted "$(dst_nginx_site "${TARGET_SCOPE}")" "$(src_nginx_site "${TARGET_SCOPE}")" && nginx_drift=true
+        [[ "$(enabled_link_state "${TARGET_SCOPE}")" == ok ]] || nginx_drift=true
+        target_file_drifted "$(dst_fpm_pool "${TARGET_SCOPE}")" "$(src_fpm_pool "${TARGET_SCOPE}")" && fpm_drift=true
+        target_file_drifted "$(dst_supervisor "${TARGET_SCOPE}")" "$(src_supervisor "${TARGET_SCOPE}")" && supervisor_drift=true
+    fi
 
     if nginx_config_test; then
         item PASS "config-test:nginx" "nginx -t passed against the installed configuration"
     else
-        item CONFLICT "config-test:nginx" "nginx -t failed against the installed configuration" \
-            "fix the installed Nginx configuration (apply installs candidates transactionally and restores on a failed test)"
+        report_parser_result "config-test:nginx" \
+            "nginx -t failed against the installed configuration" "${nginx_drift}"
     fi
 
     # SSH belongs to the host run. A target-scoped repair never installs or
@@ -1226,8 +1302,8 @@ report_config_validation() {
     if php_fpm_config_test; then
         item PASS "config-test:php-fpm" "${PHP_FPM_TEST_BIN##*/} -t passed against the installed configuration"
     else
-        item CONFLICT "config-test:php-fpm" "${PHP_FPM_TEST_BIN##*/} -t failed against the installed configuration" \
-            "fix the installed PHP-FPM configuration before any reload"
+        report_parser_result "config-test:php-fpm" \
+            "${PHP_FPM_TEST_BIN##*/} -t failed against the installed configuration" "${fpm_drift}"
     fi
 
     if ! service_active supervisor; then
@@ -1236,8 +1312,8 @@ report_config_validation() {
     elif supervisor_reread_validation; then
         item PASS "config-test:supervisor" "supervisorctl reread parsed the installed configuration cleanly (validation only — nothing applied)"
     else
-        item CONFLICT "config-test:supervisor" "supervisorctl reread reported a configuration error" \
-            "fix the installed Supervisor configuration"
+        report_parser_result "config-test:supervisor" \
+            "supervisorctl reread reported a configuration error" "${supervisor_drift}"
     fi
 }
 

@@ -2194,3 +2194,84 @@ it('does not let shared mail-capture material block a healthy target', function 
         bsvcCleanup($scratch);
     }
 });
+
+it('reads a parser failure as this target own drift when its configuration is damaged', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        // Somebody damaged this target's vhost, so nginx -t fails BECAUSE of
+        // it. Replacing that file with the committed one is the repair —
+        // refusing here would decline the case this whole mode exists for.
+        file_put_contents(
+            $scratch.'/fs/etc/nginx/sites-available/rateguru-staging',
+            "this is not valid nginx configuration\n",
+        );
+        touch($scratch.'/toggles/nginx-t-fail');
+
+        [$exit, $output] = bsvcRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('DRIFT    config-test:nginx');
+        expect($output)->toContain("this target's own configuration is drifted");
+        expect($output)->not->toContain('CONFLICT config-test:nginx');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('keeps a parser failure a conflict when this target configuration is already correct', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        // Every file this target owns is byte-identical to what is committed,
+        // so the parser is failing somewhere else on the host. Converging this
+        // target would change nothing and fix nothing.
+        touch($scratch.'/toggles/nginx-t-fail');
+
+        [$targetExit, $targetOutput] = bsvcRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($targetExit)->toBe(1, $targetOutput);
+        expect($targetOutput)->toContain('CONFLICT config-test:nginx');
+        expect($targetOutput)->not->toContain('DRIFT    config-test:nginx');
+
+        // Host mode is unchanged.
+        [$hostExit, $hostOutput] = bsvcRun(['--check'], $env);
+
+        expect($hostExit)->toBe(1);
+        expect($hostOutput)->toContain('CONFLICT config-test:nginx');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('reports an unconverged target layout as repairable drift, not as a conflict', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        // This target's layout being unconverged is a repairable condition
+        // with a named owner. Calling it a conflict makes an orchestrator
+        // refuse the case it exists for.
+        @unlink($scratch.'/toggles/hostlayout-installer-compliant');
+
+        [$exit, $output] = bsvcRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('DRIFT    prerequisite:install-bootstrap-host-layout');
+        expect($output)->toContain('hostlayout-installer --apply --target staging-main');
+        expect($output)->not->toContain('CONFLICT prerequisite:install-bootstrap-host-layout');
+
+        // Host mode keeps the hard gate it always had.
+        [$hostExit, $hostOutput] = bsvcRun(['--check'], $env);
+
+        expect($hostExit)->toBe(1);
+        expect($hostOutput)->toContain('CONFLICT slice-5.3:install-bootstrap-host-layout');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});

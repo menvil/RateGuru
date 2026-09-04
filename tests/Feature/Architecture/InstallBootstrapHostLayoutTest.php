@@ -2024,3 +2024,69 @@ it('rejects a malformed --target without touching the host', function () {
         hostLayoutCleanup($scratch);
     }
 });
+
+it('treats a target directory with the wrong owner or mode as repairable drift, and repairs it', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch);
+
+        // The single most common thing a target repair is asked to fix, and
+        // one this installer already fixes safely: ensure_directory chowns and
+        // chmods the entry itself and never recurses.
+        hostLayoutWriteOwnerTable($scratch, array_merge(
+            hostLayoutOwnerTableRows($scratch),
+            [$scratch.'/fs/home/www/rateguru/staging/shared' => ['root', 'root']],
+        ));
+        chmod($scratch.'/fs/home/www/rateguru/staging/shared', 0o755);
+
+        [$targetExit, $targetOutput] = hostLayoutRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($targetExit)->toBe(1, $targetOutput);
+        expect($targetOutput)->toContain('DRIFT    path:/home/www/rateguru/staging/shared');
+        expect($targetOutput)->not->toContain('CONFLICT path:/home/www/rateguru/staging/shared');
+
+        // Host mode is unchanged: there this is still a CONFLICT.
+        [$hostExit, $hostOutput] = hostLayoutRun(['--check'], $env);
+
+        expect($hostExit)->toBe(1);
+        expect($hostOutput)->toContain('CONFLICT path:/home/www/rateguru/staging/shared');
+        expect($hostOutput)->not->toContain('DRIFT');
+
+        // And a target-scoped apply actually converges it.
+        [$applyExit, $applyOutput] = hostLayoutRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->toBe(0, "a target apply must repair owner/mode drift:\n{$applyOutput}");
+        expect(hostLayoutLog($scratch, 'chown.log'))->toContain('/home/www/rateguru/staging/shared');
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
+
+it('never calls a wrong filesystem type repairable, in either mode', function () {
+    $scratch = hostLayoutScratchDir();
+
+    try {
+        $env = hostLayoutFixture($scratch);
+
+        // Resolving this would mean deleting something to make room, which
+        // nothing here ever does — so it stays a conflict even in target mode.
+        exec('rm -rf '.escapeshellarg($scratch.'/fs/home/www/rateguru/staging/locks'));
+        file_put_contents($scratch.'/fs/home/www/rateguru/staging/locks', "not a directory\n");
+
+        [$exit, $output] = hostLayoutRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT path:/home/www/rateguru/staging/locks');
+        expect($output)->toContain('expected directory');
+
+        $before = hostLayoutTreeSnapshot($scratch.'/fs');
+
+        [$applyExit] = hostLayoutRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0);
+        expect(hostLayoutTreeSnapshot($scratch.'/fs'))->toBe($before);
+    } finally {
+        hostLayoutCleanup($scratch);
+    }
+});
