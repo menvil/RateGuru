@@ -2275,3 +2275,70 @@ it('reports an unconverged target layout as repairable drift, not as a conflict'
         bsvcCleanup($scratch);
     }
 });
+
+it('refuses a target apply when a base service is active but not enabled, and never enables it', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        // The gap that made the boundary declarative rather than real: the
+        // prerequisite checked only is-active, so an active-but-disabled unit
+        // reported PASS and the convergence below quietly enabled it.
+        unlink($scratch.'/svc/php8.5-fpm.enabled');
+
+        [$checkExit, $checkOutput] = bsvcRun(['--check', '--target', 'staging-main'], $env);
+
+        expect($checkExit)->toBe(1, $checkOutput);
+        expect($checkOutput)->toContain('HOST-REQ service:php8.5-fpm');
+        expect($checkOutput)->toContain('active but not enabled');
+
+        $before = bsvcTreeSnapshot($scratch.'/fs');
+
+        foreach (glob($scratch.'/log/*') ?: [] as $log) {
+            file_put_contents($log, '');
+        }
+
+        [$applyExit, $applyOutput] = bsvcRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0, $applyOutput);
+        expect($applyOutput)->toContain('base host service(s) are not enabled and active');
+        expect($applyOutput)->toContain('No mutation was performed');
+
+        expect(bsvcSystemctlMutations($scratch))->toBe([], 'the refused target apply touched a service');
+        expect(file_exists($scratch.'/svc/php8.5-fpm.enabled'))->toBeFalse('the target apply enabled a base host service');
+        expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before);
+
+        // Host mode still owns it and enables it, unchanged.
+        [$hostExit, $hostOutput] = bsvcRun(['--apply'], $env);
+
+        expect($hostExit)->toBe(0, $hostOutput);
+        expect(file_exists($scratch.'/svc/php8.5-fpm.enabled'))->toBeTrue();
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('refuses a target apply when a base service is stopped, and never starts it', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+
+        unlink($scratch.'/svc/supervisor.active');
+
+        $before = bsvcTreeSnapshot($scratch.'/fs');
+
+        [$applyExit, $applyOutput] = bsvcRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($applyExit)->not->toBe(0, $applyOutput);
+        expect($applyOutput)->toContain('supervisor is not active');
+        expect($applyOutput)->toContain('No mutation was performed');
+
+        expect(bsvcSystemctlMutations($scratch))->toBe([]);
+        expect(file_exists($scratch.'/svc/supervisor.active'))->toBeFalse('the target apply started a base host service');
+        expect(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});

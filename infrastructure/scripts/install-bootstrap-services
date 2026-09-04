@@ -1561,13 +1561,26 @@ report_nginx_worker_groups() {
 report_service_prerequisite() {
     local unit="$1"
 
-    if service_active "${unit}"; then
-        item PASS "service:${unit}" "active (base host service; host-owned, never enabled or started by a target-scoped run)"
+    # BOTH halves, deliberately. Checking only `is-active` let an
+    # active-but-disabled unit report PASS, and the convergence below would
+    # then quietly `systemctl enable` it — a host-level mutation a
+    # target-scoped run must never make. A prerequisite that is not checked is
+    # not a boundary, it is a comment.
+    local active=false enabled=false
+    service_active "${unit}" && active=true
+    service_enabled "${unit}" && enabled=true
+
+    if [[ "${active}" == true ]] && [[ "${enabled}" == true ]]; then
+        item PASS "service:${unit}" "active and enabled (base host service; host-owned, never enabled or started by a target-scoped run)"
         return 0
     fi
 
-    item HOST-REQ "service:${unit}" "not active (base host service)" \
-        "start it as a host operation — a target-scoped run never enables or starts a base service"
+    local state="not active"
+    [[ "${active}" == true ]] && state="active but not enabled"
+    [[ "${enabled}" == true ]] && [[ "${active}" != true ]] && state="enabled but not active"
+
+    item HOST-REQ "service:${unit}" "${state} (base host service)" \
+        "enable and start it as a host operation — a target-scoped run never enables or starts a base service"
 }
 
 report_service_state() {
@@ -1987,6 +2000,35 @@ ensure_support_directory() {
 # restart the idempotency contract forbids.
 SERVICE_STARTED_NOW=false
 
+# assert_base_service_available UNIT — the target-mode counterpart of
+# ensure_service_enabled_active.
+#
+# Same question, no answer of its own: a base service that is not already
+# enabled and active fails the run rather than being enabled or started.
+# apply_gate_base_services proves this before the first mutation, so reaching a
+# failure here means the unit changed underneath a held lock.
+assert_base_service_available() {
+    local unit="$1"
+    SERVICE_STARTED_NOW=false
+
+    service_enabled "${unit}" \
+        || fail "base host service ${unit} is not enabled — a target-scoped run never enables one; enable it as a host operation"
+
+    service_active "${unit}" \
+        || fail "base host service ${unit} is not active — a target-scoped run never starts one; start it as a host operation"
+}
+
+# ensure_base_service UNIT — the one call site vocabulary. Host mode converges
+# the unit; target mode asserts it and never touches it.
+ensure_base_service() {
+    if target_scoped; then
+        assert_base_service_available "$1"
+        return 0
+    fi
+
+    ensure_service_enabled_active "$1"
+}
+
 ensure_service_enabled_active() {
     local unit="$1"
     SERVICE_STARTED_NOW=false
@@ -2050,7 +2092,7 @@ converge_php_fpm() {
     php_fpm_config_test \
         || fail "PHP-FPM configuration test failed with the candidate pool installed — restoring the previous configuration (no reload was performed)"
 
-    ensure_service_enabled_active "${PHP_FPM_SERVICE}"
+    ensure_base_service "${PHP_FPM_SERVICE}"
 
     if [[ "${changed}" == true ]] && [[ "${SERVICE_STARTED_NOW}" != true ]]; then
         reload_service "${PHP_FPM_SERVICE}"
@@ -2178,7 +2220,7 @@ converge_nginx_service() {
             action "Nginx sites already byte-identical and enabled, and workers already carry every active code group — no reload needed"
         fi
 
-        ensure_service_enabled_active nginx
+        ensure_base_service nginx
     else
         # A clean host: enable and start only after the configuration
         # validated. Unrelated sites (including the distro default) are
@@ -2186,7 +2228,7 @@ converge_nginx_service() {
         # or the start itself and is reported, not resolved by inventing
         # cleanup policy here. A freshly started master spawns workers that
         # already carry the current group set.
-        ensure_service_enabled_active nginx
+        ensure_base_service nginx
     fi
 
     local target_id
@@ -2229,7 +2271,7 @@ converge_supervisor() {
     # autostart=true program whose directory=current does not exist yet —
     # the exact restart/failure loop the PRE_DEPLOY contract exists to
     # prevent. Reread/update below never runs in PRE_DEPLOY state.
-    ensure_service_enabled_active supervisor
+    ensure_base_service supervisor
 
     install_managed_file_if_needed "$(src_supervisor "${target_id}")" "$(dst_supervisor "${target_id}")"
     local changed="${FILE_CHANGED}"
@@ -2375,6 +2417,36 @@ converge_mail_capture() {
 # re-implemented. bootstrap-host-preflight is deliberately NOT a
 # prerequisite: 5.4 is exactly the slice that creates much of what preflight
 # expects, so preflight gating here would deadlock a clean host.
+# apply_gate_base_services — target mode only. Every base host service this run
+# may not enable or start must already be enabled and active, proven BEFORE the
+# first mutation.
+#
+# The report already says so, but a report is a read at one instant and an apply
+# is a sequence of writes after it. Without this gate a unit stopped between the
+# two would be met by a convergence function that starts it, which is exactly
+# the host-level mutation a target-scoped run must never make.
+apply_gate_base_services() {
+    target_scoped || return 0
+
+    local failures=() unit
+    for unit in "${BASE_SERVICES[@]}"; do
+        service_enabled "${unit}" \
+            || { failures+=("${unit} is not enabled"); continue; }
+
+        service_active "${unit}" \
+            || failures+=("${unit} is not active")
+    done
+
+    if (( ${#failures[@]} > 0 )); then
+        local failure
+        for failure in "${failures[@]}"; do
+            printf 'HOST-REQ %s\n' "${failure}" >&2
+        done
+
+        fail "refusing to apply --target ${TARGET_SCOPE}: ${#failures[@]} base host service(s) are not enabled and active, and a target-scoped run never enables or starts one. Enable and start them as a host operation. No mutation was performed"
+    fi
+}
+
 apply_gate_prerequisites() {
     action "prerequisite gate: install-bootstrap-runtime --verify (slice 5.2)"
     "${RUNTIME_INSTALLER_BIN}" --verify >/dev/null 2>&1 \
@@ -2444,6 +2516,7 @@ perform_apply() {
 
     # 1-2. Authoritative earlier-slice gates.
     apply_gate_prerequisites
+    apply_gate_base_services
 
     # 3. Source registry / lifecycle boundary + committed service sources.
     classify_all_target_states gate

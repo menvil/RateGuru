@@ -653,6 +653,16 @@ child_blocker() {
         return 0
     fi
 
+    # The installers abort through fail(), which prints ERROR: and exits 1 —
+    # the same exit code an ordinary "contract not satisfied" report uses. Told
+    # apart only by the exit code, an unreadable registry or a missing
+    # dependency would be read as repairable drift, and the run would converge
+    # the layout before discovering it could never converge the rest.
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q 'ERROR:'; then
+        printf '%s: the installer aborted rather than reporting a contract, so what is wrong with this target is not established' "${label}"
+        return 0
+    fi
+
     if printf '%s' "${CHILD_OUTPUT}" | grep -q '^  HOST-REQ '; then
         printf '%s: host-level prerequisites are not satisfied. Converge the host first by running the installer WITHOUT --target — a target-scoped repair never installs or re-owns host infrastructure' "${label}"
         return 0
@@ -691,6 +701,15 @@ report_child() {
         item CONFLICT "${name}" "contract report exited ${CHILD_STATUS} (${label})" \
             "resolve the installer failure shown below — the target state could not even be established"
         printf '%s\n' "${CHILD_OUTPUT}" | sed 's/^/               | /'
+        return 0
+    fi
+
+    # An abort, not a report: the installers exit 1 both for "contract not
+    # satisfied" and for fail(), so the ERROR: line is what tells them apart.
+    if printf '%s' "${CHILD_OUTPUT}" | grep -q 'ERROR:'; then
+        item CONFLICT "${name}" "the installer aborted rather than reporting a contract (${label})" \
+            "resolve the failure shown below — a repair never guesses that an installer which could not run would have found repairable drift"
+        printf '%s\n' "${CHILD_OUTPUT}" | grep 'ERROR:' | sed 's/^/               | /' || true
         return 0
     fi
 

@@ -873,7 +873,7 @@ it('repairs the service-log directory it owns without failing its own immutabili
     }
 });
 
-it('still prints its summary when a child fails without naming a repairable item', function () {
+it('reads an installer that aborted as a tooling failure, never as repairable drift', function () {
     $scratch = repairScratchDir();
 
     try {
@@ -884,13 +884,43 @@ it('still prints its summary when a child fails without naming a repairable item
 
         expect($exit)->toBe(1, $output);
 
-        // The report filters the child's output for MISSING/DRIFT lines. With
-        // none present that filter fails, and under `set -e` with `pipefail`
-        // it would take the whole run down before the summary an operator
-        // needs in order to know what happened.
+        // The installers abort through fail(), which prints ERROR: and exits
+        // 1 — the same exit code an ordinary "contract not satisfied" report
+        // uses. Told apart only by the exit code, an unreadable registry would
+        // be read as repairable drift.
+        expect($output)->toContain('CONFLICT     services:install-bootstrap-services');
+        expect($output)->toContain('aborted rather than reporting a contract');
+        expect($output)->not->toContain('DRIFT        services:install-bootstrap-services');
+
+        // And the summary still prints: the report filters the child's output
+        // for specific lines, and under `set -e` with `pipefail` a filter that
+        // matches nothing would take the run down before it.
         expect($output)->toContain('SUMMARY');
-        expect($output)->toContain('REPAIR REQUIRED');
-        expect($output)->toContain('DRIFT        services:install-bootstrap-services');
+        expect($output)->toContain('REPAIR REQUIRED: BLOCKED');
+    } finally {
+        repairCleanup($scratch);
+    }
+});
+
+it('mutates nothing when an installer aborts, even with layout drift to fix', function () {
+    $scratch = repairScratchDir();
+
+    try {
+        $env = repairFixture($scratch);
+        repairToggle($scratch, 'host-layout-drift');
+        repairToggle($scratch, 'services-errors-only');
+
+        [$exit, $output] = repairRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('No mutation was performed');
+        expect($output)->toContain('aborted rather than reporting a contract');
+
+        // The layout really did have repairable drift, and it stays unrepaired:
+        // an installer that could not run tells us nothing about whether the
+        // rest of the target is repairable, so nothing is converged on the
+        // strength of a guess.
+        expect(repairCalls($scratch))->not->toContain('--apply --target');
     } finally {
         repairCleanup($scratch);
     }

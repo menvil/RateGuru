@@ -148,13 +148,29 @@ reported with a new `HOST-REQ` status.
 | SSH deploy restriction (`70-rateguru-deploy.conf`) | installed, `sshd -t`, reloaded | not reported, not touched |
 | `install-target-operations`, `install-target-perimeter` | converged via their own `--apply` | not reported, not verified, not touched — see below |
 | mail capture, and the TLS material its vhosts reference | verified | not reported at all |
-| base services (nginx, PHP-FPM, Supervisor, PostgreSQL, Redis) | enabled and started | `HOST-REQ` if not active; never started |
+| base services (nginx, PHP-FPM, Supervisor, PostgreSQL, Redis) | enabled and started | `HOST-REQ` unless already **enabled and active**; never enabled, never started |
 | the target's Nginx site, pool, program, cron, ACL | converged | converged |
 | other active targets | converged | not read, not mentioned |
 
 Without `--target`, both installers are exactly the host bootstrap they have
 always been. That is the first property the test suite asserts for each of them,
 before anything about the new mode.
+
+### Why a base service is checked for both halves
+
+The prerequisite asks whether each base service is **enabled and active**, not
+merely active — and an apply gate proves it again before the first mutation.
+
+Checking only `is-active` was a boundary in name only: an active-but-disabled
+unit reported PASS, and the convergence that follows would then `systemctl
+enable` it. That is a host-level mutation on a unit every target shares, made
+silently, in the middle of repairing one of them. In target mode the
+convergence functions now assert instead of converging, and a unit that is not
+already enabled and active fails the run rather than being started.
+
+The apply gate exists on top of the report because a report is a read at one
+instant and an apply is a sequence of writes after it: a unit stopped between
+the two would otherwise be met by a function that starts it.
 
 ### Why the operations and perimeter families are not even verified
 
@@ -181,6 +197,7 @@ The distinction the whole gate rests on. In target mode:
 | this target's layout is not converged yet | **DRIFT** — a named owner converges it, and it is converged first |
 | `nginx -t` / `php-fpm -t` / `supervisorctl reread` fails **and** this target's own configuration is drifted | **DRIFT** — the damaged file is what the parser is choking on, and replacing it is the repair |
 | the same parser fails while this target's files are byte-identical to what is committed | **CONFLICT** — the cause is elsewhere on the host, and converging this target would change nothing |
+| an installer aborted instead of reporting a contract | **CONFLICT** — it exits 1 for that too, and only the `ERROR:` line tells the two apart; an installer that could not run says nothing about whether the target is repairable |
 
 The last row is why a failing parser is not simply ignored: the error may be in
 a completely different vhost. And a committed candidate is still validated
