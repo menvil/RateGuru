@@ -1,0 +1,56 @@
+.github/actions/recover-rateguru-host/action.yml
+  s_5ec8651e8e89ca::t_5f8dc044e2c933 64-66,126-129,537-546,548-551,583-585
+infrastructure/runbooks/recover-host.md
+  s_5ec8651e8e89ca::t_444dade8790b98 193,195,199-202,257-258,260-271,287-311,315-316,318-321,419-421,557-574,634
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_5ec8651e8e89ca::t_09706346d314b4 105,110-147,150,155-163
+  s_5ec8651e8e89ca::t_0e909da30abbc2 151-153
+  s_5ec8651e8e89ca::t_805585e1d75f83 148-149,154
+tests/Feature/Architecture/RecoverRateGuruHostActionTest.php
+  s_5ec8651e8e89ca::t_805585e1d75f83 240-243,245-248
+infrastructure/ROADMAP.md
+  s_5ec8651e8e89ca::t_444dade8790b98 1305-1320
+tests/Feature/Architecture/RecoverHostTest.php
+  s_5ec8651e8e89ca::t_afda82534f9281 705-706,833-927,936-972
+  s_5ec8651e8e89ca::t_4a67868247ba29 928-932,934-935
+  s_5ec8651e8e89ca::t_0ce5145ac9c803 933
+  s_5ec8651e8e89ca::t_457ee738ccb824 1394-1499
+tests/Feature/Architecture/InstallTargetOperationsTest.php
+  s_5ec8651e8e89ca::t_7ea15ff02bb06c 3812
+  s_5ec8651e8e89ca::t_805585e1d75f83 3825
+  s_5ec8651e8e89ca::t_0e909da30abbc2 3888
+  s_5ec8651e8e89ca::t_3bbf3f70b076f2 3822-3824
+  s_5ec8651e8e89ca::t_df4d93d0bbf4ef 3830-3833,3836-3837,3843,3850-3855,3870,3875-3876,3887,3889-3890
+infrastructure/scripts/recover-host
+  s_5ec8651e8e89ca::t_a660ef98362f43 133-135,149-151,1877-1879,1883-1891,1896,1903,1906,1928-1929,1931,1933
+  s_5ec8651e8e89ca::t_01e68f3c3ee37b 1018-1072
+  s_5ec8651e8e89ca::t_bac920700dd1a5 348-358,361-367,1546-1554,1618-1623,1625
+  s_5ec8651e8e89ca::t_cc9bbc75c55430 677-683,1658-1673,1685
+tests/Pest.php
+  s_5ec8651e8e89ca::t_0ce5145ac9c803 1846-1863,1885-1886
+  s_5ec8651e8e89ca::t_4a67868247ba29 1845,1864-1867
+infrastructure/scripts/install-target-operations
+  s_5ec8651e8e89ca::t_854bf1ff598455 67-73,1491-1511,1514-1516,1518,1523,1528-1529,1531-1532,1534-1536,1538-1540,1543
+infrastructure/scripts/prepare-host
+  s_5ec8651e8e89ca::t_6bc875696438c1 461-467,491-548,729,741,759-763
+infrastructure/scripts/common
+  s_5ec8651e8e89ca::t_5f8dc044e2c933 1075-1081
+tests/Feature/Architecture/PrepareHostOrchestratorTest.php
+  s_5ec8651e8e89ca::t_7ea15ff02bb06c 998-1068
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "07da6b77cdbdfecded0b82d44cd2f007ed351142",
+  "prompts": {},
+  "sessions": {
+    "s_5ec8651e8e89ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "be186b9b-8a93-4245-bb71-a1048e59c906",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
