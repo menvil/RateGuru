@@ -149,9 +149,13 @@ jobs:
   tests:
     name: Tests (Pest + PostgreSQL)
     runs-on: ubuntu-latest
-    # Normal duration is ~15 minutes; the cap exists so a hung external
-    # download can never occupy a runner for the 6-hour default.
-    timeout-minutes: 30
+    # The cap exists so a hung external download can never occupy a runner for
+    # the 6-hour default — it is not meant to bound a healthy run. It was set
+    # when this job took ~15 minutes, and the suite has roughly doubled since: the last
+    # green runs measured ~17 minutes here, which is close enough to a 30-minute cap
+    # that an ordinary slow runner tips a passing job into a timeout. 45
+    # restores the headroom without weakening what the cap is for.
+    timeout-minutes: 45
     needs: frontend-build
     env:
       DB_CONNECTION: pgsql
@@ -334,9 +338,13 @@ jobs:
   migrations-mariadb:
     name: Compatibility (MariaDB)
     runs-on: ubuntu-latest
-    # Normal duration is ~11 minutes; the cap exists so a hung external
-    # download can never occupy a runner for the 6-hour default.
-    timeout-minutes: 30
+    # The cap exists so a hung external download can never occupy a runner for
+    # the 6-hour default — it is not meant to bound a healthy run. It was set
+    # when this job took ~11 minutes, and the suite has roughly doubled since: the last
+    # green runs measured ~29 minutes here, which is close enough to a 30-minute cap
+    # that an ordinary slow runner tips a passing job into a timeout. 45
+    # restores the headroom without weakening what the cap is for.
+    timeout-minutes: 45
     needs: frontend-build
     env:
       DB_CONNECTION: mariadb
@@ -436,9 +444,13 @@ jobs:
   tests-sqlite:
     name: Compatibility (SQLite)
     runs-on: ubuntu-latest
-    # Normal duration is ~14 minutes; the cap exists so a hung external
-    # download can never occupy a runner for the 6-hour default.
-    timeout-minutes: 30
+    # The cap exists so a hung external download can never occupy a runner for
+    # the 6-hour default — it is not meant to bound a healthy run. It was set
+    # when this job took ~14 minutes, and the suite has roughly doubled since: the last
+    # green runs measured ~28 minutes here, which is close enough to a 30-minute cap
+    # that an ordinary slow runner tips a passing job into a timeout. 45
+    # restores the headroom without weakening what the cap is for.
+    timeout-minutes: 45
     needs: frontend-build
     outputs:
       migrations: ${{ steps.migration-metrics.outputs.migrations }}

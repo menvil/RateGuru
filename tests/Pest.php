@@ -1112,6 +1112,19 @@ function deploymentConfFixture(string $scratch): string
  */
 function parityRegistryFixture(string $scratch, array $options = []): array
 {
+    // Memoised per scratch directory and option set. Every infrastructure
+    // script invocation resolves this fixture, and a full restore or recovery
+    // makes six or seven of them — so re-writing both files and re-running the
+    // registry validator on each call was paying for the same answer dozens of
+    // times per test.
+    static $cache = [];
+
+    $key = $scratch.'|'.md5(serialize($options));
+
+    if (isset($cache[$key])) {
+        return $cache[$key];
+    }
+
     $account = trim((string) shell_exec('id -un'));
     $group = trim((string) shell_exec('id -gn'));
 
@@ -1195,7 +1208,7 @@ function parityRegistryFixture(string $scratch, array $options = []): array
     exec(escapeshellarg($targetsPath).' validate --file '.escapeshellarg($registryPath).' 2>&1', $out, $exit);
     expect($exit)->toBe(0, "parity registry fixture failed validation:\n".implode("\n", $out));
 
-    return [$registryPath, $targetsPath];
+    return $cache[$key] = [$registryPath, $targetsPath];
 }
 
 /**

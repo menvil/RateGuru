@@ -595,6 +595,11 @@ it('restores the data and leaves the host deliberately not serving, awaiting cod
             ->toContain('TARGET SERVING: NO')
             ->toContain('RECOVERY STATUS: AWAITING CODE');
 
+        // The guard goes down before the download and the preconditions are
+        // re-read under the deployment lock, so this run met its own guard
+        // half way through — and correctly did not refuse itself.
+        expect($result['output'])->not->toContain('is already being recovered by operation');
+
         // Exactly one machine-readable result, carrying identity only.
         expect(substr_count($result['output'], 'RATEGURU_RECOVER_RESULT='))->toBe(1);
 
@@ -834,37 +839,15 @@ function deployRecoveredRelease(string $scratch, string $sourceSha = FIXTURE_SOU
 // The guard owns the whole operation, not just its activation
 // =============================================================================
 
-it('owns the target from before the download, not from the first activation', function () {
+it('owns the target from before the download, and lets it go again on failure', function () {
     $scratch = restoreScratchDir();
 
     try {
-        recoveryFixture($scratch);
-
-        // The backup is unusable, so the run dies during verification — long
+        // The backup is unusable, so this run dies during verification — long
         // before anything is staged, let alone activated. The guard has to
         // have existed by then: a recovery that only announces itself at
         // activation leaves its whole staging window open to a Prepare Host
         // apply or an operational-bundle reinstall.
-        $result = recoveryApply($scratch, [], '20260115-023000');
-
-        expect($result['exit'])->toBe(0, 'baseline must succeed: '.$result['output']);
-
-        // The guard was written BEFORE the backup was staged.
-        $guardStep = mb_strpos($result['output'], 'recovery guard written');
-        $stageStep = mb_strpos($result['output'], 'step: stage backup');
-
-        expect($guardStep)->not->toBeFalse();
-        expect($stageStep)->not->toBeFalse();
-        expect($guardStep)->toBeLessThan($stageStep);
-    } finally {
-        removeScratchDir($scratch);
-    }
-});
-
-it('leaves no guard behind when it fails before it ever verifies a backup', function () {
-    $scratch = restoreScratchDir();
-
-    try {
         recoveryFixture($scratch, ['backup_options' => ['corrupt_after_checksum' => true]]);
 
         $result = recoveryApply($scratch);
@@ -872,27 +855,16 @@ it('leaves no guard behind when it fails before it ever verifies a backup', func
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('failed SHA-256 verification');
 
+        // Written BEFORE the backup was even staged.
+        $guardStep = mb_strpos($result['output'], 'recovery guard written');
+        $stageStep = mb_strpos($result['output'], 'step: stage backup');
+
+        expect($guardStep)->not->toBeFalse('the guard was never written');
+        expect($stageStep)->not->toBeFalse();
+        expect($guardStep)->toBeLessThan($stageStep);
+
         // Owned while it ran, unowned once it failed with nothing touched.
-        expect($result['output'])->toContain('recovery guard written');
         expect(recoveryGuard($scratch))->toBeNull();
-    } finally {
-        removeScratchDir($scratch);
-    }
-});
-
-it('does not mistake its own guard for another operation when it re-reads under the lock', function () {
-    $scratch = restoreScratchDir();
-
-    try {
-        recoveryFixture($scratch);
-
-        // The full run re-validates every precondition under the deployment
-        // lock, and by then its own guard is on disk. A recovery that refused
-        // itself there could never complete.
-        $result = recoveryApply($scratch);
-
-        expect($result['exit'])->toBe(0, $result['output']);
-        expect($result['output'])->not->toContain('is already being recovered by operation');
     } finally {
         removeScratchDir($scratch);
     }
@@ -1394,32 +1366,46 @@ it('refuses to complete when the queue did not come back', function () {
 // A recovery survives its runner dying between the deployment and the resume
 // =============================================================================
 
-it('reports a recovery whose code has landed as ready to resume', function () {
+it('walks both safe recovery stages, and refuses everything that is not one', function () {
     $scratch = restoreScratchDir();
 
     try {
         recoveryFixture($scratch);
 
         $applied = recoveryApply($scratch);
+        expect($applied['exit'])->toBe(0, $applied['output']);
         $operation = recoveryOperationIdIn($applied['output']);
 
-        // The controlled recovery deployment succeeded and then the runner
-        // died. This is a legitimate, resumable state: the code is there, the
-        // queue is still stopped, the scheduler is still held, the guard still
-        // exists — only --resume is left. An inspection that called this
-        // damage would strand exactly the failure the runbook promises to
-        // survive.
+        $inspect = fn (): array => recoverHostRun(
+            $scratch,
+            ['--inspect', '--target', 'parity-target', '--operation', $operation],
+        );
+
+        // 1. No code yet.
+        $awaiting = $inspect();
+        expect($awaiting['exit'])->toBe(0, $awaiting['output']);
+        expect($awaiting['output'])
+            ->toContain('STATUS: AWAITING CODE')
+            ->toContain('CURRENT RELEASE: absent');
+
+        preg_match('/RATEGURU_RECOVER_RESULT=(\{.*\})/', $awaiting['output'], $matches);
+        expect(json_decode($matches[1], true)['status'])->toBe('awaiting-code');
+
+        // 2. The controlled recovery deployment succeeded and the runner then
+        //    died. A legitimate, resumable state — the code is there, the queue
+        //    is still stopped, the scheduler is still held, the guard still
+        //    exists. An inspection that called this damage would strand exactly
+        //    the failure the runbook promises to survive.
         deployRecoveredRelease($scratch);
 
-        $result = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
-
-        expect($result['exit'])->toBe(0, $result['output']);
-        expect($result['output'])
+        $ready = $inspect();
+        expect($ready['exit'])->toBe(0, $ready['output']);
+        expect($ready['output'])
             ->toContain('STATUS: READY TO RESUME')
             ->toContain('CURRENT RELEASE: '.FIXTURE_RELEASE)
             ->toContain('NEXT: recover-host --resume');
 
-        preg_match('/RATEGURU_RECOVER_RESULT=(\{.*\})/', $result['output'], $matches);
+        preg_match('/RATEGURU_RECOVER_RESULT=(\{.*\})/', $ready['output'], $matches);
         expect(json_decode($matches[1], true))->toMatchArray([
             'status' => 'ready-to-resume',
             'operation' => $operation,
@@ -1428,72 +1414,26 @@ it('reports a recovery whose code has landed as ready to resume', function () {
             'queue' => 'stopped',
             'scheduler' => 'held',
         ]);
-    } finally {
-        removeScratchDir($scratch);
-    }
-});
 
-it('reports a recovery whose code has not landed as awaiting code', function () {
-    $scratch = restoreScratchDir();
-
-    try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
-        $operation = recoveryOperationIdIn($applied['output']);
-
-        $result = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
-
-        expect($result['exit'])->toBe(0, $result['output']);
-        expect($result['output'])
-            ->toContain('STATUS: AWAITING CODE')
-            ->toContain('CURRENT RELEASE: absent');
-
-        preg_match('/RATEGURU_RECOVER_RESULT=(\{.*\})/', $result['output'], $matches);
-        expect(json_decode($matches[1], true)['status'])->toBe('awaiting-code');
-    } finally {
-        removeScratchDir($scratch);
-    }
-});
-
-it('refuses to call a host resumable when the deployed code is not the code the data belongs to', function () {
-    $scratch = restoreScratchDir();
-
-    try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
-        $operation = recoveryOperationIdIn($applied['output']);
-
-        deployRecoveredRelease($scratch, str_repeat('b', 40));
-
-        $result = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
-
-        expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('the target stays held, and no runtime was started');
-        expect($result['output'])->not->toContain('RATEGURU_RECOVER_RESULT=');
-    } finally {
-        removeScratchDir($scratch);
-    }
-});
-
-it('keeps the runtime half non-negotiable in both stages', function () {
-    $scratch = restoreScratchDir();
-
-    try {
-        recoveryFixture($scratch);
-
-        $applied = recoveryApply($scratch);
-        $operation = recoveryOperationIdIn($applied['output']);
-
-        // Code arriving is what SHOULD happen next; a worker starting is not.
-        deployRecoveredRelease($scratch);
+        // 3. The runtime half is non-negotiable in BOTH stages: code arriving
+        //    is what should happen next, a worker starting is not.
         file_put_contents($scratch.'/supervisor-state', "RUNNING\n");
 
-        $result = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
+        $running = $inspect();
+        expect($running['exit'])->not->toBe(0);
+        expect($running['output'])->toContain('is not fully STOPPED');
 
-        expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('is not fully STOPPED');
+        file_put_contents($scratch.'/supervisor-state', "STOPPED\n");
+
+        // 4. And code that is not the code the recovered data belongs to is
+        //    neither stage — it is a host serving something nobody asked for.
+        unlink($scratch.'/target/current');
+        deployRecoveredRelease($scratch, str_repeat('b', 40), 'v9.9.9-20260101-000000-bbbbbbb');
+
+        $wrong = $inspect();
+        expect($wrong['exit'])->not->toBe(0);
+        expect($wrong['output'])->toContain('the target stays held, and no runtime was started');
+        expect($wrong['output'])->not->toContain('RATEGURU_RECOVER_RESULT=');
     } finally {
         removeScratchDir($scratch);
     }
