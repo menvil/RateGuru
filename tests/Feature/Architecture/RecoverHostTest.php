@@ -1519,6 +1519,99 @@ it('keeps a storage tree the recovery did not create', function () {
     }
 });
 
+it('keeps the guard until the completed recovery is durably recorded', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+        deployRecoveredRelease($scratch);
+
+        // The journal cannot be written — a full disk, a read-only mount, an
+        // I/O error. The guard is the last safety barrier on a recovered host,
+        // so it must still be standing: clearing it first and then failing here
+        // would leave the recovery unfinished, the runtime re-held, the
+        // retained pre-recovery copies already dropped, and every ordinary
+        // operation free to walk onto the host.
+        $blocked = $scratch.'/blocked';
+        file_put_contents($blocked, "not a directory\n");
+
+        $result = recoverHostRun($scratch, [
+            '--resume', '--target', 'parity-target', '--operation', $operation,
+        ], ['RATEGURU_RECOVERY_HISTORY_ROOT' => $blocked.'/recoveries']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('could not append the recovery history record')
+            ->toContain('MANUAL RECOVERY REQUIRED');
+
+        // Fail-closed: the guard stands, and it says so.
+        expect(recoveryGuard($scratch))->toMatchArray(['status' => 'failed-held']);
+
+        // And the runtime was re-held rather than left serving.
+        expect(File::exists($scratch.'/cron.d/parity-scheduler'))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('clears the guard only after every durable record is written', function () {
+    // Structural, because the ordering is the property and a passing run cannot
+    // show it. The guard's removal is the commit point of the whole operation:
+    // anything that fails before it must leave the host fail-closed, so nothing
+    // that can fail may come after it.
+    $resume = shellFunctionBody(File::get(recoverHostScript()), 'perform_resume');
+
+    $positions = [
+        'commit' => mb_strpos($resume, 'step "commit"'),
+        'state' => mb_strpos($resume, 'step "record the completed recovery"'),
+        'history' => mb_strpos($resume, 'append_recovery_history completed'),
+        'clear' => mb_strpos($resume, 'clear_recovery_guard'),
+        'terminal' => mb_strpos($resume, 'RECOVERY_TERMINAL=true'),
+        'disarm' => mb_strpos($resume, 'trap - ERR EXIT'),
+    ];
+
+    foreach ($positions as $name => $position) {
+        expect($position)->not->toBeFalse("perform_resume has no {$name} step");
+    }
+
+    expect(array_values($positions))
+        ->toBe(collect($positions)->sort()->values()->all(), 'the resume commit sequence is out of order');
+});
+
+it('refuses to report a successful apply whose guard was not re-labelled', function () {
+    // A successful --apply means exactly one thing: state awaiting-code, guard
+    // awaiting-code, queue STOPPED, scheduler HELD, current ABSENT. Reporting
+    // success with the guard still at in-progress would hand an operator a
+    // recovery the controlled deployment then refuses — correctly, and
+    // confusingly. It is a hard failure, taken while the handler is armed.
+    $pipeline = shellFunctionBody(File::get(recoverHostScript()), 'perform_recovery');
+
+    expect($pipeline)
+        ->toContain('write_recovery_guard awaiting-code')
+        ->toContain('refusing to report a success the controlled recovery deployment would then refuse');
+
+    // Every guard write in the pipeline is fatal on failure — none is a warning
+    // the run then walks past.
+    foreach (preg_split('/\R/', $pipeline) as $index => $line) {
+        if (! str_contains($line, 'write_recovery_guard')) {
+            continue;
+        }
+
+        $continuation = preg_split('/\R/', $pipeline)[$index + 1] ?? '';
+
+        // toContain is variadic in Pest, so a second argument would be read as
+        // another needle rather than as a message.
+        expect(str_contains($continuation, '|| fail'))
+            ->toBeTrue("a guard write in perform_recovery is not fatal: {$line}");
+    }
+
+    expect(mb_strpos($pipeline, 'write_recovery_guard awaiting-code'))
+        ->toBeLessThan(mb_strpos($pipeline, 'RECOVERY_TERMINAL=true'));
+});
+
 // =============================================================================
 // --verify
 // =============================================================================

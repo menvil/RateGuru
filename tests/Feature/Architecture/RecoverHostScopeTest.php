@@ -145,14 +145,40 @@ it('serialises against a running data operation on the lock, not only on its gua
     $prepare = File::get(base_path('infrastructure/scripts/prepare-host'));
     $installer = File::get(base_path('infrastructure/scripts/install-target-operations'));
 
-    // Each takes the EXACT locks the operations take themselves, keyed on the
-    // same backup namespace, for both operations.
-    foreach ([$prepare, $installer] as $source) {
-        expect(executableSourceLines($source))
-            ->toContain('restore-target')
-            ->toContain('recover-host')
-            ->toContain('${prefix}-${namespace}.lock')
-            ->toContain('flock -n');
+    // ONE OWNER PER LOCK. Preparation runs install-target-operations, which
+    // takes the two data-operation locks itself — so holding those across the
+    // run would deadlock a Prepare against its own grandchild, because flock
+    // treats independently opened descriptors independently even inside one
+    // process tree. Preparation therefore owns a lock of its own and only
+    // CHECKS theirs, releasing each immediately.
+    expect(executableSourceLines($prepare))
+        ->toContain('prepare-host-${namespace}.lock')
+        ->toContain('${prefix}-${namespace}.lock')
+        ->toContain('exec {lock_fd}>&-')
+        ->toContain('flock -n');
+
+    // The installer keeps holding both, because nothing runs underneath it that
+    // wants them.
+    expect(executableSourceLines($installer))
+        ->toContain('restore-target')
+        ->toContain('recover-host')
+        ->toContain('${prefix}-${namespace}.lock')
+        ->toContain('flock -n');
+
+    // And the other side of the pair: the data operations check preparation's
+    // lock after taking their own, so whichever starts first is the one that
+    // wins and the second always refuses.
+    expect(substr_count(File::get(base_path('infrastructure/scripts/restore-common')), "\nassert_no_host_preparation_running() {"))->toBe(1);
+
+    foreach (['restore-target', 'recover-host'] as $operation) {
+        $source = File::get(base_path('infrastructure/scripts/'.$operation));
+
+        expect($source)->toContain('assert_no_host_preparation_running "${BACKUP_NAMESPACE}"');
+
+        // Own lock FIRST, preparation's second — the ordering is what makes
+        // the pair airtight.
+        expect(mb_strpos($source, 'flock -n 2'))
+            ->toBeLessThan(mb_strpos($source, 'assert_no_host_preparation_running'));
     }
 
     // And the recovery writes its guard before it downloads anything, so the

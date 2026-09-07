@@ -329,6 +329,12 @@ acquire_recovery_operation_lock() {
 
     flock -n 205 \
         || fail "another recovery is already running for backup namespace ${BACKUP_NAMESPACE}"
+
+    # Taken FIRST, checked second: a Prepare Host that starts after this point
+    # is refused by the lock above, and one that started before it is caught
+    # here. See assert_no_host_preparation_running for why the two families
+    # check each other rather than sharing one lock.
+    assert_no_host_preparation_running "${BACKUP_NAMESPACE}" "a recovery"
 }
 
 # --- guard -----------------------------------------------------------------------
@@ -1679,8 +1685,15 @@ perform_recovery() {
         phase awaiting-code \
         completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+    # A HARD failure, not a warning. A successful --apply means one thing:
+    # state awaiting-code, guard awaiting-code, queue STOPPED, scheduler HELD,
+    # current ABSENT. A run that reported success with the guard still at
+    # in-progress would be handing an operator a recovery the controlled
+    # deployment then refuses — correctly, and confusingly. The failure handler
+    # is still armed here, so this becomes a held, labelled, diagnosable
+    # failure instead of a success nobody can continue.
     write_recovery_guard awaiting-code \
-        || log "WARNING: the recovery guard could not be re-labelled; it remains in place and every ordinary operation still refuses"
+        || fail "the data recovery completed but its guard could not be re-labelled awaiting-code — refusing to report a success the controlled recovery deployment would then refuse"
 
     # Only now, with the hold proven and recorded, is this operation terminal.
     RECOVERY_TERMINAL=true
@@ -1981,10 +1994,21 @@ perform_resume() {
     "${RESTORE_STORAGE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
     "${RESTORE_DATABASE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
 
-    step "clear recovery guard"
-    clear_recovery_guard \
-        || fail "the recovery succeeded but its guard could not be removed — ordinary operations on ${TARGET_ID} will keep refusing until it is gone"
-
+    # The durable record comes BEFORE the guard is cleared, and that ordering is
+    # the whole of this sequence.
+    #
+    # The guard is the last safety barrier on a recovered host: while it exists,
+    # deploy, rollback, backup, cleanup, restore and repair all refuse. Clearing
+    # it first and then writing state would mean a disk error in between left
+    # the worst reachable state — recovery unfinished, runtime re-held by the
+    # failure handler, the retained pre-recovery copies already dropped, and NO
+    # guard, because the handler cannot restore one it has been told is gone.
+    # Every ordinary operation would then walk straight onto that host.
+    #
+    # So everything that must survive is persisted first, and the guard's
+    # removal is the commit point. Anything that fails before it leaves the
+    # host fail-closed and diagnosable.
+    step "record the completed recovery"
     restore_state_set "${STATE_FILE}" \
         status completed \
         phase completed \
@@ -1992,11 +2016,17 @@ perform_resume() {
         current_source_sha "${CURRENT_SOURCE_SHA}" \
         resumed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+    append_recovery_history completed \
+        || fail "could not append the recovery history record — the guard stays in place rather than finishing a recovery this host has no record of"
+
+    step "clear recovery guard"
+    clear_recovery_guard \
+        || fail "the recovery succeeded but its guard could not be removed — ordinary operations on ${TARGET_ID} will keep refusing until it is gone"
+
+    # The commit point is behind us: the host is recovered, recorded and
+    # unowned. Only now does the failure handler stop being the right answer.
     RECOVERY_TERMINAL=true
     trap - ERR EXIT
-
-    append_recovery_history completed \
-        || fail "could not append the recovery history record"
 
     # RECOVER_QUEUE and RECOVER_SCHEDULER were set by assert_runtime_resumed,
     # from what it observed.

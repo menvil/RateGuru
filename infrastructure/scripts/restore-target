@@ -303,6 +303,12 @@ acquire_restore_operation_lock() {
 
     flock -n 201 \
         || fail "another restore operation is already running for backup namespace ${BACKUP_NAMESPACE}"
+
+    # Taken FIRST, checked second: a Prepare Host that starts after this point
+    # is refused by the lock above, and one that started before it is caught
+    # here. See assert_no_host_preparation_running for why the two families
+    # check each other rather than sharing one lock.
+    assert_no_host_preparation_running "${BACKUP_NAMESPACE}" "a restore"
 }
 
 acquire_backup_namespace_lock() {

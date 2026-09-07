@@ -210,6 +210,65 @@ restore_validate_identifier() {
         || fail "${label} is not a plain lowercase PostgreSQL identifier: ${value}"
 }
 
+# --- host preparation interlock -----------------------------------------------
+#
+# The other side of the interlock prepare-host enforces, and the reason both
+# sides exist rather than one.
+#
+# Prepare Host converges the target's Supervisor program and its scheduler cron
+# entry — exactly what a live restore and a host recovery hold aside on purpose
+# — and it orchestrates install-target-operations, which replaces the very
+# scripts a running operation is executing. The two must not overlap in either
+# order, and there is no single lock that can express that, because
+# prepare-host RUNS install-target-operations: a lock held by the parent and
+# re-acquired by the child is denied by flock, which treats independently
+# opened descriptors independently even inside one process tree.
+#
+# So each family owns exactly one lock and CHECKS the other's:
+#
+#   prepare-host-<namespace>.lock    held by prepare-host for its whole run;
+#                                    nothing beneath it ever takes it
+#   restore-target-<namespace>.lock  held by restore-target, and by
+#   recover-host-<namespace>.lock    recover-host / install-target-operations
+#
+# Whichever starts first holds its own lock before it checks the other's, so
+# the second one to start always sees a held lock and refuses. Two starting in
+# the same instant refuse each other, which is safe and self-resolving.
+PREPARE_HOST_LOCK_PREFIX=prepare-host
+
+# assert_no_host_preparation_running NAMESPACE OPERATION_DESCRIPTION — fail
+# closed while Prepare Host is converging this host.
+#
+# Called AFTER the caller has taken its own operation lock, which is what makes
+# the pair airtight: by the time this looks, a Prepare that started later has
+# already been refused by that lock.
+assert_no_host_preparation_running() {
+    local namespace="$1" operation="${2-an operation}"
+    local lock_file="${RUN_ROOT}/${PREPARE_HOST_LOCK_PREFIX}-${namespace}.lock"
+    local lock_fd
+
+    # No lock file means Prepare Host has never run on this host. It creates
+    # one before its first mutation, so absence is a real answer rather than a
+    # gap — and nothing is conjured here just to lock inside it.
+    [[ -e "${lock_file}" ]] || return 0
+
+    exec {lock_fd}>>"${lock_file}" \
+        || fail "could not open ${lock_file} to check whether host preparation is running"
+
+    if flock -n "${lock_fd}"; then
+        # Free: released immediately, because holding it would make THIS
+        # operation the thing a later Prepare waits on, and the guard it is
+        # about to write is what covers that window.
+        exec {lock_fd}>&-
+
+        return 0
+    fi
+
+    exec {lock_fd}>&-
+
+    fail "Prepare Host is converging this host for backup namespace ${namespace} — ${operation} is refused while it holds ${lock_file}. Preparation reconverges the target's Supervisor program and its scheduler cron entry, and replaces the operational bundle this operation runs from; nothing was changed. Wait for it to finish, then retry."
+}
+
 # --- operation kinds ----------------------------------------------------------
 #
 # One staged-swap implementation serves two operations, and the kind is what

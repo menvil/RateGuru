@@ -291,18 +291,31 @@ long as an operation owns it, including after the process that wrote it has
 exited. It is not a mutual-exclusion primitive — two processes can both read
 "no guard" in the same instant.
 
-The other half is a **lock**. Every data operation takes a per-namespace
-`flock` for its whole run:
+The other half is a **lock**, and there is one owner per lock:
 
 ```
-run/restore-target-<namespace>.lock    a live restore
-run/recover-host-<namespace>.lock      a host recovery
+run/prepare-host-<namespace>.lock      HELD by prepare-host, for its whole run
+run/restore-target-<namespace>.lock    HELD by restore-target and by
+run/recover-host-<namespace>.lock      recover-host / install-target-operations
 ```
 
-`prepare-host --apply` and `install-target-operations --apply` take **both**,
-for every active target, before they touch anything. That is what makes
-"started but not yet guarded" a state neither can walk into. The two halves
-cover different windows, and both are needed:
+Each family **holds its own and checks the other's**. `prepare-host --apply`
+claims the preparation lock and then checks the two data locks, releasing them
+immediately; `restore-target` and `recover-host` take their own lock and then
+check the preparation lock. Whichever operation starts first holds its lock
+before it checks the other's, so the second one always sees a held lock and
+refuses.
+
+**Why not simply hold all three?** Because `prepare-host` *runs*
+`install-target-operations`, which takes the two data locks itself. `flock`
+treats independently opened descriptors independently — even inside one process
+tree — so a parent holding a lock denies its own grandchild's acquisition. A
+Prepare that held them would deadlock against itself the moment the operational
+bundle genuinely needed updating, which is exactly the repeatable case Prepare
+exists for. One owner per lock, checked across families, has no nesting
+anywhere.
+
+The two halves cover different windows, and both are needed:
 
 | window | covered by |
 | --- | --- |
@@ -355,7 +368,10 @@ TARGET SERVING:  NO
 RECOVERY STATUS: AWAITING CODE
 ```
 
-* recovery guard `status=awaiting-code`;
+* recovery guard `status=awaiting-code` — and a run that could not re-label it
+  is a **failure**, not a success with a warning: a successful `--apply` means
+  state `awaiting-code` AND guard `awaiting-code`, or the controlled deployment
+  would refuse the very recovery the run just reported as ready;
 * the exact required `source_sha` persisted in both the guard and the state;
 * the target's queue **STOPPED**;
 * the target's scheduler cron entry **HELD** — moved out of `/etc/cron.d` into
@@ -476,8 +492,28 @@ Under the target's own deployment lock:
     be claiming something it never looked at;
 12. only then are the retained pre-recovery database and storage tree
     committed (dropped/removed);
-13. the guard is cleared, a `completed` history record is appended, and one
-    machine-readable result is emitted.
+13. the completed state is persisted;
+14. the `completed` history record is appended;
+15. **and only then is the guard cleared.** That is the commit point of the
+    whole operation.
+
+### Why the guard is cleared last
+
+The guard is the last safety barrier on a recovered host: while it exists,
+`deploy`, `rollback`, `backup`, `cleanup`, `restore-target`, `repair-target`
+and `prepare-host --apply` all refuse.
+
+Clearing it before the durable records were written would make a disk error in
+between produce the worst reachable state — the recovery unfinished, the
+runtime re-held by the failure handler, the retained pre-recovery copies
+already dropped, and **no guard**, because the handler cannot restore one it
+has been told is gone. Every ordinary operation would then walk straight onto
+that host.
+
+So everything that must survive is persisted first, and the guard's removal is
+what commits. Anything that fails before it leaves the host fail-closed,
+labelled `failed-held`, with its runtime re-held and a `MANUAL RECOVERY
+REQUIRED` report.
 
 If the health check or the final verification fails **after** code alignment,
 the guard is **not** silently cleared. The recovery stays held and diagnosable,

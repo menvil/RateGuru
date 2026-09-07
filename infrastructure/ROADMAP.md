@@ -1306,10 +1306,13 @@ Slices, in order:
      reconverge the target's Supervisor program and its scheduler cron entry,
      which is exactly what a restore or a recovery holds aside. A guard is a
      long-lived interlock but not a mutual-exclusion primitive, so
-     `prepare-host --apply` and `install-target-operations --apply` now take
-     the same per-namespace locks those operations hold for their whole run —
-     the lock covers "started, not yet guarded", the guard covers "exited,
-     still owned". The recovery guard itself goes down before the first byte is
+     each family holds one lock and checks the other's — preparation owns
+     `prepare-host-<namespace>.lock`, the data operations own theirs, and
+     whichever starts first is the one that wins. One owner per lock matters
+     because preparation RUNS install-target-operations, which takes the data
+     locks itself: holding them across the run would deadlock a Prepare against
+     its own grandchild. The lock covers "started, not yet guarded", the guard
+     covers "exited, still owned". The recovery guard itself goes down before the first byte is
      downloaded rather than before the first byte is activated. GitHub
      concurrency is not enough on its own: a hold outlives the workflow that
      created it.
