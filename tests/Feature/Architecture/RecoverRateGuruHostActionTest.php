@@ -268,6 +268,35 @@ it('exposes typed outputs drawn only from that result', function () {
     }
 });
 
+it('removes the key material when the bootstrap key turns out to be unusable', function () {
+    // The key is validated BEFORE its path is exported, so the always() cleanup
+    // at the end of the action has nothing to remove on that path — it reads
+    // the two RATEGURU_BOOTSTRAP_*_PATH variables, and neither was set. The
+    // failing branch therefore removes both files itself, from the locals it
+    // still has, rather than leaving a private key on the runner.
+    $configure = recoverActionStep('Configure bootstrap SSH');
+
+    expect($configure)->toContain('rm -f "${key_path}" "${known_hosts_path}"');
+
+    $validation = mb_strpos($configure, 'ssh-keygen -y -f');
+    $removal = mb_strpos($configure, 'rm -f "${key_path}"');
+    $export = mb_strpos($configure, 'RATEGURU_BOOTSTRAP_SSH_KEY_PATH=');
+
+    expect($validation)->not->toBeFalse()
+        ->and($removal)->not->toBeFalse()
+        ->and($export)->not->toBeFalse();
+
+    // Validated, then cleaned up on failure, and only then exported.
+    expect($validation)->toBeLessThan($removal);
+    expect($removal)->toBeLessThan($export);
+
+    // And the always() cleanup stays safe when nothing was exported: it reads
+    // both paths with a default, so an unset variable removes nothing.
+    expect(recoverActionStep('Remove temporary local files'))
+        ->toContain('"${RATEGURU_BOOTSTRAP_SSH_KEY_PATH:-}"')
+        ->toContain('"${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}"');
+});
+
 it('removes its local and remote temporary files on success and on failure', function () {
     $steps = recoverAction()['runs']['steps'];
 

@@ -330,7 +330,21 @@ runs:
         printf '%s\n' "${BOOTSTRAP_SSH_KEY}" > "${key_path}"
         printf '%s\n' "${BOOTSTRAP_KNOWN_HOSTS}" > "${known_hosts_path}"
 
-        ssh-keygen -y -f "${key_path}" >/dev/null
+        # The key is proven usable BEFORE its path is exported, so a malformed
+        # credential fails here rather than inside the first ssh call. That
+        # ordering has one consequence worth handling explicitly: the always()
+        # cleanup at the end of this action removes whatever the two
+        # RATEGURU_BOOTSTRAP_*_PATH variables name, and on this path they were
+        # never exported — so a private key would be left on the runner with
+        # nothing left holding its path. It is removed here instead, from the
+        # locals this step still has.
+        if ! ssh-keygen -y -f "${key_path}" >/dev/null; then
+          rm -f "${key_path}" "${known_hosts_path}"
+
+          echo "The bootstrap SSH private key for this environment is not a usable key." >&2
+          echo "Nothing was uploaded, no connection was made, and the key material was removed from the runner." >&2
+          exit 1
+        fi
 
         {
           echo "RATEGURU_BOOTSTRAP_SSH_KEY_PATH=${key_path}"

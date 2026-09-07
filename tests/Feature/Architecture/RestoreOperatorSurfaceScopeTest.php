@@ -258,13 +258,29 @@ it('makes every ordinary target mutation refuse while a restore guard exists', f
     }
 
     // And the combined gate really consults both, plus the impossible
-    // both-at-once state, in that order.
+    // both-at-once state — in that ORDER, which is the part that matters.
+    // Both guards present is a state no single-guard refusal describes
+    // correctly, so it has to be reported before either individual one gets
+    // there first; asserting mere presence would let that ordering be lost
+    // silently.
     $gate = shellFunctionBody(File::get(base_path('infrastructure/scripts/common')), 'assert_no_operation_hold');
 
-    expect($gate)
-        ->toContain('assert_no_conflicting_operation_holds')
-        ->toContain('assert_no_restore_hold')
-        ->toContain('assert_no_recovery_hold');
+    $positions = [];
+
+    foreach ([
+        'assert_no_conflicting_operation_holds',
+        'assert_no_restore_hold',
+        'assert_no_recovery_hold',
+    ] as $call) {
+        $position = mb_strpos($gate, $call);
+
+        expect($position)->not->toBeFalse("assert_no_operation_hold does not call {$call}");
+
+        $positions[$call] = $position;
+    }
+
+    expect(array_values($positions))
+        ->toBe(collect($positions)->sort()->values()->all(), 'the combined gate consults its guards out of order');
 
     // And each one does it BEFORE its own first mutation, measured inside the
     // pipeline function that actually runs them.

@@ -1521,7 +1521,7 @@ print_awaiting_code_report() {
 # --- shared operation loading -----------------------------------------------------------
 
 load_recovery_operation() {
-    validate_operation_id "${OPERATION_ID}"
+    validate_operation_id "${OPERATION_ID}" recovery
 
     WORKSPACE="$(recovery_operation_root "${TARGET_ID}" "${OPERATION_ID}")"
 

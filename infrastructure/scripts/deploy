@@ -282,7 +282,7 @@ parse_deploy_args() {
         [[ "${RUN_MIGRATIONS}" != true ]] \
             || fail "--migrate and --recovery-operation are mutually exclusive: a controlled recovery deployment installs the exact commit the recovered data belongs to and never migrates it"
 
-        validate_operation_id "${RECOVERY_OPERATION_ID}"
+        validate_operation_id "${RECOVERY_OPERATION_ID}" recovery
     fi
 }
 

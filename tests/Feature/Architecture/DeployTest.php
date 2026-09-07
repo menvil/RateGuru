@@ -3263,7 +3263,12 @@ it('refuses a malformed recovery operation ID', function () {
         );
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('invalid restore operation ID');
+
+        // The diagnostic names the operation the operator actually passed:
+        // reporting a malformed --recovery-operation as an "invalid restore
+        // operation ID" would send them looking at the wrong state machine.
+        expect($output)->toContain('invalid recovery operation ID')
+            ->not->toContain('invalid restore operation ID');
     } finally {
         deployOpsCleanup($scratch);
     }

@@ -882,11 +882,17 @@ RESTORE_BACKUP_ID_REGEX='^[0-9]{8}-[0-9]{6}$'
 # automatically, and says so instead of guessing.
 RESTORE_ALIGNMENT_SOURCE_SHA_REGEX='^[0-9a-f]{40}$'
 
+# validate_operation_id ID [KIND] — the shared format check. KIND names the
+# operation the caller is validating for, and exists only so the diagnostic is
+# true: a malformed --recovery-operation reported as an "invalid restore
+# operation ID" sends an operator looking at the wrong state machine. It
+# defaults to `restore`, so every caller that does not pass one is
+# byte-identical to what it always said.
 validate_operation_id() {
-    local operation_id="${1-}"
+    local operation_id="${1-}" kind="${2:-restore}"
 
     [[ "${operation_id}" =~ ${RESTORE_OPERATION_ID_REGEX} ]] \
-        || fail "invalid restore operation ID: ${operation_id}"
+        || fail "invalid ${kind} operation ID: ${operation_id}"
 }
 
 # restore_operation_state_file TARGET_ID RUN_ROOT OPERATION_ID — the same path
