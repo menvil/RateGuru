@@ -1117,15 +1117,17 @@ jobs:
             exit 0
           fi
 
-          {
-            echo "Recovery remains held on the replacement host."
-            echo
-            echo "Nothing was cleaned up to make this run look green: the recovered data, the"
-            echo "recovery guard and the operation's own state are all still on the machine."
-          } >> "${GITHUB_STEP_SUMMARY}"
-
+          # A hold is claimed only when an operation ID is actually known.
+          # Every failure before the server assigned one — a malformed request,
+          # the binding refusal, a failed preparation — leaves nothing held on
+          # the replacement machine, and saying otherwise would send an
+          # operator hunting for a guard that was never written.
           if [[ -n "${operation}" ]]; then
             {
+              echo "Recovery remains held on the replacement host."
+              echo
+              echo "Nothing was cleaned up to make this run look green: the recovered data, the"
+              echo "recovery guard and the operation's own state are all still on the machine."
               echo
               echo 'Re-run "Recover production host" with:'
               echo
@@ -1141,8 +1143,13 @@ jobs:
             } >> "${GITHUB_STEP_SUMMARY}"
           else
             {
+              echo "No recovery operation ID reached this summary, so there is nothing to continue"
+              echo "with \`mode=continue-held\` — and this summary cannot claim a recovery is held"
+              echo "on the replacement machine either."
               echo
-              echo "No recovery operation was assigned, so there is nothing to continue: this run"
-              echo "stopped before the server started one."
+              echo "Nothing was cleaned up regardless. If the recovery step itself failed, its own"
+              echo "log names the operation the server assigned, if it got that far; a fresh"
+              echo "\`mode=start\` run refuses BY NAME, naming the operation that owns the target,"
+              echo "when one really is held."
             } >> "${GITHUB_STEP_SUMMARY}"
           fi

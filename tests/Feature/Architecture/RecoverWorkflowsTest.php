@@ -102,8 +102,16 @@ it('is manual-only, fixes its own target, and offers no target selector', functi
 
     // No target input under any name. The operator picks the workflow whose
     // title names the environment, and the target is a literal below.
+    //
+    // array_key_exists + toBeFalse rather than not->toHaveKey: toHaveKey's
+    // SECOND argument is the expected VALUE, not a message
+    // (toHaveKey($key, $value = new Any, $message = '')), so a negated
+    // toHaveKey given a diagnostic asserts "does not have this key holding
+    // that sentence" — which passes for every real value the key could hold,
+    // and the guard silently stops guarding. toBeFalse takes a real message.
     foreach (['target', 'deployment-target', 'deployment_target', 'environment'] as $forbidden) {
-        expect($inputs)->not->toHaveKey($forbidden, "{$file} must not let an operator choose a target");
+        expect(array_key_exists($forbidden, $inputs))
+            ->toBeFalse("{$file} must not let an operator choose a target: {$forbidden}");
     }
 
     // And no commit input under any name either: the operator names a backup
@@ -112,7 +120,8 @@ it('is manual-only, fixes its own target, and offers no target selector', functi
         'sha', 'source-sha', 'source_sha', 'required_source_sha', 'required-source-sha',
         'historical_sha', 'ref', 'branch', 'tag', 'release', 'source',
     ] as $forbidden) {
-        expect($inputs)->not->toHaveKey($forbidden, "{$file} must not let an operator choose the code");
+        expect(array_key_exists($forbidden, $inputs))
+            ->toBeFalse("{$file} must not let an operator choose the code: {$forbidden}");
     }
 
     // Nor any of the things the server decides: migrations, the backup's
@@ -121,7 +130,8 @@ it('is manual-only, fixes its own target, and offers no target selector', functi
         'run-migrations', 'run_migrations', 'migrations',
         'remote', 'bucket', 'path', 'namespace', 'command',
     ] as $forbidden) {
-        expect($inputs)->not->toHaveKey($forbidden, "{$file} must not let an operator choose {$forbidden}");
+        expect(array_key_exists($forbidden, $inputs))
+            ->toBeFalse("{$file} must not let an operator choose {$forbidden}");
     }
 
     // Every job that talks to the target does so at the fixed identity.
@@ -432,7 +442,11 @@ it('keeps the privileged recovery credential and the restricted deploy credentia
         '${{ vars.BOOTSTRAP_USER }}',
         '${{ secrets.DEPLOY_KNOWN_HOSTS }}',
     ] as $forbidden) {
-        expect($source)->not->toContain($forbidden, "{$file} falls back to a credential that belongs to the current host");
+        // str_contains + toBeFalse rather than not->toContain: toContain is
+        // variadic and has no message parameter, so a trailing diagnostic
+        // becomes a second needle and the negation then passes on anything.
+        expect(str_contains($source, $forbidden))
+            ->toBeFalse("{$file} falls back to a credential that belongs to the current host: {$forbidden}");
     }
 
     // Which credential each job uses, asserted per job rather than per file:
@@ -902,14 +916,15 @@ it('never succeeds around a failed stage', function (
             continue;
         }
 
-        expect($condition)->not->toContain('always()', "{$file}:{$jobName} may run after a failure");
+        expect(str_contains($condition, 'always()'))
+            ->toBeFalse("{$file}:{$jobName} may run after a failure");
     }
 
     // And the three jobs that must never tolerate a skipped or failed
     // predecessor carry no status-check escape hatch at all.
     foreach (['build', 'deploy', 'verify', 'observability'] as $jobName) {
-        expect((string) data_get($workflow, "jobs.{$jobName}.if"))
-            ->not->toContain('cancelled()', "{$file}:{$jobName} loosens its own gate");
+        expect(str_contains((string) data_get($workflow, "jobs.{$jobName}.if"), 'cancelled()'))
+            ->toBeFalse("{$file}:{$jobName} loosens its own gate");
     }
 })->with('recover workflows');
 
@@ -990,6 +1005,14 @@ it('reports enough for an operator to continue, and no secret at all', function 
 
     // The one sentence an operator has to be able to find, and the exact
     // re-run it points at.
+    // The held claim lives INSIDE the operation branch. Every failure before
+    // the server assigns an operation — a malformed request, the binding
+    // refusal, a failed preparation — leaves nothing held on the replacement
+    // machine, and a summary claiming otherwise sends an operator hunting for
+    // a guard that was never written.
+    expect(mb_strpos($run, 'if [[ -n "${operation}" ]]; then'))
+        ->toBeLessThan((int) mb_strpos($run, 'Recovery remains held on the replacement host.'));
+
     expect($run)
         ->toContain('Recovery remains held on the replacement host.')
         ->toContain('Re-run "'.$name.'" with:')
@@ -1046,6 +1069,13 @@ it('cannot mutate production while tits-guru is planned, and does not activate i
     [$workflow, $source] = recoverWorkflow('recover-production.yml');
 
     // tits-guru stays planned, and this workflow is not what changes that.
+    //
+    // Activating production is what legitimately retires this assertion, and
+    // it is deliberately not the only one: every operator-surface scope guard
+    // in this directory pins the same lifecycle. Whoever activates the target
+    // updates them together —
+    // `git grep -l "tits-guru'\]\['lifecycle'\])->toBe('planned')" tests/`
+    // lists them, rather than a doc that would go stale as guards are added.
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
     expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');

@@ -116,6 +116,33 @@ workflow. It is read to refuse, never to connect: no job in a recovery opens a
 connection to the machine the target is currently bound to, and nothing in a
 recovery reads, writes or repoints that binding.
 
+### What that comparison is, and is not
+
+It is a literal, case-insensitive comparison of the two strings. It deliberately
+resolves nothing: if `DEPLOY_HOST` is a name and you paste the **IP address that
+name currently points at**, the two strings differ and this check passes.
+
+That is a considered trade, not an oversight. Resolving names here would make a
+safety refusal depend on DNS at the one moment DNS is least trustworthy — a
+recovery happens because the old machine is gone, so its record may be deleted,
+stale, already repointed, or pointing at a recycled address that now belongs to
+someone else. A lookup that fails would either wave the run through or block a
+legitimate disaster recovery, and a lookup that succeeds might do either for the
+wrong reason.
+
+**The check that actually protects a live host is on the host.**
+`recover-host --apply` refuses anything that is not a prepared, EMPTY machine:
+no `current`, no `previous`, no release directories, a canonical database with
+zero public tables, a storage tree that is absent or empty, nothing running on
+the queue, and neither guard present. A live target fails every one of those, so
+a recovery aimed at it by any spelling — name, alias or address — is refused
+before a single destructive step, without depending on name resolution. See
+[`recover-host.md`](recover-host.md) §2.
+
+This comparison is the cheap, early "you pasted the wrong thing" guard in front
+of that, and it is worth exactly what it costs: it catches the common mistake in
+the job before the recovery credential is ever used.
+
 The practical consequence, and the reason it matters: during a rehearsal the
 long-lived staging host keeps serving, untouched, while a completely separate
 disposable machine is recovered onto. Repointing DNS or `DEPLOY_HOST` at a
