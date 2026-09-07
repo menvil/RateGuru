@@ -116,13 +116,34 @@ it('installs every new primitive through the existing target-operations installe
 
     expect($installer)->toContain('DST_BIN_ROOT="/home/www/rateguru/bin"');
 
-    // The authoritative counts were updated honestly, not left stale.
+    // The counts the installer states about itself are DERIVED from what it
+    // actually installs, never hardcoded here. A hardcoded number turns this
+    // guard into a tax on every later addition — and the defect it exists to
+    // catch is precisely "a file was added and the prose still says the old
+    // number", which only a derived expectation can see.
+    $destinations = preg_match_all('/^DST_[A-Z_]+=/m', $installer, $ignored);
+    $installedFiles = $destinations - 2;   // DST_CONFIG_ROOT and DST_BIN_ROOT are roots
+
+    $words = [
+        20 => 'twenty', 21 => 'twenty-one', 22 => 'twenty-two',
+        23 => 'twenty-three', 24 => 'twenty-four', 25 => 'twenty-five',
+    ];
+
+    // toHaveKey's second argument is an expected VALUE, not a message.
+    expect(array_key_exists($installedFiles, $words))
+        ->toBeTrue("no English word for {$installedFiles} installed files — extend the map");
+
     expect($installer)
-        ->toContain('twenty-two files')
-        ->toContain('all twenty-two source files are present regular files')
-        ->toContain('bash -n passed for all twenty source shell scripts')
-        ->not->toContain('sixteen files')
-        ->not->toContain('all fourteen source');
+        ->toContain($words[$installedFiles].' files')
+        ->toContain('all '.$words[$installedFiles].' source files are present regular files');
+
+    // Two of those files are the sourced libraries, which are never `bash -n`'d
+    // as scripts alongside the registry and deployment.conf.
+    $scripts = $installedFiles - 2;
+
+    expect($installer)
+        ->toContain('bash -n passed for all '.$words[$scripts].' source shell scripts')
+        ->toContain('bash -n: OK for all '.$words[$scripts].' installed scripts');
 
     // restore-common is installed as a library, never a CLI.
     expect($installer)->toContain('install_regular_file_transactional "${STAGE_DIR}/restore-common" "${DST_RESTORE_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${COMMON_MODE}"');
@@ -209,23 +230,25 @@ it('reaches restore only through one wrapper, granted to the existing deploy acc
 // No Recover, no production activation
 // =============================================================================
 
-it('implements no Recover Host', function () {
-    foreach ([
-        'infrastructure/scripts/recover-host',
-        '.github/workflows/recover-staging-host.yml',
-        '.github/workflows/recover-production-host.yml',
-        '.github/actions/recover-rateguru-host/action.yml',
-    ] as $path) {
-        expect(File::exists(base_path($path)))->toBeFalse("{$path} belongs to a later phase, not 7.3");
-    }
-
-    // Recovery rebuilds an application from the backup's source_sha. Restore
-    // reads that commit to DECIDE alignment, and never builds anything.
+it('keeps Recover Host a separate operation that the restore primitives never become', function () {
+    // Host recovery now exists as its own server primitive and its own
+    // transport action. What must NEVER exist inside the restore primitives is
+    // any of it: restore-target reads a backup's source_sha to DECIDE
+    // alignment, and never builds, checks out or rebuilds anything.
     $restore = File::get(base_path('infrastructure/scripts/restore-target'));
 
     foreach (['composer', 'npm ', 'node ', 'vite', 'build-rateguru', 'git clone', 'git checkout'] as $forbidden) {
         expect($restore)->not->toContain($forbidden, "restore-target must never build: {$forbidden}");
     }
+
+    // And a live restore still requires a DEPLOYED target — the one structural
+    // line that keeps the two operations from ever meeting.
+    expect($restore)->toContain('a live data restore requires a deployed target');
+
+    // The recovery primitive is the mirror image: it refuses a target that has
+    // a current release at all.
+    expect(File::get(base_path('infrastructure/scripts/recover-host')))
+        ->toContain('this target is deployed, so it is not a lost host being rebuilt');
 });
 
 it('activates no production target and changes no DNS', function () {
@@ -282,30 +305,35 @@ it('leaves the accepted backup subsystem and its manifest schema untouched', fun
 })->skip(fn (): bool => branchBaseRevision() === null,
     'requires the PR base SHA or an origin/develop reference');
 
-it('gives backup exactly one fail-closed guard, and no other restore-awareness', function () {
+it('gives backup exactly one fail-closed guard, and no other data-operation awareness', function () {
     // The end state, asserted without a diff so it holds on every branch. A
-    // target held after a restore has data belonging to a different commit than
-    // current/release.json names, and a backup taken there would label it with
-    // that commit — so backup refuses before creating anything, and that is the
-    // ONLY thing it knows about restores.
+    // target held after a restore, or being rebuilt by a host recovery, has
+    // data belonging to a different commit than current/release.json names,
+    // and a backup taken there would label it with that commit — so backup
+    // refuses before creating anything, through ONE call to the combined gate,
+    // and that is the only thing it knows about either operation.
     $backup = committedFile('infrastructure/scripts/backup');
 
-    expect(substr_count($backup, 'assert_no_restore_hold'))->toBe(1);
+    expect(substr_count($backup, 'assert_no_operation_hold'))->toBe(1);
 
     // A refusal, not a step: it runs before perform_backup.
-    expect(mb_strpos($backup, 'assert_no_restore_hold'))
+    expect(mb_strpos($backup, 'assert_no_operation_hold'))
         ->toBeLessThan(mb_strpos($backup, "\n    perform_backup\n"));
 
-    // And nothing else restore-shaped leaked in: backup does not read a
-    // workspace, drive a restore primitive or clear a guard.
+    // And nothing else data-operation-shaped leaked in: backup does not read a
+    // workspace, drive a primitive, or touch a guard.
     foreach ([
         'restore-target',
         'restore-database',
         'restore-storage',
         'fetch-backup',
+        'recover-host',
         'restore_guard_file',
+        'recovery_guard_file',
         'write_restore_guard',
         'clear_restore_guard',
+        'write_recovery_guard',
+        'clear_recovery_guard',
         'selected-backup',
     ] as $forbidden) {
         expect($backup)->not->toContain($forbidden);
@@ -314,22 +342,24 @@ it('gives backup exactly one fail-closed guard, and no other restore-awareness',
 
 it('changes backup by nothing more than that guard', function () {
     // The bounded-diff half, which only says anything when a branch actually
-    // touches the file. Once Restore Target Data merged, a later branch diffs clean here
-    // — and if one does touch backup, the guard line is the only addition it
-    // may carry.
+    // touches the file. A later branch diffs clean here — and if one does touch
+    // backup, the guard line is the only code it may carry, whichever name that
+    // one gate currently has.
     $diff = branchFileDiff('infrastructure/scripts/backup');
+
+    $guardCalls = [
+        'assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"',
+        'assert_no_operation_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"',
+    ];
 
     // Both halves are judged as code. The additions already were; the
     // removals were not, which made this guard fire on a comment being
     // reworded — a change that by definition cannot weaken backup.
-    expect(sourceCodeLines($diff['removed']))->toBe([]);
+    expect(sourceCodeLines($diff['removed']))->toBeIn([[], [$guardCalls[0]]]);
 
     $addedCode = sourceCodeLines($diff['added']);
 
-    expect($addedCode)->toBeIn([
-        [],
-        ['assert_no_restore_hold "${TARGET_ID}" "${RUN_ROOT}" "a backup"'],
-    ]);
+    expect($addedCode)->toBeIn([[], [$guardCalls[1]]]);
 })->skip(fn (): bool => branchBaseRevision() === null,
     'requires the PR base SHA or an origin/develop reference');
 

@@ -106,7 +106,8 @@ Usage:
   repair-target --verify --target TARGET_ID
 
   --check   Strictly read-only. Reports every target-scoped item as PASS,
-            DRIFT, MISSING, CONFLICT, HOST-REQ, RESTORE-HOLD or MAINTENANCE,
+            DRIFT, MISSING, CONFLICT, HOST-REQ, RESTORE-HOLD, RECOVERY-HOLD
+            or MAINTENANCE,
             with the repair each unsatisfied one would receive. Creates
             nothing — not even a lock file. Exit 0 only when no repair is
             required.
@@ -147,10 +148,11 @@ section() {
 
 # item STATUS NAME DETAIL [ACTION]
 #
-# Same fixed-width shape as every other RateGuru installer report. RESTORE-HOLD
-# and MAINTENANCE are this orchestrator's own two additions: both mean "a repair
-# would be unsafe because somebody else's operation owns this target right now",
-# which is neither drift nor a conflict in the filesystem sense.
+# Same fixed-width shape as every other RateGuru installer report.
+# RESTORE-HOLD, RECOVERY-HOLD and MAINTENANCE are this orchestrator's own three
+# additions: all three mean "a repair would be unsafe because somebody else's
+# operation owns this target right now", which is neither drift nor a conflict
+# in the filesystem sense.
 item() {
     local status="$1" name="$2" detail="$3" action="${4:-}"
 
@@ -160,8 +162,9 @@ item() {
         MISSING)      COUNT_MISSING=$((COUNT_MISSING + 1)) ;;
         CONFLICT)     COUNT_CONFLICT=$((COUNT_CONFLICT + 1)) ;;
         HOST-REQ)     COUNT_HOST_REQ=$((COUNT_HOST_REQ + 1)) ;;
-        RESTORE-HOLD) COUNT_BLOCKED=$((COUNT_BLOCKED + 1)) ;;
-        MAINTENANCE)  COUNT_BLOCKED=$((COUNT_BLOCKED + 1)) ;;
+        RESTORE-HOLD)  COUNT_BLOCKED=$((COUNT_BLOCKED + 1)) ;;
+        RECOVERY-HOLD) COUNT_BLOCKED=$((COUNT_BLOCKED + 1)) ;;
+        MAINTENANCE)   COUNT_BLOCKED=$((COUNT_BLOCKED + 1)) ;;
         *)            fail "internal: unknown item status: ${status}" ;;
     esac
 
@@ -558,6 +561,81 @@ report_restore_interlock() {
         "resolve the restore operation first — repair-target --apply refuses while any restore guard exists, and never clears, rewrites or resumes one"
 }
 
+# --- Recovery interlock -------------------------------------------------------
+#
+# A recovery guard means this target is a replacement host part-way through
+# being rebuilt: its data has been restored from a backup and its code has not
+# arrived yet. Converging infrastructure underneath that is the same category of
+# mistake as repairing under a restore — and it is reported as its own item
+# rather than folded into "no deployed release", because "this host is mid
+# recovery" and "somebody deleted current" need completely different answers.
+
+recovery_guard_status() {
+    local marker
+    marker="$(recovery_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
+
+    [[ -e "${marker}" ]] || return 1
+
+    jq -r '.status // "unknown"' "${marker}" 2>/dev/null || printf 'unknown'
+}
+
+recovery_guard_operation() {
+    local marker
+    marker="$(recovery_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
+
+    jq -r '.operation // "unknown"' "${marker}" 2>/dev/null || printf 'unknown'
+}
+
+recovery_hold_diagnosis() {
+    local status="$1" operation="$2"
+
+    case "${status}" in
+        awaiting-code)
+            printf 'host recovery operation %s restored this target'"'"'s data onto a replacement host and is waiting for the exact code that data belongs to. Finish that recovery — the controlled recovery deployment followed by recover-host --resume — rather than repairing infrastructure underneath it' "${operation}"
+            ;;
+        in-progress)
+            printf 'host recovery operation %s is in progress or was interrupted, so the data state on this replacement host is unresolved. Resolve the recovery first; repairing infrastructure while a recovery may be half-applied is never safe' "${operation}"
+            ;;
+        failed-held)
+            printf 'host recovery operation %s failed and left the target held, which means restored data may already be canonical here. That needs an explicit recovery or manual decision about which data state is authoritative — a repair must never guess it' "${operation}"
+            ;;
+        *)
+            printf 'host recovery operation %s left a guard with status %s, which this orchestrator does not recognise. Resolve the recovery state before repairing infrastructure' "${operation}" "${status}"
+            ;;
+    esac
+}
+
+report_recovery_interlock() {
+    local status operation
+
+    if ! status="$(recovery_guard_status)"; then
+        item PASS "recovery:guard" "no recovery guard — no host recovery owns this target"
+        return 0
+    fi
+
+    operation="$(recovery_guard_operation)"
+
+    item RECOVERY-HOLD "recovery:guard" "$(recovery_hold_diagnosis "${status}" "${operation}")" \
+        "resolve the recovery operation first — repair-target --apply refuses while any recovery guard exists, and never clears, rewrites or resumes one"
+}
+
+# report_conflicting_guards — the state neither individual report describes
+# correctly.
+#
+# A live restore requires a deployed target and a host recovery requires an
+# empty one, so the two can never legitimately hold the same target at once.
+# Reported as its own item rather than left implicit in two separate holds,
+# because "finish that restore" and "finish that recovery" are both the wrong
+# advice here: what is actually needed is a decision about which marker
+# describes reality.
+report_conflicting_guards() {
+    restore_guard_status >/dev/null || return 0
+    recovery_guard_status >/dev/null || return 0
+
+    item CONFLICT "guards:conflict" "${TARGET_ID} carries BOTH a restore guard and a recovery guard, which cannot both be true: a live restore requires a deployed target and a host recovery requires an empty one" \
+        "read both markers and their operations' own state documents, decide which one describes reality, and resolve it by hand — nothing automatic is safe from here"
+}
+
 report_maintenance_interlock() {
     if ! maintenance_active; then
         item PASS "runtime:maintenance" "target is not in maintenance mode"
@@ -821,7 +899,9 @@ run_report() {
     printf 'Scope: %s only — host-level infrastructure is inspected and never converged\n' "${TARGET_ID}"
 
     report_target
+    report_conflicting_guards
     report_restore_interlock
+    report_recovery_interlock
     report_maintenance_interlock
 
     if report_deployed_release; then
@@ -897,9 +977,26 @@ apply_gate() {
 
     local blockers=()
 
-    local guard_status
+    # Both guards are read INDEPENDENTLY, because an if/elif chain reports
+    # whichever it happened to check first and the two-guard state is neither
+    # of them: it is a conflict no single-guard diagnosis describes correctly.
+    local guard_status="" recovery_status=""
+    local restore_held=false recovery_held=false
+
     if guard_status="$(restore_guard_status)"; then
+        restore_held=true
+    fi
+
+    if recovery_status="$(recovery_guard_status)"; then
+        recovery_held=true
+    fi
+
+    if [[ "${restore_held}" == true ]] && [[ "${recovery_held}" == true ]]; then
+        blockers+=("conflicting guards: ${TARGET_ID} carries BOTH a restore guard (status ${guard_status}) and a recovery guard (status ${recovery_status}). A live restore requires a deployed target and a host recovery requires an empty one, so the two cannot both be true — read both markers and decide which one describes reality before anything else touches this target")
+    elif [[ "${restore_held}" == true ]]; then
         blockers+=("restore guard: $(restore_hold_diagnosis "${guard_status}" "$(restore_guard_operation)")")
+    elif [[ "${recovery_held}" == true ]]; then
+        blockers+=("recovery guard: $(recovery_hold_diagnosis "${recovery_status}" "$(recovery_guard_operation)")")
     elif maintenance_active; then
         blockers+=("maintenance: ${TARGET_ID} is in maintenance mode with no restore guard, so an operator put it there deliberately. A repair never runs 'artisan up' — bring the target up yourself when you intend it to serve")
     fi
