@@ -160,16 +160,26 @@ it('keeps preparation free of the Recover operation it enables', function () {
         ->not->toContain('build-rateguru')
         ->not->toContain('recover-host');
 
-    // prepare-host knows exactly one thing about the other operations: that a
-    // guard means somebody else owns this target. It reads the marker paths to
-    // REFUSE, and drives no recovery of any kind.
+    // prepare-host knows exactly two things about the other operations: which
+    // lock each holds while it runs, and that a guard means somebody else owns
+    // this target. It uses both to REFUSE, and drives neither operation.
     $prepare = executableSourceLines(File::get(base_path('infrastructure/scripts/prepare-host')));
 
     expect($prepare)
         ->toContain('recovery-guard')
-        ->not->toContain('recover-host')
-        ->not->toContain('restore-target')
-        ->not->toContain('--apply --target');
+        ->toContain('restore-guard');
+
+    // Naming a lock file is not invoking anything. What preparation must never
+    // do is RUN either operation, in any mode.
+    foreach ([
+        'scripts/recover-host',
+        'scripts/restore-target',
+        'recover-host --',
+        'restore-target --',
+        '--apply --target',
+    ] as $invocation) {
+        expect($prepare)->not->toContain($invocation, "prepare-host must never run another operation: {$invocation}");
+    }
 
     // The dependency runs one way only: recovery verifies preparation, never
     // the reverse.
