@@ -150,12 +150,12 @@ jobs:
     name: Tests (Pest + PostgreSQL)
     runs-on: ubuntu-latest
     # The cap exists so a hung external download can never occupy a runner for
-    # the 6-hour default — it is not meant to bound a healthy run. It was set
-    # when this job took ~15 minutes, and the suite has roughly doubled since: the last
-    # green runs measured ~17 minutes here, which is close enough to a 30-minute cap
-    # that an ordinary slow runner tips a passing job into a timeout. 45
-    # restores the headroom without weakening what the cap is for.
-    timeout-minutes: 45
+    # the 6-hour default — it is not meant to bound a healthy run. The last
+    # green runs measured ~12 minutes here, and the suite grows as the product
+    # does, so the cap sits well clear of a healthy run rather than tracking
+    # it: it should only ever fire for something genuinely stuck, never for an
+    # ordinary slow runner.
+    timeout-minutes: 60
     needs: frontend-build
     env:
       DB_CONNECTION: pgsql
@@ -339,12 +339,12 @@ jobs:
     name: Compatibility (MariaDB)
     runs-on: ubuntu-latest
     # The cap exists so a hung external download can never occupy a runner for
-    # the 6-hour default — it is not meant to bound a healthy run. It was set
-    # when this job took ~11 minutes, and the suite has roughly doubled since: the last
-    # green runs measured ~29 minutes here, which is close enough to a 30-minute cap
-    # that an ordinary slow runner tips a passing job into a timeout. 45
-    # restores the headroom without weakening what the cap is for.
-    timeout-minutes: 45
+    # the 6-hour default — it is not meant to bound a healthy run. The last
+    # green runs measured ~24 minutes here, and the suite grows as the product
+    # does, so the cap sits well clear of a healthy run rather than tracking
+    # it: it should only ever fire for something genuinely stuck, never for an
+    # ordinary slow runner.
+    timeout-minutes: 60
     needs: frontend-build
     env:
       DB_CONNECTION: mariadb
@@ -445,12 +445,12 @@ jobs:
     name: Compatibility (SQLite)
     runs-on: ubuntu-latest
     # The cap exists so a hung external download can never occupy a runner for
-    # the 6-hour default — it is not meant to bound a healthy run. It was set
-    # when this job took ~14 minutes, and the suite has roughly doubled since: the last
-    # green runs measured ~28 minutes here, which is close enough to a 30-minute cap
-    # that an ordinary slow runner tips a passing job into a timeout. 45
-    # restores the headroom without weakening what the cap is for.
-    timeout-minutes: 45
+    # the 6-hour default — it is not meant to bound a healthy run. The last
+    # green runs measured ~28 minutes here, and the suite grows as the product
+    # does, so the cap sits well clear of a healthy run rather than tracking
+    # it: it should only ever fire for something genuinely stuck, never for an
+    # ordinary slow runner.
+    timeout-minutes: 60
     needs: frontend-build
     outputs:
       migrations: ${{ steps.migration-metrics.outputs.migrations }}
