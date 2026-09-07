@@ -1,0 +1,23 @@
+.github/workflows/ci.yml
+  s_5ec8651e8e89ca::t_9b73b7036c017e 152-158,341-347,447-453
+tests/Feature/Architecture/RecoverHostTest.php
+  s_5ec8651e8e89ca::t_5a5f957a17bd40 598-602,842,846,851-853,855-856,858,862,1369,1376,1379-1382,1384-1389,1391-1403,1408,1418-1420,1422-1424,1426,1428-1431,1433-1436
+tests/Pest.php
+  s_5ec8651e8e89ca::t_44af185025d6e0 1115-1127,1211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "498d01bb0deda92456f38f8a079c87fa8378f117",
+  "prompts": {},
+  "sessions": {
+    "s_5ec8651e8e89ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "be186b9b-8a93-4245-bb71-a1048e59c906",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
