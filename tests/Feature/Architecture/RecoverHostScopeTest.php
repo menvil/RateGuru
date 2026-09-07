@@ -9,9 +9,11 @@ use Illuminate\Support\Facades\File;
  * It ends when a lost target can be rebuilt onto a prepared replacement
  * machine from one exact offsite backup and the exact commit that backup
  * names, with the host left deliberately not serving until that commit
- * arrives. The named operator workflows, the disposable-host rehearsal, the
- * measured RPO/RTO, production activation and DNS cutover are each their own
- * later work; the rejected durable artifact archive stays rejected; and every
+ * arrives. The named operator workflows that press the button have since
+ * landed and are guarded by RecoverWorkflowsTest; the disposable-host
+ * rehearsal, the measured RPO/RTO, production activation and DNS cutover are
+ * each their own later work; the rejected durable artifact archive stays
+ * rejected; and every
  * accepted operation — deploy, rollback, backup, restore-test, Prepare Host,
  * live Restore, controlled restore alignment, Repair Target — behaves exactly
  * as it did.
@@ -479,20 +481,26 @@ it('reads the required commit from the server, never from the caller', function 
 // What this deliberately does NOT begin
 // =============================================================================
 
-it('adds no operator workflow, no rehearsal and no provisioner', function () {
+it('adds no rehearsal harness and no provisioner', function () {
+    // The two named operator workflows are the ONE operator surface this
+    // primitive was always going to grow, and they landed with their own scope
+    // guard (RecoverWorkflowsTest). Everything else recovery could have grown
+    // into is still deliberately absent: a rehearsal harness that automates a
+    // disposable machine, and a generic provisioner that creates one.
     foreach ([
-        '.github/workflows/recover-staging.yml',
-        '.github/workflows/recover-production.yml',
         '.github/workflows/recover-staging-host.yml',
         '.github/workflows/recover-production-host.yml',
+        '.github/workflows/rehearse-recovery.yml',
         'infrastructure/scripts/provision-target',
         'infrastructure/scripts/provision-host',
+        'infrastructure/scripts/rehearse-recovery',
     ] as $laterWork) {
         expect(File::exists(base_path($laterWork)))
             ->toBeFalse("{$laterWork} is later work and must not exist yet");
     }
 
-    // The workflow inventory is unchanged by this work.
+    // One recovery workflow per environment, named for the environment, like
+    // every other operator-facing operation here — and no third one.
     $workflows = collect(glob(base_path('.github/workflows/*.yml')) ?: [])
         ->map(static fn (string $path): string => basename($path))
         ->sort()
@@ -506,6 +514,8 @@ it('adds no operator workflow, no rehearsal and no provisioner', function () {
         'label-review-bot-prs.yml',
         'prepare-production-host.yml',
         'prepare-staging-host.yml',
+        'recover-production.yml',
+        'recover-staging.yml',
         'release.yml',
         'repair-production.yml',
         'repair-staging.yml',

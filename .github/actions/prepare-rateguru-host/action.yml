@@ -45,10 +45,13 @@ inputs:
   bootstrap-host:
     required: true
     description: >-
-      SSH hostname or IP of the physical host currently serving the target.
-      Deliberately the same DEPLOY_HOST binding ordinary deployment uses: the
-      GitHub Environment is where a logical target is bound to a physical host,
-      and one target has one host at a time.
+      SSH hostname or IP of the machine to prepare. Explicit, because this
+      action does not decide which machine a target lives on and never has:
+      the ordinary Prepare staging/production workflows pass the target's
+      current DEPLOY_HOST binding, since a GitHub Environment is where a
+      logical target is bound to the physical host currently serving it, while
+      a host recovery passes the REPLACEMENT machine it is rebuilding the
+      target onto. Nothing here reads, writes or repoints that binding.
 
   bootstrap-port:
     required: false
