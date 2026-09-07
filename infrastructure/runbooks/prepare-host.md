@@ -48,6 +48,7 @@ Prepare Host is therefore **not**:
 | a data restore | Phase 7.3 — Restore Target Data |
 | a drift repair | Phase 7.5 — Repair Target |
 | replacement-server recovery | Recover Host — [`recover-host.md`](recover-host.md) |
+| a target another operation is holding | finish that operation first — `--apply` refuses under a restore or recovery guard |
 | production activation | Phase 8 |
 
 ## Operator usage

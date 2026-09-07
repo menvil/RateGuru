@@ -815,6 +815,125 @@ it('holds the host and keeps the guard when compensation cannot complete', funct
     }
 });
 
+/** Simulates the controlled recovery deployment: a release, and current. */
+function deployRecoveredRelease(string $scratch, string $sourceSha = FIXTURE_SOURCE_SHA, string $release = FIXTURE_RELEASE): void
+{
+    $root = $scratch.'/target';
+    mkdir($root.'/releases/'.$release, 0o755, true);
+
+    file_put_contents(
+        $root.'/releases/'.$release.'/release.json',
+        json_encode(['project' => 'rateguru', 'release' => $release, 'source_sha' => $sourceSha]),
+    );
+
+    symlink($root.'/releases/'.$release, $root.'/current');
+}
+
+// =============================================================================
+// The hold is OBSERVED, never asserted
+// =============================================================================
+
+it('refuses to report a host as held once its queue is running again', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        expect($applied['exit'])->toBe(0, $applied['output']);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        // Between --apply and the historical build, something started the
+        // queue. The hold this recovery depends on is gone.
+        file_put_contents($scratch.'/supervisor-state', "RUNNING\n");
+
+        $result = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('is not fully STOPPED')
+            ->toContain('the hold this recovery depends on is gone');
+
+        // And it reports no result at all, so nothing downstream can read a
+        // hold out of a run that proved the opposite.
+        expect($result['output'])->not->toContain('RATEGURU_RECOVER_RESULT=');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses to report a host as held once its scheduler is back in cron.d', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        // The cron entry reappeared — a scheduled writer can fire again.
+        file_put_contents($scratch.'/cron.d/parity-scheduler', "* * * * * root true\n");
+
+        $result = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('a scheduled writer can fire against this host')
+            ->toContain('the hold this recovery depends on is gone');
+        expect($result['output'])->not->toContain('RATEGURU_RECOVER_RESULT=');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses to report a host as held once it is serving code', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($scratch);
+
+        $result = recoverHostRun($scratch, ['--inspect', '--target', 'parity-target', '--operation', $operation]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('it is serving code already');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('reports queue and scheduler from what it observed, never from a constant', function () {
+    // Structural, because the defect this replaced was invisible at runtime:
+    // --inspect used to ASSIGN "stopped" and "held" without looking.
+    $source = executableSourceLines(File::get(recoverHostScript()));
+
+    // The two result fields are written in exactly two places, and both are
+    // inside the function that just proved them.
+    expect(substr_count($source, 'RECOVER_QUEUE="stopped"'))->toBe(1);
+    expect(substr_count($source, 'RECOVER_SCHEDULER="held"'))->toBe(1);
+    expect(substr_count($source, 'RECOVER_QUEUE="running"'))->toBe(1);
+    expect(substr_count($source, 'RECOVER_SCHEDULER="present"'))->toBe(1);
+
+    $held = shellFunctionBody(File::get(recoverHostScript()), 'assert_runtime_still_held');
+    $resumed = shellFunctionBody(File::get(recoverHostScript()), 'assert_runtime_resumed');
+
+    expect($held)
+        ->toContain('observe_queue_program')
+        ->toContain('scheduler_file_present')
+        ->toContain('RECOVER_QUEUE="stopped"')
+        ->toContain('RECOVER_SCHEDULER="held"');
+
+    expect($resumed)
+        ->toContain('observe_queue_program')
+        ->toContain('scheduler_file_present')
+        ->toContain('RECOVER_QUEUE="running"')
+        ->toContain('RECOVER_SCHEDULER="present"');
+});
+
 // =============================================================================
 // --inspect
 // =============================================================================
@@ -899,20 +1018,6 @@ it('refuses to inspect or resume an operation that belongs to a different target
 // =============================================================================
 // --resume
 // =============================================================================
-
-/** Simulates the controlled recovery deployment: a release, and current. */
-function deployRecoveredRelease(string $scratch, string $sourceSha = FIXTURE_SOURCE_SHA, string $release = FIXTURE_RELEASE): void
-{
-    $root = $scratch.'/target';
-    mkdir($root.'/releases/'.$release, 0o755, true);
-
-    file_put_contents(
-        $root.'/releases/'.$release.'/release.json',
-        json_encode(['project' => 'rateguru', 'release' => $release, 'source_sha' => $sourceSha]),
-    );
-
-    symlink($root.'/releases/'.$release, $root.'/current');
-}
 
 it('finishes the recovery once the exact commit is deployed', function () {
     $scratch = restoreScratchDir();
@@ -1096,6 +1201,148 @@ it('keeps the host held when the health check fails after code alignment', funct
         expect(recoveryGuard($scratch))->toMatchArray(['status' => 'failed-held']);
         expect(fakePostgresDatabases($scratch))->toBe(['parity_db', preRestoreDatabaseName($operation)]);
         expect(File::exists($scratch.'/target/current'))->toBeTrue();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses to complete when the scheduler is not actually back', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($scratch);
+
+        // The operation's own state says it never held the entry, so
+        // release_scheduler_entry is a no-op — and the entry is genuinely
+        // gone. A recovery that reported `scheduler: present` here would be
+        // claiming something it never looked at.
+        $statePath = $scratch.'/run/recoveries/parity-target/'.$operation.'/state.json';
+        $state = json_decode(File::get($statePath), true);
+        $state['scheduler_held_by_recovery'] = 'false';
+        file_put_contents($statePath, json_encode($state, JSON_PRETTY_PRINT));
+
+        $result = recoverHostRun($scratch, ['--resume', '--target', 'parity-target', '--operation', $operation]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('a recovered target runs its own scheduler')
+            ->toContain('will not commit its retained pre-recovery copies');
+
+        // Held, and the retained pre-recovery copies survive.
+        expect(recoveryGuard($scratch))->toMatchArray(['status' => 'failed-held']);
+        expect(fakePostgresDatabases($scratch))->toBe(['parity_db', preRestoreDatabaseName($operation)]);
+        expect(File::get($scratch.'/dropdb.log'))->not->toContain('rateguru_pre_');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses to complete when the queue did not come back', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $applied = recoveryApply($scratch);
+        $operation = recoveryOperationIdIn($applied['output']);
+
+        deployRecoveredRelease($scratch);
+
+        // supervisorctl start takes effect but the worker lands in BACKOFF.
+        $result = recoverHostRun($scratch, [
+            '--resume', '--target', 'parity-target', '--operation', $operation,
+        ], ['RGTEST_SUPERVISOR_START_STATE' => 'BACKOFF']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('did not reach RUNNING within the wait budget');
+
+        expect(recoveryGuard($scratch))->toMatchArray(['status' => 'failed-held']);
+        expect(File::get($scratch.'/dropdb.log'))->not->toContain('rateguru_pre_');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+// =============================================================================
+// The prepared storage baseline is reversible
+// =============================================================================
+
+it('leaves no storage tree behind when a recovery does not complete', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        // A prepared host has shared/storage but no shared/storage/app at all.
+        expect(File::exists($scratch.'/target/shared/storage/app'))->toBeFalse();
+
+        $result = recoveryApply($scratch, ['RGTEST_PG_RESTORE_EXIT' => '3']);
+
+        expect($result['exit'])->not->toBe(0);
+
+        // And it is ABSENT again afterwards: the baseline this recovery
+        // created is removed, so the host is the PRE_DEPLOY shape it was.
+        expect(File::exists($scratch.'/target/shared/storage/app'))->toBeFalse();
+        expect(File::exists($scratch.'/target/shared/storage'))->toBeTrue();
+        expect($result['output'])->toContain('removed the prepared storage baseline');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('returns the storage tree to ABSENT after a fully compensated activation', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        $result = recoveryApply($scratch, ['RGTEST_RENAME_FAIL_TO_PREFIX' => 'rateguru_pre_']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect(File::exists($scratch.'/target/shared/storage/app'))->toBeFalse();
+        expect(recoveryGuard($scratch))->toBeNull();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('never removes a storage tree that holds anything', function () {
+    // rmdir, never rm -rf: the removal cannot delete data even if every check
+    // above it were wrong, because rmdir fails on a non-empty directory.
+    $remover = shellFunctionBody(File::get(recoverHostScript()), 'discard_prepared_storage_baseline');
+
+    expect($remover)
+        ->toContain('rmdir "${LIVE_APP}"')
+        ->not->toContain('rm -rf')
+        ->not->toContain('rm -r ');
+
+    // And only ever this target's own shared/storage/app, only when this
+    // operation created it.
+    expect($remover)
+        ->toContain('[[ "${STORAGE_BASELINE_CREATED}" == true ]]')
+        ->toContain('[[ "${LIVE_APP}" == "${STORAGE_ROOT}/app" ]]');
+});
+
+it('keeps a storage tree the recovery did not create', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        // A host whose empty app/public already exists — a legitimate prepared
+        // shape this recovery must not claim it created.
+        recoveryFixture($scratch);
+        mkdir($scratch.'/target/shared/storage/app/public', 0o2750, true);
+
+        $result = recoveryApply($scratch, ['RGTEST_PG_RESTORE_EXIT' => '3']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect(File::exists($scratch.'/target/shared/storage/app'))
+            ->toBeTrue('a tree this recovery did not create is never removed');
+        expect($result['output'])->not->toContain('removed the prepared storage baseline');
     } finally {
         removeScratchDir($scratch);
     }

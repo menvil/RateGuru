@@ -45,18 +45,28 @@ VERIFY_REQUIRED_CLIS_BIN="${VERIFY_REQUIRED_CLIS_BIN_DEFAULT}"
 # primitives already resolve, named here so `deploy` can consult them without
 # sourcing the restore library.
 #
-# RESTORE_TARGET_BIN is the restore orchestrator itself. A controlled
-# alignment must prove the target is genuinely still held — nothing serving,
-# no queue worker, no scheduler entry — and reading Supervisor correctly is
-# subtle enough that a second implementation of that proof would eventually
-# disagree with the first. So deploy does not re-derive it: it runs
-# `restore-target --inspect`, which is read-only and is the one place that
-# proof exists. See assert_restore_alignment_authorized.
+# RESTORE_TARGET_BIN and RECOVER_HOST_BIN are the two orchestrators
+# themselves. A controlled deployment must prove the target is genuinely still
+# held — for a restore: nothing serving, no queue worker, no scheduler entry;
+# for a recovery: no code at all, no queue worker, no scheduler entry — and
+# reading Supervisor correctly is subtle enough that a second implementation of
+# either proof would eventually disagree with the first. So deploy re-derives
+# neither: it runs `restore-target --inspect` or `recover-host --inspect`, both
+# read-only, each the one place its own proof exists. See
+# assert_restore_alignment_authorized and assert_recovery_alignment_authorized.
+#
+# The window that makes this load-bearing for a recovery is long: a recovery
+# routinely outlives the workflow that started it, and between `--apply` and
+# the historical build landing, a queue can be started or a scheduler cron
+# entry can reappear. Installing code into that would let Laravel run against
+# recovered data before anything had verified it.
 RUN_ROOT_DEFAULT="/home/www/rateguru/run"
 RESTORE_TARGET_BIN_DEFAULT="/home/www/rateguru/bin/restore-target"
+RECOVER_HOST_BIN_DEFAULT="/home/www/rateguru/bin/recover-host"
 
 RUN_ROOT="${RUN_ROOT_DEFAULT}"
 RESTORE_TARGET_BIN="${RESTORE_TARGET_BIN_DEFAULT}"
+RECOVER_HOST_BIN="${RECOVER_HOST_BIN_DEFAULT}"
 
 # How long the first-deploy Supervisor activation waits
 # for the target queue program to reach RUNNING. supervisorctl itself is
@@ -90,6 +100,10 @@ if rateguru_test_overrides_allowed; then
 
     if [[ -n "${RATEGURU_RESTORE_TARGET_BIN:-}" ]]; then
         RESTORE_TARGET_BIN="${RATEGURU_RESTORE_TARGET_BIN}"
+    fi
+
+    if [[ -n "${RATEGURU_RECOVER_HOST_BIN:-}" ]]; then
+        RECOVER_HOST_BIN="${RATEGURU_RECOVER_HOST_BIN}"
     fi
 fi
 
@@ -775,21 +789,83 @@ assert_controlled_artifact_identity() {
 # by common's assert_recovery_alignment_operation, and the artifact is checked
 # against THAT.
 #
-# Unlike the restore alignment, this does NOT delegate a "still held" proof to
-# the operation's own orchestrator. There is nothing Supervisor-shaped to
-# re-derive here: a recovering host is one with no `current` and no `previous`,
-# which this script already reads directly and reads correctly. recover-host
-# itself is trusted tooling transported per run — deliberately not part of the
-# installed operational bundle — and a deployment that depended on a binary
-# which may not be on the host would fail for the wrong reason.
+# Structured in the same two independent halves as the restore alignment. The
+# first is read directly from the two persisted recovery documents (the guard
+# and the operation's state.json) by the shared helper in common, which is also
+# what yields the required commit. The second is the proof that the host is
+# STILL held right now — no code, no queue worker, no scheduler entry — and
+# that is not re-derived here: `recover-host --inspect` is read-only and is the
+# single implementation of it. Its machine-readable result is then required to
+# name the same operation, the same target and the same commit the documents
+# did, so the two halves have to agree before this deployment may behave
+# differently from a normal one.
 assert_recovery_alignment_authorized() {
     log "controlled recovery deployment requested for operation ${RECOVERY_OPERATION_ID}"
 
     assert_recovery_alignment_operation "${TARGET_ID}" "${RUN_ROOT}" "${RECOVERY_OPERATION_ID}"
 
-    # A recovering host has no code. Both of these are read before anything is
-    # extracted, so a target that is actually deployed — and therefore is not
-    # being recovered at all — is refused while nothing has moved.
+    local inspect_output
+    if ! inspect_output="$(
+        "${RECOVER_HOST_BIN}" \
+            --inspect \
+            --target "${TARGET_ID}" \
+            --operation "${RECOVERY_OPERATION_ID}" 2>&1
+    )"; then
+        printf '%s\n' "${inspect_output}" >&2
+
+        fail "recover-host --inspect refused recovery operation ${RECOVERY_OPERATION_ID} — the host is not in a state a controlled recovery deployment may install into, and nothing was touched"
+    fi
+
+    printf '%s\n' "${inspect_output}"
+
+    # Exactly one result line, or the answer is not trustworthy enough to
+    # deploy on. Two would mean an ambiguity somebody has to resolve; zero
+    # would mean an --inspect that exited 0 without saying anything.
+    local -a result_lines=()
+    mapfile -t result_lines < <(printf '%s\n' "${inspect_output}" | grep '^RATEGURU_RECOVER_RESULT=' || true)
+
+    (( ${#result_lines[@]} == 1 )) \
+        || fail "recover-host --inspect produced ${#result_lines[@]} machine-readable results for operation ${RECOVERY_OPERATION_ID}, expected exactly one"
+
+    local result
+    result="${result_lines[0]#RATEGURU_RECOVER_RESULT=}"
+
+    jq -e 'type == "object"' <<<"${result}" >/dev/null 2>&1 \
+        || fail "recover-host --inspect produced a malformed machine-readable result for operation ${RECOVERY_OPERATION_ID}"
+
+    local inspect_status inspect_operation inspect_target inspect_required
+    local inspect_queue inspect_scheduler inspect_current
+    inspect_status="$(jq -r '.status // empty' <<<"${result}")"
+    inspect_operation="$(jq -r '.operation // empty' <<<"${result}")"
+    inspect_target="$(jq -r '.target // empty' <<<"${result}")"
+    inspect_required="$(jq -r '.required_source_sha // empty' <<<"${result}")"
+    inspect_queue="$(jq -r '.queue // empty' <<<"${result}")"
+    inspect_scheduler="$(jq -r '.scheduler // empty' <<<"${result}")"
+    inspect_current="$(jq -r '.current_release // empty' <<<"${result}")"
+
+    [[ "${inspect_operation}" == "${RECOVERY_OPERATION_ID}" ]] \
+        || fail "recover-host --inspect reported operation ${inspect_operation:-<unset>}, not ${RECOVERY_OPERATION_ID}"
+    [[ "${inspect_target}" == "${TARGET_ID}" ]] \
+        || fail "recover-host --inspect reported target ${inspect_target:-<unset>}, not ${TARGET_ID}"
+    [[ "${inspect_status}" == "awaiting-code" ]] \
+        || fail "recover-host --inspect reported status ${inspect_status:-<unset>}, not awaiting-code"
+
+    # The observed runtime, not a claim: --inspect fails outright unless the
+    # queue is provably fully STOPPED and the scheduler cron entry is still
+    # held aside, and reports these two only once it has proven them.
+    [[ "${inspect_queue}" == "stopped" ]] \
+        || fail "recover-host --inspect reported queue ${inspect_queue:-<unset>}, not stopped — a controlled recovery deployment only installs into a host whose workers are provably down"
+    [[ "${inspect_scheduler}" == "held" ]] \
+        || fail "recover-host --inspect reported scheduler ${inspect_scheduler:-<unset>}, not held — a controlled recovery deployment only installs into a host whose scheduler cannot fire"
+    [[ -z "${inspect_current}" ]] \
+        || fail "recover-host --inspect reports ${TARGET_ID} already serving ${inspect_current} — a controlled recovery deployment installs the FIRST code a rebuilt host receives"
+
+    [[ "${inspect_required}" == "${RECOVERY_ALIGNMENT_REQUIRED_SHA}" ]] \
+        || fail "recover-host --inspect requires ${inspect_required:-<unset>}, but this host's recovery documents require ${RECOVERY_ALIGNMENT_REQUIRED_SHA} — refusing to deploy into a host whose own recovery state is inconsistent"
+
+    # Read again HERE, after the proof, and not only through it: this is the
+    # filesystem `deploy` itself is about to write into, and the atomic switch
+    # below assumes both links are absent.
     if [[ -e "${CURRENT_LINK}" ]] || [[ -L "${CURRENT_LINK}" ]]; then
         fail "${TARGET_ID} already has ${CURRENT_LINK}: a controlled recovery deployment installs the FIRST code a rebuilt host receives, and this target is already serving something. Its recovery documents and its filesystem disagree; resolve that by hand"
     fi
@@ -798,7 +874,7 @@ assert_recovery_alignment_authorized() {
         fail "${TARGET_ID} has ${PREVIOUS_LINK} but no current: a rebuilt host has no release history at all, so a previous link here means something other than this recovery touched it"
     fi
 
-    log "controlled recovery deployment authorized: ${TARGET_ID} was rebuilt by ${RECOVERY_OPERATION_ID} and requires ${RECOVERY_ALIGNMENT_REQUIRED_SHA} (backup ${RECOVERY_ALIGNMENT_BACKUP})"
+    log "controlled recovery deployment authorized: ${TARGET_ID} is still held by ${RECOVERY_OPERATION_ID} and requires ${RECOVERY_ALIGNMENT_REQUIRED_SHA} (backup ${RECOVERY_ALIGNMENT_BACKUP})"
 }
 
 # finalize_recovery_alignment — everything a controlled recovery deployment

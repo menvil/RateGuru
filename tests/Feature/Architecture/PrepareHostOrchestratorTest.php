@@ -253,9 +253,32 @@ function prepFixture(string $scratch, array $options = []): array
         'RATEGURU_PREPAREHOST_PREREQUISITES_INSTALLER_BIN' => $scratch.'/bin/prerequisites',
         'RATEGURU_PREPAREHOST_BOOTSTRAP_HOST_BIN' => $scratch.'/bin/bootstrap',
         'RATEGURU_PREPAREHOST_DATABASE_INSTALLER_BIN' => $scratch.'/bin/database',
+        // The run root the data-operation guards live under. Pointed inside
+        // the scratch tree so a test can plant one without touching the host.
+        'RATEGURU_PREPAREHOST_RUN_ROOT' => $scratch.'/run',
         'STUB_LOG' => $scratch.'/log',
         'STUB_TOGGLES' => $scratch.'/toggles',
     ];
+}
+
+/**
+ * Plants one data-operation guard for staging-main under the scratch run root,
+ * in the shape the operation that owns it actually writes.
+ */
+function prepPlantGuard(string $scratch, string $namespace, string $name, array $document = []): string
+{
+    $dir = $scratch.'/run/'.$namespace.'/staging-main';
+    expect(@mkdir($dir, 0o700, true))->toBeTrue("could not create {$dir}");
+
+    $path = $dir.'/'.$name;
+
+    file_put_contents($path, json_encode(array_merge([
+        'operation' => '20260115-041233-9be21c',
+        'target' => 'staging-main',
+        'status' => 'awaiting-code',
+    ], $document), JSON_PRETTY_PRINT));
+
+    return $path;
 }
 
 /** Every slice compliant — an already prepared host. */
@@ -870,5 +893,105 @@ it('is not installed into the operational bundle or reachable through a deploy s
 
     foreach (glob(base_path('infrastructure/config/wrappers/*')) ?: [] as $wrapper) {
         expect(File::get($wrapper))->not->toContain('prepare-host');
+    }
+});
+
+// =============================================================================
+// The data-operation interlock
+// =============================================================================
+//
+// A live restore or a host recovery owns a target's DATA while its guard
+// exists, and preparation is not a data decision. The hazard is concrete: this
+// orchestrator's children reconverge the target's Supervisor program and its
+// scheduler cron entry, and both operations hold exactly those two aside on
+// purpose. GitHub concurrency does not cover it — a hold outlives the workflow
+// that created it.
+
+it('refuses to apply while a data operation owns the target, and runs no child', function (string $namespace, string $name) {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch);
+        $marker = prepPlantGuard($scratch, $namespace, $name);
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain('DATA OPERATION HOLD')
+            ->toContain($marker)
+            ->toContain('preparation is refused while a data operation owns staging-main')
+            ->toContain('nothing was changed');
+
+        // Refused before ANY child ran — not one installer, not even the
+        // target-agnostic runtime slice.
+        foreach (['runtime', 'prerequisites', 'bootstrap', 'database'] as $child) {
+            expect(prepLog($scratch, $child))->toBe([]);
+        }
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with([
+    'a restore guard' => ['restores', 'restore-guard'],
+    'a recovery guard' => ['recoveries', 'recovery-guard'],
+]);
+
+it('names both guards as a conflict when a target somehow carries both', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch);
+        prepPlantGuard($scratch, 'restores', 'restore-guard', ['status' => 'held']);
+        prepPlantGuard($scratch, 'recoveries', 'recovery-guard');
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain('carries BOTH a restore guard and a recovery guard')
+            ->toContain('can never legitimately hold the same target at once');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('reports a hold in read-only modes and keeps going, because an operator needs the diagnosis', function (string $mode) {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepPreparedFixture($scratch);
+        prepPlantGuard($scratch, 'recoveries', 'recovery-guard');
+
+        [$exit, $output] = prepRun(['--'.$mode, '--target', 'staging-main'], $env);
+
+        // A prepared host still verifies: the hold is reported, not fatal.
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('DATA OPERATION HOLD')
+            ->toContain('This is a read-only run, so it continues')
+            ->toContain('nothing may be APPLIED');
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with(['check', 'verify']);
+
+it('prepares normally when no data operation owns the target', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepPreparedFixture($scratch);
+
+        // The run root exists and is empty — the ordinary state of a host that
+        // has never had a restore or a recovery held.
+        expect(@mkdir($scratch.'/run', 0o700, true))->toBeTrue();
+
+        [$exit, $output] = prepRun(['--verify', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->not->toContain('DATA OPERATION HOLD')
+            ->toContain('TARGET PREPARED: YES');
+    } finally {
+        prepCleanup($scratch);
     }
 });

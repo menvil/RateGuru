@@ -42,16 +42,31 @@ it('adds exactly one server primitive and one transport action', function () {
     expect(requiredCliManifestNames())->toContain('recover-host');
 });
 
-it('ships recover-host the way Repair Target and Prepare Host ship, not as a second installer family', function () {
-    // Transported per run with the trusted bundle, exactly like repair-target
-    // and prepare-host — never installed into the operational bundle, because
-    // a recovering host's tooling must come from develop rather than from a
-    // release the host does not have.
+it('installs recover-host through the existing installer, and adds no second installer family', function () {
     $installer = File::get(base_path('infrastructure/scripts/install-target-operations'));
 
-    foreach (['recover-host', 'prepare-host', 'repair-target'] as $transported) {
+    // It is part of the operational bundle for one specific reason: `deploy`
+    // runs `recover-host --inspect` as its authoritative proof that a
+    // replacement host is still held, and a deployment cannot depend on a
+    // binary that only exists inside a per-run bundle.
+    expect($installer)
+        ->toContain('infrastructure/scripts/recover-host')
+        ->toContain('DST_BIN_ROOT}/recover-host"')
+        ->toContain('install_regular_file_transactional "${STAGE_DIR}/recover-host" "${DST_RECOVER_HOST}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"');
+
+    // prepare-host and repair-target stay transported per run: neither is ever
+    // reached by a deployment.
+    foreach (['prepare-host', 'repair-target'] as $transported) {
         expect($installer)->not->toContain('scripts/'.$transported);
     }
+
+    // The authoritative counts were updated honestly, not left stale.
+    expect($installer)
+        ->toContain('twenty-three files')
+        ->toContain('all twenty-three source files are present regular files')
+        ->toContain('bash -n passed for all twenty-one source shell scripts')
+        ->not->toContain('twenty-two files')
+        ->not->toContain('all twenty source');
 
     // And no second installer was created for it.
     $installers = collect(glob(base_path('infrastructure/scripts/install-*')) ?: [])
@@ -60,6 +75,73 @@ it('ships recover-host the way Repair Target and Prepare Host ship, not as a sec
 
     expect($installers)->not->toContain('install-recover-host')
         ->not->toContain('install-target-recovery');
+});
+
+it('gives the controlled recovery deployment the same authoritative hold proof a restore alignment has', function () {
+    $deploy = File::get(base_path('infrastructure/scripts/deploy'));
+
+    // deploy re-derives NEITHER proof: each is delegated to the one read-only
+    // implementation that owns it.
+    $authorization = shellFunctionBody($deploy, 'assert_recovery_alignment_authorized');
+
+    expect($authorization)
+        ->toContain('"${RECOVER_HOST_BIN}"')
+        ->toContain('--inspect')
+        ->toContain('RATEGURU_RECOVER_RESULT=')
+        ->toContain('expected exactly one');
+
+    // The three runtime facts it demands of that result, none of which deploy
+    // decides for itself.
+    expect($authorization)
+        ->toContain('.queue // empty')
+        ->toContain('.scheduler // empty')
+        ->toContain('.current_release // empty');
+
+    // And deploy grows no cron reader for recovery: the queue reader it
+    // already has belongs to the ordinary deployment.
+    expect(executableSourceLines($deploy))->not->toContain('cron.d');
+
+    // The proof itself lives in recover-host, once each, and is what
+    // --inspect, --apply and the deployment all reach.
+    $recover = File::get(base_path('infrastructure/scripts/recover-host'));
+
+    expect(substr_count($recover, "\nassert_runtime_still_held() {"))->toBe(1);
+    expect(substr_count($recover, "\nassert_runtime_resumed() {"))->toBe(1);
+});
+
+it('refuses to prepare a host another data operation is holding', function () {
+    $prepare = File::get(base_path('infrastructure/scripts/prepare-host'));
+
+    // Preparation's children reconverge the target's Supervisor program and
+    // its scheduler cron entry, and both a restore and a recovery hold exactly
+    // those aside on purpose. An --apply in that window could put the
+    // scheduler back and start a worker against data whose code has not
+    // arrived. GitHub concurrency is not enough: a hold outlives the workflow
+    // that created it.
+    expect($prepare)
+        ->toContain('restores/${TARGET_ID}/restore-guard')
+        ->toContain('recoveries/${TARGET_ID}/recovery-guard')
+        ->toContain('preparation is refused while a data operation owns');
+
+    // The gate runs before any child, in every mode.
+    $apply = shellFunctionBody($prepare, 'run_apply');
+
+    expect(mb_strpos($apply, 'gate_no_data_operation_hold'))
+        ->toBeLessThan(mb_strpos($apply, 'run_child_captured'));
+
+    foreach (['run_check', 'run_verify'] as $readOnly) {
+        expect(shellFunctionBody($prepare, $readOnly))->toContain('gate_no_data_operation_hold');
+    }
+
+    // Read-only modes report and continue; only --apply refuses. An operator
+    // looking at a held target needs the diagnosis.
+    $gate = shellFunctionBody($prepare, 'gate_no_data_operation_hold');
+
+    expect($gate)->toContain('[[ "${MODE}" != apply ]]');
+
+    // Existence-based, never a second parser for the guard documents: `common`
+    // owns that, prepare-host cannot source it, and a copy here would drift.
+    expect($gate)->not->toContain('required_source_sha');
 });
 
 it('reuses the existing backup primitives and implements none of them again', function () {
@@ -429,7 +511,10 @@ it('leaves every accepted operational surface it does not extend untouched', fun
 
     // The backup subsystem, the host perimeter, the SSH restriction, mail
     // capture, the wrappers and the sudoers grants: a recovery reuses all of
-    // them and adds nothing to any.
+    // them and adds nothing to any. install-target-operations and prepare-host
+    // are deliberately NOT on this list — the first installs recover-host so a
+    // deployment can reach it, the second gained the interlock that keeps it
+    // off a held target — and both are asserted positively above.
     foreach ([
         'infrastructure/scripts/backup-cycle',
         'infrastructure/scripts/offsite-backup',
@@ -438,7 +523,6 @@ it('leaves every accepted operational surface it does not extend untouched', fun
         'infrastructure/scripts/restore-test',
         'infrastructure/scripts/install-target-perimeter',
         'infrastructure/scripts/install-mail-capture',
-        'infrastructure/scripts/install-target-operations',
         'infrastructure/config/cron/rateguru-backups',
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',

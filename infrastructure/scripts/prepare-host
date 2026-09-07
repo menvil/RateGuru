@@ -169,6 +169,13 @@ TARGETS_CLI_BIN="$(gated_default RATEGURU_PREPAREHOST_TARGETS_CLI_BIN "${SCRIPT_
 # authority. Same source/runtime split bootstrap-host-preflight applies.
 SOURCE_REGISTRY="$(gated_default RATEGURU_PREPAREHOST_SOURCE_REGISTRY "$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)/infrastructure/config/deployment-targets.json")"
 
+# Where the data-operation guards live. Read only to REFUSE — see the interlock
+# below. Deliberately the same root every operational script resolves, named
+# here as a constant because this script cannot source `infrastructure/scripts/
+# common`: it runs on hosts where nothing is installed yet, which is the whole
+# point of it.
+OPERATIONAL_RUN_ROOT="$(gated_default RATEGURU_PREPAREHOST_RUN_ROOT /home/www/rateguru/run)"
+
 # --- Output -------------------------------------------------------------------
 
 fail() {
@@ -213,6 +220,11 @@ All modes require root and a lifecycle=active target.
 Orchestration only. Never deploys an application, never runs a migration,
 never restores a backup, never creates or rotates a secret, never drops or
 recreates a database, and never provisions a lifecycle=planned target.
+
+--apply is also refused while a live restore or a host recovery owns the
+target: this orchestrator's children reconverge the target's Supervisor program
+and its scheduler cron entry, and both of those operations hold exactly those
+two aside on purpose. --check and --verify report the hold and continue.
 USAGE
 }
 
@@ -431,6 +443,86 @@ gate_lifecycle_before() {
     validate_target_lifecycle
 }
 
+# --- Data-operation interlock -------------------------------------------------
+#
+# A live restore or a host recovery owns a target's DATA while its guard
+# exists, and preparation is not a data decision. The hazard is concrete rather
+# than theoretical: this orchestrator's children reconverge the target's
+# Supervisor program and its scheduler cron entry, and both operations hold
+# exactly those two aside on purpose. A `--apply` in that window could put the
+# scheduler back and start a worker against data whose code has not arrived,
+# and install-target-operations could replace the operational scripts a running
+# operation is executing.
+#
+# Read-only modes are allowed through and report it loudly: an operator looking
+# at a held target needs the diagnosis, and reading a marker changes nothing.
+# --apply refuses.
+#
+# Deliberately existence-based rather than a second parser for the guard
+# documents. `common` owns that parsing, this script cannot source it, and a
+# copy of it here is exactly the duplication that drifts. Any guard at all
+# means somebody else's operation owns this target, and that is the whole
+# decision. The operation ID is reported when `jq` happens to be available —
+# which it always is on a host that has ever been prepared, and never matters
+# on one that has not, because a bare host carries no guards.
+
+guard_marker_paths() {
+    printf '%s\n' \
+        "${OPERATIONAL_RUN_ROOT}/restores/${TARGET_ID}/restore-guard" \
+        "${OPERATIONAL_RUN_ROOT}/recoveries/${TARGET_ID}/recovery-guard"
+}
+
+guard_operation_label() {
+    local marker="$1"
+
+    command -v jq >/dev/null 2>&1 || { printf 'unknown'; return 0; }
+
+    jq -r '"operation " + (.operation // "unknown") + ", status " + (.status // "unknown")' \
+        "${marker}" 2>/dev/null || printf 'unknown'
+}
+
+# gate_no_data_operation_hold — collects every guard present, then decides.
+gate_no_data_operation_hold() {
+    validate_target_id
+
+    local marker
+    local -a held=()
+
+    while IFS= read -r marker; do
+        [[ -e "${marker}" ]] || continue
+        held+=("${marker}")
+    done < <(guard_marker_paths)
+
+    if (( ${#held[@]} == 0 )); then
+        return 0
+    fi
+
+    printf '\n'
+
+    if (( ${#held[@]} > 1 )); then
+        printf 'DATA OPERATION HOLD: %s carries BOTH a restore guard and a recovery guard.\n' "${TARGET_ID}"
+        printf 'A live restore requires a deployed target and a host recovery requires an empty\n'
+        printf 'one, so the two can never legitimately hold the same target at once.\n'
+    else
+        printf 'DATA OPERATION HOLD: %s is owned by another operation right now.\n' "${TARGET_ID}"
+    fi
+
+    for marker in "${held[@]}"; do
+        printf '  %s (%s)\n' "${marker}" "$(guard_operation_label "${marker}")"
+    done
+
+    printf '\n'
+
+    if [[ "${MODE}" != apply ]]; then
+        printf 'This is a read-only run, so it continues — but nothing may be APPLIED to this\n'
+        printf 'target until that operation is finished or resolved.\n\n'
+
+        return 0
+    fi
+
+    fail "preparation is refused while a data operation owns ${TARGET_ID}: this orchestrator's children reconverge the target's Supervisor program and its scheduler cron entry, and both are held aside on purpose. Finish or resolve the operation named above first — nothing was changed."
+}
+
 # --- Child invocation ---------------------------------------------------------
 
 CHILD_OUTPUT=""
@@ -569,6 +661,7 @@ run_check() {
     printf 'Pipeline: external prerequisites -> host bootstrap -> target database -> final\n'
 
     gate_lifecycle_now_if_possible
+    gate_no_data_operation_hold
     run_readonly_walk check NEEDS_APPLY
 
     print_summary 'TARGET PREPARED' || exit 1
@@ -579,6 +672,7 @@ run_verify() {
     printf 'Target: %s\n' "${TARGET_ID}"
 
     gate_lifecycle_now_if_possible
+    gate_no_data_operation_hold
     run_readonly_walk verify FAIL
 
     print_summary 'TARGET PREPARED' || exit 1
@@ -594,6 +688,10 @@ run_apply() {
     # Before ANY mutation whenever the registry can already be read, and in
     # every case before the first target-specific slice.
     gate_lifecycle_now_if_possible
+
+    # And before any of it, the interlock: a target another operation is
+    # holding is not one this orchestrator may converge.
+    gate_no_data_operation_hold
 
     local slice_id label bin apply_status precheck_mode
     local -a precheck_args apply_args verify_args

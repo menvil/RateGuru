@@ -1296,7 +1296,17 @@ Slices, in order:
      no migration, no queue start, no scheduler restoration, no guard removal,
      no health check treated as a success contract, and `previous` deliberately
      left absent. GitHub never names the commit — the server reads it from its
-     own recovery documents.
+     own recovery documents — and, exactly as a restore alignment does, it
+     delegates the "still held" proof to the operation's own read-only
+     `--inspect` rather than re-deriving it. That matters because a recovery
+     routinely outlives the workflow that started it: a queue started or a
+     scheduler cron entry restored in the meantime would let Laravel run
+     against recovered data the moment `current` appeared.
+   - **Prepare Host joined the interlock.** Its children reconverge the
+     target's Supervisor program and its scheduler cron entry, which is exactly
+     what a restore or a recovery holds aside — so `--apply` refuses while any
+     guard exists and the read-only modes report it. GitHub concurrency is not
+     enough on its own: a hold outlives the workflow that created it.
    - **One reusable transport action.**
      `.github/actions/recover-rateguru-host` carries the trusted `develop`
      bundle to a replacement host over the BOOTSTRAP credential with strict

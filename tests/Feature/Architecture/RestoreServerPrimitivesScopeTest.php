@@ -116,13 +116,34 @@ it('installs every new primitive through the existing target-operations installe
 
     expect($installer)->toContain('DST_BIN_ROOT="/home/www/rateguru/bin"');
 
-    // The authoritative counts were updated honestly, not left stale.
+    // The counts the installer states about itself are DERIVED from what it
+    // actually installs, never hardcoded here. A hardcoded number turns this
+    // guard into a tax on every later addition — and the defect it exists to
+    // catch is precisely "a file was added and the prose still says the old
+    // number", which only a derived expectation can see.
+    $destinations = preg_match_all('/^DST_[A-Z_]+=/m', $installer, $ignored);
+    $installedFiles = $destinations - 2;   // DST_CONFIG_ROOT and DST_BIN_ROOT are roots
+
+    $words = [
+        20 => 'twenty', 21 => 'twenty-one', 22 => 'twenty-two',
+        23 => 'twenty-three', 24 => 'twenty-four', 25 => 'twenty-five',
+    ];
+
+    // toHaveKey's second argument is an expected VALUE, not a message.
+    expect(array_key_exists($installedFiles, $words))
+        ->toBeTrue("no English word for {$installedFiles} installed files — extend the map");
+
     expect($installer)
-        ->toContain('twenty-two files')
-        ->toContain('all twenty-two source files are present regular files')
-        ->toContain('bash -n passed for all twenty source shell scripts')
-        ->not->toContain('sixteen files')
-        ->not->toContain('all fourteen source');
+        ->toContain($words[$installedFiles].' files')
+        ->toContain('all '.$words[$installedFiles].' source files are present regular files');
+
+    // Two of those files are the sourced libraries, which are never `bash -n`'d
+    // as scripts alongside the registry and deployment.conf.
+    $scripts = $installedFiles - 2;
+
+    expect($installer)
+        ->toContain('bash -n passed for all '.$words[$scripts].' source shell scripts')
+        ->toContain('bash -n: OK for all '.$words[$scripts].' installed scripts');
 
     // restore-common is installed as a library, never a CLI.
     expect($installer)->toContain('install_regular_file_transactional "${STAGE_DIR}/restore-common" "${DST_RESTORE_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${COMMON_MODE}"');

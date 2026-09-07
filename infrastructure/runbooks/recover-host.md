@@ -256,7 +256,8 @@ holding restored data with no code at all.
 
 While it exists, **every** ordinary operation on that target fails closed:
 `deploy`, `rollback`, `cleanup`, `backup`, `restore-target`, `repair-target`,
-and a second `recover-host --apply`. Only three things are allowed:
+`prepare-host --apply` and a second `recover-host --apply`. Only three things
+are allowed:
 
 * `recover-host --inspect`;
 * the controlled recovery deployment for that **exact** operation;
@@ -266,6 +267,17 @@ The restore guard and the recovery guard are mutually exclusive. Both present
 is a hard failure requiring manual recovery — a live restore requires a
 deployed target and a recovery requires an empty one, so the two can never
 legitimately hold the same target at once.
+
+**Prepare Host is inside this interlock, and that is not incidental.** Its
+children reconverge the target's Supervisor program and its scheduler cron
+entry, and a recovery holds exactly those two aside on purpose. A
+`prepare-host --apply` in the `awaiting-code` window could put the scheduler
+back and start a worker against data whose code has not arrived, and
+`install-target-operations` could replace the operational scripts a running
+operation is executing. So `--apply` refuses while any guard exists;
+`--check` and `--verify` report the hold and continue, because an operator
+looking at a held target needs the diagnosis. GitHub concurrency is not enough
+on its own: a hold outlives the workflow that created it.
 
 ---
 
@@ -341,7 +353,11 @@ belongs to, and a migration is by definition a change to that data's shape.
 the required `source_sha` is read on the server, out of that operation's own
 persisted recovery documents, and the artifact is checked against it there.
 
-Authorization, all of it before a single byte moves:
+Authorization comes in two independent halves, all of it before a single byte
+moves.
+
+**From the two persisted documents** (`common`'s
+`assert_recovery_alignment_operation`):
 
 1. a recovery guard exists;
 2. its status is `awaiting-code`;
@@ -350,11 +366,30 @@ Authorization, all of it before a single byte moves:
 5. the persisted backup matches the guard's;
 6. the persisted `operation_kind` is `host-recovery`;
 7. the required `source_sha` matches between guard and state, and is a full
-   40-character commit;
-8. `current` is absent and `previous` is absent;
-9. the artifact's `release.json.source_sha` equals that commit — checked against
-   the extracted tree, before `current` is switched;
-10. everything the ordinary deploy contract already proves about an artifact.
+   40-character commit.
+
+**From `recover-host --inspect`, run read-only at that moment**, because a
+recovery routinely outlives the workflow that started it and the host can have
+changed underneath it:
+
+8. the queue is provably **fully STOPPED** — observed through Supervisor, not
+   assumed;
+9. the scheduler cron entry is still **held out of `/etc/cron.d`**;
+10. `current` and `previous` are still **absent**;
+11. the operation, target and required commit it reports match the documents.
+
+This is the same shape a restore alignment uses, and for the same reason:
+reading Supervisor correctly is subtle enough that a second implementation of
+the proof would eventually disagree with the first, and the disagreement would
+be discovered by a queue worker writing to a database it should not have been
+able to reach. `deploy` re-derives neither proof; it asks the one
+implementation that owns each.
+
+**And of the artifact**:
+
+12. its `release.json.source_sha` equals that commit — checked against the
+    extracted tree, before `current` is switched;
+13. everything the ordinary deploy contract already proves about an artifact.
 
 **What the recovery deployment does:** artifact checksum validation, path safety,
 extraction, permission normalization, `verify-required-clis`, `release.json`
@@ -389,9 +424,16 @@ Under the target's own deployment lock:
 8. only **this** target's scheduler cron entry is put back, byte-for-byte;
 9. only **this** target's queue program is started;
 10. the health check passes;
-11. only then are the retained pre-recovery database and storage tree
+11. the resumed runtime is **observed**: the scheduler entry is genuinely back
+    in `/etc/cron.d` and the queue program is genuinely fully RUNNING. Neither
+    step 8 nor step 9 is a proof of this — restoring the entry is a no-op when
+    the operation's own state says this recovery never held it, and starting
+    the queue returns early when the group already reports RUNNING — so a
+    recovery that reported `scheduler: present` on the strength of either would
+    be claiming something it never looked at;
+12. only then are the retained pre-recovery database and storage tree
     committed (dropped/removed);
-12. the guard is cleared, a `completed` history record is appended, and one
+13. the guard is cleared, a `completed` history record is appended, and one
     machine-readable result is emitted.
 
 If the health check or the final verification fails **after** code alignment,
@@ -446,10 +488,20 @@ to the deployment pipeline. The staged storage swap needs a canonical `app` to
 move aside, so recovery creates the empty one a first deployment would have
 created, with byte-identical ownership and mode (`runtime:www-data`, `2710`).
 
-It is deliberately **not** removed by compensation: it holds no data, it is the
-correct shape for a prepared target, and the guarded storage remover refuses to
-touch anything but this tooling's own operation-scoped siblings — which is
-exactly the perimeter that keeps a failed recovery from deleting a real tree.
+It is its own named step, and it is **reversible**: a recovery that does not
+complete removes it again, so a host that was `PRE_DEPLOY` with no `app` at all
+is `PRE_DEPLOY` with no `app` at all afterwards.
+
+The removal is `rmdir`, never `rm -rf`, and that is the whole safety argument:
+`rmdir` fails on a non-empty directory, so it cannot delete data even if every
+check above it were wrong. It is refused outright unless the path is exactly
+this target's own `shared/storage/app`, a real directory, and recorded in this
+operation's own state as one this recovery created — a tree that was already
+there is never touched.
+
+Staging itself still leaves the canonical state exactly as it found it. That
+contract is about the tree the swap replaces, and this is the step that
+establishes it.
 
 ---
 
@@ -467,8 +519,20 @@ recover-host --inspect --target T --operation <ID>
 ```
 
 It reports the backup, the backup's release, the required `source_sha` and what
-`current` is (absent, until the deployment lands), and changes nothing. Fix the
-build, run it again for the same commit, deploy with the same
+`current` is (absent, until the deployment lands). It changes no database, no
+storage tree, no queue, no scheduler entry, no `current` link, no operation
+state and no guard — it does take the recovery operation lock, which creates
+that lock file, so it cannot read state a concurrent `--resume` is halfway
+through writing. (`--check` is the mode with no side effects at all.)
+
+It also **re-proves the hold**: it refuses outright if the queue has been
+started, if the scheduler cron entry is back in `/etc/cron.d`, or if the host is
+serving code. That is what makes it usable as the controlled recovery
+deployment's last-moment authorization, and why it reports `queue` and
+`scheduler` at all — those two fields describe what it observed, never what it
+assumed.
+
+Fix the build, run it again for the same commit, deploy with the same
 `--recovery-operation`, then `--resume`.
 
 `--apply` is **not** re-runnable for the same host while the guard exists: a

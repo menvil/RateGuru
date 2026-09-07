@@ -730,13 +730,16 @@ assert_environment_matches_backup() {
 # A freshly prepared host has shared/storage but no shared/storage/app: the
 # host layout stops at the structural root and leaves Laravel's descendants to
 # the deployment pipeline. The staged storage swap needs a canonical `app` to
-# move aside, so the empty one a first deployment would have created is created
-# here instead, with byte-identical ownership and mode.
+# move aside — restore-storage refuses to stage beside a live tree that is not
+# a real directory — so the empty one a first deployment would have created is
+# created here, in its own named step BEFORE staging, with byte-identical
+# ownership and mode.
 #
-# It is deliberately NOT removed by compensation: it holds no data, it is the
-# correct shape for a prepared target, and the guarded storage remover refuses
-# to touch anything but this tooling's own operation-scoped siblings — which is
-# exactly the perimeter that keeps a failed recovery from deleting a real tree.
+# Its own step, and reversible: an operation that does not complete removes it
+# again, so a host that was PRE_DEPLOY with no `app` at all is PRE_DEPLOY with
+# no `app` at all afterwards. Staging itself still leaves the canonical state
+# exactly as it found it — that contract is about the tree the swap replaces,
+# and this is the step that establishes it.
 ensure_prepared_storage_baseline() {
     if [[ -d "${LIVE_APP}" ]] && [[ ! -L "${LIVE_APP}" ]]; then
         return 0
@@ -749,6 +752,36 @@ ensure_prepared_storage_baseline() {
     restore_state_set "${STATE_FILE}" storage_baseline_created true
 
     log "created the prepared storage baseline ${LIVE_APP} (empty, ${RUNTIME_USER}:${RESTORE_WEB_GROUP}, mode 2710) — exactly what a first deployment creates"
+}
+
+# discard_prepared_storage_baseline — put the host back to the ABSENT `app` it
+# had before, and ONLY when this operation is the thing that created it.
+#
+# `rmdir`, never `rm -rf`, and that is the whole safety argument: rmdir fails on
+# a non-empty directory, so this cannot delete data even if every check above it
+# were wrong. It is refused outright unless the path is exactly this target's
+# own shared/storage/app, a real directory, and recorded in this operation's own
+# state as one this recovery created.
+#
+# Non-fatal: it runs on paths that are already reporting an outcome, and its own
+# failure must never replace that outcome.
+discard_prepared_storage_baseline() {
+    [[ "${STORAGE_BASELINE_CREATED}" == true ]] || return 0
+
+    [[ "${LIVE_APP}" == "${STORAGE_ROOT}/app" ]] || return 0
+    [[ ! -L "${LIVE_APP}" ]] || return 0
+    [[ -d "${LIVE_APP}" ]] || return 0
+
+    if rmdir "${LIVE_APP}" 2>/dev/null; then
+        STORAGE_BASELINE_CREATED=false
+        ( restore_state_set "${STATE_FILE}" storage_baseline_created false ) || true
+
+        log "removed the prepared storage baseline ${LIVE_APP} — the host is back to the PRE_DEPLOY shape it had before this recovery"
+
+        return 0
+    fi
+
+    log "WARNING: could not remove the prepared storage baseline ${LIVE_APP}; it is not empty, so it is left exactly as it is"
 }
 
 # --- runtime hold -----------------------------------------------------------------
@@ -914,6 +947,79 @@ hold_runtime() {
             log "ERROR: could not confirm ${SUPERVISOR_PROGRAM} is STOPPED — a queue worker may still be running against this target"
         fi
     fi
+}
+
+# --- runtime observation -------------------------------------------------------
+#
+# The two proofs that are OBSERVED rather than claimed. Everything below reads
+# Supervisor, /etc/cron.d and the release links as they are right now, and the
+# machine-readable result only ever reports what one of these functions proved.
+#
+# assert_runtime_still_held is the authoritative last-moment proof a controlled
+# recovery deployment runs before it installs anything, through
+# `recover-host --inspect`. It matters because a recovery routinely outlives
+# the workflow that started it: a historical build can fail, a run can be
+# cancelled, an operator can come back the next day — and in that window the
+# queue can be started or the scheduler cron entry can reappear. Deploying code
+# into that would let Laravel run against recovered data before
+# `recover-host --resume` has proven anything about it.
+#
+# This is the ONE implementation of that proof, for exactly the reason
+# restore-target gives about its own: reading Supervisor correctly is subtle
+# enough that a second copy would eventually disagree with this one, and the
+# disagreement would be discovered by a queue worker writing to a database it
+# should not have been able to reach.
+
+assert_runtime_still_held() {
+    # A recovering host has no code at all. Both links are read here as well as
+    # in `deploy`, because this is the proof `deploy` delegates TO — it must be
+    # complete on its own, not a fragment the caller completes.
+    [[ ! -e "${CURRENT_LINK}" ]] && [[ ! -L "${CURRENT_LINK}" ]] \
+        || fail "${TARGET_ID} has ${CURRENT_LINK}: it is serving code already, so the hold this recovery depends on is gone and it is not safe to continue the recovery flow"
+
+    [[ ! -e "${PREVIOUS_LINK}" ]] && [[ ! -L "${PREVIOUS_LINK}" ]] \
+        || fail "${TARGET_ID} has ${PREVIOUS_LINK}: a rebuilt host has no release history, so something other than this recovery has touched it and it is not safe to continue the recovery flow"
+
+    # One observation, classified here rather than through
+    # queue_program_fully_stopped, which would observe a second time: two reads
+    # can legitimately disagree, and the states named in the refusal below must
+    # be the ones the decision was actually made on.
+    observe_queue_program \
+        || fail "cannot observe the target queue program ${SUPERVISOR_PROGRAM}: ${QUEUE_OBSERVATION_ERROR} — refusing to report a host as held without knowing whether a worker is running"
+
+    local state
+    for state in "${QUEUE_PROCESS_STATES[@]}"; do
+        [[ "${state}" == "STOPPED" ]] \
+            || fail "the target queue program ${SUPERVISOR_PROGRAM} is not fully STOPPED (${QUEUE_PROCESS_STATES[*]}) — the hold this recovery depends on is gone, and it is not safe to continue the recovery flow"
+    done
+
+    if scheduler_file_present; then
+        fail "${SCHEDULER_FILE} is present — a scheduled writer can fire against this host, so the hold this recovery depends on is gone and it is not safe to continue the recovery flow"
+    fi
+
+    RECOVER_QUEUE="stopped"
+    RECOVER_SCHEDULER="held"
+}
+
+# assert_runtime_resumed — the mirror image, and the last thing proven before a
+# recovery may discard its retained pre-recovery copies.
+#
+# `release_scheduler_entry` is a no-op when the operation's own state says this
+# recovery never held the entry, and `start_queue_program` returns early when
+# the group already reports RUNNING. Neither is a proof that the target ends up
+# with a scheduler and a worker, so neither may be what licenses the commit.
+assert_runtime_resumed() {
+    scheduler_file_present \
+        || fail "${SCHEDULER_FILE} is absent — a recovered target runs its own scheduler, and this recovery will not commit its retained pre-recovery copies while it does not"
+
+    observe_queue_program \
+        || fail "cannot observe the target queue program ${SUPERVISOR_PROGRAM}: ${QUEUE_OBSERVATION_ERROR} — refusing to complete a recovery without knowing whether its worker is running"
+
+    queue_program_running \
+        || fail "the target queue program ${SUPERVISOR_PROGRAM} is not fully RUNNING (${QUEUE_PROCESS_STATES[*]}) — a recovered target serves its own queue, and this recovery will not commit its retained pre-recovery copies while it does not"
+
+    RECOVER_QUEUE="running"
+    RECOVER_SCHEDULER="present"
 }
 
 # --- data verification -------------------------------------------------------------
@@ -1184,8 +1290,10 @@ handle_recovery_exit() {
         none|staged)
             # Nothing canonical was ever replaced, and the runtime was never
             # touched. Remove the staged copies so a failed attempt leaves no
-            # temporary database or half-extracted tree behind.
+            # temporary database or half-extracted tree behind, and put the
+            # storage baseline back to the ABSENT it was.
             discard_staged_artifacts
+            discard_prepared_storage_baseline
             status="failed"
             ;;
         held)
@@ -1195,6 +1303,7 @@ handle_recovery_exit() {
             discard_staged_artifacts
 
             if release_scheduler_entry; then
+                discard_prepared_storage_baseline
                 status="failed"
             else
                 HOLD_UNCONFIRMED=true
@@ -1211,6 +1320,9 @@ handle_recovery_exit() {
                 # and starting it would invent a runtime state the machine
                 # never had.
                 if release_scheduler_entry; then
+                    # Last, because compensation has just put the empty tree
+                    # back under this name and only now is it removable.
+                    discard_prepared_storage_baseline
                     status="failed-recovered"
                 else
                     HOLD_UNCONFIRMED=true
@@ -1478,8 +1590,11 @@ perform_recovery() {
     append_recovery_history awaiting-code \
         || fail "could not append the recovery history record"
 
-    RECOVER_QUEUE="stopped"
-    RECOVER_SCHEDULER="held"
+    # The same observation --inspect and the controlled recovery deployment
+    # make, run here so that --apply's own report and result describe a hold
+    # this run PROVED rather than one it believes it established. Holding the
+    # runtime and having held it are not the same claim.
+    assert_runtime_still_held
 
     print_awaiting_code_report
     emit_recover_result awaiting-code
@@ -1630,17 +1745,27 @@ read_current_identity() {
 
 # --- inspect ---------------------------------------------------------------------------
 #
-# Strictly read-only against the target: it changes no database, no storage
-# tree, no queue, no scheduler entry, no `current` link and no guard. It takes
-# the recovery operation lock so it cannot read state a running recovery is
-# halfway through writing, and reads.
+# Read-only against the TARGET: it changes no database, no storage tree, no
+# queue, no scheduler entry, no `current` link, no operation state and no
+# guard. It does take the recovery operation lock — which creates that lock
+# file, and is stated here rather than glossed over — so it cannot read state a
+# concurrent `--resume` is halfway through writing. `--check` is the mode with
+# no side effects at all; this one addresses a persisted operation, and a torn
+# read of that operation's state is exactly what a deployment must not act on.
 #
 # It exists because a recovery is a chain across two systems, and the GitHub
 # half of it can fail on its own: a historical commit that no longer builds, a
 # cancelled workflow run, a runner that died, or an operator who comes back the
-# next day. The host is still waiting — correctly, and indefinitely — and the
-# question that has to be answerable at any later point is "what exactly is
-# this host waiting for?".
+# next day. The host is still waiting — correctly, and indefinitely — and two
+# questions have to be answerable at any later point: "what exactly is this
+# host waiting for?", and "is it STILL held?".
+#
+# The second question is why the controlled recovery deployment runs this
+# rather than deciding for itself. Between `--apply` and the deployment the
+# queue can be started or the scheduler cron entry can reappear, and installing
+# code into that would let Laravel run against recovered data before anything
+# has verified it. assert_runtime_still_held is the one implementation of that
+# proof, and this mode is how `deploy` reaches it.
 perform_inspect() {
     step "acquire recovery operation lock"
     acquire_recovery_operation_lock
@@ -1654,9 +1779,13 @@ perform_inspect() {
     step "read current release identity"
     read_current_identity
 
+    # OBSERVED, never assumed: the report below and the machine-readable result
+    # both describe what this proved, and it refuses rather than reporting a
+    # hold that is no longer real.
+    step "verify the host is still held"
+    assert_runtime_still_held
+
     DATA_RESTORED=true
-    RECOVER_QUEUE="stopped"
-    RECOVER_SCHEDULER="held"
 
     printf '\n'
     printf '========================================================\n'
@@ -1668,7 +1797,7 @@ perform_inspect() {
     printf 'REQUIRED SOURCE SHA: %s\n' "${BACKUP_SOURCE_SHA}"
     printf 'CURRENT RELEASE: %s\n' "${CURRENT_RELEASE:-absent}"
     printf 'CURRENT SOURCE SHA: %s\n' "${CURRENT_SOURCE_SHA:-absent}"
-    printf 'RUNTIME: queue STOPPED, scheduler HELD\n'
+    printf 'RUNTIME: queue STOPPED, scheduler HELD (observed)\n'
     printf '========================================================\n'
 
     emit_recover_result awaiting-code
@@ -1741,9 +1870,17 @@ perform_resume() {
     "${RESTORE_HEALTH_CHECK_BIN}" --target "${TARGET_ID}" \
         || fail "health check failed after the recovery deployment — the target stays held, and its data, its retained pre-recovery copies and its guard are all untouched"
 
-    # Only now: the code matches the data, the runtime is up and the target is
-    # healthy. The retained pre-recovery database and storage tree have no
-    # further use, and this is the first moment it is safe to say so.
+    # The final runtime proof, OBSERVED. Neither step above is one: restoring
+    # the scheduler entry is a no-op when this operation never held it, and
+    # starting the queue returns early when the group already reports RUNNING.
+    # A recovery that reported `scheduler: present` on the strength of either
+    # would be claiming something it never looked at.
+    step "verify the resumed runtime"
+    assert_runtime_resumed
+
+    # Only now: the code matches the data, the runtime is up and PROVEN, and the
+    # target is healthy. The retained pre-recovery database and storage tree
+    # have no further use, and this is the first moment it is safe to say so.
     step "commit"
     "${RESTORE_STORAGE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
     "${RESTORE_DATABASE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
@@ -1765,9 +1902,9 @@ perform_resume() {
     append_recovery_history completed \
         || fail "could not append the recovery history record"
 
+    # RECOVER_QUEUE and RECOVER_SCHEDULER were set by assert_runtime_resumed,
+    # from what it observed.
     RECOVER_HEALTH="pass"
-    RECOVER_QUEUE="running"
-    RECOVER_SCHEDULER="present"
 
     printf '\n'
     printf '========================================================\n'
@@ -1828,22 +1965,15 @@ perform_verify() {
     verify_recovered_database
     verify_recovered_storage
 
-    scheduler_file_present \
-        || fail "${SCHEDULER_FILE} is absent — a recovered target runs its own scheduler"
-
-    observe_queue_program \
-        || fail "cannot observe the target queue program ${SUPERVISOR_PROGRAM}: ${QUEUE_OBSERVATION_ERROR}"
-
-    queue_program_running \
-        || fail "the target queue program ${SUPERVISOR_PROGRAM} is not fully RUNNING (${QUEUE_PROCESS_STATES[*]})"
+    # The same observation --resume commits on, so "verified" and "completed"
+    # cannot come to mean two different things about the same host.
+    assert_runtime_resumed
 
     "${RESTORE_HEALTH_CHECK_BIN}" --target "${TARGET_ID}" \
         || fail "health check failed for ${TARGET_ID}"
 
     DATA_RESTORED=true
     RECOVER_HEALTH="pass"
-    RECOVER_QUEUE="running"
-    RECOVER_SCHEDULER="present"
 
     printf '\n'
     printf '========================================================\n'

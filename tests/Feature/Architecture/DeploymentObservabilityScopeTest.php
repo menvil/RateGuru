@@ -153,15 +153,23 @@ it('reports drift and fails closed rather than reconciling it', function () {
 });
 
 it('keeps preparation free of the Recover operation it enables', function () {
-    // Host recovery now exists, and it REQUIRES a prepared host — but
-    // preparation still knows nothing about it. Nothing in the preparation
-    // surface may drive a recovery, restore data or build an application.
+    // Host recovery REQUIRES a prepared host, and preparation drives none of
+    // it: nothing in the preparation surface builds an application, restores
+    // data or runs a recovery.
     expect(File::get(base_path('.github/actions/prepare-rateguru-host/action.yml')))
         ->not->toContain('build-rateguru')
         ->not->toContain('recover-host');
 
-    expect(File::get(base_path('infrastructure/scripts/prepare-host')))
-        ->not->toContain('recover-host');
+    // prepare-host knows exactly one thing about the other operations: that a
+    // guard means somebody else owns this target. It reads the marker paths to
+    // REFUSE, and drives no recovery of any kind.
+    $prepare = executableSourceLines(File::get(base_path('infrastructure/scripts/prepare-host')));
+
+    expect($prepare)
+        ->toContain('recovery-guard')
+        ->not->toContain('recover-host')
+        ->not->toContain('restore-target')
+        ->not->toContain('--apply --target');
 
     // The dependency runs one way only: recovery verifies preparation, never
     // the reverse.

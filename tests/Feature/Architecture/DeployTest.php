@@ -2556,6 +2556,8 @@ function deployOpsRunDeployOn(string $scratch, array $fixture, string $arguments
     touch($verifyCliLog);
     $restoreTargetLog = $scratch.'/restore-target-'.uniqid('', true).'.log';
     touch($restoreTargetLog);
+    $recoverHostLog = $scratch.'/recover-host-'.uniqid('', true).'.log';
+    touch($recoverHostLog);
 
     $verifyStub = ($options['verify_clis_fail'] ?? false) === true
         ? deployOpsFailingVerifyRequiredClisStub($scratch, $verifyCliLog)
@@ -2573,6 +2575,11 @@ function deployOpsRunDeployOn(string $scratch, array $fixture, string $arguments
             $restoreTargetLog,
             $options['restore_target'] ?? [],
         ),
+        'RATEGURU_RECOVER_HOST_BIN' => deployOpsRecoverHostStub(
+            $scratch,
+            $recoverHostLog,
+            $options['recover_host'] ?? [],
+        ),
     ], $options['env'] ?? []));
 
     [$exit, $output] = deployOpsRunHarness(
@@ -2586,6 +2593,7 @@ function deployOpsRunDeployOn(string $scratch, array $fixture, string $arguments
         'output' => $output,
         'healthCheckLog' => $healthCheckLog,
         'restoreTargetLog' => $restoreTargetLog,
+        'recoverHostLog' => $recoverHostLog,
     ];
 }
 
@@ -3204,6 +3212,49 @@ function deployOpsWriteRecoveryState(string $scratch, array $overrides = []): vo
     chmod($path, 0o600);
 }
 
+/**
+ * A stand-in for the installed recover-host, exercised through deploy's own
+ * gated RATEGURU_RECOVER_HOST_BIN seam — the identical technique this file
+ * already uses for restore-target. It records the exact argv deploy invoked it
+ * with, so a test can prove deploy really asks the one implementation of the
+ * "still held" proof rather than deciding for itself.
+ */
+function deployOpsRecoverHostStub(string $scratch, string $logFile, array $options = []): string
+{
+    $path = $scratch.'/bin/recover-host-'.uniqid('', true);
+    $exit = (int) ($options['exit'] ?? 0);
+
+    $lines = $options['lines'] ?? ['RATEGURU_RECOVER_RESULT='.json_encode(array_merge([
+        'status' => 'awaiting-code',
+        'operation' => DEPLOY_OPS_RECOVERY_OPERATION,
+        'target' => 'parity-target',
+        'environment' => 'staging',
+        'backup' => '20260115-023000',
+        'backup_release' => DEPLOY_OPS_ALIGNMENT_RELEASE,
+        'required_source_sha' => DEPLOY_OPS_REQUIRED_SHA,
+        'current_release' => '',
+        'source_sha' => '',
+        'data_restored' => true,
+        'health' => 'unknown',
+        'queue' => 'stopped',
+        'scheduler' => 'held',
+    ], $options['result'] ?? []))];
+
+    $body = "#!/usr/bin/env bash\n"
+        .'echo "recover-host $*" >> '.escapeshellarg($logFile)."\n";
+
+    foreach ($lines as $line) {
+        $body .= 'printf "%s\n" '.escapeshellarg($line)."\n";
+    }
+
+    $body .= "exit {$exit}\n";
+
+    file_put_contents($path, $body);
+    chmod($path, 0o755);
+
+    return $path;
+}
+
 /** Both recovery documents in the one state a controlled recovery deployment may run in. */
 function deployOpsWriteAwaitingCodeRecovery(string $scratch, array $guard = [], array $state = []): void
 {
@@ -3363,6 +3414,82 @@ it('refuses a recovery deployment on every disagreement between the two document
     ],
 ]);
 
+it('refuses a recovery deployment when the host is no longer held', function (array $recoverHost, string $expected) {
+    $scratch = deployOpsScratchDir();
+
+    try {
+        $fixture = deployOpsBuildFixture($scratch);
+        $artifact = deployOpsAlignmentArtifact($scratch, $fixture);
+        deployOpsWriteAwaitingCodeRecovery($scratch);
+
+        $result = deployOpsRunDeployOn(
+            $scratch,
+            $fixture,
+            '--target parity-target --release '.DEPLOY_OPS_ALIGNMENT_RELEASE
+                .' --artifact '.$artifact['artifact']
+                .' --checksum '.$artifact['checksum']
+                .' --recovery-operation '.DEPLOY_OPS_RECOVERY_OPERATION,
+            ['recover_host' => $recoverHost],
+        );
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain($expected);
+
+        // Refused before anything moved: no history, no release directory, no
+        // current, and the guard untouched.
+        expect(deployOpsHistory($fixture['root']))->toBe([]);
+        expect(is_link($fixture['root'].'/current'))->toBeFalse();
+        expect(is_dir($fixture['root'].'/releases/'.DEPLOY_OPS_ALIGNMENT_RELEASE))->toBeFalse();
+        expect(is_file(deployOpsRecoveryGuardPath($scratch)))->toBeTrue();
+    } finally {
+        deployOpsCleanup($scratch);
+    }
+})->with([
+    // The window this closes is long and real: a recovery routinely outlives
+    // the workflow that started it, and a queue started or a scheduler cron
+    // entry restored in the meantime would let Laravel run against recovered
+    // data the moment `current` appeared.
+    'the queue came back' => [
+        ['result' => ['queue' => 'running']],
+        'reported queue running, not stopped',
+    ],
+    'the scheduler came back' => [
+        ['result' => ['scheduler' => 'present']],
+        'reported scheduler present, not held',
+    ],
+    'the host is already serving' => [
+        ['result' => ['current_release' => 'v9.9.9-20260101-000000-deadbee']],
+        'already serving v9.9.9-20260101-000000-deadbee',
+    ],
+    'inspect refuses outright' => [
+        ['exit' => 1, 'lines' => ['the hold this recovery depends on is gone']],
+        'recover-host --inspect refused recovery operation',
+    ],
+    'inspect says nothing' => [
+        ['lines' => []],
+        'produced 0 machine-readable results',
+    ],
+    'inspect says it twice' => [
+        ['lines' => [
+            'RATEGURU_RECOVER_RESULT={"status":"awaiting-code"}',
+            'RATEGURU_RECOVER_RESULT={"status":"awaiting-code"}',
+        ]],
+        'produced 2 machine-readable results',
+    ],
+    'inspect describes another operation' => [
+        ['result' => ['operation' => '20260101-000000-aaaaaa']],
+        'reported operation 20260101-000000-aaaaaa',
+    ],
+    'inspect describes another target' => [
+        ['result' => ['target' => 'somebody-else']],
+        'reported target somebody-else',
+    ],
+    'inspect requires another commit' => [
+        ['result' => ['required_source_sha' => DEPLOY_OPS_CURRENT_SHA]],
+        'refusing to deploy into a host whose own recovery state is inconsistent',
+    ],
+]);
+
 it('refuses a recovery deployment onto a target that already has a current release', function () {
     $scratch = deployOpsScratchDir();
 
@@ -3473,8 +3600,10 @@ it('installs the exact commit and leaves the rebuilt host held, with previous ab
         expect(json_decode(File::get(deployOpsRecoveryGuardPath($scratch)), true)['status'])->toBe('awaiting-code');
         expect($result['output'])->toContain('recover-host --resume --target parity-target');
 
-        // And it never consulted restore-target: a recovering host has no
-        // Supervisor-shaped hold to re-prove.
+        // It consulted recover-host — the one implementation of the "still
+        // held" proof — and never restore-target.
+        expect(File::get($result['recoverHostLog']))
+            ->toContain('recover-host --inspect --target parity-target --operation '.DEPLOY_OPS_RECOVERY_OPERATION);
         expect(File::get($result['restoreTargetLog']))->toBe('');
 
         // The history says held, never success.
