@@ -1,0 +1,42 @@
+infrastructure/scripts/recover-host
+  s_5ec8651e8e89ca::t_275d00a6379cb9 332-337
+  s_5ec8651e8e89ca::t_929e3adfdb4169 1688-1694,1696,1997-2011,2019-2027
+infrastructure/scripts/prepare-host
+  s_5ec8651e8e89ca::t_87f4e757a2b297 498-499,501-507,509-526,540-551,572,575
+infrastructure/ROADMAP.md
+  s_5ec8651e8e89ca::t_3d873061c064f0 1309-1315
+tests/Feature/Architecture/RecoverHostTest.php
+  s_5ec8651e8e89ca::t_0995a71980ddf7 1605-1608
+  s_5ec8651e8e89ca::t_83341f4847434f 1522-1604,1609-1614
+infrastructure/runbooks/recover-host.md
+  s_5ec8651e8e89ca::t_3d873061c064f0 294,297-299,302-318,371-374,495-516
+infrastructure/scripts/restore-target
+  s_5ec8651e8e89ca::t_275d00a6379cb9 306-311
+infrastructure/scripts/restore-common
+  s_5ec8651e8e89ca::t_e20a17fa3b747e 213-271
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_5ec8651e8e89ca::t_72a4e9ae73f90e 148-181
+tests/Feature/Architecture/PrepareHostOrchestratorTest.php
+  s_5ec8651e8e89ca::t_87028c67215869 267,293,1083-1096,1102-1186
+  s_5ec8651e8e89ca::t_893f49b728a472 219-223,290-292
+  s_5ec8651e8e89ca::t_d7a7687d3e1dce 158,160
+  s_5ec8651e8e89ca::t_cecfc8672ace23 150-152,156-157,162
+  s_5ec8651e8e89ca::t_06da58ccb6dfd9 1097-1101
+  s_5ec8651e8e89ca::t_2585f83dea9dd3 142-149,153-155,159,161,163-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e31acc3a87cffbd92cb1ce562232f7aa4d730534",
+  "prompts": {},
+  "sessions": {
+    "s_5ec8651e8e89ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "be186b9b-8a93-4245-bb71-a1048e59c906",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
