@@ -995,3 +995,74 @@ it('prepares normally when no data operation owns the target', function () {
         prepCleanup($scratch);
     }
 });
+
+it('refuses to apply while a data operation holds its lock, before its guard exists', function (string $prefix, string $expected) {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch);
+
+        // The window the guard cannot cover: an operation takes its lock the
+        // moment it starts, and its guard appears a beat later. A marker check
+        // alone lets a prepare-host --apply through in between — and this
+        // orchestrator's children would then reconverge the very Supervisor
+        // program and cron entry that operation is about to hold aside.
+        expect(@mkdir($scratch.'/run', 0o700, true))->toBeTrue();
+
+        $lockFile = $scratch.'/run/'.$prefix.'-staging.lock';
+        touch($lockFile);
+
+        $holder = proc_open(
+            ['flock', '-x', $lockFile, 'sleep', '30'],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+        );
+
+        usleep(300000);
+
+        try {
+            [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+            expect($exit)->not->toBe(0);
+            expect($output)
+                ->toContain($expected.' is running for backup namespace staging')
+                ->toContain('preparation is refused while it holds '.$lockFile)
+                ->toContain('nothing was changed');
+
+            // No guard exists at all — the lock is the whole of what stopped it.
+            expect(file_exists($scratch.'/run/recoveries/staging-main/recovery-guard'))->toBeFalse();
+
+            // And not one child ran.
+            foreach (['runtime', 'prerequisites', 'bootstrap', 'database'] as $child) {
+                expect(prepLog($scratch, $child))->toBe([]);
+            }
+        } finally {
+            proc_terminate($holder);
+            proc_close($holder);
+        }
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with([
+    'a live restore' => ['restore-target', 'A restore'],
+    'a host recovery' => ['recover-host', 'A host recovery'],
+]);
+
+it('prepares normally when the lock exists but nobody holds it', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepPreparedFixture($scratch);
+
+        expect(@mkdir($scratch.'/run', 0o700, true))->toBeTrue();
+        touch($scratch.'/run/recover-host-staging.lock');
+        touch($scratch.'/run/restore-target-staging.lock');
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->not->toContain('is running for backup namespace');
+    } finally {
+        prepCleanup($scratch);
+    }
+});

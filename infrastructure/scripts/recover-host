@@ -130,7 +130,9 @@ Usage:
              and the target deliberately NOT serving, awaiting the exact code
              the backup names.
   --inspect  Read-only. Report a recovery's identity, the commit it requires
-             and the state it is in, without changing anything.
+             and which of the two safe stages it is at — awaiting-code (no code
+             deployed yet) or ready-to-resume (the exact commit is deployed and
+             only --resume is left) — without changing anything.
   --resume   Finish a recovery once the required commit has been deployed by
              the controlled recovery deployment. Restores this target's
              scheduler, starts its queue, health-checks it and commits the
@@ -144,6 +146,9 @@ so the backup can only come from the offsite remote.
 Every terminal success also prints exactly one machine-readable line:
 
   RATEGURU_RECOVER_RESULT={"status":"...","operation":"...", ...}
+
+The status is awaiting-code or ready-to-resume for --inspect, awaiting-code for
+--apply, completed for --resume and verified for --verify.
 USAGE
 }
 
@@ -340,14 +345,26 @@ acquire_recovery_operation_lock() {
 # no code at all. A marker written only on completion is absent in exactly that
 # case.
 #
-#   in-progress    written before the first activation; the data may already be
-#                  the backup's and nothing may act on it
-#   awaiting-code  the data recovery completed; the exact commit has not been
-#                  deployed yet
+#   in-progress    written the moment the operation has a workspace, and held
+#                  for everything that follows. It says "another operation owns
+#                  this target", which is true from the first byte downloaded
+#                  — not only from the first byte activated. The earlier window
+#                  matters: a `prepare-host --apply` or an operational-bundle
+#                  reinstall landing while a recovery is staging would
+#                  reconverge the very Supervisor program and cron entry this
+#                  operation is about to hold aside, or replace the scripts it
+#                  is running from.
+#   awaiting-code  the data recovery completed AND the hold was re-proven; the
+#                  exact commit has not been deployed yet
 #   failed-held    a failure left data that may have been activated and could
 #                  not be fully compensated
-#   (removed)      the recovery completed: the code matches the data, the
-#                  target is serving and healthy
+#   (removed)      the recovery completed, or it failed with the prepared state
+#                  provably back
+#
+# The required commit is not known until the backup has been verified, so the
+# first write carries an empty one and the guard is re-labelled as the
+# operation learns more. That is safe by construction: every consumer that acts
+# on the commit demands a full 40-character SHA, and an empty one fails that.
 
 write_recovery_guard() {
     local status="$1" marker marker_dir
@@ -657,7 +674,13 @@ check_guards() {
         held_operation="$(jq -r '.operation // "unknown"' "${recovery_marker}" 2>/dev/null || printf 'unknown')"
         held_status="$(jq -r '.status // "unknown"' "${recovery_marker}" 2>/dev/null || printf 'unknown')"
 
-        problem "${TARGET_ID} is already being recovered by operation ${held_operation} (status ${held_status}): finish or resolve that recovery — 'recover-host --inspect --target ${TARGET_ID} --operation ${held_operation}' reports what it is waiting for — rather than starting a second one"
+        # THIS operation's own guard is not a foreign hold. It goes down before
+        # the download and stays down for everything that follows, so the
+        # re-read under the deployment lock would otherwise find a recovery
+        # already owning the target — and be right, and be useless.
+        if [[ -z "${OPERATION_ID}" ]] || [[ "${held_operation}" != "${OPERATION_ID}" ]]; then
+            problem "${TARGET_ID} is already being recovered by operation ${held_operation} (status ${held_status}): finish or resolve that recovery — 'recover-host --inspect --target ${TARGET_ID} --operation ${held_operation}' reports what it is waiting for — rather than starting a second one"
+        fi
     fi
 }
 
@@ -971,15 +994,6 @@ hold_runtime() {
 # should not have been able to reach.
 
 assert_runtime_still_held() {
-    # A recovering host has no code at all. Both links are read here as well as
-    # in `deploy`, because this is the proof `deploy` delegates TO — it must be
-    # complete on its own, not a fragment the caller completes.
-    [[ ! -e "${CURRENT_LINK}" ]] && [[ ! -L "${CURRENT_LINK}" ]] \
-        || fail "${TARGET_ID} has ${CURRENT_LINK}: it is serving code already, so the hold this recovery depends on is gone and it is not safe to continue the recovery flow"
-
-    [[ ! -e "${PREVIOUS_LINK}" ]] && [[ ! -L "${PREVIOUS_LINK}" ]] \
-        || fail "${TARGET_ID} has ${PREVIOUS_LINK}: a rebuilt host has no release history, so something other than this recovery has touched it and it is not safe to continue the recovery flow"
-
     # One observation, classified here rather than through
     # queue_program_fully_stopped, which would observe a second time: two reads
     # can legitimately disagree, and the states named in the refusal below must
@@ -999,6 +1013,63 @@ assert_runtime_still_held() {
 
     RECOVER_QUEUE="stopped"
     RECOVER_SCHEDULER="held"
+}
+
+# classify_recovery_stage — which of the two SAFE points in a recovery this
+# host is at, or a refusal.
+#
+# A recovery is a chain across two systems and it routinely outlives the
+# workflow that drives it. There are therefore two states an interrupted
+# recovery can legitimately be found in, and a proof that only recognised the
+# first would make the second — a successful controlled deployment whose runner
+# then died — look like damage:
+#
+#   awaiting-code     current ABSENT
+#                     the exact commit has not been deployed yet
+#   ready-to-resume   current PRESENT and carrying exactly the required commit,
+#                     previous ABSENT
+#                     the code has arrived; only `--resume` is left
+#
+# The runtime half is identical in both, and non-negotiable in both: the queue
+# provably fully STOPPED and the scheduler cron entry still held aside. Code
+# arriving is what SHOULD happen next; a worker starting is not.
+#
+# Sets RECOVERY_STAGE. Every caller decides for itself which stages it accepts —
+# `deploy --recovery-operation` takes only awaiting-code, `--resume` only
+# ready-to-resume — so this classifies and never authorizes.
+RECOVERY_STAGE=""
+
+classify_recovery_stage() {
+    RECOVERY_STAGE=""
+
+    assert_runtime_still_held
+
+    # Neither stage has a `previous`: a rebuilt host has no release history at
+    # all, and the controlled recovery deployment deliberately leaves none.
+    [[ ! -e "${PREVIOUS_LINK}" ]] && [[ ! -L "${PREVIOUS_LINK}" ]] \
+        || fail "${PREVIOUS_LINK} exists: a recovery deployment leaves no implicit rollback target, so a previous link here means something other than this recovery touched this host"
+
+    if [[ ! -e "${CURRENT_LINK}" ]] && [[ ! -L "${CURRENT_LINK}" ]]; then
+        RECOVERY_STAGE="awaiting-code"
+
+        return 0
+    fi
+
+    # There IS code. It is only a safe state if it is exactly the code the
+    # recovered data belongs to — anything else is a host serving something
+    # nobody in this operation asked for.
+    [[ -L "${CURRENT_LINK}" ]] \
+        || fail "${CURRENT_LINK} exists but is not a symlink — a recovery deployment installs a release, and this is not one"
+
+    read_current_identity
+
+    [[ -n "${CURRENT_SOURCE_SHA}" ]] \
+        || fail "${TARGET_ID}'s current release carries no usable source_sha in release.json — refusing to classify a host whose code cannot be identified"
+
+    [[ "${CURRENT_SOURCE_SHA}" == "${BACKUP_SOURCE_SHA}" ]] \
+        || fail "the deployed release carries source ${CURRENT_SOURCE_SHA}, but the recovered data belongs to ${BACKUP_SOURCE_SHA} — the target stays held, and no runtime was started"
+
+    RECOVERY_STAGE="ready-to-resume"
 }
 
 # assert_runtime_resumed — the mirror image, and the last thing proven before a
@@ -1472,6 +1543,15 @@ perform_recovery() {
 
     log "${LABEL} recovery operation ${OPERATION_ID} (offsite backup ${BACKUP_ID})"
 
+    # Down FIRST, and held for everything that follows. The operation lock
+    # serialises concurrent runs; this is what tells every OTHER operation —
+    # including ones that take no lock of ours — that this target is owned.
+    # It carries no commit yet: the backup has not been verified, and a guard
+    # with an empty required_source_sha correctly authorizes no deployment.
+    step "write recovery guard"
+    write_recovery_guard in-progress \
+        || fail "could not write the recovery guard — refusing to start a recovery that nothing would then stop an ordinary operation from converging underneath"
+
     SELECTED_BACKUP_DIR="$(restore_selected_backup_dir "${WORKSPACE}")"
 
     step "stage backup"
@@ -1535,12 +1615,14 @@ perform_recovery() {
     step "stage storage"
     "${RESTORE_STORAGE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --stage
 
-    # The last thing before anything canonical is replaced, and a hard
-    # prerequisite of replacing it. Failing here is cheap: the prepared,
-    # empty state is untouched. Failing to write it and continuing would not be.
-    step "write recovery guard"
+    # The guard has been on disk since before the download; this re-labels it
+    # with the commit the verified backup names, so that from here on it says
+    # not only "owned" but "owned, and waiting for exactly this code". A hard
+    # prerequisite of the activation below: failing here is cheap, because the
+    # prepared, empty state is untouched.
+    step "record the required commit in the recovery guard"
     write_recovery_guard in-progress \
-        || fail "could not write the recovery guard — refusing to activate recovered data that nothing would then stop an ordinary operation acting on"
+        || fail "could not record the required commit in the recovery guard — refusing to activate recovered data whose guard cannot say which code it belongs to"
 
     # Held here rather than at the start of the run, so that everything which
     # can still fail cheaply — the download, the full backup verification, the
@@ -1573,6 +1655,22 @@ perform_recovery() {
     # committed here. Until the exact code is deployed and the host has proven
     # healthy, they are the only way back to a prepared, empty machine, and
     # `recover-host --resume` is the only thing that may discard them.
+    # The same observation --inspect and the controlled recovery deployment
+    # make, so that --apply's own report and result describe a hold this run
+    # PROVED rather than one it believes it established. Holding the runtime
+    # and having held it are not the same claim.
+    #
+    # Run while the failure handler is STILL ARMED, and before anything is
+    # declared final. If this finds the queue running or the cron entry back,
+    # the operation is not a success that reports oddly — it is a failure, and
+    # the handler must be there to re-hold the runtime, label the guard
+    # failed-held and say MANUAL RECOVERY REQUIRED.
+    step "verify the host is still held"
+    classify_recovery_stage
+
+    [[ "${RECOVERY_STAGE}" == "awaiting-code" ]] \
+        || fail "${TARGET_ID} is in recovery stage '${RECOVERY_STAGE}' at the end of its own data recovery, which should be impossible — refusing to report a hold this run cannot account for"
+
     step "await code"
     restore_state_set "${STATE_FILE}" \
         status awaiting-code \
@@ -1584,17 +1682,12 @@ perform_recovery() {
     write_recovery_guard awaiting-code \
         || log "WARNING: the recovery guard could not be re-labelled; it remains in place and every ordinary operation still refuses"
 
+    # Only now, with the hold proven and recorded, is this operation terminal.
     RECOVERY_TERMINAL=true
     trap - ERR EXIT
 
     append_recovery_history awaiting-code \
         || fail "could not append the recovery history record"
-
-    # The same observation --inspect and the controlled recovery deployment
-    # make, run here so that --apply's own report and result describe a hold
-    # this run PROVED rather than one it believes it established. Holding the
-    # runtime and having held it are not the same claim.
-    assert_runtime_still_held
 
     print_awaiting_code_report
     emit_recover_result awaiting-code
@@ -1781,26 +1874,36 @@ perform_inspect() {
 
     # OBSERVED, never assumed: the report below and the machine-readable result
     # both describe what this proved, and it refuses rather than reporting a
-    # hold that is no longer real.
-    step "verify the host is still held"
-    assert_runtime_still_held
+    # state that is no longer real.
+    step "classify the recovery stage"
+    classify_recovery_stage
 
     DATA_RESTORED=true
+
+    local stage_line next_step
+    if [[ "${RECOVERY_STAGE}" == "awaiting-code" ]]; then
+        stage_line='AWAITING CODE (data restored, no code deployed yet)'
+        next_step='the controlled recovery deployment of the commit above, then --resume'
+    else
+        stage_line='READY TO RESUME (data restored, the exact code deployed)'
+        next_step='recover-host --resume — the deployment already landed'
+    fi
 
     printf '\n'
     printf '========================================================\n'
     printf 'RECOVERY OPERATION: %s\n' "${OPERATION_ID}"
     printf 'TARGET: %s\n' "${TARGET_ID}"
-    printf 'STATUS: AWAITING CODE (data restored, no code deployed yet)\n'
+    printf 'STATUS: %s\n' "${stage_line}"
     printf 'BACKUP: %s (offsite)\n' "${BACKUP_ID}"
     printf 'BACKUP RELEASE: %s\n' "${BACKUP_RELEASE}"
     printf 'REQUIRED SOURCE SHA: %s\n' "${BACKUP_SOURCE_SHA}"
     printf 'CURRENT RELEASE: %s\n' "${CURRENT_RELEASE:-absent}"
     printf 'CURRENT SOURCE SHA: %s\n' "${CURRENT_SOURCE_SHA:-absent}"
     printf 'RUNTIME: queue STOPPED, scheduler HELD (observed)\n'
+    printf 'NEXT: %s\n' "${next_step}"
     printf '========================================================\n'
 
-    emit_recover_result awaiting-code
+    emit_recover_result "${RECOVERY_STAGE}"
 
     log "${LABEL} recovery operation ${OPERATION_ID} inspected; nothing was changed"
 }
@@ -1822,20 +1925,13 @@ perform_resume() {
     step "authorize resume"
     assert_awaiting_code
 
+    # The same classifier --inspect reports and the deployment authorizes
+    # against, so "resumable" cannot come to mean two different things.
     step "check the deployed code"
-    read_current_identity
+    classify_recovery_stage
 
-    [[ -L "${CURRENT_LINK}" ]] \
+    [[ "${RECOVERY_STAGE}" == "ready-to-resume" ]] \
         || fail "${TARGET_ID} still has no current release — the recovery is waiting for a controlled recovery deployment of ${BACKUP_SOURCE_SHA}, and --resume only finishes a recovery whose code has arrived"
-
-    [[ ! -e "${PREVIOUS_LINK}" ]] && [[ ! -L "${PREVIOUS_LINK}" ]] \
-        || fail "${PREVIOUS_LINK} exists: a recovery deployment leaves no implicit rollback target, so a previous link here means something other than the controlled recovery deployment touched this host"
-
-    [[ -n "${CURRENT_SOURCE_SHA}" ]] \
-        || fail "${TARGET_ID}'s current release carries no usable source_sha in release.json"
-
-    [[ "${CURRENT_SOURCE_SHA}" == "${BACKUP_SOURCE_SHA}" ]] \
-        || fail "the deployed release carries source ${CURRENT_SOURCE_SHA}, but the recovered data belongs to ${BACKUP_SOURCE_SHA} — the target stays held, and no runtime was started"
 
     MAIN_BASHPID="${BASHPID}"
     MUTATION_STAGE=data-complete

@@ -1842,6 +1842,29 @@ case "${action}" in
         fi
 
         state="$(cat "${RGTEST_SUPERVISOR_STATE}")"
+
+        # A worker that comes back AFTER it was stopped. Without a way to model
+        # it, "something started the queue between the hold and the final
+        # proof" — the exact hazard a last-moment runtime proof exists for — is
+        # untestable.
+        #
+        # Anchored on the stop rather than on a raw call count, so a test does
+        # not have to know how many times an operation happens to read the
+        # group: RGTEST_SUPERVISOR_FLIP_AFTER_STOP=1 means the FIRST read after
+        # the stop still sees it stopped (the confirmation the stop itself
+        # waits for) and every read after that sees it back. Unset, nothing
+        # changes.
+        if [[ -n "${RGTEST_SUPERVISOR_FLIP_AFTER_STOP:-}" ]] \
+            && [[ -f "${RGTEST_SUPERVISOR_STATE}.stopped" ]]
+        then
+            observed=$(( $(cat "${RGTEST_SUPERVISOR_STATE}.stopped") + 1 ))
+            printf '%s\n' "${observed}" > "${RGTEST_SUPERVISOR_STATE}.stopped"
+
+            if (( observed > RGTEST_SUPERVISOR_FLIP_AFTER_STOP )); then
+                state="${RGTEST_SUPERVISOR_FLIP_STATE:-RUNNING}"
+            fi
+        fi
+
         printf '%-40s %s   pid 4242, uptime 0:10:00\n' "${group%:*}:${group%:*}_00" "${state}"
 
         # A second process in the same group, so a MIXED group (one RUNNING,
@@ -1859,6 +1882,8 @@ case "${action}" in
         # RGTEST_SUPERVISOR_STOP_STATE models a stop that TOOK EFFECT but landed
         # somewhere other than STOPPED — the state a confirmation timeout sees.
         printf '%s\n' "${RGTEST_SUPERVISOR_STOP_STATE:-STOPPED}" > "${RGTEST_SUPERVISOR_STATE}"
+        # Opens the post-stop observation window RGTEST_SUPERVISOR_FLIP_AFTER_STOP counts in.
+        printf '0\n' > "${RGTEST_SUPERVISOR_STATE}.stopped"
         [[ -z "$(cat "${RGTEST_SUPERVISOR_SECOND_STATE}" 2>/dev/null || true)" ]] \
             || printf '%s\n' "${RGTEST_SUPERVISOR_STOP_STATE:-STOPPED}" > "${RGTEST_SUPERVISOR_SECOND_STATE}"
         ;;

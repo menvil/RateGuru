@@ -190,10 +190,15 @@ initialized
   → database-activated               restore-database --activate
   → storage-activated                restore-storage  --activate
   → verified                         data verification
-  → awaiting-code                    ← --apply ends here
+  → awaiting-code                    ← --apply ends here, hold RE-PROVEN
         ⋮                            controlled recovery deployment
+  → (ready-to-resume)                ← what --inspect reports once code landed
   → completed                        ← --resume ends here
 ```
+
+`ready-to-resume` is a reading of the host, not a persisted phase: the guard
+still says `awaiting-code` until `--resume` clears it, and `--inspect` is what
+tells the two apart by looking at `current`.
 
 `recovery-activation-authorized` exists precisely so that recovery never has to
 write `emergency-backup-verified`. A live restore takes an emergency backup of
@@ -249,10 +254,21 @@ holding restored data with no code at all.
 
 | Status | Meaning |
 | --- | --- |
-| `in-progress` | written before the first activation; the data may already be the backup's |
-| `awaiting-code` | the data recovery completed; the exact commit is not deployed yet |
+| `in-progress` | written the moment the operation has a workspace, and held for everything that follows |
+| `awaiting-code` | the data recovery completed **and the hold was re-proven**; the exact commit is not deployed yet |
 | `failed-held` | a failure left data that may be canonical and could not be fully compensated |
-| *(removed)* | the recovery completed: code matches data, the target is serving and healthy |
+| *(removed)* | the recovery completed, or it failed with the prepared state provably back |
+
+The guard goes down **before the first byte is downloaded**, not before the
+first byte is activated. It says "another operation owns this target", and that
+is true from the moment the operation starts — the staging window matters just
+as much as the activation window, because a `prepare-host --apply` or an
+operational-bundle reinstall landing in it would reconverge the very Supervisor
+program and cron entry this operation is about to hold aside, or replace the
+scripts it is running from. The required commit is not known until the backup
+is verified, so the first write carries an empty one and the guard is
+re-labelled as the operation learns more; every consumer that acts on the
+commit demands a full 40-character SHA, so an empty one authorizes nothing.
 
 While it exists, **every** ordinary operation on that target fails closed:
 `deploy`, `rollback`, `cleanup`, `backup`, `restore-target`, `repair-target`,
@@ -268,16 +284,41 @@ is a hard failure requiring manual recovery — a live restore requires a
 deployed target and a recovery requires an empty one, so the two can never
 legitimately hold the same target at once.
 
+### The guard is only half of the interlock
+
+A guard is a **long-lived** interlock: it says "this target is owned" for as
+long as an operation owns it, including after the process that wrote it has
+exited. It is not a mutual-exclusion primitive — two processes can both read
+"no guard" in the same instant.
+
+The other half is a **lock**. Every data operation takes a per-namespace
+`flock` for its whole run:
+
+```
+run/restore-target-<namespace>.lock    a live restore
+run/recover-host-<namespace>.lock      a host recovery
+```
+
+`prepare-host --apply` and `install-target-operations --apply` take **both**,
+for every active target, before they touch anything. That is what makes
+"started but not yet guarded" a state neither can walk into. The two halves
+cover different windows, and both are needed:
+
+| window | covered by |
+| --- | --- |
+| the operation is running | the **lock** |
+| the operation has exited and still owns the target | the **guard** |
+
 **Prepare Host is inside this interlock, and that is not incidental.** Its
 children reconverge the target's Supervisor program and its scheduler cron
 entry, and a recovery holds exactly those two aside on purpose. A
-`prepare-host --apply` in the `awaiting-code` window could put the scheduler
-back and start a worker against data whose code has not arrived, and
+`prepare-host --apply` in that window could put the scheduler back and start a
+worker against data whose code has not arrived, and
 `install-target-operations` could replace the operational scripts a running
-operation is executing. So `--apply` refuses while any guard exists;
-`--check` and `--verify` report the hold and continue, because an operator
-looking at a held target needs the diagnosis. GitHub concurrency is not enough
-on its own: a hold outlives the workflow that created it.
+operation is executing. So `--apply` refuses; `--check` and `--verify` report
+the hold and continue, because an operator looking at a held target needs the
+diagnosis. GitHub concurrency is not enough on its own: a hold outlives the
+workflow that created it.
 
 ---
 
@@ -375,7 +416,9 @@ changed underneath it:
 8. the queue is provably **fully STOPPED** — observed through Supervisor, not
    assumed;
 9. the scheduler cron entry is still **held out of `/etc/cron.d`**;
-10. `current` and `previous` are still **absent**;
+10. the reported stage is **`awaiting-code`** — `current` and `previous` still
+    absent. A recovery whose code has already landed reports `ready-to-resume`
+    and is refused here, which is what stops a second deployment into one;
 11. the operation, target and required commit it reports match the documents.
 
 This is the same shape a restore alignment uses, and for the same reason:
@@ -511,8 +554,24 @@ A recovery routinely outlives the workflow run that started it. The historical
 commit may no longer build, a runner may die, a run may be cancelled, or the
 operator may come back the next day.
 
-None of that is a problem. `--apply` is finished; the host is `awaiting-code`
-and stays that way, correctly and indefinitely. To pick it up again:
+None of that is a problem, and neither is a runner that dies **after** the
+deployment succeeded. `--inspect` recognises both safe stages a recovery can be
+found at, so an operator always learns which side of the deployment they are
+on:
+
+| stage | `current` | what is left |
+| --- | --- | --- |
+| `awaiting-code` | absent | the controlled recovery deployment, then `--resume` |
+| `ready-to-resume` | present, carrying exactly the required commit | `--resume` |
+
+The runtime half is identical and non-negotiable in both: the queue provably
+fully STOPPED and the scheduler cron entry still held aside. Code arriving is
+what *should* happen next; a worker starting is not.
+
+`deploy --recovery-operation` accepts only `awaiting-code`, so a recovery that
+already has its code cannot be deployed into twice.
+
+To pick one up again:
 
 ```bash
 recover-host --inspect --target T --operation <ID>
@@ -572,7 +631,7 @@ RATEGURU_RECOVER_RESULT={"status":"awaiting-code","operation":"…","target":"st
 | Mode | `status` |
 | --- | --- |
 | `--apply` | `awaiting-code` |
-| `--inspect` | `awaiting-code` |
+| `--inspect` | `awaiting-code` **or** `ready-to-resume` |
 | `--resume` | `completed` (plus `current_release`, `source_sha`, `health=pass`, `queue=running`, `scheduler=present`) |
 | `--verify` | `verified` |
 

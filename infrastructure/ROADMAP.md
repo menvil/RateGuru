@@ -1302,11 +1302,22 @@ Slices, in order:
      routinely outlives the workflow that started it: a queue started or a
      scheduler cron entry restored in the meantime would let Laravel run
      against recovered data the moment `current` appeared.
-   - **Prepare Host joined the interlock.** Its children reconverge the
-     target's Supervisor program and its scheduler cron entry, which is exactly
-     what a restore or a recovery holds aside — so `--apply` refuses while any
-     guard exists and the read-only modes report it. GitHub concurrency is not
-     enough on its own: a hold outlives the workflow that created it.
+   - **Prepare Host joined the interlock, in both halves.** Its children
+     reconverge the target's Supervisor program and its scheduler cron entry,
+     which is exactly what a restore or a recovery holds aside. A guard is a
+     long-lived interlock but not a mutual-exclusion primitive, so
+     `prepare-host --apply` and `install-target-operations --apply` now take
+     the same per-namespace locks those operations hold for their whole run —
+     the lock covers "started, not yet guarded", the guard covers "exited,
+     still owned". The recovery guard itself goes down before the first byte is
+     downloaded rather than before the first byte is activated. GitHub
+     concurrency is not enough on its own: a hold outlives the workflow that
+     created it.
+   - **A recovery survives its runner dying at either point.** `--inspect`
+     recognises two safe stages — `awaiting-code` (no code deployed) and
+     `ready-to-resume` (the exact commit deployed, only `--resume` left) — with
+     the same non-negotiable runtime half in both. The controlled deployment
+     accepts only the first, so a recovery cannot be deployed into twice.
    - **One reusable transport action.**
      `.github/actions/recover-rateguru-host` carries the trusted `develop`
      bundle to a replacement host over the BOOTSTRAP credential with strict

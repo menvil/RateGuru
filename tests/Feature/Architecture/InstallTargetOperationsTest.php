@@ -3809,7 +3809,7 @@ it('leaves the installed deploy able to reach the installed verify-required-clis
 // running restore-target operation.
 // =============================================================================
 
-it('holds the existing per-namespace restore lock across an apply', function () {
+it('holds both existing per-namespace data-operation locks across an apply', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -3819,27 +3819,40 @@ it('holds the existing per-namespace restore lock across an apply', function () 
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('restore lock held for backup namespace staging');
-        expect($output)->toContain('no restore is in flight');
+        expect($output)
+            ->toContain('restore-target lock held for backup namespace staging')
+            ->toContain('recover-host lock held for backup namespace staging');
+        expect($output)->toContain('no restore and no recovery is in flight');
 
         // The lock file is the EXACT one restore-target itself takes, keyed
         // on the backup namespace — never a second, incompatible lock.
         expect(file_exists($scratch.'/run/restore-target-staging.lock'))->toBeTrue();
+        expect(file_exists($scratch.'/run/recover-host-staging.lock'))->toBeTrue();
+
+        // The EXACT lock files each operation takes itself — the same lock,
+        // never a parallel one that would serialise against nothing.
         expect(File::get(base_path('infrastructure/scripts/restore-target')))
             ->toContain('${RUN_ROOT}/restore-target-${BACKUP_NAMESPACE}.lock');
+        expect(File::get(base_path('infrastructure/scripts/recover-host')))
+            ->toContain('${RUN_ROOT}/recover-host-${BACKUP_NAMESPACE}.lock');
     } finally {
         installOpsCleanup($scratch);
     }
 });
 
-it('refuses to apply while a restore is running, and changes nothing', function () {
+it('refuses to apply while a data operation is running, and changes nothing', function (string $prefix, string $expected) {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch);
         installOpsPlaceHealthyHealthCheck($vars);
 
-        $lockFile = $scratch.'/run/restore-target-staging.lock';
+        // Both operations execute scripts from this bundle — a recovery runs
+        // recover-host on top of the restore primitives — and both hold their
+        // lock for their WHOLE run, including the window before either writes
+        // its guard. Replacing the bundle underneath either is how a running
+        // operation ends up half on one revision and half on another.
+        $lockFile = $scratch.'/run/'.$prefix.'-staging.lock';
         touch($lockFile);
 
         $holder = proc_open(
@@ -3854,13 +3867,13 @@ it('refuses to apply while a restore is running, and changes nothing', function 
             [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
 
             expect($exit)->not->toBe(0);
-            expect($output)->toContain('a restore is running for backup namespace staging');
+            expect($output)->toContain($expected.' is running for backup namespace staging');
             expect($output)->toContain('refusing to replace the operational bundle underneath it');
 
             // Fail-closed before anything on the host is touched: no
             // destination installed, no backup directory created.
-            foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_RESTORE_COMMON', 'DST_RESTORE_TARGET'] as $key) {
-                expect(file_exists($vars[$key]))->toBeFalse("{$key} must not be installed while a restore is running");
+            foreach (['DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_RESTORE_COMMON', 'DST_RESTORE_TARGET', 'DST_RECOVER_HOST'] as $key) {
+                expect(file_exists($vars[$key]))->toBeFalse("{$key} must not be installed while a data operation is running");
             }
 
             expect(glob($scratch.'/backups/*', GLOB_ONLYDIR) ?: [])->toBe([]);
@@ -3871,7 +3884,10 @@ it('refuses to apply while a restore is running, and changes nothing', function 
     } finally {
         installOpsCleanup($scratch);
     }
-});
+})->with([
+    'a live restore' => ['restore-target', 'a restore'],
+    'a host recovery' => ['recover-host', 'a host recovery'],
+]);
 
 it('installs on a host that has no operational run root at all', function () {
     $scratch = installOpsScratchDir();

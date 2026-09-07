@@ -458,6 +458,13 @@ gate_lifecycle_before() {
 # at a held target needs the diagnosis, and reading a marker changes nothing.
 # --apply refuses.
 #
+# The guard is only half of it. It is a long-lived interlock, not a mutual
+# exclusion primitive: an operation writes it early and holds it until it is
+# finished, but two processes can still both read "no guard" at the same
+# instant. gate_data_operation_locks above is the other half — it takes the
+# same per-namespace flock those operations hold for their whole run, so
+# "started but not yet guarded" is a state this orchestrator cannot walk into.
+#
 # Deliberately existence-based rather than a second parser for the guard
 # documents. `common` owns that parsing, this script cannot source it, and a
 # copy of it here is exactly the duplication that drifts. Any guard at all
@@ -479,6 +486,64 @@ guard_operation_label() {
 
     jq -r '"operation " + (.operation // "unknown") + ", status " + (.status // "unknown")' \
         "${marker}" 2>/dev/null || printf 'unknown'
+}
+
+# gate_data_operation_locks — the SERIALISATION half, and the reason the marker
+# check below is not enough on its own.
+#
+# A guard is a long-lived interlock: it says "this target is owned" for as long
+# as an operation owns it. It is not a mutual exclusion primitive — two
+# processes can both read "no guard" and both proceed. The operations
+# themselves hold a per-namespace flock for their WHOLE run, from before the
+# first byte they download, so taking the same locks here is what makes
+# "started but not yet guarded" a state this orchestrator cannot walk into.
+#
+# Only in --apply, and only when the run root already exists: a host with no
+# run root has never run an operational script, so nothing can be in flight,
+# and this orchestrator creates no directories to lock inside — that is the
+# layout installer's job.
+#
+# Keyed on the backup namespace exactly as those operations key their own,
+# read from the same source registry the lifecycle gate reads.
+DATA_OPERATION_LOCK_FDS=()
+
+gate_data_operation_locks() {
+    [[ "${MODE}" == apply ]] || return 0
+    [[ -d "${OPERATIONAL_RUN_ROOT}" ]] || return 0
+
+    command -v jq >/dev/null 2>&1 || return 0
+
+    local target_json namespace
+    target_json="$("${TARGETS_CLI_BIN}" show --target "${TARGET_ID}" --file "${SOURCE_REGISTRY}" 2>/dev/null)" || return 0
+    namespace="$(printf '%s' "${target_json}" | jq -r '.backup.namespace // empty')"
+
+    [[ -n "${namespace}" ]] || return 0
+
+    local prefix lock_file lock_fd label
+
+    for prefix in restore-target recover-host; do
+        lock_file="${OPERATIONAL_RUN_ROOT}/${prefix}-${namespace}.lock"
+
+        # A lock file that does not exist means that operation has never run on
+        # this host. Creating one would be this orchestrator writing into a
+        # directory it does not own, so absence is read as "nothing to wait
+        # for" rather than conjured into a lock.
+        [[ -e "${lock_file}" ]] || continue
+
+        exec {lock_fd}>>"${lock_file}" \
+            || fail "could not open ${lock_file} to check whether an operation is running for backup namespace ${namespace}"
+
+        if ! flock -n "${lock_fd}"; then
+            case "${prefix}" in
+                restore-target) label='A restore' ;;
+                *)              label='A host recovery' ;;
+            esac
+
+            fail "${label} is running for backup namespace ${namespace} — preparation is refused while it holds ${lock_file}. This orchestrator's children reconverge the target's Supervisor program and its scheduler cron entry, and that operation is holding exactly those aside; nothing was changed."
+        fi
+
+        DATA_OPERATION_LOCK_FDS+=("${lock_fd}")
+    done
 }
 
 # gate_no_data_operation_hold — collects every guard present, then decides.
@@ -661,6 +726,7 @@ run_check() {
     printf 'Pipeline: external prerequisites -> host bootstrap -> target database -> final\n'
 
     gate_lifecycle_now_if_possible
+    gate_data_operation_locks
     gate_no_data_operation_hold
     run_readonly_walk check NEEDS_APPLY
 
@@ -672,6 +738,7 @@ run_verify() {
     printf 'Target: %s\n' "${TARGET_ID}"
 
     gate_lifecycle_now_if_possible
+    gate_data_operation_locks
     gate_no_data_operation_hold
     run_readonly_walk verify FAIL
 
@@ -689,8 +756,11 @@ run_apply() {
     # every case before the first target-specific slice.
     gate_lifecycle_now_if_possible
 
-    # And before any of it, the interlock: a target another operation is
-    # holding is not one this orchestrator may converge.
+    # And before any of it, the interlock, in both halves: the locks those
+    # operations hold for their whole run, and the guards they leave behind.
+    # The locks close the window before a guard exists; the guards close the
+    # window after a process has exited.
+    gate_data_operation_locks
     gate_no_data_operation_hold
 
     local slice_id label bin apply_status precheck_mode

@@ -102,11 +102,65 @@ it('gives the controlled recovery deployment the same authoritative hold proof a
     expect(executableSourceLines($deploy))->not->toContain('cron.d');
 
     // The proof itself lives in recover-host, once each, and is what
-    // --inspect, --apply and the deployment all reach.
+    // --inspect, --apply, --resume and the deployment all reach.
     $recover = File::get(base_path('infrastructure/scripts/recover-host'));
 
     expect(substr_count($recover, "\nassert_runtime_still_held() {"))->toBe(1);
     expect(substr_count($recover, "\nassert_runtime_resumed() {"))->toBe(1);
+    expect(substr_count($recover, "\nclassify_recovery_stage() {"))->toBe(1);
+});
+
+it('recognises both safe recovery stages, and lets only one of them be deployed into', function () {
+    $recover = File::get(base_path('infrastructure/scripts/recover-host'));
+    $classifier = shellFunctionBody($recover, 'classify_recovery_stage');
+
+    // Two stages, because a recovery outlives the workflow that drives it: a
+    // controlled deployment that succeeded and then lost its runner is a
+    // legitimate resumable state, not damage.
+    expect($classifier)
+        ->toContain('RECOVERY_STAGE="awaiting-code"')
+        ->toContain('RECOVERY_STAGE="ready-to-resume"');
+
+    // The runtime half is non-negotiable in BOTH: code arriving is what should
+    // happen next, a worker starting is not.
+    expect(mb_strpos($classifier, 'assert_runtime_still_held'))
+        ->toBeLessThan(mb_strpos($classifier, 'RECOVERY_STAGE="awaiting-code"'));
+
+    // And only the first is deployable: the deployment demands awaiting-code,
+    // so a second deployment into an already-deployed recovery is refused.
+    expect(shellFunctionBody(File::get(base_path('infrastructure/scripts/deploy')), 'assert_recovery_alignment_authorized'))
+        ->toContain('not awaiting-code');
+
+    // --resume takes only the second.
+    expect(shellFunctionBody($recover, 'perform_resume'))
+        ->toContain('"${RECOVERY_STAGE}" == "ready-to-resume"');
+});
+
+it('serialises against a running data operation on the lock, not only on its guard', function () {
+    // A guard is a long-lived interlock, not a mutual exclusion primitive: two
+    // processes can both read "no guard" at the same instant, and an operation
+    // takes its lock before it writes its guard. Both halves are needed, and
+    // they cover different windows — the lock covers "started, not yet
+    // guarded", the guard covers "exited, still owned".
+    $prepare = File::get(base_path('infrastructure/scripts/prepare-host'));
+    $installer = File::get(base_path('infrastructure/scripts/install-target-operations'));
+
+    // Each takes the EXACT locks the operations take themselves, keyed on the
+    // same backup namespace, for both operations.
+    foreach ([$prepare, $installer] as $source) {
+        expect(executableSourceLines($source))
+            ->toContain('restore-target')
+            ->toContain('recover-host')
+            ->toContain('${prefix}-${namespace}.lock')
+            ->toContain('flock -n');
+    }
+
+    // And the recovery writes its guard before it downloads anything, so the
+    // guard covers the staging window too rather than only the activation.
+    $pipeline = shellFunctionBody(File::get(base_path('infrastructure/scripts/recover-host')), 'perform_recovery');
+
+    expect(mb_strpos($pipeline, 'write_recovery_guard in-progress'))
+        ->toBeLessThan(mb_strpos($pipeline, 'RESTORE_FETCH_BACKUP_BIN'));
 });
 
 it('refuses to prepare a host another data operation is holding', function () {

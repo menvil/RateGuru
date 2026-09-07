@@ -61,7 +61,9 @@ inputs:
       apply, inspect, resume or verify. `apply` starts a new recovery from
       `backup-id`; `inspect` and `resume` address an existing operation by
       `operation-id`; `verify` is the read-only final contract for a recovered
-      target.
+      target. `inspect` reports awaiting-code or ready-to-resume, which is how
+      an operator whose runner died between the deployment and the resume finds
+      out which side of it they are on.
 
   deployment-target:
     required: true
@@ -121,7 +123,10 @@ inputs:
 
 outputs:
   status:
-    description: "The status the server reported: awaiting-code, completed or verified"
+    description: >-
+      The status the server reported: awaiting-code or ready-to-resume from an
+      inspection, awaiting-code from an apply, completed from a resume,
+      verified from a verification.
     value: ${{ steps.recover.outputs.status }}
 
   operation:
@@ -529,14 +534,21 @@ runs:
             ;;
         esac
 
-        # The status each mode must report. A run that succeeds with the wrong
-        # status is not a success this action will pass on: it means the server
-        # answered about a different state than the one the caller asked for.
+        # The statuses each mode may report. A run that succeeds with a status
+        # outside its own set is not a success this action will pass on: it
+        # means the server answered about a different state than the one the
+        # caller asked for.
+        #
+        # `inspect` alone has two, because a recovery has two safe stages and
+        # an inspection has to be able to name either: awaiting-code (the
+        # controlled deployment has not landed) and ready-to-resume (it has,
+        # and only --resume is left). An operator whose runner died between
+        # those two needs to be told which side of it they are on.
         case "${MODE}" in
-          apply)   expected_status=awaiting-code ;;
-          inspect) expected_status=awaiting-code ;;
-          resume)  expected_status=completed ;;
-          verify)  expected_status=verified ;;
+          apply)   expected_statuses='["awaiting-code"]' ;;
+          inspect) expected_statuses='["awaiting-code","ready-to-resume"]' ;;
+          resume)  expected_statuses='["completed"]' ;;
+          verify)  expected_statuses='["verified"]' ;;
         esac
 
         recovery_output="$(
@@ -568,9 +580,9 @@ runs:
         result_json="$(grep '^RATEGURU_RECOVER_RESULT=' <<<"${recovery_output}")"
         result_json="${result_json#RATEGURU_RECOVER_RESULT=}"
 
-        jq -e --arg status "${expected_status}" \
-          'type == "object" and .status == $status' <<<"${result_json}" >/dev/null || {
-          echo "The machine-readable recovery result is not a ${expected_status} result: ${result_json}" >&2
+        jq -e --argjson expected "${expected_statuses}" \
+          'type == "object" and (.status as $s | $expected | index($s) != null)' <<<"${result_json}" >/dev/null || {
+          echo "The machine-readable recovery result does not carry a status mode=${MODE} may report (${expected_statuses}): ${result_json}" >&2
           exit 1
         }
 

@@ -237,13 +237,15 @@ it('parses exactly one machine-readable result, and checks it describes this run
 
     expect(executableSourceLines($run))->not->toContain('grep -m1');
 
-    // The status each mode must report, so a run that succeeds about a
-    // different state is not passed on as a success.
+    // The statuses each mode may report, so a run that succeeds about a
+    // different state is not passed on as a success. `inspect` alone has two,
+    // because a recovery has two safe stages and an operator whose runner died
+    // between them needs to be told which side they are on.
     expect($run)
-        ->toContain('apply)   expected_status=awaiting-code')
-        ->toContain('inspect) expected_status=awaiting-code')
-        ->toContain('resume)  expected_status=completed')
-        ->toContain('verify)  expected_status=verified')
+        ->toContain("apply)   expected_statuses='[\"awaiting-code\"]'")
+        ->toContain("inspect) expected_statuses='[\"awaiting-code\",\"ready-to-resume\"]'")
+        ->toContain("resume)  expected_statuses='[\"completed\"]'")
+        ->toContain("verify)  expected_statuses='[\"verified\"]'")
         ->toContain('.target == $target');
 });
 

@@ -1072,8 +1072,13 @@ assert_restore_alignment_operation() {
 # nothing, queue stopped, scheduler aside, and still carrying the `current` it
 # had before. A recovery alignment deploys into a target that has NO code at
 # all: its data has been restored onto a replacement host and `current` is
-# absent, which is why there is no runtime hold to re-prove here and no
-# `restore-target --inspect` equivalent to delegate to.
+# absent.
+#
+# This half reads the two persisted documents. The RUNTIME half — the proof
+# that the host is still held right now — is `recover-host --inspect`, which
+# `deploy` runs for exactly the same reason it runs `restore-target --inspect`
+# for an alignment: that proof has one implementation and deploy re-derives
+# neither.
 #
 # What is identical is the rule the whole design rests on: the CALLER never
 # says which commit is required. GitHub hands the server an operation ID and

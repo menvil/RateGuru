@@ -64,10 +64,13 @@
 # this installer's whole job is to put these twenty-three files in these
 # twenty-three places with these exact permissions, nothing else.
 #
-# --apply additionally takes the EXISTING per-namespace restore lock for every
-# active target before it touches anything, so the bundle can never be
-# replaced underneath a running `restore-target` operation. It is the only
-# lock this installer takes, and it takes no others.
+# --apply additionally takes the EXISTING per-namespace restore AND recovery
+# locks for every active target before it touches anything, so the bundle can
+# never be replaced underneath a running `restore-target` or `recover-host`
+# operation. Both execute scripts from this bundle — a recovery runs
+# recover-host on top of the restore primitives — and both hold their lock for
+# their whole run, including the window before either writes its guard. Those
+# are the only locks this installer takes, and it takes no others.
 #
 # This script never sources infrastructure/scripts/common. It installs
 # deployment.conf as plain file content and never reads or parses it as
@@ -1485,36 +1488,59 @@ active_backup_namespaces() {
     ' "${SRC_REGISTRY}"
 }
 
+# The per-namespace locks a data operation holds for its whole run. BOTH are
+# taken, because both operations execute the very scripts this installer
+# replaces: a live restore runs restore-target/restore-database/restore-storage,
+# and a host recovery runs recover-host on top of those. Replacing the bundle
+# underneath either is how a running operation ends up half on one revision and
+# half on another.
+#
+# Keyed exactly as each operation keys its own — restore-target takes
+# `restore-target-<namespace>.lock` and recover-host takes
+# `recover-host-<namespace>.lock` — so this is the same lock, not a parallel
+# one that would serialise against nothing.
+DATA_OPERATION_LOCK_PREFIXES=(restore-target recover-host)
+
+data_operation_lock_label() {
+    case "$1" in
+        restore-target) printf 'a restore' ;;
+        recover-host)   printf 'a host recovery' ;;
+        *)              fail "unknown data operation lock prefix: $1" ;;
+    esac
+}
+
 acquire_restore_locks() {
     # A run root that does not exist is a host on which no operational script
-    # has ever run, so no restore can be in flight. This installer creates no
-    # directories — that is the bootstrap layout installer's job — so it does
-    # not conjure one here just to lock inside it.
+    # has ever run, so no data operation can be in flight. This installer
+    # creates no directories — that is the bootstrap layout installer's job —
+    # so it does not conjure one here just to lock inside it.
     if [[ ! -d "${OPERATIONAL_RUN_ROOT}" ]]; then
-        log "no operational run root at ${OPERATIONAL_RUN_ROOT} — no restore can be in flight"
+        log "no operational run root at ${OPERATIONAL_RUN_ROOT} — no restore or recovery can be in flight"
 
         return 0
     fi
 
-    local namespace lock_file lock_fd
+    local namespace prefix lock_file lock_fd
 
     while IFS= read -r namespace; do
         [[ -n "${namespace}" ]] || continue
 
-        lock_file="${OPERATIONAL_RUN_ROOT}/restore-target-${namespace}.lock"
+        for prefix in "${DATA_OPERATION_LOCK_PREFIXES[@]}"; do
+            lock_file="${OPERATIONAL_RUN_ROOT}/${prefix}-${namespace}.lock"
 
-        exec {lock_fd}>"${lock_file}" \
-            || fail "could not open the restore lock for backup namespace ${namespace}: ${lock_file}"
+            exec {lock_fd}>"${lock_file}" \
+                || fail "could not open the ${prefix} lock for backup namespace ${namespace}: ${lock_file}"
 
-        if ! flock -n "${lock_fd}"; then
-            fail "a restore is running for backup namespace ${namespace} — refusing to replace the operational bundle underneath it (${lock_file})"
-        fi
+            if ! flock -n "${lock_fd}"; then
+                fail "$(data_operation_lock_label "${prefix}") is running for backup namespace ${namespace} — refusing to replace the operational bundle underneath it (${lock_file})"
+            fi
 
-        RESTORE_LOCK_FDS+=("${lock_fd}")
-        log "  restore lock held for backup namespace ${namespace}"
+            RESTORE_LOCK_FDS+=("${lock_fd}")
+            log "  ${prefix} lock held for backup namespace ${namespace}"
+        done
     done < <(active_backup_namespaces)
 
-    log "no restore is in flight for any active target's backup namespace"
+    log "no restore and no recovery is in flight for any active target's backup namespace"
 }
 
 verify_preflight_target_health() {
