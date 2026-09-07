@@ -1226,6 +1226,101 @@ discard_staged_artifacts() {
     fi
 }
 
+# --- retained pre-recovery copies ------------------------------------------------
+#
+# `--resume` drops the retained pre-recovery database and storage tree as its
+# last act before the guard is cleared, so a failure AFTER that point has no
+# rollback material left — and a failure before it has all of it. An operator
+# reading MANUAL RECOVERY REQUIRED has to be told which, because the difference
+# decides whether there is anything to go back to.
+#
+# OBSERVED, never remembered. A flag cannot express this: the two commits are
+# separate commands, and a storage commit that succeeds beside a database
+# commit that fails leaves exactly one of the two behind. Both are read from
+# the catalog and the filesystem as they actually are.
+#
+# Never fails. It runs inside the terminal handler, where its own failure must
+# never replace the diagnosis being reported, so anything it cannot observe is
+# reported as unknown rather than guessed.
+RETAINED_DATABASE_STATE="unknown"
+RETAINED_STORAGE_STATE="unknown"
+
+observe_retained_copies() {
+    RETAINED_DATABASE_STATE="unknown"
+    RETAINED_STORAGE_STATE="unknown"
+
+    [[ -n "${OPERATION_ID}" ]] || return 0
+
+    local database result status=0
+    database="$( ( restore_pre_restore_database_name "${BACKUP_NAMESPACE}" "${OPERATION_ID}" ) 2>/dev/null )" || database=""
+
+    if [[ -n "${database}" ]]; then
+        # Deliberately NOT restore_database_exists: it returns non-zero both for
+        # "no such database" and for a catalog it could not read, and those are
+        # different answers to the only question that matters here.
+        result="$(
+            (
+                restore_superuser_query "SELECT 1 FROM pg_database WHERE datname = '${database}';" \
+                    && printf '%s' "${RESTORE_SQL_RESULT}"
+            ) 2>/dev/null
+        )" || status=$?
+
+        if (( status == 0 )); then
+            if [[ "${result}" == "1" ]]; then
+                RETAINED_DATABASE_STATE="present"
+            else
+                RETAINED_DATABASE_STATE="absent"
+            fi
+        fi
+    fi
+
+    local path
+    path="$( ( restore_storage_pre_restore_path "${TARGET_ROOT}" "${OPERATION_ID}" ) 2>/dev/null )" || path=""
+
+    if [[ -n "${path}" ]]; then
+        if [[ -d "${path}" ]] && [[ ! -L "${path}" ]]; then
+            RETAINED_STORAGE_STATE="present"
+        else
+            RETAINED_STORAGE_STATE="absent"
+        fi
+    fi
+}
+
+# Set immediately BEFORE the commit step, never after it. The two commits are
+# separate commands, so a run that dropped the storage tree and then failed to
+# drop the database has attempted both — and both halves must still be
+# described correctly. Setting this only after a successful commit would make
+# the half that succeeded read as one that never existed.
+RETAINED_COMMIT_ATTEMPTED=false
+
+# retained_copy_report LABEL STATE — the operator-facing sentence for one half.
+#
+# `absent` means two entirely different things, and reporting the wrong one is
+# how somebody plans a rollback onto material that is gone — or abandons
+# material that is still there. Either nothing was ever moved aside under this
+# name, or it was moved aside and then deliberately dropped. Only this run knows
+# which, so the OBSERVED existence is combined with whether the commit was
+# reached.
+retained_copy_report() {
+    local label="$1" state="$2"
+
+    case "${state}" in
+        present)
+            printf '#   %s: PRESENT — still available to go back to\n' "${label}"
+            ;;
+        absent)
+            if [[ "${RETAINED_COMMIT_ATTEMPTED}" == true ]]; then
+                printf '#   %s: NO LONGER AVAILABLE — committed by this recovery and dropped\n' "${label}"
+            else
+                printf '#   %s: NONE — nothing was retained under this name\n' "${label}"
+            fi
+            ;;
+        *)
+            printf '#   %s: UNKNOWN — could not be observed; check by hand before relying on it\n' "${label}"
+            ;;
+    esac
+}
+
 # --- history --------------------------------------------------------------------------
 
 append_recovery_history() {
@@ -1252,6 +1347,8 @@ append_recovery_history() {
             --arg current_release "${CURRENT_RELEASE}" \
             --arg current_source_sha "${CURRENT_SOURCE_SHA}" \
             --arg compensation_status "${COMPENSATION_STATUS}" \
+            --arg retained_database "${RETAINED_DATABASE_STATE}" \
+            --arg retained_storage "${RETAINED_STORAGE_STATE}" \
             --argjson data_restored "${DATA_RESTORED}" \
             --argjson failed_step "${failed_step_json}" \
             '{
@@ -1269,7 +1366,9 @@ append_recovery_history() {
                 current_source_sha: $current_source_sha,
                 data_restored: $data_restored,
                 failed_step: $failed_step,
-                compensation_status: $compensation_status
+                compensation_status: $compensation_status,
+                retained_database: $retained_database,
+                retained_storage: $retained_storage
             }'
     )" || return 1
 
@@ -1437,6 +1536,10 @@ handle_recovery_exit() {
         esac
     fi
 
+    # Read AFTER compensation, so the report describes the state the operator
+    # will actually find rather than the one this run started undoing.
+    observe_retained_copies
+
     # Every recovery action below is wrapped in a subshell: `fail` is an `exit`,
     # and an exit from inside this handler would abandon the rest of the
     # reporting — the original failure must always reach the operator.
@@ -1446,6 +1549,8 @@ handle_recovery_exit() {
                 status "${status}" \
                 failed_step "${CURRENT_STEP}" \
                 compensation_status "${COMPENSATION_STATUS}" \
+                retained_database "${RETAINED_DATABASE_STATE}" \
+                retained_storage "${RETAINED_STORAGE_STATE}" \
                 completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         ) || log "WARNING: could not record the terminal recovery state"
     fi
@@ -1464,7 +1569,9 @@ handle_recovery_exit() {
         printf '# and its scheduler cron entry is held out of %s.\n' "${RESTORE_CRON_D_ROOT}"
         printf '# Every ordinary operation on this target refuses while the guard exists:\n'
         printf '#   %s\n' "$(recovery_guard_file "${TARGET_ID}" "${RUN_ROOT}")"
-        printf '# The retained pre-recovery database and storage tree were NOT dropped.\n'
+        printf '# Rollback material, as it actually is right now:\n'
+        retained_copy_report 'pre-recovery database' "${RETAINED_DATABASE_STATE}"
+        retained_copy_report 'pre-recovery storage ' "${RETAINED_STORAGE_STATE}"
 
         if [[ "${HOLD_UNCONFIRMED}" == true ]]; then
             printf '# WARNING: one or more writers could NOT be proven stopped.\n'
@@ -1682,6 +1789,8 @@ perform_recovery() {
         status awaiting-code \
         recovered_migrations "${RECOVERED_MIGRATIONS}" \
         data_restored true \
+        retained_database present \
+        retained_storage present \
         phase awaiting-code \
         completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -1991,8 +2100,17 @@ perform_resume() {
     # target is healthy. The retained pre-recovery database and storage tree
     # have no further use, and this is the first moment it is safe to say so.
     step "commit"
+    RETAINED_COMMIT_ATTEMPTED=true
     "${RESTORE_STORAGE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
     "${RESTORE_DATABASE_BIN}" --target "${TARGET_ID}" --operation "${OPERATION_ID}" --commit
+
+    # Recorded the moment it becomes true, not at the end of a successful
+    # resume: from here on there is no rollback material, and an operator who
+    # arrives after a SIGKILL — where no handler runs and no report is printed —
+    # has only this file to tell them so.
+    restore_state_set "${STATE_FILE}" \
+        retained_database committed \
+        retained_storage committed
 
     # The durable record comes BEFORE the guard is cleared, and that ordering is
     # the whole of this sequence.

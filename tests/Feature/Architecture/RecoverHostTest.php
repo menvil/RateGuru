@@ -790,6 +790,32 @@ it('returns a failed activation to the prepared PRE_DEPLOY state', function () {
     }
 });
 
+it('tells the truth about rollback material it never created', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryFixture($scratch);
+
+        // Every rename INTO the canonical name fails, so the activation cannot
+        // finish and compensation cannot undo it either. Nothing was ever
+        // successfully moved aside on the storage side, and "NO LONGER
+        // AVAILABLE" would be as misleading here as "PRESENT" is after a
+        // commit: an operator needs to know there was never anything to keep.
+        $result = recoveryApply($scratch, ['RGTEST_RENAME_FAIL_TO_PREFIX' => 'parity_db']);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('MANUAL RECOVERY REQUIRED');
+
+        // The database WAS renamed aside before the second rename failed, so
+        // that half is genuinely still there; the storage swap never began.
+        expect($result['output'])
+            ->toContain('pre-recovery database: PRESENT')
+            ->toContain('pre-recovery storage : NONE');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
 it('holds the host and keeps the guard when compensation cannot complete', function () {
     $scratch = restoreScratchDir();
 
@@ -804,7 +830,7 @@ it('holds the host and keeps the guard when compensation cannot complete', funct
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])
             ->toContain('MANUAL RECOVERY REQUIRED')
-            ->toContain('The retained pre-recovery database and storage tree were NOT dropped.');
+            ->toContain('pre-recovery database: PRESENT');
 
         expect(recoveryGuard($scratch))->toMatchArray(['status' => 'failed-held']);
         expect(File::exists($scratch.'/cron.d/parity-scheduler'))->toBeFalse('a held host keeps its scheduler out of cron.d');
@@ -1295,6 +1321,17 @@ it('keeps the host held when the health check fails after code alignment', funct
         expect(recoveryGuard($scratch))->toMatchArray(['status' => 'failed-held']);
         expect(fakePostgresDatabases($scratch))->toBe(['parity_db', preRestoreDatabaseName($operation)]);
         expect(File::exists($scratch.'/target/current'))->toBeTrue();
+
+        // The mirror image of the post-commit case: this failure lands BEFORE
+        // the commit, so there IS rollback material and the report says so.
+        expect($result['output'])
+            ->toContain('pre-recovery database: PRESENT')
+            ->toContain('pre-recovery storage : PRESENT');
+
+        expect(recoveryOperationState($scratch, $operation))->toMatchArray([
+            'retained_database' => 'present',
+            'retained_storage' => 'present',
+        ]);
     } finally {
         removeScratchDir($scratch);
     }
@@ -1552,6 +1589,24 @@ it('keeps the guard until the completed recovery is durably recorded', function 
 
         // And the runtime was re-held rather than left serving.
         expect(File::exists($scratch.'/cron.d/parity-scheduler'))->toBeFalse();
+
+        // The report must be TRUE about the rollback material. Both commits ran
+        // before this failure, so there is nothing left to go back to — and an
+        // operator told otherwise would plan a rollback onto material that no
+        // longer exists.
+        expect(fakePostgresDatabases($scratch))->toBe(['parity_db']);
+        expect(File::exists($scratch.'/target/shared/storage/.pre-restore-app-'.$operation))->toBeFalse();
+
+        expect($result['output'])
+            ->toContain('pre-recovery database: NO LONGER AVAILABLE')
+            ->toContain('pre-recovery storage : NO LONGER AVAILABLE')
+            ->not->toContain('were NOT dropped');
+
+        // And durably, for an operator who arrives without the report.
+        expect(recoveryOperationState($scratch, $operation))->toMatchArray([
+            'retained_database' => 'absent',
+            'retained_storage' => 'absent',
+        ]);
     } finally {
         removeScratchDir($scratch);
     }

@@ -553,8 +553,41 @@ back:
 * the guard stays, re-labelled;
 * the queue stays stopped and the scheduler stays held;
 * an explicit `MANUAL RECOVERY REQUIRED` report names the failed step, the
-  compensation status and the state file;
+  compensation status, the state file and — see below — exactly what rollback
+  material still exists;
 * the original error is never masked by a cleanup failure.
+
+### What the held report says about rollback material
+
+`MANUAL RECOVERY REQUIRED` is the point at which someone decides what to do by
+hand, and that decision turns on one question: **is there still anything to go
+back to?** The report answers it per half, from what is actually on the host:
+
+```
+# Rollback material, as it actually is right now:
+#   pre-recovery database: PRESENT — still available to go back to
+#   pre-recovery storage : NO LONGER AVAILABLE — committed by this recovery and dropped
+```
+
+| reported | meaning |
+| --- | --- |
+| `PRESENT` | the copy exists and can be swapped back |
+| `NO LONGER AVAILABLE` | this run reached its commit step and dropped it |
+| `NONE` | nothing was ever retained under that name |
+| `UNKNOWN` | it could not be observed — check by hand before relying on it |
+
+Each half is reported separately and **observed, not remembered**. The two
+commits are separate commands, so a run that dropped the storage tree and then
+failed to drop the database leaves exactly one of the two behind, and no single
+flag could describe that. The same values are written into the operation's
+`state.json` (`retained_database`, `retained_storage`) and into the recovery
+history, so an operator who arrives without the report — after a SIGKILL, say —
+gets the same answer.
+
+This matters most in the narrow window `--resume` opens: the retained copies are
+dropped as the last act before the guard is cleared, so a failure between those
+two points is held, guarded, and has **no** rollback material. Being told
+otherwise would send someone looking for a database that no longer exists.
 
 The retained pre-recovery database and storage tree are **never** dropped
 before the full recovery commits in `--resume`.
