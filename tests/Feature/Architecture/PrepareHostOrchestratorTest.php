@@ -139,6 +139,30 @@ function prepLog(string $scratch, string $name): array
  */
 function prepWriteChildStubs(string $scratch): void
 {
+    // The one child whose REAL implementation reaches install-target-operations,
+    // which takes the two data-operation locks itself. Under
+    // STUB_REACQUIRE_LOCKS it does the same thing on fresh descriptors, which is
+    // the exact shape that deadlocks if the orchestrator above it is holding
+    // them: flock treats independently opened descriptors independently, even
+    // inside one process tree.
+    prepWriteStub($scratch.'/bin/lock-taker', <<<'STUB'
+        #!/bin/bash
+        # Numbered descriptors, not {fd}>: these stubs run under /bin/bash,
+        # which on the macOS development machines is 3.2 and has no
+        # varname-redirection.
+        for prefix in restore-target recover-host; do
+            lock="${STUB_LOCK_ROOT}/${prefix}-${STUB_LOCK_NAMESPACE}.lock"
+            [[ -e "${lock}" ]] || touch "${lock}"
+            exec 7>>"${lock}"
+            if flock -n 7; then
+                echo "${prefix} acquired" >> "${STUB_LOG}/locks.log"
+            else
+                echo "${prefix} DENIED" >> "${STUB_LOG}/locks.log"
+            fi
+            exec 7>&-
+        done
+        STUB);
+
     prepWriteStub($scratch.'/bin/prerequisites', <<<'STUB'
         #!/bin/bash
         printf 'prerequisites %s\n' "$*" >> "${STUB_LOG}/children.log"
@@ -192,6 +216,11 @@ function prepWriteChildStubs(string $scratch): void
             #!/bin/bash
             me="$(basename "$0")"
             printf '%s %s\n' "${me}" "$*" >> "${STUB_LOG}/children.log"
+            # bootstrap's real counterpart reaches install-target-operations,
+            # which takes the two data-operation locks itself.
+            if [[ "${me}" == bootstrap ]] && [[ -n "${STUB_REACQUIRE_LOCKS:-}" ]]; then
+                "${STUB_LOCK_TAKER}"
+            fi
             case "$*" in
                 *--apply*)
                     printf '%s %s\n' "${me}" "$*" >> "${STUB_LOG}/mutations.log"
@@ -235,7 +264,7 @@ function prepFixture(string $scratch, array $options = []): array
         touch($scratch.'/toggles/'.$slice.'-compliant');
     }
 
-    return [
+    return array_merge([
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
@@ -253,9 +282,35 @@ function prepFixture(string $scratch, array $options = []): array
         'RATEGURU_PREPAREHOST_PREREQUISITES_INSTALLER_BIN' => $scratch.'/bin/prerequisites',
         'RATEGURU_PREPAREHOST_BOOTSTRAP_HOST_BIN' => $scratch.'/bin/bootstrap',
         'RATEGURU_PREPAREHOST_DATABASE_INSTALLER_BIN' => $scratch.'/bin/database',
+        // The run root the data-operation guards live under. Pointed inside
+        // the scratch tree so a test can plant one without touching the host.
+        'RATEGURU_PREPAREHOST_RUN_ROOT' => $scratch.'/run',
         'STUB_LOG' => $scratch.'/log',
         'STUB_TOGGLES' => $scratch.'/toggles',
-    ];
+        'STUB_LOCK_TAKER' => $scratch.'/bin/lock-taker',
+        'STUB_LOCK_ROOT' => $scratch.'/run',
+        'STUB_LOCK_NAMESPACE' => 'staging',
+    ], $options['env'] ?? []);
+}
+
+/**
+ * Plants one data-operation guard for staging-main under the scratch run root,
+ * in the shape the operation that owns it actually writes.
+ */
+function prepPlantGuard(string $scratch, string $namespace, string $name, array $document = []): string
+{
+    $dir = $scratch.'/run/'.$namespace.'/staging-main';
+    expect(@mkdir($dir, 0o700, true))->toBeTrue("could not create {$dir}");
+
+    $path = $dir.'/'.$name;
+
+    file_put_contents($path, json_encode(array_merge([
+        'operation' => '20260115-041233-9be21c',
+        'target' => 'staging-main',
+        'status' => 'awaiting-code',
+    ], $document), JSON_PRETTY_PRINT));
+
+    return $path;
 }
 
 /** Every slice compliant — an already prepared host. */
@@ -870,5 +925,279 @@ it('is not installed into the operational bundle or reachable through a deploy s
 
     foreach (glob(base_path('infrastructure/config/wrappers/*')) ?: [] as $wrapper) {
         expect(File::get($wrapper))->not->toContain('prepare-host');
+    }
+});
+
+// =============================================================================
+// The data-operation interlock
+// =============================================================================
+//
+// A live restore or a host recovery owns a target's DATA while its guard
+// exists, and preparation is not a data decision. The hazard is concrete: this
+// orchestrator's children reconverge the target's Supervisor program and its
+// scheduler cron entry, and both operations hold exactly those two aside on
+// purpose. GitHub concurrency does not cover it — a hold outlives the workflow
+// that created it.
+
+it('refuses to apply while a data operation owns the target, and runs no child', function (string $namespace, string $name) {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch);
+        $marker = prepPlantGuard($scratch, $namespace, $name);
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain('DATA OPERATION HOLD')
+            ->toContain($marker)
+            ->toContain('preparation is refused while a data operation owns staging-main')
+            ->toContain('nothing was changed');
+
+        // Refused before ANY child ran — not one installer, not even the
+        // target-agnostic runtime slice.
+        foreach (['runtime', 'prerequisites', 'bootstrap', 'database'] as $child) {
+            expect(prepLog($scratch, $child))->toBe([]);
+        }
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with([
+    'a restore guard' => ['restores', 'restore-guard'],
+    'a recovery guard' => ['recoveries', 'recovery-guard'],
+]);
+
+it('names both guards as a conflict when a target somehow carries both', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch);
+        prepPlantGuard($scratch, 'restores', 'restore-guard', ['status' => 'held']);
+        prepPlantGuard($scratch, 'recoveries', 'recovery-guard');
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)
+            ->toContain('carries BOTH a restore guard and a recovery guard')
+            ->toContain('can never legitimately hold the same target at once');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('reports a hold in read-only modes and keeps going, because an operator needs the diagnosis', function (string $mode) {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepPreparedFixture($scratch);
+        prepPlantGuard($scratch, 'recoveries', 'recovery-guard');
+
+        [$exit, $output] = prepRun(['--'.$mode, '--target', 'staging-main'], $env);
+
+        // A prepared host still verifies: the hold is reported, not fatal.
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('DATA OPERATION HOLD')
+            ->toContain('This is a read-only run, so it continues')
+            ->toContain('nothing may be APPLIED');
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with(['check', 'verify']);
+
+it('prepares normally when no data operation owns the target', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepPreparedFixture($scratch);
+
+        // The run root exists and is empty — the ordinary state of a host that
+        // has never had a restore or a recovery held.
+        expect(@mkdir($scratch.'/run', 0o700, true))->toBeTrue();
+
+        [$exit, $output] = prepRun(['--verify', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->not->toContain('DATA OPERATION HOLD')
+            ->toContain('TARGET PREPARED: YES');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('refuses to apply while a data operation holds its lock, before its guard exists', function (string $prefix, string $expected) {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch);
+
+        // The window the guard cannot cover: an operation takes its lock the
+        // moment it starts, and its guard appears a beat later. A marker check
+        // alone lets a prepare-host --apply through in between — and this
+        // orchestrator's children would then reconverge the very Supervisor
+        // program and cron entry that operation is about to hold aside.
+        expect(@mkdir($scratch.'/run', 0o700, true))->toBeTrue();
+
+        $lockFile = $scratch.'/run/'.$prefix.'-staging.lock';
+        touch($lockFile);
+
+        $holder = proc_open(
+            ['flock', '-x', $lockFile, 'sleep', '30'],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+        );
+
+        usleep(300000);
+
+        try {
+            [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+            expect($exit)->not->toBe(0);
+            expect($output)
+                ->toContain($expected.' is running for backup namespace staging')
+                ->toContain('preparation is refused while it holds '.$lockFile)
+                ->toContain('nothing was changed');
+
+            // No guard exists at all — the lock is the whole of what stopped it.
+            expect(file_exists($scratch.'/run/recoveries/staging-main/recovery-guard'))->toBeFalse();
+
+            // And not one child ran.
+            foreach (['runtime', 'prerequisites', 'bootstrap', 'database'] as $child) {
+                expect(prepLog($scratch, $child))->toBe([]);
+            }
+        } finally {
+            proc_terminate($holder);
+            proc_close($holder);
+        }
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with([
+    'a live restore' => ['restore-target', 'A restore'],
+    'a host recovery' => ['recover-host', 'A host recovery'],
+]);
+
+it('does not deadlock against its own grandchild taking the same locks', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        // The repeatable case Prepare exists for: an already prepared host and
+        // a newer infrastructure revision, so the operational bundle genuinely
+        // needs updating — which means install-target-operations runs and takes
+        // the two data-operation locks itself. If this orchestrator held them,
+        // flock would deny its own grandchild, because independently opened
+        // descriptors conflict even inside one process tree.
+        $env = prepFixture($scratch, ['env' => ['STUB_REACQUIRE_LOCKS' => '1']]);
+
+        expect(@mkdir($scratch.'/run', 0o700, true))->toBeTrue();
+
+        // Both lock files must EXIST and be free, or preparation skips them
+        // entirely and the nesting this test exists for never happens.
+        touch($scratch.'/run/restore-target-staging.lock');
+        touch($scratch.'/run/recover-host-staging.lock');
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(0, $output);
+
+        $locks = File::exists($scratch.'/log/locks.log')
+            ? trim(File::get($scratch.'/log/locks.log'))
+            : '';
+
+        expect($locks)
+            ->toContain('restore-target acquired')
+            ->toContain('recover-host acquired')
+            ->not->toContain('DENIED');
+
+        // Preparation still claimed its OWN lock for the whole run — that is
+        // what a data operation starting mid-Prepare collides with.
+        expect(file_exists($scratch.'/run/prepare-host-staging.lock'))->toBeTrue();
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('claims the preparation lock so a data operation starting later refuses', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch);
+        expect(@mkdir($scratch.'/run', 0o700, true))->toBeTrue();
+
+        [$exit] = prepRun(['--apply', '--target', 'staging-main'], $env);
+        expect($exit)->toBe(0);
+
+        $preparationLock = $scratch.'/run/prepare-host-staging.lock';
+        expect(file_exists($preparationLock))->toBeTrue();
+
+        // The other side of the pair: restore-target and recover-host read this
+        // exact path after taking their own lock.
+        foreach (['restore-target', 'recover-host'] as $operation) {
+            expect(File::get(base_path('infrastructure/scripts/'.$operation)))
+                ->toContain('assert_no_host_preparation_running "${BACKUP_NAMESPACE}"');
+        }
+
+        expect(File::get(base_path('infrastructure/scripts/restore-common')))
+            ->toContain('PREPARE_HOST_LOCK_PREFIX=prepare-host');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('refuses a second preparation of the same namespace', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch);
+        expect(@mkdir($scratch.'/run', 0o700, true))->toBeTrue();
+
+        $preparationLock = $scratch.'/run/prepare-host-staging.lock';
+        touch($preparationLock);
+
+        $holder = proc_open(
+            ['flock', '-x', $preparationLock, 'sleep', '30'],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+        );
+
+        usleep(300000);
+
+        try {
+            [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+            expect($exit)->not->toBe(0);
+            expect($output)->toContain('another host preparation is already running for backup namespace staging');
+
+            foreach (['runtime', 'prerequisites', 'bootstrap', 'database'] as $child) {
+                expect(prepLog($scratch, $child))->toBe([]);
+            }
+        } finally {
+            proc_terminate($holder);
+            proc_close($holder);
+        }
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('prepares normally when the locks exist but nobody holds them', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepPreparedFixture($scratch);
+
+        expect(@mkdir($scratch.'/run', 0o700, true))->toBeTrue();
+        touch($scratch.'/run/recover-host-staging.lock');
+        touch($scratch.'/run/restore-target-staging.lock');
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->not->toContain('is running for backup namespace');
+    } finally {
+        prepCleanup($scratch);
     }
 });
