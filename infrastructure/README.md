@@ -84,6 +84,21 @@ infrastructure, and moves out once a second project exists.
   installer that owns the contract — and it carries no secret material at all,
   runs no migration and never touches the database or the code — see
   [`runbooks/repair-target.md`](runbooks/repair-target.md);
+- host recovery: `infrastructure/scripts/recover-host` rebuilds one lost target
+  onto a prepared, empty replacement machine from one exact offsite backup, and
+  leaves the machine deliberately not serving until the exact commit that
+  backup names has been deployed — see
+  [`runbooks/recover-host.md`](runbooks/recover-host.md);
+- operator-facing recovery from GitHub: the `Recover staging host` and
+  `Recover production host` workflows. The operator names the REPLACEMENT
+  machine and one exact offsite backup; the workflow prepares that machine,
+  recovers the data onto it, builds the exact commit the SERVER read out of the
+  backup, deploys it through the ordinary `deploy` in its controlled-recovery
+  mode — which keeps the host held and runs no migration — then lets
+  `recover-host --resume` end the hold and `recover-host --verify` decide
+  whether it worked. The replacement machine is refused if it is the machine
+  the target is currently bound to, and nothing there is touched, repointed or
+  cut over — see [`runbooks/github-recover.md`](runbooks/github-recover.md);
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
 - Nginx configuration;

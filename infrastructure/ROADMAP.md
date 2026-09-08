@@ -1337,19 +1337,95 @@ Slices, in order:
    CI proves the structure, the preconditions, the compensation and every
    refusal path; only a real clean replacement machine proves the pipeline, and
    that rehearsal belongs to 7.7 — so this slice is implemented, not accepted.
-7. **7.7 GitHub Recover + clean-host rehearsal.** Turn the 7.6 mechanisms
-   into named operator workflows — `recover-staging.yml` and
-   `recover-production.yml`, including the historical exact-SHA build job with
-   `contents: read`, no GitHub Environment and no SSH, B2 or Sentry credential
-   — and rehearse the whole chain against a disposable host under the
-   disposable-rehearsal policy below, including application-level recovery
-   verification: Laravel boots, migration state is coherent, storage/media
-   works, queues and the scheduler work. Also where the deployment marker is
-   recorded, through the existing `record-rateguru-deployment`, only after the
-   recovery deployment, `recover-host --resume` and a passing health check.
-   *Future work only.*
+7. **7.7 GitHub Recover + clean-host rehearsal — implemented, awaiting the
+   real disposable-host acceptance.** The 7.6 mechanisms became two named
+   operator buttons, and the whole chain became one dispatch:
+
+       a replacement machine
+         -> Prepare Host
+         -> recover-host --apply
+         -> the SERVER names the commit
+         -> historical build of THAT commit
+         -> controlled recovery deployment, migrations forbidden
+         -> recover-host --resume
+         -> recover-host --verify
+         -> deployment marker
+
+   What landed:
+
+   - **Two named workflows, no dropdown.** `recover-staging.yml` (fixed to
+     `staging-main`, `rateguru-staging-deployment`) and
+     `recover-production.yml` (fixed to `tits-guru`,
+     `rateguru-production-release`, gated behind the exact confirmation
+     `RECOVER tits-guru`). Same jobs, same order, same shared actions — one
+     implementation at two identities.
+   - **The replacement machine is the only thing an operator names**, and it is
+     validated as data rather than shell syntax. There is no target,
+     environment, source, ref, tag, release, commit, migration or backup-location
+     input anywhere, and no `latest`: recovery is offsite-only, from one exact
+     backup.
+   - **The replacement machine is proven to be a different machine**, in its
+     own job, before Prepare Host and before the recovery credential is used —
+     which is where it has to happen, because Prepare Host has no empty-host
+     precondition and the prepared/EMPTY contract that refuses a live target
+     belongs to `recover-host --apply` a whole job later. Two gates: the
+     literal `vars.DEPLOY_HOST` comparison catches the common paste mistake,
+     and one canonical `ssh-ed25519` host key — required in both
+     `DEPLOY_KNOWN_HOSTS` and `RECOVERY_KNOWN_HOSTS` — catches the same machine
+     under any other name or address, without resolving anything, so it holds
+     when the lost machine's DNS is stale or gone. Requiring the canonical key
+     on both sides is what makes "no match" mean *different machine* rather
+     than merely *unproven*: a host offers several key types, and two secrets
+     holding different ones for one machine would otherwise read as two. Both
+     gates fail closed. No job in a recovery connects to the machine the target is
+     bound to, and nothing repoints the binding, the registry or DNS.
+   - **Recovery-specific host credentials.** `RECOVERY_BOOTSTRAP_USER`,
+     `RECOVERY_BOOTSTRAP_SSH_KEY`, `RECOVERY_KNOWN_HOSTS` and
+     `RECOVERY_RCLONE_CONFIG`, with no fallback to the lost host's
+     `BOOTSTRAP_*` credential and none to `DEPLOY_SSH_KEY`. Strict host key
+     checking throughout: no TOFU, no `ssh-keyscan`, no password fallback.
+     The controlled deployment and the Nightwatch marker keep using the
+     restricted deploy credential, on the replacement machine's address.
+   - **Start and continue-held.** A continuation never prepares, never supplies
+     a backup again and never starts a second recovery over a held one: it asks
+     `recover-host --inspect` and branches on the server's own answer —
+     `awaiting-code` rebuilds and redeploys, `ready-to-resume` skips straight to
+     the resume, anything else fails closed. The job graph is written so the
+     skipped build and deployment cannot skip the resume with them.
+   - **The historical build trust boundary.** `contents: read`, no GitHub
+     Environment, no SSH, B2, Sentry, Prepare or `RECOVERY_*` credential; two
+     checkouts, tooling always from `develop` and the application at the exact
+     `required_source_sha`; no fallback ref of any kind; a 3-day workflow
+     artifact and still no durable archive.
+   - **One deploy, one marker.** The existing `deploy-rateguru` with
+     `recovery-operation` and `run-migrations: "false"`, and the existing
+     `record-rateguru-deployment` — recorded only after the independent
+     `--verify` passed, from the release that verification read off the host,
+     and fail-open as everywhere else.
+   - **The final verification is authoritative, including over a lost
+     transport.** `--resume` clears the recovery guard as its commit point and
+     prints its result afterwards, so a connection dying in between leaves a
+     finished host and a failed step. `--verify` therefore runs on that path
+     too and decides: a resume that really failed leaves the guard, and
+     `--verify` refuses any target carrying one. The summary tells the operator
+     the host is complete and must not be re-run — the one interruption
+     `continue-held` cannot resolve, because there is no held operation left.
+   - **A summary on every path**, identity only, naming the exact
+     `mode=continue-held` re-run when a recovery remains held. Nothing is
+     cleaned up to make a run green.
+   - **Production stays planned.** The lifecycle is read from the committed
+     registry in the job that holds no GitHub Environment, so a real production
+     run fails before approval is requested, before a secret is loaded and
+     before anything is touched.
+
+   See [`runbooks/github-recover.md`](runbooks/github-recover.md), including
+   the clean-host acceptance checklist and the offsite-safety rule for a
+   rehearsal credential.
    *Acceptance:* a disposable host is recovered end to end from a workflow
-   dispatch, without hand-run commands.
+   dispatch, without hand-run commands. CI proves the structure, the trust
+   boundaries and every refusal path; only a real disposable machine proves the
+   pipeline, so this slice is implemented, not accepted. No RPO or RTO is
+   claimed by it.
 8. **7.8 Full DR acceptance, measured RPO and RTO.** Turn recovery
    technology into an operational procedure: rehearse full host loss with
    backup selection, release selection, provisioning, restore, DNS/TLS

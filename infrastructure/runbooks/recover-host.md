@@ -746,5 +746,8 @@ a correct recovery unverifiable.
   infrastructure
 * [`backups.md`](backups.md) — the backup format this reads, and why there is no
   artifact archive
+* [`github-recover.md`](github-recover.md) — the operator surface for this
+  primitive: the two named workflows, the replacement-host rules, the
+  `RECOVERY_*` GitHub configuration and the clean-host acceptance checklist
 * [`github-restore.md`](github-restore.md) — the operator surface for Restore,
-  whose shape the Recover workflows will follow
+  whose shape the Recover workflows follow

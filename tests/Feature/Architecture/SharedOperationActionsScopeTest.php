@@ -90,6 +90,10 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'label-review-bot-prs.yml',
         'prepare-production-host.yml',
         'prepare-staging-host.yml',
+        // One recovery workflow per environment, exactly like every other
+        // operator-facing operation here.
+        'recover-production.yml',
+        'recover-staging.yml',
         'release.yml',
         // One repair workflow per environment, exactly like every other
         // operator-facing operation here.
@@ -107,10 +111,31 @@ it('keeps one operator-facing workflow per environment, with no target selector 
     // deployment target, an environment or a wrapper path.
     foreach (phase71Workflows() as $name => $workflow) {
         foreach ((array) data_get($workflow, 'on.workflow_dispatch.inputs', []) as $input => $definition) {
-            foreach (['target', 'environment', 'wrapper', 'host'] as $forbidden) {
+            foreach (['target', 'environment', 'wrapper'] as $forbidden) {
                 expect(str_contains($input, $forbidden))
                     ->toBeFalse("{$name} lets the operator select {$input}");
             }
+
+            if (! str_contains($input, 'host')) {
+                continue;
+            }
+
+            // A host is normally structural too: a GitHub Environment is
+            // exactly where a logical target is bound to the physical machine
+            // serving it, and no operation picks a machine.
+            //
+            // Host recovery is the one deliberate exception, and only under
+            // one name. A recovery exists BECAUSE the bound machine is gone,
+            // so the replacement machine is the single fact about the
+            // operation that is not already known — while the target, the
+            // environment, the credentials, the paths and above all the commit
+            // all still come from somewhere other than the operator. The two
+            // recovery workflows read the environment's own binding once, to
+            // refuse a recovery pointed at it.
+            expect($input)->toBe('replacement-host', "{$name} lets the operator select {$input}");
+
+            expect(str_starts_with($name, 'recover-'))
+                ->toBeTrue("{$name} is not a host recovery and must not let an operator name a machine");
         }
     }
 
@@ -219,6 +244,12 @@ it('introduces no durable release-artifact archive of any kind', function () {
     // artifact may expire without weakening anything.
     expect($retentions)->toBe([
         'deploy-staging.yml' => '3',
+        // A host recovery's historical build is transport to the controlled
+        // recovery deployment in the same run and nothing else — the shortest
+        // window of any of them, and still not something anything recovers
+        // FROM: the commit is what a backup carries.
+        'recover-production.yml' => '3',
+        'recover-staging.yml' => '3',
         'release.yml' => '90',
         'restore-production.yml' => '7',
         'restore-staging.yml' => '7',
@@ -271,20 +302,22 @@ it('records the disaster-recovery work as the consolidated plan, with the artifa
     expect($roadmap)->toMatch('/^\|\s*7\s*\|[^|]+\|\s*⏳ planned\s*\|$/m');
 });
 
-it('implements nothing from Repair Target onwards', function () {
-    // Prepare Host landed in Prepare Host, Restore Target Data in 7.3 and the
-    // GitHub restore surface with controlled code alignment in 7.4; each has
-    // its own scope guard (DeploymentObservabilityScopeTest,
-    // RestoreServerPrimitivesScopeTest, RestoreOperatorSurfaceScopeTest), and
-    // target-scoped repair followed. Recover remains future work, and nothing
-    // may ship an implementation of it.
-    // Target-scoped repair and host recovery both landed after this work, each
-    // with its own scope guard. What remains future work is the OPERATOR
-    // surface for recovery — the named workflows that press the button and the
-    // disposable-host rehearsal behind them.
+it('implements no target provisioner and no recovery rehearsal harness', function () {
+    // Prepare Host, the live restore, the GitHub restore surface with
+    // controlled code alignment, target-scoped repair, host recovery and the
+    // named recovery workflows all landed after this work, each with its own
+    // scope guard (DeploymentObservabilityScopeTest,
+    // RestoreServerPrimitivesScopeTest, RestoreOperatorSurfaceScopeTest,
+    // RepairWorkflowsTest, RecoverHostScopeTest, RecoverWorkflowsTest).
+    //
+    // What remains future work is everything BEHIND those buttons: a harness
+    // that automates a disposable rehearsal machine, and a generic provisioner
+    // that creates one. Neither may ship as a side effect of anything.
     foreach ([
-        '.github/workflows/recover-staging.yml',
-        '.github/workflows/recover-production.yml',
+        '.github/workflows/rehearse-recovery.yml',
+        'infrastructure/scripts/rehearse-recovery',
+        'infrastructure/scripts/provision-target',
+        'infrastructure/scripts/provision-host',
     ] as $futureWork) {
         expect(File::exists(base_path($futureWork)))
             ->toBeFalse("{$futureWork} is later work and must not exist yet");
@@ -378,6 +411,24 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         // shares the domain of every other mutation of that target.
         'repair-staging.yml:repair' => ['staging-main', 'rateguru-staging-deployment'],
         'repair-production.yml:repair' => ['tits-guru', 'rateguru-production-release'],
+        // A host recovery runs against a DIFFERENT machine, and still belongs
+        // to the target's own mutation domain: it is the same logical target
+        // being rebuilt, so an ordinary deploy, rollback, Restore or Repair
+        // must not interleave with it. Six jobs each, all at the fixed
+        // identity — preparation, the recovery itself, the controlled
+        // deployment, the resume, the final verification and the marker.
+        'recover-staging.yml:prepare' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:recover' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:deploy' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:resume' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:verify' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-staging.yml:observability' => ['staging-main', 'rateguru-staging-deployment'],
+        'recover-production.yml:prepare' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:recover' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:deploy' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:resume' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:verify' => ['tits-guru', 'rateguru-production-release'],
+        'recover-production.yml:observability' => ['tits-guru', 'rateguru-production-release'],
     ];
 
     $found = [];
@@ -416,7 +467,9 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         ->and($groups['restore-staging.yml'])->toBe($groups['deploy-staging.yml'])
         ->and($groups['restore-production.yml'])->toBe($groups['release.yml'])
         ->and($groups['repair-staging.yml'])->toBe($groups['deploy-staging.yml'])
-        ->and($groups['repair-production.yml'])->toBe($groups['release.yml']);
+        ->and($groups['repair-production.yml'])->toBe($groups['release.yml'])
+        ->and($groups['recover-staging.yml'])->toBe($groups['deploy-staging.yml'])
+        ->and($groups['recover-production.yml'])->toBe($groups['release.yml']);
 
     // ...and GitHub concurrency never replaced the server-side lock.
     expect(File::get(base_path('infrastructure/scripts/common')))->toContain('flock');

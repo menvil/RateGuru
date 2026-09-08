@@ -19,7 +19,7 @@ It is delivered by:
 
 | | RESTORE TARGET DATA | CONTROLLED CODE ALIGNMENT | RECOVER HOST |
 |---|---|---|---|
-| Phase | 7.3 | 7.4 (this runbook) | 7.6 / 7.7, future |
+| Runbook | [`restore-target.md`](restore-target.md) | this one | [`github-recover.md`](github-recover.md) |
 | What is wrong | the data | the code does not match the restored data | the server is gone |
 | Host | alive | alive | a new, empty VPS |
 | What runs | `restore-target --apply` | `deploy --restore-operation` then `restore-target --resume` | Prepare Host, then everything |
@@ -29,7 +29,8 @@ It is delivered by:
 
 **Restore** puts the data back. **Alignment** makes the code meet data that is
 already back. **Recover** rebuilds a host that no longer exists. This runbook
-is the first two; the third is a later phase and nothing here begins it.
+is the first two; the third has its own operator surface and its own runbook,
+and nothing here reaches it.
 
 ## There is no target dropdown
 

@@ -101,6 +101,6 @@ it('is called with an explicit, validly-shaped deployment-target by every workfl
 
     // Proves this scan actually found real call sites, not trivially
     // passing against zero consumers — and forces this test to be updated
-    // the moment a new workflow adds a fourth one.
-    expect($consumers)->toHaveCount(5, 'expected exactly five deploy-rateguru call sites (deploy-staging.yml, release.yml staging, release.yml production, and the controlled alignment in each restore workflow); found: '.implode(', ', $consumers));
+    // the moment a new workflow adds another one.
+    expect($consumers)->toHaveCount(7, 'expected exactly seven deploy-rateguru call sites (deploy-staging.yml, release.yml staging, release.yml production, the controlled alignment in each restore workflow, and the controlled recovery deployment in each recover workflow); found: '.implode(', ', $consumers));
 });

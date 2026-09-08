@@ -244,6 +244,11 @@ it('is called only after a successful, health-checked deployment', function () {
         // and deliberately records no marker at all.
         'restore-staging.yml:observability',
         'restore-production.yml:observability',
+        // Host recovery: a rebuilt replacement machine really is serving a
+        // release, and it is marked only once recover-host --resume finished
+        // AND the independent recover-host --verify passed.
+        'recover-staging.yml:observability',
+        'recover-production.yml:observability',
     ]);
 
     $deployStaging = Yaml::parse(File::get(base_path('.github/workflows/deploy-staging.yml')));
@@ -332,9 +337,13 @@ it('uses the environment class for Sentry, never the deployment target', functio
         // The shared rollback action serves every target, so its environment
         // is the one its caller fixed rather than a literal of its own.
         'rollback-rateguru/action.yml:runs' => '${{ inputs.environment }}',
-        // The restore workflows fix theirs, exactly like the deploy ones.
+        // The restore and recovery workflows fix theirs, exactly like the
+        // deploy ones — a recovery runs against a different MACHINE, never a
+        // different environment class.
         'restore-staging.yml:observability' => 'staging',
         'restore-production.yml:observability' => 'production',
+        'recover-staging.yml:observability' => 'staging',
+        'recover-production.yml:observability' => 'production',
     ]);
 
     // ...and the callers that fix it pass an environment class, never a brand.

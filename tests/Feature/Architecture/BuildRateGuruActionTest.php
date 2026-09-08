@@ -151,6 +151,12 @@ it('is the only build implementation, used by both deployment pipelines', functi
         // the commit comes from a backup rather than from an operator.
         'restore-staging.yml:build',
         'restore-production.yml:build',
+        // Host recovery: the same historical build again, for the commit the
+        // RECOVERED data belongs to. Also no GitHub Environment and no
+        // credential of any kind — an arbitrary historical commit must never
+        // be able to reach one.
+        'recover-staging.yml:build',
+        'recover-production.yml:build',
     ]);
 
     // And nothing else anywhere builds a RateGuru release package: the

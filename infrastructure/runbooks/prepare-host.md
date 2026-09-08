@@ -202,7 +202,7 @@ belongs in this document or in any other repository file.**
 
 | Variable | Meaning |
 | --- | --- |
-| `DEPLOY_HOST` | The physical host currently serving the target. Reused deliberately: a GitHub Environment is where a logical target is bound to a physical host, and that host is the same one whether we deploy to it or prepare it. |
+| `DEPLOY_HOST` | The physical host currently serving the target. The two Prepare workflows pass it deliberately: a GitHub Environment is where a logical target is bound to a physical host, and that host is the same one whether we deploy to it or prepare it. The action itself takes an explicit `bootstrap-host` and does not decide the binding — a host recovery prepares a REPLACEMENT machine through the same action, and repointing the binding is a separate deliberate act either way. See [`github-recover.md`](github-recover.md). |
 | `DEPLOY_PORT` | SSH port. |
 | `BOOTSTRAP_USER` | The privileged bootstrap/recovery user: root, or a passwordless sudoer. |
 
