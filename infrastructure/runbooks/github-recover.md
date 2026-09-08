@@ -140,20 +140,48 @@ later. So a machine reached under a second name would be **changed before
 anything checked it was empty**.
 
 The second gate therefore settles machine identity without caring how it is
-spelled, and does it before Prepare Host:
+spelled, and does it before Prepare Host. Strict host key checking is mandatory
+everywhere in this pipeline, so a recovery can only reach the replacement
+machine if `RECOVERY_KNOWN_HOSTS` carries **that machine's own** SSH host key —
+which makes the host key the one honest answer to "which machine is this?".
 
-* strict host key checking is mandatory everywhere in this pipeline, so a
-  recovery can only reach the replacement machine if `RECOVERY_KNOWN_HOSTS`
-  carries **that machine's own** SSH host key;
-* if the machine is the one the target is already bound to, its key is
-  therefore in `DEPLOY_KNOWN_HOSTS` **and** `RECOVERY_KNOWN_HOSTS`, whatever
-  name was typed;
-* any key in common ⇒ refused.
+The comparison is pinned to **one canonical key type, `ssh-ed25519`, required
+on both sides**:
 
-Only the key material is compared. The hostname fields — the very things that
-differ between the two spellings — are ignored, so `staging.example.com`,
-`203.0.113.24`, `[host]:2222`, a hashed `known_hosts` and an `@cert-authority`
-line are all handled alike. Nothing is printed but a verdict.
+| `DEPLOY_KNOWN_HOSTS` | `RECOVERY_KNOWN_HOSTS` | verdict |
+|---|---|---|
+| one `ssh-ed25519` key | the **same** key | same machine ⇒ **refused** |
+| one `ssh-ed25519` key | a **different** one | different machines ⇒ allowed |
+| no `ssh-ed25519` key | anything | **refused** — identity unprovable |
+| anything | no `ssh-ed25519` key | **refused** — identity unprovable |
+| two different `ssh-ed25519` keys | anything | **refused** — identity ambiguous |
+
+Requiring it on both sides is what makes the *negative* answer mean something.
+Comparing whatever keys happen to be recorded would only prove the positive:
+a shared key proves one machine, but an ordinary OpenSSH server offers
+`ssh-ed25519`, `ecdsa-sha2-nistp256` and `ssh-rsa`, so two secrets can hold
+different types **for the same machine** —
+
+```text
+DEPLOY_KNOWN_HOSTS     current.example.com ssh-ed25519 AAAA1111
+RECOVERY_KNOWN_HOSTS   203.0.113.10        ssh-rsa     AAAA2222
+```
+
+— no overlap, one machine, and Prepare Host would have converged the live host.
+Pinning one key type that every supported host generates closes that, and a
+missing one is a refusal rather than a pass.
+
+Only key material is compared. The hostname fields — the very things that
+differ between two spellings — are ignored, so `staging.example.com`,
+`203.0.113.24`, `[host]:2222` and a hashed `known_hosts` are all handled alike.
+`@cert-authority` and `@revoked` lines are skipped outright: they name a CA or
+a withdrawn key, never this machine's identity, so two hosts under one CA are
+still two hosts. Nothing is printed but a verdict.
+
+One more refusal sits behind the canonical rule and can only ever refuse more:
+if the two canonical keys differ but some **other** key type matches, that is
+one machine whose records disagree — normally a secret that predates a host-key
+rotation — and the run is refused rather than guessing which is current.
 
 It resolves nothing and touches no network, so it stays true when DNS for the
 old machine is stale, deleted or already repointed — the normal state of affairs

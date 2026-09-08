@@ -76,6 +76,57 @@ function recoverWorkflowInputsUsed(array $workflow, string $name): array
     return $values;
 }
 
+/**
+ * Execute one workflow step's `run:` block against a fixed environment and
+ * report its exit status.
+ *
+ * The replacement-host gate is the one part of these workflows whose value is
+ * a DECISION rather than a shape, and a decision is only guarded by running
+ * it. Every version of that gate so far has looked right in YAML and been
+ * wrong about a real pair of secrets: a literal name comparison let the same
+ * machine through under its IP, and comparing whatever host keys happened to
+ * be recorded let it through again when the two secrets held different key
+ * types for it. Both read perfectly well as text.
+ *
+ * @param  array<string, string>  $env
+ */
+function runRecoverWorkflowStep(string $file, string $job, string $stepName, array $env): int
+{
+    // The step is written for ubuntu-latest, and uses Bash 4+ parameter
+    // expansion. macOS ships Bash 3.2 as /bin/bash, which cannot execute it
+    // faithfully — skipping is honest there; CI runs it for real.
+    exec('bash -c \'echo "${BASH_VERSINFO[0]}"\' 2>/dev/null', $probe, $probeStatus);
+
+    if ($probeStatus !== 0 || (int) ($probe[0] ?? 0) < 4) {
+        test()->markTestSkipped('needs Bash 4+; this host offers '.($probe[0] ?? 'no bash'));
+    }
+
+    [$workflow] = recoverWorkflow($file);
+
+    $step = collect(data_get($workflow, "jobs.{$job}.steps", []))
+        ->first(static fn (array $candidate): bool => data_get($candidate, 'name') === $stepName);
+
+    expect($step)->not->toBeNull("{$file}:{$job} has no step named {$stepName}");
+
+    $script = tempnam(sys_get_temp_dir(), 'rateguru-workflow-step-');
+
+    file_put_contents($script, "#!/usr/bin/env bash\n".data_get($step, 'run'));
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
+    $process = proc_open(['bash', $script], $descriptors, $pipes, null, ['PATH' => getenv('PATH'), ...$env]);
+
+    expect($process)->not->toBeFalse('could not start the workflow step under test');
+
+    stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    $status = proc_close($process);
+
+    unlink($script);
+
+    return $status;
+}
+
 dataset('recover workflows', [
     'staging' => ['recover-staging.yml', 'Recover staging host', 'staging-main', 'staging', 'rateguru-staging-deployment'],
     'production' => ['recover-production.yml', 'Recover production host', 'tits-guru', 'production', 'rateguru-production-release'],
@@ -382,22 +433,106 @@ it('reads the current host binding only to refuse it, and never to connect to it
     // replacement machine's own key, and if that machine is the bound one its
     // key is in both secrets whatever name was typed.
     expect($source)
-        ->toContain('host_key_blobs()')
+        ->toContain('ed25519_identity()')
         ->toContain('CURRENT_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}')
         ->toContain('REPLACEMENT_KNOWN_HOSTS: ${{ secrets.RECOVERY_KNOWN_HOSTS }}')
-        ->toContain('if (( shared_keys > 0 )); then')
-        ->toContain('The replacement machine presents an SSH host key that the machine currently bound to this target also presents.')
-        // Unreadable material cannot be read as "different machine".
-        ->toContain('if [[ -z "${current_keys}" ]] || [[ -z "${replacement_keys}" ]]; then');
+        ->toContain('if [[ "${current_identity}" == "${replacement_identity}" ]]; then')
+        ->toContain('The replacement machine presents the same ssh-ed25519 host key as the machine currently bound to this target.');
 
-    // Host keys only: the hostname fields are what differ between the two
-    // spellings, so comparing them would defeat the entire check.
-    expect($source)->toContain('keytype " " blob');
+    // ONE canonical key type, required on BOTH sides, so that "no match" is
+    // decisive rather than merely unproven: an ordinary OpenSSH server offers
+    // several host keys, and two secrets holding different types for the SAME
+    // machine would otherwise read as two machines.
+    expect($source)
+        ->toContain('$2 == "ssh-ed25519" && $3 != "" { print $3 }')
+        ->toContain('if (( current_identity_count != 1 )); then')
+        ->toContain('if (( replacement_identity_count != 1 )); then');
+
+    // Hostname fields are ignored — they are exactly what differs between two
+    // spellings of one machine — and a @cert-authority or @revoked line names
+    // a CA or a withdrawn key, never this machine's own identity.
+    expect($source)->toContain('$1 ~ /^@/ { next }');
+
+    // The behaviour behind all of that is proven by running it, not by
+    // reading it: see the canonical-identity test above.
 
     // Both jobs that could reach the host wait for that refusal.
     foreach (['prepare', 'recover', 'build', 'deploy', 'resume', 'verify', 'observability'] as $job) {
         expect(in_array('binding', (array) data_get($workflow, "jobs.{$job}.needs"), true))
             ->toBeTrue("{$file}:{$job} runs without proving the replacement host is not the current host");
+    }
+})->with('recover workflows');
+
+it('decides machine identity by one canonical host key, and refuses when it cannot', function (
+    string $file,
+) {
+    $currentEd25519 = 'AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcurrent';
+    $replacementEd25519 = 'AAAAC3NzaC1lZDI1NTE5AAAAIBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBreplace';
+    $sharedRsa = 'AAAAB3NzaC1yc2EAAAADAQABAAABgQCsharedRSAkeyMATERIALxxxxxxxxxxxxxxx';
+
+    $refuse = 1;
+    $allow = 0;
+
+    // Sharing a key proves one machine. NOT sharing one proves nothing on its
+    // own — an ordinary OpenSSH server offers ed25519, ecdsa and rsa, so two
+    // secrets can hold different key types FOR THE SAME MACHINE. Identity is
+    // therefore pinned to one canonical key type, required on both sides, so
+    // that the negative answer is decisive too.
+    $cases = [
+        'same machine, different spelling, same canonical key' => [
+            $refuse,
+            "current.example.com ssh-ed25519 {$currentEd25519}",
+            "203.0.113.10 ssh-ed25519 {$currentEd25519}",
+        ],
+        'same machine, replacement secret carries only an RSA key' => [
+            $refuse,
+            "current.example.com ssh-ed25519 {$currentEd25519}",
+            "203.0.113.10 ssh-rsa {$sharedRsa}",
+        ],
+        'genuinely different machines' => [
+            $allow,
+            "current.example.com ssh-ed25519 {$currentEd25519}",
+            "203.0.113.10 ssh-ed25519 {$replacementEd25519}",
+        ],
+        'the bound host has no canonical key recorded' => [
+            $refuse,
+            "current.example.com ssh-rsa {$sharedRsa}",
+            "203.0.113.10 ssh-ed25519 {$replacementEd25519}",
+        ],
+        'the bound host has two canonical keys, so identity is ambiguous' => [
+            $refuse,
+            "current.example.com ssh-ed25519 {$currentEd25519}\ncurrent.example.com ssh-ed25519 {$replacementEd25519}",
+            "203.0.113.10 ssh-ed25519 {$replacementEd25519}",
+        ],
+        // A @cert-authority line names a CA, never this machine's identity.
+        'a shared CA does not make two machines one' => [
+            $allow,
+            "@cert-authority *.example.com ssh-ed25519 {$currentEd25519}\ncurrent.example.com ssh-ed25519 {$currentEd25519}",
+            "@cert-authority *.example.com ssh-ed25519 {$currentEd25519}\n203.0.113.10 ssh-ed25519 {$replacementEd25519}",
+        ],
+        // One machine whose recorded canonical keys disagree because a secret
+        // predates a host-key rotation: some other key type still matches.
+        'canonical keys disagree but another key still matches' => [
+            $refuse,
+            "current.example.com ssh-ed25519 {$currentEd25519}\ncurrent.example.com ssh-rsa {$sharedRsa}",
+            "203.0.113.10 ssh-ed25519 {$replacementEd25519}\n203.0.113.10 ssh-rsa {$sharedRsa}",
+        ],
+        'the same key recorded under two names is still one key' => [
+            $allow,
+            "current.example.com ssh-ed25519 {$currentEd25519}\n[current.example.com]:2222 ssh-ed25519 {$currentEd25519}",
+            "203.0.113.10 ssh-ed25519 {$replacementEd25519}",
+        ],
+    ];
+
+    foreach ($cases as $description => [$expected, $currentKnownHosts, $replacementKnownHosts]) {
+        $status = runRecoverWorkflowStep($file, 'binding', 'Refuse a recovery onto the host this target is already bound to', [
+            'REPLACEMENT_HOST' => '203.0.113.10',
+            'CURRENT_HOST' => 'current.example.com',
+            'CURRENT_KNOWN_HOSTS' => $currentKnownHosts,
+            'REPLACEMENT_KNOWN_HOSTS' => $replacementKnownHosts,
+        ]);
+
+        expect($status)->toBe($expected, "{$file}: {$description}");
     }
 })->with('recover workflows');
 

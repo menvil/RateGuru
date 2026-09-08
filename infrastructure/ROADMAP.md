@@ -1370,10 +1370,14 @@ Slices, in order:
      precondition and the prepared/EMPTY contract that refuses a live target
      belongs to `recover-host --apply` a whole job later. Two gates: the
      literal `vars.DEPLOY_HOST` comparison catches the common paste mistake,
-     and an SSH host-key comparison against `DEPLOY_KNOWN_HOSTS` catches the
-     same machine under any other name or address — without resolving
-     anything, so it holds when the lost machine's DNS is stale or gone. Both
-     fail closed. No job in a recovery connects to the machine the target is
+     and one canonical `ssh-ed25519` host key — required in both
+     `DEPLOY_KNOWN_HOSTS` and `RECOVERY_KNOWN_HOSTS` — catches the same machine
+     under any other name or address, without resolving anything, so it holds
+     when the lost machine's DNS is stale or gone. Requiring the canonical key
+     on both sides is what makes "no match" mean *different machine* rather
+     than merely *unproven*: a host offers several key types, and two secrets
+     holding different ones for one machine would otherwise read as two. Both
+     gates fail closed. No job in a recovery connects to the machine the target is
      bound to, and nothing repoints the binding, the registry or DNS.
    - **Recovery-specific host credentials.** `RECOVERY_BOOTSTRAP_USER`,
      `RECOVERY_BOOTSTRAP_SSH_KEY`, `RECOVERY_KNOWN_HOSTS` and
